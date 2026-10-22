@@ -72,6 +72,30 @@ describe("workstyle prompt", () => {
     }),
   )
 
+  it.effect("teaches every model the interactive elements", () =>
+    Effect.gen(function* () {
+      let hook: ((input: SessionContext) => Effect.Effect<void>) | undefined
+      yield* OptimizePlugin.InteractivePlugin.effect(
+        host({
+          session: {
+            hook: (name, callback) => {
+              if (name === "context") hook = callback as (input: SessionContext) => Effect.Effect<void>
+              return Effect.succeed({ dispose: Effect.void })
+            },
+          },
+        }),
+      )
+      for (const model of ["claude-opus-5-5", "gpt-5.2", "space-bunny-free"]) {
+        const event = context(model)
+        yield* hook!(event)
+        expect(event.system.map((part) => part.text)).toEqual([
+          "Agent prompt",
+          expect.stringContaining("@ui <kind>"),
+        ])
+      }
+    }),
+  )
+
   it.effect("leaves Claude and GPT models alone", () =>
     Effect.gen(function* () {
       const hook = yield* install

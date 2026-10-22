@@ -15,6 +15,7 @@ import PROMPT_TRINITY from "./system-prompt/trinity.txt"
 import PROMPT_ANTHROPIC from "./system-prompt/anthropic.txt"
 import PROMPT_WORKSTYLE from "./system-prompt/workstyle.txt"
 import PROMPT_PRINCIPLES from "./system-prompt/principles.txt"
+import PROMPT_INTERACTIVE from "./system-prompt/interactive.txt"
 
 export const OpenAIPlugin = make("opencode.prompt.openai", (model) => {
   const id = model.id.toLowerCase()
@@ -91,6 +92,18 @@ export const PrinciplesPlugin = define({
     yield* ctx.session.hook("context", (event) =>
       Effect.sync(() => {
         event.system.push({ type: "text", text: PROMPT_PRINCIPLES })
+      }),
+    )
+  }),
+})
+
+// Teaches every model the interactive elements the chat can draw (`@ui ... @end`).
+export const InteractivePlugin = define({
+  id: "opencode.prompt.interactive",
+  effect: Effect.fn("OptimizePlugin.interactive")(function* (ctx) {
+    yield* ctx.session.hook("context", (event) =>
+      Effect.sync(() => {
+        event.system.push({ type: "text", text: PROMPT_INTERACTIVE })
       }),
     )
   }),

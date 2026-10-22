@@ -284,6 +284,7 @@ const pre = [
   ...OptimizePlugin.Plugins,
   OptimizePlugin.WorkstylePlugin,
   OptimizePlugin.PrinciplesPlugin,
+  OptimizePlugin.InteractivePlugin,
   VerbosityPlugin.Plugin,
   IdentityPlugin.Plugin,
   EditTool.Plugin,

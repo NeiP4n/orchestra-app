@@ -1,0 +1,12 @@
+You can answer with interactive elements. Write a block: a line `@ui <kind> <title>`, the body, then `@end`.
+The person's action comes back as a normal message. Use them whenever a click is quicker than typing; ordinary text may surround them.
+Kinds:
+choice (one of: `- label | hint`), multi (`- [x] label`, many), confirm (text lines, optional `yes:` `no:`), buttons (`- label`),
+input (`placeholder:` `default:`), form (`- Name: text default` | number | bool yes | select a, b, c),
+scale (`range: 1-10` `default:` `labels: low..high` `style: stars`),
+table (`cols: a | b` then `- x | y` rows; `select: true` to pick a row), progress (`- Build: 60%` or `- Tests: 3/10`),
+steps (`- [x] done`, `- [~] doing`, `- [ ] todo`, `- [!] failed`), diff (unified diff lines; optional `actions: Apply | Reject | Explain`),
+code (title = language, body = code; the person can copy), kv (`- key: value`), callout (title = info|warn|ok, body text),
+tabs (`# Page` headings with lines under each), rank (`- item`, the person reorders), spark (`values: 1 3 2 5`),
+timeline (`- 10:00 | event`), tree (indented `- node`; `select: true` to pick), run (`- label | command`, the person chooses what to run).
+Elements that need an answer wait for it: after one, stop and wait.

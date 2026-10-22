@@ -1,4 +1,5 @@
-import { createMemo, createSignal, Match, Show, Switch } from "solid-js"
+import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js"
+import { useTerminalDimensions } from "@opentui/solid"
 import { RGBA, TextAttributes } from "@opentui/core"
 import type { JSX } from "@opentui/solid"
 import type {
@@ -17,6 +18,8 @@ import { generateThinkingSyntax } from "./thinking-syntax"
 import { canonicalToolName } from "../../util/tool-display"
 import { Federation } from "@orchestra/schema/federation"
 import { ReplyOptions } from "./society"
+import { WidgetBlock } from "./widgets"
+import { parse, type Widget } from "../../widgets/parse"
 import { useData } from "../../context/data"
 
 export const INLINE_TOOL_ICON_WIDTH = 2
@@ -186,24 +189,49 @@ export function TextPart(props: {
   const finished = () => props.message.time.completed !== undefined
   // Only the newest message still waits for an answer; older offers stay visible but inert.
   const latest = () => data.session.message.list(ctx.sessionID).at(-1)?.id === props.message.id
+  // Interactive elements (`@ui ... @end`) are cut out of the prose once the message is complete;
+  // while it streams the text is shown as written so nothing flickers into a half-built element.
+  const segments = createMemo(() => (finished() ? parse(reply().body) : [{ type: "text" as const, text: reply().body }]))
+  // What the person did with each element: kept here so a re-render does not forget an answer.
+  const [changed, setChanged] = createSignal<Record<number, Widget>>({})
+  const dimensions = useTerminalDimensions()
   return (
     <Show when={props.part.text.trim()}>
-      <Show when={reply().body.trim()}>
-        <box paddingLeft={3} flexShrink={0}>
-          {/* Configure custom nodes before parsing; apply content before streaming so completion keeps the final tokens. */}
-          <markdown
-            syntaxStyle={syntax()}
-            renderNode={plugins.markdown()}
-            content={reply().body.trim()}
-            streaming={props.message.time.completed === undefined}
-            internalBlockMode="top-level"
-            tableOptions={{ style: "grid", cellPaddingX: 1 }}
-            conceal={ctx.markdownMode() === "rendered"}
-            fg={theme.markdown.text}
-            bg={theme.background.base}
-          />
-        </box>
-      </Show>
+      <For each={segments()}>
+        {(segment, index) => (
+          <Show
+            when={segment.type === "widget" ? segment : undefined}
+            fallback={
+              <Show when={segment.type === "text" && segment.text.trim()}>
+                <box paddingLeft={3} flexShrink={0}>
+                  {/* Configure custom nodes before parsing; apply content before streaming so completion keeps the final tokens. */}
+                  <markdown
+                    syntaxStyle={syntax()}
+                    renderNode={plugins.markdown()}
+                    content={segment.type === "text" ? segment.text.trim() : ""}
+                    streaming={props.message.time.completed === undefined}
+                    internalBlockMode="top-level"
+                    tableOptions={{ style: "grid", cellPaddingX: 1 }}
+                    conceal={ctx.markdownMode() === "rendered"}
+                    fg={theme.markdown.text}
+                    bg={theme.background.base}
+                  />
+                </box>
+              </Show>
+            }
+          >
+            {(found) => (
+              <WidgetBlock
+                id={`${props.message.id}:${props.part.text.slice(0, 24)}:${index()}`}
+                widget={changed()[index()] ?? found().widget}
+                width={Math.max(24, dimensions().width - 8)}
+                live={latest()}
+                onChange={(next) => setChanged((all) => ({ ...all, [index()]: next }))}
+              />
+            )}
+          </Show>
+        )}
+      </For>
       <Show when={finished() && reply().options.length > 0}>
         <ReplyOptions options={reply().options} settled={!latest()} />
       </Show>
