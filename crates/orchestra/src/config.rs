@@ -10,6 +10,9 @@ pub struct Endpoint {
     /// For `clipboard`: the chat page to open in the browser when a request is ready.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open: Option<String>,
+    /// For `cli`: the program and arguments to start; the request goes in on stdin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -51,6 +54,7 @@ pub fn resolve(saved: Config, env: impl Fn(&str) -> Option<String>) -> Config {
                 key: pick(&keys, index),
                 model: pick(&models, index).unwrap_or_else(|| "gpt-4o-mini".into()),
                 open: None,
+                command: None,
             })
             .collect(),
     }
@@ -66,7 +70,7 @@ mod tests {
 
     #[test]
     fn saved_config_is_used_when_the_environment_is_silent() {
-        let saved = Config { endpoints: vec![Endpoint { base: "http://a".into(), key: None, model: "m".into(), open: None }] };
+        let saved = Config { endpoints: vec![Endpoint { base: "http://a".into(), key: None, model: "m".into(), open: None, command: None }] };
         assert_eq!(resolve(saved.clone(), env(&[])), saved);
     }
 
@@ -81,7 +85,7 @@ mod tests {
     #[test]
     fn save_and_load_round_trip() {
         let dir = std::env::temp_dir().join(format!("orchestra-config-{}", std::process::id()));
-        let config = Config { endpoints: vec![Endpoint { base: "http://a".into(), key: Some("k".into()), model: "m".into(), open: None }] };
+        let config = Config { endpoints: vec![Endpoint { base: "http://a".into(), key: Some("k".into()), model: "m".into(), open: None, command: None }] };
         save(&dir, &config).unwrap();
         assert_eq!(load(&dir), config);
     }

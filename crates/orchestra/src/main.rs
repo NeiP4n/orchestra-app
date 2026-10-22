@@ -1,5 +1,7 @@
+mod cli;
 mod clipboard;
 mod config;
+mod presets;
 mod tools;
 mod transports;
 
@@ -42,6 +44,7 @@ fn transport(config: &config::Config, human: bool) -> (Arc<dyn Transport>, Strin
         .endpoints
         .iter()
         .map(|endpoint| match endpoint.base.as_str() {
+            "cli" => Arc::new(cli::Cli { command: endpoint.command.clone().unwrap_or_default() }) as Arc<dyn Transport>,
             "clipboard" => Arc::new(clipboard::Clipboard::new(Arc::new(clipboard::System), std::time::Duration::from_millis(400)).opening(endpoint.open.clone())) as Arc<dyn Transport>,
             _ => Arc::new(Compatible::new(&endpoint.base, endpoint.key.clone(), &endpoint.model)) as Arc<dyn Transport>,
         })
@@ -60,19 +63,47 @@ fn ask(question: &str, default: &str) -> String {
     if line.is_empty() { default.to_string() } else { line.to_string() }
 }
 
-fn setup(home: &std::path::Path) {
+async fn setup(home: &std::path::Path) {
     println!("{LINE}┌─ setup {DIM}{}{OFF}", dither(8, 0));
-    println!("{LINE}│{OFF} Any server with an OpenAI-compatible API works. No key at all? Type `clipboard`: you paste each request into any chat you already use and copy the reply back.");
+    println!("{LINE}│{OFF} Services: {}; programs you are signed in to: {}; `clipboard` (paste into your own chat); or any OpenAI-compatible URL.", presets::ALL.map(|preset| preset.name).join(", "), cli::PRESETS.map(|(name, _)| name).join(", "));
     let mut config = config::load(home);
     config.endpoints.clear();
     loop {
-        let base = ask("base URL (or `clipboard`)", "https://api.openai.com/v1");
-        let clipboard = base == "clipboard";
+        let choice = ask("service", "gemini");
+        let preset = presets::find(&choice);
+        let clipboard = choice == "clipboard";
+        if let Some(command) = cli::preset(&choice) {
+            println!("{LINE}│{OFF} {DIM}uses your installed `{}` with your own login{OFF}", command[0]);
+            config.endpoints.push(config::Endpoint { base: "cli".into(), key: None, model: "-".into(), open: None, command: Some(command) });
+            if !ask("add another source as a fallback? (y/N)", "n").to_lowercase().starts_with('y') {
+                break;
+            }
+            continue;
+        }
+        let base = match (preset, clipboard) {
+            (Some(preset), _) => preset.base.to_string(),
+            (None, true) => "clipboard".to_string(),
+            (None, false) => choice.clone(),
+        };
+        if let Some(preset) = preset {
+            println!("{LINE}│{OFF} {DIM}free key: {}{OFF}", preset.keys);
+        }
         let key = if clipboard { String::new() } else { ask("API key (empty if none)", "") };
-        let model = if clipboard { "your-chat".to_string() } else { ask("model", "gpt-4o-mini") };
+        let model = if clipboard {
+            "your-chat".to_string()
+        } else {
+            let found = match preset {
+                Some(preset) => fetch_models(&base, &key).await.and_then(|ids| presets::pick(preset.name, &ids)),
+                None => None,
+            };
+            if let Some(found) = &found {
+                println!("{LINE}│{OFF} {DIM}the service offers {found}{OFF}");
+            }
+            ask("model", found.as_deref().unwrap_or("gpt-4o-mini"))
+        };
         let open = clipboard.then(|| ask("chat page to open for each request (empty = none)", "")).filter(|url| !url.is_empty());
-        config.endpoints.push(config::Endpoint { base, key: (!key.is_empty()).then_some(key), model, open });
-        if !ask("add a fallback endpoint? (y/N)", "n").to_lowercase().starts_with('y') {
+        config.endpoints.push(config::Endpoint { base, key: (!key.is_empty()).then_some(key), model, open, command: None });
+        if !ask("add another source as a fallback? (y/N)", "n").to_lowercase().starts_with('y') {
             break;
         }
     }
@@ -80,6 +111,14 @@ fn setup(home: &std::path::Path) {
         Ok(()) => println!("{LINE}└{OFF} saved to {}", config::path(home).display()),
         Err(error) => println!("{LINE}└{OFF} cannot save: {error}"),
     }
+}
+
+async fn fetch_models(base: &str, key: &str) -> Option<Vec<String>> {
+    let request = reqwest::Client::new().get(format!("{}/models", base.trim_end_matches('/'))).timeout(std::time::Duration::from_secs(15));
+    let request = if key.is_empty() { request } else { request.bearer_auth(key) };
+    let answer: serde_json::Value = request.send().await.ok()?.json().await.ok()?;
+    let ids = presets::ids(&answer);
+    (!ids.is_empty()).then_some(ids)
 }
 
 fn flag(args: &[String], name: &str) -> Option<Option<String>> {
@@ -95,7 +134,7 @@ async fn main() {
     }
     let root = home();
     if args.first().is_some_and(|arg| arg == "setup") {
-        return setup(&root);
+        return setup(&root).await;
     }
     let (store, memory) = match (Store::open(root.join("sessions")).await, Memory::open(root.join("memory"))) {
         (Ok(store), Ok(memory)) => (store, Arc::new(memory)),
