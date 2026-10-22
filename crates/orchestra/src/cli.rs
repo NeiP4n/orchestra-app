@@ -43,6 +43,10 @@ impl Transport for Cli {
                 yield Err(TransportError::new("empty command", ErrorKind::Fatal));
                 return;
             };
+            if !installed(program) {
+                yield Err(TransportError::new(missing(program), ErrorKind::Fatal));
+                return;
+            }
             // npm-installed tools are .cmd shims on Windows, which only the shell can start.
             let mut process = if cfg!(windows) {
                 let mut process = tokio::process::Command::new("cmd");
@@ -93,6 +97,29 @@ impl Transport for Cli {
     }
 }
 
+/// Whether the shell can find `program`. Checked up front because the shell reports a missing
+/// program in the console code page, which would reach the user as unreadable text.
+fn installed(program: &str) -> bool {
+    let finder = if cfg!(windows) { "where" } else { "which" };
+    std::process::Command::new(finder)
+        .arg(program)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn missing(program: &str) -> String {
+    let how = match program {
+        "claude" => " Установка: npm install -g @anthropic-ai/claude-code, затем один раз запустите `claude` и войдите.",
+        "codex" => " Установка: npm install -g @openai/codex, затем один раз запустите `codex` и войдите.",
+        "opencode" => " Установка: https://opencode.ai",
+        _ => "",
+    };
+    format!("программа `{program}` не найдена на этом компьютере.{how} Или выберите другой источник: orchestra setup")
+}
+
 fn classify(detail: &str, everything: &str) -> TransportError {
     let lowered = everything.to_lowercase();
     let limited = ["rate limit", "quota", "usage limit", "too many requests", "429", "free usage limit"];
@@ -135,8 +162,9 @@ mod tests {
     #[tokio::test]
     async fn a_missing_program_cannot_start_and_a_failing_one_is_skippable() {
         let missing = run(&["definitely-not-installed-orchestra"]).await;
-        // On Windows the shell starts and reports failure; elsewhere the spawn itself fails.
-        assert!(matches!(missing[0].as_ref().unwrap_err().kind, ErrorKind::Fatal | ErrorKind::Unavailable));
+        let error = missing[0].as_ref().unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Fatal);
+        assert!(error.message.contains("не найдена"));
 
         let failing: &[&str] = if cfg!(windows) { &["cmd", "/C", "exit 3"] } else { &["sh", "-c", "exit 3"] };
         assert_eq!(run(failing).await[0].as_ref().unwrap_err().kind, ErrorKind::Unavailable);
