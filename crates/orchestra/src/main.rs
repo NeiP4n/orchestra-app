@@ -1,3 +1,4 @@
+mod config;
 mod tools;
 mod transports;
 
@@ -32,33 +33,47 @@ fn home() -> PathBuf {
     PathBuf::from(base).join(".local").join("share").join("orchestra")
 }
 
-fn list(name: &str) -> Vec<String> {
-    std::env::var(name)
-        .map(|value| value.split(',').map(|part| part.trim().to_string()).collect())
-        .unwrap_or_default()
-}
-
-fn pick(values: &[String], index: usize) -> Option<String> {
-    values.get(index).or_else(|| values.last()).filter(|value| !value.is_empty()).cloned()
-}
-
-fn transport(human: bool) -> (Arc<dyn Transport>, String) {
-    let bases: Vec<String> = list("ORCHESTRA_BASE_URL").into_iter().filter(|base| !base.is_empty()).collect();
-    if human || bases.is_empty() {
+fn transport(config: &config::Config, human: bool) -> (Arc<dyn Transport>, String) {
+    if human || config.endpoints.is_empty() {
         return (Arc::new(Human), "human".into());
     }
-    let (keys, models) = (list("ORCHESTRA_API_KEY"), list("ORCHESTRA_MODEL"));
-    let transports: Vec<Arc<dyn Transport>> = bases
+    let transports: Vec<Arc<dyn Transport>> = config
+        .endpoints
         .iter()
-        .enumerate()
-        .map(|(index, base)| {
-            let model = pick(&models, index).unwrap_or_else(|| "gpt-4o-mini".into());
-            Arc::new(Compatible::new(base, pick(&keys, index), &model)) as Arc<dyn Transport>
-        })
+        .map(|endpoint| Arc::new(Compatible::new(&endpoint.base, endpoint.key.clone(), &endpoint.model)) as Arc<dyn Transport>)
         .collect();
     let pool = Pool::new(transports);
     let label = pool.id();
     (Arc::new(pool), label)
+}
+
+fn ask(question: &str, default: &str) -> String {
+    print!("{LINE}│{OFF} {question}{} ", if default.is_empty() { String::new() } else { format!(" {DIM}[{default}]{OFF}") });
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    let _ = std::io::stdin().read_line(&mut line);
+    let line = line.trim();
+    if line.is_empty() { default.to_string() } else { line.to_string() }
+}
+
+fn setup(home: &std::path::Path) {
+    println!("{LINE}┌─ setup {DIM}{}{OFF}", dither(8, 0));
+    println!("{LINE}│{OFF} Any server with an OpenAI-compatible API works: a hosted service with your key, a local runtime, a gateway.");
+    let mut config = config::load(home);
+    config.endpoints.clear();
+    loop {
+        let base = ask("base URL", "https://api.openai.com/v1");
+        let key = ask("API key (empty if none)", "");
+        let model = ask("model", "gpt-4o-mini");
+        config.endpoints.push(config::Endpoint { base, key: (!key.is_empty()).then_some(key), model });
+        if !ask("add a fallback endpoint? (y/N)", "n").to_lowercase().starts_with('y') {
+            break;
+        }
+    }
+    match config::save(home, &config) {
+        Ok(()) => println!("{LINE}└{OFF} saved to {}", config::path(home).display()),
+        Err(error) => println!("{LINE}└{OFF} cannot save: {error}"),
+    }
 }
 
 fn flag(args: &[String], name: &str) -> Option<Option<String>> {
@@ -69,10 +84,13 @@ fn flag(args: &[String], name: &str) -> Option<Option<String>> {
 async fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if flag(&args, "--help").is_some() {
-        println!("orchestra [--human] [--session <id>] [--list]\n\nEnv: ORCHESTRA_BASE_URL, ORCHESTRA_API_KEY, ORCHESTRA_MODEL (comma-separated lists form a failover pool), ORCHESTRA_HOME.\nIn the prompt: /new  /sessions  /memory  /remember <key> <text>  /forget <key>  /quit");
+        println!("orchestra [setup] [--human] [--session <id>] [--list]\n\n`orchestra setup` saves a model endpoint; env overrides it: ORCHESTRA_BASE_URL, ORCHESTRA_API_KEY, ORCHESTRA_MODEL (comma-separated lists form a failover pool), ORCHESTRA_HOME.\nIn the prompt: /new  /sessions  /memory  /remember <key> <text>  /forget <key>  /quit");
         return;
     }
     let root = home();
+    if args.first().is_some_and(|arg| arg == "setup") {
+        return setup(&root);
+    }
     let (store, memory) = match (Store::open(root.join("sessions")).await, Memory::open(root.join("memory"))) {
         (Ok(store), Ok(memory)) => (store, Arc::new(memory)),
         (Err(error), _) => return eprintln!("cannot open {}: {error}", root.display()),
@@ -86,7 +104,11 @@ async fn main() {
     }
 
     let project = std::env::current_dir().map(|path| path.display().to_string()).unwrap_or_else(|_| ".".into());
-    let (transport, label) = transport(flag(&args, "--human").is_some());
+    let config = config::resolve(config::load(&root), |name| std::env::var(name).ok());
+    let (transport, label) = transport(&config, flag(&args, "--human").is_some());
+    if config.endpoints.is_empty() && flag(&args, "--human").is_none() {
+        println!("{DIM}no model configured: you answer as the model. Run `orchestra setup` to connect one.{OFF}");
+    }
     let mut session = match flag(&args, "--session").flatten() {
         Some(id) => match Session::open(&store, &id).await {
             Ok(session) => session,
