@@ -155,6 +155,8 @@ fn classify(status: u16, body: &str, retry: Option<Duration>) -> TransportError 
     }
     match status {
         429 => TransportError::new(message, ErrorKind::RateLimit).retry_after(retry.unwrap_or(Duration::from_secs(20))),
+        // Out of funds: this source is unusable until topped up, but a pool should move on, not stop.
+        402 => TransportError::new(message, ErrorKind::Unavailable).retry_after(Duration::from_secs(600)),
         500..=599 | 408 => TransportError::new(message, ErrorKind::Unavailable).retry_after(retry.unwrap_or(Duration::from_secs(5))),
         _ => TransportError::new(message, ErrorKind::Fatal),
     }
@@ -262,6 +264,11 @@ mod tests {
         let denied = serve("HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await;
         let second: Vec<_> = Compatible::new(&denied, None, "m").send(request(), CancellationToken::new()).collect().await;
         assert_eq!(second[0].as_ref().unwrap_err().kind, ErrorKind::Fatal);
+    }
+
+    #[test]
+    fn out_of_funds_lets_a_pool_move_on() {
+        assert_eq!(classify(402, "Insufficient account funds", None).kind, ErrorKind::Unavailable);
     }
 
     #[test]
