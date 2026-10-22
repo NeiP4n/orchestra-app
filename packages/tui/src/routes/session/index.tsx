@@ -19,6 +19,7 @@ import { useRoute, useRouteData } from "../../context/route"
 import { createStore } from "solid-js/store"
 import { useData } from "../../context/data"
 import { FlowRule } from "../../component/flow-rule"
+import { ErrorCard, FoldedText } from "./fold"
 import { SplitBorder } from "../../ui/border"
 import { useTuiTerminalEnvironment } from "../../context/runtime"
 import { Spinner, SPINNER_FRAMES } from "../../component/spinner"
@@ -2157,7 +2158,7 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
     <>
       <Show when={props.message.error && !interrupted() && !retry()}>
         <box paddingLeft={3}>
-          <text fg={theme.text.feedback.error.base}>Error: {errorMessage(props.message.error)}</text>
+          <ErrorCard message={errorMessage(props.message.error)} width={Math.max(20, ctx.terminal.width - 8)} />
         </box>
       </Show>
       <Show when={ctx.canResumeRateLimited !== false && rateLimitPending() && !retry()}>
@@ -2565,7 +2566,7 @@ function UserMessage(props: { message: SessionMessageUser }) {
               </text>
             )}
           </Show>
-          <text fg={theme.text.base}>{props.message.text}</text>
+          <FoldedText text={props.message.text} width={Math.max(20, ctx.terminal.width - 10)} maxRows={8} />
           <Show when={skills().length}>
             <box flexDirection="row" paddingTop={1} gap={1} flexWrap="wrap">
               <For each={skills()}>

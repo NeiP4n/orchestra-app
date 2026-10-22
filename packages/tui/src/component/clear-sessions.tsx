@@ -91,8 +91,8 @@ export function ClearSessionsAction(props: {
         }}
       >
         {/* The destructive text color is drawn for the destructive background, so the hovered
-            state pairs them. At rest the error color keeps the label readable on the panel. */}
-        <text fg={hovered() ? theme.text.action.destructive.hovered : theme.text.feedback.error.base}>
+            state pairs them. At rest the label is muted: a control that is rarely right to press should not shout. */}
+        <text fg={hovered() ? theme.text.action.destructive.hovered : theme.text.muted}>
           {busy() ? t("Clearing…") : t("Clear all sessions")}
         </text>
       </box>
