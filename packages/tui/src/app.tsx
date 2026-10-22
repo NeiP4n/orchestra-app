@@ -76,13 +76,15 @@ import { DialogOpen, DialogOpenKey, moveOpenSession } from "./component/dialog-o
 import { ProjectTree } from "./component/project-tree"
 import { HomeProjectPanel } from "./component/home-project-panel"
 import { NeuralLine, useNeuralEnergy } from "./component/neural"
+import { DialogKeybinds } from "./component/dialog-keybinds"
+import { applyAiLanguage } from "./util/ai-language"
 import { RoomChat } from "./component/room-chat"
 import { basicSymbolsNeeded, replaceMissingGlyphs } from "./ui/console-glyphs"
 import { DialogConnect, DialogHost } from "./component/dialog-rooms"
 import { DialogGroups } from "./component/dialog-groups"
 import { sameRoom, useJoinedRooms } from "./util/room"
 import { linkRoom } from "./util/room-guest"
-import { useT } from "./util/i18n"
+import { setActiveLanguage, useT } from "./util/i18n"
 import { openTeamEditor } from "./component/dialog-teams"
 import { ProjectsProvider } from "./context/projects"
 import { NotesProvider } from "./context/notes"
@@ -176,7 +178,6 @@ const appBindingCommands = [
   "model.cycle_recent_reverse",
   "model.cycle_favorite",
   "model.cycle_favorite_reverse",
-  "agent.list",
   "mcp.list",
   "compat.list",
   "agent.panel",
@@ -499,6 +500,14 @@ function App() {
   const t = useT()
   const devtools = createMemo(() => config.data.debug?.devtools ?? app.channel === "local")
   const neuralEnergy = useNeuralEnergy()
+  createEffect(() => setActiveLanguage(config.data.language === "ru" ? "ru" : "en"))
+  // The AI language lives in the global instructions file; keep it in step with the setting.
+  createEffect(
+    on(
+      () => config.data.ai_language ?? "auto",
+      (language) => void applyAiLanguage(language).catch((error) => console.error("Failed to apply AI language", error)),
+    ),
+  )
   const route = useRoute()
   const dimensions = useTerminalDimensions()
   const renderer = useRenderer()
@@ -899,29 +908,20 @@ function App() {
         },
       },
       {
-        name: "session.clear",
-        title: "Clear session",
-        category: "Session",
+        name: "keybinds.edit",
+        title: "Edit keyboard shortcuts",
+        category: "System",
+        slash: { name: "keys", aliases: ["shortcuts", "hotkeys"] },
+        run: () => dialog.replace(() => <DialogKeybinds />, undefined, { size: "large" }),
+      },
+      {
+        name: "app.developer",
+        title: config.data.developer ? "Turn off developer mode" : "Turn on developer mode",
+        category: "System",
+        slash: { name: "developer", aliases: ["dev"] },
         run: () => {
-          const model = local.model.current()
-          const agent = local.agent.current()
-          const current =
-            route.data.type === "session"
-              ? (data.session.get(route.data.sessionID)?.location ?? location.ref)
-              : undefined
-          sessionTabs.close()
-          route.navigate({
-            type: "home",
-            location: newSessionLocation(
-              config.data.session.new_location,
-              data.location.default().directory,
-              current,
-              location.error?.location,
-            ),
-          })
-          if (agent) local.agent.set(agent.id)
-          if (model) local.model.set(model)
           dialog.clear()
+          void config.update((draft) => void (draft.developer = !config.data.developer)).catch(toast.error)
         },
       },
       {
@@ -1087,15 +1087,6 @@ function App() {
         },
       },
       {
-        name: "agent.list",
-        title: "Switch agent",
-        category: "Agent",
-        slash: { name: "agents" },
-        run: () => {
-          dialog.replace(() => <DialogAgent />)
-        },
-      },
-      {
         name: "mcp.list",
         title: "MCP servers",
         category: "Agent",
@@ -1114,10 +1105,11 @@ function App() {
         },
       },
       {
+        // One command opens the agent picker: shift+tab, <leader>a and /agents all land here.
         name: "agent.panel",
-        title: "Agent panel",
+        title: "Switch agent",
         category: "Agent",
-        palette: undefined,
+        slash: { name: "agents" },
         run: () => {
           // With every team role an agent, cycling one by one no longer reaches anything quickly.
           if (local.agent.fixed())

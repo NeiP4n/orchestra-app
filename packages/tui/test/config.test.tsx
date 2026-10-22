@@ -138,9 +138,9 @@ test("preserves pinned session bindings alongside tab bindings", () => {
   const config = resolve({}, { terminalSuspend: true })
 
   expect(config.keybinds.get("session.pin.toggle")).toMatchObject([{ key: "ctrl+f" }])
-  expect(config.keybinds.get("session.quick_switch.1")).toMatchObject([{ key: "<leader>1" }])
+  expect(config.keybinds.get("session.quick_switch.1")).toMatchObject([{ key: "alt+1" }])
   expect(config.keybinds.get("session.tab.select.1")).toMatchObject([{ key: "<leader>1,ctrl+1" }])
-  expect(config.keybinds.get("session.tab.select.10")).toMatchObject([{ key: "<leader>0,ctrl+0" }])
+  expect(config.keybinds.get("session.tab.select.10")).toMatchObject([{ key: "<leader>0" }])
 })
 
 test("disables suspend and assigns ctrl+z to undo when unsupported", () => {

@@ -1,3 +1,4 @@
+import { tr } from "../../util/i18n"
 import { createMemo, createSignal, Show } from "solid-js"
 import type { RGBA } from "@opentui/core"
 import { useTheme } from "../../context/theme"
@@ -14,7 +15,7 @@ export function FoldedText(props: { text: string; width: number; maxRows: number
       <Show when={folded().hidden > 0}>
         <box onMouseUp={() => setOpen((value) => !value)}>
           <text fg={theme.hue.accent[200]} wrapMode="none" selectable={false}>
-            {open() ? "▾ свернуть" : `▸ ещё ${folded().hidden} строк`}
+            {open() ? tr("▾ collapse") : tr("▸ {count} more lines", { count: folded().hidden })}
           </text>
         </box>
       </Show>
@@ -44,7 +45,7 @@ export function ErrorCard(props: { message: string; width: number }) {
             {headline()}
           </text>
           <text fg={theme.hue.accent[200]} wrapMode="none" selectable={false} flexShrink={0}>
-            {open() ? "▾ свернуть" : "▸ подробнее"}
+            {open() ? tr("▾ collapse") : tr("▸ more")}
           </text>
         </box>
         <Show when={open()}>

@@ -1,3 +1,4 @@
+import { tr } from "../../util/i18n"
 /** Repeated provider/network failures from parallel agents should trigger one rotation, not a reconnect loop. */
 export const AUTO_ROTATION_COOLDOWN_MS = 30_000
 /** A provider that keeps refusing after several fresh addresses is not helped by more rotations. */
@@ -66,13 +67,13 @@ export function describeAutoRotation(state: AutoRotationState, ru: boolean) {
     case "idle":
       return ""
     case "rotating":
-      return ru ? "смена IP…" : "changing IP…"
+      return ru ? tr("changing IP…") : "changing IP…"
     case "changed":
       return `${state.from ?? "?"} → ${state.to ?? "?"} · ${clock(state.at)}`
     case "paused":
-      if (state.reason === "unchanged") return ru ? `IP тот же, снова в ${clock(state.until)}` : `same IP, retry at ${clock(state.until)}`
-      return ru ? `лимит смен, пауза до ${clock(state.until)}` : `rotation cap, paused until ${clock(state.until)}`
+      if (state.reason === "unchanged") return ru ? tr("same IP, again at {time}", { time: clock(state.until) }) : `same IP, retry at ${clock(state.until)}`
+      return ru ? tr("change limit, paused until {time}", { time: clock(state.until) }) : `rotation cap, paused until ${clock(state.until)}`
     case "failed":
-      return ru ? `ошибка · ${clock(state.at)}` : `failed · ${clock(state.at)}`
+      return ru ? tr("error · {time}", { time: clock(state.at) }) : `failed · ${clock(state.at)}`
   }
 }

@@ -9,6 +9,12 @@ import { CouncilResultsCard, ReplyOptions } from "../src/routes/session/society"
 import { emptyThemeSource } from "./fixture/fixture"
 import { TestTuiContexts } from "./fixture/tui-environment"
 import { createTuiResolvedConfig } from "./fixture/tui-runtime"
+import { afterAll, beforeAll } from "bun:test"
+import { setActiveLanguage } from "../src/util/i18n"
+
+// These modules draw their texts through the active language; the expectations below are Russian.
+beforeAll(() => setActiveLanguage("ru"))
+afterAll(() => setActiveLanguage("en"))
 
 function Probe(props: { sent: string[] }) {
   const ref = usePromptRef()

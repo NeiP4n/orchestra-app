@@ -162,7 +162,7 @@ test("preserves current navigation defaults", () => {
   expect(config.keybinds.get("session.tab.next_unread")).toMatchObject([{ key: "alt+shift+down" }])
   expect(config.keybinds.get("session.tab.previous_unread")).toMatchObject([{ key: "alt+shift+up" }])
   expect(config.keybinds.get("session.tab.reopen")).toMatchObject([{ key: "ctrl+shift+t" }])
-  expect(config.keybinds.get("session.tab.select.10")).toMatchObject([{ key: "<leader>0,ctrl+0" }])
+  expect(config.keybinds.get("session.tab.select.10")).toMatchObject([{ key: "<leader>0" }])
   expect(config.keybinds.get("session.message.next")).toEqual([])
   expect(config.keybinds.get("session.message.previous")).toEqual([])
   expect(config.keybinds.get("session.message.user.next")).toEqual([])

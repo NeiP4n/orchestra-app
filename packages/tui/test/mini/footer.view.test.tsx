@@ -1262,13 +1262,13 @@ test.each(["queue", "steer"] as const)("direct footer toggles and deletes pendin
 
   try {
     await app.renderOnce()
-    expect(app.captureCharFrame()).toContain("ctrl+x q 1 pending")
+    expect(app.captureCharFrame()).toContain("ctrl+x p 1 pending")
     app.mockInput.pressKey("ARROW_DOWN")
     await app.renderOnce()
     expect(app.captureCharFrame()).not.toContain("Pending prompts")
 
     app.mockInput.pressKey("x", { ctrl: true })
-    app.mockInput.pressKey("q")
+    app.mockInput.pressKey("p")
     await app.renderOnce()
     const frame = app.captureCharFrame()
     const list = panelMenu(app.renderer.root)
@@ -1286,7 +1286,7 @@ test.each(["queue", "steer"] as const)("direct footer toggles and deletes pendin
     expect(app.captureCharFrame()).toContain("1 pending")
 
     app.mockInput.pressKey("x", { ctrl: true })
-    app.mockInput.pressKey("q")
+    app.mockInput.pressKey("p")
     await app.renderOnce()
     expect(app.captureCharFrame()).toContain(delivery === "queue" ? "steering" : "queued")
     expect(app.captureCharFrame()).toContain(delivery === "queue" ? "enter queue" : "enter steer")
@@ -1328,7 +1328,7 @@ test("undo appends a pending prompt to the draft", async () => {
     await app.renderOnce()
     await app.mockInput.typeText("existing draft")
     app.mockInput.pressKey("x", { ctrl: true })
-    app.mockInput.pressKey("q")
+    app.mockInput.pressKey("p")
     await app.renderOnce()
     app.mockInput.pressKey("u", { ctrl: true })
     await Bun.sleep(0)
@@ -1360,7 +1360,7 @@ test("undo leaves the queue and input alone when cancellation fails", async () =
   try {
     await app.renderOnce()
     app.mockInput.pressKey("x", { ctrl: true })
-    app.mockInput.pressKey("q")
+    app.mockInput.pressKey("p")
     await app.renderOnce()
     app.mockInput.pressKey("u", { ctrl: true })
     await Bun.sleep(0)
@@ -1407,7 +1407,7 @@ test("undo retains mentioned files when the prompt is sent again", async () => {
   try {
     await app.renderOnce()
     app.mockInput.pressKey("x", { ctrl: true })
-    app.mockInput.pressKey("q")
+    app.mockInput.pressKey("p")
     await app.renderOnce()
     app.mockInput.pressKey("u", { ctrl: true })
     await Bun.sleep(0)
@@ -1712,7 +1712,7 @@ test("direct footer counts queued and steering work while running", async () => 
     const frame = app.captureCharFrame()
     const transparent = RGBA.fromValues(0, 0, 0, 0).toInts()
     const statusline = footerStatusline(app.renderer.root)
-    expect(frame).toContain("esc stop · ctrl+x q 2 pending · ↓ 1 subagent · ctrl+b background · Build")
+    expect(frame).toContain("esc stop · ctrl+x p 2 pending · ↓ 1 subagent · ctrl+b background · Build")
     expect(frame).toMatch(/opencode · ctrl\+p menu *$/m)
     expect(frame).not.toContain("1 agent")
     expect(statusline.backgroundColor.toInts()).toEqual(transparent)

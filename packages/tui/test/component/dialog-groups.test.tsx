@@ -82,7 +82,7 @@ test("a lead group asks the group endpoint for its President chat", async () => 
   })
 
   try {
-    await createChat(app, "Создать Президента")
+    await createChat(app, "Create President")
     await app.waitForFrame(() => chatCalls === 1)
     // The group endpoint creates the chat; the client sends only the mode it needs.
     expect(chatCalls).toBe(1)
@@ -113,7 +113,7 @@ test("a council group asks the group endpoint for its shared chat", async () => 
   })
 
   try {
-    await createChat(app, "Создать Общество")
+    await createChat(app, "Create Society")
     await app.waitForFrame(() => chatCalls === 1)
     // The Council is one shared chat in the group's own directory, not a session of a project.
     expect(chatCalls).toBe(1)
@@ -142,7 +142,7 @@ test("a group that already names a chat still asks the server, so a deleted chat
   })
 
   try {
-    await createChat(app, "Открыть")
+    await createChat(app, "Society · Open")
     await app.waitForFrame(() => chatCalls === 1)
     // The stored supervisor may be gone; only the server knows which chat is live.
     expect(chatCalls).toBe(1)
@@ -173,7 +173,7 @@ test("the group chat is created through the group endpoint and never as a sessio
   })
 
   try {
-    await createChat(app, "Создать Президента")
+    await createChat(app, "Create President")
     await app.waitForFrame(() => chatCalls === 1)
 
     // The chat belongs to the group, so it is created through the group endpoint.

@@ -10,6 +10,7 @@ import "../../component/title-shimmer"
 
 import { getScrollAcceleration } from "../../util/scroll"
 import { useCompactLayout } from "../../ui/compact-layout"
+import { NeuralLine, NeuronDot } from "../../component/neural"
 
 export function Sidebar(props: { sessionID: string; onHide?: () => void; width?: number; borderLeft?: boolean }) {
   const data = useData()
@@ -19,6 +20,7 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
   const scrollAcceleration = createMemo(() => getScrollAcceleration(config))
   const layout = useCompactLayout()
   const width = () => props.width ?? layout.sidebarWidth()
+  const running = () => data.session.status(props.sessionID) === "running"
 
   return (
     <Show when={session()}>
@@ -34,7 +36,9 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
         border={props.borderLeft ? ["left"] : undefined}
         borderColor={theme.border.base}
       >
-        <box flexDirection="row" alignItems="center" flexShrink={0} paddingRight={1} paddingBottom={1} gap={1}>
+        <box flexDirection="row" alignItems="center" flexShrink={0} paddingRight={1} gap={1}>
+          {/* The session's own neuron: it beats faster while the agent works. */}
+          <NeuronDot energy={running() ? 0.95 : 0.25} />
           <box flexGrow={1} minWidth={0}>
             <title_shimmer
               fg={theme.text.base}
@@ -58,6 +62,9 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
               <text fg={theme.text.action.primary.base}>›</text>
             </HoverAction>
           </Show>
+        </box>
+        <box flexShrink={0} paddingTop={1} paddingBottom={1}>
+          <NeuralLine energy={running() ? 0.9 : 0.15} seed={4} />
         </box>
         <scrollbox
           flexGrow={1}

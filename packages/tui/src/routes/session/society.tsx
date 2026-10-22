@@ -1,3 +1,4 @@
+import { tr } from "../../util/i18n"
 import { createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { TextAttributes, type RGBA } from "@opentui/core"
 import { Federation } from "@orchestra/schema/federation"
@@ -5,6 +6,7 @@ import { useClient } from "../../context/client"
 import { useData } from "../../context/data"
 import { useProjects } from "../../context/projects"
 import { usePromptRef } from "../../context/prompt"
+import { neuralPalette } from "../../component/neural"
 import { useTheme, useThemes } from "../../context/theme"
 import { emptyPrompt } from "../../prompt/history"
 import { SplitBorder } from "../../ui/border"
@@ -45,12 +47,12 @@ export function CouncilResultsCard(props: { results: Federation.CouncilResults }
   return (
     <box flexDirection="column" gap={1} paddingLeft={3} paddingTop={1} paddingBottom={1} flexShrink={0}>
       <box flexDirection="row" gap={1}>
-        <Badge text="◆ Совет" color={theme.hue.accent[200]} ink={theme.background.base} />
+        <Badge text={tr("◆ Council")} color={theme.hue.accent[200]} ink={theme.background.base} />
         <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
           {props.results.subject ?? props.results.group}
         </text>
         <text fg={theme.text.muted} wrapMode="none">
-          {`${props.results.proposals.length} ответ(а)`}
+          {tr("{count} answer(s)", { count: props.results.proposals.length })}
         </text>
       </box>
       <For each={props.results.proposals}>
@@ -109,9 +111,13 @@ export function ReplyOptions(props: { options: ReadonlyArray<Federation.ReplyOpt
   const [chosen, setChosen] = createSignal<number>()
   const locked = () => props.settled === true || chosen() !== undefined
   return (
-    <box flexDirection="column" paddingLeft={3} paddingTop={1} flexShrink={0}>
+    <box flexDirection="column" paddingLeft={3} paddingTop={1} flexShrink={0} position="relative">
+      {/* A branch from the conversation's nerve: interactive answers hang off it like the messages. */}
+      <text position="absolute" left={1} top={1} fg={neuralPalette(theme).signal} selectable={false}>
+        ├─
+      </text>
       <text fg={theme.text.muted} wrapMode="none">
-        {locked() ? "Ответ выбран" : "Выберите ответ — клик отправит его в чат"}
+        {locked() ? tr("Answer chosen") : tr("Pick an answer — a click sends it to the chat")}
       </text>
       <box flexDirection="row" gap={1} flexWrap="wrap" paddingTop={1}>
         <For each={props.options}>
@@ -184,7 +190,7 @@ export function SocietyRoster(props: { sessionID: string }) {
     <Show when={members().length > 0}>
       <box flexDirection="row" gap={1} flexWrap="wrap" paddingLeft={1} paddingBottom={1} flexShrink={0}>
         <text fg={theme.text.muted} wrapMode="none">
-          Общество
+          {tr("Society")}
         </text>
         <For each={members()}>
           {(member) => {
@@ -209,7 +215,7 @@ export function SocietyRoster(props: { sessionID: string }) {
           }}
         </For>
         <text fg={theme.text.muted} wrapMode="none">
-          · @all — всем
+          {tr("· @all — everyone")}
         </text>
       </box>
     </Show>

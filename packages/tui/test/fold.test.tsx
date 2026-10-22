@@ -8,6 +8,12 @@ import { errorHeadline, errorIsLong, foldRows } from "../src/util/fold"
 import { emptyThemeSource } from "./fixture/fixture"
 import { TestTuiContexts } from "./fixture/tui-environment"
 import { createTuiResolvedConfig } from "./fixture/tui-runtime"
+import { afterAll, beforeAll } from "bun:test"
+import { setActiveLanguage } from "../src/util/i18n"
+
+// These modules draw their texts through the active language; the expectations below are Russian.
+beforeAll(() => setActiveLanguage("ru"))
+afterAll(() => setActiveLanguage("en"))
 
 const zen =
   "Error: Zen's free tier counts requests per IP address, and this address has used its daily allowance until the daily reset. Retrying from the same address cannot help: turn on OpenCode-only WARP routing and Auto IP to continue from another address, or choose another model."

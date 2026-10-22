@@ -14,6 +14,7 @@ import { useTheme, useThemes } from "../../context/theme"
 import { tint } from "../../theme/color"
 import { createAnimatable, tween } from "../../ui/animation"
 import { neuralPalette } from "../neural"
+import { AiLanguageSwitch } from "../ai-language-switch"
 import { useTuiPaths, useTuiTerminalEnvironment } from "../../context/runtime"
 import { useClipboard } from "../../context/clipboard"
 import { Spinner } from "../spinner"
@@ -2010,6 +2011,10 @@ export function Prompt(props: PromptProps) {
               </Show>
             </Slot>
           </Slot>
+          {/* The AI language sits on the hint line, so the agent and model above keep their full names. */}
+          <Show when={store.mode === "normal"}>
+            <AiLanguageSwitch compact={dimensions().width < 70} />
+          </Show>
         </box>
       </box>
       <Autocomplete

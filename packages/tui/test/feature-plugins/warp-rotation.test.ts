@@ -8,6 +8,12 @@ import {
   INEFFECTIVE_ROTATION_MAX_WINDOW_MS,
   INEFFECTIVE_ROTATION_WINDOW_MS,
 } from "../../src/feature-plugins/system/warp-rotation"
+import { afterAll, beforeAll } from "bun:test"
+import { setActiveLanguage } from "../../src/util/i18n"
+
+// These modules draw their texts through the active language; the expectations below are Russian.
+beforeAll(() => setActiveLanguage("ru"))
+afterAll(() => setActiveLanguage("en"))
 
 describe("WARP automatic rotation gate", () => {
   test("lets the first limit error rotate at once", () => {

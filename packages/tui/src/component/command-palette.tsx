@@ -3,6 +3,8 @@ import { DialogSelect, type DialogSelectRef } from "../ui/dialog-select"
 import { type DialogContext } from "../ui/dialog"
 import { COMMAND_PALETTE_COMMAND, Keymap, type KeymapCommand } from "../context/keymap"
 import { useT } from "../util/i18n"
+import { useConfig } from "../config"
+import { listedCommand } from "../util/developer"
 import { DialogConfig, settingID, settings } from "./dialog-config"
 
 function isSuggestedPaletteCommand(command: KeymapCommand) {
@@ -16,9 +18,11 @@ export function CommandPaletteDialog() {
   const commands = Keymap.useCommands()
   const shortcuts = Keymap.useShortcuts()
   const t = useT()
+  const config = useConfig()
   const options = createMemo(() =>
     commands().flatMap((command) => {
       if (!command.id || !command.palette || command.id === COMMAND_PALETTE_COMMAND) return []
+      if (!listedCommand(command.id, config.data.developer)) return []
       const footer = shortcuts.all(command.id)
       return {
         title: t(command.title ?? command.id),

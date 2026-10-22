@@ -107,7 +107,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       return {
         name: group.name as string | undefined,
         supervisor: group.supervisor as string | undefined,
-        chat: (council ? "Общество" : "Президент") as string | undefined,
+        chat: (council ? t("Society") : t("President")) as string | undefined,
         // The Society dispatches the Orchestrator of every member; the President speaks for one, the coordinator's.
         orchestrators: (council ? members : members.slice(0, 1)).filter((project) => project.main !== undefined),
         projects: group.projects.flatMap((id) => {
@@ -604,7 +604,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                               selected={session.id === current()?.id}
                               onClick={() => route.navigate({ type: "session", sessionID: session.id })}
                             >
-                              <Branch lit={session.id === current()?.id} />
+                              <Branch lit={session.id === current()?.id || hover() === session.id} />
                               {/* A working session is a firing neuron. */}
                               <Show
                                 when={data.session.status(session.id) === "running"}
@@ -950,7 +950,8 @@ function Tab(props: {
         notes.setTab(props.tab)
       }}
     >
-      <text fg={active() ? palette().signal : palette().synapse} wrapMode="none">
+      {/* On the filled active half the icon takes the label's color, or it vanishes into the fill. */}
+      <text fg={active() ? theme.text.action.primary.focused : palette().synapse} wrapMode="none">
         {props.label ? `${props.icon} ` : props.icon}
       </text>
       <text

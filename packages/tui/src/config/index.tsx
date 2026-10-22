@@ -254,6 +254,15 @@ export const Info = Schema.Struct({
   mascot: Schema.optional(Schema.Boolean).annotate({
     description: "Show the Orchestra mascot in the prompt (default: false)",
   }),
+  developer: Schema.optional(Schema.Boolean).annotate({
+    description: "List developer and debugging commands in the command palette and slash menu",
+  }),
+  console_shell: Schema.optional(Schema.String).annotate({
+    description: "Shell new consoles start with: pwsh, powershell, bash, nu, zsh, fish or cmd; unset uses the default",
+  }),
+  ai_language: Schema.optional(Schema.Literals(["auto", "ru", "en"])).annotate({
+    description: "Language the AI thinks and answers in; auto follows the conversation",
+  }),
   mouse: Schema.optional(Schema.Boolean).annotate({ description: "Enable terminal mouse capture" }),
   cursor: Schema.optional(Cursor),
 })

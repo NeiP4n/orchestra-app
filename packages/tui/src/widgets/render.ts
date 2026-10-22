@@ -1,3 +1,4 @@
+import { tr } from "../util/i18n"
 import type { Widget } from "./parse"
 
 export type Tone = "normal" | "accent" | "accentBold" | "dim" | "warn" | "warnBold"
@@ -60,26 +61,26 @@ function sparkline(values: readonly number[]) {
 }
 
 const kindName: Record<Widget["kind"], string> = {
-  choice: "выбор",
-  multi: "несколько",
-  confirm: "подтверждение",
-  buttons: "кнопки",
-  input: "ввод",
-  form: "форма",
-  scale: "шкала",
-  table: "таблица",
-  progress: "прогресс",
-  steps: "шаги",
-  diff: "изменения",
-  code: "код",
-  kv: "сводка",
-  callout: "заметка",
-  tabs: "вкладки",
-  rank: "порядок",
-  spark: "график",
-  timeline: "хронология",
-  tree: "дерево",
-  run: "команды",
+  choice: tr("choice"),
+  multi: tr("multiple"),
+  confirm: tr("confirmation"),
+  buttons: tr("buttons"),
+  input: tr("input"),
+  form: tr("form"),
+  scale: tr("scale"),
+  table: tr("table"),
+  progress: tr("progress"),
+  steps: tr("steps"),
+  diff: tr("changes"),
+  code: tr("code"),
+  kv: tr("summary"),
+  callout: tr("note"),
+  tabs: tr("tabs"),
+  rank: tr("order"),
+  spark: tr("chart"),
+  timeline: tr("timeline"),
+  tree: tr("tree"),
+  run: tr("commands"),
 }
 
 export function render(widget: Widget, width: number, focus: Focus): Line[] {
@@ -93,7 +94,7 @@ export function render(widget: Widget, width: number, focus: Focus): Line[] {
   const { body, footer } = bodyOf(widget, inner, focus === "active")
   const lines: Line[] = [[span("╭ ", rail), span(clip(widget.title || kindName[widget.kind], inner), focus === "active" ? "accentBold" : "normal")]]
   for (const line of body) lines.push([span("│ ", rail), ...line])
-  const shown = focus === "pending" ? "ждёт вас · нажмите на элемент" : footer
+  const shown = focus === "pending" ? tr("waiting for you · click an item") : footer
   lines.push([span("╰ ", rail), span(clip(shown, inner), "dim")])
   return lines
 }
@@ -111,7 +112,7 @@ function bodyOf(widget: Widget, width: number, active: boolean): { body: Line[];
           span(clip(item.label, width - 6), n === widget.cursor ? "accentBold" : "normal", n),
           ...(item.hint ? [span(`  ${clip(item.hint, Math.max(4, width - cells(item.label) - 8))}`, "dim")] : []),
         ]),
-        footer: "↑↓ выбор · 1-9 сразу · Enter",
+        footer: tr("↑↓ choose · 1-9 at once · Enter"),
       }
     case "multi":
       return {
@@ -121,9 +122,9 @@ function bodyOf(widget: Widget, width: number, active: boolean): { body: Line[];
             span(widget.on[n] ? "[x] " : "[ ] ", widget.on[n] ? "accent" : "dim", n),
             span(clip(item.label, width - 8), "normal", n),
           ]),
-          [span("[ Готово ]", "accent", -1)],
+          [span(tr("[ Done ]"), "accent", -1)],
         ],
-        footer: "↑↓ · Space отметить · a все · Enter",
+        footer: tr("↑↓ · Space marks · a all · Enter"),
       }
     case "confirm":
       return {
@@ -143,37 +144,37 @@ function bodyOf(widget: Widget, width: number, active: boolean): { body: Line[];
         body: [
           [
             span("› ", "accent", 0),
-            widget.text ? span(clip(widget.text, width - 3)) : span(widget.placeholder || "нажмите и ответьте в чате", "dim", 0),
+            widget.text ? span(clip(widget.text, width - 3)) : span(widget.placeholder || tr("click and answer in the chat"), "dim", 0),
             span(active ? "▏" : "", "accent"),
           ],
         ],
-        footer: "печатайте · Enter отправить",
+        footer: tr("type · Enter sends"),
       }
     case "form": {
       const rows: Line[] = widget.fields.map((field, n) => {
         const k = field.kind
         const value =
-          k.type === "bool" ? (k.value ? "[x] да" : "[ ] нет") : k.type === "select" ? `‹ ${k.options[k.at]} ›` : k.value || "…"
+          k.type === "bool" ? (k.value ? tr("[x] yes") : tr("[ ] no")) : k.type === "select" ? `‹ ${k.options[k.at]} ›` : k.value || "…"
         return [
           mark(n === widget.cursor),
           span(`${field.label}: `, "dim", n),
           span(clip(value, width - cells(field.label) - 6), n === widget.cursor ? "accentBold" : "normal", n),
         ]
       })
-      rows.push([mark(widget.cursor === widget.fields.length), button("[ Отправить ]", widget.cursor === widget.fields.length, widget.fields.length)])
-      return { body: rows, footer: "↑↓/Tab поля · ←→ выбор · Enter" }
+      rows.push([mark(widget.cursor === widget.fields.length), button(tr("[ Send ]"), widget.cursor === widget.fields.length, widget.fields.length)])
+      return { body: rows, footer: tr("↑↓/Tab fields · ←→ choose · Enter") }
     }
     case "scale": {
       if (widget.stars) {
         const stars: Span[] = []
         for (let n = widget.min; n <= widget.max; n++) stars.push(span(n <= widget.value ? "★" : "☆", "accent", n))
-        return { body: [[...stars, span(`  ${widget.value}/${widget.max}`, "dim"), span("  [ Готово ]", "accent", -1)]], footer: "←→ изменить · цифра · Enter" }
+        return { body: [[...stars, span(`  ${widget.value}/${widget.max}`, "dim"), span(tr("  [ Done ]"), "accent", -1)]], footer: tr("←→ change · digit · Enter") }
       }
       const track: Span[] = []
       for (let n = widget.min; n <= widget.max; n++) track.push(span(n === widget.value ? "●" : "─", "accent", n))
       return {
-        body: [[span(widget.low ? `${widget.low} ` : "", "dim"), ...track, span(` ${widget.high}  ${widget.value}`, "dim"), span("  [ Готово ]", "accent", -1)]],
-        footer: "←→ изменить · цифра · Enter",
+        body: [[span(widget.low ? `${widget.low} ` : "", "dim"), ...track, span(` ${widget.high}  ${widget.value}`, "dim"), span(tr("  [ Done ]"), "accent", -1)]],
+        footer: tr("←→ change · digit · Enter"),
       }
     }
     case "table": {
@@ -189,7 +190,7 @@ function bodyOf(widget: Widget, width: number, active: boolean): { body: Line[];
       const body: Line[] = []
       if (widget.cols.length) body.push([span("  "), ...row(widget.cols, "accentBold")])
       widget.rows.forEach((cellsOf, n) => body.push([widget.select ? mark(n === widget.cursor) : span("  "), ...row(cellsOf, widget.select && n === widget.cursor ? "accentBold" : "normal", n)]))
-      return { body, footer: widget.select ? "↑↓ · Enter выбрать строку" : "" }
+      return { body, footer: widget.select ? tr("↑↓ · Enter picks a row") : "" }
     }
     case "progress": {
       const name = Math.max(...widget.items.map((item) => cells(item.label)))
@@ -210,7 +211,7 @@ function bodyOf(widget: Widget, width: number, active: boolean): { body: Line[];
         const tone: Tone = line.startsWith("+") && !line.startsWith("+++") ? "accent" : line.startsWith("-") && !line.startsWith("---") ? "warn" : "dim"
         return [span(clip(line, width), tone)]
       })
-      if (widget.lines.length > shown) body.push([span(`… ещё ${widget.lines.length - shown} строк`, "dim")])
+      if (widget.lines.length > shown) body.push([span(tr("… {count} more lines", { count: widget.lines.length - shown }), "dim")])
       body.push(widget.actions.flatMap((action, n) => [button(`[${n + 1} ${action}]`, n === widget.cursor, n), span(" ")]))
       return { body, footer: "←→ · 1-9 · Enter" }
     }
@@ -219,9 +220,9 @@ function bodyOf(widget: Widget, width: number, active: boolean): { body: Line[];
         body: [
           ...(widget.lang ? [[span(widget.lang, "dim")] as Line] : []),
           ...widget.lines.map((line, n): Line => [span(`${String(n + 1).padStart(2)} `, "dim"), span(clip(line, width - 3))]),
-          [span("[ копировать ]", "accent", 0)],
+          [span(tr("[ copy ]"), "accent", 0)],
         ],
-        footer: "c — копировать",
+        footer: tr("c — copy"),
       }
     case "kv": {
       const key = Math.max(...widget.pairs.map(([name]) => cells(name)))
@@ -237,15 +238,15 @@ function bodyOf(widget: Widget, width: number, active: boolean): { body: Line[];
           widget.pages.flatMap((page, n) => [span(n === widget.current ? `[${page.name}]` : ` ${page.name} `, n === widget.current ? "accentBold" : "dim", n), span(" ")]),
           ...widget.pages[widget.current].lines.map((line) => [span(clip(line, width))]),
         ],
-        footer: "←→ страницы",
+        footer: tr("←→ pages"),
       }
     case "rank":
       return {
         body: [
-          ...widget.items.map((item, n) => [mark(n === widget.cursor), span(`${n + 1}. `, "dim"), span(clip(item, width - 7), n === widget.cursor ? "accentBold" : "normal", n), span(n === widget.cursor ? "  ▲ выше" : "", "dim", n)]),
-          [span("[ Готово ]", "accent", -1)],
+          ...widget.items.map((item, n) => [mark(n === widget.cursor), span(`${n + 1}. `, "dim"), span(clip(item, width - 7), n === widget.cursor ? "accentBold" : "normal", n), span(n === widget.cursor ? tr("  ▲ up") : "", "dim", n)]),
+          [span(tr("[ Done ]"), "accent", -1)],
         ],
-        footer: "↑↓ двигать элемент · клик — выше · Enter",
+        footer: tr("↑↓ move item · click — up · Enter"),
       }
     case "spark": {
       const label = widget.label ? `  ${widget.label}` : ""
@@ -263,7 +264,7 @@ function bodyOf(widget: Widget, width: number, active: boolean): { body: Line[];
           span(node.depth === 0 ? "" : `${"  ".repeat(node.depth - 1)}└ `, "dim"),
           span(clip(node.label, Math.max(4, width - node.depth * 2 - 3)), widget.select && n === widget.cursor ? "accentBold" : "normal", n),
         ]),
-        footer: widget.select ? "↑↓ · Enter выбрать" : "",
+        footer: widget.select ? tr("↑↓ · Enter picks") : "",
       }
     case "run":
       return {
@@ -272,7 +273,7 @@ function bodyOf(widget: Widget, width: number, active: boolean): { body: Line[];
           span(clip(item.label, width - 4), n === widget.cursor ? "accentBold" : "normal", n),
           ...(item.label === item.command ? [] : [span(`  $ ${clip(item.command, Math.max(4, width - cells(item.label) - 8))}`, "dim")]),
         ]),
-        footer: "↑↓ · Enter выполнить · c копировать",
+        footer: tr("↑↓ · Enter runs · c copies"),
       }
   }
 }

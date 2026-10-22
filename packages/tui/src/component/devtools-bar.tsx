@@ -28,6 +28,7 @@ import { hoverBackground } from "../ui/hover"
 import { useClipboard } from "../context/clipboard"
 import { useTuiPaths } from "../context/runtime"
 import { DialogHelp } from "../ui/dialog-help"
+import { DialogKeybinds } from "./dialog-keybinds"
 import { CommandPaletteDialog } from "./command-palette"
 import { DevTools } from "../devtools"
 import { useDialog } from "../ui/dialog"
@@ -312,52 +313,52 @@ export function DevToolsBar() {
     setDumping(false)
   }
 
-  // A phone-width terminal cannot fit every item, and an item past the edge is unreachable. The
-  // ones with their own commands (/themes, /teams, /tools…) fold away first, in this order.
-  // First the labels go and only the icons stay (a hovered icon shows its name); only when even
-  // the icons do not fit do items fold into ⋯.
+  // A narrow terminal cannot fit every item, and an item past the edge is unreachable. Items lose
+  // their labels one at a time, least used first (a hovered icon still shows its name); only when
+  // even that is not enough do the ones with their own commands (/themes, /teams…) fold into ⋯.
   const fold = createMemo(() => {
-    const measure = (dense: boolean) => {
-      const label = (icon: string, text: string) => stringWidth(dense ? icon : `${icon} ${text}`) + 2
-      const widths: Record<string, number> = {
-        experiments: label("△", t("Experiments")),
-        theme: label("◐", t("Theme")),
-        ui: label("○", t("UI")),
-        teams: label("◈", t("Teams")),
-        tools: label("◇", t("Tools")),
-        registry: label("▤", t("Registry")),
-      }
-      // Two group dividers between status, tools and the assistant actions.
-      const fixed =
-        3 +
-        4 +
-        label("✓", t("Server")) +
-        label("✦", t("Ideas")) +
-        stringWidth(`${t("Language")} EN`) +
-        2 +
-        label("✧", t("Facts")) +
-        label("⌕", t("Explain")) +
-        label("◎", t("Essence")) +
-        label("◌", t("Chat")) +
-        (projects.loaded() && projects.list().length === 0 ? stringWidth(t("+ Project")) + 2 : 0)
-      return { widths, total: fixed + Object.values(widths).reduce((sum, width) => sum + width, 0) }
+    const items: Record<string, [string, string]> = {
+      server: ["✓", t("Server")],
+      ui: ["○", t("UI")],
+      ideas: ["✦", t("Ideas")],
+      theme: ["◐", t("Theme")],
+      tools: ["◇", t("Tools")],
+      registry: ["▤", t("Registry")],
+      teams: ["◈", t("Teams")],
+      experiments: ["△", t("Experiments")],
+      explain: ["⌕", t("Explain")],
+      essence: ["◎", t("Essence")],
+      chat: ["◌", t("Chat")],
+      facts: ["✧", t("Facts")],
     }
-    if (measure(false).total <= dimensions().width) return { dense: false, ids: new Set<string>() }
-    const compact = measure(true)
-    const ids = Object.keys(compact.widths).reduce(
-      (fold, id) => {
-        if (fold.width <= dimensions().width) return fold
-        fold.ids.add(id)
-        return { ids: fold.ids, width: fold.width - compact.widths[id]! }
-      },
-      { ids: new Set<string>(), width: compact.total },
-    ).ids
-    return { dense: true, ids }
+    const full = (id: string) => stringWidth(`${items[id]![0]} ${items[id]![1]}`) + 2
+    const icon = (id: string) => stringWidth(items[id]![0]) + 2
+    // Two group dividers, the language switch and the first-project button keep their full width.
+    const fixed =
+      3 +
+      4 +
+      stringWidth(`${t("Language")} EN`) +
+      2 +
+      (projects.loaded() && projects.list().length === 0 ? stringWidth(t("+ Project")) + 2 : 0)
+    const iconized = new Set<string>()
+    let total = fixed + Object.keys(items).reduce((sum, id) => sum + full(id), 0)
+    for (const id of ["experiments", "theme", "ui", "registry", "ideas", "facts", "essence", "chat", "explain", "tools", "teams", "server"]) {
+      if (total <= dimensions().width) break
+      iconized.add(id)
+      total -= full(id) - icon(id)
+    }
+    const ids = new Set<string>()
+    for (const id of ["experiments", "theme", "ui", "teams", "tools", "registry"]) {
+      if (total <= dimensions().width) break
+      ids.add(id)
+      total -= iconized.has(id) ? icon(id) : full(id)
+    }
+    return { iconized, ids }
   })
   const hidden = () => fold().ids
 
   return (
-    <BarDense.Provider value={() => fold().dense}>
+    <BarDense.Provider value={(id: string) => fold().iconized.has(id)}>
     <box height={1} flexShrink={0} flexDirection="row" backgroundColor={theme.background.base}>
       <Show when={panel()}>
         <box
@@ -400,7 +401,7 @@ export function DevToolsBar() {
                 : theme.text.muted
           }
         >
-          <Label text={t("Server")} />
+          <Label id="server" text={t("Server")} />
         </text>
         <Show when={panel() === "server"}>
           <PanelBox>
@@ -446,7 +447,7 @@ export function DevToolsBar() {
                 : theme.text.muted
           }
         >
-          <Label text={t("UI")} />
+          <Label id="ui" text={t("UI")} />
         </text>
         <Show when={panel() === "ui"}>
           <PanelBox>
@@ -475,11 +476,11 @@ export function DevToolsBar() {
       <BarItem active={false} onClick={openIdeaBank}>
         <text fg={theme.text.muted}>
           <span style={{ fg: palette().spark }}>✦</span>
-          <Label text={t("Ideas")} />
+          <Label id="ideas" text={t("Ideas")} />
         </text>
       </BarItem>
       <BarItem hidden={hidden().has("theme")} active={panel() === "theme"} onClick={() => toggle("theme")}>
-        <text fg={panel() === "theme" ? theme.text.action.primary.focused : theme.text.muted}><Label icon="◐" text={t("Theme")} /></text>
+        <text fg={panel() === "theme" ? theme.text.action.primary.focused : theme.text.muted}><Label id="theme" icon="◐" text={t("Theme")} /></text>
         <Show when={panel() === "theme"}>
           <PanelBox>
             <PanelTitle>{t("Theme")}</PanelTitle>
@@ -495,7 +496,7 @@ export function DevToolsBar() {
         </Show>
       </BarItem>
       <BarItem hidden={hidden().has("tools")} active={panel() === "tools"} onClick={() => toggle("tools")}>
-        <text fg={panel() === "tools" ? theme.text.action.primary.focused : theme.text.muted}><Label icon="◇" text={t("Tools")} /></text>
+        <text fg={panel() === "tools" ? theme.text.action.primary.focused : theme.text.muted}><Label id="tools" icon="◇" text={t("Tools")} /></text>
         <Show when={panel() === "tools"}>
           <PanelBox>
             <PanelTitle>{t("Tools")}</PanelTitle>
@@ -524,6 +525,21 @@ export function DevToolsBar() {
             </Action>
             <Action onClick={() => openDialog(() => <DialogHelp />)} hoverBackground>
               {t("Keyboard shortcuts")}
+            </Action>
+            <Action
+              onClick={() => {
+                close()
+                dialog.replace(() => <DialogKeybinds />, undefined, { size: "large" })
+              }}
+              hoverBackground
+            >
+              {t("Edit keyboard shortcuts")}
+            </Action>
+            <Action
+              onClick={() => void config.update((draft) => void (draft.developer = !config.data.developer)).catch(toast.error)}
+              hoverBackground
+            >
+              {config.data.developer ? "[x]" : "[ ]"} {t("Developer mode")}
             </Action>
             <box marginTop={1}>
               <text fg={elevatedTheme.text.base} attributes={TextAttributes.BOLD}>
@@ -613,7 +629,7 @@ export function DevToolsBar() {
           dialog.setCentered(true)
         }}
       >
-        <text fg={theme.text.muted}><Label icon="▤" text={t("Registry")} /></text>
+        <text fg={theme.text.muted}><Label id="registry" icon="▤" text={t("Registry")} /></text>
       </BarItem>
       <BarItem
         hidden={hidden().has("teams")}
@@ -623,7 +639,7 @@ export function DevToolsBar() {
           openTeamEditor(dialog)
         }}
       >
-        <text fg={theme.text.muted}><Label icon="◈" text={t("Teams")} /></text>
+        <text fg={theme.text.muted}><Label id="teams" icon="◈" text={t("Teams")} /></text>
       </BarItem>
       {/* A hidden Show leaves a Solid slot node without a zIndex among the bar's children, and opentui's
           zIndex sort then let the backdrop land above the open panel and take its clicks. The wrapper keeps
@@ -649,7 +665,7 @@ export function DevToolsBar() {
           dialog.replace(() => <DialogExperiments />)
         }}
       >
-        <text fg={theme.text.muted}><Label icon="△" text={t("Experiments")} /></text>
+        <text fg={theme.text.muted}><Label id="experiments" icon="△" text={t("Experiments")} /></text>
       </BarItem>
       {/* Items that no longer fit are not lost: this mark opens the command palette, where each has its command. */}
       <BarItem
@@ -667,13 +683,13 @@ export function DevToolsBar() {
       </box>
       <Divider />
       <BarItem active={quickMode() === "explain"} onClick={() => toggleQuick("explain")} selecting>
-        <text fg={quickMode() === "explain" ? theme.text.action.primary.focused : theme.text.muted}><Label icon="⌕" text={t("Explain")} /></text>
+        <text fg={quickMode() === "explain" ? theme.text.action.primary.focused : theme.text.muted}><Label id="explain" icon="⌕" text={t("Explain")} /></text>
       </BarItem>
       <BarItem active={quickMode() === "essence"} onClick={() => toggleQuick("essence")}>
-        <text fg={quickMode() === "essence" ? theme.text.action.primary.focused : theme.text.muted}><Label icon="◎" text={t("Essence")} /></text>
+        <text fg={quickMode() === "essence" ? theme.text.action.primary.focused : theme.text.muted}><Label id="essence" icon="◎" text={t("Essence")} /></text>
       </BarItem>
       <BarItem active={quickMode() === "chat"} onClick={() => toggleQuick("chat")}>
-        <text fg={quickMode() === "chat" ? theme.text.action.primary.focused : theme.text.muted}><Label icon="◌" text={t("Chat")} /></text>
+        <text fg={quickMode() === "chat" ? theme.text.action.primary.focused : theme.text.muted}><Label id="chat" icon="◌" text={t("Chat")} /></text>
       </BarItem>
       <BarItem
         active={facts.open}
@@ -684,7 +700,7 @@ export function DevToolsBar() {
           }).catch(toast.error)
         }}
       >
-        <text fg={facts.open ? theme.text.action.primary.focused : theme.text.muted}><Label icon="✧" text={t("Facts")} /></text>
+        <text fg={facts.open ? theme.text.action.primary.focused : theme.text.muted}><Label id="facts" icon="✧" text={t("Facts")} /></text>
       </BarItem>
       <BarItem
         active={false}
@@ -710,14 +726,14 @@ export function DevToolsBar() {
 }
 
 // Whether the bar shows icons only, and whether the item under the pointer should show its name anyway.
-const BarDense = createContext<() => boolean>(() => false)
+const BarDense = createContext<(id: string) => boolean>(() => false)
 const BarHovered = createContext<() => boolean>(() => false)
 
 // An item's name after its icon: hidden in the dense bar until the pointer is over the item.
-function Label(props: { icon?: string; text: string }) {
+function Label(props: { id: string; icon?: string; text: string }) {
   const dense = useContext(BarDense)
   const hovered = useContext(BarHovered)
-  const name = () => (dense() && !hovered() ? "" : ` ${props.text}`)
+  const name = () => (dense(props.id) && !hovered() ? "" : ` ${props.text}`)
   return <>{props.icon ? `${props.icon}${name()}` : name()}</>
 }
 

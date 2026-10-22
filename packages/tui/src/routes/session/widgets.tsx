@@ -1,7 +1,9 @@
+import { tr } from "../../util/i18n"
 import { TextAttributes, type RGBA } from "@opentui/core"
 import { useKeyboard } from "@opentui/solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { useClipboard } from "../../context/clipboard"
+import { neuralPalette } from "../../component/neural"
 import { useTheme } from "../../context/theme"
 import { useToast } from "../../ui/toast"
 import { usePromptRef } from "../../context/prompt"
@@ -72,7 +74,7 @@ export function WidgetBlock(props: { id: string; widget: Widget; width: number; 
         send(reply(next, outcome.value))
         return
       case "copy":
-        void clipboard.write(outcome.text).then(() => toast.show({ message: "Скопировано", variant: "info" }))
+        void clipboard.write(outcome.text).then(() => toast.show({ message: tr("Copied"), variant: "info" }))
         return
       case "release":
         setOwner(undefined)
@@ -104,7 +106,11 @@ export function WidgetBlock(props: { id: string; widget: Widget; width: number; 
   })
 
   return (
-    <box flexDirection="column" paddingLeft={3} paddingTop={1} flexShrink={0} onMouseUp={take}>
+    <box flexDirection="column" paddingLeft={3} paddingTop={1} flexShrink={0} position="relative" onMouseUp={take}>
+      {/* A branch from the conversation's nerve: interactive answers hang off it like the messages. */}
+      <text position="absolute" left={1} top={1} fg={neuralPalette(theme).signal} selectable={false}>
+        ├─
+      </text>
       <For each={lines()}>
         {(line) => (
           <box flexDirection="row">

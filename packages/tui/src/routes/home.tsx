@@ -49,6 +49,9 @@ export function Home() {
   // The stage is the room Home actually has between the side panels; the column follows it.
   const [stage, setStage] = createSignal({ width: dimensions().width, height: dimensions().height })
   const column = () => homeContentWidth(stage().width)
+  const theme = useTheme()
+  // Typing excites the network: every change of the prompt's length fires one neuron.
+  const keystrokes = createMemo(() => ref()?.current.text.length ?? 0)
   // Global MCP elicitations can arrive without a session route, so keep them reachable from Home.
   const currentLocation = () => route.location ?? data.location.default()
   const forms = createMemo(() => data.session.form.list("global", currentLocation()) ?? [])
@@ -110,11 +113,25 @@ export function Home() {
         }}
       >
         {/* The network fills the whole stage behind the logo and the prompt and speeds up while agents work. */}
-        <NeuronField position="absolute" left={0} top={0} width="100%" height="100%" zIndex={0} energy={energy()} />
+        <NeuronField
+          position="absolute"
+          left={0}
+          top={0}
+          width="100%"
+          height="100%"
+          zIndex={0}
+          energy={energy()}
+          stimulus={keystrokes()}
+        />
         <box flexGrow={1} minHeight={0} />
         <box height={level() === "spacious" ? 3 : level() === "tiny" ? 0 : 2} minHeight={0} flexShrink={1} />
+        {/* The logo sits in a clear window cut out of the network so its letters stay crisp. */}
         <box
           flexShrink={0}
+          zIndex={1}
+          paddingLeft={2}
+          paddingRight={2}
+          backgroundColor={theme.background.base}
           onSizeChange={function () {
             setLogoWidth(this.width)
           }}
@@ -173,7 +190,7 @@ function BrainStatus(props: { energy: number; width: number }) {
   const sessions = createMemo(() => data.session.list().filter((session) => !session.parentID))
   const thinking = createMemo(() => sessions().filter((session) => data.session.status(session.id) === "running").length)
   return (
-    <box flexDirection="row" flexShrink={0} gap={1} zIndex={1}>
+    <box flexDirection="row" flexShrink={0} gap={1} zIndex={1} paddingLeft={1} paddingRight={1} backgroundColor={theme.background.base}>
       <NeuronDot energy={props.energy} />
       <text fg={thinking() > 0 ? palette().signal : theme.text.muted} wrapMode="none">
         {thinking() > 0 ? t("{count} agents thinking", { count: thinking() }) : t("network ready")}

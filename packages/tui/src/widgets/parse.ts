@@ -7,6 +7,7 @@
 //
 // and the chat turns it into a live element. What the person does with it returns to the model as
 // an ordinary message, so every model and every transport can use all of it.
+import { tr } from "../util/i18n"
 
 export type Item = { readonly label: string; readonly hint?: string }
 
@@ -163,7 +164,7 @@ function build(head: string, body: readonly string[]): Widget | undefined {
     }
     case "confirm": {
       const text = body.map((line) => line.trim()).filter((line) => line && !line.startsWith("yes:") && !line.startsWith("no:"))
-      return made({ kind, text, yes: setting(body, "yes") || "Да", no: setting(body, "no") || "Нет", cursor: 0 })
+      return made({ kind, text, yes: setting(body, "yes") || tr("Yes"), no: setting(body, "no") || tr("No"), cursor: 0 })
     }
     case "buttons":
       return items.length ? made({ kind, labels: items.map((item) => item.label), cursor: 0 }) : undefined
@@ -212,7 +213,7 @@ function build(head: string, body: readonly string[]): Widget | undefined {
       return made({
         kind,
         lines: body.filter((line) => !line.trim().startsWith("actions:")).map((line) => line.trimEnd()),
-        actions: actions.length ? actions : ["Применить", "Отклонить"],
+        actions: actions.length ? actions : [tr("Apply"), tr("Reject")],
         cursor: 0,
       })
     }

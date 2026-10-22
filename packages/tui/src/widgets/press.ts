@@ -1,3 +1,4 @@
+import { tr } from "../util/i18n"
 import type { Field, FieldKind, Widget } from "./parse"
 
 // Named keys are words, anything else is the single character that was typed.
@@ -48,7 +49,7 @@ export function pending(widget: Widget) {
 
 // The text sent to the model for an answer to this element.
 export function reply(widget: Widget, value: string) {
-  return widget.title ? `Ответ на «${widget.title}»: ${value}` : `Ответ: ${value}`
+  return widget.title ? tr("Answer to “{title}”: {value}", { title: widget.title, value }) : tr("Answer: {value}", { value })
 }
 
 const step = (cursor: number, length: number, delta: number) => (length === 0 ? 0 : (((cursor + delta) % length) + length) % length)
@@ -78,7 +79,7 @@ export function press(widget: Widget, key: Key): Result {
       }
       if (key === "enter") {
         const chosen = widget.items.filter((_, index) => widget.on[index]).map((item) => item.label)
-        return answer(widget, chosen.length ? chosen.join(", ") : "ничего")
+        return answer(widget, chosen.length ? chosen.join(", ") : tr("nothing"))
       }
       return stay(widget)
     }
@@ -119,7 +120,7 @@ export function press(widget: Widget, key: Key): Result {
         const wanted = Number(key)
         return wanted >= widget.min && wanted <= widget.max ? stay({ ...widget, value: wanted }) : stay(widget)
       }
-      if (key === "enter") return answer(widget, widget.stars ? `${widget.value} из ${widget.max}` : String(widget.value))
+      if (key === "enter") return answer(widget, widget.stars ? tr("{value} of {max}", { value: widget.value, max: widget.max }) : String(widget.value))
       return stay(widget)
     }
     case "table": {
@@ -155,7 +156,7 @@ export function press(widget: Widget, key: Key): Result {
       if (key === "up" || key === "k") return stay({ ...widget, cursor: step(widget.cursor, widget.items.length, -1) })
       if (key === "down" || key === "j") return stay({ ...widget, cursor: step(widget.cursor, widget.items.length, 1) })
       if (key === "c") return { widget, outcome: { type: "copy", text: widget.items[widget.cursor].command } }
-      if (key === "enter") return answer(widget, `выполни \`${widget.items[widget.cursor].command}\``)
+      if (key === "enter") return answer(widget, tr("run `{command}`", { command: widget.items[widget.cursor].command }))
       return stay(widget)
     }
     case "tabs": {
@@ -206,7 +207,7 @@ export function activate(widget: Widget, target: number): Result {
     case "tree":
       return widget.select && widget.nodes[target] ? answer(widget, treePath(widget.nodes, target)) : stay(widget)
     case "run":
-      return widget.items[target] ? answer(widget, `выполни \`${widget.items[target].command}\``) : stay(widget)
+      return widget.items[target] ? answer(widget, tr("run `{command}`", { command: widget.items[target].command })) : stay(widget)
     case "tabs":
       return target < widget.pages.length ? stay({ ...widget, current: target }) : stay(widget)
     case "code":
@@ -225,7 +226,7 @@ function moveRank(widget: Extract<Widget, { kind: "rank" }>, delta: number): Wid
 }
 
 function fieldValue(kind: FieldKind) {
-  if (kind.type === "bool") return kind.value ? "да" : "нет"
+  if (kind.type === "bool") return kind.value ? tr("yes") : tr("no")
   if (kind.type === "select") return kind.options[kind.at]
   return kind.value
 }

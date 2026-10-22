@@ -1,3 +1,4 @@
+import { tr } from "../../util/i18n"
 import { execFile, spawn } from "node:child_process"
 import { access, readFile } from "node:fs/promises"
 import * as Warp from "@orchestra/core/warp"
@@ -33,15 +34,15 @@ function statusLabel(context: Plugin.Context, state: WarpConnectionState) {
   const ru = language(context) === "ru"
   switch (state) {
     case "checking":
-      return ru ? "Проверка…" : "Checking…"
+      return ru ? tr("Checking…") : "Checking…"
     case "connected":
-      return ru ? "Подключено" : "Connected"
+      return ru ? tr("Connected") : "Connected"
     case "disconnected":
-      return ru ? "Отключено" : "Disconnected"
+      return ru ? tr("Disconnected") : "Disconnected"
     case "unavailable":
-      return ru ? "WARP CLI не найден" : "WARP CLI not found"
+      return ru ? tr("WARP CLI not found") : "WARP CLI not found"
     default:
-      return ru ? "Статус неизвестен" : "Status unknown"
+      return ru ? tr("Status unknown") : "Status unknown"
   }
 }
 
@@ -63,17 +64,17 @@ function describe(context: Plugin.Context, cause: unknown) {
   if (cause instanceof Warp.WarpError) {
     switch (cause.code) {
       case "cli-missing":
-        return text(context, "Cloudflare WARP CLI was not found. Install WARP first.", "Cloudflare WARP CLI не найден. Сначала установи WARP.")
+        return text(context, "Cloudflare WARP CLI was not found. Install WARP first.", tr("Cloudflare WARP CLI not found. Install WARP first."))
       case "daemon-down":
-        return text(context, "The WARP background service is not running. Press \"Route only OpenCode through WARP\" to start it (Windows may ask for confirmation).", "Фоновая служба WARP не запущена. Нажми «Только OpenCode через WARP…», чтобы запустить её (Windows может попросить подтверждение).")
+        return text(context, "The WARP background service is not running. Press \"Route only OpenCode through WARP\" to start it (Windows may ask for confirmation).", tr("The WARP background service is not running. Press “Only OpenCode through WARP…” to start it (Windows may ask to confirm)."))
       case "not-proxy-mode":
-        return text(context, "WARP is not in Local Proxy mode, so it would affect the whole device. Use \"Route only OpenCode through WARP\" first.", "WARP не в режиме Local Proxy и затронул бы всё устройство. Сначала нажми «Только OpenCode через WARP».")
+        return text(context, "WARP is not in Local Proxy mode, so it would affect the whole device. Use \"Route only OpenCode through WARP\" first.", tr("WARP is not in Local Proxy mode and would affect the whole device. Press “Only OpenCode through WARP” first."))
       case "device-in-use":
-        return text(context, "WARP is connected for the whole device. OpenCode will not switch it to Local Proxy because other applications would lose their tunnel. Disconnect WARP and retry.", "WARP подключён для всех программ. OpenCode не будет переключать его в Local Proxy, иначе остальные программы потеряют туннель. Отключи WARP и повтори.")
+        return text(context, "WARP is connected for the whole device. OpenCode will not switch it to Local Proxy because other applications would lose their tunnel. Disconnect WARP and retry.", tr("WARP is connected for every app. OpenCode will not switch it to Local Proxy, or the other apps would lose the tunnel. Disconnect WARP and try again."))
       case "socks-only":
-        return text(context, "This WARP version's local proxy speaks SOCKS5 only; OpenCode needs HTTP. Update Cloudflare WARP.", "Локальный прокси этой версии WARP работает только по SOCKS5, а OpenCode нужен HTTP. Обнови Cloudflare WARP.")
+        return text(context, "This WARP version's local proxy speaks SOCKS5 only; OpenCode needs HTTP. Update Cloudflare WARP.", tr("This WARP version's local proxy speaks only SOCKS5, and OpenCode needs HTTP. Update Cloudflare WARP."))
       case "managed-registration":
-        return text(context, "This WARP client is managed by an organization (Zero Trust); its registration cannot be reset here.", "Этот WARP управляется организацией (Zero Trust); регистрацию отсюда сбросить нельзя.")
+        return text(context, "This WARP client is managed by an organization (Zero Trust); its registration cannot be reset here.", tr("This WARP is managed by an organization (Zero Trust); its registration cannot be reset from here."))
       default:
         return cause.message
     }
@@ -199,8 +200,8 @@ async function hasPath(path: string) {
 async function installWarp(context: Plugin.Context): Promise<boolean> {
   if (Warp.resolveCli()) {
     context.ui.toast.show({
-      title: text(context, "WARP is already installed", "WARP уже установлен"),
-      message: text(context, "Use \"Route only OpenCode through WARP\" to set it up.", "Нажми «Только OpenCode через WARP…», чтобы настроить."),
+      title: text(context, "WARP is already installed", tr("WARP is already installed")),
+      message: text(context, "Use \"Route only OpenCode through WARP\" to set it up.", tr("Press “Only OpenCode through WARP…” to set it up.")),
       variant: "info",
     })
     return false
@@ -209,13 +210,13 @@ async function installWarp(context: Plugin.Context): Promise<boolean> {
   const installGuide = "https://developers.cloudflare.com/warp-client/get-started/"
   let command: string | undefined
   let args: string[] = []
-  let confirmation = text(context, "This will install Cloudflare WARP using the available package manager.", "Это установит Cloudflare WARP через доступный менеджер пакетов.")
+  let confirmation = text(context, "This will install Cloudflare WARP using the available package manager.", tr("This installs Cloudflare WARP with the available package manager."))
   let isAUR = false
 
   if (termux || process.platform === "android") {
     await context.ui.dialog.alert({
-      title: text(context, "WARP on Android / Termux", "WARP на Android / Termux"),
-      message: text(context, "Cloudflare's Android VPN app is separate from the Termux CLI. Android does not support WARP Local Proxy mode for routing only OpenCode traffic, so installing the mobile app would not meet the per-app routing requirement.", "Приложение Cloudflare для Android — отдельный VPN-клиент, не CLI для Termux. Режим WARP Local Proxy для маршрутизации только OpenCode на Android не поддерживается, поэтому мобильное приложение не решит задачу изоляции трафика."),
+      title: text(context, "WARP on Android / Termux", tr("WARP on Android / Termux")),
+      message: text(context, "Cloudflare's Android VPN app is separate from the Termux CLI. Android does not support WARP Local Proxy mode for routing only OpenCode traffic, so installing the mobile app would not meet the per-app routing requirement.", tr("Cloudflare's Android app is a separate VPN client, not a CLI for Termux. WARP Local Proxy for routing only OpenCode is not supported on Android, so the mobile app cannot isolate the traffic.")),
     })
     await openExternal("https://one.one.one.one/")
     return false
@@ -224,8 +225,8 @@ async function installWarp(context: Plugin.Context): Promise<boolean> {
   if (process.platform === "win32") {
     if (!(await commandExists("winget"))) {
       await context.ui.dialog.alert({
-        title: text(context, "Install WARP", "Установка WARP"),
-        message: text(context, "Windows Package Manager (winget) was not found. Opening Cloudflare's official download page.", "Менеджер пакетов winget не найден. Открываю официальную страницу загрузки Cloudflare."),
+        title: text(context, "Install WARP", tr("Installing WARP")),
+        message: text(context, "Windows Package Manager (winget) was not found. Opening Cloudflare's official download page.", tr("The winget package manager was not found. Opening the official Cloudflare download page.")),
       })
       await openExternal("https://one.one.one.one/")
       return false
@@ -235,8 +236,8 @@ async function installWarp(context: Plugin.Context): Promise<boolean> {
   } else if (process.platform === "darwin") {
     if (!(await commandExists("brew"))) {
       await context.ui.dialog.alert({
-        title: text(context, "Install WARP", "Установка WARP"),
-        message: text(context, "Homebrew was not found. Opening Cloudflare's official download page.", "Homebrew не найден. Открываю официальную страницу загрузки Cloudflare."),
+        title: text(context, "Install WARP", tr("Installing WARP")),
+        message: text(context, "Homebrew was not found. Opening Cloudflare's official download page.", tr("Homebrew not found. Opening the official Cloudflare download page.")),
       })
       await openExternal("https://one.one.one.one/")
       return false
@@ -250,15 +251,15 @@ async function installWarp(context: Plugin.Context): Promise<boolean> {
       const helper = (await commandExists("paru")) ? "paru" : (await commandExists("yay")) ? "yay" : undefined
       if (!helper) {
         await context.ui.dialog.alert({
-          title: text(context, "Install WARP on Arch", "Установка WARP в Arch"),
-          message: text(context, "No AUR helper (paru or yay) was found. Cloudflare does not publish an official Arch package; the commonly used cloudflare-warp-bin package is community-maintained. Install an AUR helper first, then retry.", "Не найден помощник AUR (paru или yay). Cloudflare не публикует официальный пакет для Arch; пакет cloudflare-warp-bin поддерживается сообществом. Сначала установи paru или yay, затем повтори попытку."),
+          title: text(context, "Install WARP on Arch", tr("Installing WARP on Arch")),
+          message: text(context, "No AUR helper (paru or yay) was found. Cloudflare does not publish an official Arch package; the commonly used cloudflare-warp-bin package is community-maintained. Install an AUR helper first, then retry.", tr("No AUR helper found (paru or yay). Cloudflare publishes no official Arch package; cloudflare-warp-bin is community-maintained. Install paru or yay first, then try again.")),
         })
         return false
       }
       command = helper
       args = ["-S", "--needed", "cloudflare-warp-bin"]
       isAUR = true
-      confirmation = text(context, "Arch/CachyOS uses the community-maintained AUR package cloudflare-warp-bin, not an official Cloudflare repository. Continue?", "Для Arch/CachyOS будет использован пакет cloudflare-warp-bin из AUR, поддерживаемый сообществом, а не официальный репозиторий Cloudflare. Продолжить?")
+      confirmation = text(context, "Arch/CachyOS uses the community-maintained AUR package cloudflare-warp-bin, not an official Cloudflare repository. Continue?", tr("On Arch/CachyOS the community-maintained cloudflare-warp-bin package from the AUR is used, not an official Cloudflare repository. Continue?"))
     } else if ((await commandExists("apt-get")) && ((await hasPath("/etc/apt/sources.list.d/cloudflare-client.list")) || (await hasPath("/etc/apt/sources.list.d/cloudflare-client.sources")))) {
       command = "sudo"
       args = ["apt-get", "install", "-y", "cloudflare-warp"]
@@ -267,25 +268,25 @@ async function installWarp(context: Plugin.Context): Promise<boolean> {
       args = ["dnf", "install", "-y", "cloudflare-warp"]
     } else {
       await context.ui.dialog.alert({
-        title: text(context, "Install WARP", "Установка WARP"),
-        message: text(context, "This Linux distribution does not have the Cloudflare WARP repository configured. Opening the official installation guide: " + installGuide, "В этой Linux-системе не настроен репозиторий Cloudflare WARP. Открываю официальную инструкцию: " + installGuide),
+        title: text(context, "Install WARP", tr("Installing WARP")),
+        message: text(context, "This Linux distribution does not have the Cloudflare WARP repository configured. Opening the official installation guide: " + installGuide, tr("This Linux system has no Cloudflare WARP repository. Opening the official instructions: ") + installGuide),
       })
       await openExternal(installGuide)
       return false
     }
   } else {
     await context.ui.dialog.alert({
-      title: text(context, "Install WARP", "Установка WARP"),
-      message: text(context, "Automatic installation is not supported on this platform. See " + installGuide, "Автоматическая установка на этой платформе не поддерживается. Инструкция: " + installGuide),
+      title: text(context, "Install WARP", tr("Installing WARP")),
+      message: text(context, "Automatic installation is not supported on this platform. See " + installGuide, tr("Automatic installation is not supported on this platform. Instructions: ") + installGuide),
     })
     await openExternal(installGuide)
     return false
   }
 
   const accepted = await context.ui.dialog.confirm({
-    title: text(context, "Install Cloudflare WARP?", "Установить Cloudflare WARP?"),
+    title: text(context, "Install Cloudflare WARP?", tr("Install Cloudflare WARP?")),
     message: confirmation,
-    label: { confirm: text(context, "Install", "Установить"), cancel: text(context, "Cancel", "Отмена") },
+    label: { confirm: text(context, "Install", tr("Install")), cancel: text(context, "Cancel", tr("Cancel")) },
   })
   if (!accepted || !command) return false
   let failure: unknown
@@ -299,9 +300,9 @@ async function installWarp(context: Plugin.Context): Promise<boolean> {
   }
   if (failure && command === "winget") {
     const elevated = await context.ui.dialog.confirm({
-      title: text(context, "Install WARP as administrator?", "Установить WARP от имени администратора?"),
-      message: text(context, "The installer did not finish without administrator rights. WARP installs system-wide, so retry elevated? Windows may ask for confirmation.", "Установка не завершилась без прав администратора. WARP ставится на весь компьютер, повторить с правами? Windows может запросить подтверждение."),
-      label: { confirm: text(context, "Retry as administrator", "Повторить от администратора"), cancel: text(context, "Cancel", "Отмена") },
+      title: text(context, "Install WARP as administrator?", tr("Install WARP as administrator?")),
+      message: text(context, "The installer did not finish without administrator rights. WARP installs system-wide, so retry elevated? Windows may ask for confirmation.", tr("Installation did not finish without administrator rights. WARP installs for the whole computer; retry with rights? Windows may ask to confirm.")),
+      label: { confirm: text(context, "Retry as administrator", tr("Retry as administrator")), cancel: text(context, "Cancel", tr("Cancel")) },
     })
     if (elevated) {
       const code = await runElevatedInstaller(command, args)
@@ -314,8 +315,8 @@ async function installWarp(context: Plugin.Context): Promise<boolean> {
     // and winget's words travel with the message so the code stops being the whole answer.
     Warp.log(`WARP install failed: ${messageOf(failure).slice(0, 2000)}`)
     await context.ui.dialog.alert({
-      title: text(context, "WARP installation failed", "Не удалось установить WARP"),
-      message: text(context, "Automatic installation did not finish. The package manager reported: ", "Автоматическая установка не завершилась. Менеджер пакетов сообщил: ") + messageOf(failure) + text(context, " The official page is opening now — install WARP there, then come back.", " Сейчас откроется официальная страница — установи WARP там и вернись."),
+      title: text(context, "WARP installation failed", tr("Could not install WARP")),
+      message: text(context, "Automatic installation did not finish. The package manager reported: ", tr("Automatic installation did not finish. The package manager said: ")) + messageOf(failure) + text(context, " The official page is opening now — install WARP there, then come back.", tr(" The official page opens now; install WARP there and come back.")),
     })
     await openExternal(process.platform === "win32" ? "https://one.one.one.one/" : installGuide)
     return false
@@ -325,8 +326,8 @@ async function installWarp(context: Plugin.Context): Promise<boolean> {
   await Warp.hideGui()
   if (isAUR) {
     context.ui.toast.show({
-      title: text(context, "WARP installed", "WARP установлен"),
-      message: text(context, "WARP is installed but left disconnected. Use \"Route only OpenCode through WARP…\" when you actually want it.", "WARP установлен, но оставлен отключённым. Нажми «Только OpenCode через WARP…», когда действительно захочешь его включить."),
+      title: text(context, "WARP installed", tr("WARP installed")),
+      message: text(context, "WARP is installed but left disconnected. Use \"Route only OpenCode through WARP…\" when you actually want it.", tr("WARP is installed but left off. Press “Only OpenCode through WARP…” when you actually want it on.")),
       variant: "success",
     })
   }
@@ -366,16 +367,16 @@ async function setOpenCodeProxy(context: Plugin.Context, enabled: boolean, port 
 }
 
 async function setupLocalProxy(context: Plugin.Context): Promise<WarpStatus> {
-  if (process.platform === "android" || process.env.PREFIX?.includes("/com.termux/")) throw new Error(text(context, "WARP Local Proxy is available on desktop clients only. Android/Termux cannot isolate WARP traffic to OpenCode this way.", "WARP Local Proxy доступен только в настольном клиенте. На Android/Termux нельзя таким способом направить через WARP только трафик OpenCode."))
+  if (process.platform === "android" || process.env.PREFIX?.includes("/com.termux/")) throw new Error(text(context, "WARP Local Proxy is available on desktop clients only. Android/Termux cannot isolate WARP traffic to OpenCode this way.", tr("WARP Local Proxy exists only in the desktop client. On Android/Termux OpenCode's traffic alone cannot be routed through WARP this way.")))
   let next: WarpStatus
   try {
     next = await Warp.ensureProxy()
   } catch (cause) {
     if (!(cause instanceof Warp.WarpError && cause.code === "device-in-use")) throw cause
     const accepted = await context.ui.dialog.confirm({
-      title: text(context, "WARP is routing the whole device", "WARP сейчас работает на всё устройство"),
-      message: text(context, "WARP is connected for every application. Switch it to Local Proxy so that only OpenCode uses WARP? Other apps will go back to your normal connection.", "WARP подключён для всех программ. Переключить его в Local Proxy, чтобы WARP использовал только OpenCode? Остальные программы вернутся на обычное соединение."),
-      label: { confirm: text(context, "Only OpenCode", "Только OpenCode"), cancel: text(context, "Cancel", "Отмена") },
+      title: text(context, "WARP is routing the whole device", tr("WARP currently covers the whole device")),
+      message: text(context, "WARP is connected for every application. Switch it to Local Proxy so that only OpenCode uses WARP? Other apps will go back to your normal connection.", tr("WARP is connected for every app. Switch it to Local Proxy so only OpenCode uses WARP? Other apps return to the normal connection.")),
+      label: { confirm: text(context, "Only OpenCode", tr("Only OpenCode")), cancel: text(context, "Cancel", tr("Cancel")) },
     })
     if (!accepted) throw cause
     next = await Warp.ensureProxy(Warp.DEFAULT_PORT, { takeOverDevice: true })
@@ -428,11 +429,11 @@ export function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus
       </box>
       <box>
         {row(
-          ru() ? "Маршрут" : "Route",
-          props.proxyEnabled ? (ru() ? "только через WARP" : "WARP only") : (ru() ? "напрямую" : "direct"),
+          ru() ? tr("Route") : "Route",
+          props.proxyEnabled ? (ru() ? tr("only through WARP") : "WARP only") : (ru() ? tr("direct") : "direct"),
           props.proxyEnabled ? theme().text.feedback.success.base : theme().text.base,
         )}
-        {row(ru() ? "Ваш IP" : "Your IP", props.directIp || "…", theme().text.muted)}
+        {row(ru() ? tr("Your IP") : "Your IP", props.directIp || "…", theme().text.muted)}
         {props.proxyEnabled &&
           row(
             ru() ? "IP OpenCode" : "OpenCode IP",
@@ -444,7 +445,7 @@ export function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus
         {props.autoRotateEnabled &&
           props.autoRotation.phase !== "idle" &&
           row(
-            ru() ? "Авто IP" : "Auto IP",
+            ru() ? tr("Auto IP") : "Auto IP",
             describeAutoRotation(props.autoRotation, ru()),
             props.autoRotation.phase === "changed"
               ? theme().text.feedback.success.base
@@ -459,16 +460,16 @@ export function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus
         context={props.context}
         id="warp.sidebar.proxy"
         label={props.proxyEnabled
-          ? (ru() ? "✓ Отключить WARP для OpenCode" : "✓ Disable WARP for OpenCode")
-          : (ru() ? "↗ Только OpenCode через WARP" : "↗ Route only OpenCode via WARP")}
+          ? (ru() ? tr("✓ Turn off WARP for OpenCode") : "✓ Disable WARP for OpenCode")
+          : (ru() ? tr("↗ Only OpenCode through WARP") : "↗ Route only OpenCode via WARP")}
         run={props.toggleProxy}
         disabled={props.busy.action !== null || props.status.state === "unavailable"}
         emphasized
         block
       />
       <box flexDirection="row" gap={1} flexWrap="wrap">
-        <ActionButton context={props.context} id="warp.sidebar.open" label={ru() ? "Управление ↗" : "Manage ↗"} run={props.open} accent />
-        <ActionButton context={props.context} id="warp.sidebar.autoRotate" label={ru() ? `Авто IP: ${props.autoRotateEnabled ? "ВКЛ" : "ВЫКЛ"}` : `Auto IP: ${props.autoRotateEnabled ? "ON" : "OFF"}`} run={props.toggleAutoRotate} disabled={props.busy.action !== null} emphasized={props.autoRotateEnabled} accent />
+        <ActionButton context={props.context} id="warp.sidebar.open" label={ru() ? tr("Manage ↗") : "Manage ↗"} run={props.open} accent />
+        <ActionButton context={props.context} id="warp.sidebar.autoRotate" label={ru() ? tr(props.autoRotateEnabled ? "Auto IP: ON" : "Auto IP: OFF") : `Auto IP: ${props.autoRotateEnabled ? "ON" : "OFF"}`} run={props.toggleAutoRotate} disabled={props.busy.action !== null} emphasized={props.autoRotateEnabled} accent />
       </box>
     </box>
   )
@@ -480,26 +481,26 @@ function WarpPage(props: { context: Plugin.Context; status: WarpStatus; busy: Sh
   const pending = () => props.busy.action !== null
   const working = () => {
     switch (props.busy.action) {
-      case "refresh": return ru() ? "Проверка статуса…" : "Checking status…"
-      case "connect": return ru() ? "Подключение WARP…" : "Connecting WARP…"
-      case "disconnect": return ru() ? "Отключение WARP…" : "Disconnecting WARP…"
-      case "reconnect": return ru() ? "Переподключение…" : "Reconnecting…"
-      case "reset": return ru() ? "Сброс регистрации…" : "Resetting registration…"
-      case "install": return ru() ? "Установка WARP…" : "Installing WARP…"
-      case "proxy": return ru() ? "Настройка прокси OpenCode…" : "Configuring OpenCode-only proxy…"
-      case "disableProxy": return ru() ? "Отключение прокси OpenCode…" : "Disabling OpenCode proxy…"
-      case "changeIp": return ru() ? "Смена IP…" : "Changing IP…"
+      case "refresh": return ru() ? tr("Checking status…") : "Checking status…"
+      case "connect": return ru() ? tr("Connecting WARP…") : "Connecting WARP…"
+      case "disconnect": return ru() ? tr("Disconnecting WARP…") : "Disconnecting WARP…"
+      case "reconnect": return ru() ? tr("Reconnecting…") : "Reconnecting…"
+      case "reset": return ru() ? tr("Resetting registration…") : "Resetting registration…"
+      case "install": return ru() ? tr("Installing WARP…") : "Installing WARP…"
+      case "proxy": return ru() ? tr("Setting up the OpenCode proxy…") : "Configuring OpenCode-only proxy…"
+      case "disableProxy": return ru() ? tr("Removing the OpenCode proxy…") : "Disabling OpenCode proxy…"
+      case "changeIp": return ru() ? tr("Changing IP…") : "Changing IP…"
       default: return ""
     }
   }
 
-  props.context.keymap.layer(() => ({ commands: [{ bind: "escape", title: ru() ? "Закрыть WARP" : "Close WARP", group: "WARP", run: props.onClose }] }))
+  props.context.keymap.layer(() => ({ commands: [{ bind: "escape", title: ru() ? tr("Close WARP") : "Close WARP", group: "WARP", run: props.onClose }] }))
 
   const reset = async () => {
     const accepted = await props.context.ui.dialog.confirm({
-      title: ru() ? "Сбросить регистрацию WARP?" : "Reset WARP registration?",
-      message: ru() ? "Будет удалена текущая регистрация WARP и создана новая. Не используйте это для корпоративного WARP / Zero Trust: подключение может потребовать повторной настройки. Сброс не гарантирует снятие лимита у AI-провайдера." : "This deletes the current WARP registration and creates a new one. Do not use it with organization-managed WARP / Zero Trust: setup may need to be repeated. This does not guarantee an AI provider's rate limit will reset.",
-      label: { confirm: ru() ? "Сбросить" : "Reset", cancel: ru() ? "Отмена" : "Cancel" },
+      title: ru() ? tr("Reset the WARP registration?") : "Reset WARP registration?",
+      message: ru() ? tr("The current WARP registration is deleted and a new one created. Do not use this for corporate WARP / Zero Trust: the connection may need to be set up again. A reset does not guarantee the AI provider lifts its limit.") : "This deletes the current WARP registration and creates a new one. Do not use it with organization-managed WARP / Zero Trust: setup may need to be repeated. This does not guarantee an AI provider's rate limit will reset.",
+      label: { confirm: ru() ? tr("Reset") : "Reset", cancel: ru() ? tr("Cancel") : "Cancel" },
     })
     if (accepted) props.run("reset")
   }
@@ -509,7 +510,7 @@ function WarpPage(props: { context: Plugin.Context; status: WarpStatus; busy: Sh
       <box flexDirection="row" justifyContent="space-between" alignItems="flex-start" gap={1}>
         <box flexGrow={1} minWidth={0}>
           <text fg={theme().text.base}><b>Cloudflare WARP</b></text>
-          <text fg={theme().text.muted} wrapMode="word">{ru() ? "Через WARP идёт только трафик OpenCode, остальные программы — напрямую." : "Only OpenCode traffic goes through WARP; other apps connect directly."}</text>
+          <text fg={theme().text.muted} wrapMode="word">{ru() ? tr("Only OpenCode's traffic goes through WARP; other apps connect directly.") : "Only OpenCode traffic goes through WARP; other apps connect directly."}</text>
         </box>
         <ActionButton context={props.context} id="warp.close" label="Esc" run={props.onClose} />
       </box>
@@ -519,21 +520,21 @@ function WarpPage(props: { context: Plugin.Context; status: WarpStatus; busy: Sh
           <text fg={theme().text.base}><b>{statusLabel(props.context, props.status.state)}</b></text>
           <text fg={theme().text.muted}>{pending() ? working() : ""}</text>
         </box>
-        <text fg={theme().text.muted} wrapMode="word">{props.status.state === "unavailable" ? (ru() ? "Cloudflare WARP не установлен. Нажми «Установить WARP…»." : "Cloudflare WARP is not installed. Press “Install WARP…”.") : props.status.details}</text>
-        <text fg={theme().text.muted} wrapMode="none">{(ru() ? "Ваш IP: " : "Your IP: ") + (props.directIp || "…")}</text>
-        <text fg={props.exitIp ? theme().text.feedback.success.base : theme().text.muted} wrapMode="none">{(ru() ? "IP OpenCode: " : "OpenCode IP: ") + (props.exitIp || (props.proxyEnabled ? "…" : ru() ? "тот же (WARP выключен)" : "same (WARP off)"))}</text>
+        <text fg={theme().text.muted} wrapMode="word">{props.status.state === "unavailable" ? (ru() ? tr("Cloudflare WARP is not installed. Press “Install WARP…”.") : "Cloudflare WARP is not installed. Press “Install WARP…”.") : props.status.details}</text>
+        <text fg={theme().text.muted} wrapMode="none">{(ru() ? tr("Your IP: ") : "Your IP: ") + (props.directIp || "…")}</text>
+        <text fg={props.exitIp ? theme().text.feedback.success.base : theme().text.muted} wrapMode="none">{(ru() ? "IP OpenCode: " : "OpenCode IP: ") + (props.exitIp || (props.proxyEnabled ? "…" : ru() ? tr("the same (WARP off)") : "same (WARP off)"))}</text>
       </box>
       <box flexDirection="row" gap={1} flexWrap="wrap">
-        {props.status.state === "unavailable" && <ActionButton context={props.context} id="warp.install" label={ru() ? "Установить WARP…" : "Install WARP…"} run={() => props.run("install")} disabled={pending()} emphasized />}
-        <ActionButton context={props.context} id="warp.refresh" label={ru() ? "Статус" : "Refresh"} run={() => props.run("refresh")} disabled={pending()} />
-        {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.connect" label={ru() ? "Подключить" : "Connect"} run={() => props.run("connect")} disabled={pending() || props.status.state === "connected"} />}
-        {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.disconnect" label={ru() ? "Отключить" : "Disconnect"} run={() => props.run("disconnect")} disabled={pending() || props.status.state !== "connected"} />}
-        {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.reconnect" label={ru() ? "Переподключить" : "Reconnect"} run={() => props.run("reconnect")} disabled={pending()} />}
-        {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.proxy" label={props.proxyEnabled ? (ru() ? "Убрать прокси OpenCode" : "Disable OpenCode proxy") : (ru() ? "Только OpenCode через WARP…" : "Route only OpenCode through WARP…")} run={() => props.run(props.proxyEnabled ? "disableProxy" : "proxy")} disabled={pending()} emphasized={!props.proxyEnabled} />}
-        {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.changeIp" label={ru() ? "Сменить IP" : "Change IP"} run={() => props.run("changeIp")} disabled={pending() || !props.proxyEnabled} emphasized={props.proxyEnabled} />}
-        {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.reset" label={ru() ? "Сбросить регистрацию…" : "Reset registration…"} run={() => void reset()} disabled={pending()} />}
+        {props.status.state === "unavailable" && <ActionButton context={props.context} id="warp.install" label={ru() ? tr("Install WARP…") : "Install WARP…"} run={() => props.run("install")} disabled={pending()} emphasized />}
+        <ActionButton context={props.context} id="warp.refresh" label={ru() ? tr("Status") : "Refresh"} run={() => props.run("refresh")} disabled={pending()} />
+        {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.connect" label={ru() ? tr("Connect") : "Connect"} run={() => props.run("connect")} disabled={pending() || props.status.state === "connected"} />}
+        {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.disconnect" label={ru() ? tr("Disconnect") : "Disconnect"} run={() => props.run("disconnect")} disabled={pending() || props.status.state !== "connected"} />}
+        {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.reconnect" label={ru() ? tr("Reconnect") : "Reconnect"} run={() => props.run("reconnect")} disabled={pending()} />}
+        {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.proxy" label={props.proxyEnabled ? (ru() ? tr("Remove the OpenCode proxy") : "Disable OpenCode proxy") : (ru() ? tr("Only OpenCode through WARP…") : "Route only OpenCode through WARP…")} run={() => props.run(props.proxyEnabled ? "disableProxy" : "proxy")} disabled={pending()} emphasized={!props.proxyEnabled} />}
+        {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.changeIp" label={ru() ? tr("Change IP") : "Change IP"} run={() => props.run("changeIp")} disabled={pending() || !props.proxyEnabled} emphasized={props.proxyEnabled} />}
+        {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.reset" label={ru() ? tr("Reset registration…") : "Reset registration…"} run={() => void reset()} disabled={pending()} />}
       </box>
-      <box gap={1}><text fg={theme().text.muted} wrapMode="word">{ru() ? "Reconnect, Сменить IP и Сброс работают в режиме Local Proxy. Сброс — только для личного WARP." : "Reconnect, Change IP and Reset work in Local Proxy mode. Reset is for personal WARP only."}</text></box>
+      <box gap={1}><text fg={theme().text.muted} wrapMode="word">{ru() ? tr("Reconnect, Change IP and Reset work in Local Proxy mode. Reset is for personal WARP only.") : "Reconnect, Change IP and Reset work in Local Proxy mode. Reset is for personal WARP only."}</text></box>
     </box>
   )
 }
@@ -711,7 +712,7 @@ export default Plugin.define({
           return
         }
         if ((await Warp.mode()).mode !== "proxy") {
-          throw new Warp.WarpError("not-proxy-mode", text(context, "WARP must be in Local Proxy mode for automatic IP changes.", "Для авто-смены IP WARP должен работать в режиме Local Proxy."))
+          throw new Warp.WarpError("not-proxy-mode", text(context, "WARP must be in Local Proxy mode for automatic IP changes.", tr("Automatic IP change needs WARP in Local Proxy mode.")))
         }
         const ready = await setupLocalProxy(context)
         setSharedStatus(updateStatus, ready)
@@ -719,8 +720,8 @@ export default Plugin.define({
         gate.started()
         setAutoRotation({ phase: "rotating", at: Date.now() })
         context.ui.toast.show({
-          title: text(context, "Provider/network error detected", "Обнаружена сетевая ошибка"),
-          message: text(context, "Repairing the WARP route and changing the OpenCode exit IP…", "Исправляю маршрут WARP и меняю внешний IP OpenCode…"),
+          title: text(context, "Provider/network error detected", tr("Network error detected")),
+          message: text(context, "Repairing the WARP route and changing the OpenCode exit IP…", tr("Fixing the WARP route and changing OpenCode's exit IP…")),
           variant: "info",
         })
         const rotation = await Warp.rotate()
@@ -736,10 +737,10 @@ export default Plugin.define({
         await refreshProxy()
         await refreshExitIp({ force: true })
         context.ui.toast.show({
-          title: text(context, "Automatic IP change finished", "Автоматическая смена IP завершена"),
+          title: text(context, "Automatic IP change finished", tr("Automatic IP change finished")),
           message: rotation.changed
-            ? text(context, "OpenCode now uses a different WARP exit IP.", "OpenCode теперь использует другой внешний IP WARP.")
-            : text(context, "WARP reconnected, but a new IP could not be confirmed. The provider may still apply the same limit.", "WARP переподключён, но новый IP подтвердить не удалось. Провайдер может продолжить применять тот же лимит."),
+            ? text(context, "OpenCode now uses a different WARP exit IP.", tr("OpenCode now uses a different WARP exit IP."))
+            : text(context, "WARP reconnected, but a new IP could not be confirmed. The provider may still apply the same limit.", tr("WARP reconnected, but the new IP could not be confirmed. The provider may keep applying the same limit.")),
           variant: rotation.changed ? "success" : "info",
         })
         if (rotation.changed) cappedModels.clear()
@@ -751,7 +752,7 @@ export default Plugin.define({
       } catch (cause) {
         setAutoRotation({ phase: "failed", at: Date.now(), message: describe(context, cause) })
         context.ui.toast.show({
-          title: text(context, "Automatic IP change failed", "Не удалось автоматически сменить IP"),
+          title: text(context, "Automatic IP change failed", tr("Could not change the IP automatically")),
           message: describe(context, cause),
           variant: "error",
         })
@@ -846,11 +847,11 @@ export default Plugin.define({
       if (resumed === 0 || options.fallback) return
       continuationRetryIndex = 0
       context.ui.toast.show({
-        title: text(context, "Rate limit: chats resumed", "Лимит провайдера: чаты продолжаются"),
+        title: text(context, "Rate limit: chats resumed", tr("Provider limit: chats continue")),
         message: text(
           context,
           `${resumed} ${resumed === 1 ? "chat" : "chats"} stopped by the rate limit continue automatically.`,
-          `${resumed} ${resumed === 1 ? "чат" : "чатов"}, остановленных лимитом, продолжаются автоматически.`,
+          tr(resumed === 1 ? "{count} chat stopped by the limit continues automatically." : "{count} chats stopped by the limit continue automatically.", { count: resumed }),
         ),
         variant: "success",
       })
@@ -863,16 +864,16 @@ export default Plugin.define({
 
     function announceFallback(title: string | undefined, from: { readonly id: string } | undefined, to: string, reason: "rotation-paused" | "address-unchanged" | "warp-unavailable") {
       const why = {
-        "rotation-paused": text(context, "WARP already changed the IP recently without effect, so it is paused.", "WARP недавно уже менял IP без результата и стоит на паузе."),
-        "address-unchanged": text(context, "WARP reconnected but kept the same IP.", "WARP переподключился, но IP остался прежним."),
-        "warp-unavailable": text(context, "WARP could not change the IP.", "WARP не смог сменить IP."),
+        "rotation-paused": text(context, "WARP already changed the IP recently without effect, so it is paused.", tr("WARP recently changed the IP without effect and is paused.")),
+        "address-unchanged": text(context, "WARP reconnected but kept the same IP.", tr("WARP reconnected, but the IP stayed the same.")),
+        "warp-unavailable": text(context, "WARP could not change the IP.", tr("WARP could not change the IP.")),
       }[reason]
       context.ui.toast.show({
-        title: text(context, "Model changed: free-tier IP limit", "Модель сменена: лимит бесплатного тарифа на IP"),
+        title: text(context, "Model changed: free-tier IP limit", tr("Model switched: free plan IP limit")),
         message:
           (title ? `«${title}»: ` : "") +
           `${from?.id ?? "?"} → ${to}. ` +
-          text(context, "Zen's free tier for this model is used up on this IP. ", "Бесплатный лимит Zen для этой модели на этом IP исчерпан. ") +
+          text(context, "Zen's free tier for this model is used up on this IP. ", tr("The free Zen limit for this model on this IP is used up. ")) +
           why,
         variant: "warning",
         duration: 15_000,
@@ -911,8 +912,8 @@ export default Plugin.define({
         await refreshExitIp({ force: true })
         Warp.log(`automatic WARP switch-on for the free-tier cap: direct=${before?.ip ?? "?"} warp=${after?.ip ?? "?"}`)
         context.ui.toast.show({
-          title: text(context, "Free-tier IP limit: WARP switched on", "Лимит бесплатного тарифа на IP: WARP включён"),
-          message: text(context, "Only OpenCode now goes through WARP, and Auto IP is on. Other apps are unchanged.", "Теперь только OpenCode идёт через WARP, Авто IP включён. Остальные программы не затронуты."),
+          title: text(context, "Free-tier IP limit: WARP switched on", tr("Free plan IP limit: WARP turned on")),
+          message: text(context, "Only OpenCode now goes through WARP, and Auto IP is on. Other apps are unchanged.", tr("Only OpenCode goes through WARP now, Auto IP is on. Other apps are not affected.")),
           variant: "info",
         })
         const changed = Boolean(before && after && before.ip !== after.ip)
@@ -978,17 +979,17 @@ export default Plugin.define({
           const installed = await installWarp(context)
           infoOnly = !installed
           next = await readWarpStatus()
-          actionMessage = installed ? text(context, "Installer finished. WARP remains disconnected until you explicitly enable OpenCode-only routing.", "Установщик завершён. WARP остаётся отключённым, пока ты явно не включишь маршрутизацию только OpenCode.") : text(context, "Opened installation guidance. WARP is not confirmed installed yet.", "Открыта инструкция по установке. Установка WARP пока не подтверждена.")
+          actionMessage = installed ? text(context, "Installer finished. WARP remains disconnected until you explicitly enable OpenCode-only routing.", tr("The installer finished. WARP stays off until you explicitly turn on routing for OpenCode only.")) : text(context, "Opened installation guidance. WARP is not confirmed installed yet.", tr("The installation guide is open. WARP installation is not confirmed yet."))
         } else if (action === "proxy") {
           next = await setupLocalProxy(context)
           updateProxy((draft) => { draft.enabled = true })
-          actionMessage = text(context, "Only OpenCode is configured to use WARP. Other apps are unchanged.", "Только OpenCode настроен на WARP. Настройки остальных приложений не изменены.")
+          actionMessage = text(context, "Only OpenCode is configured to use WARP. Other apps are unchanged.", tr("Only OpenCode is set to use WARP. Other apps' settings are unchanged."))
         } else if (action === "disableProxy") {
           await setOpenCodeProxy(context, false)
           updateProxy((draft) => { draft.enabled = false })
           Warp.releaseSync({ disconnect: false })
           next = await readWarpStatus()
-          actionMessage = text(context, "OpenCode now connects directly. Other apps were not changed.", "OpenCode теперь подключается напрямую. Настройки остальных приложений не изменены.")
+          actionMessage = text(context, "OpenCode now connects directly. Other apps were not changed.", tr("OpenCode now connects directly. Other apps' settings are unchanged."))
         } else if (action === "changeIp") {
           gate.started()
           const rotation = await Warp.rotate()
@@ -996,8 +997,8 @@ export default Plugin.define({
           if (rotation.changed) setAutoRotation({ phase: "changed", at: Date.now(), from: rotation.before?.ip, to: rotation.after?.ip })
           next = rotation.status
           actionMessage = rotation.changed
-            ? text(context, "OpenCode now uses a different WARP exit IP.", "OpenCode теперь использует другой внешний IP WARP.")
-            : text(context, "WARP reconnected, but a new IP could not be confirmed.", "WARP переподключён, но новый IP подтвердить не удалось.")
+            ? text(context, "OpenCode now uses a different WARP exit IP.", tr("OpenCode now uses a different WARP exit IP."))
+            : text(context, "WARP reconnected, but a new IP could not be confirmed.", tr("WARP reconnected, but the new IP could not be confirmed."))
           await refreshProxy()
           await refreshExitIp({ force: true })
           if (rotation.changed) cappedModels.clear()
@@ -1007,12 +1008,12 @@ export default Plugin.define({
         }
         setSharedStatus(updateStatus, next)
         if (action !== "refresh") {
-          context.ui.toast.show({ title: text(context, "WARP action finished", "Операция WARP завершена"), message: actionMessage ?? (statusLabel(context, next.state) + ": " + next.details.slice(0, 240)), variant: infoOnly ? "info" : action === "install" || action === "proxy" || action === "disableProxy" ? "success" : next.state === "connected" ? "success" : "info" })
+          context.ui.toast.show({ title: text(context, "WARP action finished", tr("WARP operation finished")), message: actionMessage ?? (statusLabel(context, next.state) + ": " + next.details.slice(0, 240)), variant: infoOnly ? "info" : action === "install" || action === "proxy" || action === "disableProxy" ? "success" : next.state === "connected" ? "success" : "info" })
         }
       } catch (cause) {
         const message = describe(context, cause)
         setSharedStatus(updateStatus, action === "install" ? await readWarpStatus() : warpStatusError(message))
-        context.ui.toast.show({ title: text(context, "WARP action failed", "Ошибка WARP"), message, variant: "error" })
+        context.ui.toast.show({ title: text(context, "WARP action failed", tr("WARP error")), message, variant: "error" })
       } finally {
         setSharedBusy(updateBusy, null)
         if (rateLimitRotationRequested) void runQueuedRateLimitRotation()
@@ -1035,14 +1036,14 @@ export default Plugin.define({
           draft.optedOut = !enabled
         })
         context.ui.toast.show({
-          title: enabled ? text(context, "Auto IP enabled", "Авто-смена IP включена") : text(context, "Auto IP disabled", "Авто-смена IP выключена"),
+          title: enabled ? text(context, "Auto IP enabled", tr("Auto IP change on")) : text(context, "Auto IP disabled", tr("Auto IP change off")),
           message: enabled
-            ? text(context, "WARP will change IP on RateLimit and transient connection errors such as ECONNREFUSED.", "WARP будет менять IP при RateLimit и временных сетевых ошибках, например ECONNREFUSED.")
-            : text(context, "WARP will keep its current IP until you change it manually.", "WARP сохранит текущий IP, пока ты не сменишь его вручную."),
+            ? text(context, "WARP will change IP on RateLimit and transient connection errors such as ECONNREFUSED.", tr("WARP will change the IP on RateLimit and on temporary network errors such as ECONNREFUSED."))
+            : text(context, "WARP will keep its current IP until you change it manually.", tr("WARP keeps the current IP until you change it by hand.")),
           variant: "info",
         })
       } catch (cause) {
-        context.ui.toast.show({ title: text(context, "Could not save Auto IP setting", "Не удалось сохранить настройку авто-IP"), message: messageOf(cause), variant: "error" })
+        context.ui.toast.show({ title: text(context, "Could not save Auto IP setting", tr("Could not save the auto IP setting")), message: messageOf(cause), variant: "error" })
       }
     }
 
@@ -1053,7 +1054,7 @@ export default Plugin.define({
     }
 
     context.ui.slot({ append: "app", render() {
-      context.keymap.layer(() => ({ mode: "global", commands: [{ id: "opencode.warp.open", title: text(context, "Cloudflare WARP controls", "Управление Cloudflare WARP"), description: text(context, "View status, connect, reconnect, or reset registration", "Статус, подключение, переподключение и сброс регистрации"), group: "System", slash: { name: "warp", arguments: true }, palette: true, run: open }] }))
+      context.keymap.layer(() => ({ mode: "global", commands: [{ id: "opencode.warp.open", title: text(context, "Cloudflare WARP controls", tr("Cloudflare WARP control")), description: text(context, "View status, connect, reconnect, or reset registration", tr("Status, connect, reconnect and registration reset")), group: "System", slash: { name: "warp", arguments: true }, palette: true, run: open }] }))
       return null
     }})
     context.ui.slot({ append: "sidebar.content", render: () => <WarpSidebar context={context} status={status} busy={busy} proxyEnabled={proxy.enabled} autoRotateEnabled={autoRotate.enabled} autoRotation={autoRotation.state} exitIp={exit.ip} directIp={exit.direct} open={open} toggleProxy={() => void perform(proxy.enabled ? "disableProxy" : "proxy")} toggleAutoRotate={() => void toggleAutoRotate()} /> })
@@ -1079,8 +1080,8 @@ export default Plugin.define({
         updateProxy((draft) => { draft.enabled = true })
         await refreshExitIp({ force: true })
         context.ui.toast.show({
-          title: text(context, "WARP route restored", "Маршрут WARP восстановлен"),
-          message: text(context, "OpenCode is routed through WARP again. Other apps are unchanged.", "OpenCode снова идёт через WARP. Настройки остальных приложений не изменены."),
+          title: text(context, "WARP route restored", tr("WARP route restored")),
+          message: text(context, "OpenCode is routed through WARP again. Other apps are unchanged.", tr("OpenCode goes through WARP again. Other apps' settings are unchanged.")),
           variant: "success",
         })
       } catch (cause) {

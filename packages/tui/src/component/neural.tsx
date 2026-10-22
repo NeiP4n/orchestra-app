@@ -18,7 +18,7 @@ import { hoverBackground } from "../ui/hover"
 // `energy` (0..1) is how busy the agents are: more and faster impulses, brighter nodes.
 
 export type NeuralPalette = Readonly<{ signal: RGBA; synapse: RGBA; spark: RGBA; dormant: RGBA }>
-type Kind = "field" | "line" | "dot"
+type Kind = "field" | "line" | "dot" | "axon"
 
 // Themes written before the neural role existed keep a calm monochrome network.
 export function neuralPalette(theme: ResolvedTheme): NeuralPalette {
@@ -43,13 +43,17 @@ export function useNeuralEnergy() {
   })
 }
 
+// The network never stops moving while motion is on, so a test run (which waits for quiet frames)
+// sees it still unless a test asks for it with ORCHESTRA_MOTION=1.
 export function useMotion() {
   const config = useConfig().data
-  return () => (config.animations ?? true) && process.env.ORCHESTRA_NO_MOTION !== "1"
+  const still = process.env.ORCHESTRA_NO_MOTION === "1" || (process.env.NODE_ENV === "test" && process.env.ORCHESTRA_MOTION !== "1")
+  return () => (config.animations ?? true) && !still
 }
 
 const TRANSPARENT = RGBA.fromValues(0, 0, 0, 0)
-const MAX_PULSES = 48
+const MAX_PULSES = 64
+const RIPPLE_SECONDS = 0.9
 
 type NeuralCanvasOptions = BoxOptions & {
   kind?: Kind
@@ -58,6 +62,7 @@ type NeuralCanvasOptions = BoxOptions & {
   energy?: number
   enabled?: boolean
   seed?: number
+  stimulus?: number
 }
 
 type Node = { x: number; y: number; flash: number; edges: number[] }
@@ -77,6 +82,13 @@ export class NeuralCanvasRenderable extends BoxRenderable {
   private edges: Edge[] = []
   private impulses: Impulse[] = []
   private builtFor = ""
+  private ripples: { x: number; y: number; age: number }[] = []
+  private touched = 0
+  // The axon's message-to-message impulse: where it is, where the newest message ends, and the
+  // glow it leaves on arrival.
+  private travel: { at: number; to: number } | undefined
+  private arrival = 0
+  private lastHeight = 0
 
   constructor(ctx: RenderContext, options: NeuralCanvasOptions) {
     super(ctx, options)
@@ -87,6 +99,23 @@ export class NeuralCanvasRenderable extends BoxRenderable {
     this._enabled = options.enabled ?? true
     this._seed = options.seed ?? 7
     this.live = this._enabled
+    // The field answers the pointer: passing over it excites the nearest neuron, a click sends a wave.
+    this.onMouseMove = (event) => {
+      if (this._kind !== "field" || !this._enabled || this.time - this.touched < 90) return
+      this.touched = this.time
+      this.poke(event.x - this.screenX, event.y - this.screenY, false)
+    }
+    this.onMouseDown = (event) => {
+      if (this._kind !== "field" || !this._enabled) return
+      this.poke(event.x - this.screenX, event.y - this.screenY, true)
+    }
+  }
+
+  // Each change of the stimulus (a keystroke, a sent message) fires a neuron somewhere in the mesh.
+  set stimulus(value: number) {
+    if (!value || this._kind !== "field" || !this._enabled || this.nodes.length === 0) return
+    const node = this.nodes[Math.floor(Math.random() * this.nodes.length)]!
+    this.poke(node.x, node.y, false)
   }
 
   set kind(value: Kind) {
@@ -125,6 +154,7 @@ export class NeuralCanvasRenderable extends BoxRenderable {
     this.time += dt
     if (this._kind === "dot") return this.paintDot(buffer, palette)
     if (this._kind === "line") return this.paintLine(buffer, palette)
+    if (this._kind === "axon") return this.paintAxon(buffer, palette, dt)
     this.build()
     this.step(dt)
     this.paintField(buffer, palette)
@@ -173,6 +203,55 @@ export class NeuralCanvasRenderable extends BoxRenderable {
     }
   }
 
+  // A vertical nerve down the conversation: impulses run from each message to the next. Only the
+  // rows on screen are painted, so a long transcript costs no more than a short one.
+  private paintAxon(buffer: OptimizedBuffer, palette: NeuralPalette, dt: number) {
+    // The transcript grew: an impulse leaves the end of the previous message and runs down to the
+    // new one. While an answer streams the impulse keeps chasing its growing end.
+    if (this.lastHeight > 0 && this.height > this.lastHeight) {
+      this.travel = { at: this.travel?.at ?? Math.max(0, this.lastHeight - 6), to: this.height - 1 }
+    }
+    this.lastHeight = this.height
+    if (this.travel && dt > 0) {
+      this.travel.at += (dt / 1000) * (28 + (this.travel.to - this.travel.at) * 2)
+      if (this.travel.at >= this.travel.to) {
+        this.travel = undefined
+        this.arrival = 1
+      }
+    }
+    this.arrival = Math.max(0, this.arrival - (dt / 1000) * 1.1)
+    const spacing = 12
+    const speed = 6 + this._energy * 30
+    const offset = ((this.time / 1000) * speed) % spacing
+    const first = Math.max(0, -this.screenY)
+    const last = Math.min(this.height, buffer.height - this.screenY)
+    const rest = this.glow(this._backdrop, palette.synapse, 0.85)
+    for (let y = first; y < last; y++) {
+      const chase = this.travel ? this.travel.at - y : -1
+      if (chase >= 0 && chase < 8) {
+        this.cell(buffer, 0, y, chase < 1 ? "┃" : "│", this.glow(palette.signal, palette.spark, 1 - chase / 8))
+        continue
+      }
+      // The newest message's end glows for a moment after the impulse lands on it.
+      const tail = this.height - 1 - y
+      if (this.arrival > 0 && tail >= 0 && tail < 4) {
+        this.cell(buffer, 0, y, "┃", this.glow(rest, palette.spark, this.arrival * (1 - tail / 4)))
+        continue
+      }
+      // How far this row sits behind the nearest impulse travelling down.
+      const behind = (((offset - y) % spacing) + spacing) % spacing
+      if (!this._enabled || behind > 3.5) {
+        this.cell(buffer, 0, y, "│", rest)
+        continue
+      }
+      if (behind < 1) {
+        this.cell(buffer, 0, y, "┃", palette.signal)
+        continue
+      }
+      this.cell(buffer, 0, y, "│", this.glow(rest, palette.signal, 1 - behind / 4))
+    }
+  }
+
   // Nodes are scattered by a seeded generator so the same terminal size always draws the same mesh.
   private build() {
     const key = `${this.width}x${this.height}:${this._seed}`
@@ -213,6 +292,7 @@ export class NeuralCanvasRenderable extends BoxRenderable {
     if (dt <= 0 || this.edges.length === 0) return
     const seconds = dt / 1000
     this.nodes.forEach((node) => (node.flash = Math.max(0, node.flash - seconds * 1.6)))
+    this.ripples = this.ripples.filter((ripple) => (ripple.age += seconds) < RIPPLE_SECONDS)
     // Background firing: a few impulses a second at rest, a storm while agents work.
     this.spawn += seconds * (0.8 + this._energy * 9)
     while (this.spawn >= 1) {
@@ -238,6 +318,28 @@ export class NeuralCanvasRenderable extends BoxRenderable {
       if (onward.length === 0 || Math.random() > 0.72 - impulse.hops * 0.12 + this._energy * 0.2) return
       const next = onward[Math.floor(Math.random() * onward.length)]!
       this.fire(next, this.edges[next]!.a === target ? 1 : -1, impulse.hops + 1)
+    })
+  }
+
+  // Excite the neuron nearest to a cell: it flashes and fires down every link; a strong poke
+  // also sends a ring across the field and wakes the neurons the ring passes.
+  private poke(x: number, y: number, strong: boolean) {
+    if (this.nodes.length === 0) return
+    const nearest = this.nodes.reduce(
+      (best, node, index) => {
+        const d = Math.hypot((node.x - x) / 2, node.y - y)
+        return d < best.d ? { index, d } : best
+      },
+      { index: 0, d: Infinity },
+    )
+    const node = this.nodes[nearest.index]!
+    node.flash = 1
+    node.edges.forEach((edge) => this.fire(edge, this.edges[edge]!.a === nearest.index ? 1 : -1, strong ? 0 : 1))
+    if (!strong) return
+    this.ripples.push({ x, y, age: 0 })
+    this.nodes.forEach((other) => {
+      const d = Math.hypot((other.x - x) / 2, other.y - y)
+      if (d < 9) other.flash = Math.max(other.flash, 1 - d / 9)
     })
   }
 
@@ -271,6 +373,22 @@ export class NeuralCanvasRenderable extends BoxRenderable {
       }
       const cell = cells[head]
       if (cell) this.cell(buffer, cell[0], cell[1], "•", color)
+    })
+    // A ring grows from a click, twice as wide as tall to look round in terminal cells, fading as it goes.
+    this.ripples.forEach((ripple) => {
+      const radius = 2 + ripple.age * 22
+      const fade = 1 - ripple.age / RIPPLE_SECONDS
+      const steps = Math.max(12, Math.round(radius * 5))
+      for (let step = 0; step < steps; step++) {
+        const angle = (step / steps) * Math.PI * 2
+        this.cell(
+          buffer,
+          Math.round(ripple.x + Math.cos(angle) * radius * 2),
+          Math.round(ripple.y + Math.sin(angle) * radius),
+          fade > 0.5 ? "∘" : "·",
+          this.glow(this._backdrop, palette.signal, fade),
+        )
+      }
     })
     this.nodes.forEach((node) => {
       const base = this.glow(palette.dormant, palette.signal, 0.28 + this._energy * 0.2)
@@ -322,10 +440,12 @@ type CanvasLayout = {
 }
 
 // A mesh of neurons filling its box, meant to sit behind content.
-export function NeuronField(props: CanvasLayout & { energy?: number; seed?: number; backdrop?: RGBA }) {
+export function NeuronField(
+  props: CanvasLayout & { energy?: number; seed?: number; backdrop?: RGBA; stimulus?: number },
+) {
   const theme = useTheme()
   const motion = useMotion()
-  const [own, layout] = splitProps(props, ["energy", "seed", "backdrop"])
+  const [own, layout] = splitProps(props, ["energy", "seed", "backdrop", "stimulus"])
   return (
     <neural_canvas
       {...layout}
@@ -334,7 +454,30 @@ export function NeuronField(props: CanvasLayout & { energy?: number; seed?: numb
       backdrop={own.backdrop ?? theme.background.base}
       energy={own.energy ?? 0.2}
       seed={own.seed ?? 7}
+      stimulus={own.stimulus ?? 0}
       enabled={motion()}
+    />
+  )
+}
+
+// The nerve beside a conversation. It runs only while the agent works and for a moment after a
+// message lands, so an idle transcript costs nothing to keep on screen.
+export function NeuralAxon(props: { active: boolean; energy?: number }) {
+  const theme = useTheme()
+  const motion = useMotion()
+  return (
+    <neural_canvas
+      kind="axon"
+      position="absolute"
+      left={1}
+      top={0}
+      width={1}
+      height="100%"
+      zIndex={0}
+      palette={neuralPalette(theme)}
+      backdrop={theme.background.base}
+      energy={props.energy ?? 0.5}
+      enabled={motion() && props.active}
     />
   )
 }

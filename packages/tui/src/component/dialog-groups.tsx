@@ -1,3 +1,4 @@
+import { tr } from "../util/i18n"
 import { TextAttributes, type InputRenderable } from "@opentui/core"
 import { createResource, createSignal, For, Show } from "solid-js"
 import { useConfig } from "../config"
@@ -161,11 +162,11 @@ export function DialogGroups(props: { onClose?: () => void }) {
                   {opening() === group.name
                     ? t("Creating...")
                     : group.supervisor
-                      ? (modeOf(group) === "council" ? "★ Общество · Открыть" : "★ Президент · Открыть")
-                      : (modeOf(group) === "council" ? "+ Создать Общество" : "+ Создать Президента")}
+                      ? (modeOf(group) === "council" ? tr("★ Society · Open") : tr("★ President · Open"))
+                      : (modeOf(group) === "council" ? tr("+ Create Society") : tr("+ Create President"))}
                 </Button>
                 <Show when={modeOf(group) === "council"}>
-                  <text fg={theme.text.muted}>{`${group.projects.length} ${group.projects.length === 1 ? "оркестратор" : "оркестратора"} · ${projectNames(group).join(", ")}`}</text>
+                  <text fg={theme.text.muted}>{tr(group.projects.length === 1 ? "{count} orchestrator · {names}" : "{count} orchestrators · {names}", { count: group.projects.length, names: projectNames(group).join(", ") })}</text>
                 </Show>
               </box>
               <text fg={theme.text.muted} wrapMode="word">

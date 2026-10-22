@@ -3,6 +3,12 @@ import { readFileSync } from "node:fs"
 import { GUIDE, KINDS, parse, type Segment, type Widget } from "../src/widgets/parse"
 import { activate, browsable, needsAnswer, pending, press, reply, type Key, type Outcome } from "../src/widgets/press"
 import { clip, render, type Focus } from "../src/widgets/render"
+import { afterAll, beforeAll } from "bun:test"
+import { setActiveLanguage } from "../src/util/i18n"
+
+// These modules draw their texts through the active language; the expectations below are Russian.
+beforeAll(() => setActiveLanguage("ru"))
+afterAll(() => setActiveLanguage("en"))
 
 function widget(source: string): Widget {
   const found = parse(source).find((segment): segment is Extract<Segment, { type: "widget" }> => segment.type === "widget")

@@ -21,7 +21,7 @@ import { useData } from "../../context/data"
 import { FlowRule } from "../../component/flow-rule"
 import { ErrorCard, FoldedText } from "./fold"
 import { SplitBorder } from "../../ui/border"
-import { neuralPalette } from "../../component/neural"
+import { NeuralAxon, neuralPalette } from "../../component/neural"
 import { tint } from "../../theme/color"
 import { hoverBackground } from "../../ui/hover"
 import { useTuiTerminalEnvironment } from "../../context/runtime"
@@ -1550,6 +1550,7 @@ export function Session(props: {
                   updateAwayFromBottom()
                 }}
               >
+                <TranscriptAxon sessionID={route.sessionID} />
                 <For each={visibleRows()}>
                   {(row, index) => (
                     <SessionRowView
@@ -1759,6 +1760,7 @@ export function SessionTranscript(props: { sessionID: string; width: number; can
         minHeight={0}
         scrollAcceleration={getScrollAcceleration(config)}
       >
+        <TranscriptAxon sessionID={props.sessionID} />
         <For each={rows}>
           {(row, index) => (
             <SessionRowView
@@ -1771,6 +1773,27 @@ export function SessionTranscript(props: { sessionID: string; width: number; can
       </scrollbox>
     </context.Provider>
   )
+}
+
+// The nerve that runs down the conversation, from each message to the answer below it. It fires
+// while the agent works and for a few seconds after anything new lands in the transcript.
+function TranscriptAxon(props: { sessionID: string }) {
+  const data = useData()
+  const running = () => data.session.status(props.sessionID) === "running"
+  const count = () => data.session.message.list(props.sessionID).length
+  const [fresh, setFresh] = createSignal(false)
+  createEffect(
+    on(
+      count,
+      () => {
+        setFresh(true)
+        const timer = setTimeout(() => setFresh(false), 3500)
+        onCleanup(() => clearTimeout(timer))
+      },
+      { defer: true },
+    ),
+  )
+  return <NeuralAxon active={running() || fresh()} energy={running() ? 0.85 : 0.35} />
 }
 
 type SessionRowViewProps = {
@@ -2172,10 +2195,10 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
         </box>
       </Show>
       <AssistantRetry retry={retry()} />
-      {/* The signature closes the assistant's dendrite: a node in the agent's color, then the details. */}
+      {/* The signature branches off the conversation's nerve: a node in the agent's color, then the details. */}
       <box paddingLeft={1} marginTop={retry() || (props.message.error && !interrupted()) ? 1 : 0}>
         <text>
-          <span style={{ fg: neuralPalette(theme).synapse }}>╰─</span>
+          <span style={{ fg: neuralPalette(theme).synapse }}>├─</span>
           <span style={{ fg: props.message.error ? theme.text.feedback.error.base : local.agent.color(props.message.agent) }}>
             {props.message.error && !interrupted() ? "✕ " : "◉ "}
           </span>
@@ -2513,6 +2536,8 @@ function UserMessage(props: { message: SessionMessageUser }) {
   }
 
   const t = useT()
+  // The bubble is set in from the left; the gap is where the synapse from the nerve runs.
+  const gutter = () => Math.max(4, Math.min(16, Math.floor(ctx.terminal.width / 8)))
   const council = createMemo(() => Federation.parseCouncilResults(props.message.text))
   return (
     <Show when={council()} fallback={plain()}>
@@ -2525,6 +2550,13 @@ function UserMessage(props: { message: SessionMessageUser }) {
     <Show when={props.message.text.trim() || files().length || skills().length}>
       {/* The person's words sit in a rounded bubble set in from the left, so the conversation
           reads as two voices: the bubble on one side, the assistant's dendrite on the other. */}
+      {/* A synapse leaves the conversation's nerve in the gutter and ends at the bubble. */}
+      <box flexDirection="row">
+      <box width={gutter()} flexShrink={0} paddingTop={1}>
+        <text fg={hover() ? neuralPalette(theme).signal : neuralPalette(theme).synapse} wrapMode="none" selectable={false}>
+          {` ●${"─".repeat(Math.max(0, gutter() - 2))}`}
+        </text>
+      </box>
       <box
         border
         borderStyle="rounded"
@@ -2534,7 +2566,8 @@ function UserMessage(props: { message: SessionMessageUser }) {
         title={` ${guest() ?? t("You")} `}
         titleAlignment="right"
         titleColor={hover() ? neuralPalette(theme).signal : theme.text.muted}
-        marginLeft={Math.min(16, Math.floor(ctx.terminal.width / 8))}
+        flexGrow={1}
+        minWidth={0}
       >
         <SessionImages images={images()} paddingLeft={2} />
         <box
@@ -2630,6 +2663,7 @@ function UserMessage(props: { message: SessionMessageUser }) {
             </box>
           </Show>
         </box>
+      </box>
       </box>
     </Show>
     )

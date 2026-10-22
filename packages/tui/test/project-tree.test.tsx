@@ -297,7 +297,7 @@ test("the orchestrator council mode button saves the group mode when clicked", a
   )
   await setup.waitForFrame(
     (frame) =>
-      frame.includes("★ Общество · Открыть") &&
+      frame.includes("★ Society · Open") &&
       frame.includes("To use the council, open Society above") &&
       frame.includes("Changing the mode alone does not send tasks"),
   )
@@ -312,12 +312,12 @@ test("a group's own chat is listed under the group, not under a member project",
   })
 
   const frame = await setup.waitForFrame(
-    (frame) => frame.includes("Games") && frame.includes("★ Общество") && frame.includes("Worker task"),
+    (frame) => frame.includes("Games") && frame.includes("★ Society") && frame.includes("Worker task"),
     { maxPasses: 100 },
   )
   const lines = frame.split("\n")
   const group = lines.findIndex((line) => line.includes("Games"))
-  const chat = lines.findIndex((line) => line.includes("★ Общество"))
+  const chat = lines.findIndex((line) => line.includes("★ Society"))
   const projectRow = lines.findIndex((line) => line.includes("Demo"))
   expect(chat).toBeGreaterThan(group)
   expect(chat).toBeLessThan(projectRow)
@@ -340,7 +340,7 @@ test("a group chat is not listed under the project whose directory contains it",
   const lines = settled.split(String.fromCharCode(10))
   expect(lines.filter((line) => line.includes("○ Общество"))).toHaveLength(0)
   expect(lines.filter((line) => line.includes("Worker task"))).toHaveLength(0)
-  expect(lines.filter((line) => line.includes("★ Общество"))).toHaveLength(1)
+  expect(lines.filter((line) => line.includes("★ Society"))).toHaveLength(1)
 }, 30_000)
 
 test("deleting a session takes two clicks on its ×", async () => {

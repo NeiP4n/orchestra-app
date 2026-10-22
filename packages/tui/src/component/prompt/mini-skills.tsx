@@ -492,7 +492,8 @@ function Chip(props: {
       flexShrink={0}
       paddingLeft={1}
       paddingRight={1}
-      backgroundColor={lit() ? hoverBackground(theme) : undefined}
+      // The resting fill matches the page, so the chip shows no block yet still takes the pointer.
+      backgroundColor={lit() ? hoverBackground(theme) : theme.background.base}
       onMouseOver={() => setHovered(true)}
       onMouseOut={() => setHovered(false)}
       onMouseDown={(event: MouseEvent) => {

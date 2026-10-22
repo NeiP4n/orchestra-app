@@ -19,6 +19,7 @@ import { useTerminalDimensions } from "@opentui/solid"
 import { Locale } from "../../util/locale"
 import type { PromptInfo, PromptPartRef } from "../../prompt/history"
 import { useFrecency } from "../../prompt/frecency"
+import { listedCommand } from "../../util/developer"
 import { Keymap, type KeymapCommand } from "../../context/keymap"
 import { displayCharAt, mentionTriggerIndex, slashTriggerIndex } from "../../prompt/display"
 import type { FileSystemEntry } from "@orchestra/client"
@@ -476,7 +477,7 @@ export function Autocomplete(props: {
   const commands = createMemo((): AutocompleteOption[] => {
     const results: AutocompleteOption[] = keymapCommands().flatMap((command) => {
       const slash = command.slash
-      if (!slash) return []
+      if (!slash || !listedCommand(command.id, config.developer)) return []
       // Keep aliases searchable, but render only the canonical command so aliases do not
       // create duplicate rows with identical descriptions and actions.
       return [{

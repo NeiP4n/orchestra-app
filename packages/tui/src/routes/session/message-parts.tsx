@@ -11,8 +11,7 @@ import { Spinner } from "../../component/spinner"
 import { createSyntaxStyleMemo, useTheme, useThemes } from "../../context/theme"
 import { reasoningSummary } from "../../context/thinking"
 import { usePlugin } from "../../plugin/context"
-import { EmptyBorder, SplitBorder } from "../../ui/border"
-import { neuralPalette } from "../../component/neural"
+import { SplitBorder } from "../../ui/border"
 import { Locale } from "../../util/locale"
 import { use } from "./render-context"
 import { generateThinkingSyntax } from "./thinking-syntax"
@@ -204,16 +203,8 @@ export function TextPart(props: {
             when={segment.type === "widget" ? segment : undefined}
             fallback={
               <Show when={segment.type === "text" && segment.text.trim()}>
-                {/* The assistant speaks along a dendrite: a thin line on the left that carries
-                    the signal color while the answer streams and settles to a synapse when done. */}
-                <box
-                  marginLeft={1}
-                  paddingLeft={1}
-                  flexShrink={0}
-                  border={["left"]}
-                  customBorderChars={{ ...EmptyBorder, vertical: finished() ? "│" : "┃" }}
-                  borderColor={finished() ? neuralPalette(theme).synapse : neuralPalette(theme).signal}
-                >
+                {/* The conversation's nerve runs in the left gutter beside the answer (see TranscriptAxon). */}
+                <box paddingLeft={3} flexShrink={0}>
                   {/* Configure custom nodes before parsing; apply content before streaming so completion keeps the final tokens. */}
                   <markdown
                     syntaxStyle={syntax()}

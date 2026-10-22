@@ -1,3 +1,4 @@
+import { tr } from "../util/i18n"
 // The flow line above the prompt: one row that says whether the model is alive.
 //
 // It exists to answer a question the transcript cannot: "is it working, or is it stuck?". The
@@ -44,15 +45,15 @@ const seconds = (ms: number) => Math.max(0, Math.round(ms / 1000))
 export function flowLabel(mode: FlowMode, sample: FlowSample, rate: number) {
   switch (mode) {
     case "sent":
-      return "отправлено"
+      return tr("sent")
     case "waiting":
-      return `ждём ответа ${seconds(sample.now - (sample.lastGrowthAt ?? sample.startedAt ?? sample.now))} с`
+      return tr("waiting for an answer {seconds} s", { seconds: seconds(sample.now - (sample.lastGrowthAt ?? sample.startedAt ?? sample.now)) })
     case "streaming":
-      return rate > 0 ? `поток · ${Math.round(rate)} симв/с` : "поток"
+      return rate > 0 ? tr("stream · {rate} chars/s", { rate: Math.round(rate) }) : tr("stream")
     case "stalled":
-      return `нет данных ${seconds(sample.now - (sample.lastGrowthAt ?? sample.startedAt ?? sample.now))} с · Esc — прервать`
+      return tr("no data for {seconds} s · Esc to interrupt", { seconds: seconds(sample.now - (sample.lastGrowthAt ?? sample.startedAt ?? sample.now)) })
     case "done":
-      return `готово · ${seconds((sample.finishedAt ?? sample.now) - (sample.startedAt ?? sample.now))} с`
+      return tr("done · {seconds} s", { seconds: seconds((sample.finishedAt ?? sample.now) - (sample.startedAt ?? sample.now)) })
     case "idle":
       return ""
   }
