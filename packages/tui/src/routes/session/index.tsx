@@ -18,6 +18,7 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { useRoute, useRouteData } from "../../context/route"
 import { createStore } from "solid-js/store"
 import { useData } from "../../context/data"
+import { FlowRule } from "../../component/flow-rule"
 import { SplitBorder } from "../../ui/border"
 import { useTuiTerminalEnvironment } from "../../context/runtime"
 import { Spinner, SPINNER_FRAMES } from "../../component/spinner"
@@ -1664,6 +1665,7 @@ export function Session(props: {
                   />
                 </Match>
                 <Match when={!disabled()}>
+                  <FlowRule sessionID={route.sessionID} />
                   <Prompt
                     visible={true}
                     ref={bind}
