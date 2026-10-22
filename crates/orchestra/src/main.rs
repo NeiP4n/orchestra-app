@@ -1,3 +1,4 @@
+mod clipboard;
 mod config;
 mod tools;
 mod transports;
@@ -40,7 +41,10 @@ fn transport(config: &config::Config, human: bool) -> (Arc<dyn Transport>, Strin
     let transports: Vec<Arc<dyn Transport>> = config
         .endpoints
         .iter()
-        .map(|endpoint| Arc::new(Compatible::new(&endpoint.base, endpoint.key.clone(), &endpoint.model)) as Arc<dyn Transport>)
+        .map(|endpoint| match endpoint.base.as_str() {
+            "clipboard" => Arc::new(clipboard::Clipboard::new(Arc::new(clipboard::System), std::time::Duration::from_millis(400))) as Arc<dyn Transport>,
+            _ => Arc::new(Compatible::new(&endpoint.base, endpoint.key.clone(), &endpoint.model)) as Arc<dyn Transport>,
+        })
         .collect();
     let pool = Pool::new(transports);
     let label = pool.id();
@@ -58,11 +62,11 @@ fn ask(question: &str, default: &str) -> String {
 
 fn setup(home: &std::path::Path) {
     println!("{LINE}┌─ setup {DIM}{}{OFF}", dither(8, 0));
-    println!("{LINE}│{OFF} Any server with an OpenAI-compatible API works: a hosted service with your key, a local runtime, a gateway.");
+    println!("{LINE}│{OFF} Any server with an OpenAI-compatible API works. No key at all? Type `clipboard`: you paste each request into any chat you already use and copy the reply back.");
     let mut config = config::load(home);
     config.endpoints.clear();
     loop {
-        let base = ask("base URL", "https://api.openai.com/v1");
+        let base = ask("base URL (or `clipboard`)", "https://api.openai.com/v1");
         let key = ask("API key (empty if none)", "");
         let model = ask("model", "gpt-4o-mini");
         config.endpoints.push(config::Endpoint { base, key: (!key.is_empty()).then_some(key), model });
