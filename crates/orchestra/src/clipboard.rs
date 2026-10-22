@@ -91,7 +91,10 @@ impl Transport for Clipboard {
                 yield Err(TransportError::new("cannot write to the clipboard", ErrorKind::Fatal));
                 return;
             }
-            eprintln!("┆ request copied. Paste it into your chat, then copy the reply; it is picked up automatically.");
+            eprintln!("┆ Запрос уже в буфере обмена.
+┆   1) Откройте свой чат и вставьте запрос (Ctrl+V), отправьте.
+┆   2) Когда чат ответит, скопируйте его ответ целиком.
+┆   Больше ничего не нужно: я сам заберу ответ. Ждём...");
             if let Some(url) = &open {
                 browse(url);
             }
@@ -105,7 +108,7 @@ impl Transport for Clipboard {
                     break text;
                 }
             };
-            eprint!("┆ reply received
+            eprint!("┆ Ответ получен.
 ");
             for chunk in parse(&answer) {
                 yield Ok(chunk);
