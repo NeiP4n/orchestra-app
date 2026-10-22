@@ -75,6 +75,7 @@ import { DialogSessionList } from "./component/dialog-session-list"
 import { DialogOpen, DialogOpenKey, moveOpenSession } from "./component/dialog-open"
 import { ProjectTree } from "./component/project-tree"
 import { HomeProjectPanel } from "./component/home-project-panel"
+import { NeuralLine, useNeuralEnergy } from "./component/neural"
 import { RoomChat } from "./component/room-chat"
 import { basicSymbolsNeeded, replaceMissingGlyphs } from "./ui/console-glyphs"
 import { DialogConnect, DialogHost } from "./component/dialog-rooms"
@@ -87,9 +88,11 @@ import { ProjectsProvider } from "./context/projects"
 import { NotesProvider } from "./context/notes"
 import { NotesCommands } from "./component/notes-commands"
 import {
+  adaptivePanelWidth,
   clampHomeProjectPanelWidth,
   clampSessionTabsWidth,
   homeProjectPanelWidth,
+  panelWidthFromShare,
   sessionTabsFitVertically,
   SESSION_SIDEBAR_WIDTH,
   SESSION_TABS_COMPACT_LAYOUT_WIDTH,
@@ -495,6 +498,7 @@ function App() {
   const config = useConfig()
   const t = useT()
   const devtools = createMemo(() => config.data.debug?.devtools ?? app.channel === "local")
+  const neuralEnergy = useNeuralEnergy()
   const route = useRoute()
   const dimensions = useTerminalDimensions()
   const renderer = useRenderer()
@@ -540,31 +544,32 @@ function App() {
       .environment({ sessionID: session.id, variables: terminalEnvironment.variables })
       .catch(toast.error)
   })
+  // Panel widths are stored as shares of the terminal width, so a resized window keeps its proportions.
+  // Older absolute widths are ignored: they were taken on one screen size and starved others.
   const [layout, updateLayout] = useStorage().store<{
-    verticalTabsWidth?: number
-    compactTabsWidth?: number
-    homePanelWidth?: number
-  }>(
-    "layout",
-    {
-      initial: { verticalTabsWidth: SESSION_SIDEBAR_WIDTH },
-    },
-  )
+    verticalTabsShare?: number
+    compactTabsShare?: number
+    homePanelShare?: number
+  }>("layout", { initial: {} })
   // The compact layout remembers its own project panel width so switching back restores the full one.
   const layoutMode = useCompactLayout()
   const compact = layoutMode.compact
   const mobile = layoutMode.mobile
-  const defaultTabsWidth = () => (compact() ? SESSION_TABS_COMPACT_LAYOUT_WIDTH : SESSION_SIDEBAR_WIDTH)
+  const defaultTabsWidth = () =>
+    compact() ? SESSION_TABS_COMPACT_LAYOUT_WIDTH : adaptivePanelWidth(dimensions().width, SESSION_SIDEBAR_WIDTH)
   const tabsResize = createPaneResize({
-    value: () => (compact() ? layout.compactTabsWidth : layout.verticalTabsWidth) ?? defaultTabsWidth(),
+    value: () =>
+      panelWidthFromShare(compact() ? layout.compactTabsShare : layout.verticalTabsShare, dimensions().width) ??
+      defaultTabsWidth(),
     defaultValue: defaultTabsWidth,
     clamp: (width) => clampSessionTabsWidth(width, dimensions().width),
     fromMouse: (event) => event.x + 1,
     contains: (event, width) => event.x >= width - 1 && event.x <= width,
     onCommit: (width) => {
+      const share = width / Math.max(1, dimensions().width)
       void updateLayout((draft) => {
-        if (compact()) draft.compactTabsWidth = width
-        else draft.verticalTabsWidth = width
+        if (compact()) draft.compactTabsShare = share
+        else draft.verticalTabsShare = share
       }).catch((error) => console.error("Failed to persist TUI layout", error))
     },
   })
@@ -699,7 +704,7 @@ function App() {
   // always leaves at least 64 columns for the main prompt/chat.
   const defaultHomePanelWidth = () => homeProjectPanelWidth(dimensions().width, leftPanelOccupiedWidth())
   const homePanelResize = createPaneResize({
-    value: () => layout.homePanelWidth ?? defaultHomePanelWidth(),
+    value: () => panelWidthFromShare(layout.homePanelShare, dimensions().width) ?? defaultHomePanelWidth(),
     defaultValue: defaultHomePanelWidth,
     clamp: (width) => clampHomeProjectPanelWidth(width, dimensions().width - leftPanelOccupiedWidth()),
     fromMouse: (event) => dimensions().width - event.x - 1,
@@ -707,7 +712,7 @@ function App() {
       event.x >= dimensions().width - width - 1 && event.x <= dimensions().width - width,
     onCommit: (width) => {
       void updateLayout((draft) => {
-        draft.homePanelWidth = width
+        draft.homePanelShare = width / Math.max(1, dimensions().width)
       }).catch((error) => console.error("Failed to persist home panel width", error))
     },
   })
@@ -1787,6 +1792,10 @@ function App() {
         </Show>
       </box>
       <Show when={devtools() && !(route.data.type === "plugin" && route.data.id === "opencode.stats")}>
+        {/* The network's pulse runs along the top of the bar, faster while agents work. */}
+        <Show when={dimensions().height >= 20}>
+          <NeuralLine energy={neuralEnergy()} seed={2} />
+        </Show>
         <DevToolsBar />
       </Show>
       <Show when={!startup.skipInitialLoading}>

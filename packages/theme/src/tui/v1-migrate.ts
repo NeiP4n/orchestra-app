@@ -150,6 +150,12 @@ function migrateMode(theme: Theme, mode: Mode): ThemeDefinition {
         nu: "$hue.accent.300",
         pwsh: "$hue.interactive.300",
       },
+      neural: {
+        signal: "$hue.interactive.200",
+        synapse: "$hue.interactive.700",
+        spark: "$hue.accent.200",
+        dormant: "$hue.neutral.600",
+      },
     },
     background: {
       base: background,

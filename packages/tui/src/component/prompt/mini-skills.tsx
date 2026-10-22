@@ -9,6 +9,7 @@ import { useTheme } from "../../context/theme"
 import { useDialog } from "../../ui/dialog"
 import { DialogSelect, type DialogSelectOption, type DialogSelectRef } from "../../ui/dialog-select"
 import { hoverBackground } from "../../ui/hover"
+import { neuralPalette } from "../neural"
 import { useToast } from "../../ui/toast"
 import { useConfig } from "../../config"
 import { stringWidth } from "../../util/string-width"
@@ -309,7 +310,7 @@ export function PromptMiniSkills(props: {
 
   const chipWidth = (skill: MiniSkill) => stringWidth(`${skill.icon} ${label(skill)}`) + 2
   const shown = createMemo(() => ordered().filter((skill) => !skill.hidden))
-  const settingsText = () => `⚙ ${t("Skills")}`
+  const settingsText = () => `✱ ${t("Skills")}`
   const visibleSkills = createMemo(() =>
     fittingSkills(shown(), width(), chipWidth, stringWidth(settingsText()) + 2, stringWidth("+99") + 2),
   )
@@ -378,7 +379,7 @@ export function PromptMiniSkills(props: {
               { title: t("Move to the end"), run: () => update(moveSkill(skills(), state.skill.id, Infinity)) },
               { title: t("Remove"), run: () => update(skills().filter((item) => item.id !== state.skill.id)) },
               { title: `+ ${t("New mini skill")}`, run: () => edit() },
-              { title: `⚙ ${t("All mini skills")}`, run: manage },
+              { title: `✱ ${t("All mini skills")}`, run: manage },
             ]}
           />
         )}
@@ -468,7 +469,7 @@ function ChipMenu(props: { x: number; y: number; actions: { title: string; run: 
   )
 }
 
-// One button on the bar: raised like the rest of the prompt's controls, and lit while the
+// One button on the bar: flat at rest so the prompt has no gray blocks, and lit while the
 // pointer is over it so it reads as clickable.
 function Chip(props: {
   text: string
@@ -491,8 +492,7 @@ function Chip(props: {
       flexShrink={0}
       paddingLeft={1}
       paddingRight={1}
-      // The shared hover surface always differs from the resting chip, whatever the theme.
-      backgroundColor={lit() ? hoverBackground(theme) : theme.background.raised.base}
+      backgroundColor={lit() ? hoverBackground(theme) : undefined}
       onMouseOver={() => setHovered(true)}
       onMouseOut={() => setHovered(false)}
       onMouseDown={(event: MouseEvent) => {
@@ -510,7 +510,7 @@ function Chip(props: {
       }}
     >
       <text
-        fg={lit() ? theme.text.action.primary.hovered : props.muted ? theme.text.muted : theme.text.base}
+        fg={lit() ? neuralPalette(theme).signal : props.muted ? theme.text.muted : theme.text.base}
         // A chip is pressed and dragged, not read: a drag must not start a text selection.
         selectable={false}
         wrapMode="none"

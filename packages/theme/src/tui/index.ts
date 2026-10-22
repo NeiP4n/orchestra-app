@@ -41,6 +41,7 @@ export type {
   ResolvedThemeTokens,
   StatefulColor,
   TerminalBackend,
+  NeuralRole,
 } from "./types.js"
 export { rgbToOklch } from "./color.js"
 export { expandTheme } from "./expand.js"

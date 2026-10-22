@@ -53,6 +53,12 @@
         "bash": "$hue.interactive.200",
         "nu": "$hue.accent.200",
         "pwsh": "$hue.cyan.200"
+      },
+      "neural": {
+        "signal": "$hue.interactive.200",
+        "synapse": "$hue.interactive.700",
+        "spark": "$hue.orange.200",
+        "dormant": "$hue.neutral.600"
       }
     },
     "background": {

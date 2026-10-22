@@ -21,6 +21,9 @@ import { useData } from "../../context/data"
 import { FlowRule } from "../../component/flow-rule"
 import { ErrorCard, FoldedText } from "./fold"
 import { SplitBorder } from "../../ui/border"
+import { neuralPalette } from "../../component/neural"
+import { tint } from "../../theme/color"
+import { hoverBackground } from "../../ui/hover"
 import { useTuiTerminalEnvironment } from "../../context/runtime"
 import { Spinner, SPINNER_FRAMES } from "../../component/spinner"
 import { PatchDiff } from "../../component/patch-diff"
@@ -1532,7 +1535,7 @@ export function Session(props: {
                   paddingLeft: 1,
                   visible: showScrollbar(),
                   trackOptions: {
-                    backgroundColor: theme.decrease(theme.background.raised.base),
+                    backgroundColor: hoverBackground(theme),
                     foregroundColor: theme.border.base,
                   },
                 }}
@@ -1746,7 +1749,7 @@ export function SessionTranscript(props: { sessionID: string; width: number; can
           paddingLeft: 1,
           visible: scrollbar(),
           trackOptions: {
-            backgroundColor: theme.decrease(theme.background.raised.base),
+            backgroundColor: hoverBackground(theme),
             foregroundColor: theme.border.base,
           },
         }}
@@ -2169,16 +2172,23 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
         </box>
       </Show>
       <AssistantRetry retry={retry()} />
-      <box paddingLeft={3} marginTop={retry() || (props.message.error && !interrupted()) ? 1 : 0}>
+      {/* The signature closes the assistant's dendrite: a node in the agent's color, then the details. */}
+      <box paddingLeft={1} marginTop={retry() || (props.message.error && !interrupted()) ? 1 : 0}>
         <text>
+          <span style={{ fg: neuralPalette(theme).synapse }}>╰─</span>
+          <span style={{ fg: props.message.error ? theme.text.feedback.error.base : local.agent.color(props.message.agent) }}>
+            {props.message.error && !interrupted() ? "✕ " : "◉ "}
+          </span>
           <span style={{ fg: props.message.error ? theme.text.muted : local.agent.color(props.message.agent) }}>
             {Locale.titlecase(props.message.agent)}
           </span>
           <Show when={ctx.terminal.width >= 28}>
-            <span style={{ fg: theme.text.muted }}> · {model()}</span>
+            <span style={{ fg: neuralPalette(theme).synapse }}> · </span>
+            <span style={{ fg: theme.text.muted }}>{model()}</span>
           </Show>
           <Show when={duration() && (ctx.terminal.width < 28 || ctx.terminal.width >= 36)}>
-            <span style={{ fg: theme.text.muted }}> · {Locale.duration(duration())}</span>
+            <span style={{ fg: neuralPalette(theme).synapse }}> · </span>
+            <span style={{ fg: theme.text.muted }}>{Locale.duration(duration())}</span>
           </Show>
           <Show when={config.data.session.tps && tokensPerSecond()}>
             {(value) => <span style={{ fg: theme.text.muted }}> · {value().toFixed(1)} tok/s</span>}
@@ -2413,7 +2423,7 @@ function RevertMessage(props: {
         paddingTop={1}
         paddingBottom={1}
         paddingLeft={2}
-        backgroundColor={hover() ? theme.decrease(theme.background.raised.base) : theme.background.raised.base}
+        backgroundColor={hover() ? hoverBackground(theme) : theme.background.raised.base}
       >
         <text fg={theme.text.muted}>
           {props.count} message{props.count === 1 ? "" : "s"} reverted
@@ -2502,6 +2512,7 @@ function UserMessage(props: { message: SessionMessageUser }) {
     if (await ctx.mutatePending(action, props.message.id)) dialog.clear()
   }
 
+  const t = useT()
   const council = createMemo(() => Federation.parseCouncilResults(props.message.text))
   return (
     <Show when={council()} fallback={plain()}>
@@ -2512,11 +2523,18 @@ function UserMessage(props: { message: SessionMessageUser }) {
   function plain() {
     return (
     <Show when={props.message.text.trim() || files().length || skills().length}>
+      {/* The person's words sit in a rounded bubble set in from the left, so the conversation
+          reads as two voices: the bubble on one side, the assistant's dendrite on the other. */}
       <box
-        border={["left"]}
-        borderColor={delivery() ? theme.border.base : color()}
-        customBorderChars={SplitBorder.customBorderChars}
-        backgroundColor={theme.background.raised.base}
+        border
+        borderStyle="rounded"
+        borderColor={
+          delivery() ? theme.border.base : hover() ? tint(color(), neuralPalette(theme).signal, 0.5) : color()
+        }
+        title={` ${guest() ?? t("You")} `}
+        titleAlignment="right"
+        titleColor={hover() ? neuralPalette(theme).signal : theme.text.muted}
+        marginLeft={Math.min(16, Math.floor(ctx.terminal.width / 8))}
       >
         <SessionImages images={images()} paddingLeft={2} />
         <box
@@ -2553,20 +2571,16 @@ function UserMessage(props: { message: SessionMessageUser }) {
               />
             ))
           }}
-          paddingTop={1}
-          paddingBottom={1}
-          paddingLeft={2}
-          backgroundColor={hover() ? theme.decrease(theme.background.raised.base) : theme.background.raised.base}
+          paddingLeft={1}
+          paddingRight={1}
+          backgroundColor={hover() ? hoverBackground(theme) : theme.background.raised.base}
           flexShrink={0}
         >
-          <Show when={guest()}>
-            {(name) => (
-              <text fg={theme.text.muted} wrapMode="none" truncate>
-                {`${name()} · via room`}
-              </text>
-            )}
-          </Show>
-          <FoldedText text={props.message.text} width={Math.max(20, ctx.terminal.width - 10)} maxRows={8} />
+          <FoldedText
+            text={props.message.text}
+            width={Math.max(20, ctx.terminal.width - 10 - Math.min(16, Math.floor(ctx.terminal.width / 8)))}
+            maxRows={8}
+          />
           <Show when={skills().length}>
             <box flexDirection="row" paddingTop={1} gap={1} flexWrap="wrap">
               <For each={skills()}>
@@ -2581,7 +2595,7 @@ function UserMessage(props: { message: SessionMessageUser }) {
                     >
                       {" skill "}
                     </span>
-                    <span style={{ bg: theme.decrease(theme.background.raised.base), fg: theme.text.muted }}>
+                    <span style={{ bg: hoverBackground(theme), fg: theme.text.muted }}>
                       {` ${skill.name} `}
                     </span>
                   </text>
@@ -2605,7 +2619,7 @@ function UserMessage(props: { message: SessionMessageUser }) {
                       >
                         {` ${label} `}
                       </span>
-                      <span style={{ bg: theme.decrease(theme.background.raised.base), fg: theme.text.muted }}>
+                      <span style={{ bg: hoverBackground(theme), fg: theme.text.muted }}>
                         {" "}
                         {file.name ?? (file.source.type === "uri" ? file.source.uri : "attachment")}{" "}
                       </span>
@@ -2643,7 +2657,7 @@ function QueuedPromptDock(props: { prompts: { id: string; text: string }[]; onOp
         paddingBottom={1}
         paddingLeft={2}
         paddingRight={1}
-        backgroundColor={hover() ? theme.decrease(theme.background.raised.base) : theme.background.raised.base}
+        backgroundColor={hover() ? hoverBackground(theme) : theme.background.raised.base}
         flexDirection="row"
       >
         <text fg={theme.text.muted} wrapMode="none" truncate flexGrow={1} flexShrink={1} minWidth={0}>

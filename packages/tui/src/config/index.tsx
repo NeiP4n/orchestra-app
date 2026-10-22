@@ -252,7 +252,7 @@ export const Info = Schema.Struct({
   }),
   animations: Schema.optional(Schema.Boolean).annotate({ description: "Enable interface animations" }),
   mascot: Schema.optional(Schema.Boolean).annotate({
-    description: "Show the Orchestra mascot in the prompt (default: true)",
+    description: "Show the Orchestra mascot in the prompt (default: false)",
   }),
   mouse: Schema.optional(Schema.Boolean).annotate({ description: "Enable terminal mouse capture" }),
   cursor: Schema.optional(Cursor),

@@ -19,6 +19,8 @@ export type Categorical = readonly HueScale[]
 // Execution backends a catalog entry can select. Each one gets its own text
 // color so a badge naming the backend reads at a glance.
 export type TerminalBackend = "bash" | "nu" | "pwsh"
+// Parts of the neuron network: the travelling impulse, the links, a node that just fired, an idle node.
+export type NeuralRole = "signal" | "synapse" | "spark" | "dormant"
 export type ActionStates = Readonly<Partial<Record<ActionState, boolean>>>
 export type StatefulColor = Readonly<Record<ResolvedActionState, RGBA>> & {
   readonly state: (states: ActionStates) => RGBA
@@ -40,6 +42,8 @@ export type ResolvedThemeTokens = {
     // Optional so a theme written before this role existed keeps resolving; a
     // component that needs a backend color falls back to `text.muted`.
     readonly backend?: Readonly<Record<TerminalBackend, RGBA>>
+    // Optional like `backend`; without it the neuron network falls back to muted text.
+    readonly neural?: Readonly<Record<NeuralRole, RGBA>>
   }
   readonly background: {
     readonly base: RGBA

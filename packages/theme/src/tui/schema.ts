@@ -91,6 +91,16 @@ const TextBackendDefinition = Schema.Struct({
   pwsh: Schema.optional(ColorValue),
 })
 
+// Colors of the animated neuron network drawn behind the interface: the moving
+// impulse, the resting links it travels along, a node that just fired, and the
+// idle nodes. Optional for the same reason as `backend`.
+const TextNeuralDefinition = Schema.Struct({
+  signal: Schema.optional(ColorValue),
+  synapse: Schema.optional(ColorValue),
+  spark: Schema.optional(ColorValue),
+  dormant: Schema.optional(ColorValue),
+})
+
 const BackgroundFeedbackDefinition = Schema.Struct({
   base: Schema.optional(ColorValue),
 })
@@ -109,6 +119,7 @@ const TextDefinition = Schema.Struct({
     }),
   ),
   backend: Schema.optional(TextBackendDefinition),
+  neural: Schema.optional(TextNeuralDefinition),
 })
 export type TextDefinition = Schema.Schema.Type<typeof TextDefinition>
 
@@ -243,6 +254,7 @@ const CompleteThemeTokensDefinition = Schema.Struct({
     // Deliberately optional in the complete shape: requiring it would reject
     // every theme file written before the role existed.
     backend: Schema.optional(TextBackendDefinition),
+    neural: Schema.optional(TextNeuralDefinition),
   }),
   background: Schema.Struct({
     base: ColorValue,

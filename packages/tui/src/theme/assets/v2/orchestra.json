@@ -8,7 +8,7 @@
     ],
     "text": {
       "base": "$hue.neutral.200",
-      "muted": "$hue.neutral.400",
+      "muted": "#6f9ea4",
       "action": {
         "primary": {
           "base": "$text.base",
@@ -21,7 +21,9 @@
           "$hovered": "$text.base"
         },
         "destructive": {
-          "base": "$hue.neutral.800",
+          "base": "$hue.orange.200",
+          "$hovered": "$hue.orange.100",
+          "$focused": "$hue.orange.100",
           "$disabled": "$hue.neutral.400"
         }
       },
@@ -51,19 +53,25 @@
         "bash": "$hue.interactive.200",
         "nu": "$hue.accent.200",
         "pwsh": "$hue.cyan.200"
+      },
+      "neural": {
+        "signal": "$hue.cyan.200",
+        "synapse": "$hue.cyan.700",
+        "spark": "$hue.orange.200",
+        "dormant": "$hue.cyan.600"
       }
     },
     "background": {
       "base": "$hue.neutral.800",
       "raised": {
         "base": "$background.base",
-        "high": "$background.base",
+        "high": "$hue.cyan.800",
         "max": "$background.base"
       },
       "action": {
         "primary": {
           "base": "transparent",
-          "$hovered": "$background.base",
+          "$hovered": "$hue.cyan.800",
           "$focused": "$hue.interactive.200",
           "$selected": "transparent"
         },
@@ -71,7 +79,8 @@
           "base": "transparent"
         },
         "destructive": {
-          "base": "transparent"
+          "base": "transparent",
+          "$hovered": "$hue.orange.800"
         }
       },
       "formfield": {

@@ -13,7 +13,7 @@ import { useLocal } from "../../context/local"
 import { useTheme, useThemes } from "../../context/theme"
 import { tint } from "../../theme/color"
 import { createAnimatable, tween } from "../../ui/animation"
-import { EmptyBorder, SplitBorder } from "../../ui/border"
+import { neuralPalette } from "../neural"
 import { useTuiPaths, useTuiTerminalEnvironment } from "../../context/runtime"
 import { useClipboard } from "../../context/clipboard"
 import { Spinner } from "../spinner"
@@ -1675,10 +1675,11 @@ export function Prompt(props: PromptProps) {
   })
   const maxHeight = createMemo(() => Math.max(6, Math.floor(dimensions().height / 3)))
 
-  const promptBg = createMemo(() => theme.decrease(theme.background.raised.base))
-  // The mascot stands in the prompt's right edge, exactly as tall as an empty prompt,
-  // and leaves the prompt when it would squeeze the input on a narrow terminal.
-  const mascot = createMemo(() => config.mascot !== false && dimensions().width >= 80)
+  // The rounded frame already marks the prompt, so its inside keeps the window's own color.
+  const promptBg = createMemo(() => theme.background.base)
+  // The mascot is opt-in: it stands in the prompt's right edge, exactly as tall as an empty
+  // prompt, and leaves the prompt when it would squeeze the input on a narrow terminal.
+  const mascot = createMemo(() => config.mascot === true && dimensions().width >= 80)
   const mascotState = createMemo((): MascotState => {
     const id = props.sessionID
     if (!id) return "idle"
@@ -1689,18 +1690,31 @@ export function Prompt(props: PromptProps) {
     return "idle"
   })
   const paddingX = createMemo(() => (dimensions().width < 44 ? 1 : 2))
+  // The rounded frame is the prompt's pulse: it warms under the pointer and beats while the agent thinks.
+  const [frameHover, setFrameHover] = createSignal(false)
+  const [beat, setBeat] = createSignal(false)
+  createEffect(() => {
+    if (status() !== "running" || !animationsEnabled()) return setBeat(false)
+    const timer = setInterval(() => setBeat((value) => !value), 600)
+    onCleanup(() => clearInterval(timer))
+  })
+  const frame = createMemo(() => {
+    const palette = neuralPalette(theme)
+    if (status() === "running") return beat() ? palette.signal : tint(borderHighlight(), palette.signal, 0.35)
+    if (frameHover()) return tint(borderHighlight(), palette.signal, 0.55)
+    return borderHighlight()
+  })
 
   return (
     <>
       <box ref={(r: BoxRenderable) => (anchor = r)} visible={props.visible !== false} width="100%">
         <box
           width="100%"
-          border={["left"]}
-          borderColor={borderHighlight()}
-          customBorderChars={{
-            ...SplitBorder.customBorderChars,
-            bottomLeft: "╹",
-          }}
+          border
+          borderStyle="rounded"
+          borderColor={frame()}
+          onMouseOver={() => setFrameHover(true)}
+          onMouseOut={() => setFrameHover(false)}
         >
           <box
             paddingLeft={paddingX()}
@@ -1909,32 +1923,6 @@ export function Prompt(props: PromptProps) {
               />
             </box>
           </box>
-        </box>
-        <box
-          height={1}
-          border={["left"]}
-          borderColor={borderHighlight()}
-          customBorderChars={{
-            ...EmptyBorder,
-            vertical: promptBg().a !== 0 ? "╹" : " ",
-          }}
-        >
-          <box
-            height={1}
-            border={["bottom"]}
-            borderColor={promptBg()}
-            customBorderChars={
-              promptBg().a !== 0
-                ? {
-                    ...EmptyBorder,
-                    horizontal: "▀",
-                  }
-                : {
-                    ...EmptyBorder,
-                    horizontal: " ",
-                  }
-            }
-          />
         </box>
         {/* `gap` would also add a row gap once the Freebuff strip (width 100%) wraps to its
             own line; columnGap keeps the one-line footer's spacing unchanged. */}

@@ -1,9 +1,9 @@
 import { Prompt, type PromptRef } from "../component/prompt"
-import { createEffect, createMemo, createSignal, onMount, Show, untrack } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onMount, Show, untrack } from "solid-js"
 import { SessionOwnerMetadataKey } from "@orchestra/schema/orchestra"
 import { Logo } from "../component/logo"
 import { useArgs } from "../context/args"
-import { useRouteData } from "../context/route"
+import { useRoute, useRouteData } from "../context/route"
 import { usePromptRef } from "../context/prompt"
 import { useLocal } from "../context/local"
 import { useEditorContext } from "../context/editor"
@@ -19,6 +19,11 @@ import { useTheme } from "../context/theme"
 import { useUpdateNotification } from "../context/update-notification"
 import { useExit } from "../context/exit"
 import { FadeInText } from "../component/fade-in-text"
+import { NeuralCard, NeuronDot, NeuronField, neuralPalette, useNeuralEnergy } from "../component/neural"
+import { useT } from "../util/i18n"
+import { Locale } from "../util/locale"
+import { useCompactLayout } from "../ui/compact-layout"
+import { homeContentWidth } from "../ui/layout"
 
 let once = false
 const placeholder = {
@@ -39,6 +44,11 @@ export function Home() {
   const toast = useToast()
   const dimensions = useTerminalDimensions()
   const [logoWidth, setLogoWidth] = createSignal(0)
+  const energy = useNeuralEnergy()
+  const level = useCompactLayout().density
+  // The stage is the room Home actually has between the side panels; the column follows it.
+  const [stage, setStage] = createSignal({ width: dimensions().width, height: dimensions().height })
+  const column = () => homeContentWidth(stage().width)
   // Global MCP elicitations can arrive without a session route, so keep them reachable from Home.
   const currentLocation = () => route.location ?? data.location.default()
   const forms = createMemo(() => data.session.form.list("global", currentLocation()) ?? [])
@@ -92,11 +102,17 @@ export function Home() {
       <box
         flexGrow={1}
         alignItems="center"
+        position="relative"
         paddingLeft={dimensions().width < 44 ? 1 : 2}
         paddingRight={dimensions().width < 44 ? 1 : 2}
+        onSizeChange={function () {
+          setStage({ width: this.width, height: this.height })
+        }}
       >
+        {/* The network fills the whole stage behind the logo and the prompt and speeds up while agents work. */}
+        <NeuronField position="absolute" left={0} top={0} width="100%" height="100%" zIndex={0} energy={energy()} />
         <box flexGrow={1} minHeight={0} />
-        <box height={3} minHeight={0} flexShrink={1} />
+        <box height={level() === "spacious" ? 3 : level() === "tiny" ? 0 : 2} minHeight={0} flexShrink={1} />
         <box
           flexShrink={0}
           onSizeChange={function () {
@@ -106,8 +122,9 @@ export function Home() {
           <Logo />
         </box>
         <box height={1} flexShrink={0} />
+        <BrainStatus energy={energy()} width={column()} />
         <UpdateNotification width={logoWidth()} />
-        <box width="100%" maxWidth={75} zIndex={1000} paddingTop={1} flexShrink={0} position="relative">
+        <box width="100%" maxWidth={column()} zIndex={1000} paddingTop={1} flexShrink={0} position="relative">
           <Prompt
             ref={bind}
             metadata={route.project ? { [SessionOwnerMetadataKey]: { projectID: route.project } } : undefined}
@@ -123,6 +140,7 @@ export function Home() {
             }}
           />
         </box>
+        <RecentSessions width={column()} height={stage().height} />
         <box flexGrow={1} minHeight={0} />
       </box>
       <box width="100%" flexShrink={0}>
@@ -141,6 +159,95 @@ export function Home() {
         }}
       </Show>
     </>
+  )
+}
+
+// One line under the logo that reads the network's state: a breathing neuron, then what is
+// connected and how many agents are thinking right now.
+function BrainStatus(props: { energy: number; width: number }) {
+  const theme = useTheme()
+  const t = useT()
+  const data = useData()
+  const projects = useProjects()
+  const palette = () => neuralPalette(theme)
+  const sessions = createMemo(() => data.session.list().filter((session) => !session.parentID))
+  const thinking = createMemo(() => sessions().filter((session) => data.session.status(session.id) === "running").length)
+  return (
+    <box flexDirection="row" flexShrink={0} gap={1} zIndex={1}>
+      <NeuronDot energy={props.energy} />
+      <text fg={thinking() > 0 ? palette().signal : theme.text.muted} wrapMode="none">
+        {thinking() > 0 ? t("{count} agents thinking", { count: thinking() }) : t("network ready")}
+      </text>
+      {/* The counts are context, so a narrow column keeps only the network's state. */}
+      <Show when={props.width >= 56}>
+        <text fg={palette().synapse} wrapMode="none">
+          ·
+        </text>
+        <text fg={theme.text.muted} wrapMode="none">
+          {t("{count} projects", { count: projects.list().length })}
+        </text>
+        <text fg={palette().synapse} wrapMode="none">
+          ·
+        </text>
+        <text fg={theme.text.muted} wrapMode="none">
+          {t("{count} sessions", { count: sessions().length })}
+        </text>
+      </Show>
+    </box>
+  )
+}
+
+// The last few conversations as cards under the prompt: one click picks up where you left off.
+function RecentSessions(props: { width: number; height: number }) {
+  const theme = useTheme()
+  const t = useT()
+  const data = useData()
+  const route = useRoute()
+  const palette = () => neuralPalette(theme)
+  // A card needs about 26 columns for a readable title; a tall window also gets a second row.
+  const perRow = () => Math.max(0, Math.min(4, Math.floor((props.width + 1) / 27)))
+  const rows = () => (props.height >= 44 ? 2 : props.height >= 26 ? 1 : 0)
+  const count = () => perRow() * rows()
+  const recent = createMemo(() =>
+    data.session
+      .list()
+      .filter((session) => !session.parentID)
+      .toSorted((left, right) => right.time.updated - left.time.updated)
+      .slice(0, count()),
+  )
+  return (
+    <Show when={recent().length > 0 && count() > 0}>
+      <box width="100%" maxWidth={props.width} flexShrink={0} paddingTop={1} zIndex={1} gap={0}>
+        <text fg={theme.text.muted} wrapMode="none" paddingLeft={1}>
+          {t("Continue")}
+        </text>
+        <box flexDirection="row" flexWrap="wrap" columnGap={1} width="100%">
+          <For each={recent()}>
+            {(session) => (
+              <NeuralCard
+                flexGrow={1}
+                flexShrink={1}
+                width={`${Math.floor(100 / Math.min(perRow(), recent().length)) - 1}%`}
+                onClick={() => route.navigate({ type: "session", sessionID: session.id })}
+                footer={Locale.time(session.time.updated)}
+              >
+                <box flexDirection="row" gap={1}>
+                  <text
+                    flexShrink={0}
+                    fg={data.session.status(session.id) === "running" ? palette().signal : palette().synapse}
+                  >
+                    {data.session.status(session.id) === "running" ? "◉" : "●"}
+                  </text>
+                  <text fg={theme.text.base} wrapMode="none" truncate>
+                    {session.title || t("Untitled")}
+                  </text>
+                </box>
+              </NeuralCard>
+            )}
+          </For>
+        </box>
+      </box>
+    </Show>
   )
 }
 

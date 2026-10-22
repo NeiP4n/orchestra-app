@@ -264,8 +264,8 @@ test("opening project settings from the gear stays open after the mouse is relea
   await setup.mockMouse.moveTo(name.x + 1, name.y)
   await setup.renderOnce()
 
-  const hovered = await setup.waitForFrame((frame) => frame.includes("Demo") && frame.includes("⚙"))
-  const gear = cell(hovered, "⚙")
+  const hovered = await setup.waitForFrame((frame) => frame.includes("Demo") && frame.includes("✱"))
+  const gear = cell(hovered, "✱")
   await setup.mockMouse.click(gear.x, gear.y)
 
   await setup.waitForFrame((frame) => frame.includes("Edit project") && frame.includes("Path"))
@@ -355,7 +355,8 @@ test("deleting a session takes two clicks on its ×", async () => {
   const confirm = cell(setup.captureCharFrame(), "delete?")
   await setup.mockMouse.click(confirm.x, confirm.y)
   await setup.waitFor(() => calls.some((call) => call.method === "DELETE"))
-  await setup.waitForFrame((frame) => !frame.includes("Worker task"))
+  // The tree row goes; the session can still appear in Home's recent cards until the list refreshes.
+  await setup.waitForFrame((frame) => !frame.includes("[write] ×"))
 })
 
 test("a project is created from a name and a path", async () => {
@@ -481,7 +482,8 @@ test("a session is moved to another category from the tree", async () => {
   const calls: Call[] = []
   await using setup = await render(state.path, calls, [project])
 
-  const frame = await setup.waitForFrame((frame) => frame.includes("Build") && frame.includes("Worker task"))
+  // "# Build" is the tree's category heading; plain "Build" also names the prompt's agent.
+  const frame = await setup.waitForFrame((frame) => frame.includes("# Build") && frame.includes("[write] ×"))
   const row = frame.split("\n").findIndex((line) => line.includes("Worker task"))
   const hash = frame.split("\n")[row].indexOf("# ")
   await setup.mockMouse.click(hash, row)
@@ -494,8 +496,8 @@ test("a session is moved to another category from the tree", async () => {
   expect(calls.find((call) => call.path === `/api/orchestra/category/${worker.id}`)?.body).toEqual({
     category: "Quality",
   })
-  // Tree rows span the full terminal width, so their padded line also contains the right border.
-  await setup.waitForFrame((frame) => frame.split("\n").some((line) => line.trimStart().startsWith("Quality")))
+  // Categories are headings inside the Projects card, drawn as `# Quality` on the tree's trunk.
+  await setup.waitForFrame((frame) => frame.includes("# Quality"))
 })
 
 test("a long session title in the narrow compact panel stays on one row", async () => {

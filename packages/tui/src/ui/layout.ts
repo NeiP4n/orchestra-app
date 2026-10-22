@@ -173,7 +173,36 @@ export function clampHomeProjectPanelWidth(width: number, available: number) {
 export function homeProjectPanelWidth(total: number, leftPanelWidth: number) {
   const available = total - leftPanelWidth - HOME_CONTENT_MIN_WIDTH
   if (available < HOME_PROJECT_PANEL_MIN_WIDTH) return 0
-  return Math.min(HOME_PROJECT_PANEL_WIDTH, available)
+  return Math.min(adaptivePanelWidth(total, HOME_PROJECT_PANEL_WIDTH), available)
+}
+
+// Side panels grow with the terminal: about a fifth of the width, never narrower than the
+// fixed default on a laptop and never wider than names need on an ultrawide screen.
+export function adaptivePanelWidth(total: number, base: number) {
+  return Math.round(Math.max(base, Math.min(SESSION_SIDEBAR_MAX_WIDTH, total * 0.2)))
+}
+
+// A width the user dragged is kept as a share of the terminal, so the split keeps its
+// proportions when the window is resized or moved to another screen.
+export function panelWidthFromShare(share: number | undefined, total: number) {
+  if (share === undefined || !Number.isFinite(share) || share <= 0) return
+  return Math.round(share * total)
+}
+
+// The center column of Home: wide enough to type comfortably, capped so lines stay readable.
+export function homeContentWidth(available: number) {
+  return Math.max(24, Math.min(120, Math.round(available * 0.72)))
+}
+
+export type Density = "tiny" | "compact" | "comfortable" | "spacious"
+
+// One reading of the terminal size that every part of the interface follows, so a small
+// window drops decoration first and a large one spends its room on content.
+export function density(width: number, height: number): Density {
+  if (width < 60 || height < 20) return "tiny"
+  if (width < 110 || height < 32) return "compact"
+  if (width < 180) return "comfortable"
+  return "spacious"
 }
 
 // A terminal or plugin panel opens at half the room in the full layout and at

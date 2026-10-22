@@ -27,6 +27,7 @@ import {
   clampSessionSidebarWidth,
   defaultSessionPaneWidth,
   noteCanvasFlexGrow,
+  panelWidthFromShare,
   sessionPaneBoxWidth,
   sessionPanesStacked,
   sessionTranscriptWidth,
@@ -74,19 +75,19 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   // only stack them when there is not enough room for two usable columns.
   const stacked = () => sessionPanesStacked(availableWidth(), canvas() !== undefined)
   const defaultPaneWidth = () => defaultSessionPaneWidth(panels.width(), compactLayout.compact())
+  // Every split is kept as a share of the room it divides, so it follows the window when it resizes.
   const [layout, updateLayout] = useStorage().store<{
-    paneWidth?: number
-    terminalWidth?: number
-    compactPaneWidth?: number
-    sidebarWidth?: number
-    noteChatWidth?: number
+    paneShare?: number
+    compactPaneShare?: number
+    sidebarShare?: number
+    noteChatShare?: number
   }>("layout", {
     initial: {},
   })
   // The compact layout remembers its own panel width so switching back restores the full one.
   const paneResize = createPaneResize({
     value: () =>
-      (compactLayout.compact() ? layout.compactPaneWidth : (layout.paneWidth ?? layout.terminalWidth)) ??
+      panelWidthFromShare(compactLayout.compact() ? layout.compactPaneShare : layout.paneShare, panels.width()) ??
       defaultPaneWidth(),
     defaultValue: defaultPaneWidth,
     clamp: (width) => clampSessionPaneWidth(width, panels.width()),
@@ -96,9 +97,10 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
       return event.x >= boundary - 1 && event.x <= boundary
     },
     onCommit: (width) => {
+      const share = width / Math.max(1, panels.width())
       void updateLayout((draft) => {
-        if (compactLayout.compact()) draft.compactPaneWidth = width
-        else draft.paneWidth = width
+        if (compactLayout.compact()) draft.compactPaneShare = share
+        else draft.paneShare = share
       }).catch((error) => console.error("Failed to persist TUI layout", error))
     },
   })
@@ -106,7 +108,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   // does not silently change the width of terminal or plugin panels.
   const defaultSidebarWidth = () => compactLayout.sidebarWidth()
   const sidebarResize = createPaneResize({
-    value: () => layout.sidebarWidth ?? defaultSidebarWidth(),
+    value: () => panelWidthFromShare(layout.sidebarShare, panels.width()) ?? defaultSidebarWidth(),
     defaultValue: defaultSidebarWidth,
     clamp: (width) => clampSessionSidebarWidth(width, panels.width()),
     fromMouse: (event) => availableWidth() - (event.x - props.verticalTabsWidth) - 1,
@@ -116,14 +118,14 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     },
     onCommit: (width) => {
       void updateLayout((draft) => {
-        draft.sidebarWidth = width
+        draft.sidebarShare = width / Math.max(1, panels.width())
       }).catch((error) => console.error("Failed to persist sidebar width", error))
     },
   })
   const defaultNoteChatWidth = () =>
     defaultSessionPaneWidth(canvasHostWidth(), compactLayout.compact())
   const noteChatResize = createPaneResize({
-    value: () => layout.noteChatWidth ?? defaultNoteChatWidth(),
+    value: () => panelWidthFromShare(layout.noteChatShare, canvasHostWidth()) ?? defaultNoteChatWidth(),
     defaultValue: defaultNoteChatWidth,
     clamp: (width) => clampNoteChatWidth(width, canvasHostWidth()),
     // Mouse coordinates are terminal-global; translate x to this split container before resizing.
@@ -134,7 +136,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     },
     onCommit: (width) => {
       void updateLayout((draft) => {
-        draft.noteChatWidth = width
+        draft.noteChatShare = width / Math.max(1, canvasHostWidth())
       }).catch((error) => console.error("Failed to persist note/chat width", error))
     },
   })

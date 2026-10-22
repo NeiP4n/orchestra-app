@@ -5,6 +5,20 @@ export type Language = "en" | "ru"
 // English text is the key, so untranslated strings fall back to it as written.
 // `{name}` placeholders are filled from the values passed to `t`.
 const ru: Record<string, string> = {
+  // Neural interface
+  "{count} agents thinking": "думают агенты: {count}",
+  "network ready": "нейросеть готова",
+  "{count} projects": "проектов: {count}",
+  "{count} sessions": "сессий: {count}",
+  Continue: "Продолжить",
+  New: "Новый",
+  Network: "Нейросеть",
+  Sessions: "Сессии",
+  "Thinking now": "Думают сейчас",
+  Shortcuts: "Быстрые клавиши",
+  "slash commands": "слэш-команды",
+  "files and agents": "файлы и агенты",
+  shell: "терминал",
   // Bar
   Server: "Сервер",
   UI: "Интерфейс",

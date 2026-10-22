@@ -4,7 +4,19 @@ import { open } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { monitorEventLoopDelay } from "node:perf_hooks"
-import { createMemo, createResource, createSignal, For, onCleanup, onMount, Show, type JSX, type ParentProps } from "solid-js"
+import {
+  createContext,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+  useContext,
+  type JSX,
+  type ParentProps,
+} from "solid-js"
 import { useClient } from "../context/client"
 import { useConfig } from "../config"
 import { useData } from "../context/data"
@@ -34,6 +46,7 @@ import { usePlugin } from "../plugin/context"
 import { errorMessage } from "../util/error"
 import { useT } from "../util/i18n"
 import { stringWidth } from "../util/string-width"
+import { NeuronDot, neuralPalette, useNeuralEnergy } from "./neural"
 
 const graphWidth = 23
 const sampleIntervalMilliseconds = 2_000
@@ -106,6 +119,8 @@ export function DevToolsBar() {
   const timing = () => config.data.debug?.timing ?? false
   const turnTokens = () => config.data.debug?.turn_tokens ?? false
   const verboseTurnTokens = () => turnTokens() === "verbose"
+  const palette = () => neuralPalette(theme)
+  const energy = useNeuralEnergy()
 
   const offEscape = keymap.intercept(
     "key",
@@ -299,39 +314,51 @@ export function DevToolsBar() {
 
   // A phone-width terminal cannot fit every item, and an item past the edge is unreachable. The
   // ones with their own commands (/themes, /teams, /tools…) fold away first, in this order.
-  const hidden = createMemo(() => {
-    const label = (text: string) => stringWidth(text) + 2
-    const widths: Record<string, number> = {
-      experiments: label(t("Experiments")),
-      theme: label(t("Theme")),
-      ui: label(`○ ${t("UI")}`),
-      teams: label(t("Teams")),
-      tools: label(t("Tools")),
-      registry: label(t("Registry")),
+  // First the labels go and only the icons stay (a hovered icon shows its name); only when even
+  // the icons do not fit do items fold into ⋯.
+  const fold = createMemo(() => {
+    const measure = (dense: boolean) => {
+      const label = (icon: string, text: string) => stringWidth(dense ? icon : `${icon} ${text}`) + 2
+      const widths: Record<string, number> = {
+        experiments: label("△", t("Experiments")),
+        theme: label("◐", t("Theme")),
+        ui: label("○", t("UI")),
+        teams: label("◈", t("Teams")),
+        tools: label("◇", t("Tools")),
+        registry: label("▤", t("Registry")),
+      }
+      // Two group dividers between status, tools and the assistant actions.
+      const fixed =
+        3 +
+        4 +
+        label("✓", t("Server")) +
+        label("✦", t("Ideas")) +
+        stringWidth(`${t("Language")} EN`) +
+        2 +
+        label("✧", t("Facts")) +
+        label("⌕", t("Explain")) +
+        label("◎", t("Essence")) +
+        label("◌", t("Chat")) +
+        (projects.loaded() && projects.list().length === 0 ? stringWidth(t("+ Project")) + 2 : 0)
+      return { widths, total: fixed + Object.values(widths).reduce((sum, width) => sum + width, 0) }
     }
-    const fixed =
-      3 +
-      label(`✓ ${t("Server")}`) +
-      label(`✦ ${t("Ideas")}`) +
-      label(`${t("Language")} EN`) +
-      label(t("Facts")) +
-      label(t("Explain")) +
-      label(t("Essence")) +
-      label(t("Chat")) +
-      (projects.loaded() && projects.list().length === 0 ? label(t("+ Project")) : 0)
-    const total = fixed + Object.values(widths).reduce((sum, width) => sum + width, 0)
-    return Object.keys(widths).reduce(
+    if (measure(false).total <= dimensions().width) return { dense: false, ids: new Set<string>() }
+    const compact = measure(true)
+    const ids = Object.keys(compact.widths).reduce(
       (fold, id) => {
         if (fold.width <= dimensions().width) return fold
         fold.ids.add(id)
-        return { ids: fold.ids, width: fold.width - widths[id]! }
+        return { ids: fold.ids, width: fold.width - compact.widths[id]! }
       },
-      { ids: new Set<string>(), width: total },
+      { ids: new Set<string>(), width: compact.total },
     ).ids
+    return { dense: true, ids }
   })
+  const hidden = () => fold().ids
 
   return (
-    <box height={1} flexShrink={0} flexDirection="row" backgroundColor={theme.decrease(theme.background.base)}>
+    <BarDense.Provider value={() => fold().dense}>
+    <box height={1} flexShrink={0} flexDirection="row" backgroundColor={theme.background.base}>
       <Show when={panel()}>
         <box
           position="absolute"
@@ -345,19 +372,25 @@ export function DevToolsBar() {
         />
       </Show>
       <BarItem active={panel() === "server"} onClick={() => toggle("server")}>
-        <text
-          fg={
-            panel() === "server"
-              ? theme.text.action.primary.focused
-              : serverIndicator().state === "connected"
-                ? theme.text.feedback.success.base
-                : serverIndicator().state === "disconnected"
-                  ? theme.text.feedback.error.base
-                  : theme.text.base
+        {/* While connected the server is a living neuron; any other state shows its plain mark. */}
+        <Show
+          when={serverIndicator().state === "connected" && panel() !== "server"}
+          fallback={
+            <text
+              fg={
+                panel() === "server"
+                  ? theme.text.action.primary.focused
+                  : serverIndicator().state === "disconnected"
+                    ? theme.text.feedback.error.base
+                    : theme.text.base
+              }
+            >
+              {serverIndicator().icon}
+            </text>
           }
         >
-          {serverIndicator().icon}
-        </text>
+          <NeuronDot energy={energy()} />
+        </Show>
         <text
           fg={
             panel() === "server"
@@ -367,7 +400,7 @@ export function DevToolsBar() {
                 : theme.text.muted
           }
         >
-          {" " + t("Server")}
+          <Label text={t("Server")} />
         </text>
         <Show when={panel() === "server"}>
           <PanelBox>
@@ -392,9 +425,6 @@ export function DevToolsBar() {
           </PanelBox>
         </Show>
       </BarItem>
-      <BarItem active={false} onClick={openIdeaBank}>
-        <text fg={theme.text.muted}>✦ {t("Ideas")}</text>
-      </BarItem>
       <BarItem hidden={hidden().has("ui")} active={panel() === "ui"} onClick={() => toggle("ui")}>
         <text
           fg={
@@ -416,7 +446,7 @@ export function DevToolsBar() {
                 : theme.text.muted
           }
         >
-          {" " + t("UI")}
+          <Label text={t("UI")} />
         </text>
         <Show when={panel() === "ui"}>
           <PanelBox>
@@ -441,8 +471,15 @@ export function DevToolsBar() {
           </PanelBox>
         </Show>
       </BarItem>
+      <Divider />
+      <BarItem active={false} onClick={openIdeaBank}>
+        <text fg={theme.text.muted}>
+          <span style={{ fg: palette().spark }}>✦</span>
+          <Label text={t("Ideas")} />
+        </text>
+      </BarItem>
       <BarItem hidden={hidden().has("theme")} active={panel() === "theme"} onClick={() => toggle("theme")}>
-        <text fg={panel() === "theme" ? theme.text.action.primary.focused : theme.text.muted}>{t("Theme")}</text>
+        <text fg={panel() === "theme" ? theme.text.action.primary.focused : theme.text.muted}><Label icon="◐" text={t("Theme")} /></text>
         <Show when={panel() === "theme"}>
           <PanelBox>
             <PanelTitle>{t("Theme")}</PanelTitle>
@@ -458,7 +495,7 @@ export function DevToolsBar() {
         </Show>
       </BarItem>
       <BarItem hidden={hidden().has("tools")} active={panel() === "tools"} onClick={() => toggle("tools")}>
-        <text fg={panel() === "tools" ? theme.text.action.primary.focused : theme.text.muted}>{t("Tools")}</text>
+        <text fg={panel() === "tools" ? theme.text.action.primary.focused : theme.text.muted}><Label icon="◇" text={t("Tools")} /></text>
         <Show when={panel() === "tools"}>
           <PanelBox>
             <PanelTitle>{t("Tools")}</PanelTitle>
@@ -576,7 +613,7 @@ export function DevToolsBar() {
           dialog.setCentered(true)
         }}
       >
-        <text fg={theme.text.muted}>{t("Registry")}</text>
+        <text fg={theme.text.muted}><Label icon="▤" text={t("Registry")} /></text>
       </BarItem>
       <BarItem
         hidden={hidden().has("teams")}
@@ -586,7 +623,7 @@ export function DevToolsBar() {
           openTeamEditor(dialog)
         }}
       >
-        <text fg={theme.text.muted}>{t("Teams")}</text>
+        <text fg={theme.text.muted}><Label icon="◈" text={t("Teams")} /></text>
       </BarItem>
       {/* A hidden Show leaves a Solid slot node without a zIndex among the bar's children, and opentui's
           zIndex sort then let the backdrop land above the open panel and take its clicks. The wrapper keeps
@@ -612,7 +649,7 @@ export function DevToolsBar() {
           dialog.replace(() => <DialogExperiments />)
         }}
       >
-        <text fg={theme.text.muted}>{t("Experiments")}</text>
+        <text fg={theme.text.muted}><Label icon="△" text={t("Experiments")} /></text>
       </BarItem>
       {/* Items that no longer fit are not lost: this mark opens the command palette, where each has its command. */}
       <BarItem
@@ -628,14 +665,15 @@ export function DevToolsBar() {
       <box flexGrow={1} minWidth={0}>
         <TimeToFirstDraw visible={timing()} width="100%" fg={theme.text.muted} label="Time to first draw" />
       </box>
+      <Divider />
       <BarItem active={quickMode() === "explain"} onClick={() => toggleQuick("explain")} selecting>
-        <text fg={quickMode() === "explain" ? theme.text.action.primary.focused : theme.text.muted}>{t("Explain")}</text>
+        <text fg={quickMode() === "explain" ? theme.text.action.primary.focused : theme.text.muted}><Label icon="⌕" text={t("Explain")} /></text>
       </BarItem>
       <BarItem active={quickMode() === "essence"} onClick={() => toggleQuick("essence")}>
-        <text fg={quickMode() === "essence" ? theme.text.action.primary.focused : theme.text.muted}>{t("Essence")}</text>
+        <text fg={quickMode() === "essence" ? theme.text.action.primary.focused : theme.text.muted}><Label icon="◎" text={t("Essence")} /></text>
       </BarItem>
       <BarItem active={quickMode() === "chat"} onClick={() => toggleQuick("chat")}>
-        <text fg={quickMode() === "chat" ? theme.text.action.primary.focused : theme.text.muted}>{t("Chat")}</text>
+        <text fg={quickMode() === "chat" ? theme.text.action.primary.focused : theme.text.muted}><Label icon="◌" text={t("Chat")} /></text>
       </BarItem>
       <BarItem
         active={facts.open}
@@ -646,7 +684,7 @@ export function DevToolsBar() {
           }).catch(toast.error)
         }}
       >
-        <text fg={facts.open ? theme.text.action.primary.focused : theme.text.muted}>{t("Facts")}</text>
+        <text fg={facts.open ? theme.text.action.primary.focused : theme.text.muted}><Label icon="✧" text={t("Facts")} /></text>
       </BarItem>
       <BarItem
         active={false}
@@ -667,6 +705,29 @@ export function DevToolsBar() {
         <QuickHelp />
       </box>
     </box>
+    </BarDense.Provider>
+  )
+}
+
+// Whether the bar shows icons only, and whether the item under the pointer should show its name anyway.
+const BarDense = createContext<() => boolean>(() => false)
+const BarHovered = createContext<() => boolean>(() => false)
+
+// An item's name after its icon: hidden in the dense bar until the pointer is over the item.
+function Label(props: { icon?: string; text: string }) {
+  const dense = useContext(BarDense)
+  const hovered = useContext(BarHovered)
+  const name = () => (dense() && !hovered() ? "" : ` ${props.text}`)
+  return <>{props.icon ? `${props.icon}${name()}` : name()}</>
+}
+
+// A thin synapse mark between the bar's groups.
+function Divider() {
+  const theme = useTheme()
+  return (
+    <text flexShrink={0} fg={neuralPalette(theme).synapse} selectable={false}>
+      │
+    </text>
   )
 }
 
@@ -698,7 +759,9 @@ function BarItem(props: ParentProps<{ active: boolean; onClick: () => void; hidd
         props.onClick()
       }}
     >
-      <box flexDirection="row">{props.children}</box>
+      <BarHovered.Provider value={hovered}>
+        <box flexDirection="row">{props.children}</box>
+      </BarHovered.Provider>
     </box>
   )
 }
