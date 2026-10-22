@@ -114,7 +114,7 @@ export function ConnectServerScreen(props: { url?: string } = {}) {
   return (
     <main data-component="connect-server" aria-labelledby="server-connect-title">
       <div class="server-connect-content">
-        <div class="server-connect-brand" role="img" aria-label="Opencode++">
+        <div class="server-connect-brand" role="img" aria-label="Orchestra">
           <Wordmark />
         </div>
         <header>

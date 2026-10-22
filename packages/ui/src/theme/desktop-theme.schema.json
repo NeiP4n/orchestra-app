@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://opencode.ai/desktop-theme.json",
-  "title": "Opencode++ Desktop Theme",
-  "description": "A theme definition for the Opencode++ desktop application",
+  "title": "Orchestra Desktop Theme",
+  "description": "A theme definition for the Orchestra desktop application",
   "type": "object",
   "required": ["name", "id", "light", "dark"],
   "properties": {

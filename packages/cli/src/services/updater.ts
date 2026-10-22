@@ -46,7 +46,7 @@ const decodeVpPackages = Schema.decodeUnknownOption(
 )
 
 const installNames: Record<Method, string> = {
-  curl: "The Opencode++ installer",
+  curl: "The Orchestra installer",
   npm: "npm",
   pnpm: "pnpm",
   bun: "Bun",
@@ -154,8 +154,8 @@ const make = Effect.gen(function* () {
     if (bash && (yield* fs.exists(bash).pipe(Effect.orElseSucceed(() => false)))) return bash
     return yield* Effect.fail(
       new UpgradeError({
-        title: "Git Bash is required to update Opencode++",
-        detail: "The Opencode++ installer runs with Git Bash on Windows, and it was not found.",
+        title: "Git Bash is required to update Orchestra",
+        detail: "The Orchestra installer runs with Git Bash on Windows, and it was not found.",
         retry: "Install Git for Windows or set ORCHESTRA_GIT_BASH_PATH, then run opencode upgrade again.",
       }),
     )
@@ -225,7 +225,7 @@ const make = Effect.gen(function* () {
       catch: (cause) =>
         new UpgradeError(
           {
-            title: "Could not check for Opencode++ updates",
+            title: "Could not check for Orchestra updates",
             detail: errorDetail(cause),
             retry: "Check your network, then run opencode upgrade again.",
           },
@@ -235,7 +235,7 @@ const make = Effect.gen(function* () {
     if (!response.ok)
       return yield* Effect.fail(
         new UpgradeError({
-          title: "Could not check for Opencode++ updates",
+          title: "Could not check for Orchestra updates",
           detail: `The update service returned HTTP ${response.status}.`,
           retry: "Try again in a few minutes.",
         }),
@@ -246,7 +246,7 @@ const make = Effect.gen(function* () {
         catch: (cause) =>
           new UpgradeError(
             {
-              title: "Could not read the Opencode++ update information",
+              title: "Could not read the Orchestra update information",
               detail: errorDetail(cause),
               retry: "Try again in a few minutes.",
             },
@@ -258,7 +258,7 @@ const make = Effect.gen(function* () {
     if (!version || !packageName)
       return yield* Effect.fail(
         new UpgradeError({
-          title: "Could not read the Opencode++ update information",
+          title: "Could not read the Orchestra update information",
           detail: "The update service returned incomplete release information.",
           retry: "Try again in a few minutes.",
         }),
@@ -371,7 +371,7 @@ const make = Effect.gen(function* () {
             method,
             command: ["curl", "-fsSL", "-o", installer, "https://opencode.ai/v2/install"],
             displayCommand: ["curl", "-fsSL", "https://opencode.ai/v2/install"],
-            title: "Could not download the Opencode++ installer",
+            title: "Could not download the Orchestra installer",
             retry: "Check your network, then run opencode upgrade again.",
           })
           return yield* retaining(
@@ -380,7 +380,7 @@ const make = Effect.gen(function* () {
               method,
               command: [bash, installer, "--version", version, "--no-modify-path"],
               displayCommand: ["opencode", "upgrade", version, "--method", "curl"],
-              title: "The Opencode++ installer failed",
+              title: "The Orchestra installer failed",
             }),
           )
         }
@@ -393,7 +393,7 @@ const make = Effect.gen(function* () {
           ? cause
           : new UpgradeError(
               {
-                title: "Could not prepare the Opencode++ upgrade",
+                title: "Could not prepare the Orchestra upgrade",
                 detail: errorDetail(cause),
                 retry: "Fix the issue above, then run opencode upgrade again.",
               },
@@ -406,7 +406,7 @@ const make = Effect.gen(function* () {
 
   const inspect = Effect.fnUntraced(function* () {
     if (ORCHESTRA_LOCAL) {
-      // Source installs use Opencode++ release tags or the development branch, never the public
+      // Source installs use Orchestra release tags or the development branch, never the public
       // opencode.ai update service. A release checkout checks release/* first; a lan-rooms
       // checkout then falls through to its own branch tracking.
       const release = yield* sourceRelease()
@@ -415,7 +415,7 @@ const make = Effect.gen(function* () {
       const branch = yield* developmentBranch()
       if (branch?.type === "available") return { policy: "notify" as const, version: branch.version }
       if (branch?.type === "unavailable") {
-        yield* Effect.logWarning("Opencode++ update check unavailable", { message: branch.message })
+        yield* Effect.logWarning("Orchestra update check unavailable", { message: branch.message })
       }
       return undefined
     }
@@ -445,7 +445,7 @@ const make = Effect.gen(function* () {
       yield* Effect.logInfo("update check done", { action: "up-to-date" })
       return undefined
     }
-    yield* Effect.logInfo("Opencode++ update available", { current, latest: version, action: next })
+    yield* Effect.logInfo("Orchestra update available", { current, latest: version, action: next })
     return { policy, version }
   })
 
@@ -474,7 +474,7 @@ const make = Effect.gen(function* () {
         catch: (cause) =>
           new UpgradeError(
             {
-              title: "Could not update Opencode++",
+              title: "Could not update Orchestra",
               detail: errorDetail(cause),
               retry: "Check the internet connection, then try the update again.",
             },
@@ -518,7 +518,7 @@ const make = Effect.gen(function* () {
       catch: (cause) =>
         new UpgradeError(
           {
-            title: "Could not check for Opencode++ updates",
+            title: "Could not check for Orchestra updates",
             detail: errorDetail(cause),
             retry: "Check that Git is installed and this checkout's remote or upstream is reachable, then try again.",
           },

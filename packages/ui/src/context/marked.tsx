@@ -13,7 +13,7 @@ export const { use: useMarked, provider: MarkedProvider } = createSimpleContext(
   init: () =>
     createMarkdownParser(async (code, language) => {
       const highlighter = await getSharedHighlighter({
-        themes: ["Opencode++"],
+        themes: ["Orchestra"],
         langs: [],
         preferredHighlighter: "shiki-wasm",
       })
@@ -24,7 +24,7 @@ export const { use: useMarked, provider: MarkedProvider } = createSimpleContext(
 
       return highlighter.codeToHtml(code, {
         lang: name,
-        theme: "Opencode++",
+        theme: "Orchestra",
         tabindex: false,
       })
     }),

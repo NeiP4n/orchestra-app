@@ -43,6 +43,26 @@ if ($Url) {
   throw "No orchestra.exe found. Pass -Url <download link> or -Source <path>, or install Rust (https://rustup.rs) and run again."
 }
 
+# The full application (interface, Society chat, modes, MCP, ...) runs from this checkout with Bun.
+if (Get-Command bun -ErrorAction SilentlyContinue) {
+  # The interface is Solid JSX, so Bun needs the Solid preload no matter where the command is run from;
+  # code page 65001 keeps the box and dither characters intact in the console.
+  $bun = (Get-Command bun).Source
+  $preload = "$root\packages\cli\node_modules\@opentui\solid\scripts\preload.js"
+  $launcher = @(
+    "@echo off",
+    "setlocal",
+    "for /f `"tokens=2 delims=:`" %%c in ('chcp') do set `"ORCHESTRA_CP=%%c`"",
+    "chcp 65001 >nul",
+    "`"$bun`" --preload=`"$preload`" `"$root\packages\cli\src\index.ts`" %*",
+    "set `"ORCHESTRA_EXIT=%ERRORLEVEL%`"",
+    "if defined ORCHESTRA_CP chcp %ORCHESTRA_CP% >nul",
+    "exit /b %ORCHESTRA_EXIT%"
+  ) -join "`r`n"
+  Set-Content -Path (Join-Path $target "orchestra-app.cmd") -Value $launcher -Encoding ascii
+  $app = $true
+}
+
 Set-UserPath $target $true
 $env:Path = "$env:Path;$target"
 
@@ -52,3 +72,4 @@ Write-Host "Open a NEW terminal and run:"
 Write-Host "  orchestra           start (you answer as the model until a model is connected)"
 Write-Host "  orchestra setup     connect a model endpoint (your own key, a local server, a gateway)"
 Write-Host "  orchestra --help"
+if ($app) { Write-Host "  orchestra-app       the full application with the new interface (needs this folder to stay in place)" }

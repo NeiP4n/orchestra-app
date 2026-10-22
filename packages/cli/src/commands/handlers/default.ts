@@ -48,7 +48,7 @@ export default Runtime.handler(Commands, (input) =>
       },
     }).pipe(
       Effect.tapError(() =>
-        Effect.promise(() => preflight.fail("Opencode++ update could not start the new background service")),
+        Effect.promise(() => preflight.fail("Orchestra update could not start the new background service")),
       ),
     )
     const session = Option.getOrUndefined(input.session)

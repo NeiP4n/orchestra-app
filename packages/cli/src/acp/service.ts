@@ -113,7 +113,7 @@ export function make(input: {
       }
       if (params.clientCapabilities?._meta?.["terminal-auth"] === true) {
         authMethod._meta = {
-          "terminal-auth": { command: "opencode", args: ["auth", "login"], label: "Opencode++ Login" },
+          "terminal-auth": { command: "opencode", args: ["auth", "login"], label: "Orchestra Login" },
         }
       }
       return {
@@ -126,7 +126,7 @@ export function make(input: {
           _meta: { [ACPCapabilities.ChildSessionUpdates]: true },
         },
         authMethods: [authMethod],
-        agentInfo: { name: "Opencode++", version: ORCHESTRA_VERSION },
+        agentInfo: { name: "Orchestra", version: ORCHESTRA_VERSION },
       }
     }),
     authenticate: Effect.fnUntraced(function* (params) {

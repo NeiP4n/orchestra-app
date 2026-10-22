@@ -73,7 +73,7 @@ test("/upgrade opens the manual update dialog and checks for a newer version", a
   setup.mockInput.typeText("/upgrade")
   // Wait for slash-command autocomplete before Enter; otherwise the key can land on
   // the composer itself while the command list is still being rendered.
-  await setup.waitForFrame((frame) => frame.includes("/upgrade") && frame.includes("Update Opencode++"))
+  await setup.waitForFrame((frame) => frame.includes("/upgrade") && frame.includes("Update Orchestra"))
   setup.mockInput.pressEnter()
 
   await setup.waitForFrame((frame) => frame.includes("Version 9.9.9 is available"))

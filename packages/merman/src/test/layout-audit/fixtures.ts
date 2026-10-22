@@ -427,7 +427,7 @@ const stateFamilies = {
 } satisfies Record<string, (direction: StateDiagramDirection, profile: LabelProfile) => string>
 
 export const deploymentArchitectureSource = `flowchart LR
-    Client[Opencode++ client]
+    Client[Orchestra client]
 
     subgraph CF[Cloudflare]
       DNS[opencode.ai]

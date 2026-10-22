@@ -93,7 +93,7 @@ export const settings: Setting[] = [
   {
     title: "Mascot",
     category: "Appearance",
-    description: "The Opencode++ mascot beside the prompt",
+    description: "The Orchestra mascot beside the prompt",
     path: ["mascot"],
     default: true,
     ...toggle,

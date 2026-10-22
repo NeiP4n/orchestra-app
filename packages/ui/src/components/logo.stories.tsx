@@ -2,7 +2,7 @@
 import * as mod from "./logo"
 
 const docs = `### Overview
-Opencode++ logo assets: mark, splash, and wordmark.
+Orchestra logo assets: mark, splash, and wordmark.
 
 Use Mark for compact spaces, Logo for headers, Splash for hero sections.
 

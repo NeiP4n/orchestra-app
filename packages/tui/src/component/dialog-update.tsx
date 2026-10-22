@@ -97,7 +97,7 @@ export function DialogUpdate(props: {
       <box flexDirection="row" justifyContent="space-between">
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
           {state().type === "installing"
-            ? t("Updating Opencode++")
+            ? t("Updating Orchestra")
             : state().type === "available" || state().type === "failed"
               ? t("Update available")
               : t("Update")}
@@ -116,7 +116,7 @@ export function DialogUpdate(props: {
               <Match when={current.type === "available"}>
                 <text fg={theme.text.muted} wrapMode="word">
                   {current.type === "available"
-                    ? t("Version {version} is available. After installing, you'll be prompted to restart Opencode++.", {
+                    ? t("Version {version} is available. After installing, you'll be prompted to restart Orchestra.", {
                         version: current.version,
                       })
                     : ""}
@@ -125,7 +125,7 @@ export function DialogUpdate(props: {
               <Match when={current.type === "installing"}>
                 <Spinner shimmer={theme.text.base}>
                   {current.type === "installing"
-                    ? t("Installing Opencode++ {version}…", { version: current.version })
+                    ? t("Installing Orchestra {version}…", { version: current.version })
                     : ""}
                 </Spinner>
               </Match>
@@ -153,7 +153,7 @@ export function DialogUpdate(props: {
                 </Show>
               </Match>
               <Match when={current.type === "current"}>
-                <text fg={theme.text.muted}>{t("Opencode++ is already up to date.")}</text>
+                <text fg={theme.text.muted}>{t("Orchestra is already up to date.")}</text>
               </Match>
               <Match when={current.type === "unavailable"}>
                 <text fg={theme.text.muted} wrapMode="word">

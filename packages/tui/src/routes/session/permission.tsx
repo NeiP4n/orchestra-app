@@ -428,7 +428,7 @@ function RejectPrompt(props: {
           <text fg={theme.text.base}>Reject permission</text>
         </box>
         <box paddingLeft={1}>
-          <text fg={theme.text.muted}>Tell Opencode++ what to do differently</text>
+          <text fg={theme.text.muted}>Tell Orchestra what to do differently</text>
         </box>
       </box>
       <box

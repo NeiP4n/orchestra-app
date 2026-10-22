@@ -70,7 +70,7 @@ function releaseVersion() {
   return FALLBACK_VERSION
 }
 
-// An Opencode++ source install has its own updater: release/* tags and the lan-rooms
+// An Orchestra source install has its own updater: release/* tags and the lan-rooms
 // development branch are managed by source-release.ts. Do not send these checkouts to the
 // public opencode.ai updater, otherwise /upgrade offers an upstream OpenCode version.
 // The marker is kept in the repository and is not shipped by normal package installations.

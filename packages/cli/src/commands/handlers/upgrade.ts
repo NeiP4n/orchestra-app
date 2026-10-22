@@ -14,7 +14,7 @@ export default Runtime.handler(
       intro("Upgrade")
       const updater = yield* Updater.Service
 
-      // Opencode++ source installs update from release/* tags or the configured development
+      // Orchestra source installs update from release/* tags or the configured development
       // branch. Never ask the public opencode.ai updater for a source checkout: that would offer
       // an upstream OpenCode version (for example 2.0.32) instead of the fork's update.
       if (ORCHESTRA_LOCAL) {
@@ -27,7 +27,7 @@ export default Runtime.handler(
         const target = status.version
         log.info(`From ${ORCHESTRA_VERSION} → ${target}`)
         const progress = spinner()
-        progress.start("Updating Opencode++...")
+        progress.start("Updating Orchestra...")
         yield* updater.apply(target).pipe(
           Effect.tap(() => Effect.sync(() => progress.stop("Update complete"))),
           Effect.tapCause(() => Effect.sync(() => progress.stop("Update failed", 1))),
@@ -39,14 +39,14 @@ export default Runtime.handler(
       const method = Option.getOrUndefined(input.method) ?? (yield* updater.method())
       if (!method)
         return yield* Effect.fail(
-          new Error("Could not detect the installation method. Pass --method to choose how to upgrade Opencode++."),
+          new Error("Could not detect the installation method. Pass --method to choose how to upgrade Orchestra."),
         )
 
       log.info(`Using method: ${method}`)
       const target = Option.getOrUndefined(input.target) ?? (yield* updater.latest(method))
       const version = target.trim().replace(/^v/, "")
       if (version === ORCHESTRA_VERSION) {
-        log.warn(`Opencode++ upgrade skipped: ${version} is already installed`)
+        log.warn(`Orchestra upgrade skipped: ${version} is already installed`)
         outro("Done")
         return
       }

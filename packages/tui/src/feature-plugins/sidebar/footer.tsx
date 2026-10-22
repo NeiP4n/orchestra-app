@@ -67,7 +67,7 @@ export function SidebarOnboarding(props: { context: Plugin.Context; sessionID: s
             </box>
           </box>
           <text fg={props.context.theme.text.muted}>
-            {t("Opencode++ includes free models so you can start immediately.")}
+            {t("Orchestra includes free models so you can start immediately.")}
           </text>
           <text fg={props.context.theme.text.muted}>
             {t("Connect one of 75+ providers to use other models, including Claude, GPT and Gemini.")}

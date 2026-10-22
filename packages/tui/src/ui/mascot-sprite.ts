@@ -1,6 +1,6 @@
 import { RGBA } from "@opentui/core"
 
-// The Opencode++ mascot from MaskotOpencode.aseprite (13x15), redrawn at 11x6
+// The Orchestra mascot from MaskotOpencode.aseprite (13x15), redrawn at 11x6
 // so it fits inside the prompt with room around it.
 // "1" is the body, "2" the eyes, "." is transparent.
 const ART = [

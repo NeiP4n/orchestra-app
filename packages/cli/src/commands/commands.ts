@@ -35,13 +35,13 @@ const PermissionParams = {
   ),
 }
 
-const Root = Spec.make(typeof ORCHESTRA_CLI_NAME === "string" ? ORCHESTRA_CLI_NAME : "opencode", {
-  description: "Opencode++ command line interface",
+const Root = Spec.make(typeof ORCHESTRA_CLI_NAME === "string" ? ORCHESTRA_CLI_NAME : "orchestra", {
+  description: "Orchestra command line interface",
   params: {
     ...ServerParams,
     ...PermissionParams,
     directory: Argument.string("directory").pipe(
-      Argument.withDescription("Directory to start Opencode++ in"),
+      Argument.withDescription("Directory to start Orchestra in"),
       Argument.optional,
     ),
     continue: Flag.boolean("continue").pipe(
@@ -58,7 +58,7 @@ const Root = Spec.make(typeof ORCHESTRA_CLI_NAME === "string" ? ORCHESTRA_CLI_NA
   },
   commands: [
     Spec.make("upgrade", {
-      description: "Upgrade Opencode++ to the latest or a specific version",
+      description: "Upgrade Orchestra to the latest or a specific version",
       aliases: ["update"],
       params: {
         target: Argument.string("target").pipe(
@@ -73,7 +73,7 @@ const Root = Spec.make(typeof ORCHESTRA_CLI_NAME === "string" ? ORCHESTRA_CLI_NA
       },
     }),
     Spec.make("uninstall", {
-      description: "Uninstall Opencode++, keeping session data, configuration, and state",
+      description: "Uninstall Orchestra, keeping session data, configuration, and state",
       params: {
         dryRun: Flag.boolean("dry-run").pipe(
           Flag.withDescription("Show what would be removed without removing"),
@@ -372,7 +372,7 @@ const Root = Spec.make(typeof ORCHESTRA_CLI_NAME === "string" ? ORCHESTRA_CLI_NA
       },
     }),
     Spec.make("run", {
-      description: "Run Opencode++ with a message",
+      description: "Run Orchestra with a message",
       params: {
         ...ServerParams,
         message: Argument.string("message").pipe(

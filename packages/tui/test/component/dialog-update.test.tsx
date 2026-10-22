@@ -48,8 +48,8 @@ test("installation progress replaces checking while the update job is still pend
     setState({ type: "installing", version: "2.0.0" })
     await app.waitForFrame(
       (frame) =>
-        frame.includes("Updating Opencode++") &&
-        frame.includes("Installing Opencode++ 2.0.0") &&
+        frame.includes("Updating Orchestra") &&
+        frame.includes("Installing Orchestra 2.0.0") &&
         !frame.includes("Checking"),
     )
     expect(app.captureCharFrame()).not.toContain("Skip")

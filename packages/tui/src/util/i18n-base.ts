@@ -226,8 +226,8 @@ const ru: Record<string, string> = {
   tokens: "токенов",
   "{cost} spent": "потрачено {cost}",
   "Getting started": "С чего начать",
-  "Opencode++ includes free models so you can start immediately.":
-    "В Opencode++ есть бесплатные модели — можно начинать сразу.",
+  "Orchestra includes free models so you can start immediately.":
+    "В Orchestra есть бесплатные модели — можно начинать сразу.",
   "Connect one of 75+ providers to use other models, including Claude, GPT and Gemini.":
     "Подключи одного из 75+ провайдеров, чтобы взять другие модели, включая Claude, GPT и Gemini.",
   "Connect provider": "Подключить провайдера",
@@ -748,18 +748,18 @@ const ru: Record<string, string> = {
   "Update": "Обновить",
   "Restart": "Перезапустить",
   "Skip": "Пропустить",
-  "Updating Opencode++": "Обновляю Opencode++",
+  "Updating Orchestra": "Обновляю Orchestra",
   "Update available": "Есть обновление",
   "Checking for updates…": "Проверяю обновления…",
-  "Version {version} is available. After installing, you'll be prompted to restart Opencode++.": "Доступна версия {version}. После установки Opencode++ предложит перезапуск.",
-  "Installing Opencode++ {version}…": "Устанавливаю Opencode++ {version}…",
+  "Version {version} is available. After installing, you'll be prompted to restart Orchestra.": "Доступна версия {version}. После установки Orchestra предложит перезапуск.",
+  "Installing Orchestra {version}…": "Устанавливаю Orchestra {version}…",
   "Update successful! A restart is required. Any active sessions will be resumed automatically.": "Обновлено. Нужен перезапуск; активные сессии продолжатся сами.",
   "Local edits to {files} clash with the update, so they were set aside. Bring them back in the install folder with: git stash pop":
     "Локальные правки в {files} конфликтуют с обновлением, поэтому их отложили. Вернуть их можно в папке установки командой: git stash pop",
   "Local edits in the install were put back on top of the update.":
     "Локальные правки в установке возвращены поверх обновления.",
-  "Opencode++ is already up to date.": "Opencode++ уже последней версии.",
-  "This build runs from a source checkout. Use an installed Opencode++ release to check for updates.": "Эта сборка запущена из исходников без ветки. Обновления проверяет только установленный релиз Opencode++.",
+  "Orchestra is already up to date.": "Orchestra уже последней версии.",
+  "This build runs from a source checkout. Use an installed Orchestra release to check for updates.": "Эта сборка запущена из исходников без ветки. Обновления проверяет только установленный релиз Orchestra.",
   "This branch and its copy on GitHub both have new commits. Merge them by hand with git pull.": "И в этой ветке, и в её копии на GitHub есть новые коммиты. Объедини их вручную через git pull.",
   "This branch has no copy on GitHub to update from.": "У этой ветки нет копии на GitHub, обновляться неоткуда.",
   "This install has commits that are not on GitHub. Run the installer again to replace them.":
@@ -862,7 +862,7 @@ const ru: Record<string, string> = {
   "Ask before the AI runs commands and edits files, or accept automatically": "Спрашивать, прежде чем ИИ запустит команду или изменит файл, или принимать сами",
   "Start new sessions in the launch directory or in the active session's directory": "Начинать новые сессии в папке запуска или в папке активной сессии",
   "Spinners, shimmer and other motion": "Спиннеры, мерцание и прочее движение",
-  "The Opencode++ mascot beside the prompt": "Маскот Opencode++ рядом с полем ввода",
+  "The Orchestra mascot beside the prompt": "Маскот Orchestra рядом с полем ввода",
   "Cursor of the text inputs; default keeps the terminal's own": "Курсор полей ввода; «как в терминале» оставляет терминальный",
   "Blink the input cursor": "Мигающий курсор ввода",
   "Session sidebar with context, todos and MCP; auto shows it when there is room": "Боковая панель сессии: контекст, задачи, MCP; «авто» показывает её, когда хватает места",
@@ -928,7 +928,7 @@ const ru: Record<string, string> = {
   "Connect an integration": "Подключить интеграцию",
   "Open settings": "Открыть настройки",
   "View status": "Состояние",
-  "Update Opencode++": "Обновить Opencode++",
+  "Update Orchestra": "Обновить Orchestra",
   "Pair device": "Подключить устройство",
   "Restart service": "Перезапустить сервис",
   "View debug info": "Отладочная информация",

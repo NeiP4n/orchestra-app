@@ -366,7 +366,7 @@ test("a new note starts with its own bound chat, and deleting one takes two clic
 test("a long note title gives way in a compact panel and the delete control stays readable", async () => {
   await using state = await tmpdir()
   const calls: Call[] = []
-  const long = { ...ideas(), frontmatter: { ...ideas().frontmatter, title: "Opencode++ доработки по итогам совета ИИ" } }
+  const long = { ...ideas(), frontmatter: { ...ideas().frontmatter, title: "Orchestra доработки по итогам совета ИИ" } }
   await using setup = await render(state.path, { notes: [plan(), long], calls, width: 140, layout: "compact" })
   await setup.waitForFrame((frame) => frame.includes("Projects │ Notes"))
   await click(setup, "Notes", 1)

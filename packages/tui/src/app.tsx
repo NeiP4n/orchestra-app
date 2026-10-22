@@ -754,14 +754,14 @@ function App() {
     if (!terminalTitleEnabled()) return
 
     if (route.data.type === "home") {
-      renderer.setTerminalTitle("Opencode++")
+      renderer.setTerminalTitle("Orchestra")
       return
     }
 
     if (route.data.type === "session") {
       const title = session?.title
       if (!title || isFallbackTitle(title)) {
-        renderer.setTerminalTitle("Opencode++")
+        renderer.setTerminalTitle("Orchestra")
         return
       }
 
@@ -777,7 +777,7 @@ function App() {
     if (route.data.type === "room") {
       const target = route.data
       const room = joinedRooms.joined.find((item) => sameRoom(item, target))
-      renderer.setTerminalTitle(room ? `OC | ⇄ ${room.name}` : "Opencode++")
+      renderer.setTerminalTitle(room ? `OC | ⇄ ${room.name}` : "Orchestra")
     }
   })
 
@@ -1229,7 +1229,7 @@ function App() {
         ? [
             {
               name: "opencode.update",
-              title: "Update Opencode++",
+              title: "Update Orchestra",
               slash: { name: "upgrade" },
               run: () => updater.open?.("manual"),
               category: "System",

@@ -21,7 +21,7 @@ import {
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const
 
-const stages = ["Keeping your session safe", "Starting the new background service", "Loading Opencode++"] as const
+const stages = ["Keeping your session safe", "Starting the new background service", "Loading Orchestra"] as const
 const stageFloor = 480
 const transitionDuration = 420
 const completionHold = 650
@@ -323,7 +323,7 @@ function UpdateFooter(props: {
   const statusSweep = createSweep()
   const runningHeader = () =>
     phrase(
-      ["Opencode++", colors.muted, true],
+      ["Orchestra", colors.muted, true],
       ["is updating", colors.muted],
       ...(props.from
         ? ([
@@ -335,11 +335,11 @@ function UpdateFooter(props: {
       [ORCHESTRA_VERSION, colors.accent],
     )
   const completedHeader = phrase(
-    ["Opencode++", colors.muted, true],
+    ["Orchestra", colors.muted, true],
     ["updated to", colors.muted],
     [ORCHESTRA_VERSION, colors.accent],
   )
-  const pausedHeader = phrase(["Opencode++", colors.muted, true], ["update paused", colors.muted])
+  const pausedHeader = phrase(["Orchestra", colors.muted, true], ["update paused", colors.muted])
   const outcomeStatus = () =>
     props.outcome() === "success"
       ? [...styled("✓", colors.success), ...styled(" Ready", colors.text)]

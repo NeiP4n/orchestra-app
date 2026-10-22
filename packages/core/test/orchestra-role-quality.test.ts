@@ -165,7 +165,7 @@ describe("built-in Orchestra role contracts", () => {
     expect(desktop?.members.map((member) => member.agent)).toContain(role("desktop-developer"))
   })
 
-  test("general roles do not assume the Opencode++ monorepo", () => {
+  test("general roles do not assume the Orchestra monorepo", () => {
     const specific = new Set(["core-maintainer", "integration-engineer", "api-contract-engineer"])
     for (const item of roles.filter((item) => !specific.has(item.id))) {
       expect(item.rules).not.toContain("packages/client")

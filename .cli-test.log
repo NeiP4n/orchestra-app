@@ -1,0 +1,17 @@
+bun test v1.4.3 (c6da4a4d3)
+
+test\auth.test.ts:
+25 |     expect(auth.stdout).toContain("connect an integration")
+26 |     expect(auth.stdout).toContain("log out of a saved account")
+27 |     expect(auth.stdout).toContain("switch the active account for an integration")
+28 |     expect(auth.stdout).not.toMatch(/^  connect\s/m)
+29 |     expect(list.exitCode).toBe(0)
+30 |     expect(list.stdout).toContain("opencode auth list [flags]")
+                             ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "opencode auth list [flags]"
+Received: "DESCRIPTION\n  list integrations and credentials\n\nUSAGE\n  orchestra auth list [flags]\n\nFLAGS\n  --standalone       Run with a private server instead of the background service\n  --server string    Connect to a server URL instead of the background service\n  --format choice    Output format (choices: default, json)\n\nGLOBAL FLAGS\n  --help, -h                                                          Show help information\n  --version, -v                                                       Show version information\n  --wizard                                                            Start wizard mode for a command\n  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)\n  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)\n  --print-logs                                                        Print logs to stderr (server logs require --standalone)\n"
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\auth.test.ts:30:25)
+(fail) auth command > registers authentication commands [1169.78ms]

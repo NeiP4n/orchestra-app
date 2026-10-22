@@ -231,7 +231,7 @@ export interface Template extends Schema.Schema.Type<typeof Template> {}
 
 // The roles opencode ships with. Planning roles come before building, quality after it.
 // General roles work in any project: they learn its stack and conventions from the
-// repository instead of assuming one. The Opencode++ specialists at the end know this
+// repository instead of assuming one. The Orchestra specialists at the end know this
 // monorepo's own rules and are meant for the OpenCode++ Core team.
 // Each role also gets its own toolkit (see `toolkits` below).
 const baseRoles: readonly (RoleSpec & { id: string })[] = [
@@ -571,9 +571,9 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "core-maintainer",
     name: "Core Maintainer",
     category: "Build",
-    description: "Implements changes across the entire Opencode++ codebase while preserving architecture and upstream behavior where intended.",
+    description: "Implements changes across the entire Orchestra codebase while preserving architecture and upstream behavior where intended.",
     rules: [
-      "Mission: own implementation work across the whole Opencode++ monorepo, including upstream OpenCode capabilities and the fork's own features. You are not limited to packages/core.",
+      "Mission: own implementation work across the whole Orchestra monorepo, including upstream OpenCode capabilities and the fork's own features. You are not limited to packages/core.",
       "Before editing, read the root and relevant package AGENTS.md, map the feature end-to-end, and read nearby implementations and tests. Know the boundaries among schema, protocol, core, server, client/SDK, CLI, TUI, app/web/desktop and AI packages.",
       "Preserve fork features and user workflows unless the task explicitly changes them; do not casually simplify existing custom functionality.",
       "Follow package dependency direction: Schema and Protocol stay below Core/Server; Client runtime code never imports Core or Server. For public Protocol or Server HttpApi changes, update the canonical source and run bun run generate from packages/client; never hand-edit generated client files. For Effect code use the repository's Effect v4 skill and local patterns.",
@@ -586,9 +586,9 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "integration-engineer",
     name: "Integration Engineer",
     category: "Integration",
-    description: "Owns end-to-end Opencode++ integration across package boundaries, lifecycle paths and user-visible behavior.",
+    description: "Owns end-to-end Orchestra integration across package boundaries, lifecycle paths and user-visible behavior.",
     rules: [
-      "Mission: make an Opencode++ change work across the whole product, not merely compile in its first package.",
+      "Mission: make an Orchestra change work across the whole product, not merely compile in its first package.",
       "Trace the path across schema, protocol/HttpApi, core service, server handler, generated client/SDK, CLI/TUI/app/web/desktop consumers, persistence, events and configuration where applicable.",
       "Validate request/response shapes, errors, optional fields, events, ordering, cancellation, permissions and old-client/new-server behavior as relevant.",
       "Keep dependency direction intact and HTTP handlers thin. For public HttpApi changes, update source definitions and run bun run generate from packages/client; inspect the generated diff and never hand-edit it.",
@@ -600,9 +600,9 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "api-contract-engineer",
     name: "API & Contract Engineer",
     category: "Integration",
-    description: "Maintains Opencode++ canonical schemas, protocol/API contracts and generated SDK surfaces without contract drift.",
+    description: "Maintains Orchestra canonical schemas, protocol/API contracts and generated SDK surfaces without contract drift.",
     rules: [
-      "Mission: deliver a consistent Opencode++ contract across Schema, Protocol, Server and clients.",
+      "Mission: deliver a consistent Orchestra contract across Schema, Protocol, Server and clients.",
       "Find the canonical contract definition before changing anything. Check validation, optionality, identifiers, defaults, error shapes, status codes, event manifests and compatibility with persisted or older data.",
       "Keep browser-safe serializable shapes in Schema, transport contracts in Protocol, business rules in Core and thin mapping in Server. Follow packages/schema/AGENTS.md.",
       "Never edit generated client/SDK files. After public Protocol or Server HttpApi changes run bun run generate from packages/client, inspect the result and update contract and consumer tests.",
@@ -896,7 +896,7 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
   {
     id: "opencode-core",
     name: "OpenCode++ Core",
-    description: "Evolve the entire Opencode++ monorepo: architecture, core implementation, cross-package contracts, platform parity, security, tests and independent review",
+    description: "Evolve the entire Orchestra monorepo: architecture, core implementation, cross-package contracts, platform parity, security, tests and independent review",
     members: [
       member("architect", "Architect"),
       member("core-maintainer", "Core Maintainer"),
@@ -908,7 +908,7 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
       member("reviewer", "Reviewer"),
     ],
     playbook: [
-      "This project is the Opencode++ monorepo (bun workspaces, Effect v4, packages schema/protocol/core/server/client/cli/tui/app). Every task you send must remind the worker to read the root and package AGENTS.md.",
+      "This project is the Orchestra monorepo (bun workspaces, Effect v4, packages schema/protocol/core/server/client/cli/tui/app). Every task you send must remind the worker to read the root and package AGENTS.md.",
       "Repository rules to put into tasks when they apply: dependency direction Schema → Core/Protocol → Server, Client never imports Core or Server; after public Protocol/Server HttpApi changes run bun run generate in packages/client and never hand-edit generated files; run bun typecheck and bun test from the package directory, never from the root, never tsc directly; full check is bun run check at the root.",
       "1. Plan: architect maps the end-to-end path across packages and proposes tasks with disjoint file scopes.",
       "2. Build: core-maintainer owns core/server/TUI implementation; api-contract-engineer owns schema/protocol and client generation; integration-engineer wires consumers. Serialize work that touches the same package or generated files.",

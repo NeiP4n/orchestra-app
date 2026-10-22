@@ -1551,7 +1551,7 @@
             }
           }
         },
-        "description": "Retrieve foreground Session drains currently owned by this Opencode++ process. Sessions absent from the result are inactive.",
+        "description": "Retrieve foreground Session drains currently owned by this Orchestra process. Sessions absent from the result are inactive.",
         "summary": "List active sessions"
       }
     },
@@ -4355,7 +4355,7 @@
             }
           }
         },
-        "description": "Interrupt active execution owned by this Opencode++ process. Returns interrupted=true when an active execution was interrupted and false for the idle no-op. When resume=true, execution resumes pending steering input and next-in-line control items (manual compaction, moves) while queued prompts remain parked.",
+        "description": "Interrupt active execution owned by this Orchestra process. Returns interrupted=true when an active execution was interrupted and false for the idle no-op. When resume=true, execution resumes pending steering input and next-in-line control items (manual compaction, moves) while queued prompts remain parked.",
         "summary": "Interrupt session execution"
       }
     },
@@ -11519,7 +11519,7 @@
             }
           }
         },
-        "description": "Stream persistent PTY output through the Opencode++ server.",
+        "description": "Stream persistent PTY output through the Orchestra server.",
         "summary": "Connect to a persistent PTY",
         "x-websocket": true
       }
@@ -30581,7 +30581,7 @@
         "properties": {
           "interrupted": {
             "type": "boolean",
-            "description": "Whether an active execution owned by this Opencode++ process was interrupted."
+            "description": "Whether an active execution owned by this Orchestra process was interrupted."
           }
         },
         "required": ["interrupted"],

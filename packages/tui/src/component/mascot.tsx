@@ -12,7 +12,7 @@ const HOP = 1200
 
 export type MascotState = "idle" | "busy" | "attention" | "error"
 
-// The Opencode++ mascot. It mirrors the session: steps in place while the model
+// The Orchestra mascot. It mirrors the session: steps in place while the model
 // works, looks up wide-eyed when a permission or question waits, hops once when a
 // run finishes, droops after a failure and sleeps when nothing happens. Clicking
 // it makes it hop.

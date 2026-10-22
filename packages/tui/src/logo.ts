@@ -1,12 +1,7 @@
+// Outline wordmark: thin line glyphs only, no fills or shadows, like the rest of the interface.
 export const logo = {
-  left: ["                   ", "█▀▀█ █▀▀█ █▀▀█ █▀▀▄", "█__█ █__█ █^^^ █__█", "▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀~~▀"],
-  // "code" and the two pluses of Opencode++.
-  right: [
-    "             ▄             ",
-    "█▀▀▀ █▀▀█ █▀▀█ █▀▀█  ▄   ▄ ",
-    "█___ █__█ █__█ █^^^ ▀█▀ ▀█▀",
-    "▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀  ▀   ▀ ",
-  ],
+  left: ["               ", "╭─╮ ╭─╮ ╭─╴ ╷ ╷", "│ │ ├┬╯ │   ├─┤", "╰─╯ ╵╰  ╰─╴ ╵ ╵"],
+  right: ["                   ", "╭─╴ ╭─╴ ╶┬╴ ╭─╮ ╭─╮", "├─  ╰─╮  │  ├┬╯ ├─┤", "╰─╴ ╶─╯  ╵  ╵╰  ╵ ╵"],
 }
 
 export const go = {

@@ -501,7 +501,7 @@ test("a session is moved to another category from the tree", async () => {
 test("a long session title in the narrow compact panel stays on one row", async () => {
   await using state = await tmpdir()
   const calls: Call[] = []
-  const title = "Opencode++: a long breakdown of what the council of models advised"
+  const title = "Orchestra: a long breakdown of what the council of models advised"
   await using setup = await render(state.path, calls, [project], { ...worker, title }, "compact")
 
   // the title truncates while the status and delete controls keep their place on the same row

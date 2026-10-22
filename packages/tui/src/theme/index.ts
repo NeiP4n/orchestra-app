@@ -2,6 +2,7 @@ import { migrateV1, parseThemeDocument, type ThemeDocument, type ModeDefinition 
 import { resolveThemeColors } from "./resolve"
 import { DEFAULT_THEMES, type Theme, type ThemeV1Json } from "./v1"
 import opencode from "./assets/v2/opencode.json" with { type: "json" }
+import orchestra from "./assets/v2/orchestra.json" with { type: "json" }
 
 export { DEFAULT_THEMES, type Theme, type ThemeV1Json } from "./v1"
 
@@ -23,16 +24,26 @@ export function getOpenCodeTheme() {
   return document
 }
 
+let orchestraTheme: ThemeDocument | undefined
+
+// The house theme: three colors (ink, cyan, amber), no fills, borders carry the structure.
+export function getOrchestraTheme() {
+  if (orchestraTheme) return orchestraTheme
+  orchestraTheme = parseThemeDocument(orchestra, "orchestra")
+  return orchestraTheme
+}
+
 function listThemes(): Record<string, ThemeDocumentSource> {
   // Priority: defaults < custom files < generated system.
   const themes: Record<string, ThemeDocumentSource> = {
     ...DEFAULT_THEMES,
     opencode: getOpenCodeTheme(),
+    orchestra: getOrchestraTheme(),
     ...customThemes,
   }
   return {
     ...themes,
-    system: systemTheme ?? themes.system ?? themes.opencode,
+    system: systemTheme ?? themes.system ?? themes.orchestra,
   }
 }
 
