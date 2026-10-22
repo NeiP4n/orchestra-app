@@ -24,7 +24,7 @@ fn dither(width: usize, phase: usize) -> String {
     (0..width).map(|column| SHADES[(column + phase) % SHADES.len()]).collect()
 }
 
-const SYSTEM: &str = "You are Orchestra, a capable agent working in the user's terminal. Use tools freely and keep going until the task is truly done. Use `remember` for facts worth keeping across sessions.";
+const SYSTEM: &str = "You are Orchestra, a capable agent working in the user's terminal. Use tools freely and keep going until the task is truly done. Use `remember` for facts worth keeping across sessions. Work fast: when several steps do not depend on each other's results (reading several files, listing several folders, independent checks), request all of those tool calls in the same reply instead of one per reply. Only go one at a time when a step needs the previous result.";
 
 fn home() -> PathBuf {
     if let Ok(path) = std::env::var("ORCHESTRA_HOME") {
@@ -243,5 +243,13 @@ async fn command(rest: &str, store: &Store, memory: &Memory, project: &str, sess
             let _ = memory.forget(&Scope::Project(project.into()), argument);
         }
         _ => println!("{LINE}│{OFF} unknown command /{name}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_system_prompt_asks_for_parallel_tool_calls() {
+        assert!(super::SYSTEM.contains("same reply"));
     }
 }
