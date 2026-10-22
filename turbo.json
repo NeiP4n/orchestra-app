@@ -1,0 +1,101 @@
+{
+  "$schema": "https://v2-8-13.turborepo.dev/schema.json",
+  "globalDependencies": [
+    "patches/**",
+    "bunfig.toml",
+    ".npmrc",
+    ".github/actions/setup-bun/**",
+    ".github/workflows/test.yml"
+  ],
+  "globalEnv": ["CI", "ORCHESTRA_DISABLE_SHARE"],
+  "globalPassThroughEnv": ["CI", "ORCHESTRA_DISABLE_SHARE"],
+  "tasks": {
+    "typecheck": {},
+    "@orchestra/idea-bank#typecheck": {},
+    "@orchestra/idea-bank#test": {
+      "outputs": []
+    },
+    "@orchestra/cli#typecheck": {
+      "dependsOn": ["@orchestra/core#typecheck"]
+    },
+    "test:components": {
+      "outputs": [],
+      "cache": false
+    },
+    "@orchestra/enterprise#typecheck": {
+      "dependsOn": ["@orchestra/core#typecheck"]
+    },
+    "@orchestra/sdk#typecheck": {
+      "dependsOn": ["@orchestra/core#typecheck"]
+    },
+    "@orchestra/server#typecheck": {
+      "dependsOn": ["@orchestra/core#typecheck"]
+    },
+    "@orchestra/simulation#typecheck": {
+      "dependsOn": ["@orchestra/core#typecheck"]
+    },
+    "@orchestra/tui#typecheck": {
+      "dependsOn": ["@orchestra/core#typecheck"]
+    },
+    "build": {
+      "dependsOn": [],
+      "outputs": ["dist/**"]
+    },
+    "@orchestra/ai#test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "@orchestra/codemode#test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "@orchestra/core#test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "@orchestra/function#test": {
+      "outputs": []
+    },
+    "@orchestra/desktop#test": {
+      "outputs": [],
+      "cache": false
+    },
+    "@orchestra/httpapi-codegen#test": {
+      "outputs": []
+    },
+    "@orchestra/server#test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "@orchestra/cli#test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "@orchestra/tui#test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "@orchestra/idea-bank#test": {
+      "outputs": []
+    },
+    "@orchestra/latex#test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "@orchestra/app#test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "@orchestra/ui#test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "@orchestra/session-ui#test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "@orchestra/sdk#verify:package": {
+      "outputs": []
+    }
+  }
+}

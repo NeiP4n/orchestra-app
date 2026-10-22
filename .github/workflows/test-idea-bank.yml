@@ -1,0 +1,75 @@
+name: idea-bank-ci
+
+on:
+  push:
+    branches:
+      - lan-rooms
+      - main
+      - feature/idea-bank-mvp
+    paths:
+      - ".github/workflows/test-idea-bank.yml"
+      - ".github/workflows/deploy-idea-bank.yml"
+      - ".github/actions/setup-bun/**"
+      - "services/idea-bank/**"
+      - "packages/core/src/tool/plugin/idea-bank.ts"
+      - "packages/core/src/plugin/internal.ts"
+      - "packages/core/test/plugin/idea-bank.test.ts"
+      - "packages/tui/src/component/dialog-idea-bank.tsx"
+      - "packages/tui/src/app.tsx"
+      - "packages/tui/src/component/devtools-bar.tsx"
+      - "packages/tui/src/util/idea-bank-*.ts"
+      - "packages/tui/src/util/i18n.ts"
+      - "bun.lock"
+      - "package.json"
+  pull_request:
+    paths:
+      - ".github/workflows/test-idea-bank.yml"
+      - ".github/workflows/deploy-idea-bank.yml"
+      - ".github/actions/setup-bun/**"
+      - "services/idea-bank/**"
+      - "packages/core/src/tool/plugin/idea-bank.ts"
+      - "packages/core/src/plugin/internal.ts"
+      - "packages/core/test/plugin/idea-bank.test.ts"
+      - "packages/tui/src/component/dialog-idea-bank.tsx"
+      - "packages/tui/src/app.tsx"
+      - "packages/tui/src/component/devtools-bar.tsx"
+      - "packages/tui/src/util/idea-bank-*.ts"
+      - "packages/tui/src/util/i18n.ts"
+      - "bun.lock"
+      - "package.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: idea-bank-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+
+      - uses: ./.github/actions/setup-bun
+
+      - name: Typecheck
+        working-directory: services/idea-bank
+        run: bun run typecheck
+
+      - name: Typecheck the core chat tool
+        run: bun run --cwd packages/core typecheck
+
+      - name: Test global Idea Bank chat tool permissions and privacy
+        run: bun --cwd packages/core test test/plugin/idea-bank.test.ts
+
+      - name: Typecheck the TUI Idea Bank
+        run: bun run --cwd packages/tui typecheck
+
+      - name: Test Idea Bank prompt and signal rules
+        run: bun run --cwd packages/tui test src/util/idea-bank-prompt.test.ts src/util/idea-bank-rules.test.ts
+
+      - name: Test API, privacy policy, and migrations
+        working-directory: services/idea-bank
+        run: bun run test

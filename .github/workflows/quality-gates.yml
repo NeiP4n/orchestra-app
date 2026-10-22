@@ -1,0 +1,316 @@
+name: quality-gates
+
+on:
+  push:
+    branches: [dev, v2, lan-rooms]
+  pull_request:
+    branches: [dev, v2, lan-rooms]
+  workflow_dispatch:
+  schedule:
+    - cron: "23 7 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gates-${{ (github.ref == 'refs/heads/lan-rooms' && github.run_id) || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref_name != 'lan-rooms' && github.base_ref != 'lan-rooms' }}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  workflow_security:
+    name: Workflow lint + security
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install ShellCheck and actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes shellcheck
+          archive="$RUNNER_TEMP/actionlint.tar.gz"
+          curl --fail --silent --show-error --location \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+            --output "$archive"
+          printf '%s  %s\n' '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8' "$archive" | sha256sum --check -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
+          chmod +x "$RUNNER_TEMP/actionlint"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Install zizmor
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/zizmor.tar.gz"
+          curl --fail --silent --show-error --location \
+            https://github.com/zizmorcore/zizmor/releases/download/v1.30.1/zizmor-x86_64-unknown-linux-gnu.tar.gz \
+            --output "$archive"
+          printf '%s  %s\n' 'e65324f4430c2717591937edcec90ccbefaf14c174f8ec9415e03ca875b46e1a' "$archive" | sha256sum --check -
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          chmod +x "$RUNNER_TEMP/zizmor"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Lint CI-owned GitHub Actions workflows
+        run: actionlint -color .github/workflows/check.yml .github/workflows/test.yml .github/workflows/quality-gates.yml
+
+      - name: Audit CI workflow security
+        run: zizmor .github/workflows/check.yml .github/workflows/test.yml .github/workflows/quality-gates.yml
+
+  effect_lint:
+    name: Effect rule tests + lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+      - name: Test Effect simplification rules
+        run: bun run test:effect-simplification-rules
+      - name: Check Effect simplifications
+        run: bun run lint:effect-simplifications
+
+  dependency_audit:
+    name: Dependency vulnerability audit
+    outputs:
+      audit_result: ${{ steps.audit.outputs.result }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - name: Audit locked dependencies
+        id: audit
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          bun audit --audit-level=high 2>&1 | tee "$RUNNER_TEMP/bun-audit.txt"
+          result=${PIPESTATUS[0]}
+          if [[ "$result" -eq 0 ]]; then
+            echo "result=clean" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=findings" >> "$GITHUB_OUTPUT"
+            echo "Existing lockfile advisories retained as an advisory. New vulnerable dependencies are blocked by dependency-review on PRs."
+          fi
+          echo "exit_code=$result" >> "$GITHUB_OUTPUT"
+          exit "$result"
+      - name: Preserve dependency audit report
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: dependency-audit-${{ github.run_id }}
+          path: ${{ runner.temp }}/bun-audit.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+  secret_scan:
+    name: Secret leak scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install verified Gitleaks binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl --fail --silent --show-error --location \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            --output "$archive"
+          printf '%s  %s\n' '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb' "$archive" | sha256sum --check -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
+          chmod +x "$RUNNER_TEMP/gitleaks"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Scan secrets in pushed changes or full history
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          common=(--redact --report-format sarif --report-path="$RUNNER_TEMP/gitleaks.sarif")
+
+          # Scheduled/manual runs audit the entire Git history. Push and PR runs scan
+          # only commits introduced by the event to keep feedback quick and actionable.
+          if [[ "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            gitleaks git . "${common[@]}"
+            exit 0
+          fi
+
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="$PR_BASE_SHA"
+          else
+            base="$PUSH_BEFORE"
+          fi
+
+          # A new branch's before SHA is all zeroes. Fall back to the full history scan
+          # rather than attempting to resolve a nonexistent commit.
+          if [[ -z "$base" || "$base" =~ ^0+$ ]] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            gitleaks git . "${common[@]}"
+            exit 0
+          fi
+
+          gitleaks git . --log-opts="$base..HEAD" "${common[@]}"
+
+      - name: Preserve redacted secret-scan report
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: secret-scan-${{ github.run_id }}
+          path: ${{ runner.temp }}/gitleaks.sarif
+          if-no-files-found: ignore
+          retention-days: 14
+
+  dependency_review:
+    name: Dependency change review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect dependency manifest changes
+        id: dependencies
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" > changed-files.txt
+          if grep -Eq '(^|/)(package[.]json|bun[.]lockb?|pnpm-lock[.]yaml|yarn[.]lock|package-lock[.]json|npm-shrinkwrap[.]json|Cargo[.](toml|lock)|go[.](mod|sum)|pyproject[.]toml|requirements[^/]*[.]txt|Pipfile([.]lock)?|poetry[.]lock|uv[.]lock|composer[.](json|lock)|Gemfile([.]lock)?|pom[.]xml|gradle[.]properties|build[.]gradle([.]kts)?|settings[.]gradle([.]kts)?)$' changed-files.txt; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Dependency manifests or lock files changed:"
+            grep -E '(^|/)(package[.]json|bun[.]lockb?|pnpm-lock[.]yaml|yarn[.]lock|package-lock[.]json|npm-shrinkwrap[.]json|Cargo[.](toml|lock)|go[.](mod|sum)|pyproject[.]toml|requirements[^/]*[.]txt|Pipfile([.]lock)?|poetry[.]lock|uv[.]lock|composer[.](json|lock)|Gemfile([.]lock)?|pom[.]xml|gradle[.]properties|build[.]gradle([.]kts)?|settings[.]gradle([.]kts)?)$' changed-files.txt
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No dependency manifests or lock files changed; skipping dependency review."
+          fi
+      - name: Review dependency changes
+        if: steps.dependencies.outputs.changed == 'true'
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: never
+
+  codeql:
+    name: CodeQL SAST
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          queries: security-extended
+      - name: Analyze with CodeQL
+        uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+        with:
+          category: /language:javascript-typescript
+
+  quality_gate:
+    name: quality-gate
+    if: always()
+    needs:
+      - workflow_security
+      - effect_lint
+      - dependency_audit
+      - secret_scan
+      - dependency_review
+      - codeql
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    env:
+      WORKFLOW_SECURITY: ${{ needs.workflow_security.result }}
+      EFFECT_LINT: ${{ needs.effect_lint.result }}
+      DEPENDENCY_AUDIT: ${{ needs.dependency_audit.outputs.audit_result || needs.dependency_audit.result }}
+      SECRET_SCAN: ${{ needs.secret_scan.result }}
+      DEPENDENCY_REVIEW: ${{ needs.dependency_review.result }}
+      CODEQL: ${{ needs.codeql.result }}
+    steps:
+      - name: Publish gate summary and enforce results
+        shell: bash
+        run: |
+          {
+            echo "## Quality gate"
+            echo
+            echo "| Check | Result |"
+            echo "|---|---|"
+            printf '| Workflow lint + security | %s |\n' "$WORKFLOW_SECURITY"
+            printf '| Effect lint | %s |\n' "$EFFECT_LINT"
+            if [[ "$DEPENDENCY_AUDIT" == "findings" ]]; then
+              printf '| Dependency audit | ADVISORY: existing lockfile vulnerabilities found (see artifact) |\n'
+            else
+              printf '| Dependency audit | %s |\n' "$DEPENDENCY_AUDIT"
+            fi
+            printf '| Secret scan | %s |\n' "$SECRET_SCAN"
+            printf '| Dependency review | %s |\n' "$DEPENDENCY_REVIEW"
+            printf '| CodeQL | %s |\n' "$CODEQL"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          failed=0
+          for result in "$WORKFLOW_SECURITY" "$EFFECT_LINT" "$SECRET_SCAN" "$CODEQL"; do
+            if [[ "$result" != "success" ]]; then
+              failed=1
+            fi
+          done
+          if [[ "$DEPENDENCY_REVIEW" != "success" && "$DEPENDENCY_REVIEW" != "skipped" ]]; then
+            failed=1
+          fi
+          if [[ "$failed" -ne 0 ]]; then
+            echo "One or more required quality gates failed."
+            exit 1
+          fi
+          if [[ "$DEPENDENCY_AUDIT" == "findings" ]]; then
+            echo "Required gates passed. NOTE: the existing dependency lockfile has outstanding advisories; see dependency-audit artifact."
+            exit 0
+          fi
+          echo "All required quality gates passed."

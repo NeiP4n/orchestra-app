@@ -1,0 +1,10 @@
+# actionlint v1.7.12 does not understand zizmor's newer "$/" self-repository syntax.
+# Keep standard, actionlint-compatible local action paths and suppress only this exact
+# informational security heuristic at the four local composite-action call sites.
+rules:
+  self-repository:
+    ignore:
+      - check.yml:31
+      - quality-gates.yml:81
+      - test.yml:85
+      - test.yml:206

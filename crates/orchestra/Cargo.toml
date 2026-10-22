@@ -1,0 +1,21 @@
+[package]
+name = "orchestra"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "orchestra"
+path = "src/main.rs"
+
+[dependencies]
+async-stream = "0.3"
+futures = "0.3"
+orchestra-kernel = { path = "../orchestra-kernel" }
+orchestra-memory = { path = "../orchestra-memory" }
+orchestra-session = { path = "../orchestra-session" }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "native-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"

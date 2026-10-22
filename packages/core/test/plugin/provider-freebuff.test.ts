@@ -1,0 +1,790 @@
+import { Credential } from "@orchestra/core/credential"
+import { Integration } from "@orchestra/core/integration"
+import { Model } from "@orchestra/core/model"
+import { Plugin } from "@orchestra/core/plugin"
+import { PluginHost } from "@orchestra/core/plugin/host"
+import { PluginHooks } from "@orchestra/core/plugin/hooks"
+import { ProviderPlugins } from "@orchestra/core/plugin/provider"
+import { Provider } from "@orchestra/core/provider"
+import { Rpc } from "@orchestra/core/rpc"
+import { Agent } from "@orchestra/schema/agent"
+import { Session } from "@orchestra/core/session"
+import { FreebuffPlugin } from "@orchestra/core/plugin/provider/freebuff"
+import { expect } from "bun:test"
+import { Effect, Schedule } from "effect"
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
+import { testEffect } from "../lib/effect"
+import { PluginTestLayer } from "./fixture"
+
+const it = testEffect(PluginTestLayer)
+const integrationID = Integration.ID.make("freebuff")
+const methodID = Integration.MethodID.make("browser")
+const providerID = Provider.ID.make("freebuff")
+const loginUrl = "https://www.codebuff.com/login?auth_code=test-code"
+
+const fixture = Effect.gen(function* () {
+  const requests: Request[] = []
+  const replies: Response[] = []
+  const http = HttpClient.make((request) =>
+    Effect.gen(function* () {
+      requests.push(yield* HttpClientRequest.toWeb(request).pipe(Effect.orDie))
+      const response = replies.shift()
+      if (!response) throw new Error(`Unexpected request: ${request.url}`)
+      return HttpClientResponse.fromWeb(request, response)
+    }),
+  )
+  const integrations = yield* Integration.Service
+  const credentials = yield* Credential.Service
+  const providers = yield* Provider.Service
+  const models = yield* Model.Service
+  const hooks = yield* PluginHooks.Service
+  const rpc = yield* Rpc.Service
+  const plugin = yield* Plugin.Service
+  const host = yield* PluginHost.make(plugin)
+  yield* FreebuffPlugin.effect(host).pipe(Effect.provideService(HttpClient.HttpClient, http))
+  const status = (attempt: Integration.Attempt) =>
+    integrations.oauth.status({ integrationID, attemptID: attempt.attemptID }).pipe(
+      Effect.repeat({
+        until: (value) => value.status !== "pending",
+        schedule: Schedule.spaced("10 millis"),
+      }),
+      Effect.timeout("10 seconds"),
+    )
+  return { requests, replies, integrations, credentials, providers, models, hooks, rpc, status }
+})
+
+it.effect("registers the browser login without network traffic", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    expect(ProviderPlugins).toContain(FreebuffPlugin)
+    expect((yield* test.integrations.get(integrationID))?.name).toBe("Freebuff")
+    expect(yield* test.providers.get(providerID)).toMatchObject({
+      id: "freebuff",
+      package: "@orchestra/ai/providers/openai-compatible",
+      settings: { baseURL: "https://www.codebuff.com/api/v1", provider: "freebuff", apiKey: "" },
+      integrationID,
+    })
+    expect((yield* test.integrations.get(integrationID))?.methods).toEqual([
+      { id: methodID, type: "oauth", label: "Login with Freebuff" },
+    ])
+    expect(test.requests).toHaveLength(0)
+  }),
+)
+
+it.live("starts the login code flow and polls until the account token is ready", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    const expiresAt = Date.now() + 3_600_000
+    test.replies.push(
+      Response.json({
+        fingerprintId: "fp-test",
+        fingerprintHash: "hash-test",
+        loginUrl,
+        expiresAt,
+      }),
+    )
+    test.replies.push(Response.json({ error: "authorization_pending" }, { status: 401 }))
+    test.replies.push(
+      Response.json({ user: { authToken: "freebuff-token", email: "user@example.com", name: "Test User" } }),
+    )
+
+    const attempt = yield* test.integrations.oauth.connect({ integrationID, methodID, label: "Freebuff" })
+    expect(attempt.mode).toBe("auto")
+    expect(attempt.url).toBe(loginUrl)
+
+    const codeRequest = test.requests[0]
+    expect(codeRequest.method).toBe("POST")
+    // Sign-in is issued on the Freebuff origin the browser page lives on; the
+    // account/model API stays on the codebuff host.
+    expect(new URL(codeRequest.url).origin + new URL(codeRequest.url).pathname).toBe(
+      "https://freebuff.com/api/auth/cli/code",
+    )
+    const body = JSON.parse(yield* Effect.promise(() => codeRequest.text()))
+    expect(body.fingerprintId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+
+    expect(yield* test.status(attempt)).toMatchObject({ status: "complete" })
+
+    // Login traffic is the code request plus the status polls; the catalog load
+    // that follows the credential is a separate, unsolicited request.
+    const auth = test.requests.filter((request) => new URL(request.url).pathname.startsWith("/api/auth/"))
+    expect(auth).toHaveLength(3)
+    const statusUrl = new URL(auth[1].url)
+    expect(statusUrl.origin + statusUrl.pathname).toBe("https://freebuff.com/api/auth/cli/status")
+    expect(Object.fromEntries(statusUrl.searchParams)).toEqual({
+      fingerprintId: "fp-test",
+      fingerprintHash: "hash-test",
+      expiresAt: String(expiresAt),
+    })
+
+    const saved = (yield* test.credentials.list(integrationID))[0]?.value
+    if (saved?.type !== "oauth") throw new Error("Expected a stored OAuth credential")
+    expect(saved).toMatchObject({ type: "oauth", methodID, access: "freebuff-token", refresh: "" })
+    expect(saved.metadata).toMatchObject({
+      fingerprintId: "fp-test",
+      email: "user@example.com",
+      name: "Test User",
+    })
+    expect(saved.expires).toBeGreaterThan(Date.now())
+  }),
+)
+
+it.effect("exposes balance and account management over RPC", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    expect(yield* test.rpc.call("opencode.freebuff", "status", {})).toEqual({ loggedIn: false })
+    expect(yield* test.rpc.call("opencode.freebuff", "accounts", {})).toEqual({ accounts: [] })
+    expect(yield* test.rpc.call("opencode.freebuff", "use", { id: "unknown" })).toEqual({ ok: false })
+  }),
+)
+
+it.live("returns the freebucks balance and timers over RPC", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    yield* test.credentials.create({
+      integrationID,
+      value: Credential.OAuth.make({
+        type: "oauth",
+        methodID,
+        access: "freebuff-token",
+        refresh: "",
+        expires: Date.now() + 3_600_000,
+      }),
+    })
+    const resetAt = new Date(Date.now() + 2 * 3_600_000).toISOString()
+    test.replies.push(
+      Response.json({
+        status: "none",
+        freebucks: { balance: 25, daily: { spent: 3, limit: 25, resetAt } },
+      }),
+    )
+    const status = (yield* test.rpc.call("opencode.freebuff", "status", {})) as {
+      loggedIn: boolean
+      balance?: number
+      spent?: number
+      limit?: number
+      resetIn?: number
+    }
+    expect(status.loggedIn).toBe(true)
+    expect(status.balance).toBe(25)
+    expect(status.spent).toBe(3)
+    expect(status.limit).toBe(25)
+    expect(status.resetIn).toBeGreaterThan(0)
+    // The balance read is a single GET and never touches the session endpoints.
+    const balanceRequests = test.requests.filter((request) => request.url.includes("/freebuff/session"))
+    expect(balanceRequests).toHaveLength(1)
+    const url = new URL(balanceRequests[0]!.url)
+    expect(url.origin + url.pathname).toBe("https://www.codebuff.com/api/v1/freebuff/session")
+    expect(balanceRequests[0]!.headers.get("Authorization")).toBe("Bearer freebuff-token")
+  }),
+)
+
+it.effect("lists and switches several accounts over RPC", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    const oauth = (email: string, access: string) =>
+      Credential.OAuth.make({
+        type: "oauth",
+        methodID,
+        access,
+        refresh: "",
+        expires: Date.now() + 3_600_000,
+        metadata: { email },
+      })
+    const first = yield* test.credentials.create({ integrationID, value: oauth("one@example.com", "token-one") })
+    const second = yield* test.credentials.create({ integrationID, value: oauth("two@example.com", "token-two") })
+    const listed = (yield* test.rpc.call("opencode.freebuff", "accounts", {})) as {
+      accounts: { id: string; label: string; active: boolean }[]
+    }
+    expect(listed.accounts).toHaveLength(2)
+    expect(listed.accounts.map((account) => account.label)).toEqual(["one@example.com", "two@example.com"])
+    expect(listed.accounts.find((account) => account.active)?.id).toBe(second.id)
+    expect(yield* test.rpc.call("opencode.freebuff", "use", { id: first.id })).toEqual({ ok: true })
+    const switched = (yield* test.rpc.call("opencode.freebuff", "accounts", {})) as typeof listed
+    expect(switched.accounts.find((account) => account.active)?.id).toBe(first.id)
+  }),
+)
+
+it.live("loads the account model catalog after login", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    test.replies.push(
+      Response.json({
+        rows: [
+          {
+            key: "m-open",
+            handle: "fbm1-open",
+            displayName: "Glyph Cluster",
+            access: "open",
+            multimodal: false,
+            contextWindow: 200_000,
+          },
+          {
+            key: "m-locked",
+            handle: "fbm1-locked",
+            displayName: "GPT-6 Luna",
+            access: "locked",
+            premium: true,
+            multimodal: true,
+            contextWindow: 400_000,
+          },
+        ],
+      }),
+    )
+    yield* test.credentials.create({
+      integrationID,
+      value: Credential.OAuth.make({
+        type: "oauth",
+        methodID,
+        access: "catalog-token",
+        refresh: "",
+        expires: Date.now() + 3_600_000,
+        metadata: { email: "user@example.com" },
+      }),
+    })
+    // The credential event refreshes the catalog in the background.
+    yield* Effect.sleep("200 millis")
+    const models = (yield* test.models.all()).filter((model) => model.providerID === providerID)
+    expect(models.map((model) => model.name).sort()).toEqual(["GPT-6 Luna", "Glyph Cluster"])
+    expect(models.find((model) => model.name === "Glyph Cluster")).toMatchObject({
+      enabled: true,
+      limit: { context: 200_000 },
+      // Free rows carry a zero price so the picker can badge them as free.
+      cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
+    })
+    expect(models.find((model) => model.name === "GPT-6 Luna")).toMatchObject({
+      enabled: false,
+      modelID: "fbm1-locked",
+      // Subscription rows stay listed without a free badge.
+      cost: [],
+    })
+    const request = test.requests.find((item) => item.url.includes("/freebuff/models"))
+    expect(request).toBeDefined()
+    expect(request?.headers.get("Authorization")).toBe("Bearer catalog-token")
+  }),
+)
+
+it.live("raises a row's declared window when ORCHESTRA_FREEBUFF_CONTEXT is set", () =>
+  Effect.gen(function* () {
+    const previous = process.env.ORCHESTRA_FREEBUFF_CONTEXT
+    process.env.ORCHESTRA_FREEBUFF_CONTEXT = "1000000"
+    yield* Effect.ensuring(
+      Effect.gen(function* () {
+        const test = yield* fixture
+        test.replies.push(
+          Response.json({
+            rows: [
+              {
+                key: "m-open",
+                handle: "fbm1-open",
+                displayName: "Glyph Cluster",
+                access: "open",
+                multimodal: false,
+                contextWindow: 200_000,
+              },
+            ],
+          }),
+        )
+        yield* test.credentials.create({
+          integrationID,
+          value: Credential.OAuth.make({
+            type: "oauth",
+            methodID,
+            access: "catalog-token",
+            refresh: "",
+            expires: Date.now() + 3_600_000,
+            metadata: { email: "user@example.com" },
+          }),
+        })
+        yield* Effect.sleep("200 millis")
+        const model = (yield* test.models.all()).find(
+          (item) => item.providerID === providerID && item.name === "Glyph Cluster",
+        )
+        // The catalog said 200k; the floor wins, and the output cap follows the window.
+        expect(model?.limit.context).toBe(1_000_000)
+        expect(model?.limit.output).toBe(32_000)
+      }),
+      Effect.sync(() => {
+        if (previous === undefined) delete process.env.ORCHESTRA_FREEBUFF_CONTEXT
+        else process.env.ORCHESTRA_FREEBUFF_CONTEXT = previous
+      }),
+    )
+  }),
+)
+
+it.live("attaches an agent run to the chat body and reuses it per session", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    test.replies.push(Response.json({ runId: "run-1" }))
+    test.replies.push(Response.json({ status: "active", instanceId: "cli:test-session", model: "fbm1-handle" }))
+    const chat = () =>
+      test.hooks.trigger("session", "http.request", {
+        sessionID: Session.ID.make("ses_test"),
+        agent: Agent.ID.make("build"),
+        model: Model.Ref.make({ providerID, id: Model.ID.make("m-1") }),
+        kind: "primary",
+        request: new Request("https://www.codebuff.com/api/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": "run-token" },
+          body: JSON.stringify({ model: "fbm1-handle", messages: [{ role: "user", content: "hi" }] }),
+        }),
+      })
+    const first = yield* chat()
+    expect(JSON.parse(yield* Effect.promise(() => first.request.text()))).toMatchObject({
+      model: "fbm1-handle",
+      // `cost_mode` is what keeps the request on the free tier; without it the
+      // gateway bills paid credits and answers 402 "Out of credits".
+      codebuff_metadata: {
+        run_id: "run-1",
+        client_id: "freebuff-opencode",
+        cost_mode: "free",
+        // Free chat without an admitted instance is answered with 426
+        // `freebuff_update_required`, which reads like an outdated build.
+        freebuff_instance_id: "cli:test-session",
+        freebuff_multi_session: "1",
+        surface: "cli",
+      },
+    })
+    expect(first.request.headers.get("authorization")).toBe("Bearer run-token")
+    expect(first.request.headers.get("x-freebuff-instance-id")).toBe("cli:test-session")
+    const started = test.requests.filter((request) => request.url.endsWith("/api/v1/agent-runs"))
+    expect(started).toHaveLength(1)
+    expect(started[0]?.method).toBe("POST")
+    const admitted = test.requests.filter((request) => request.url.endsWith("/session/admission"))
+    expect(admitted).toHaveLength(1)
+    expect(admitted[0]?.headers.get("x-freebuff-model")).toBe("fbm1-handle")
+    expect(admitted[0]?.headers.get("x-freebuff-instance-id")).toMatch(/^cli:/)
+    // The next call in the same session reuses the run instead of opening another.
+    const second = yield* chat()
+    expect(JSON.parse(yield* Effect.promise(() => second.request.text()))).toMatchObject({
+      codebuff_metadata: { run_id: "run-1", cost_mode: "free", freebuff_instance_id: "cli:test-session" },
+    })
+    expect(test.requests.filter((request) => request.url.endsWith("/api/v1/agent-runs"))).toHaveLength(1)
+    expect(test.requests.filter((request) => request.url.endsWith("/session/admission"))).toHaveLength(1)
+  }),
+)
+
+it.live("reloads the catalog before a chat that has no fetch id", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    // A failed startup load leaves the fetch id empty; the gateway would answer
+    // the chat with `freebuff_update_required` instead of naming the real cause.
+    test.replies.push(Response.json({ error: "unavailable" }, { status: 503 }))
+    yield* test.credentials.create({
+      integrationID,
+      value: Credential.OAuth.make({
+        type: "oauth",
+        methodID,
+        access: "catalog-token",
+        refresh: "",
+        expires: Date.now() + 3_600_000,
+        metadata: { email: "user@example.com" },
+      }),
+    })
+    yield* Effect.sleep("200 millis")
+    test.replies.push(
+      Response.json({
+        rows: [{ key: "m-1", handle: "fbm1-handle", displayName: "Glyph Cluster", access: "open" }],
+        fetchId: "fetch-1",
+      }),
+    )
+    test.replies.push(Response.json({ runId: "run-1" }))
+    test.replies.push(Response.json({ status: "active", instanceId: "cli:lazy", model: "fbm1-handle" }))
+    const event = yield* test.hooks.trigger("session", "http.request", {
+      sessionID: Session.ID.make("ses_lazy"),
+      agent: Agent.ID.make("build"),
+      model: Model.Ref.make({ providerID, id: Model.ID.make("m-1") }),
+      kind: "primary",
+      request: new Request("https://www.codebuff.com/api/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": "run-token" },
+        body: JSON.stringify({ model: "fbm1-handle", messages: [{ role: "user", content: "hi" }] }),
+      }),
+    })
+    expect(event.request.headers.get("x-freebuff-catalog-protocol")).toBe("1")
+    expect(event.request.headers.get("x-freebuff-catalog-fetch")).toBe("fetch-1")
+    expect(event.request.headers.get("x-freebuff-instance-id")).toBe("cli:lazy")
+    // The lazy refresh went out with the new catalog protocol rather than a bare GET.
+    const catalog = test.requests.filter((item) => item.url.endsWith("/freebuff/models")).at(-1)
+    expect(catalog?.headers.get("x-freebuff-catalog-protocol")).toBe("1")
+    expect(catalog?.headers.get("x-freebuff-client")).toBe("cli")
+  }),
+)
+
+it.live("refreshes the catalog and replays a chat the gateway calls update required", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    test.replies.push(
+      Response.json({
+        rows: [{ key: "m-1", handle: "fbm1-handle", displayName: "Glyph Cluster", access: "open" }],
+        fetchId: "fetch-1",
+      }),
+    )
+    yield* test.credentials.create({
+      integrationID,
+      value: Credential.OAuth.make({
+        type: "oauth",
+        methodID,
+        access: "catalog-token",
+        refresh: "",
+        expires: Date.now() + 3_600_000,
+        metadata: { email: "user@example.com" },
+      }),
+    })
+    yield* Effect.sleep("200 millis")
+    const chat = () =>
+      test.hooks.trigger("session", "http.request", {
+        sessionID: Session.ID.make("ses_update"),
+        agent: Agent.ID.make("build"),
+        model: Model.Ref.make({ providerID, id: Model.ID.make("m-1") }),
+        kind: "primary",
+        request: new Request("https://www.codebuff.com/api/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": "run-token" },
+          body: JSON.stringify({ model: "fbm1-handle", messages: [{ role: "user", content: "hi" }] }),
+        }),
+      })
+    test.replies.push(Response.json({ runId: "run-1" }))
+    test.replies.push(Response.json({ status: "active", instanceId: "cli:update", model: "fbm1-handle" }))
+    const first = yield* chat()
+    // Simulate a window opened by a different process: the adapter remembers
+    // only the instance in the body, not this plugin's session map.
+    const carried = JSON.parse(yield* Effect.promise(() => first.request.clone().text()))
+    carried.codebuff_metadata.freebuff_instance_id = "cli:adopted"
+    const request = new Request(first.request.url, {
+      method: "POST",
+      headers: first.request.headers,
+      body: JSON.stringify(carried),
+    })
+    test.replies.push(
+      Response.json({
+        rows: [{ key: "m-1", handle: "fbm1-handle", displayName: "Glyph Cluster", access: "open" }],
+        fetchId: "fetch-2",
+      }),
+    )
+    test.replies.push(Response.json({ ok: true }))
+    const event = yield* test.hooks.trigger("session", "http.response", {
+      sessionID: Session.ID.make("ses_update"),
+      agent: Agent.ID.make("build"),
+      model: Model.Ref.make({ providerID, id: Model.ID.make("m-1") }),
+      kind: "primary",
+      request,
+      response: Response.json({ error: { code: "freebuff_update_required" } }, { status: 410 }),
+    })
+    // The catalog is refreshed instead of buying another hour.
+    expect(event.response.status).toBe(200)
+    expect(test.requests.filter((item) => item.url.endsWith("/session/admission"))).toHaveLength(1)
+    const retried = test.requests.find((item) => item.url.endsWith("/chat/completions"))
+    expect(retried).toBeDefined()
+    expect(retried?.headers.get("x-freebuff-catalog-fetch")).toBe("fetch-2")
+    expect(retried?.headers.get("x-freebuff-catalog-protocol")).toBe("1")
+    expect(JSON.parse(yield* Effect.promise(() => retried!.text()))).toMatchObject({
+      codebuff_metadata: { freebuff_instance_id: "cli:adopted" },
+    })
+  }),
+)
+
+it.live("keeps the free cost mode when the run cannot be opened", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    // A failed run start must not drop the request back onto paid credits.
+    test.replies.push(Response.json({ error: "unavailable" }, { status: 503 }))
+    test.replies.push(Response.json({ status: "active", instanceId: "cli:no-run", model: "fbm1-handle" }))
+    const event = yield* test.hooks.trigger("session", "http.request", {
+      sessionID: Session.ID.make("ses_no_run"),
+      agent: Agent.ID.make("build"),
+      model: Model.Ref.make({ providerID, id: Model.ID.make("m-1") }),
+      kind: "primary",
+      request: new Request("https://www.codebuff.com/api/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": "run-token" },
+        body: JSON.stringify({ model: "fbm1-handle", messages: [{ role: "user", content: "hi" }] }),
+      }),
+    })
+    expect(JSON.parse(yield* Effect.promise(() => event.request.text()))).toMatchObject({
+      codebuff_metadata: {
+        client_id: "freebuff-opencode",
+        cost_mode: "free",
+        freebuff_instance_id: "cli:no-run",
+      },
+    })
+  }),
+)
+
+it.live("re-admits the free session when the gateway rejects the old instance", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    test.replies.push(Response.json({ status: "active", instanceId: "cli:fresh", model: "fbm1-handle" }))
+    test.replies.push(Response.json({ ok: true }))
+    const request = new Request("https://www.codebuff.com/api/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer recover-token" },
+      body: JSON.stringify({
+        model: "fbm1-handle",
+        messages: [{ role: "user", content: "hi" }],
+        codebuff_metadata: {
+          run_id: "run-1",
+          client_id: "freebuff-opencode",
+          cost_mode: "free",
+          freebuff_instance_id: "cli:old",
+        },
+      }),
+    })
+    const event = yield* test.hooks.trigger("session", "http.response", {
+      sessionID: Session.ID.make("ses_test"),
+      agent: Agent.ID.make("build"),
+      model: Model.Ref.make({ providerID, id: Model.ID.make("m-1") }),
+      kind: "primary",
+      request,
+      response: Response.json({ error: { code: "freebuff_update_required" } }, { status: 426 }),
+    })
+    // The dead window is replaced and the same body is replayed once.
+    expect(event.response.status).toBe(200)
+    expect(test.requests[0]?.url).toContain("/api/v1/freebuff/session/admission")
+    expect(test.requests[0]?.headers.get("x-freebuff-instance-id")).toMatch(/^cli:/)
+    const retried = test.requests.find((item) => item.url.endsWith("/api/v1/chat/completions"))
+    expect(retried).toBeDefined()
+    expect(JSON.parse(yield* Effect.promise(() => retried!.text()))).toMatchObject({
+      model: "fbm1-handle",
+      codebuff_metadata: { run_id: "run-1", freebuff_instance_id: "cli:fresh" },
+    })
+  }),
+)
+
+it.live("reuses the instance a parallel step already replaced instead of buying another", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    test.replies.push(Response.json({ runId: "run-1" }))
+    test.replies.push(Response.json({ status: "active", instanceId: "cli:parallel", model: "fbm1-handle" }))
+    test.replies.push(Response.json({ ok: true }))
+    const chat = () =>
+      test.hooks.trigger("session", "http.request", {
+        sessionID: Session.ID.make("ses_parallel"),
+        agent: Agent.ID.make("build"),
+        model: Model.Ref.make({ providerID, id: Model.ID.make("m-1") }),
+        kind: "primary",
+        request: new Request("https://www.codebuff.com/api/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": "run-token" },
+          body: JSON.stringify({ model: "fbm1-handle", messages: [{ role: "user", content: "hi" }] }),
+        }),
+      })
+    yield* chat()
+    const admissions = () => test.requests.filter((item) => item.url.endsWith("/session/admission"))
+    expect(admissions()).toHaveLength(1)
+    // A second step fails on the window that was already rotated away.
+    const request = new Request("https://www.codebuff.com/api/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": "run-token" },
+      body: JSON.stringify({
+        model: "fbm1-handle",
+        messages: [{ role: "user", content: "hi" }],
+        codebuff_metadata: { run_id: "run-1", freebuff_instance_id: "cli:stale" },
+      }),
+    })
+    const event = yield* test.hooks.trigger("session", "http.response", {
+      sessionID: Session.ID.make("ses_parallel"),
+      agent: Agent.ID.make("build"),
+      model: Model.Ref.make({ providerID, id: Model.ID.make("m-1") }),
+      kind: "primary",
+      request,
+      response: Response.json({ error: { code: "session_superseded" } }, { status: 409 }),
+    })
+    expect(event.response.status).toBe(200)
+    // Opening an hour costs freebucks, so the replacement already paid for is reused.
+    expect(admissions()).toHaveLength(1)
+    const retried = test.requests.filter((item) => item.url.endsWith("/api/v1/chat/completions"))
+    expect(retried).toHaveLength(1)
+    expect(JSON.parse(yield* Effect.promise(() => retried[0]!.text()))).toMatchObject({
+      codebuff_metadata: { freebuff_instance_id: "cli:parallel" },
+    })
+  }),
+)
+
+it.effect("reports an exhausted freebucks wallet instead of update required", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    const event = yield* test.hooks.trigger("session", "http.response", {
+      sessionID: Session.ID.make("ses_test"),
+      agent: Agent.ID.make("build"),
+      model: Model.Ref.make({ providerID, id: Model.ID.make("m-1") }),
+      kind: "primary",
+      request: new Request("https://www.codebuff.com/api/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "fbm1-handle" }),
+      }),
+      response: Response.json(
+        { status: "rate_limited", recentCount: 25, limit: 25, resetAt: "2026-10-20T20:00:00.000Z" },
+        { status: 429 },
+      ),
+    })
+    expect(event.response.status).toBe(402)
+    const body = (yield* Effect.promise(() => event.response.json())) as { error: { message: string } }
+    expect(body.error.message).toContain("25/25")
+    expect(body.error.message).toContain("2026-10-20T20:00:00.000Z")
+  }),
+)
+
+it.effect("names the session that holds the only free slot", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    test.replies.push(
+      Response.json(
+        {
+          status: "premium_slot_taken",
+          accessTier: "limited",
+          requestedModel: "m-1",
+          currentModel: "m-other",
+          currentInstanceId: "cli:other",
+        },
+        { status: 409 },
+      ),
+    )
+    const event = yield* test.hooks.trigger("session", "http.response", {
+      sessionID: Session.ID.make("ses_slot"),
+      agent: Agent.ID.make("build"),
+      model: Model.Ref.make({ providerID, id: Model.ID.make("m-1") }),
+      kind: "primary",
+      request: new Request("https://www.codebuff.com/api/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer slot-token" },
+        body: JSON.stringify({ model: "fbm1-handle", messages: [{ role: "user", content: "hi" }] }),
+      }),
+      response: Response.json({ error: { code: "freebuff_update_required" } }, { status: 410 }),
+    })
+    expect(event.response.status).toBe(409)
+    const body = (yield* Effect.promise(() => event.response.json())) as { error: { message: string } }
+    expect(body.error.message).toContain("one session at a time")
+    expect(body.error.message).toContain("m-other")
+  }),
+)
+
+it.live("pairs catalog rows with the account price table over RPC", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    test.replies.push(
+      Response.json({
+        rows: [
+          {
+            key: "m-deepseek",
+            handle: "fbm1-deepseek",
+            displayName: "DeepSeek V4.1 Flash 10/17",
+            access: "open",
+            // The digest Freebuff hashes `deepseek/deepseek-v4-flash` into.
+            legacyDigests: ["1e303ac563a6f9cc"],
+          },
+          {
+            key: "m-ambiguous",
+            handle: "fbm1-ambiguous",
+            displayName: "Mystery Model",
+            access: "open",
+            legacyDigests: ["1e303ac563a6f9cc", "82cc5b2c01633de9"],
+          },
+          {
+            key: "m-unpriced",
+            handle: "fbm1-unpriced",
+            displayName: "Unpriced Model",
+            access: "open",
+            legacyDigests: ["0000000000000000"],
+          },
+          {
+            key: "m-glyph",
+            handle: "fbm1-glyph",
+            displayName: "Glyph Cluster",
+            access: "open",
+            // Newer catalogs name the gateway id instead of hashing it.
+            legacyDigests: ["fbc/glyph-cluster"],
+          },
+        ],
+      }),
+    )
+    yield* test.credentials.create({
+      integrationID,
+      value: Credential.OAuth.make({
+        type: "oauth",
+        methodID,
+        access: "catalog-token",
+        refresh: "",
+        expires: Date.now() + 3_600_000,
+        metadata: { email: "user@example.com" },
+      }),
+    })
+    // The credential event refreshes the catalog in the background.
+    yield* Effect.sleep("200 millis")
+    test.replies.push(
+      Response.json({
+        freebucks: {
+          balance: 10,
+          daily: { spent: 15, limit: 25 },
+          prices: { "deepseek/deepseek-v4-flash": 15, "other/model": 99, "fbc/glyph-cluster": 0 },
+        },
+      }),
+    )
+    const status = (yield* test.rpc.call("opencode.freebuff", "status", {})) as {
+      balance?: number
+      prices?: {
+        key: string
+        name: string
+        price?: number
+        modelID?: string
+        access?: string
+      }[]
+    }
+    expect(status.balance).toBe(10)
+    // The row whose digest names a priced model gets that price and the model it
+    // belongs to; a row that matches several prices, or none, keeps no price at all
+    // rather than a guessed one.
+    expect(status.prices).toEqual([
+      {
+        key: "m-deepseek",
+        name: "DeepSeek V4.1 Flash 10/17",
+        price: 15,
+        modelID: "deepseek/deepseek-v4-flash",
+        access: "open",
+      },
+      { key: "m-ambiguous", name: "Mystery Model", access: "open" },
+      { key: "m-unpriced", name: "Unpriced Model", access: "open" },
+      { key: "m-glyph", name: "Glyph Cluster", price: 0, modelID: "fbc/glyph-cluster", access: "open" },
+    ])
+  }),
+)
+
+it.effect("reports a failed login code request", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    test.replies.push(Response.json({ error: "boom" }, { status: 500 }))
+    const error = yield* test.integrations.oauth.connect({ integrationID, methodID }).pipe(Effect.flip)
+    expect(error.message).toBe("Freebuff login failed: HTTP 500")
+    expect(test.requests).toHaveLength(1)
+  }),
+)
+
+it.effect("reports an unexpected login code response", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    test.replies.push(Response.json({ fingerprintId: "fp-test" }))
+    const error = yield* test.integrations.oauth.connect({ integrationID, methodID }).pipe(Effect.flip)
+    expect(error.message).toBe("Freebuff returned an unexpected login response")
+  }),
+)
+
+it.live("fails the login when the server refuses the authorization code", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    test.replies.push(
+      Response.json({
+        fingerprintId: "fp-test",
+        fingerprintHash: "hash-test",
+        loginUrl,
+        expiresAt: Date.now() + 3_600_000,
+      }),
+    )
+    // The sign-in page answers with the same refusal it renders to the user.
+    test.replies.push(Response.json({ error: "Invalid auth code" }, { status: 400 }))
+
+    const attempt = yield* test.integrations.oauth.connect({ integrationID, methodID })
+    expect(yield* test.status(attempt)).toMatchObject({ status: "failed" })
+    // The attempt fails at once instead of polling a dead code until it expires.
+    expect(test.requests).toHaveLength(2)
+  }),
+)

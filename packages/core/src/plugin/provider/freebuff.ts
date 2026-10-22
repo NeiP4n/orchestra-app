@@ -1,0 +1,941 @@
+import { Money } from "@orchestra/schema/money"
+import type { IntegrationOAuthMethodRegistration } from "@orchestra/plugin/effect/integration"
+import { define } from "@orchestra/plugin/effect/plugin"
+import { Clock, Effect, Option, Ref, Schema, Stream } from "effect"
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
+import { Bus } from "../../bus.js"
+import { Credential } from "../../credential.js"
+import { KeyedMutex } from "../../effect/keyed-mutex.js"
+import { Integration } from "../../integration.js"
+import { Model } from "../../model.js"
+import { Provider } from "../../provider.js"
+import type { PluginInternal } from "../internal.js"
+import { FreebuffRpc } from "./freebuff-rpc.js"
+
+const integrationID = Integration.ID.make("freebuff")
+const methodID = Integration.MethodID.make("browser")
+const providerID = Provider.ID.make("freebuff")
+
+// Freebuff has no OAuth authorization server (`/oauth/authorize` returns 404),
+// so the plugin implements the same device-code flow the CLI uses:
+// 1. POST /api/auth/cli/code  ->  loginUrl + fingerprintId + fingerprintHash
+// 2. poll GET /api/auth/cli/status (401 while pending)
+// 3. on 200 with user.authToken -> store the account credential
+// The product API moved to the codebuff host: freebuff.com only serves the
+// website, and its /oauth/authorize page is gone (the old "Page not found"),
+// while the official CLI itself talks to codebuff.com for models and sessions.
+const apiBase = (process.env.FREEBUFF_API_BASE ?? "https://www.codebuff.com").replace(/\/+$/, "")
+const v1Base = (process.env.FREEBUFF_V1_API_BASE ?? apiBase).replace(/\/+$/, "")
+// The browser sign-in is the exception: Freebuff users sign in on freebuff.com,
+// which is where the official CLI and Freebuff Desktop send them. A code issued
+// on another origin is not recognised by that page, and the website answers with
+// "Invalid auth code" before the poll ever sees the account.
+const loginBase = (process.env.FREEBUFF_LOGIN_BASE ?? "https://freebuff.com").replace(/\/+$/, "")
+const pollIntervalMs = 2_000
+// The catalog announces its own next refresh (`refreshAt`); these bound how often
+// the plugin trusts that hint.
+const catalogRefreshMs = 30 * 60_000
+const minRefreshMs = 60_000
+const loginLifetimeMs = 60 * 60 * 1000
+// The CLI stores the account token without an expiry and has no refresh flow, so
+// the credential stays valid until the user disconnects or logs out.
+const maxExpiry = 8_640_000_000_000_000
+
+const CodeResponse = Schema.Struct({
+  fingerprintId: Schema.String,
+  fingerprintHash: Schema.String,
+  loginUrl: Schema.String,
+  expiresAt: Schema.Number,
+})
+const StatusUser = Schema.Struct({
+  authToken: Schema.String,
+  email: Schema.optional(Schema.String),
+  name: Schema.optional(Schema.NullOr(Schema.String)),
+})
+const StatusResponse = Schema.Struct({
+  user: Schema.optional(Schema.NullOr(StatusUser)),
+})
+
+// GET /api/v1/freebuff/session — read-only balance/status of the account. The
+// fields are optional because the response also carries pricing metadata that
+// the plugin does not care about.
+const SessionResponse = Schema.Struct({
+  status: Schema.optional(Schema.String),
+  accessTier: Schema.optional(Schema.String),
+  freebucks: Schema.optional(
+    Schema.Struct({
+      balance: Schema.optional(Schema.Number),
+      daily: Schema.optional(
+        Schema.Struct({
+          spent: Schema.optional(Schema.Number),
+          limit: Schema.optional(Schema.Number),
+          remaining: Schema.optional(Schema.Number),
+          resetAt: Schema.optional(Schema.String),
+        }),
+      ),
+      wallet: Schema.optional(Schema.Struct({ balance: Schema.optional(Schema.Number) })),
+      // Price per gateway model id (for example `deepseek/deepseek-v4-flash`): what a
+      // session on that model costs in freebucks.
+      prices: Schema.optional(Schema.Record(Schema.String, Schema.Number)),
+    }),
+  ),
+  expiresAt: Schema.optional(Schema.String),
+  connection: Schema.optional(Schema.Struct({ expiresAt: Schema.optional(Schema.String) })),
+})
+
+// GET /api/v1/freebuff/models — the account's model catalog. `key` is stable
+// across sessions, `handle` is the opaque id the gateway expects per request.
+const CatalogRow = Schema.Struct({
+  key: Schema.String,
+  handle: Schema.optional(Schema.String),
+  displayName: Schema.String,
+  access: Schema.optional(Schema.String),
+  premium: Schema.optional(Schema.Boolean),
+  multimodal: Schema.optional(Schema.Boolean),
+  contextWindow: Schema.optional(Schema.Number),
+  compaction: Schema.optional(Schema.Struct({ maxContextLength: Schema.optional(Schema.Number) })),
+  // Hashes of the gateway model ids this row serves; the only link between a
+  // marketing name and the price table.
+  legacyDigests: Schema.optional(Schema.Array(Schema.String)),
+})
+const CatalogResponse = Schema.Struct({
+  rows: Schema.Array(CatalogRow),
+  // Epoch millis at which the catalog should be re-fetched; absent on older servers.
+  refreshAt: Schema.optional(Schema.Number),
+  plansUrl: Schema.optional(Schema.String),
+  // Identifies this snapshot of the catalog. Free-session admission carries it
+  // so the server can reject a handle minted against a catalog it no longer has.
+  fetchId: Schema.optional(Schema.String),
+})
+
+// POST /api/v1/freebuff/session/admission — opens the free-mode hour a chat
+// request must belong to. The gateway answers 426 `freebuff_update_required`
+// for free requests that carry no instance, which reads like a version problem
+// but is really a missing session.
+const AdmissionResponse = Schema.Struct({
+  status: Schema.optional(Schema.String),
+  instanceId: Schema.optional(Schema.String),
+  message: Schema.optional(Schema.String),
+  // Present when the one-session rule refuses a second model.
+  requestedModel: Schema.optional(Schema.String),
+  currentModel: Schema.optional(Schema.String),
+  currentInstanceId: Schema.optional(Schema.String),
+  resetAt: Schema.optional(Schema.String),
+  retryAfterMs: Schema.optional(Schema.Number),
+  recentCount: Schema.optional(Schema.Number),
+  limit: Schema.optional(Schema.Number),
+})
+type AdmissionResponse = Schema.Schema.Type<typeof AdmissionResponse>
+
+interface SessionFailure {
+  readonly status: number
+  readonly body: string
+}
+
+interface SessionResult {
+  readonly instanceId?: string
+  readonly failure?: SessionFailure
+}
+
+type CatalogRowInfo = Schema.Schema.Type<typeof CatalogRow>
+
+// POST /api/v1/agent-runs — the gateway refuses chat bodies that are not
+// attached to a run ("No runId found in request body"), so every session opens
+// one before its first model call.
+const RunResponse = Schema.Struct({ runId: Schema.String })
+const agentID = "main-agent"
+const clientID = "freebuff-opencode"
+// The gateway has two billing lanes and picks one from this flag: without it a
+// request is billed against paid credits, so a free-tier account that still has
+// freebucks answers 402 "Out of credits". Freebuff's own client sends `free` for
+// every request on the free tier, so the plugin does the same.
+const costMode = "free"
+
+export const FreebuffPlugin = define({
+  id: "opencode.provider.freebuff",
+  effect: Effect.fn(function* (ctx) {
+    const http = yield* HttpClient.HttpClient
+    const bus = yield* Bus.Service
+    const credentials = yield* Credential.Service
+    const runs = yield* Ref.make(new Map<string, string>())
+    // The catalog rows are kept next to the provider models so the status lookup can
+    // pair every row with the price the account's price table lists for it.
+    const catalogRows = yield* Ref.make<readonly CatalogRowInfo[]>([])
+    const catalogFetch = yield* Ref.make<string | undefined>(undefined)
+    // Free-mode chat is only accepted inside a session the gateway admitted.
+    // Reuse one per account+model so retries and parallel Sessions do not buy
+    // the same hour twice; the lock closes the race between simultaneous first
+    // requests (a title request next to the primary one).
+    const sessions = yield* Ref.make(new Map<string, string>())
+    const sessionLock = KeyedMutex.makeUnsafe<string>()
+    const agent = `freebuff-opencode/${ctx.app.version} opencode(++) integration`
+
+    // The active credential (not the oldest row) carries the account token, so
+    // switching accounts with /freebuff-use also switches the API token.
+    const activeToken = Effect.gen(function* () {
+      const connection = yield* ctx.integration.connection.active(integrationID)
+      if (!connection) return undefined
+      const credential = yield* ctx.integration.connection
+        .resolve(connection)
+        .pipe(Effect.orElseSucceed(() => undefined))
+      return credential?.type === "oauth" ? credential.access : undefined
+    })
+    const oauth = {
+      integrationID,
+      method: {
+        id: methodID,
+        type: "oauth",
+        label: "Login with Freebuff",
+      },
+      // Accounts are labeled by their email so several logins stay distinguishable.
+      label: (credential: Credential.OAuth) => {
+        const email = credential.metadata?.["email"]
+        return typeof email === "string" && email.length > 0 ? email : undefined
+      },
+      authorize: () =>
+        Effect.gen(function* () {
+          const code = yield* loginCode(http, agent, crypto.randomUUID())
+          const fallbackDeadline = (yield* Clock.currentTimeMillis) + loginLifetimeMs
+          const expiresAt = code.expiresAt > 0 ? code.expiresAt : fallbackDeadline
+          const statusUrl = `${loginBase}/api/auth/cli/status?${new URLSearchParams({
+            fingerprintId: code.fingerprintId,
+            fingerprintHash: code.fingerprintHash,
+            expiresAt: String(expiresAt),
+          }).toString()}`
+
+          const poll = (): Effect.Effect<Credential.OAuth, Error> =>
+            Effect.gen(function* () {
+              if ((yield* Clock.currentTimeMillis) >= expiresAt)
+                return yield* Effect.fail(new Error("Freebuff login timed out. Start the login again."))
+              // Before the browser finishes, the status endpoint answers 401;
+              // network hiccups are retried instead of failing the login.
+              const status = yield* loginStatus(http, agent, statusUrl)
+              // A refused code never becomes usable by waiting, so surface the
+              // server's reason now instead of polling until the attempt expires.
+              if (status.kind === "rejected")
+                return yield* Effect.fail(new Error(`Freebuff rejected the authorization code: ${status.message}`))
+              const user = status.kind === "ready" ? status.user : undefined
+              if (!user) {
+                yield* Effect.sleep(pollIntervalMs)
+                return yield* poll()
+              }
+              return Credential.OAuth.make({
+                type: "oauth",
+                methodID,
+                access: user.authToken,
+                refresh: "",
+                expires: maxExpiry,
+                metadata: {
+                  fingerprintId: code.fingerprintId,
+                  ...(user.email ? { email: user.email } : {}),
+                  ...(user.name ? { name: user.name } : {}),
+                },
+              })
+            })
+
+          return {
+            mode: "auto" as const,
+            url: code.loginUrl,
+            instructions: "Complete authorization in your browser. This window will close automatically.",
+            callback: poll(),
+          }
+        }),
+    } satisfies IntegrationOAuthMethodRegistration
+
+    yield* ctx.integration.transform((editor) => {
+      // The registry names unknown integrations after their ID; show the product name instead.
+      editor.update("freebuff", (integration) => {
+        integration.name = "Freebuff"
+      })
+      editor.method.update(oauth)
+    })
+    yield* ctx.provider.transform((providers) => {
+      // Seed the provider so the integration works without extra configuration.
+      if (!providers.get(providerID))
+        providers.add({
+          info: {
+            ...Provider.Info.empty(providerID),
+            name: "Freebuff",
+            package: "@orchestra/ai/providers/openai-compatible",
+            integrationID,
+          },
+          models: [],
+        })
+      providers.update(providerID, (provider) => {
+        provider.package = "@orchestra/ai/providers/openai-compatible"
+        provider.settings = {
+          baseURL: `${apiBase}/api/v1`,
+          provider: "freebuff",
+          apiKey: "",
+        }
+        provider.integrationID = integrationID
+      })
+    })
+    // Runs are keyed by session and token, so switching accounts starts a fresh
+    // run instead of reusing one that belongs to the previous account.
+    const ensureRun = Effect.fnUntraced(function* (sessionID: string, token: string) {
+      const key = `${sessionID}\u0000${token}`
+      const existing = (yield* Ref.get(runs)).get(key)
+      if (existing) return existing
+      const runID = yield* startRun(http, agent, token).pipe(Effect.orElseSucceed(() => undefined))
+      if (runID) yield* Ref.update(runs, (current) => new Map(current).set(key, runID))
+      return runID
+    })
+    // Free-mode chat must name the instance the gateway admitted. The metadata
+    // key is what the chat gate reads; the header versions the same window for
+    // the session endpoints.
+    const sessionMetadata = (instanceId: string) => ({
+      freebuff_instance_id: instanceId,
+      freebuff_multi_session: "1",
+      surface: "cli",
+    })
+    const openAdmission = Effect.fnUntraced(function* (token: string, model: string) {
+      let fetchId = yield* Ref.get(catalogFetch)
+      if (!fetchId) fetchId = (yield* refreshCatalog())?.fetchId
+      const instanceId = `cli:${crypto.randomUUID()}`
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${token}`,
+        "User-Agent": agent,
+        "x-freebuff-catalog-protocol": "1",
+        "x-freebuff-client": "cli",
+        "x-freebuff-model": model,
+        "x-freebuff-wallet-spend-limit": "session",
+        "x-freebuff-multi-session": "1",
+        "x-freebuff-purchase-continuity": "1",
+        "x-freebuff-desktop-attempt-id": crypto.randomUUID(),
+        "x-freebuff-instance-id": instanceId,
+      }
+      if (fetchId) headers["x-freebuff-catalog-fetch"] = fetchId
+      const response = yield* HttpClientRequest.post(`${v1Base}/api/v1/freebuff/session/admission`).pipe(
+        HttpClientRequest.setHeaders(headers),
+        http.execute,
+      )
+      const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""))
+      // TEMP-DEBUG
+      yield* Effect.logInfo("freebuff admission", {
+        status: response.status,
+        hasFetch: Boolean(fetchId),
+        body: text.slice(0, 300),
+      })
+      if (response.status >= 200 && response.status < 300) {
+        const admitted = Schema.decodeUnknownOption(Schema.fromJsonString(AdmissionResponse))(text).pipe(
+          Option.getOrUndefined,
+        )
+        if (admitted?.instanceId) return { instanceId: admitted.instanceId } satisfies SessionResult
+      }
+      return { failure: { status: response.status, body: text } } satisfies SessionResult
+    })
+    // Opening an hour costs freebucks, so parallel Sessions and retries share one
+    // admission per account+model. `force` forgets a window the gateway already
+    // retired and buys a new one.
+    const ensureSession = Effect.fnUntraced(function* (
+      token: string,
+      model: string,
+      force = false,
+      expected?: string,
+    ) {
+      const key = `${token}\u0000${model}`
+      return yield* sessionLock.withLock(key)(
+        Effect.gen(function* () {
+          const existing = (yield* Ref.get(sessions)).get(key)
+          if (existing && !force) return { instanceId: existing } satisfies SessionResult
+          // Two steps can fail on the same dead window at once; the second must
+          // reuse the hour the first one already paid for instead of buying a
+          // third one over it.
+          if (force && existing && existing !== expected)
+            return { instanceId: existing } satisfies SessionResult
+          // A broken or unreachable admission endpoint must not take the whole
+          // chat down: the response hook turns the gate error into a real one.
+          const result = yield* openAdmission(token, model).pipe(
+            Effect.catchCause(() =>
+              Effect.succeed<SessionResult>({ failure: { status: 0, body: "Freebuff admission request failed" } }),
+            ),
+          )
+          yield* Ref.update(sessions, (current) => {
+            const next = new Map(current)
+            if (result.instanceId) next.set(key, result.instanceId)
+            else next.delete(key)
+            return next
+          })
+          return result
+        }),
+      )
+    })
+    // The gateway rejects a chat whose catalog snapshot it cannot place, so a
+    // request must always carry a fetch id. A failed startup load leaves that id
+    // empty; reload it here instead of sending a request the gateway answers as
+    // `freebuff_update_required` (which reads like an outdated build).
+    const refreshCatalog = Effect.fnUntraced(function* () {
+      const access = yield* activeToken
+      if (!access) return undefined
+      const catalog = yield* fetchCatalog(http, agent, access).pipe(Effect.orElseSucceed(() => undefined))
+      if (!catalog || catalog.rows.length === 0) return undefined
+      yield* Ref.set(catalogRows, catalog.rows)
+      yield* Ref.set(catalogFetch, catalog.fetchId)
+      return catalog
+    })
+    // The openai-compatible package goes through the native loadPackage path,
+    // and every request passes this hook, which injects the account token.
+    yield* ctx.session.hook(
+      "http.request",
+      (evt) =>
+        Effect.gen(function* () {
+          if (evt.model.providerID !== providerID) return
+          const saved = yield* activeToken
+          const token = saved ?? evt.request.headers.get("x-api-key")
+          if (!token) return
+          evt.request.headers.set("Authorization", `Bearer ${token}`)
+          evt.request.headers.set("User-Agent", agent)
+          let fetchId = yield* Ref.get(catalogFetch)
+          if (!fetchId) fetchId = (yield* refreshCatalog())?.fetchId
+          // The gateway bills every completion against an agent run and rejects
+          // bodies without one, so the first request of a session opens a run
+          // and the rest of the session reuses it.
+          const text = yield* Effect.promise(() =>
+            evt.request
+              .clone()
+              .text()
+              .catch(() => ""),
+          )
+          if (!text.includes("codebuff_metadata")) {
+            const body = parseBody(text)
+            if (body && !("codebuff_metadata" in body)) {
+              const runID = yield* ensureRun(evt.sessionID, token)
+              const model = typeof body.model === "string" ? body.model : undefined
+              const session: SessionResult = model ? yield* ensureSession(token, model) : {}
+              // The free cost mode rides along even when the run could not be opened:
+              // it is what keeps the request on the free tier instead of paid credits.
+              evt.request = new Request(evt.request.url, {
+                method: evt.request.method,
+                headers: evt.request.headers,
+                body: JSON.stringify({
+                  ...body,
+                  codebuff_metadata: {
+                    ...(runID ? { run_id: runID } : {}),
+                    client_id: clientID,
+                    cost_mode: costMode,
+                    ...(session.instanceId ? sessionMetadata(session.instanceId) : {}),
+                  },
+                }),
+              })
+              if (session.instanceId) evt.request.headers.set("x-freebuff-instance-id", session.instanceId)
+            }
+          }
+          // The catalog protocol pairs with the fetch id; the gateway ignores a
+          // fetch id sent without it and answers as if no catalog was offered.
+          evt.request.headers.set("x-freebuff-catalog-protocol", "1")
+          if (fetchId) evt.request.headers.set("x-freebuff-catalog-fetch", fetchId)
+          // TEMP-DEBUG
+          yield* Effect.logInfo("freebuff request", {
+            url: new URL(evt.request.url).pathname,
+            hasFetch: Boolean(fetchId),
+            instance: evt.request.headers.get("x-freebuff-instance-id") ?? undefined,
+            hasRun: text.includes("run_id"),
+          })
+        }),
+      { providerID },
+    )
+    // An opencode Session can outlive the Freebuff hour, and another client can
+    // rotate the instance. Both arrive as gate errors on the chat request; the
+    // client recovers by buying a new hour and replaying the same body once.
+    yield* ctx.session.hook(
+      "http.response",
+      (evt) =>
+        Effect.gen(function* () {
+          if (evt.model.providerID !== providerID) return
+          if (!evt.request.url.endsWith("/chat/completions")) return
+          const status = evt.response.status
+          if (![409, 410, 426, 428, 429].includes(status)) return
+          const text = yield* Effect.promise(() => evt.response.clone().text().catch(() => ""))
+          const failure = parseBody(text)
+          const code = bodyCode(failure)
+          // TEMP-DEBUG
+          yield* Effect.logInfo("freebuff gate", { status, code: code ?? "none", body: text.slice(0, 300) })
+          // A spent wallet answers admission with 429 too. That is a quota wall,
+          // not a stale gate, so report it once instead of retrying forever.
+          if (status === 429 && isQuotaCode(code)) {
+            evt.response = quotaResponse(text)
+            return
+          }
+          // A 409 `freebuff_catalog_stale` names a snapshot the gateway dropped;
+          // a 410 `freebuff_update_required` is what it says when no usable
+          // snapshot arrived at all. Neither is fixed by buying another session,
+          // so refresh the catalog first and retry with the same instance. A 426
+          // with the same code is the older missing-session refusal.
+          const catalogFailure =
+            code === "freebuff_catalog_stale" || (status === 410 && code === "freebuff_update_required")
+          const recoverable =
+            status === 426 ||
+            catalogFailure ||
+            (status === 428 && code === "waiting_room_required") ||
+            (status === 409 &&
+              (code === "session_superseded" ||
+                code === "session_model_mismatch" ||
+                code === "session_limit_reached")) ||
+            (status === 410 && code === "session_expired")
+          if (!recoverable) return
+          if (catalogFailure) yield* refreshCatalog()
+          const saved = yield* activeToken
+          const token =
+            saved ??
+            evt.request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
+            evt.request.headers.get("x-api-key")
+          const requestText = yield* Effect.promise(() => evt.request.clone().text().catch(() => ""))
+          const requestBody = parseBody(requestText)
+          const model = typeof requestBody?.model === "string" ? requestBody.model : undefined
+          if (!token || !model || !requestBody) return
+          const used = isRecord(requestBody.codebuff_metadata)
+            ? requestBody.codebuff_metadata.freebuff_instance_id
+            : undefined
+          // A catalog refresh keeps the admitted window the request already
+          // names, even when this process did not open it.
+          const session: SessionResult =
+            catalogFailure && typeof used === "string"
+              ? { instanceId: used }
+              : yield* ensureSession(
+                  token,
+                  model,
+                  !catalogFailure,
+                  typeof used === "string" ? used : undefined,
+                )
+          if (!session.instanceId) {
+            if (session.failure) evt.response = sessionFailureResponse(session.failure)
+            return
+          }
+          const metadata = isRecord(requestBody.codebuff_metadata) ? requestBody.codebuff_metadata : {}
+          const headers = new Headers(evt.request.headers)
+          headers.set("x-freebuff-instance-id", session.instanceId)
+          headers.set("x-freebuff-catalog-protocol", "1")
+          const fetchId = yield* Ref.get(catalogFetch)
+          if (fetchId) headers.set("x-freebuff-catalog-fetch", fetchId)
+          const body = JSON.stringify({
+            ...requestBody,
+            codebuff_metadata: { ...metadata, ...sessionMetadata(session.instanceId) },
+          })
+          const request = HttpClientRequest.bodyUint8Array(
+            HttpClientRequest.fromWeb(
+              new Request(evt.request.url, { method: evt.request.method, headers, body }),
+            ),
+            new TextEncoder().encode(body),
+            "application/json",
+          )
+          const retried = yield* http.execute(request).pipe(Effect.orElseSucceed(() => undefined))
+          if (!retried) return
+          // TEMP-DEBUG
+          yield* Effect.logInfo("freebuff retry", {
+            status: retried.status,
+            fetch: headers.get("x-freebuff-catalog-fetch") ?? "none",
+          })
+          evt.response = new Response(
+            [204, 205, 304].includes(retried.status) ? null : yield* Stream.toReadableStreamEffect(retried.stream),
+            { status: retried.status, headers: retried.headers },
+          )
+        }),
+      { providerID },
+    )
+
+    // The catalog is account specific, so it loads for the active credential and
+    // reloads whenever accounts change (login, switch, disconnect) or the server
+    // announces a newer one through `refreshAt`.
+    const loadModels = Effect.gen(function* () {
+      const catalog = yield* refreshCatalog()
+      if (!catalog) return catalogRefreshMs
+      yield* ctx.provider.transform((providers) => {
+        providers.models.set(
+          providerID,
+          catalog.rows.map((row) => {
+            // The account catalog can under-report the window a row really serves: free rows
+            // often say 200k while the gateway accepts far more. ORCHESTRA_FREEBUFF_CONTEXT raises
+            // the declared window without editing the catalog, so compaction and request sizing
+            // stop trimming at a number the model does not actually have. It only ever raises the
+            // value; a request the server will not take still fails on the server.
+            const floor = Number(process.env.ORCHESTRA_FREEBUFF_CONTEXT)
+            const context = Math.max(
+              1,
+              Math.floor(row.contextWindow ?? row.compaction?.maxContextLength ?? 200_000),
+              Number.isFinite(floor) && floor > 0 ? Math.floor(floor) : 0,
+            )
+            // Rows are split by what the account can use: `open` rows are free on
+            // any plan, everything else needs a paid plan. Free rows carry a zero
+            // price so the model picker can show its "Free" badge next to them.
+            const free = row.access === "open"
+            return {
+              ...Model.Info.default(providerID, Model.ID.make(row.key)),
+              // Requests carry the handle the gateway issued for this account.
+              modelID: Model.ID.make(row.handle ?? row.key),
+              name: row.displayName,
+              // Subscription rows stay listed (and selectable once the plan exists)
+              // but are marked unavailable so the picker can label them.
+              enabled: free,
+              status: "active" as const,
+              cost: free
+                ? [
+                    {
+                      input: Money.USDPerMillionTokens.zero,
+                      output: Money.USDPerMillionTokens.zero,
+                      cache: { read: Money.USDPerMillionTokens.zero, write: Money.USDPerMillionTokens.zero },
+                    },
+                  ]
+                : [],
+              capabilities: {
+                tools: true,
+                input: row.multimodal ? ["text", "image"] : ["text"],
+                output: ["text"],
+              },
+              limit: { context, output: Math.min(context, 32_000) },
+            }
+          }),
+        )
+      })
+      // The provider state is not watched by the model service on its own, so the
+      // UI only sees a refreshed catalog after this event is published.
+      yield* bus.publish(
+        Provider.Event.Updated,
+        {},
+        { location: { directory: ctx.location.directory, workspaceID: ctx.location.workspaceID } },
+      )
+      yield* ctx.provider.reload()
+      const hinted = catalog.refreshAt === undefined ? NaN : catalog.refreshAt - (yield* Clock.currentTimeMillis)
+      if (!Number.isFinite(hinted)) return catalogRefreshMs
+      return Math.min(Math.max(hinted, minRefreshMs), catalogRefreshMs)
+    })
+    yield* loadModels
+    yield* bus.subscribe([Credential.Event.Updated, Credential.Event.Switched]).pipe(
+      Stream.runForEach(() => loadModels),
+      Effect.forkScoped({ startImmediately: true }),
+    )
+    // Keep the catalog in step with the account plan without a manual restart.
+    yield* Effect.gen(function* () {
+      while (true) {
+        const wait = yield* loadModels
+        yield* Effect.sleep(wait)
+      }
+    }).pipe(Effect.forkScoped)
+
+    // Freebucks balance and timers; read-only, so it can never take over or
+    // disturb a session opened by the official Freebuff CLI.
+    const status = Effect.gen(function* () {
+      const access = yield* activeToken
+      if (!access) return { loggedIn: false }
+      const session = yield* fetchSession(http, agent, access).pipe(Effect.orElseSucceed(() => undefined))
+      if (!session) return { loggedIn: true }
+      const now = yield* Clock.currentTimeMillis
+      const daily = session.freebucks?.daily
+      const balance = session.freebucks?.balance ?? session.freebucks?.wallet?.balance
+      const reset = daily?.resetAt ? Date.parse(daily.resetAt) : NaN
+      const expires = Date.parse(session.expiresAt ?? session.connection?.expiresAt ?? "")
+      const rows = yield* Ref.get(catalogRows)
+      return {
+        loggedIn: true,
+        ...(typeof balance === "number" ? { balance } : {}),
+        ...(typeof daily?.spent === "number" ? { spent: daily.spent } : {}),
+        ...(typeof daily?.limit === "number" ? { limit: daily.limit } : {}),
+        ...(reset > now ? { resetIn: reset - now } : {}),
+        ...(expires > now ? { sessionEndsIn: expires - now } : {}),
+        ...(session.accessTier ? { tier: session.accessTier } : {}),
+        prices: resolvePrices(rows, session.freebucks?.prices),
+      }
+    })
+    const listAccounts = Effect.gen(function* () {
+      const accounts = yield* credentials.list(integrationID)
+      const active = yield* ctx.integration.connection.active(integrationID)
+      return {
+        accounts: accounts.map((account) => ({
+          id: account.id as string,
+          label: accountLabel(account),
+          active: active?.type === "credential" && active.id === account.id,
+        })),
+      }
+    })
+    const useAccount = (id: string) =>
+      Effect.gen(function* () {
+        const accounts = yield* credentials.list(integrationID)
+        const found = accounts.find((account) => account.id === id)
+        if (!found) return { ok: false as const }
+        yield* credentials.activate(found.id)
+        return { ok: true as const }
+      })
+    // Starts a login for one more account; the settlement runs in the background
+    // and appends the new credential without touching the others.
+    const addAccount = Effect.gen(function* () {
+      const attempt = yield* ctx.integration.oauth.connect({ integrationID, methodID })
+      return { url: attempt.data?.url }
+    })
+
+    // The TUI companion plugin (`opencode.freebuff`) renders dialogs on top of
+    // these methods; nothing is fetched in the background, so the plugin never
+    // interferes with the official CLI session on the server.
+    yield* ctx.rpc
+      .register(FreebuffRpc, {
+        status: () => status,
+        accounts: () => listAccounts,
+        use: (input) => useAccount(input.id),
+        // The login start can fail on transport errors; the RPC surfaces them as system errors.
+        add: () => addAccount.pipe(Effect.orDie),
+      })
+      .pipe(Effect.orDie)
+  }),
+} satisfies PluginInternal.InternalPlugin)
+
+function loginCode(http: HttpClient.HttpClient, agent: string, fingerprintId: string) {
+  return HttpClientRequest.post(`${loginBase}/api/auth/cli/code`).pipe(
+    HttpClientRequest.acceptJson,
+    HttpClientRequest.bodyJsonUnsafe({ fingerprintId }),
+    HttpClientRequest.setHeader("User-Agent", agent),
+    http.execute,
+    Effect.mapError((cause) => new Error(`Freebuff login request failed: ${cause}`)),
+    Effect.flatMap((response) =>
+      response.status >= 200 && response.status < 300
+        ? Effect.succeed(response)
+        : Effect.fail(new Error(`Freebuff login failed: HTTP ${response.status}`)),
+    ),
+    Effect.flatMap((response) =>
+      HttpClientResponse.schemaBodyJson(CodeResponse)(response).pipe(
+        Effect.mapError(() => new Error("Freebuff returned an unexpected login response")),
+      ),
+    ),
+  )
+}
+
+// Read-only balance lookup; it sends no instance or session headers, so it
+// cannot take over or disturb a session opened by the official Freebuff CLI.
+function fetchSession(http: HttpClient.HttpClient, agent: string, token: string) {
+  return HttpClientRequest.get(`${v1Base}/api/v1/freebuff/session`).pipe(
+    HttpClientRequest.acceptJson,
+    HttpClientRequest.bearerToken(token),
+    HttpClientRequest.setHeader("User-Agent", agent),
+    http.execute,
+    Effect.flatMap((response) =>
+      response.status >= 200 && response.status < 300
+        ? HttpClientResponse.schemaBodyJson(SessionResponse)(response)
+        : Effect.fail(new Error(`Freebuff status failed: HTTP ${response.status}`)),
+    ),
+  )
+}
+
+function fetchCatalog(http: HttpClient.HttpClient, agent: string, token: string) {
+  return HttpClientRequest.get(`${v1Base}/api/v1/freebuff/models`).pipe(
+    HttpClientRequest.acceptJson,
+    HttpClientRequest.bearerToken(token),
+    HttpClientRequest.setHeader("User-Agent", agent),
+    HttpClientRequest.setHeader("x-freebuff-catalog-protocol", "1"),
+    HttpClientRequest.setHeader("x-freebuff-client", "cli"),
+    http.execute,
+    Effect.flatMap((response) =>
+      response.status >= 200 && response.status < 300
+        ? HttpClientResponse.schemaBodyJson(CatalogResponse)(response)
+        : Effect.fail(new Error(`Freebuff model catalog failed: HTTP ${response.status}`)),
+    ),
+  )
+}
+
+// Opens an agent run so the gateway accepts the chat body that follows it.
+function startRun(http: HttpClient.HttpClient, agent: string, token: string) {
+  return HttpClientRequest.post(`${v1Base}/api/v1/agent-runs`).pipe(
+    HttpClientRequest.acceptJson,
+    HttpClientRequest.bodyJsonUnsafe({ action: "START", agentId: agentID, ancestorRunIds: [] }),
+    HttpClientRequest.bearerToken(token),
+    HttpClientRequest.setHeader("User-Agent", agent),
+    http.execute,
+    Effect.flatMap((response) =>
+      response.status >= 200 && response.status < 300
+        ? HttpClientResponse.schemaBodyJson(RunResponse)(response)
+        : Effect.fail(new Error(`Freebuff run failed: HTTP ${response.status}`)),
+    ),
+    Effect.map((value) => value.runId),
+  )
+}
+
+function accountLabel(account: Credential.Info): string {
+  if (account.value.type === "oauth") {
+    const email = account.value.metadata?.["email"]
+    if (typeof email === "string" && email.length > 0) return email
+    const name = account.value.metadata?.["name"]
+    if (typeof name === "string" && name.length > 0) return name
+  }
+  return account.label
+}
+
+// Freebuff's own digest of a gateway model id: `freebuff-legacy-model:<id>` hashed with
+// two FNV-1a variants, eight hex digits each. The product's web client resolves catalog
+// rows and prices with this exact function, and the catalog rows carry the resulting
+// hashes in `legacyDigests`, which makes it the only reliable link between a row's
+// marketing name and the price table.
+function legacyModelDigest(modelID: string) {
+  const input = `freebuff-legacy-model:${modelID}`
+  let a = 0x811c9dc5
+  let b = 0x5ad1e806
+  for (let i = 0; i < input.length; i++) {
+    const code = input.charCodeAt(i)
+    a = Math.imul(a ^ code, 0x1000193) >>> 0
+    b = Math.imul(b ^ code, 0x5bd1e995) >>> 0
+  }
+  return a.toString(16).padStart(8, "0") + b.toString(16).padStart(8, "0")
+}
+
+// The catalog lists marketing names ("DeepSeek V4.1 Flash 10/17") while the price table
+// is keyed by the gateway model id ("deepseek/deepseek-v4-flash"), and the two do not
+// line up by name. A row that matches exactly one priced model gets that price; a row
+// that matches none, or more than one, keeps an unknown price instead of a guessed one.
+function resolvePrices(rows: readonly CatalogRowInfo[], prices: Record<string, number> | undefined) {
+  return rows.map((row) => {
+    // Newer catalogs list the gateway model id itself in `legacyDigests` for
+    // rows whose price is fixed (Glyph Cluster and Solar Pro 4), while older
+    // rows carry its hash. Accept both or those rows look unpriced.
+    const matches = Object.entries(prices ?? {}).filter(
+      ([modelID]) => row.legacyDigests?.includes(legacyModelDigest(modelID)) || row.legacyDigests?.includes(modelID),
+    )
+    const match = matches.length === 1 ? matches[0] : undefined
+    return {
+      key: row.key,
+      name: row.displayName,
+      ...(match ? { price: match[1], modelID: match[0] } : {}),
+      ...(row.access ? { access: row.access } : {}),
+    }
+  })
+}
+
+type LoginStatus =
+  | { readonly kind: "ready"; readonly user: Schema.Schema.Type<typeof StatusUser> }
+  | { readonly kind: "pending" }
+  | { readonly kind: "rejected"; readonly message: string }
+
+// 401 means the browser has not finished the sign-in yet. Any other 4xx means the
+// code itself is gone (expired or already used): the sign-in page shows its own
+// "Invalid auth code" error in that case, so waiting cannot help.
+function loginStatus(http: HttpClient.HttpClient, agent: string, url: string): Effect.Effect<LoginStatus> {
+  return HttpClientRequest.get(url).pipe(
+    HttpClientRequest.acceptJson,
+    HttpClientRequest.setHeader("User-Agent", agent),
+    http.execute,
+    Effect.flatMap((response) =>
+      Effect.gen(function* () {
+        if (response.status === 200) {
+          const body = yield* HttpClientResponse.schemaBodyJson(StatusResponse)(response).pipe(
+            Effect.orElseSucceed((): Schema.Schema.Type<typeof StatusResponse> => ({})),
+          )
+          return body.user ? ({ kind: "ready", user: body.user } as const) : ({ kind: "pending" } as const)
+        }
+        // Drain every response body so the connection is released while polling.
+        const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""))
+        if (response.status >= 400 && response.status < 500 && response.status !== 401)
+          return { kind: "rejected", message: errorMessage(text) ?? `HTTP ${response.status}` } as const
+        return { kind: "pending" } as const
+      }),
+    ),
+    Effect.orElseSucceed((): LoginStatus => ({ kind: "pending" })),
+  )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function parseBody(text: string): Record<string, unknown> | undefined {
+  try {
+    const value: unknown = JSON.parse(text)
+    return isRecord(value) ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+// Freebuff reports gate refusals as `{ error: { code } }`, session refusals as
+// `{ status }`, and older builds nested the code one level deeper inside the
+// message. Accept all three shapes so recovery does not depend on the envelope.
+function bodyCode(body: Record<string, unknown> | undefined) {
+  if (!body) return undefined
+  if (typeof body.status === "string") return body.status
+  const error = body.error
+  if (typeof error === "string") return error
+  if (!isRecord(error)) return undefined
+  if (typeof error.code === "string") return error.code
+  if (typeof error.error === "string") return error.error
+  if (isRecord(error.message)) {
+    if (typeof error.message.error === "string") return error.message.error
+    if (typeof error.message.code === "string") return error.message.code
+  }
+  return undefined
+}
+
+function sessionMessage(body: Record<string, unknown> | undefined) {
+  if (!body) return undefined
+  const error = body.error
+  if (typeof error === "string") return error
+  if (isRecord(error)) {
+    if (typeof error.message === "string") return error.message
+    if (isRecord(error.message) && typeof error.message.message === "string") return error.message.message
+  }
+  return typeof body.message === "string" ? body.message : undefined
+}
+
+function isQuotaCode(code: string | undefined) {
+  return code === "rate_limited" || code === "spend_limited" || code === "ip_capped"
+}
+
+// The freebucks wallet is a daily allowance, so an exhausted pool is a quota
+// wall (402) rather than a throttle: retrying cannot refill it before resetAt.
+function quotaResponse(text: string) {
+  const body = parseBody(text)
+  const used = typeof body?.recentCount === "number" ? body.recentCount : undefined
+  const limit = typeof body?.limit === "number" ? body.limit : undefined
+  const usage = used !== undefined && limit !== undefined ? ` (${used}/${limit})` : ""
+  const reset = typeof body?.resetAt === "string" ? ` Resets at ${body.resetAt}.` : ""
+  return Response.json(
+    {
+      error: {
+        message: `Freebuff freebucks limit reached${usage}.${reset}`.trim(),
+        type: "quota_exceeded",
+        code: "freebucks_exhausted",
+      },
+    },
+    { status: 402 },
+  )
+}
+
+function sessionFailureResponse(failure: SessionFailure) {
+  const parsed = parseBody(failure.body)
+  const code = bodyCode(parsed)
+  if (failure.status === 429 && isQuotaCode(code)) return quotaResponse(failure.body)
+  // Limited accounts get one free session shared by CLI, Desktop and the
+  // editor; the gateway names the session holding the slot.
+  if (code === "premium_slot_taken" || code === "purchase_in_use" || code === "purchase_capacity") {
+    const current = typeof parsed?.currentModel === "string" ? parsed.currentModel : undefined
+    return Response.json(
+      {
+        error: {
+          message: `Freebuff allows one session at a time. Another session${current ? ` (${current})` : ""} is using this account; close it or wait for it to end.`,
+          type: "session_in_use",
+          code,
+        },
+      },
+      { status: 409 },
+    )
+  }
+  const detail =
+    sessionMessage(parseBody(failure.body)) ??
+    (failure.body.trim().length > 0 ? failure.body.trim().slice(0, 200) : `HTTP ${failure.status}`)
+  return Response.json(
+    {
+      error: {
+        message: `Freebuff could not open a free session: ${detail}`,
+        type: "session_admission_failed",
+        code: code ?? "session_admission_failed",
+      },
+    },
+    { status: failure.status === 403 || failure.status === 409 ? failure.status : 503 },
+  )
+}
+
+// API errors arrive as `{ error }` or `{ message }`; anything else is reported raw.
+function errorMessage(body: string) {
+  try {
+    const parsed = JSON.parse(body) as Record<string, unknown>
+    const message = parsed["error"] ?? parsed["message"]
+    if (typeof message === "string" && message.length > 0) return message
+  } catch {
+    // Not JSON; fall through to the trimmed body.
+  }
+  const text = body.trim()
+  return text.length > 0 ? text.slice(0, 200) : undefined
+}

@@ -1,0 +1,49 @@
+import { describe, expect, test } from "bun:test"
+import { Passport } from "@orchestra/core/passport"
+import { tmpdir } from "./fixture/tmpdir"
+
+describe("Passport.guestEnv", () => {
+  test("removes secrets and credential-bearing configuration variables", () => {
+    expect(
+      Passport.guestEnv({
+        PATH: "/usr/bin",
+        SAFE_VALUE: "visible",
+        OPENAI_API_KEY: "secret",
+        HTTP_PROXY: "http://user:password@proxy.test",
+        AWS_PROFILE: "production",
+        KUBECONFIG: "/home/host/.kube/config",
+        GIT_ASKPASS: "/home/host/askpass",
+      }),
+    ).toEqual({ PATH: "/usr/bin", SAFE_VALUE: "visible" })
+  })
+})
+
+describe.skipIf(process.platform === "win32")("Passport.run", () => {
+  test("returns when the command exits although it left a child in the background", async () => {
+    await using dir = await tmpdir()
+    const started = Date.now()
+    const result = await Passport.run("echo hi; sleep 30 &", dir.path)
+    expect(result.output.trim()).toBe("hi")
+    expect(Date.now() - started).toBeLessThan(5_000)
+  })
+
+  test.skipIf(process.platform === "win32")("large command output is drained without exceeding the output limit", async () => {
+    await using dir = await tmpdir()
+    const result = await Passport.run(
+      "i=0; while [ \"$i\" -lt 5000 ]; do printf '0123456789'; i=$((i + 1)); done",
+      dir.path,
+    )
+    expect(result.output.length).toBeLessThanOrEqual(20_000)
+    expect(result.cut).toBe(true)
+    expect(result.output.endsWith("0123456789")).toBe(true)
+  })
+
+  test("an abort stops the command and everything it started", async () => {
+    await using dir = await tmpdir()
+    const controller = new AbortController()
+    setTimeout(() => controller.abort(), 200)
+    const started = Date.now()
+    await Passport.run("sleep 30 & sleep 30", dir.path, controller.signal)
+    expect(Date.now() - started).toBeLessThan(5_000)
+  })
+})

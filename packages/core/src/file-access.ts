@@ -1,0 +1,256 @@
+export * as FileAccess from "./file-access.js"
+
+import { makeLocationNode } from "@orchestra/util/effect/app-node"
+import { FSUtil } from "@orchestra/util/fs-util"
+import { Global } from "@orchestra/util/global"
+import { Array, Context, Effect, Layer, Schema } from "effect"
+import path from "path"
+import { lstat, readlink, realpath } from "node:fs/promises"
+import { Location } from "./location.js"
+import { Permission } from "./permission.js"
+import { Project } from "./project.js"
+import { AbsolutePath } from "./schema.js"
+import type { SessionErrors } from "./session/error.js"
+import type { Tool } from "./tool.js"
+
+export const Kind = Schema.Literals(["file", "directory"])
+export type Kind = typeof Kind.Type
+
+export const ResolveInput = Schema.Struct({
+  path: Schema.String,
+  /** Selects the external approval boundary; it does not validate the target type. */
+  kind: Kind.pipe(Schema.optional),
+})
+export type ResolveInput = typeof ResolveInput.Type
+
+export interface ExternalDirectoryAuthorization {
+  readonly action: "external_directory"
+  /** Lexical directory used as the external approval boundary. */
+  readonly directory: AbsolutePath
+  readonly resource: string
+  readonly save: string
+}
+
+export interface Target {
+  readonly absolute: AbsolutePath
+  /** Location-relative for internal paths, absolute for external paths. */
+  readonly resource: string
+  readonly externalDirectory?: ExternalDirectoryAuthorization
+}
+
+export type Invocation = Pick<Tool.Context, "sessionID" | "agent" | "messageID" | "id">
+
+export interface ReadOptions {
+  /** A target already authorized by this invocation, used for filename recovery. */
+  readonly siblingOf: Target
+}
+
+export interface Interface {
+  /** Resolve a lexical path and its permission resources, without requesting approval. */
+  readonly resolve: (input: ResolveInput) => Effect.Effect<Target, FSUtil.Error>
+  /** Approve external directories in one batch, preserving first-seen resource order. */
+  readonly authorizeExternal: (
+    targets: readonly Target[],
+    context: Invocation,
+    metadata?: Permission.AssertInput["metadata"],
+  ) => Effect.Effect<void, Error | SessionErrors.NotFoundError>
+  /** Resolve a read target and obtain external-directory approval before read approval. */
+  readonly authorizeRead: (
+    file: string,
+    context: Invocation,
+    options?: ReadOptions,
+  ) => Effect.Effect<Target, FSUtil.Error | Error | SessionErrors.NotFoundError>
+  /**
+   * Resolve many read targets and request external-directory and read approval once for the batch.
+   * Targets keep request order and duplicate resources are authorized once, so a multi-file read
+   * costs one prompt instead of one per file.
+   */
+  readonly authorizeReadMany: (
+    files: readonly string[],
+    context: Invocation,
+  ) => Effect.Effect<readonly Target[], FSUtil.Error | Error | SessionErrors.NotFoundError>
+}
+
+export class Service extends Context.Service<Service, Interface>()("@orchestra/FileAccess") {}
+
+/** Expand a leading ~ and normalize Windows shell paths before lexical resolution. */
+export const resolvePath = (directory: string, input: string, home = Global.Path.home) => {
+  const normalized = FSUtil.windowsPath(input)
+  return path.resolve(
+    directory,
+    normalized === "~"
+      ? home
+      : normalized.startsWith("~/") || (process.platform === "win32" && normalized.startsWith("~\\"))
+        ? path.join(home, normalized.slice(2))
+        : normalized,
+  )
+}
+
+const slash = (value: string) => value.replaceAll("\\", "/")
+
+// Resolve existing symlinks before deciding whether a path is inside the active
+// Location or worktree. For prospective files, resolve the nearest existing
+// ancestor and append the missing suffix so a symlinked directory cannot make
+// an external target look like an internal lexical path.
+/**
+ * `fs.realpath` reports a Windows drive root as a bare `C:`. Resolving that suffix against
+ * `path.resolve` would treat `C:` as the current directory on that drive, so a target directly
+ * under a drive root would silently resolve into the process cwd instead of the root.
+ */
+const driveRoot = (resolved: string) => (/^[a-zA-Z]:$/.test(resolved) ? `${resolved}${path.sep}` : resolved)
+
+async function canonicalPath(input: string) {
+  const original = path.resolve(input)
+  let current = original
+  const suffix: string[] = []
+  for (let depth = 0; depth < 40; depth++) {
+    try {
+      return path.resolve(driveRoot(await realpath(current)), ...suffix.toReversed())
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code !== "ENOENT" && code !== "ENOTDIR") throw error
+      try {
+        const info = await lstat(current)
+        if (info.isSymbolicLink()) {
+          current = path.resolve(path.dirname(current), await readlink(current))
+          continue
+        }
+      } catch (linkError) {
+        const linkCode = (linkError as NodeJS.ErrnoException).code
+        if (linkCode !== "ENOENT" && linkCode !== "ENOTDIR") throw linkError
+      }
+      const parent = path.dirname(current)
+      if (parent === current) return original
+      suffix.push(path.basename(current))
+      current = parent
+    }
+  }
+  throw new Error("Too many filesystem symlinks while resolving path")
+}
+const invocation = (context: Invocation) => ({
+  sessionID: context.sessionID,
+  agent: context.agent,
+  source: { type: "tool" as const, messageID: context.messageID, id: context.id },
+})
+
+const layer = Layer.effect(
+  Service,
+  Effect.gen(function* () {
+    const fs = yield* FSUtil.Service
+    const location = yield* Location.Service
+    const permission = yield* Permission.Service
+
+    // The active directory and worktree are fixed for this Location layer. Canonicalizing them
+    // once turns the two realpath walks every authorized read paid into a one-time cost, which
+    // matters most for multi-file reads.
+    const canonicalRoots = yield* Effect.cached(
+      Effect.gen(function* () {
+        const activeDirectory = yield* Effect.tryPromise({
+          try: () => canonicalPath(location.directory),
+          catch: (cause) => new FSUtil.FileSystemError({ method: "realPath", cause }),
+        })
+        const worktree = yield* Effect.tryPromise({
+          try: () => canonicalPath(location.project.directory),
+          catch: (cause) => new FSUtil.FileSystemError({ method: "realPath", cause }),
+        })
+        return { activeDirectory, worktree }
+      }),
+    )
+    const resolve = Effect.fn("FileAccess.resolve")(function* (input: ResolveInput) {
+      const lexical = resolvePath(location.directory, input.path)
+      const absolute = yield* Effect.tryPromise({
+        try: () => canonicalPath(lexical),
+        catch: (cause) => new FSUtil.FileSystemError({ method: "realPath", cause }),
+      }).pipe(Effect.map(AbsolutePath.make))
+      const { activeDirectory, worktree } = yield* canonicalRoots
+      const internal =
+        FSUtil.contains(activeDirectory, absolute) ||
+        (worktree !== path.parse(worktree).root && FSUtil.contains(worktree, absolute))
+      if (internal) {
+        return {
+          absolute,
+          resource: slash(path.relative(activeDirectory, absolute) || "."),
+        } satisfies Target
+      }
+      const type =
+        input.kind === "directory"
+          ? "Directory"
+          : input.kind === "file"
+            ? "File"
+            : (yield* fs.stat(absolute).pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.undefined)))
+                ?.type
+      const directory = AbsolutePath.make(type === "Directory" ? absolute : path.dirname(absolute))
+      return {
+        absolute,
+        resource: slash(absolute),
+        externalDirectory: {
+          action: "external_directory",
+          directory,
+          resource: slash(path.join(directory, "*")),
+          save: slash(path.join((yield* Project.root(fs, directory)) ?? directory, "*")),
+        },
+      } satisfies Target
+    })
+
+    const authorizeExternal = Effect.fn("FileAccess.authorizeExternal")(function* (
+      targets: readonly Target[],
+      context: Invocation,
+      metadata?: Permission.AssertInput["metadata"],
+    ) {
+      const external = Array.dedupeWith(
+        targets.flatMap((target) => (target.externalDirectory ? [target.externalDirectory] : [])),
+        (left, right) => left.resource === right.resource,
+      )
+      if (external.length === 0) return
+      yield* permission.assert({
+        action: "external_directory",
+        resources: external.map((item) => item.resource),
+        save: external.map((item) => item.save),
+        ...(metadata === undefined ? {} : { metadata }),
+        ...invocation(context),
+      })
+    })
+
+    const authorizeRead = Effect.fn("FileAccess.authorizeRead")(function* (
+      file: string,
+      context: Invocation,
+      options?: ReadOptions,
+    ) {
+      const target = yield* resolve({ path: file, kind: options ? "file" : undefined })
+      const sibling = options && path.dirname(target.absolute) === path.dirname(options.siblingOf.absolute)
+
+      // Filename recovery shares the directory approval, but checks the recovered file's own read rules.
+      if (!sibling) yield* authorizeExternal([target], context)
+      yield* permission.assert({
+        action: "read",
+        resources: [target.resource],
+        save: ["*"],
+        ...invocation(context),
+      })
+      return target
+    })
+
+    const authorizeReadMany = Effect.fn("FileAccess.authorizeReadMany")(function* (
+      files: readonly string[],
+      context: Invocation,
+    ) {
+      const targets = yield* Effect.forEach(files, (file) => resolve({ path: file }), {
+        concurrency: "unbounded",
+      })
+      yield* authorizeExternal(targets, context)
+      const resources = Array.dedupe(targets.map((target) => target.resource))
+      if (resources.length === 0) return targets
+      yield* permission.assert({
+        action: "read",
+        resources,
+        save: ["*"],
+        ...invocation(context),
+      })
+      return targets
+    })
+
+    return Service.of({ resolve, authorizeExternal, authorizeRead, authorizeReadMany })
+  }),
+)
+
+export const node = makeLocationNode({ service: Service, layer, deps: [FSUtil.node, Location.node, Permission.node] })

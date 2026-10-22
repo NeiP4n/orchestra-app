@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "version": "2.0.24",
+  "name": "@orchestra/sdk",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anomalyco/opencode.git",
+    "directory": "packages/sdk"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": "./src/index.ts",
+    "./effect": "./src/effect/index.ts",
+    "./workerd": "./src/workerd.ts",
+    "./workerd/effect": "./src/effect/workerd.ts"
+  },
+  "scripts": {
+    "build": "bun run script/build.ts",
+    "test": "bun test --timeout 5000",
+    "typecheck": "tsgo -b",
+    "verify:package": "bun run script/verify-package.ts"
+  },
+  "dependencies": {
+    "@orchestra/client": "workspace:*",
+    "@orchestra/core": "workspace:*",
+    "@orchestra/plugin": "workspace:*",
+    "@orchestra/schema": "workspace:*",
+    "@orchestra/server": "workspace:*",
+    "@orchestra/util": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@orchestra/ai": "workspace:*",
+    "@orchestra/httpapi-codegen": "workspace:*",
+    "@orchestra/protocol": "workspace:*",
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@typescript/native-preview": "catalog:"
+  }
+}

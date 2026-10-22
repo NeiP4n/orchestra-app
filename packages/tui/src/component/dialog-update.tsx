@@ -1,0 +1,192 @@
+import { TextAttributes } from "@opentui/core"
+import { createEffect, createMemo, createResource, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
+import { Keymap } from "../context/keymap"
+import { useTheme } from "../context/theme"
+import type { KeptEdits, UpdateState } from "../context/update-notification"
+import { useDialog } from "../ui/dialog"
+import { errorMessage } from "../util/error"
+import { useT } from "../util/i18n"
+import { Spinner } from "./spinner"
+
+export function DialogUpdate(props: {
+  check?: (signal: AbortSignal) => Promise<string | undefined>
+  state: () => UpdateState | undefined
+  skip: () => void
+  install: () => Promise<void>
+  restart: () => void
+}) {
+  const dialog = useDialog()
+  const theme = useTheme().surface("dialog")
+  const t = useT()
+  const [error, setError] = createSignal<string>()
+  const [active, setActive] = createSignal(0)
+  const controller = new AbortController()
+  onCleanup(() => controller.abort())
+
+  dialog.setCentered(true)
+
+  const [check] = createResource(
+    () => props.check,
+    (check) =>
+      check(controller.signal).catch((error) => {
+        if (!controller.signal.aborted) setError(errorMessage(error))
+        return undefined
+      }),
+  )
+  // What became of the install's local edits, once a source update put them aside.
+  const keptEdits = (): KeptEdits | undefined => {
+    const current = props.state()
+    return current?.type === "installed" && "kept" in current ? current.kept : undefined
+  }
+  const state = createMemo(() => {
+    const message = error()
+    if (message) return { type: "check-failed" as const, message }
+    const current = props.state()
+    if (current?.type === "installing") return current
+    if (check.loading) return { type: "checking" as const }
+    const unavailable = check()
+    if (unavailable) return { type: "unavailable" as const, message: unavailable }
+    return current ?? { type: "current" as const }
+  })
+  const buttons = createMemo(() => {
+    const type = state().type
+    if (type === "installing") return []
+    const confirm =
+      type === "available"
+        ? { label: t("Update"), run: props.install }
+        : type === "installed"
+          ? { label: t("Restart"), run: props.restart }
+          : undefined
+    return [
+      {
+        label: t("Skip"),
+        run: () => {
+          props.skip()
+          dialog.clear()
+        },
+      },
+      ...(confirm ? [confirm] : []),
+    ]
+  })
+
+  createEffect(() => setActive(Math.max(0, buttons().length - 1)))
+
+  Keymap.createLayer(() => ({
+    mode: "modal",
+    commands: [
+      {
+        bind: "return",
+        title: "Confirm update action",
+        group: "Dialog",
+        run: () => void buttons()[active()]?.run(),
+      },
+      ...["left", "right", "tab", "shift+tab"].map((bind) => ({
+        bind,
+        title: bind === "left" || bind === "shift+tab" ? "Previous update action" : "Next update action",
+        group: "Dialog",
+        run: () => {
+          const count = buttons().length
+          if (count) setActive((value) => (value + 1) % count)
+        },
+      })),
+    ],
+  }))
+
+  return (
+    <box paddingLeft={2} paddingRight={2} gap={1}>
+      <box flexDirection="row" justifyContent="space-between">
+        <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
+          {state().type === "installing"
+            ? t("Updating Opencode++")
+            : state().type === "available" || state().type === "failed"
+              ? t("Update available")
+              : t("Update")}
+        </text>
+        <text fg={theme.text.muted} onMouseUp={() => dialog.clear()}>
+          esc
+        </text>
+      </box>
+      <box paddingBottom={1}>
+        <Show when={state()} keyed>
+          {(current) => (
+            <Switch>
+              <Match when={current.type === "checking"}>
+                <Spinner shimmer={theme.text.base}>{t("Checking for updates…")}</Spinner>
+              </Match>
+              <Match when={current.type === "available"}>
+                <text fg={theme.text.muted} wrapMode="word">
+                  {current.type === "available"
+                    ? t("Version {version} is available. After installing, you'll be prompted to restart Opencode++.", {
+                        version: current.version,
+                      })
+                    : ""}
+                </text>
+              </Match>
+              <Match when={current.type === "installing"}>
+                <Spinner shimmer={theme.text.base}>
+                  {current.type === "installing"
+                    ? t("Installing Opencode++ {version}…", { version: current.version })
+                    : ""}
+                </Spinner>
+              </Match>
+              <Match when={current.type === "installed"}>
+                <text fg={theme.text.muted} wrapMode="word">
+                  {t("Update successful! A restart is required. Any active sessions will be resumed automatically.")}
+                </text>
+                <Show when={keptEdits()}>
+                  {(kept) => (
+                    <text
+                      fg={kept().type === "stashed" ? theme.text.feedback.warning.base : theme.text.muted}
+                      wrapMode="word"
+                    >
+                      {(() => {
+                        const value = kept()
+                        return value.type === "stashed"
+                          ? t(
+                              "Local edits to {files} clash with the update, so they were set aside. Bring them back in the install folder with: git stash pop",
+                              { files: value.files.join(", ") },
+                            )
+                          : t("Local edits in the install were put back on top of the update.")
+                      })()}
+                    </text>
+                  )}
+                </Show>
+              </Match>
+              <Match when={current.type === "current"}>
+                <text fg={theme.text.muted}>{t("Opencode++ is already up to date.")}</text>
+              </Match>
+              <Match when={current.type === "unavailable"}>
+                <text fg={theme.text.muted} wrapMode="word">
+                  {current.type === "unavailable" ? t(current.message) : ""}
+                </text>
+              </Match>
+              <Match when={current.type === "failed" || current.type === "check-failed"}>
+                <text fg={theme.text.feedback.error.base}>
+                  {current.type === "failed" || current.type === "check-failed" ? current.message : ""}
+                </text>
+              </Match>
+            </Switch>
+          )}
+        </Show>
+      </box>
+      <Show when={buttons().length > 0}>
+        <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
+          <For each={buttons()}>
+            {(button, index) => (
+              <box
+                paddingLeft={1}
+                paddingRight={1}
+                backgroundColor={active() === index() ? theme.background.action.primary.focused : undefined}
+                onMouseUp={() => void button.run()}
+              >
+                <text fg={active() === index() ? theme.text.action.primary.focused : theme.text.muted}>
+                  {button.label}
+                </text>
+              </box>
+            )}
+          </For>
+        </box>
+      </Show>
+    </box>
+  )
+}

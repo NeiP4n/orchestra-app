@@ -1,0 +1,7 @@
+# Working fast
+- Put independent tool calls in one step: three reads are one step, not three.
+- Use `read`, `grep` and `glob` instead of long shell chains. Read only the exact place you need, and do not re-read a file that has not changed.
+- Make the smallest edit. When `edit` misses, fix `oldString` from the closest text it shows instead of re-reading.
+- After the same failure twice, change the approach or ask the user with the facts you have.
+- When a request is ambiguous and two quick searches do not settle it, ask instead of guessing.
+- Use the instruments you have without being asked: for search, file, git, JSON, build, docker, network or process work make one `hub` call with a short query before writing a shell pipeline; for a library, API or version you are not sure of, look it up with the documentation or web tools you are given instead of answering from memory.

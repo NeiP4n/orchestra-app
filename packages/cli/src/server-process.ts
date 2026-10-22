@@ -1,0 +1,216 @@
+export * as ServerProcess from "./server-process"
+
+import { NodeServices } from "@effect/platform-node"
+import { Service } from "@orchestra/client/effect/service"
+import { LayerNode } from "@orchestra/util/effect/layer-node"
+import { Global } from "@orchestra/util/global"
+import { ORCHESTRA_ARTIFACT, ORCHESTRA_CHANNEL, ORCHESTRA_VERSION } from "./version"
+import { AppProcess } from "@orchestra/util/process"
+import { randomBytes, randomUUID } from "node:crypto"
+import { Effect, Redacted, Schema } from "effect"
+import { PersistentPty } from "@orchestra/schema/persistent-pty"
+import { HttpServer } from "effect/unstable/http"
+import { Env } from "./env"
+import { ServiceConfig } from "./services/service-config"
+import { RetainedImage } from "./services/retained-image"
+import { ServiceRegistration } from "./services/service-registration"
+import { WebUi } from "./services/web-ui"
+import { databasePath } from "./database-path"
+
+export type Mode = "default" | "service" | "stdio"
+
+export type Options = {
+  readonly mode: Mode
+  readonly hostname?: string
+  readonly port?: number
+  readonly cors?: readonly string[]
+}
+
+// The process effect lives until server shutdown; tracing it would parent every request to one process-lifetime trace.
+export const run = Effect.fnUntraced(function* (options: Options) {
+  return yield* processEffect(options).pipe(
+    Effect.provide(
+      LayerNode.compile(LayerNode.group([Global.node, AppProcess.node]), {
+        replacements: [
+          Global.node.replace(
+            Global.layerWith(process.env.ORCHESTRA_CONFIG_DIR ? { config: process.env.ORCHESTRA_CONFIG_DIR } : {}),
+          ),
+        ],
+      }),
+    ),
+    Effect.provide(NodeServices.layer),
+  )
+})
+
+const processEffect = Effect.fnUntraced(function* (options: Options) {
+  const inherited = process.env.ORCHESTRA_PTY_HANDOFF
+  delete process.env.ORCHESTRA_PTY_HANDOFF
+  const handoff =
+    inherited === undefined
+      ? undefined
+      : yield* Schema.decodeUnknownEffect(Schema.fromJsonString(PersistentPty.Handoff))(inherited).pipe(
+          Effect.catch(() =>
+            Effect.logWarning("Ignoring invalid PTY restart handoff; persistent terminals will start fresh").pipe(
+              Effect.as(undefined),
+            ),
+          ),
+        )
+  const global = yield* Global.Service
+  if (options.mode === "service") yield* Effect.sync(() => process.chdir(global.home))
+  return yield* Effect.scoped(
+    Effect.gen(function* () {
+      const foreground = options.mode === "default"
+      const serviceOptions = options.mode === "service" ? yield* ServiceConfig.options() : undefined
+      const config = options.mode === "service" ? yield* ServiceConfig.read() : {}
+      const hostname = options.hostname ?? config.hostname ?? "127.0.0.1"
+      const port = options.port ?? config.port ?? (options.mode === "service" ? ServiceConfig.defaultPort() : undefined)
+      const findIncumbent =
+        serviceOptions !== undefined && port !== undefined
+          ? Service.incumbent({ ...serviceOptions, url: serviceURL(hostname, port) })
+          : undefined
+      if (findIncumbent !== undefined && (yield* findIncumbent) !== undefined) return
+      // Keep a package-manager or curl install replaceable while the service runs; Desktop updates its own copy.
+      if (options.mode === "service" && process.platform === "win32" && RetainedImage.installed(global.home))
+        yield* RetainedImage.retain(global.cache, "service")
+      const { start } = yield* Effect.promise(() => import("@orchestra/server/process"))
+      // If the configured service port belongs to an unrelated process (for example a Desktop
+      // instance using a different registration directory), let the OS choose a free port.
+      // Clients discover the actual URL from the registration written by onListen below.
+      let listenPort = port
+      const environmentPassword = yield* Env.password
+      // Keep the lease credential out of the environment inherited by tools.
+      if (options.mode === "stdio") {
+        delete process.env.ORCHESTRA_PASSWORD
+        delete process.env.ORCHESTRA_SERVER_PASSWORD
+      }
+      const password =
+        options.mode === "service"
+          ? config.password || randomBytes(32).toString("base64url")
+          : environmentPassword
+            ? Redacted.value(environmentPassword)
+            : randomBytes(32).toString("base64url")
+      if (!password) return yield* Effect.fail(new Error("Missing server password"))
+      const instanceID = randomUUID()
+      const transform = yield* WebUi.handler()
+      const launch = () => start(
+        {
+          app: {
+            name: process.env.ORCHESTRA_CLIENT ?? ORCHESTRA_ARTIFACT,
+            version: ORCHESTRA_VERSION,
+            channel: ORCHESTRA_CHANNEL,
+          },
+          hostname,
+          port: listenPort,
+          cors: options.cors ?? config.cors,
+          password,
+          pty: { handoff },
+          simulation: truthy(process.env.ORCHESTRA_SIMULATE),
+          database: {
+            path: databasePath(global.data),
+          },
+          models: {
+            url: process.env.ORCHESTRA_MODELS_URL,
+            file: process.env.ORCHESTRA_MODELS_PATH,
+            fetch: !truthy(process.env.ORCHESTRA_DISABLE_MODELS_FETCH),
+          },
+          config: {
+            directory: process.env.ORCHESTRA_CONFIG_DIR,
+            project: !truthy(
+              process.env.ORCHESTRA_CONFIG_PROJECT_DISABLE ?? process.env.ORCHESTRA_DISABLE_PROJECT_CONFIG,
+            ),
+            file: process.env.ORCHESTRA_CONFIG,
+            content: process.env.ORCHESTRA_CONFIG_CONTENT,
+          },
+          windows: {
+            gitbash: process.env.ORCHESTRA_GIT_BASH_PATH,
+          },
+          fs: {
+            filewatcher: !truthy(process.env.ORCHESTRA_FILEWATCHER_DISABLE ?? process.env.ORCHESTRA_DISABLE_FILEWATCHER),
+            fff:
+              process.env.ORCHESTRA_DISABLE_FFF === undefined
+                ? process.platform !== "win32"
+                : !truthy(process.env.ORCHESTRA_DISABLE_FFF),
+          },
+        },
+        serviceOptions === undefined
+          ? undefined
+          : {
+              onListen: (address, shutdown) =>
+                Effect.gen(function* () {
+                  if (!config.password) yield* ServiceConfig.password(password)
+                  return yield* ServiceRegistration.register({
+                    address,
+                    password,
+                    id: instanceID,
+                    file: serviceOptions.file,
+                    shutdown,
+                  })
+                }),
+            },
+        transform,
+      )
+      const server = yield* launch().pipe(
+        Effect.catch((error) => {
+          if (serviceOptions === undefined || !addressInUse(error)) return Effect.fail(error)
+          // A configured port can be occupied by another OpenCode install or a stale process
+          // whose registration lives elsewhere. Do not wait/retry the same port: bind to an
+          // OS-selected free port immediately and publish that actual address in registration.
+          return Effect.gen(function* () {
+            yield* Effect.logWarning(
+              `Managed service port ${port} on ${hostname} is occupied; retrying on an OS-assigned port`,
+            )
+            listenPort = 0
+            return yield* launch().pipe(
+              Effect.catch((fallbackError) =>
+                Effect.fail(
+                  new Error(
+                    `Managed service failed to start on configured port ${port} and on an OS-assigned port.`,
+                    { cause: fallbackError },
+                  ),
+                ),
+              ),
+            )
+          })
+        }),
+      )
+      if (server === undefined) return
+      const url = HttpServer.formatAddress(server.address)
+      console.log(options.mode === "stdio" ? JSON.stringify({ url }) : `server listening on ${url}`)
+      if (foreground && !environmentPassword) console.log(`server password ${password}`)
+      return yield* options.mode === "service"
+        ? server.shutdown
+        : options.mode === "stdio"
+          ? waitForStdinClose()
+          : Effect.never
+    }).pipe(Effect.annotateLogs({ role: "server" })),
+  )
+})
+
+function serviceURL(hostname: string, port: number) {
+  return `http://${hostname.includes(":") ? `[${hostname}]` : hostname}:${port}`
+}
+
+function truthy(value?: string) {
+  return value === "1" || value?.toLowerCase() === "true"
+}
+
+function addressInUse(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false
+  if ("code" in error && error.code === "EADDRINUSE") return true
+  return "cause" in error && addressInUse(error.cause)
+}
+
+function waitForStdinClose() {
+  return Effect.callback<void>((resume) => {
+    const close = () => resume(Effect.void)
+    process.stdin.once("end", close)
+    process.stdin.once("close", close)
+    process.stdin.resume()
+    if (process.stdin.readableEnded || process.stdin.destroyed) close()
+    return Effect.sync(() => {
+      process.stdin.off("end", close)
+      process.stdin.off("close", close)
+      process.stdin.pause()
+    })
+  })
+}

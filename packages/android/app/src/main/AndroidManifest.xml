@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The phone is a client: it talks to an opencode server over the network and nothing else. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Only for the pair QR code. It is requested at the moment the web app asks for the camera. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Same rule for audio capture, which getUserMedia can request together with video. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <!-- Package visibility on Android 11+: the app hands external links to whatever browser claims them. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+            <data android:scheme="http" />
+            <data android:scheme="mailto" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="OpenCode++"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.DeviceDefault.DayNight"
+        android:usesCleartextTraffic="true">
+
+        <!--
+            configChanges keeps this activity alive across rotation and theme changes: a recreated WebView would throw
+            away the running session and reload the whole app.
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="density|densityDpi|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

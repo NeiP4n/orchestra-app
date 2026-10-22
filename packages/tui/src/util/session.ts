@@ -1,0 +1,113 @@
+import type { ModelInfo, SessionMessageAssistant, SessionMessageInfo } from "@orchestra/client"
+import { Locale } from "./locale"
+
+export const RATE_LIMIT_CONTINUATION_PROMPT =
+  "Continue the unfinished task from this session. The previous attempt stopped because the provider hit a rate limit. Inspect the latest conversation and current project state, preserve completed work, and continue from the next unfinished step. Do not repeat completed actions or restart the task. If the rate limit still prevents progress, stop and explain what remains."
+
+type RateLimitErrorLike = { type: string; message?: string; status?: number; response?: { body?: string } }
+
+// FreeUsageLimitError is Zen's per-address daily cap; a service still running an older core files it
+// under provider.quota, and it must stop and resume the chat like any other rate limit.
+const RATE_LIMIT_TEXT = /\brate[\s_-]*limit\b|\btoo many requests\b|\b429\b|freeusagelimiterror/i
+
+/** One textual rule for both the queue and the transcript check, so a chat is never queued and then dropped. */
+export function isRateLimitText(details: string) {
+  return RATE_LIMIT_TEXT.test(details)
+}
+
+/**
+ * The free gateway answers its own limiter with HTTP 429 "Rate limit exceeded", which the provider
+ * layer classifies as provider.quota instead of provider.rate-limit. Both stop the turn for the same
+ * reason, so the chat must be able to continue after either one.
+ */
+export function isRateLimitError(error: RateLimitErrorLike | undefined) {
+  if (!error) return false
+  if (error.type === "provider.rate-limit") return true
+  return isRateLimitText([error.type, error.message, error.status, error.response?.body].filter((part) => part !== undefined).join(" "))
+}
+
+export function isRateLimitedTurnPending(messages: readonly SessionMessageInfo[], messageID: string) {
+  const index = messages.findIndex((message) => message.id === messageID)
+  if (index < 0) return false
+  const message = messages[index]
+  if (message.type !== "assistant" || !isRateLimitError(message.error)) return false
+  return !messages.slice(index + 1).some((message) => message.type === "assistant" || message.type === "user")
+}
+
+
+type SessionNode = {
+  id: string
+  parentID?: string | null
+}
+
+export function sessionFamily<T extends SessionNode>(sessions: readonly T[], sessionID: string) {
+  const byID = new Map(sessions.map((session) => [session.id, session]))
+  const current = byID.get(sessionID)
+  if (!current) return []
+
+  const children = new Map<string, T[]>()
+  sessions.forEach((session) => {
+    if (!session.parentID) return
+    const group = children.get(session.parentID)
+    if (group) group.push(session)
+    else children.set(session.parentID, [session])
+  })
+
+  function root(session: T): T {
+    const parent = session.parentID ? byID.get(session.parentID) : undefined
+    return parent ? root(parent) : session
+  }
+
+  function walk(parentID: string, ancestors: boolean[]): Array<{ session: T; prefix: string }> {
+    const group = children.get(parentID) ?? []
+    return group.flatMap((session, index) => {
+      const last = index === group.length - 1
+      const prefix =
+        ancestors.length === 0
+          ? ""
+          : ancestors
+              .slice(1)
+              .map((ancestor) => (ancestor ? "   " : "│  "))
+              .join("") + (last ? "└─ " : "├─ ")
+      return [{ session, prefix }, ...walk(session.id, [...ancestors, last])]
+    })
+  }
+
+  return walk(root(current).id, [])
+}
+
+export function lastAssistantWithUsage(messages: ReadonlyArray<SessionMessageInfo>, boundary?: string) {
+  const boundaryIndex = boundary ? messages.findIndex((message) => message.id === boundary) : -1
+  if (boundary && boundaryIndex === -1) return undefined
+  const end = boundaryIndex === -1 ? messages.length : boundaryIndex
+  const compactionIndex = messages.findLastIndex(
+    (message, index) => message.type === "compaction" && message.status === "completed" && index < end,
+  )
+  return messages.findLast(
+    (message, index): message is SessionMessageAssistant & { tokens: NonNullable<SessionMessageAssistant["tokens"]> } =>
+      message.type === "assistant" && message.tokens !== undefined && index > compactionIndex && index < end,
+  )
+}
+
+export function contextUsage(
+  messages: ReadonlyArray<SessionMessageInfo>,
+  models: ReadonlyArray<ModelInfo> | undefined,
+  boundary?: string,
+) {
+  const last = lastAssistantWithUsage(messages, boundary)
+  if (!last) return
+  const tokens =
+    last.tokens.input + last.tokens.output + last.tokens.reasoning + last.tokens.cache.read + last.tokens.cache.write
+  if (tokens <= 0) return
+  const model = models?.find((model) => model.providerID === last.model.providerID && model.id === last.model.id)
+  return {
+    tokens,
+    limit: model?.limit.context || undefined,
+    percent: model?.limit.context ? Math.round((tokens / model.limit.context) * 100) : undefined,
+  }
+}
+
+export function formatContextUsage(tokens: number, percent?: number) {
+  const value = Locale.number(tokens)
+  return percent === undefined ? value : `${value} (${percent}%)`
+}

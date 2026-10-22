@@ -1,0 +1,257 @@
+import { describe, expect } from "bun:test"
+import { OpenAIChat } from "@orchestra/ai/protocols"
+import { Agent } from "@orchestra/schema/agent"
+import { Money } from "@orchestra/schema/money"
+import { Session } from "@orchestra/schema/session"
+import { Model } from "@orchestra/schema/model"
+import { Provider } from "@orchestra/schema/provider"
+import type { SessionRequestKind } from "@orchestra/plugin/effect/session"
+import { Location } from "@orchestra/core/location"
+import { Tool } from "@orchestra/core/tool"
+import { PluginHooks } from "@orchestra/core/plugin/hooks"
+import { Project } from "@orchestra/core/project"
+import { AbsolutePath } from "@orchestra/core/schema"
+import { SessionModelRequest } from "@orchestra/core/session/model-request"
+import { SessionModelTransport } from "@orchestra/core/session/model-transport"
+import { SessionRunnerModel } from "@orchestra/core/session/runner/model"
+import { DateTime, Effect, Schema, Stream } from "effect"
+import { HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
+import { testEffect } from "./lib/effect"
+import { PluginTestLayer } from "./plugin/fixture"
+
+const it = testEffect(PluginTestLayer)
+
+const KINDS: ReadonlyArray<SessionRequestKind> = ["primary", "compaction", "title", "generate"]
+
+const session = Session.Info.make({
+  id: Session.ID.make("ses_hook_kind"),
+  projectID: Project.ID.global,
+  cost: Money.USD.zero,
+  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+  time: { created: DateTime.makeUnsafe(0), updated: DateTime.makeUnsafe(0) },
+  location: Location.Ref.make({ directory: AbsolutePath.make("/project") }),
+})
+const model = SessionRunnerModel.resolved(OpenAIChat.route.model({ id: "gpt-5.5", provider: "test" }), {
+  capabilities: { tools: true, input: ["text"], output: ["text"] },
+  cost: [],
+  limit: { context: 200_000, output: 32_000 },
+})
+const transport = SessionModelTransport.Service.of({
+  bind: () => ({ execute: () => Effect.die("unused WebSocket execution") }),
+  close: () => Effect.void,
+  closeAll: Effect.void,
+})
+
+describe("SessionModelRequest HTTP hooks", () => {
+  it.effect(
+    "advertises active CodeMode schemas to OpenCode Zen without changing other providers",
+    () =>
+      Effect.gen(function* () {
+        const registry = yield* Tool.Service
+        yield* registry.transform((editor) =>
+          editor.add({
+            name: "zen-read",
+            description: "Read a test resource",
+            input: Schema.Struct({ text: Schema.String }),
+            execute: ({ text }) => Effect.succeed({ output: { text } }),
+          }),
+        )
+        const tools = yield* registry.snapshot()
+        const requests = yield* SessionModelRequest.Service.pipe(Effect.provide(SessionModelRequest.layer))
+        const makeModel = (provider: string) => {
+          // OpenAIChat has a fixed route provider; only the model reference varies here because
+          // the request compatibility branch is keyed by the selected catalog provider.
+          const resolved = SessionRunnerModel.resolved(OpenAIChat.route.model({ id: "test-model" }), {
+            capabilities: { tools: true, input: ["text"], output: ["text"] },
+            cost: [],
+            limit: { context: 200_000, output: 32_000 },
+          })
+          return {
+            ...resolved,
+            ref: Model.Ref.make({ id: resolved.ref.id, providerID: Provider.ID.make(provider) }),
+          }
+        }
+
+        const zen = yield* requests.primary({
+          session,
+          agent: Agent.ID.make("build"),
+          model: makeModel("opencode"),
+          tools,
+          system: [],
+          messages: [],
+        })
+        expect(zen.request.tools?.map((tool) => tool.name)).toContain("zen-read")
+        expect(zen.request.tools?.map((tool) => tool.name)).toContain("execute")
+
+        const other = yield* requests.primary({
+          session,
+          agent: Agent.ID.make("build"),
+          model: makeModel("test"),
+          tools,
+          system: [],
+          messages: [],
+        })
+        expect(other.request.tools?.map((tool) => tool.name)).toContain("execute")
+        expect(other.request.tools?.map((tool) => tool.name)).not.toContain("zen-read")
+      }).pipe(Effect.provideService(SessionModelTransport.Service, transport)),
+  )
+
+  it.effect("tags every Session request kind on http.request and http.response", () =>
+    Effect.gen(function* () {
+      const hooks = yield* PluginHooks.Service
+      const seen: Array<{ hook: string; kind: SessionRequestKind; agent: Agent.ID }> = []
+      yield* hooks.register("session", "http.request", (event) =>
+        Effect.sync(() => {
+          seen.push({ hook: "request", kind: event.kind, agent: event.agent })
+        }),
+      )
+      yield* hooks.register("session", "http.response", (event) =>
+        Effect.sync(() => {
+          seen.push({ hook: "response", kind: event.kind, agent: event.agent })
+        }),
+      )
+      const requests = yield* SessionModelRequest.Service.pipe(Effect.provide(SessionModelRequest.layer))
+
+      for (const kind of KINDS) {
+        const prepared = yield* requests[kind]({
+          session,
+          agent: Agent.ID.make("build"),
+          model,
+          system: [],
+          messages: [],
+        })
+        const http = prepared.options.http
+        if (!http) throw new Error(`Expected HTTP middleware for ${kind}`)
+        yield* http(HttpClientRequest.post("https://example.test/v1/chat/completions"), (request) =>
+          Effect.succeed(HttpClientResponse.fromWeb(request, new Response("{}", { status: 200 }))),
+        )
+      }
+
+      expect(seen).toEqual(
+        KINDS.flatMap((kind) => [
+          { hook: "request", kind, agent: Agent.ID.make("build") },
+          { hook: "response", kind, agent: Agent.ID.make("build") },
+        ]),
+      )
+    }).pipe(Effect.provideService(SessionModelTransport.Service, transport)),
+  )
+
+  it.effect("offers the WebSocket executor alongside HTTP hooks and routes the WebSocket hooks", () =>
+    Effect.gen(function* () {
+      const hooks = yield* PluginHooks.Service
+      const seen: string[] = []
+      yield* hooks.register("session", "http.request", () => Effect.sync(() => void seen.push("http.request")))
+      yield* hooks.register("session", "experimental.ws.handshake", (event) =>
+        Effect.sync(() => {
+          seen.push(`handshake:${event.kind}:${event.url}`)
+          event.headers.authorization = "Bearer minted"
+          delete event.headers["api-key"]
+        }),
+      )
+      yield* hooks.register("session", "experimental.ws.send", (event) =>
+        Effect.sync(() => {
+          seen.push(`send:${event.kind}:${event.frame}`)
+          event.frame = `${event.frame}+plugin`
+        }),
+      )
+      yield* hooks.register("session", "experimental.ws.receive", (event) =>
+        Effect.sync(() => {
+          seen.push(`receive:${event.kind}:${event.frame}`)
+          event.frame = event.frame.toUpperCase()
+        }),
+      )
+      const bound: Array<{ url: string; headers: Record<string, string> }> = []
+      const frames: string[] = []
+      const websocketTransport = SessionModelTransport.Service.of({
+        bind: (_sessionID, interceptor) => ({
+          execute: () =>
+            Effect.gen(function* () {
+              if (!interceptor?.handshake || !interceptor.send || !interceptor.receive)
+                throw new Error("Expected a full WebSocket interceptor")
+              bound.push(
+                yield* interceptor.handshake({ url: "wss://example.test/v1/responses", headers: { "api-key": "k" } }),
+              )
+              frames.push(yield* interceptor.send("create"))
+              frames.push(yield* interceptor.receive("created"))
+              return { frames: Stream.empty, complete: Effect.void }
+            }),
+        }),
+        close: () => Effect.void,
+        closeAll: Effect.void,
+      })
+      const requests = yield* SessionModelRequest.Service.pipe(
+        Effect.provide(SessionModelRequest.layer),
+        Effect.provideService(SessionModelTransport.Service, websocketTransport),
+      )
+      const prepared = yield* requests.primary({
+        session,
+        agent: Agent.ID.make("build"),
+        model: SessionRunnerModel.resolved(OpenAIChat.route.model({ id: "gpt-5.5", provider: "test" }), {
+          capabilities: { tools: true, input: ["text"], output: ["text"] },
+          cost: [],
+          limit: { context: 200_000, output: 32_000 },
+          transport: "websocket",
+        }),
+        system: [],
+        messages: [],
+        webSocket: "session",
+      })
+
+      expect(prepared.options.http).toBeDefined()
+      expect(prepared.options.webSocket).toBeDefined()
+      yield* prepared.options.webSocket!.execute({} as never)
+      expect(bound).toEqual([{ url: "wss://example.test/v1/responses", headers: { authorization: "Bearer minted" } }])
+      expect(frames).toEqual(["create+plugin", "CREATED"])
+      expect(seen).toEqual([
+        "handshake:primary:wss://example.test/v1/responses",
+        "send:primary:create",
+        "receive:primary:created",
+      ])
+    }),
+  )
+
+  it.effect("sends Zen a well-formed x-opencode-session when the session id is outside OpenCode's shape", () =>
+    Effect.gen(function* () {
+      const registry = yield* Tool.Service
+      const tools = yield* registry.snapshot()
+      const requests = yield* SessionModelRequest.Service.pipe(Effect.provide(SessionModelRequest.layer))
+      const resolved = (provider: string) => {
+        const base = SessionRunnerModel.resolved(OpenAIChat.route.model({ id: "test-model" }), {
+          capabilities: { tools: true, input: ["text"], output: ["text"] },
+          cost: [],
+          limit: { context: 200_000, output: 32_000 },
+        })
+        return { ...base, ref: Model.Ref.make({ id: base.ref.id, providerID: Provider.ID.make(provider) }) }
+      }
+      const prepare = (target: typeof session, provider: string) =>
+        requests.primary({
+          session: target,
+          agent: Agent.ID.make("build"),
+          model: resolved(provider),
+          tools,
+          system: [],
+          messages: [],
+        })
+      const group = Session.Info.make({ ...session, id: Session.ID.make("ses_group_zen_gate") })
+      const shaped = "ses_" + "0123456789abcdef".repeat(4)
+
+      // The free-tier gate answers 403 "free tier can only be used from within OpenCode" unless
+      // both session headers carry an id in OpenCode's own shape; a hashed x-opencode-session
+      // alone is not enough.
+      const zen = yield* prepare(group, "opencode")
+      const zenHeaders = zen.request.http?.headers ?? {}
+      expect(String(zenHeaders["x-opencode-session"])).toMatch(/^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
+      expect(zenHeaders["x-opencode-session-id"]).toBe(zenHeaders["x-opencode-session"])
+      expect(zenHeaders["x-session-affinity"]).toBe("ses_group_zen_gate")
+
+      // Other providers keep the real id, and an OpenCode-shaped id is passed through as it is.
+      const other = yield* prepare(group, "test")
+      expect(other.request.http?.headers?.["x-opencode-session"]).toBe("ses_group_zen_gate")
+      expect(other.request.http?.headers?.["x-opencode-session-id"]).toBe("ses_group_zen_gate")
+      const standard = Session.Info.make({ ...session, id: Session.ID.make(shaped) })
+      const passthrough = yield* prepare(standard, "opencode")
+      expect(passthrough.request.http?.headers?.["x-opencode-session"]).toBe(shaped)
+      expect(passthrough.request.http?.headers?.["x-opencode-session-id"]).toBe(shaped)
+    }).pipe(Effect.provideService(SessionModelTransport.Service, transport)),
+  )
+})
