@@ -42,7 +42,7 @@ fn transport(config: &config::Config, human: bool) -> (Arc<dyn Transport>, Strin
         .endpoints
         .iter()
         .map(|endpoint| match endpoint.base.as_str() {
-            "clipboard" => Arc::new(clipboard::Clipboard::new(Arc::new(clipboard::System), std::time::Duration::from_millis(400))) as Arc<dyn Transport>,
+            "clipboard" => Arc::new(clipboard::Clipboard::new(Arc::new(clipboard::System), std::time::Duration::from_millis(400)).opening(endpoint.open.clone())) as Arc<dyn Transport>,
             _ => Arc::new(Compatible::new(&endpoint.base, endpoint.key.clone(), &endpoint.model)) as Arc<dyn Transport>,
         })
         .collect();
@@ -67,9 +67,11 @@ fn setup(home: &std::path::Path) {
     config.endpoints.clear();
     loop {
         let base = ask("base URL (or `clipboard`)", "https://api.openai.com/v1");
-        let key = ask("API key (empty if none)", "");
-        let model = ask("model", "gpt-4o-mini");
-        config.endpoints.push(config::Endpoint { base, key: (!key.is_empty()).then_some(key), model });
+        let clipboard = base == "clipboard";
+        let key = if clipboard { String::new() } else { ask("API key (empty if none)", "") };
+        let model = if clipboard { "your-chat".to_string() } else { ask("model", "gpt-4o-mini") };
+        let open = clipboard.then(|| ask("chat page to open for each request (empty = none)", "")).filter(|url| !url.is_empty());
+        config.endpoints.push(config::Endpoint { base, key: (!key.is_empty()).then_some(key), model, open });
         if !ask("add a fallback endpoint? (y/N)", "n").to_lowercase().starts_with('y') {
             break;
         }

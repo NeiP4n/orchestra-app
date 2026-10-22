@@ -61,11 +61,18 @@ impl Board for System {
 pub struct Clipboard {
     board: Arc<dyn Board>,
     poll: Duration,
+    open: Option<String>,
 }
 
 impl Clipboard {
     pub fn new(board: Arc<dyn Board>, poll: Duration) -> Self {
-        Self { board, poll }
+        Self { board, poll, open: None }
+    }
+
+    /// Opens this page in the default browser whenever a request is ready to paste.
+    pub fn opening(mut self, url: Option<String>) -> Self {
+        self.open = url;
+        self
     }
 }
 
@@ -77,6 +84,7 @@ impl Transport for Clipboard {
     fn send(&self, request: Request, cancel: CancellationToken) -> BoxStream<'static, Result<Chunk, TransportError>> {
         let board = self.board.clone();
         let poll = self.poll;
+        let open = self.open.clone();
         Box::pin(stream! {
             let prompt = render(&request);
             if !board.set(&prompt) {
@@ -84,6 +92,9 @@ impl Transport for Clipboard {
                 return;
             }
             eprintln!("┆ request copied. Paste it into your chat, then copy the reply; it is picked up automatically.");
+            if let Some(url) = &open {
+                browse(url);
+            }
             let answer = loop {
                 tokio::select! {
                     _ = cancel.cancelled() => return,
@@ -94,11 +105,27 @@ impl Transport for Clipboard {
                     break text;
                 }
             };
+            eprint!("┆ reply received
+");
             for chunk in parse(&answer) {
                 yield Ok(chunk);
             }
         })
     }
+}
+
+fn browse(url: &str) {
+    // Only web pages: the setting is a convenience, not a way to start arbitrary programs.
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return;
+    }
+    let _ = if cfg!(windows) {
+        Command::new("rundll32").args(["url.dll,FileProtocolHandler", url]).spawn()
+    } else if cfg!(target_os = "macos") {
+        Command::new("open").arg(url).spawn()
+    } else {
+        Command::new("xdg-open").arg(url).spawn()
+    };
 }
 
 pub fn render(request: &Request) -> String {
