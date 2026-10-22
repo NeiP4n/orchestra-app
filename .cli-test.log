@@ -15,3 +15,1223 @@ Received: "DESCRIPTION\n  list integrations and credentials\n\nUSAGE\n  orchestr
 
       at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\auth.test.ts:30:25)
 (fail) auth command > registers authentication commands [1169.78ms]
+
+test\config.test.ts:
+[14:59:52.038] INFO (#31): migrated cli config {
+  from: [ "C:\\Users\\Isako\\AppData\\Local\\Temp\\opencode-cli-test-b3LHsY\\tui.json", "C:\\Users\\Isako\\AppData\\Local\\Temp\\opencode-cli-test-b3LHsY\\kv.json" ],
+  to: "C:\\Users\\Isako\\AppData\\Local\\Temp\\opencode-cli-test-b3LHsY\\cli.json",
+}
+[14:59:52.070] INFO (#32): migrated cli config {
+  from: [ "C:\\Users\\Isako\\AppData\\Local\\Temp\\opencode-cli-test-pUFlYB\\tui.json" ],
+  to: "C:\\Users\\Isako\\AppData\\Local\\Temp\\opencode-cli-test-pUFlYB\\cli.json",
+}
+[14:59:52.115] INFO (#33): migrated cli config {
+  from: [ "C:\\Users\\Isako\\AppData\\Local\\Temp\\opencode-cli-test-yn9iiL\\tui.json" ],
+  to: "C:\\Users\\Isako\\AppData\\Local\\Temp\\opencode-cli-test-yn9iiL\\cli.json",
+}
+[14:59:52.242] WARN (#39): failed to persist migrated cli config {
+  cause: {
+    _id: "Cause",
+    failures: [
+      [Object ...]
+    ],
+  },
+}
+
+test\cors.test.ts:
+DESCRIPTION
+  Start the v2 API and web server
+
+USAGE
+  serve [flags]
+
+FLAGS
+  --hostname string    
+  --port integer       
+  --cors string        Additional allowed CORS origin (repeat for multiple origins)
+  --service            
+  --stdio              
+
+GLOBAL FLAGS
+  --help, -h                                                          Show help information
+  --version, -v                                                       Show version information
+  --wizard                                                            Start wizard mode for a command
+  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)
+  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)
+DESCRIPTION
+  Start the v2 API and web server
+
+USAGE
+  serve [flags]
+
+FLAGS
+  --hostname string    
+  --port integer       
+  --cors string        Additional allowed CORS origin (repeat for multiple origins)
+  --service            
+  --stdio              
+
+GLOBAL FLAGS
+  --help, -h                                                          Show help information
+  --version, -v                                                       Show version information
+  --wizard                                                            Start wizard mode for a command
+  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)
+  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)
+
+test\debug-config.test.ts:
+11 | 
+12 |     expect(debug.exitCode).toBe(0)
+13 |     expect(debug.stdout).toContain("config")
+14 |     expect(debug.stdout).toContain("List configuration sources")
+15 |     expect(config.exitCode).toBe(0)
+16 |     expect(config.stdout).toContain("opencode debug config [flags]")
+                               ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "opencode debug config [flags]"
+Received: "DESCRIPTION\n  List configuration sources\n\nUSAGE\n  orchestra debug config [flags]\n\nGLOBAL FLAGS\n  --help, -h                                                          Show help information\n  --version, -v                                                       Show version information\n  --wizard                                                            Start wizard mode for a command\n  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)\n  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)\n  --print-logs                                                        Print logs to stderr (server logs require --standalone)\n"
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\debug-config.test.ts:16:27)
+(fail) debug config command > is included in troubleshooting help [1064.86ms]
+71 |         JSON.stringify({ version: ORCHESTRA_VERSION, url: server.url.toString(), pid: process.pid, password: "secret" }),
+72 |       )
+73 |       const result = await cli(["debug", "config"], project, { XDG_STATE_HOME: path.join(root, "state") })
+74 | 
+75 |       expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 0, stderr: "" })
+76 |       expect(JSON.parse(result.stdout)).toEqual(redactConfig(entries))
+                                             ^
+error: expect(received).toEqual(expected)
+
+@@ -2,15 +2,17 @@
+    {
++     "path": "C:\Users\Isako\.config\orchestra",
++     "type": "directory",
++   },
++   {
++     "path": "C:\Users\Isako\.opencode",
++     "type": "directory",
++   },
++   {
+      "info": {
+-       "mcp": {
+-         "remote": {
+-           "oauth": {
+-             "client_id": "public",
+-             "client_secret": "***",
+-           },
+-         },
+-       },
++       "$schema": "https://opencode.ai/config.json",
++       "mcp": {},
+        "permissions": [
+          {
+-           "action": "shell",
+-           "effect": "ask",
++           "action": "github-triage",
++           "effect": "deny",
+            "resource": "*",
+@@ -18,27 +20,16 @@
+          {
+-           "action": "shell",
+-           "effect": "allow",
+-           "resource": "git status",
++           "action": "github-pr-search",
++           "effect": "deny",
++           "resource": "*",
+          },
+        ],
+-       "providers": {
+-         "example": {
+-           "headers": {
+-             "Authorization": "***",
+-             "X-API-Key": "***",
+-             "X-Custom": "***",
+-           },
+-           "models": {
+-             "demo": {
+-               "request": {
+-                 "headers": {
+-                   "x-auth-token": "***",
+-                 },
+-               },
+-             },
+-           },
+-           "settings": {
+-             "apiKey": "***",
+-             "timeout": 1200,
+-           },
++       "providers": {},
++       "references": {
++         "effect": {
++           "description": "Use for Effect v4 and effect-smol implementation details",
++           "repository": "github.com/Effect-TS/effect-smol",
++         },
++         "opencode-local": {
++           "description": "Contains opencode logs and data",
++           "path": "~/.local/share/opencode",
+          },
+@@ -46,4 +37,12 @@
+      },
+-     "path": "C:\Users\Isako\dev\orchestra-harness\packages\cli\opencode.json",
++     "path": "C:\Users\Isako\dev\orchestra-harness\.opencode\opencode.jsonc",
+      "type": "document",
++   },
++   {
++     "path": "C:\Users\Isako\dev\orchestra-harness\.opencode",
++     "type": "directory",
++   },
++   {
++     "path": "C:\Users\Isako\dev\orchestra-harness\packages\cli\.opencode",
++     "type": "directory",
+    },
+
+- Expected  - 34
++ Received  + 33
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\debug-config.test.ts:76:41)
+(fail) debug config command > prints config entries from the invoking directory without reordering permissions [9079.07ms]
+
+test\debug-paths.test.ts:
+ 9 | 
+10 |     expect(debug.exitCode).toBe(0)
+11 |     expect(debug.stdout).toContain("paths")
+12 |     expect(debug.stdout).toContain("Show global paths (data, config, cache, state)")
+13 |     expect(paths.exitCode).toBe(0)
+14 |     expect(paths.stdout).toContain("opencode debug paths [flags]")
+                              ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "opencode debug paths [flags]"
+Received: "DESCRIPTION\n  Show global paths (data, config, cache, state)\n\nUSAGE\n  orchestra debug paths [flags] [<name>]\n\nARGUMENTS\n  name choice    Print only one path: db, home, data, config, cache, state, tmp, bin, log, repos (optional)\n\nGLOBAL FLAGS\n  --help, -h                                                          Show help information\n  --version, -v                                                       Show version information\n  --wizard                                                            Start wizard mode for a command\n  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)\n  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)\n  --print-logs                                                        Print logs to stderr (server logs require --standalone)\n"
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\debug-paths.test.ts:14:26)
+(fail) debug paths command > is included in troubleshooting help [1512.94ms]
+30 |           .split("\n")
+31 |           .map((line) => line.trim().split(/\s+/, 2)),
+32 |       )
+33 | 
+34 |       expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 0, stderr: "" })
+35 |       expect(paths).toMatchObject({
+                         ^
+error: expect(received).toMatchObject(expected)
+
+  {
+-   "bin": "C:\Users\Isako\AppData\Local\Temp\opencode-debug-paths-VJe00K\cache\opencode\bin",
+-   "cache": "C:\Users\Isako\AppData\Local\Temp\opencode-debug-paths-VJe00K\cache\opencode",
+-   "config": "C:\Users\Isako\AppData\Local\Temp\opencode-debug-paths-VJe00K\config\opencode",
+-   "data": "C:\Users\Isako\AppData\Local\Temp\opencode-debug-paths-VJe00K\data\opencode",
++   "bin": "C:\Users\Isako\AppData\Local\Temp\opencode-debug-paths-VJe00K\cache\orchestra\bin",
++   "cache": "C:\Users\Isako\AppData\Local\Temp\opencode-debug-paths-VJe00K\cache\orchestra",
++   "config": "C:\Users\Isako\AppData\Local\Temp\opencode-debug-paths-VJe00K\config\orchestra",
++   "data": "C:\Users\Isako\AppData\Local\Temp\opencode-debug-paths-VJe00K\data\orchestra",
++   "db": "C:\Users\Isako\AppData\Local\Temp\opencode-debug-paths-VJe00K\data\orchestra\opencode-local.db",
+    "home": "C:\Users\Isako",
+-   "log": "C:\Users\Isako\AppData\Local\Temp\opencode-debug-paths-VJe00K\data\opencode\log",
+-   "repos": "C:\Users\Isako\AppData\Local\Temp\opencode-debug-paths-VJe00K\data\opencode\repos",
+-   "state": "C:\Users\Isako\AppData\Local\Temp\opencode-debug-paths-VJe00K\state\opencode",
++   "log": "C:\Users\Isako\AppData\Local\Temp\opencode-debug-paths-VJe00K\data\orchestra\log",
++   "repos": "C:\Users\Isako\AppData\Local\Temp\opencode-debug-paths-VJe00K\data\orchestra\repos",
++   "state": "C:\Users\Isako\AppData\Local\Temp\opencode-debug-paths-VJe00K\state\orchestra",
++   "tmp": "C:\Users\Isako\AppData\Local\Temp\orchestra",
+  }
+
+- Expected  - 7
++ Received  + 9
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\debug-paths.test.ts:35:21)
+(fail) debug paths command > prints resolved global paths without starting a server [9853.65ms]
+
+test\gateway.test.ts:
+149 |       roomServer.stop(true)
+150 |     }
+151 |   })
+152 | 
+153 |   test("rejects missing or weak secrets, invalid ports, and cleartext remote upstreams", () => {
+154 |     expect(() => readConfig({})).toThrow("ORCHESTRA_GATEWAY_TOKEN is required")
+                                       ^
+error: expect(received).toThrow(expected)
+
+Expected substring: "ORCHESTRA_GATEWAY_TOKEN is required"
+Received message: "Set ORCHESTRA_GATEWAY_TOKEN or configure ORCHESTRA_GATEWAY_ROOM_API_URL and ORCHESTRA_GATEWAY_ROOM_ID."
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\gateway.test.ts:154:34)
+(fail) gateway HTTP guards > rejects missing or weak secrets, invalid ports, and cleartext remote upstreams [0.60ms]
+
+test\import-export.test.ts:
+142 |   try {
+143 |     const [stdout, stderr, exitCode] = await run(["session", "export", sessionID, "--server", server.url.toString()])
+144 | 
+145 |     expect(exitCode).toBe(1)
+146 |     expect(stdout).toBe("")
+147 |     expect(stderr).toBe(`Session not found: ${sessionID}${os.EOL}`)
+                         ^
+error: expect(received).toBe(expected)
+
+- "Session not found: ses_missing
++ "Warning: Server at http://localhost:63310/ has version 2.0.0+5a2cd42a3; this client is 2.0.0+48c0f5a4d. Continuing anyway.
++ Session not found: ses_missing
+  "
+
+- Expected  - 1
++ Received  + 2
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\import-export.test.ts:147:20)
+(fail) export reports a missing session without a stack trace [903.81ms]
+217 |   try {
+218 |     const [stdout, stderr, exitCode] = await run(["session", "import", file, "--server", server.url.toString()])
+219 | 
+220 |     expect(exitCode).toBe(0)
+221 |     expect(stdout).toBe("")
+222 |     expect(stderr).toBe(`Session already exists${os.EOL}`)
+                         ^
+error: expect(received).toBe(expected)
+
+- "Session already exists
++ "Warning: Server at http://localhost:63316/ has version 2.0.0+5a2cd42a3; this client is 2.0.0+48c0f5a4d. Continuing anyway.
++ Session already exists
+  "
+
+- Expected  - 1
++ Received  + 2
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\import-export.test.ts:222:20)
+(fail) import reports an existing session without a stack trace [1232.67ms]
+
+test\mcp-auth-choices.test.ts:
+48 |       cwd: path.join(import.meta.dir, ".."),
+49 |       stdout: "pipe",
+50 |       stderr: "pipe",
+51 |     })
+52 |   const help = cli(["--help"])
+53 |   expect(await new Response(help.stdout).text()).toContain("opencode mcp auth [flags] [<name>]")
+                                                      ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "opencode mcp auth [flags] [<name>]"
+Received: "DESCRIPTION\n  Authenticate with an OAuth-capable remote MCP server\n\nUSAGE\n  orchestra mcp auth [flags] [<name>]\n\nARGUMENTS\n  name string    Name of the MCP server (optional)\n\nGLOBAL FLAGS\n  --help, -h                                                          Show help information\n  --version, -v                                                       Show version information\n  --wizard                                                            Start wizard mode for a command\n  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)\n  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)\n  --print-logs                                                        Print logs to stderr (server logs require --standalone)\n"
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\mcp-auth-choices.test.ts:53:50)
+(fail) mcp auth accepts an optional server name and rejects no-name noninteractive calls before connecting [990.33ms]
+
+test\mini.test.ts:
+126 |   test("is registered in the preview CLI", async () => {
+127 |     const result = await cli(["--help"])
+128 | 
+129 |     expect(result.exitCode).toBe(0)
+130 |     expect(result.stdout).toMatch(/^  mini[ \t]+Start the minimal interactive interface\r?$/m)
+131 |     expect(result.stdout).toMatch(/^  run[ \t]+Run Opencode\+\+ with a message\r?$/m)
+                                ^
+error: expect(received).toMatch(expected)
+
+Expected substring or pattern: /^  run[ \t]+Run Opencode\+\+ with a message\r?$/m
+Received: "DESCRIPTION\n  Orchestra command line interface\n\nUSAGE\n  orchestra <subcommand> [flags] [<directory>]\n\nARGUMENTS\n  directory string    Directory to start Orchestra in (optional)\n\nFLAGS\n  --standalone            Run with a private server instead of the background service\n  --server string         Connect to a server URL instead of the background service\n  --auto                  Auto-approve permissions that are not explicitly denied\n  --continue, -c          Continue the last session\n  --session, -s string    Session ID to continue, or to create if it does not exist\n  --prompt string         Prompt to use\n\nGLOBAL FLAGS\n  --help, -h                                                          Show help information\n  --version, -v                                                       Show version information\n  --wizard                                                            Start wizard mode for a command\n  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)\n  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)\n  --print-logs                                                        Print logs to stderr (server logs require --standalone)\n\nSUBCOMMANDS\n  upgrade, update    Upgrade Orchestra to the latest or a specific version\n  uninstall          Uninstall Orchestra, keeping session data, configuration, and state\n  acp                Start an Agent Client Protocol server\n  api                Make a request to the running server\n  debug              Debugging and troubleshooting tools\n  auth               manage integrations and credentials\n  mcp                Manage MCP (Model Context Protocol) servers\n  plugin             Manage plugins\n  models             List all available models\n  stats              Show shareable usage statistics\n  mini               Start the minimal interactive interface\n  run                Run Orchestra with a message\n  session            Manage sessions\n  service            Manage the background server\n  compat             Choose which other agent tools' folders (.claude, .codex, .gemini, ...) this project reads\n  reload             Reload configuration\n  pair               Print one-time links to connect a browser or app\n  gateway            Run an Anthropic-compatible AI gateway for trusted LAN clients\n  serve              Start the v2 API and web server\n"
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\mini.test.ts:131:27)
+(fail) mini command > is registered in the preview CLI [921.21ms]
+
+test\service.test.ts:
+617 |       const info = await Schema.decodeUnknownPromise(Service.Info)(value)
+618 |       if (accept(info)) return info
+619 |     }
+620 |     await Bun.sleep(50)
+621 |   }
+622 |   throw new Error("Timed out waiting for service registration")
+                  ^
+error: Timed out waiting for service registration
+      at waitForInfo (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\service.test.ts:622:13)
+(fail) deleting a failed service registration stops its owner [20485.52ms]
+617 |       const info = await Schema.decodeUnknownPromise(Service.Info)(value)
+618 |       if (accept(info)) return info
+619 |     }
+620 |     await Bun.sleep(50)
+621 |   }
+622 |   throw new Error("Timed out waiting for service registration")
+                  ^
+error: Timed out waiting for service registration
+      at waitForInfo (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\service.test.ts:622:13)
+(fail) clean managed service shutdown removes its registration [20584.68ms]
+617 |       const info = await Schema.decodeUnknownPromise(Service.Info)(value)
+618 |       if (accept(info)) return info
+619 |     }
+620 |     await Bun.sleep(50)
+621 |   }
+622 |   throw new Error("Timed out waiting for service registration")
+                  ^
+error: Timed out waiting for service registration
+      at waitForInfo (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\service.test.ts:622:13)
+      at async <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\service.test.ts:244:24)
+(fail) concurrent service processes elect one server [20688.78ms]
+617 |       const info = await Schema.decodeUnknownPromise(Service.Info)(value)
+618 |       if (accept(info)) return info
+619 |     }
+620 |     await Bun.sleep(50)
+621 |   }
+622 |   throw new Error("Timed out waiting for service registration")
+                  ^
+error: Timed out waiting for service registration
+      at waitForInfo (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\service.test.ts:622:13)
+      at async <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\service.test.ts:314:24)
+(fail) configured managed service port overrides the channel default [20445.68ms]
+617 |       const info = await Schema.decodeUnknownPromise(Service.Info)(value)
+618 |       if (accept(info)) return info
+619 |     }
+620 |     await Bun.sleep(50)
+621 |   }
+622 |   throw new Error("Timed out waiting for service registration")
+                  ^
+error: Timed out waiting for service registration
+      at waitForInfo (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\service.test.ts:622:13)
+(fail) managed service applies CORS configuration with flag overrides: [] [20471.53ms]
+617 |       const info = await Schema.decodeUnknownPromise(Service.Info)(value)
+618 |       if (accept(info)) return info
+619 |     }
+620 |     await Bun.sleep(50)
+621 |   }
+622 |   throw new Error("Timed out waiting for service registration")
+                  ^
+error: Timed out waiting for service registration
+      at waitForInfo (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\service.test.ts:622:13)
+      at async <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\service.test.ts:347:26)
+(fail) managed service applies CORS configuration with flag overrides: [ "--cors", "http://192.0.2.20:3001", "--cors", "https://override.example.com" ] [22202.55ms]
+401 |     stdout: "ignore",
+402 |   })
+403 |   const stderr = new Response(contender.stderr).text()
+404 |   try {
+405 |     // The first probe is preflight; the second only happens after start() fails to bind.
+406 |     expect(await Promise.race([recognizing.promise.then(() => true), Bun.sleep(20_000).then(() => false)])).toBe(true)
+                                                                                                                  ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\service.test.ts:406:109)
+(fail) the original managed service contender binds when the occupied port is released [20053.14ms]
+470 |     stderr: "pipe",
+471 |     stdout: "pipe",
+472 |   })
+473 | 
+474 |   try {
+475 |     expect(await Promise.race([recognizing.promise.then(() => true), Bun.sleep(20_000).then(() => false)])).toBe(true)
+                                                                                                                  ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\service.test.ts:475:109)
+(fail) unresponsive managed port occupancy reports a bounded conflict [20048.28ms]
+521 |     stderr: "pipe",
+522 |     stdout: "ignore",
+523 |   })
+524 | 
+525 |   try {
+526 |     expect(await Promise.race([recognizing.promise.then(() => true), Bun.sleep(20_000).then(() => false)])).toBe(true)
+                                                                                                                  ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\service.test.ts:526:109)
+(fail) port contender recognizes an incumbent registered during the bind race [20056.03ms]
+617 |       const info = await Schema.decodeUnknownPromise(Service.Info)(value)
+618 |       if (accept(info)) return info
+619 |     }
+620 |     await Bun.sleep(50)
+621 |   }
+622 |   throw new Error("Timed out waiting for service registration")
+                  ^
+error: Timed out waiting for service registration
+      at waitForInfo (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\service.test.ts:622:13)
+      at async <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\service.test.ts:591:24)
+(fail) a failed service stays registered and owns the selected port until stopped [20466.63ms]
+
+test\source-release.test.ts:
+192 | 
+193 | async function validateServer(root: string) {
+194 |   const result = await runBun(["--cwd", "packages/server", "run", "typecheck"], root, VALIDATION_TIMEOUT_MS)
+195 |   if (result.exitCode !== 0) {
+196 |     const detail = result.stderr.trim() || result.stdout.trim() || `Server typecheck exited with code ${result.exitCode}`
+197 |     throw new Error(`OpenCode++ update validation failed:\n${detail}`)
+                    ^
+error: OpenCode++ update validation failed:
+ENOENT: No such file or directory: Could not change directory to "packages/server" (chdir)
+      at validateServer (C:\Users\Isako\dev\orchestra-harness\packages\cli\src\services\source-release.ts:197:15)
+      at async <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\src\services\source-release.ts:42:13)
+      at async keepingEdits (C:\Users\Isako\dev\orchestra-harness\packages\cli\src\services\source-release.ts:62:11)
+(fail) a pinned install sees and moves to the newest release [1001.21ms]
+192 | 
+193 | async function validateServer(root: string) {
+194 |   const result = await runBun(["--cwd", "packages/server", "run", "typecheck"], root, VALIDATION_TIMEOUT_MS)
+195 |   if (result.exitCode !== 0) {
+196 |     const detail = result.stderr.trim() || result.stdout.trim() || `Server typecheck exited with code ${result.exitCode}`
+197 |     throw new Error(`OpenCode++ update validation failed:\n${detail}`)
+                    ^
+error: OpenCode++ update validation failed:
+ENOENT: No such file or directory: Could not change directory to "packages/server" (chdir)
+      at validateServer (C:\Users\Isako\dev\orchestra-harness\packages\cli\src\services\source-release.ts:197:15)
+      at async <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\src\services\source-release.ts:222:13)
+      at async keepingEdits (C:\Users\Isako\dev\orchestra-harness\packages\cli\src\services\source-release.ts:62:11)
+(fail) a branch without an upstream follows the matching origin branch [1282.80ms]
+192 | 
+193 | async function validateServer(root: string) {
+194 |   const result = await runBun(["--cwd", "packages/server", "run", "typecheck"], root, VALIDATION_TIMEOUT_MS)
+195 |   if (result.exitCode !== 0) {
+196 |     const detail = result.stderr.trim() || result.stdout.trim() || `Server typecheck exited with code ${result.exitCode}`
+197 |     throw new Error(`OpenCode++ update validation failed:\n${detail}`)
+                    ^
+error: OpenCode++ update validation failed:
+ENOENT: No such file or directory: Could not change directory to "packages/server" (chdir)
+      at validateServer (C:\Users\Isako\dev\orchestra-harness\packages\cli\src\services\source-release.ts:197:15)
+      at async <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\src\services\source-release.ts:222:13)
+      at async keepingEdits (C:\Users\Isako\dev\orchestra-harness\packages\cli\src\services\source-release.ts:62:11)
+(fail) a branch with an upstream refreshes its exact ref despite a narrow fetch refspec [1286.64ms]
+192 | 
+193 | async function validateServer(root: string) {
+194 |   const result = await runBun(["--cwd", "packages/server", "run", "typecheck"], root, VALIDATION_TIMEOUT_MS)
+195 |   if (result.exitCode !== 0) {
+196 |     const detail = result.stderr.trim() || result.stdout.trim() || `Server typecheck exited with code ${result.exitCode}`
+197 |     throw new Error(`OpenCode++ update validation failed:\n${detail}`)
+                    ^
+error: OpenCode++ update validation failed:
+ENOENT: No such file or directory: Could not change directory to "packages/server" (chdir)
+      at validateServer (C:\Users\Isako\dev\orchestra-harness\packages\cli\src\services\source-release.ts:197:15)
+      at async <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\src\services\source-release.ts:160:13)
+      at async keepingEdits (C:\Users\Isako\dev\orchestra-harness\packages\cli\src\services\source-release.ts:62:11)
+(fail) a detached install without releases follows the installer's branch [1207.96ms]
+138 | 
+139 | // An install with a stray edit (an AI session, a hand fix) is moved to the newer commit
+140 | // `two`, where notes.txt changed upstream; only the move itself is stubbed out.
+141 | async function edited() {
+142 |   const repo = await setup()
+143 |   const move = () => $`git -C ${repo.install} checkout -q --detach release/1.2.0`.quiet().then(() => undefined)
+                     ^
+ShellError: Failed with exit code 1
+ exitCode: 1,
+   stdout: "",
+   stderr: "error: The following untracked working tree files would be overwritten by checkout:\n\tnotes.txt\nPlease move or remove them before you switch branches.\nAborting\n",
+
+      at new ShellPromise (75:16)
+      at BunShell (194:35)
+      at move (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\source-release.test.ts:143:22)
+      at keepingEdits (C:\Users\Isako\dev\orchestra-harness\packages\cli\src\services\source-release.ts:62:11)
+      at async <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\source-release.test.ts:167:36)
+(fail) an edit that clashes with the update waits in the stash and the install stays clean [552.55ms]
+
+test\standalone.test.ts:
+32 |     expect(await waitForExit(pid)).toBe(true)
+33 |   } finally {
+34 |     owner.kill("SIGKILL")
+35 |     await owner.exited
+36 |     if (running(pid)) process.kill(pid, "SIGKILL")
+37 |     await fs.rm(root, { recursive: true, force: true })
+                  ^
+EBUSY: resource busy or locked, rm 'C:\Users\Isako\AppData\Local\Temp\opencode-cli-standalone-GuV6e2'
+    path: "C:\\Users\\Isako\\AppData\\Local\\Temp\\opencode-cli-standalone-GuV6e2",
+ syscall: "rm",
+   errno: -4082,
+    code: "EBUSY"
+
+      at async <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\standalone.test.ts:37:14)
+(fail) standalone server exits when its owner is killed [2097.80ms]
+
+test\updater-install.test.ts:
+[15:04:12.597] ERROR (#319): 157 | 
+158 | it.live("vp force-installs a renamed V2 package that replaces the existing binary owner", () =>
+159 |   Effect.gen(function* () {
+160 |     const test = yield* fixture(() => ({}), "@orchestra/cli", false, "@orchestra/cli-node")
+161 |     yield* test.updater.upgrade("vp", "v2.3.4-beta.1")
+162 |     expect(test.commands).toEqual([["vp", "install", "-g", "--force", "@orchestra/cli-node@2.3.4-beta.1"]])
+      ^
+error: expect(received).toEqual(expected)
+
+@@ -3,5 +3,4 @@
+      "vp",
+-     "install",
++     "update",
+      "-g",
+-     "--force",
+      "@orchestra/cli-node@2.3.4-beta.1",
+
+- Expected  - 2
++ Received  + 1
+
+      at toEqual (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:162:27
+
+157 | 
+158 | it.live("vp force-installs a renamed V2 package that replaces the existing binary owner", () =>
+159 |   Effect.gen(function* () {
+160 |     const test = yield* fixture(() => ({}), "@orchestra/cli", false, "@orchestra/cli-node")
+161 |     yield* test.updater.upgrade("vp", "v2.3.4-beta.1")
+162 |     expect(test.commands).toEqual([["vp", "install", "-g", "--force", "@orchestra/cli-node@2.3.4-beta.1"]])
+      ^
+error: expect(received).toEqual(expected)
+
+@@ -3,5 +3,4 @@
+      "vp",
+-     "install",
++     "update",
+      "-g",
+-     "--force",
+      "@orchestra/cli-node@2.3.4-beta.1",
+
+- Expected  - 2
++ Received  + 1
+
+      at toEqual (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:162:27
+      at ~effect/Effect/successCont (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:928:26)
+      at runLoop (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:462:98)
+      at evaluate (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:422:23)
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:781:15
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\Effect.js:8120:9
+      at guarded (internal:shared:114:26)
+      at processTicksAndRejections (native:1:1)
+(fail) vp force-installs a renamed V2 package that replaces the existing binary owner [15.92ms]
+[15:04:12.602] ERROR (#347): 226 |         ;
+227 |         error[key] = original[key];
+228 |       }
+229 |     }
+230 |   } else {
+231 |     error = new globalThis.Error(!original ? `Unknown error: ${original}` : kind === "string" ? original : formatJson(original));
+                  ^
+error: Expected vp removal command
+      at causePrettyError (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:231:13)
+
+error: Expected vp removal command
+Expected vp removal command
+(fail) vp removes the package from its managed global store [5.21ms]
+[15:04:12.828] ERROR (#608): 272 |             : command.command === "vp"
+273 |               ? "[]"
+274 |               : "opencode-ai@1.0.0",
+275 |         ),
+276 |       }))
+277 |       expect(yield* test.updater.method()).toBe(method)
+      ^
+error: expect(received).toBe(expected)
+
+Expected: "npm"
+Received: undefined
+
+      at toBe (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:277:44
+
+272 |             : command.command === "vp"
+273 |               ? "[]"
+274 |               : "opencode-ai@1.0.0",
+275 |         ),
+276 |       }))
+277 |       expect(yield* test.updater.method()).toBe(method)
+      ^
+error: expect(received).toBe(expected)
+
+Expected: "npm"
+Received: undefined
+
+      at toBe (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:277:44
+      at ~effect/Effect/successCont (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:928:26)
+      at runLoop (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:462:98)
+      at evaluate (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:422:23)
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:781:15
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\@effect+platform-node-shared@4.0.0-rc.112+11eac7cfbf53fc55\node_modules\@effect\platform-node-shared\dist\NodeFileSystem.js:279:9
+      at guarded (internal:shared:114:26)
+(fail) method detection identifies npm using the V2 package [11.49ms]
+[15:04:12.838] ERROR (#631): 272 |             : command.command === "vp"
+273 |               ? "[]"
+274 |               : "opencode-ai@1.0.0",
+275 |         ),
+276 |       }))
+277 |       expect(yield* test.updater.method()).toBe(method)
+      ^
+error: expect(received).toBe(expected)
+
+Expected: "pnpm"
+Received: undefined
+
+      at toBe (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:277:44
+
+272 |             : command.command === "vp"
+273 |               ? "[]"
+274 |               : "opencode-ai@1.0.0",
+275 |         ),
+276 |       }))
+277 |       expect(yield* test.updater.method()).toBe(method)
+      ^
+error: expect(received).toBe(expected)
+
+Expected: "pnpm"
+Received: undefined
+
+      at toBe (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:277:44
+      at ~effect/Effect/successCont (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:928:26)
+      at runLoop (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:462:98)
+      at evaluate (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:422:23)
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:781:15
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\@effect+platform-node-shared@4.0.0-rc.112+11eac7cfbf53fc55\node_modules\@effect\platform-node-shared\dist\NodeFileSystem.js:279:9
+      at guarded (internal:shared:114:26)
+(fail) method detection identifies pnpm using the V2 package [10.09ms]
+[15:04:12.843] ERROR (#654): 272 |             : command.command === "vp"
+273 |               ? "[]"
+274 |               : "opencode-ai@1.0.0",
+275 |         ),
+276 |       }))
+277 |       expect(yield* test.updater.method()).toBe(method)
+      ^
+error: expect(received).toBe(expected)
+
+Expected: "bun"
+Received: undefined
+
+      at toBe (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:277:44
+
+272 |             : command.command === "vp"
+273 |               ? "[]"
+274 |               : "opencode-ai@1.0.0",
+275 |         ),
+276 |       }))
+277 |       expect(yield* test.updater.method()).toBe(method)
+      ^
+error: expect(received).toBe(expected)
+
+Expected: "bun"
+Received: undefined
+
+      at toBe (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:277:44
+      at ~effect/Effect/successCont (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:928:26)
+      at runLoop (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:462:98)
+      at evaluate (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:422:23)
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:781:15
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\@effect+platform-node-shared@4.0.0-rc.112+11eac7cfbf53fc55\node_modules\@effect\platform-node-shared\dist\NodeFileSystem.js:279:9
+      at guarded (internal:shared:114:26)
+(fail) method detection identifies bun using the V2 package [4.46ms]
+[15:04:12.853] ERROR (#677): 272 |             : command.command === "vp"
+273 |               ? "[]"
+274 |               : "opencode-ai@1.0.0",
+275 |         ),
+276 |       }))
+277 |       expect(yield* test.updater.method()).toBe(method)
+      ^
+error: expect(received).toBe(expected)
+
+Expected: "yarn"
+Received: undefined
+
+      at toBe (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:277:44
+
+272 |             : command.command === "vp"
+273 |               ? "[]"
+274 |               : "opencode-ai@1.0.0",
+275 |         ),
+276 |       }))
+277 |       expect(yield* test.updater.method()).toBe(method)
+      ^
+error: expect(received).toBe(expected)
+
+Expected: "yarn"
+Received: undefined
+
+      at toBe (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:277:44
+      at ~effect/Effect/successCont (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:928:26)
+      at runLoop (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:462:98)
+      at evaluate (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:422:23)
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:781:15
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\@effect+platform-node-shared@4.0.0-rc.112+11eac7cfbf53fc55\node_modules\@effect\platform-node-shared\dist\NodeFileSystem.js:279:9
+      at guarded (internal:shared:114:26)
+(fail) method detection identifies yarn using the V2 package [10.19ms]
+[15:04:12.857] ERROR (#700): 272 |             : command.command === "vp"
+273 |               ? "[]"
+274 |               : "opencode-ai@1.0.0",
+275 |         ),
+276 |       }))
+277 |       expect(yield* test.updater.method()).toBe(method)
+      ^
+error: expect(received).toBe(expected)
+
+Expected: "vp"
+Received: undefined
+
+      at toBe (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:277:44
+
+272 |             : command.command === "vp"
+273 |               ? "[]"
+274 |               : "opencode-ai@1.0.0",
+275 |         ),
+276 |       }))
+277 |       expect(yield* test.updater.method()).toBe(method)
+      ^
+error: expect(received).toBe(expected)
+
+Expected: "vp"
+Received: undefined
+
+      at toBe (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:277:44
+      at ~effect/Effect/successCont (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:928:26)
+      at runLoop (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:462:98)
+      at evaluate (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:422:23)
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:781:15
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\@effect+platform-node-shared@4.0.0-rc.112+11eac7cfbf53fc55\node_modules\@effect\platform-node-shared\dist\NodeFileSystem.js:279:9
+      at guarded (internal:shared:114:26)
+(fail) method detection identifies vp using the V2 package [4.18ms]
+[15:04:12.862] ERROR (#723): 273 |               ? "[]"
+274 |               : "opencode-ai@1.0.0",
+275 |         ),
+276 |       }))
+277 |       expect(yield* test.updater.method()).toBe(method)
+278 |       expect(test.commands).toEqual([
+      ^
+error: expect(received).toEqual(expected)
+
+- [
+-   [
+-     "npm",
+-     "list",
+-     "-g",
+-     "--depth=0",
+-     "@orchestra/cli",
+-   ],
+-   [
+-     "pnpm",
+-     "list",
+-     "-g",
+-     "--depth=0",
+-     "@orchestra/cli",
+-   ],
+-   [
+-     "bun",
+-     "pm",
+-     "ls",
+-     "-g",
+-   ],
+-   [
+-     "yarn",
+-     "global",
+-     "list",
+-   ],
+-   [
+-     "vp",
+-     "list",
+-     "-g",
+-     "--json",
+-     "@orchestra/cli",
+-   ],
+- ]
++ []
+
+- Expected  - 34
++ Received  + 1
+
+      at toEqual (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:278:29
+
+273 |               ? "[]"
+274 |               : "opencode-ai@1.0.0",
+275 |         ),
+276 |       }))
+277 |       expect(yield* test.updater.method()).toBe(method)
+278 |       expect(test.commands).toEqual([
+      ^
+error: expect(received).toEqual(expected)
+
+- [
+-   [
+-     "npm",
+-     "list",
+-     "-g",
+-     "--depth=0",
+-     "@orchestra/cli",
+-   ],
+-   [
+-     "pnpm",
+-     "list",
+-     "-g",
+-     "--depth=0",
+-     "@orchestra/cli",
+-   ],
+-   [
+-     "bun",
+-     "pm",
+-     "ls",
+-     "-g",
+-   ],
+-   [
+-     "yarn",
+-     "global",
+-     "list",
+-   ],
+-   [
+-     "vp",
+-     "list",
+-     "-g",
+-     "--json",
+-     "@orchestra/cli",
+-   ],
+- ]
++ []
+
+- Expected  - 34
++ Received  + 1
+
+      at toEqual (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:278:29
+      at ~effect/Effect/successCont (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:928:26)
+      at runLoop (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:462:98)
+      at evaluate (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:422:23)
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:781:15
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\@effect+platform-node-shared@4.0.0-rc.112+11eac7cfbf53fc55\node_modules\@effect\platform-node-shared\dist\NodeFileSystem.js:279:9
+      at guarded (internal:shared:114:26)
+(fail) method detection identifies an unknown installation using the V2 package [4.44ms]
+[15:04:12.866] ERROR (#746): 291 |     const test = yield* fixture((command) =>
+292 |       command.command === "yarn"
+293 |         ? { stdout: Buffer.from("@orchestra/cli@2.3.4") }
+294 |         : { error: new AppProcess.AppProcessError({ command: command.command }) },
+295 |     )
+296 |     expect(yield* test.updater.method()).toBe("yarn")
+      ^
+error: expect(received).toBe(expected)
+
+Expected: "yarn"
+Received: undefined
+
+      at toBe (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:296:42
+
+291 |     const test = yield* fixture((command) =>
+292 |       command.command === "yarn"
+293 |         ? { stdout: Buffer.from("@orchestra/cli@2.3.4") }
+294 |         : { error: new AppProcess.AppProcessError({ command: command.command }) },
+295 |     )
+296 |     expect(yield* test.updater.method()).toBe("yarn")
+      ^
+error: expect(received).toBe(expected)
+
+Expected: "yarn"
+Received: undefined
+
+      at toBe (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:296:42
+      at ~effect/Effect/successCont (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:928:26)
+      at runLoop (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:462:98)
+      at evaluate (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:422:23)
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:781:15
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\@effect+platform-node-shared@4.0.0-rc.112+11eac7cfbf53fc55\node_modules\@effect\platform-node-shared\dist\NodeFileSystem.js:279:9
+      at guarded (internal:shared:114:26)
+(fail) method detection tolerates unavailable package managers [4.32ms]
+[15:04:12.960] ERROR (#876): 348 |   Effect.gen(function* () {
+349 |     const layout = { executable: "", cache: "" }
+350 |     const test = yield* fixture(() => {
+351 |       expect(readFileSync(layout.executable, "utf8")).toBe("binary")
+352 |       const held = upgradeLinks(layout.cache)
+353 |       expect(held).toHaveLength(1)
+      ^
+error: expect(received).toHaveLength(expected)
+
+Expected length: 1
+Received length: 0
+
+      at toHaveLength (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:353:20
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:115:19
+      at runLoop (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:462:98)
+      at evaluate (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:422:23)
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:781:15
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\Effect.js:8120:9
+      at guarded (internal:shared:114:26)
+
+348 |   Effect.gen(function* () {
+349 |     const layout = { executable: "", cache: "" }
+350 |     const test = yield* fixture(() => {
+351 |       expect(readFileSync(layout.executable, "utf8")).toBe("binary")
+352 |       const held = upgradeLinks(layout.cache)
+353 |       expect(held).toHaveLength(1)
+      ^
+error: expect(received).toHaveLength(expected)
+
+Expected length: 1
+Received length: 0
+
+      at toHaveLength (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:353:20
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:115:19
+      at runLoop (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:462:98)
+      at evaluate (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:422:23)
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:781:15
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\Effect.js:8120:9
+      at guarded (internal:shared:114:26)
+(fail) windows keeps a second link to the running binary in the cache while the installer runs [24.08ms]
+[15:04:12.986] ERROR (#904): 370 | 
+371 | windows("windows releases the link when the installer fails", () =>
+372 |   Effect.gen(function* () {
+373 |     const layout = { cache: "" }
+374 |     const test = yield* fixture(() => {
+375 |       expect(upgradeLinks(layout.cache)).toHaveLength(1)
+      ^
+error: expect(received).toHaveLength(expected)
+
+Expected length: 1
+Received length: 0
+
+      at toHaveLength (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:375:42
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:115:19
+      at runLoop (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:462:98)
+      at evaluate (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:422:23)
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:781:15
+      at onExit (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:1011:5)
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:1022:7
+      at evaluate (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:435:23)
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:781:15
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\@effect+platform-node-shared@4.0.0-rc.112+11eac7cfbf53fc55\node_modules\@effect\platform-node-shared\dist\NodeFileSystem.js:394:9
+      at guarded (internal:shared:114:26)
+
+370 | 
+371 | windows("windows releases the link when the installer fails", () =>
+372 |   Effect.gen(function* () {
+373 |     const layout = { cache: "" }
+374 |     const test = yield* fixture(() => {
+375 |       expect(upgradeLinks(layout.cache)).toHaveLength(1)
+      ^
+error: expect(received).toHaveLength(expected)
+
+Expected length: 1
+Received length: 0
+
+      at toHaveLength (native:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:375:42
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:115:19
+      at runLoop (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:462:98)
+      at evaluate (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:422:23)
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:781:15
+      at onExit (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:1011:5)
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:1022:7
+      at evaluate (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:435:23)
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:781:15
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\@effect+platform-node-shared@4.0.0-rc.112+11eac7cfbf53fc55\node_modules\@effect\platform-node-shared\dist\NodeFileSystem.js:394:9
+      at guarded (internal:shared:114:26)
+(fail) windows releases the link when the installer fails [26.10ms]
+[15:04:12.991] ERROR (#932): 226 |         ;
+227 |         error[key] = original[key];
+228 |       }
+229 |     }
+230 |   } else {
+231 |     error = new globalThis.Error(!original ? `Unknown error: ${original}` : kind === "string" ? original : formatJson(original));
+                  ^
+error: Expected bun removal command
+      at causePrettyError (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:231:13)
+
+error: Expected bun removal command
+Expected bun removal command
+(fail) windows keeps the uninstall link in the temporary directory, not the removed cache [4.51ms]
+470 |       // Bun 1.4 can reuse cached modules compiled with different --define values.
+471 |       env: { ...process.env, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" },
+472 |     },
+473 |   )
+474 |   const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()])
+475 |   expect(code, stderr).toBe(0)
+                             ^
+error: 
+test\updater-install.test.ts:
+483 |         (command) => ({
+484 |           stdout: Buffer.from(command.command === "npm" ? "@orchestra/cli-node@2.3.4" : ""),
+485 |         }),
+486 |         "@orchestra/cli-node",
+487 |       )
+488 |       expect(yield* test.updater.method()).toBe("npm")
+      ^
+error: expect(received).toBe(expected)
+
+Expected: "npm"
+Received: undefined
+
+      at toBe (unknown:1:1)
+      at C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:488:44
+      at ~effect/Effect/successCont (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:928:26)
+      at runLoop (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:462:98)
+      at evaluate (C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:422:23)
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\effect@4.0.0-rc.112\node_modules\effect\dist\internal\effect.js:781:15
+      at C:\Users\Isako\dev\orchestra-harness\node_modules\.bun\@effect+platform-node-shared@4.0.0-rc.112+11eac7cfbf53fc55\node_modules\@effect\platform-node-shared\dist\NodeFileSystem.js:279:9
+      at guarded (internal:shared:114:26)
+(fail) Node distribution resolves the published npm package [38.72ms]
+
+ 0 pass
+ 32 filtered out
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [1325.00ms]
+
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\updater-install.test.ts:475:24)
+(fail) Node distribution honors the compile-time CLI name [1357.29ms]
+
+test\upgrade.test.ts:
+15 |     expect(help.stdout).toContain("-m")
+16 |   })
+17 | 
+18 |   test("detects the installation method and resolves the latest version", async () => {
+19 |     const result = await cli([])
+20 |     expect(result.exitCode).toBe(0)
+                                 ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\upgrade.test.ts:20:29)
+(fail) upgrade command > detects the installation method and resolves the latest version [8136.94ms]
+22 |     expect(result.stdout).toContain("Upgrade complete")
+23 |   })
+24 | 
+25 |   test("resolves the latest version for an explicit method without detection", async () => {
+26 |     const result = await cli(["--method", "pnpm"], { UPGRADE_TEST_METHOD: "brew" })
+27 |     expect(result.exitCode).toBe(0)
+                                 ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\upgrade.test.ts:27:29)
+(fail) upgrade command > resolves the latest version for an explicit method without detection [8751.34ms]
+28 |     expect(result.events).toEqual([{ latest: "pnpm" }, { method: "pnpm", version: "0.0.0-beta-new" }])
+29 |   })
+30 | 
+31 |   test("accepts an explicit version and method without detection or a version lookup", async () => {
+32 |     const result = await cli(["v0.0.0-beta-target", "--method", "pnpm"])
+33 |     expect(result.exitCode).toBe(0)
+                                 ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\upgrade.test.ts:33:29)
+(fail) upgrade command > accepts an explicit version and method without detection or a version lookup [8336.31ms]
+35 |     expect(result.stdout).toContain("0.0.0-beta-old → 0.0.0-beta-target")
+36 |   })
+37 | 
+38 |   test("accepts the short method flag and an explicit major upgrade", async () => {
+39 |     const result = await cli(["2.0.0", "-m", "bun"])
+40 |     expect(result.exitCode).toBe(0)
+                                 ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\upgrade.test.ts:40:29)
+(fail) upgrade command > accepts the short method flag and an explicit major upgrade [7860.33ms]
+41 |     expect(result.events).toEqual([{ method: "bun", version: "2.0.0" }])
+42 |   })
+43 | 
+44 |   test("accepts vp as an explicit installation method", async () => {
+45 |     const result = await cli(["2.0.0", "--method", "vp"])
+46 |     expect(result.exitCode).toBe(0)
+                                 ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\upgrade.test.ts:46:29)
+(fail) upgrade command > accepts vp as an explicit installation method [8305.31ms]
+47 |     expect(result.events).toEqual([{ method: "vp", version: "2.0.0" }])
+48 |   })
+49 | 
+50 |   test("skips the already installed version", async () => {
+51 |     const result = await cli(["v0.0.0-beta-old"])
+52 |     expect(result.exitCode).toBe(0)
+                                 ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\upgrade.test.ts:52:29)
+(fail) upgrade command > skips the already installed version [7665.27ms]
+55 |   })
+56 | 
+57 |   test("requires an explicit method when detection fails", async () => {
+58 |     const result = await cli([], { UPGRADE_TEST_METHOD: "unknown" })
+59 |     expect(result.exitCode).toBe(1)
+60 |     expect(result.events).toEqual(["method"])
+                               ^
+error: expect(received).toEqual(expected)
+
+- [
+-   "method",
+- ]
++ []
+
+- Expected  - 3
++ Received  + 1
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\upgrade.test.ts:60:27)
+(fail) upgrade command > requires an explicit method when detection fails [8083.90ms]
+68 |   })
+69 | 
+70 |   test("reports version lookup failures without installing", async () => {
+71 |     const result = await cli([], { UPGRADE_TEST_LATEST_ERROR: "1" })
+72 |     expect(result.exitCode).toBe(1)
+73 |     expect(result.events).toEqual(["method", { latest: "npm" }])
+                               ^
+error: expect(received).toEqual(expected)
+
+- [
+-   "method",
+-   {
+-     "latest": "npm",
+-   },
+- ]
++ []
+
+- Expected  - 6
++ Received  + 1
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\upgrade.test.ts:73:27)
+(fail) upgrade command > reports version lookup failures without installing [8069.73ms]
+75 |   })
+76 | 
+77 |   test("reports installation failures with a nonzero exit code", async () => {
+78 |     const result = await cli([], { UPGRADE_TEST_INSTALL_ERROR: "1" })
+79 |     expect(result.exitCode).toBe(1)
+80 |     expect(result.stdout).toContain("Upgrade failed")
+                               ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "Upgrade failed"
+Received: "\u001b[90m┌\u001b[39m  Upgrade\n"
+
+      at <anonymous> (C:\Users\Isako\dev\orchestra-harness\packages\cli\test\upgrade.test.ts:80:27)
+(fail) upgrade command > reports installation failures with a nonzero exit code [7674.93ms]
+
+test\vite-refresh.test.ts:
+To use solid-refresh, you need to use the dev build of SolidJS. Make sure your build system supports package.json conditional exports and has the 'development' condition turned on.
+
+test\acp\additional-directories.subprocess.test.ts:
+EBUSY: resource busy or locked, rm 'C:\Users\Isako\AppData\Local\Temp\opencode-cli-acp-qLJCA1'
+    path: "C:\\Users\\Isako\\AppData\\Local\\Temp\\opencode-cli-acp-qLJCA1",
+ syscall: "rm",
+   errno: -4082,
+    code: "EBUSY"
+
+(fail) acp additional directories subprocess > tools read files in an additional directory without an external directory ask [10140.12ms]
+
+ 297 pass
+ 9 skip
+ 49 fail
+ 1154 expect() calls
+Ran 355 tests across 52 files. [440.10s]
+EXIT 1

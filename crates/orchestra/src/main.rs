@@ -3,13 +3,14 @@ mod clipboard;
 mod config;
 mod presets;
 mod tools;
+mod ui;
 mod transports;
 
 use futures::StreamExt;
 use orchestra_kernel::{Event, Pool, Transport};
 use orchestra_memory::{Item, Memory, Scope};
 use orchestra_session::{Session, Store, Turn, drive};
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
@@ -129,7 +130,7 @@ fn flag(args: &[String], name: &str) -> Option<Option<String>> {
 async fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if flag(&args, "--help").is_some() {
-        println!("orchestra [setup] [--human] [--session <id>] [--list]\n\n`orchestra setup` saves a model endpoint; env overrides it: ORCHESTRA_BASE_URL, ORCHESTRA_API_KEY, ORCHESTRA_MODEL (comma-separated lists form a failover pool), ORCHESTRA_HOME.\nIn the prompt: /new  /sessions  /memory  /remember <key> <text>  /forget <key>  /quit");
+        println!("orchestra [setup] [--human] [--plain] [--session <id>] [--list]\n\n`orchestra setup` saves a model endpoint; env overrides it: ORCHESTRA_BASE_URL, ORCHESTRA_API_KEY, ORCHESTRA_MODEL (comma-separated lists form a failover pool), ORCHESTRA_HOME.\nIn the prompt: /new  /sessions  /memory  /remember <key> <text>  /forget <key>  /quit");
         return;
     }
     let root = home();
@@ -162,6 +163,15 @@ async fn main() {
         None => new_session(&store).await,
     };
 
+    // A real terminal gets the full-screen interface; pipes, scripts and tests keep the plain line mode.
+    if flag(&args, "--plain").is_none() && std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+        let short = std::path::Path::new(&project).file_name().map_or(project.clone(), |name| name.to_string_lossy().to_string());
+        let ctx = ui::Ctx { store: store.clone(), memory: memory.clone(), transport: transport.clone(), project: project.clone(), base_system: SYSTEM.to_string() };
+        if let Err(error) = ui::run(ctx, session, format!("{short} · {label}")).await {
+            eprintln!("interface error: {error}");
+        }
+        return;
+    }
     println!("{LINE}┌─ orchestra {DIM}{}{LINE} ─{OFF} {label} {DIM}· {} · {}{OFF}", dither(8, 0), session.id, project);
     loop {
         let read = tokio::task::spawn_blocking(|| {
@@ -250,7 +260,8 @@ async fn main() {
 }
 
 async fn new_session(store: &Store) -> Session {
-    let id = format!("s{}", tools::now());
+    static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let id = format!("s{}-{}", tools::now(), COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
     Session::create(store, &id, "untitled").await.expect("cannot create a session")
 }
 
