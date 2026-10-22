@@ -310,6 +310,7 @@ export function DevToolsBar() {
       registry: label(t("Registry")),
     }
     const fixed =
+      3 +
       label(`✓ ${t("Server")}`) +
       label(`✦ ${t("Ideas")}`) +
       label(`${t("Language")} EN`) +
@@ -612,6 +613,17 @@ export function DevToolsBar() {
         }}
       >
         <text fg={theme.text.muted}>{t("Experiments")}</text>
+      </BarItem>
+      {/* Items that no longer fit are not lost: this mark opens the command palette, where each has its command. */}
+      <BarItem
+        hidden={hidden().size === 0}
+        active={false}
+        onClick={() => {
+          close()
+          openDialog(() => <CommandPaletteDialog />)
+        }}
+      >
+        <text fg={theme.text.action.primary.base}>⋯</text>
       </BarItem>
       <box flexGrow={1} minWidth={0}>
         <TimeToFirstDraw visible={timing()} width="100%" fg={theme.text.muted} label="Time to first draw" />

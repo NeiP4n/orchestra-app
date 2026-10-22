@@ -1603,7 +1603,7 @@ export function Session(props: {
                   onMouseUp={toBottom}
                 >
                   <text fg={latestHovered() ? theme.text.action.secondary.hovered : theme.text.action.secondary.base}>
-                    Jump to latest ↓
+                    {t("Jump to latest")} ↓
                   </text>
                 </box>
               </Show>

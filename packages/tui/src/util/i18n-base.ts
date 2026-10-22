@@ -14,6 +14,7 @@ const ru: Record<string, string> = {
   Host: "Хост",
   Connect: "Подключиться",
   Experiments: "Эксперименты",
+  "Jump to latest": "К последнему",
   Language: "Язык",
   Layout: "Раскладка",
   Auto: "Авто",
