@@ -43,4 +43,6 @@ try {
   Pop-Location
 }
 
-& (Join-Path $dir "installer\install.ps1")
+# A separate process with Bypass: the default execution policy blocks running .ps1 files, even though `irm | iex` itself is allowed.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dir "installer\install.ps1")
+if ($LASTEXITCODE -ne 0) { throw "creating the orchestra-app command failed" }
