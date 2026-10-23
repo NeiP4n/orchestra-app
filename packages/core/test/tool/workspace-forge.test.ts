@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import path from "node:path"
 import { Schema } from "effect"
 import { WorkspaceForgeTool } from "@orchestra/core/tool/plugin/workspace-forge"
 import { Orchestra } from "@orchestra/schema/orchestra"
@@ -74,5 +77,24 @@ describe("workspace forge input", () => {
     expect(WorkspaceForgeTool.groupModeError(undefined)).toContain("needs mode")
     expect(WorkspaceForgeTool.groupModeError("lead")).toBeUndefined()
     expect(WorkspaceForgeTool.groupModeError("council")).toBeUndefined()
+  })
+})
+
+describe("workspace forge directories", () => {
+  test("resolves a relative member path against the Orchestrator's project, not the service", () => {
+    const base = path.resolve("/work/game")
+    expect(WorkspaceForgeTool.resolveDirectory(base, "translations")).toBe(path.join(base, "translations"))
+    expect(WorkspaceForgeTool.resolveDirectory(base, "../engine")).toBe(path.resolve("/work/engine"))
+    expect(WorkspaceForgeTool.resolveDirectory(base, path.resolve("/other/place"))).toBe(path.resolve("/other/place"))
+    expect(WorkspaceForgeTool.resolveDirectory(base, "~/game", path.resolve("/home/me"))).toBe(path.resolve("/home/me/game"))
+  })
+
+  test("treats a directory with only tool metadata as empty", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "forge-empty-"))
+    expect(await WorkspaceForgeTool.isEmptyDirectory(root)).toBe(true)
+    await mkdir(path.join(root, ".git"))
+    expect(await WorkspaceForgeTool.isEmptyDirectory(root)).toBe(true)
+    await writeFile(path.join(root, "game.json"), "{}")
+    expect(await WorkspaceForgeTool.isEmptyDirectory(root)).toBe(false)
   })
 })

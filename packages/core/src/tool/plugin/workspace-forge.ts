@@ -1,6 +1,7 @@
 export * as WorkspaceForgeTool from "./workspace-forge.js"
 
 import { ToolFailure } from "@orchestra/ai"
+import { readdir } from "node:fs/promises"
 import path from "node:path"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { Federation as FederationSchema } from "@orchestra/schema/federation"
@@ -19,13 +20,16 @@ const GroupMember = Schema.Struct({
   }),
   name: Schema.optionalKey(Schema.String).annotate({ description: "Name of a new project." }),
   directory: Schema.optionalKey(Schema.String).annotate({
-    description: "Path to an existing directory for a new project. Sandboxed modes require a git repository.",
+    description: "Absolute path to the existing directory holding this project's files; a relative path is resolved against the calling Orchestrator's project directory. Sandboxed modes require a git repository.",
   }),
   team: Schema.optionalKey(Schema.String).annotate({
     description: "Exact AI team template ID from list; mutually exclusive with role.",
   }),
   role: Schema.optionalKey(Schema.String).annotate({
     description: "Exact individual AI role ID from list; creates one worker session alongside this project's Orchestrator. Mutually exclusive with team.",
+  }),
+  empty: Schema.optionalKey(Schema.Boolean).annotate({
+    description: "Allow an empty directory for a new project. Pass true only when the operator asked for a project that starts from nothing.",
   }),
   sandbox: Schema.optionalKey(SandboxMode).annotate({
     description:
@@ -38,6 +42,9 @@ export const Input = Schema.Struct({
   name: Schema.optionalKey(Schema.String).annotate({ description: "Name of the new project/session or federated group." }),
   directory: Schema.optionalKey(Schema.String).annotate({
     description: "Path to an existing directory. Used by create_session.",
+  }),
+  empty: Schema.optionalKey(Schema.Boolean).annotate({
+    description: "For create_session: allow an empty directory. Pass true only when the operator asked for a project that starts from nothing.",
   }),
   team: Schema.optionalKey(Schema.String).annotate({
     description: "Exact AI team template ID from list. Omit for an Orchestrator-only project. Mutually exclusive with role.",
@@ -79,6 +86,20 @@ export function groupModeError(mode: string | undefined) {
     return "create_group needs mode: lead creates the group's Президент chat, council creates its Общество chat. Ask the operator which one they want."
 }
 
+// Relative paths are the model's guess at "next to this project"; resolving them against the service's
+// own working directory put members in unrelated folders where the project's files were invisible.
+export function resolveDirectory(base: string, directory: string, home = process.env.HOME ?? process.env.USERPROFILE) {
+  const expanded = home ? directory.trim().replace(/^~(?=$|[\\/])/, home) : directory.trim()
+  return path.resolve(base, expanded)
+}
+
+// A directory with nothing but tool metadata is almost always a wrong guess, not the operator's project.
+const IGNORED_ENTRIES = new Set([".git", ".opencode", ".DS_Store", "Thumbs.db"])
+export async function isEmptyDirectory(directory: string) {
+  const entries = await readdir(directory).catch(() => undefined)
+  return entries !== undefined && entries.every((entry) => IGNORED_ENTRIES.has(entry))
+}
+
 const projectLine = (project: Orchestra.Project) =>
   `${project.name} (${project.id}) · directory: ${project.directory} · main: ${project.main ?? "not initialized"} · sandbox: ${project.sandbox?.isolation ?? "none"}`
 
@@ -117,9 +138,7 @@ export const Plugin = {
                 const external = [
                   ...new Set(
                     directories
-                      .map((directory) =>
-                        path.resolve(directory.trim().replace(/^~(?=$|[\\/])/, process.env.HOME ?? "~")),
-                      )
+                      .map((directory) => resolveDirectory(mainSession.directory, directory))
                       .filter((directory) => !Orchestra.contains(mainSession.directory, directory)),
                   ),
                 ]
@@ -134,6 +153,14 @@ export const Plugin = {
                   sessionID: context.sessionID,
                   agent: context.agent,
                   source: { type: "tool", messageID: context.messageID, id: context.id },
+                })
+              })
+
+            const assertNotEmpty = (directory: string, allowed: boolean | undefined, label: string) =>
+              Effect.gen(function* () {
+                if (allowed || !(yield* Effect.promise(() => isEmptyDirectory(directory)))) return
+                return yield* new ToolFailure({
+                  message: `${label}: "${directory}" is empty, so the project would see none of the work. Use the directory that holds the project's files (ask the operator if unsure), or pass empty: true only when the operator asked for a project that starts from nothing. Nothing was created.`,
                 })
               })
 
@@ -169,8 +196,9 @@ export const Plugin = {
               }
 
               case "create_session": {
-                const directory = input.directory?.trim()
-                if (!directory) return yield* new ToolFailure({ message: "create_session requires directory: an existing path. Call list for team IDs first." })
+                const requested = input.directory?.trim()
+                if (!requested) return yield* new ToolFailure({ message: "create_session requires directory: an existing path. Call list for team IDs first." })
+                const directory = resolveDirectory(mainSession.directory, requested)
                 const team = input.team?.trim()
                 const roleID = input.role?.trim()
                 if (team && roleID)
@@ -182,6 +210,7 @@ export const Plugin = {
                 const selectedRole = roleID ? roles.find((role) => role.id === roleID) : undefined
                 if (roleID && !selectedRole)
                   return yield* new ToolFailure({ message: 'Unknown AI role ID "' + roleID + '". Call list and use an exact role ID.' })
+                yield* assertNotEmpty(directory, input.empty, "create_session")
                 yield* assertExternalDirectories([directory])
                 const sandbox = sandboxChoice(input.sandbox)
                 const created = yield* orchestra.create({
@@ -247,7 +276,7 @@ export const Plugin = {
                 for (let index = 0; index < inputMembers.length; index++) {
                   const member = inputMembers[index]!
                   if (member.projectID?.trim()) {
-                    if (member.name !== undefined || member.directory !== undefined || member.team !== undefined || member.role !== undefined || member.sandbox !== undefined)
+                    if (member.name !== undefined || member.directory !== undefined || member.team !== undefined || member.role !== undefined || member.sandbox !== undefined || member.empty !== undefined)
                       return yield* new ToolFailure({ message: `Member ${index + 1}: when using projectID, provide no other fields.` })
                     const project = projects.find((item) => item.id === member.projectID)
                     if (!project) return yield* new ToolFailure({ message: `Member ${index + 1}: unknown project ID "${member.projectID}". Call list and use an exact ID.` })
@@ -256,8 +285,10 @@ export const Plugin = {
                     specs.push({ kind: "existing", project })
                     continue
                   }
-                  const directory = member.directory?.trim()
-                  if (!directory) return yield* new ToolFailure({ message: `Member ${index + 1}: provide projectID or directory.` })
+                  const requested = member.directory?.trim()
+                  if (!requested) return yield* new ToolFailure({ message: `Member ${index + 1}: provide projectID or directory.` })
+                  const directory = resolveDirectory(mainSession.directory, requested)
+                  yield* assertNotEmpty(directory, member.empty, `Member ${index + 1}`)
                   const team = member.team?.trim()
                   const roleID = member.role?.trim()
                   if (team && roleID)

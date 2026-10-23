@@ -1,5 +1,5 @@
 import path from "node:path"
-import { mkdir } from "node:fs/promises"
+import { mkdir, writeFile } from "node:fs/promises"
 import { describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
@@ -87,6 +87,9 @@ const setup = Effect.gen(function* () {
   const member = (name: string) => path.join(root.path, name)
   yield* Effect.promise(() => mkdir(member("research"), { recursive: true }))
   yield* Effect.promise(() => mkdir(member("build"), { recursive: true }))
+  // Members must hold files: an empty directory is rejected as a wrong path.
+  yield* Effect.promise(() => writeFile(path.join(member("research"), "README.md"), "research"))
+  yield* Effect.promise(() => writeFile(path.join(member("build"), "README.md"), "build"))
   return { root, main, member }
 })
 
