@@ -1,4 +1,4 @@
-<h1 align="center">Opencode++</h1>
+<h1 align="center">Orchestra</h1>
 
 <p align="center">Терминальный ИИ-агент для разработки в команде: мультиплеер по локальной сети, ИИ-команды с ролями, DoD-доска проекта, заметки и банк идей.<br>Основан на <a href="https://github.com/anomalyco/opencode">OpenCode</a>. Windows, Linux, macOS и Android.</p>
 
@@ -6,20 +6,16 @@
 
 ## Установка
 
-Одна команда, git, Bun и остальное установщик поставит сам.
+Одна команда, git и Bun установщик поставит сам, если их нет.
 
 | Система | Команда |
 | --- | --- |
-| Linux / macOS / Android (Termux) | `curl -fsSL https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/lan-rooms/install.sh \| sh` |
-| Windows (PowerShell) | `irm https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/lan-rooms/opencode-pp-install.ps1 \| iex` |
+| Windows (PowerShell) | `irm https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/installer/get.ps1 \| iex` |
+| Linux / macOS | `curl -fsSL https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/installer/get.sh \| sh` |
 
-Потом запусти `opencode-pp`. Обычный opencode остаётся командой `opencode`, настройки в `~/.config/opencode` общие.
+Потом открой новый терминал и запусти `orchestra-app`.
 
-**Android:** поставь [Termux](https://f-droid.org/packages/com.termux/) из F-Droid или GitHub (версия из Google Play устарела) и выполни команду для Linux. Opencode++ ставится внутрь Debian через proot-distro, `opencode-pp` открывает его в текущей папке.
-
-**Обновление:** `/update` в приложении или повторный запуск команды установки.
-
-**Мультиплеер на Windows:** один раз нажми «Разрешить в брандмауэре Windows» в окне «Хост» или «Подключиться».
+**Обновление:** повторный запуск команды установки.
 
 ## Что внутри
 

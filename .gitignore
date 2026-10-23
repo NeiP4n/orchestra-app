@@ -40,3 +40,6 @@ tsconfig.tsbuildinfo
 /artifacts/
 
 /dist/*.exe
+
+# Test logs
+.*.log

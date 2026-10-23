@@ -1,4 +1,4 @@
-<h1 align="center">Opencode++</h1>
+<h1 align="center">Orchestra</h1>
 
 <p align="center">A terminal AI coding agent for teams: LAN multiplayer, AI teams with roles, a project DoD board, notes and an Idea Bank.<br>Built on <a href="https://github.com/anomalyco/opencode">OpenCode</a>. Windows, Linux, macOS and Android.</p>
 
@@ -6,18 +6,16 @@
 
 ## Install
 
-One command; git, Bun and everything else is installed for you.
+One command; git and Bun are installed for you if missing.
 
 | System | Command |
 | --- | --- |
-| Linux / macOS / Android (Termux) | `curl -fsSL https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/lan-rooms/install.sh \| sh` |
-| Windows (PowerShell) | `irm https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/lan-rooms/opencode-pp-install.ps1 \| iex` |
+| Windows (PowerShell) | `irm https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/installer/get.ps1 \| iex` |
+| Linux / macOS | `curl -fsSL https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/installer/get.sh \| sh` |
 
-Then run `opencode-pp`. A regular opencode keeps the `opencode` command; settings in `~/.config/opencode` are shared.
+Then open a new terminal and run `orchestra-app`.
 
-**Android:** install [Termux](https://f-droid.org/packages/com.termux/) from F-Droid or GitHub (the Google Play build is outdated) and run the Linux command. Opencode++ is set up inside a proot-distro Debian; `opencode-pp` opens it in the current folder.
-
-**Updates:** `/update` inside the app, or run the install command again.
+**Updates:** run the install command again.
 
 ## What's inside
 
