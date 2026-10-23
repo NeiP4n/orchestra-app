@@ -53,7 +53,8 @@ export class WarpError extends Error {
       | "proxy-unreachable"
       | "socks-only"
       | "managed-registration"
-      | "command-failed",
+      | "command-failed"
+      | "cancelled",
     message: string,
   ) {
     super(message)
@@ -444,9 +445,14 @@ export function exitIp(port?: number, timeout = 8_000): Promise<ExitIp | undefin
  */
 let lastConnectOutput = ""
 
+// Bumped by disconnect() so a connect loop already running stops instead of undoing it.
+let generation = 0
+
 async function connectUntilUp(attempts = 3): Promise<Status> {
+  const started = generation
   let current = await status()
   for (let attempt = 0; attempt < attempts && current.state !== "connected"; attempt++) {
+    if (generation !== started) throw new WarpError("cancelled", "WARP was disconnected while it was connecting.")
     lastConnectOutput = (await run(["connect"])).replace(/\s+/g, " ").slice(0, 160)
     current = await waitForState("connected", 15)
     if (current.state !== "connected") await wait(1_000)
@@ -495,6 +501,8 @@ export async function ensureProxy(port = DEFAULT_PORT, options: { takeOverDevice
   // A first connection after registering can take several seconds before the proxy starts listening.
   const connected = await connectUntilUp()
   if (!(await waitForPort(effectivePort, 25))) {
+    // warp-cli keeps retrying a connection that never came up; stop it so WARP reads as disconnected.
+    if (connected.state !== "connected") await run(["disconnect"]).catch(() => undefined)
     throw new WarpError(
       "proxy-unreachable",
       `The WARP local proxy is not listening on 127.0.0.1:${effectivePort}. WARP says: ${connected.details.replace(/\s+/g, " ").slice(0, 160)}. connect said: ${lastConnectOutput || "(nothing)"}`,
@@ -530,6 +538,7 @@ export async function connect(): Promise<Status> {
 
 // Not limited to Local Proxy mode: a WARP stuck connecting (often in device mode on Linux) must still be stoppable.
 export async function disconnect(): Promise<Status> {
+  generation++
   await run(["disconnect"])
   return waitForState("disconnected")
 }

@@ -528,7 +528,7 @@ function WarpPage(props: { context: Plugin.Context; status: WarpStatus; busy: Sh
         {props.status.state === "unavailable" && <ActionButton context={props.context} id="warp.install" label={ru() ? tr("Install WARP…") : "Install WARP…"} run={() => props.run("install")} disabled={pending()} emphasized />}
         <ActionButton context={props.context} id="warp.refresh" label={ru() ? tr("Status") : "Refresh"} run={() => props.run("refresh")} disabled={pending()} />
         {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.connect" label={ru() ? tr("Connect") : "Connect"} run={() => props.run("connect")} disabled={pending() || props.status.state === "connected"} />}
-        {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.disconnect" label={ru() ? tr("Disconnect") : "Disconnect"} run={() => props.run("disconnect")} disabled={pending() || props.status.state === "disconnected"} />}
+        {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.disconnect" label={ru() ? tr("Disconnect") : "Disconnect"} run={() => props.run("disconnect")} disabled={props.busy.action === "disconnect" || props.status.state === "disconnected"} />}
         {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.reconnect" label={ru() ? tr("Reconnect") : "Reconnect"} run={() => props.run("reconnect")} disabled={pending()} />}
         {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.proxy" label={props.proxyEnabled ? (ru() ? tr("Remove the OpenCode proxy") : "Disable OpenCode proxy") : (ru() ? tr("Only OpenCode through WARP…") : "Route only OpenCode through WARP…")} run={() => props.run(props.proxyEnabled ? "disableProxy" : "proxy")} disabled={pending()} emphasized={!props.proxyEnabled} />}
         {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.changeIp" label={ru() ? tr("Change IP") : "Change IP"} run={() => props.run("changeIp")} disabled={pending() || !props.proxyEnabled} emphasized={props.proxyEnabled} />}
@@ -636,6 +636,10 @@ export default Plugin.define({
     // refused for every chat until the address changes; fallbacks skip those models.
     const cappedModels = new Set<string>()
     let autoEnabling = false
+    // A failed automatic switch-on is not retried on every capped request: WARP that cannot reach
+    // Cloudflare would otherwise be put back into "connecting" again and again.
+    let autoRouteFailedAt = 0
+    const AUTO_ROUTE_RETRY_MS = 15 * 60 * 1_000
 
     const scheduleContinuationRetry = () => {
       if (continuationRetryTimer) return
@@ -891,7 +895,7 @@ export default Plugin.define({
         setTimeout(() => void enableAutoRouteForCap(), 1_000)
         return
       }
-      if (autoRotate.optedOut || !Warp.resolveCli()) {
+      if (autoRotate.optedOut || !Warp.resolveCli() || Date.now() - autoRouteFailedAt < AUTO_ROUTE_RETRY_MS) {
         Warp.log(`automatic WARP switch-on skipped: optedOut=${autoRotate.optedOut === true} cli=${Boolean(Warp.resolveCli())}`)
         await resumeRateLimitedChats({ fallback: "warp-unavailable" })
         return
@@ -927,6 +931,7 @@ export default Plugin.define({
         setAutoRotation({ phase: "changed", at: Date.now(), from: before?.ip, to: after?.ip })
         await resumeRateLimitedChats({ rotation: { before, after, changed } })
       } catch (cause) {
+        autoRouteFailedAt = Date.now()
         Warp.log(`automatic WARP switch-on failed: ${messageOf(cause).slice(0, 200)}`)
         setAutoRotation({ phase: "failed", at: Date.now(), message: describe(context, cause) })
         await resumeRateLimitedChats({ fallback: "warp-unavailable" })
@@ -968,7 +973,15 @@ export default Plugin.define({
     const disposeRetry = context.data.on("session.retry.scheduled", (event) => onProviderFailure(event.data.sessionID, event.data.error))
 
     const perform = async (action: WarpAction) => {
-      if (busy.action !== null) return
+      // Disconnect may interrupt whatever is running: it is how the user stops a connection that hangs.
+      if (busy.action !== null && !(action === "disconnect" && busy.action !== "disconnect")) return
+      if (action === "disconnect") {
+        // Turning WARP off by hand also stops the automatic switch-on for the free-tier cap; Auto IP turns it back on.
+        await updateAutoRotate((draft) => {
+          draft.enabled = false
+          draft.optedOut = true
+        })
+      }
       setSharedBusy(updateBusy, action)
       if (action === "proxy" || action === "disableProxy") { offReads = 0; trustUntil = Date.now() + 30_000 }
       try {
