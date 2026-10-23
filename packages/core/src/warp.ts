@@ -528,8 +528,8 @@ export async function connect(): Promise<Status> {
   return connectUntilUp()
 }
 
+// Not limited to Local Proxy mode: a WARP stuck connecting (often in device mode on Linux) must still be stoppable.
 export async function disconnect(): Promise<Status> {
-  await requireProxyMode()
   await run(["disconnect"])
   return waitForState("disconnected")
 }
