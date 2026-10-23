@@ -34,6 +34,10 @@ import { Limits } from "../limits.js"
 
 const DEFAULT_STARTUP_TIMEOUT = 30_000
 const DEFAULT_CATALOG_TIMEOUT = 30_000
+// npx and uvx download the server on first launch, which takes well over 30s on a slow connection;
+// killing them mid-download also leaves a broken package in their cache that fails every later start.
+const RUNNER_STARTUP_TIMEOUT = 5 * 60 * 1_000
+const RUNNERS = new Set(["npx", "uvx", "bunx", "pnpx"])
 const DEFAULT_EXECUTION_TIMEOUT = 12 * 60 * 60 * 1_000 // 12 hours
 const TERMINATE_TIMEOUT = 1_000
 const toError = (error: unknown) => (error instanceof Error ? error : new Error(String(error)))
@@ -185,6 +189,12 @@ export const connect = Effect.fnUntraced(function* (
       ),
     )
 
+  const startup =
+    config.timeout?.startup ??
+    (config.type === "local" && RUNNERS.has(path.parse(config.command[0] ?? "").name.toLowerCase())
+      ? RUNNER_STARTUP_TIMEOUT
+      : DEFAULT_STARTUP_TIMEOUT)
+
   const initialize = Effect.fnUntraced(function* (transport: Transport) {
     const runFork = Effect.runForkWith(yield* Effect.context())
     const client = new Client(clientInfo, {
@@ -219,7 +229,7 @@ export const connect = Effect.fnUntraced(function* (
 
     yield* Effect.tryPromise({
       try: (signal) =>
-        client.connect(transport, { timeout: config.timeout?.startup ?? DEFAULT_STARTUP_TIMEOUT, signal }),
+        client.connect(transport, { timeout: startup, signal }),
       catch: (error) => error,
     }).pipe(Effect.onError(() => Effect.promise(() => transport.close()).pipe(Effect.ignore)))
     return client
@@ -281,7 +291,7 @@ export const connect = Effect.fnUntraced(function* (
     })
 
     // Every attempt opens a fresh transport; no retry starts once the startup timeout has passed.
-    const deadline = (yield* Clock.currentTimeMillis) + (config.timeout?.startup ?? DEFAULT_STARTUP_TIMEOUT)
+    const deadline = (yield* Clock.currentTimeMillis) + (startup)
     return yield* retrying(
       "MCP connect",
       open(url).pipe(
