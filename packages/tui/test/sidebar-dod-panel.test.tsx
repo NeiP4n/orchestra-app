@@ -20,7 +20,12 @@ const board = [
   ),
 ].join("\n")
 
-async function mount(text: string, height: number, onClose = () => {}) {
+async function mount(
+  text: string,
+  height: number,
+  onClose = () => {},
+  confirm: (options: { title: string }) => Promise<boolean | undefined> = async () => true,
+) {
   const directory = await mkdtemp(path.join(tmpdir(), "dod-panel-"))
   await mkdir(path.join(directory, ".opencode"), { recursive: true })
   await writeFile(path.join(directory, ".opencode", "dod.yaml"), text)
@@ -31,7 +36,7 @@ async function mount(text: string, height: number, onClose = () => {}) {
       theme,
       data: { session: { get: () => ({ location: { directory } }) } },
       location: { directory },
-      ui: { format: { path: (value: string) => value } },
+      ui: { format: { path: (value: string) => value }, dialog: { confirm } },
     } as unknown as Parameters<typeof SidebarDodPanel>[0]["context"]
     const panel = { sessionID: "ses_1", width: 40, close: onClose } as unknown as Parameters<
       typeof SidebarDodPanel
@@ -66,7 +71,7 @@ async function mount(text: string, height: number, onClose = () => {}) {
     }
     throw new Error(setup.captureCharFrame())
   }
-  return { setup, frame }
+  return { setup, frame, directory }
 }
 
 test("the panel's close control stays clear of the progress line on a short panel and closes it", async () => {
@@ -129,6 +134,35 @@ test("the list starts on unfinished work, failures first, and a task opens to it
     await setup.mockMouse.click(chipLine.indexOf("Finished") + 1, chips)
     const done = (await frame((value) => value.includes("Shipped"))).join("\n")
     expect(done).not.toContain("Broken")
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
+test("delete all asks first, then empties the project's board", async () => {
+  const asked: string[] = []
+  let answer = false
+  const { setup, frame, directory } = await mount(board, 16, undefined, async (options: { title: string }) => {
+    asked.push(options.title)
+    return answer
+  })
+  const file = path.join(directory, ".opencode", "dod.yaml")
+  const click = async () => {
+    const lines = await frame((text) => text.includes("Delete all"))
+    const row = lines.findIndex((line) => line.includes("Delete all"))
+    await setup.mockMouse.click(lines[row].indexOf("Delete all") + 1, row)
+  }
+  try {
+    await click()
+    await frame(() => asked.length === 1)
+    expect(await Bun.file(file).text()).toContain("T-0")
+
+    answer = true
+    await click()
+    const lines = await frame((text) => text.includes("No tasks yet"))
+    expect(lines.join("\n")).not.toContain("Delete all")
+    expect(asked).toEqual(["Delete all DoD tasks?", "Delete all DoD tasks?"])
+    expect(await Bun.file(file).text()).not.toContain("T-0")
   } finally {
     setup.renderer.destroy()
   }

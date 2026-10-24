@@ -375,6 +375,10 @@ const ru: Record<string, string> = {
   "DoD read error: {reason}": "Ошибка чтения DoD: {reason}",
   "No tasks yet": "Пока нет задач",
   "Project DoD": "Задачи проекта DoD",
+  "Delete all": "Удалить все",
+  "Delete all DoD tasks?": "Удалить все задачи DoD?",
+  "All {count} tasks of this project's board will be removed from {file}. This cannot be undone.":
+    "Все задачи доски проекта ({count}) будут удалены из {file}. Отменить это нельзя.",
   "Full screen": "На весь экран",
   "Restore panel": "Вернуть панель",
   Progress: "Прогресс",

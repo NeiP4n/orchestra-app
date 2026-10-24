@@ -11,6 +11,8 @@ import {
   summarizeDodBoard,
   orderDodTasks,
   filterDodTasks,
+  clearDodBoard,
+  deleteAllDodTasks,
 } from "../src/feature-plugins/sidebar/dod"
 
 test("nested sessions resolve the DoD board from the nearest repository root", async () => {
@@ -162,5 +164,45 @@ test("a board caught mid-save is read again instead of reported broken", async (
     await expect(readDodBoard(file)).rejects.toThrow()
   } finally {
     await rm(temporary, { recursive: true, force: true })
+  }
+})
+
+test("deleting all tasks empties the board and keeps the rest of the file", async () => {
+  const source = [
+    "# Board comment",
+    "task_id: PROJECT-BOARD",
+    "stages: [build]",
+    "leaves:",
+    "  - id: L-1",
+    "    what: First",
+    "    steps:",
+    "      - \"[x] done\"",
+    "  # a comment between tasks",
+    "- id: L-2",
+    "  what: Second",
+    "handover:",
+    "  note: keep me",
+    "",
+  ].join("\n")
+  const cleared = clearDodBoard(source)
+  expect(parseDodBoard(cleared)).toEqual([])
+  expect(cleared).toContain("# Board comment")
+  expect(cleared).toContain("task_id: PROJECT-BOARD")
+  expect(cleared).toContain("stages: [build]")
+  expect(cleared).toContain("handover:\n  note: keep me")
+  expect(cleared).not.toContain("L-1")
+  expect(cleared).not.toContain("L-2")
+  expect(parseDodBoard(clearDodBoard("task_id: X\n"))).toEqual([])
+
+  const directory = await mkdtemp(path.join(os.tmpdir(), "dod-clear-"))
+  try {
+    await mkdir(path.join(directory, ".opencode"), { recursive: true })
+    const file = path.join(directory, ".opencode", "dod.yaml")
+    await writeFile(file, source)
+    await deleteAllDodTasks(file)
+    expect(await readDodBoard(file)).toEqual([])
+    expect(await Bun.file(file).text()).toContain("handover:")
+  } finally {
+    await rm(directory, { recursive: true, force: true })
   }
 })
