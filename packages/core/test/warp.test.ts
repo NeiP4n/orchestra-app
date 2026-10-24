@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
+  deadTunnelError,
+  foreignTunInterfaces,
   isManagedRegistration,
   isMissingCli,
   isWarpProxy,
@@ -94,5 +96,19 @@ describe("config keeps the OpenCode proxy", () => {
     const result = ConfigNormalize.normalize({ proxy: { http: "http://127.0.0.1:40000", https: "http://127.0.0.1:40000", no_proxy: ["localhost"] } })
     expect(result.type).toBe("normalized")
     if (result.type === "normalized") expect(result.encoded.proxy).toEqual({ http: "http://127.0.0.1:40000", https: "http://127.0.0.1:40000", no_proxy: ["localhost"] })
+  })
+})
+
+describe("dead tunnel", () => {
+  test("names the VPN interface that captures WARP", () => {
+    const error = deadTunnelError(40000, ["Meta"])
+    expect(error.code).toBe("no-traffic")
+    expect(error.message).toContain("Meta")
+    expect(error.message).toContain("warp-svc")
+  })
+
+  test("TUN interfaces are only probed on Linux", () => {
+    expect(foreignTunInterfaces("win32")).toEqual([])
+    expect(foreignTunInterfaces("darwin")).toEqual([])
   })
 })

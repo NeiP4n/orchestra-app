@@ -14,6 +14,7 @@ import { homedir, tmpdir } from "node:os"
 import { Agent as HttpsAgent, request as httpsRequest } from "node:https"
 import { createConnection } from "node:net"
 import { startHttpBridge } from "./warp-http-bridge"
+import { candidateUpstreams, describeUpstream, readState, RELAY_ENDPOINT, startRelay, stopRelay, writeState, type Upstream } from "./warp-relay"
 import path from "node:path"
 import { HttpsProxyAgent } from "https-proxy-agent"
 
@@ -51,6 +52,7 @@ export class WarpError extends Error {
       | "not-proxy-mode"
       | "device-in-use"
       | "proxy-unreachable"
+      | "no-traffic"
       | "socks-only"
       | "managed-registration"
       | "command-failed"
@@ -384,12 +386,30 @@ export function speaksSocks5(port = DEFAULT_PORT, host = "127.0.0.1"): Promise<b
 
 /**
  * OpenCode's proxy setting is an HTTP URL. Newer WARP clients serve HTTP and SOCKS5 on the same port, but older
- * ones are SOCKS5-only and would accept connections while carrying no HTTP traffic. Decided by a real request
- * through the proxy, so a client that speaks both is never misreported.
+ * ones are SOCKS5-only. Decided by the protocol the port answers, not by traffic: a tunnel that carries
+ * nothing still answers HTTP (502), and judging by traffic used to switch OpenCode to the bridge for no reason.
  */
 export async function isSocksOnly(port = DEFAULT_PORT) {
-  if (await exitIp(port, 6_000)) return false
+  if (await speaksHttp(port)) return false
   return speaksSocks5(port)
+}
+
+/** True when the port answers a plain HTTP request with any HTTP status line. */
+export function speaksHttp(port = DEFAULT_PORT, host = "127.0.0.1"): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host, port })
+    const timer = setTimeout(() => done(false), 2_000)
+    const done = (value: boolean) => {
+      clearTimeout(timer)
+      socket.destroy()
+      resolve(value)
+    }
+    socket.once("error", () => done(false))
+    // OPTIONS * needs no upstream, so a dead tunnel still answers it; WARP silently closes a CONNECT to loopback.
+    socket.once("connect", () => socket.write("OPTIONS * HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"))
+    socket.once("close", () => done(false))
+    socket.once("data", (reply) => done(reply.subarray(0, 5).toString() === "HTTP/"))
+  })
 }
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
@@ -498,9 +518,18 @@ export async function ensureProxy(port = DEFAULT_PORT, options: { takeOverDevice
     await runAny(["tunnel", "protocol", "set", "MASQUE"], ["set-tunnel-protocol", "masque"])
   }
   await hideGui()
+  // This machine needed the relay last time: go there first instead of waiting out a blocked tunnel.
+  const remembered = readState()
+  if (remembered?.active && (await routeThroughRelay(effectivePort, [remembered.upstream]))) return status()
   // A first connection after registering can take several seconds before the proxy starts listening.
   const connected = await connectUntilUp()
-  if (!(await waitForPort(effectivePort, 25))) {
+  const listening = connected.state === "connected" && (await waitForPort(effectivePort, 25))
+  if (!listening || !(await exitIp(effectivePort, 6_000))) {
+    // Blocked by the network or swallowed by a VPN's TUN: carry WARP's tunnel through the relay.
+    if (await routeThroughRelay(effectivePort)) return status()
+    if (listening && !(await isSocksOnly(effectivePort))) throw deadTunnelError(effectivePort)
+  }
+  if (!listening) {
     // warp-cli keeps retrying a connection that never came up; stop it so WARP reads as disconnected.
     if (connected.state !== "connected") await run(["disconnect"]).catch(() => undefined)
     throw new WarpError(
@@ -533,6 +562,7 @@ async function requireProxyMode() {
 
 export async function connect(): Promise<Status> {
   await requireProxyMode()
+  await keepRelay()
   return connectUntilUp()
 }
 
@@ -545,6 +575,7 @@ export async function disconnect(): Promise<Status> {
 
 export async function reconnect(): Promise<Status> {
   await requireProxyMode()
+  await keepRelay()
   await run(["disconnect"]).catch(() => undefined)
   await waitForState("disconnected", 10)
   return connectUntilUp()
@@ -579,14 +610,25 @@ export async function rotate(port = DEFAULT_PORT): Promise<Rotation> {
   const localPort = (await mode()).port ?? port
   // Older WARP clients expose SOCKS5 on the native port; OpenCode reaches them through our
   // HTTP bridge. Probe the same endpoint OpenCode actually uses or IP changes look unconfirmed.
-  const effectivePort = (await isSocksOnly(localPort)) ? HTTP_BRIDGE_PORT : localPort
-  const before = await exitIp(effectivePort, 5_000)
+  // One request answers both questions, so the native port is not probed twice.
+  let effectivePort = localPort
+  let before = await exitIp(localPort, 4_000)
+  if (!before && (await speaksSocks5(localPort))) {
+    before = await exitIp(HTTP_BRIDGE_PORT, 4_000)
+    if (before) effectivePort = HTTP_BRIDGE_PORT
+  }
+  // A blocked or VPN-swallowed tunnel is not fixed by reconnecting or re-registering; the relay is.
+  // Failing here is quick, instead of after a minute of timeouts.
+  if (!before) before = await routeThroughRelay(localPort)
+  if (!before) throw deadTunnelError(localPort)
 
   let state = await reconnect()
   let after = await waitForExit(effectivePort)
   let usedNewRegistration = false
 
-  if (before && after && before.ip === after.ip) {
+  // No answer through the proxy is not "same IP": the tunnel carries nothing, so a fresh
+  // registration is the next step either way. Without this a dead tunnel never got past reconnect.
+  if (!after || (before && before.ip === after.ip)) {
     try {
       state = await resetRegistration()
       usedNewRegistration = true
@@ -595,16 +637,84 @@ export async function rotate(port = DEFAULT_PORT): Promise<Rotation> {
       if (!(cause instanceof WarpError && cause.code === "managed-registration")) throw cause
     }
   }
-  return { before, after, changed: Boolean(before && after && before.ip !== after.ip), usedNewRegistration, status: state }
+  if (!after) {
+    log(`rotation: no traffic through 127.0.0.1:${effectivePort} after reconnect${usedNewRegistration ? " and new registration" : ""}`)
+    throw deadTunnelError(effectivePort)
+  }
+  log(`rotation: exit ${before?.ip ?? "?"} -> ${after.ip} newRegistration=${usedNewRegistration}`)
+  // Without a "before" sample the only honest signal is that WARP now answers; the address is new to us.
+  return { before, after, changed: !before || before.ip !== after.ip, usedNewRegistration, status: state }
+}
+
+/**
+ * VPN clients in TUN mode (Clash/mihomo, sing-box, v2rayN, Hiddify…) capture warp-svc's own UDP
+ * tunnel. The MASQUE handshake still succeeds through them, so WARP reports Connected, but nothing
+ * passes inside and the local proxy answers 502. Named so the user knows what to exclude.
+ */
+export function foreignTunInterfaces(platform: NodeJS.Platform = process.platform): string[] {
+  if (platform !== "linux") return []
+  try {
+    return readdirSync("/sys/class/net").filter(
+      (name) => name !== "CloudflareWARP" && existsSync(path.join("/sys/class/net", name, "tun_flags")),
+    )
+  } catch {
+    return []
+  }
+}
+
+export function deadTunnelError(port: number, tun = foreignTunInterfaces()) {
+  const hint = tun.length
+    ? ` Another VPN is capturing WARP's traffic through the TUN interface ${tun.join(", ")}: route the warp-svc process (or 162.159.192.0/18 and 162.159.198.0/24) DIRECT in that VPN, or turn its TUN mode off.`
+    : " Another VPN or firewall may be blocking WARP's UDP tunnel."
+  return new WarpError(
+    "no-traffic",
+    `No traffic passes through WARP's local proxy on 127.0.0.1:${port}, not even through OpenCode's relay over the local VPN proxy ports, so the exit IP cannot change.${hint} A VPN's SOCKS5 port can be named with ORCHESTRA_WARP_UPSTREAM=socks5://127.0.0.1:<port>.`,
+  )
 }
 
 async function waitForExit(port: number, attempts = 3) {
   for (let index = 0; index < attempts; index++) {
-    const result = await exitIp(port, 5_000)
+    const result = await exitIp(port, 4_000)
     if (result) return result
-    await wait(700)
+    await wait(500)
   }
   return undefined
+}
+
+/**
+ * Point WARP at the loopback relay (see warp-relay.ts) and try each upstream until traffic flows.
+ * Resolves the exit seen through WARP, or undefined after putting WARP back on its own endpoint.
+ */
+async function routeThroughRelay(port: number, upstreams?: Upstream[]): Promise<ExitIp | undefined> {
+  for (const upstream of upstreams ?? (await candidateUpstreams())) {
+    await startRelay(upstream)
+    await runAny(["tunnel", "endpoint", "set", RELAY_ENDPOINT], ["set-custom-endpoint", RELAY_ENDPOINT])
+    await run(["disconnect"]).catch(() => undefined)
+    await waitForState("disconnected", 10)
+    const state = await connectUntilUp(1)
+    const seen = state.state === "connected" && (await waitForPort(port, 10)) ? await waitForExit(port, 2) : undefined
+    log(`relay via ${describeUpstream(upstream)}: ${seen ? `exit ${seen.ip}` : "no traffic"}`)
+    if (seen) {
+      writeState({ active: true, upstream })
+      return seen
+    }
+  }
+  stopRelay()
+  const remembered = readState()
+  if (remembered) writeState({ active: false, upstream: remembered.upstream })
+  await runAny(["tunnel", "endpoint", "reset"], ["clear-custom-endpoint"]).catch(() => undefined)
+  await run(["disconnect"]).catch(() => undefined)
+  await connectUntilUp(1).catch(() => undefined)
+  return undefined
+}
+
+/**
+ * Keep the relay alive in this process while WARP is pointed at it. Cheap and idempotent, so the
+ * panel calls it on every refresh: when the OpenCode that ran the relay exits, the next one takes over.
+ */
+export async function keepRelay() {
+  const state = readState()
+  if (state?.active) await startRelay(state.upstream)
 }
 
 // ---------- shut WARP down with the last OpenCode ----------
@@ -655,5 +765,10 @@ export function releaseSync(options: { disconnect: boolean } = { disconnect: tru
     const settings = execFileSync(cli, ["--accept-tos", "settings"], { encoding: "utf8", windowsHide: true, timeout: 5_000 })
     if (parseMode(settings).mode !== "proxy") return
     execFileSync(cli, ["--accept-tos", "disconnect"], { windowsHide: true, timeout: 8_000, stdio: "ignore" })
+    // The relay dies with this process; WARP must not stay pointed at a closed loopback port.
+    // The remembered upstream stays, so the next start goes through the relay right away.
+    if (settings.includes(RELAY_ENDPOINT)) {
+      execFileSync(cli, ["--accept-tos", "tunnel", "endpoint", "reset"], { windowsHide: true, timeout: 8_000, stdio: "ignore" })
+    }
   } catch {}
 }

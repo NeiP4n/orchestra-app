@@ -75,6 +75,12 @@ function describe(context: Plugin.Context, cause: unknown) {
         return text(context, "This WARP version's local proxy speaks SOCKS5 only; OpenCode needs HTTP. Update Cloudflare WARP.", tr("This WARP version's local proxy speaks only SOCKS5, and OpenCode needs HTTP. Update Cloudflare WARP."))
       case "managed-registration":
         return text(context, "This WARP client is managed by an organization (Zero Trust); its registration cannot be reset here.", tr("This WARP is managed by an organization (Zero Trust); its registration cannot be reset from here."))
+      case "no-traffic":
+        return text(
+          context,
+          cause.message,
+          "Через WARP не идёт трафик даже через релей OpenCode (он пробовал локальные SOCKS5-порты VPN: 10808, 7897, 7890, 2080, 12334… и прямое соединение), поэтому IP не меняется. Включите в своём VPN (Clash Verge, Happ, v2rayN…) SOCKS5-порт с UDP или укажите его: ORCHESTRA_WARP_UPSTREAM=socks5://127.0.0.1:<порт>.",
+        )
       default:
         return cause.message
     }
@@ -558,7 +564,7 @@ export default Plugin.define({
         Warp.exitIp(),
         proxy.enabled && typeof proxyPort === "number" ? Warp.exitIp(proxyPort) : Promise.resolve(undefined),
       ])
-      updateExit((draft) => { if (direct) draft.direct = describeIp(direct); if (!proxy.enabled) draft.ip = ""; else if (viaWarp) draft.ip = describeIp(viaWarp) })
+      updateExit((draft) => { if (direct) draft.direct = describeIp(direct); if (!proxy.enabled) draft.ip = ""; else draft.ip = viaWarp ? describeIp(viaWarp) : text(context, "no traffic through WARP", "нет трафика через WARP") })
     }
 
     let offReads = 0
@@ -595,17 +601,19 @@ export default Plugin.define({
       if (enabled) {
         leaving = false
         Warp.markInUse()
-        // Heal configurations saved by older builds that always pointed at 40001, even when
-        // the current WARP client serves HTTP directly on 40000. Once per session is enough:
-        // the repair either sticks in the config or the user changes it again.
+        // Heal configurations that point at the 40001 bridge while WARP serves HTTP itself on 40000:
+        // saved by older builds, or by a build that judged a dead tunnel to be SOCKS5-only. Nothing
+        // else listens on 40001 then, so every OpenCode request fails. Retried on each refresh until
+        // decided, because right after start WARP may still be connecting and 40000 not open yet.
         if (!healedRoute) {
-          healedRoute = true
           const configuredPort = await readOpenCodeProxyPort(context)
+          if (configuredPort !== Warp.HTTP_BRIDGE_PORT) healedRoute = true
           if (configuredPort === Warp.HTTP_BRIDGE_PORT && await Warp.portOpen(Warp.DEFAULT_PORT)) {
-            const expectedPort = (await Warp.isSocksOnly(Warp.DEFAULT_PORT)) ? Warp.HTTP_BRIDGE_PORT : Warp.DEFAULT_PORT
-            if (expectedPort !== configuredPort) {
-              await setOpenCodeProxy(context, true, expectedPort)
-              Warp.log(`repaired stale OpenCode WARP proxy port ${configuredPort} -> ${expectedPort}`)
+            healedRoute = true
+            if (!(await Warp.isSocksOnly(Warp.DEFAULT_PORT))) {
+              await setOpenCodeProxy(context, true, Warp.DEFAULT_PORT)
+              Warp.log(`repaired stale OpenCode WARP proxy port ${configuredPort} -> ${Warp.DEFAULT_PORT}`)
+              await refreshExitIp({ force: true })
             }
           }
         }
@@ -614,6 +622,8 @@ export default Plugin.define({
 
     const refresh = async () => {
       if (busy.action !== null) return
+      // Another OpenCode may have run WARP's relay and exited; this one takes it over.
+      await Warp.keepRelay()
       const read = await readWarpStatus()
       setSharedStatus(updateStatus, read)
       await refreshProxy()
