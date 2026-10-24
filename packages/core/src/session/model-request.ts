@@ -465,6 +465,17 @@ export const layer = Layer.effect(
       // The call is not run here: the tool skipped this request's context hooks, which may narrow
       // or remove it. The call itself loads the tool, so the next request offers it through them.
       const unloaded = (name: string) => tools.lazy?.has(name) === true && !picked.has(name)
+      // A tool's guide arrives as the answer to the session's first call of it, before that call
+      // can act. Every later call finds the first one in history and runs.
+      const unguided = (name: string) => {
+        const guide = tools.guides?.get(name)
+        // A tool a context hook removed stays unreachable; execute refuses it as before.
+        if (!guide || !hooked.has(name)) return undefined
+        const called = input.messages.some((message) =>
+          message.content.some((part) => part.type === "tool-call" && part.name === name),
+        )
+        return called ? undefined : guide
+      }
       return {
         event: shaped,
         request,
@@ -480,7 +491,16 @@ export const layer = Layer.effect(
                   message: `${call.call.name} was not loaded for this step. It is loaded now: call it again.`,
                 }),
               )
-            : tools.execute({ ...call, definitions: hooked })
+            : unguided(call.call.name) !== undefined
+              ? Effect.succeed<Tool.NormalizedResult>({
+                  content: [
+                    {
+                      type: "text" as const,
+                      text: `${unguided(call.call.name)}\n\nThis is how ${call.call.name} works; the call did not run. Call it again with what you need.`,
+                    },
+                  ],
+                })
+              : tools.execute({ ...call, definitions: hooked })
           ).pipe(
             Effect.catchCauseFilter(
               (cause) => {

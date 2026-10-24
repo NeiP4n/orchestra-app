@@ -67,6 +67,8 @@ export interface Snapshot {
   readonly lazy?: ReadonlyMap<string, Tool.Info>
   /** Schemas of `lazy`, sorted by name; the request adds the ones the session selected. */
   readonly lazyDefinitions?: ReadonlyArray<ToolDefinition>
+  /** Direct tools' `guide` text by name, delivered on a session's first call of each. */
+  readonly guides?: ReadonlyMap<string, string>
   readonly execute: (input: {
     readonly sessionID: SessionSchema.ID
     readonly agent: Agent.ID
@@ -293,6 +295,9 @@ const layer = Layer.effect(
             codeModeDefinitions,
             ...(codeModeCatalog === undefined ? {} : { codeModeCatalog }),
             lazy,
+            guides: new Map(
+              Array.from(direct).flatMap(([key, tool]) => (tool.options?.guide ? [[key, tool.options.guide] as const] : [])),
+            ),
             lazyDefinitions: Array.from(lazy)
               .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
               .map(([, tool]) => definition(tool)),

@@ -150,6 +150,34 @@ describe("ToolRouter", () => {
     }),
   )
 
+  it.effect("answers a session's first call of a tool with its guide, then runs later calls", () =>
+    Effect.gen(function* () {
+      const registry = yield* Tool.Service
+      yield* registry.transform((editor) =>
+        editor.add(tool("forge", { codemode: false, core: true, guide: "Forge guide: list before you create." })),
+      )
+      const call = { type: "tool-call" as const, id: "call_5", name: "forge", input: { text: "go" } }
+      const execute = (prepared: SessionModelRequest.Prepared) =>
+        prepared.executeTool({
+          sessionID: session.id,
+          agent: Agent.ID.make("build"),
+          messageID: SessionMessage.ID.make("msg_router"),
+          call,
+        })
+      const first = yield* execute(yield* prepare([Message.user("hello")]))
+      expect(first.content).toEqual([
+        {
+          type: "text",
+          text: "Forge guide: list before you create.\n\nThis is how forge works; the call did not run. Call it again with what you need.",
+        },
+      ])
+      const later = yield* execute(yield* prepare([Message.user("hello"), Message.assistant([call])]))
+      expect(later.content).toEqual([{ type: "text", text: "forge:go" }])
+      const index = (yield* prepare([Message.user("hello")])).request.tools.find((item) => item.name === "forge")
+      expect(index?.description).not.toContain("Forge guide")
+    }),
+  )
+
   it.effect("reports what a tools call loaded", () =>
     Effect.gen(function* () {
       const prepared = yield* prepare([Message.user("hello")])
