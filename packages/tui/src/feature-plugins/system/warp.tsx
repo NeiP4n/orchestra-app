@@ -16,6 +16,8 @@ type WarpAction = "refresh" | "connect" | "disconnect" | "reconnect" | "reset" |
 type SharedBusy = { action: WarpAction | null }
 
 const STATUS_REFRESH_MS = 30_000
+// A tunnel that cannot come up (VPN blocking it, service stopped) is not retried on every refresh.
+const HEAL_RETRY_MS = 2 * 60_000
 // The sidebar's label column, so the values of the WARP block line up.
 const LABEL_WIDTH = 12
 // The exit IP only changes on a rotation or a reconnect, so probing Cloudflare's trace endpoint
@@ -649,10 +651,6 @@ export default Plugin.define({
     // A failed automatic switch-on is not retried on every capped request: WARP that cannot reach
     // Cloudflare would otherwise be put back into "connecting" again and again.
     let autoRouteFailedAt = 0
-    let leavingWarp = false
-    // When WARP's shared exits hit the cap, WARP is not switched back on for the cap for a while.
-    let warpCappedAt = 0
-    const WARP_CAP_MEMORY_MS = 6 * 60 * 60 * 1_000
     const AUTO_ROUTE_RETRY_MS = 15 * 60 * 1_000
 
     const scheduleContinuationRetry = () => {
@@ -790,16 +788,16 @@ export default Plugin.define({
      * With `fallback`, the address could not be changed: only chats held by the per-address cap are
      * continued, each on another free model of its provider, and the user is told why it changed.
      */
-    async function resumeRateLimitedChats(options: { readonly rotation?: Pick<Warp.Rotation, "before" | "after" | "changed">; readonly fallback?: "rotation-paused" | "address-unchanged" | "warp-unavailable"; readonly direct?: boolean }) {
+    async function resumeRateLimitedChats(options: { readonly rotation?: Pick<Warp.Rotation, "before" | "after" | "changed">; readonly fallback?: "rotation-paused" | "address-unchanged" | "warp-unavailable" }) {
       const rotation = options.rotation
-      if (!autoRotate.enabled && !options.fallback && !options.direct) {
+      if (!autoRotate.enabled && !options.fallback) {
         continuations.clear()
         return
       }
       const plain = new Set(continuations.due())
       const due = options.fallback
         ? continuations.due({ addressChanged: true }).filter((sessionID) => !plain.has(sessionID))
-        : continuations.due({ addressChanged: rotation?.changed === true || options.direct === true })
+        : continuations.due({ addressChanged: rotation?.changed === true })
       if (due.length === 0) return
       // On some networks WARP keeps the same exit address even after a new registration (measured:
       // reconnect, new registration and four different tunnel endpoints all returned one IP), so an
@@ -962,49 +960,11 @@ export default Plugin.define({
       void runQueuedRateLimitRotation()
     }
 
-    /**
-     * WARP exits are shared Cloudflare addresses that thousands of people use, so Zen's per-address free
-     * cap is usually spent on them while the operator's own address still has its allowance. A cap hit
-     * through WARP therefore moves OpenCode back to the direct route instead of rotating among WARP exits.
-     */
-    async function leaveWarpForCap() {
-      if (leavingWarp) return
-      if (busy.action !== null) {
-        setTimeout(() => void leaveWarpForCap(), 1_000)
-        return
-      }
-      leavingWarp = true
-      warpCappedAt = Date.now()
-      setSharedBusy(updateBusy, "disableProxy")
-      try {
-        await setOpenCodeProxy(context, false)
-        updateProxy((draft) => { draft.enabled = false })
-        await updateAutoRotate((draft) => {
-          draft.enabled = false
-          draft.optedOut = true
-        })
-        Warp.releaseSync({ disconnect: false })
-        cappedModels.clear()
-        await refreshExitIp({ force: true })
-        Warp.log("free-tier cap through WARP: OpenCode switched back to the direct route")
-        context.ui.toast.show({
-          title: text(context, "Free-tier limit on WARP: switched to direct", tr("Free plan limit on WARP: switched to direct")),
-          message: text(context, "WARP's shared addresses had used up Zen's free allowance, so OpenCode now connects directly from your own address.", tr("WARP's shared addresses had used up Zen's free allowance, so OpenCode now connects directly from your own address.")),
-          variant: "info",
-        })
-        await resumeRateLimitedChats({ direct: true })
-      } catch (cause) {
-        Warp.log(`switching back to the direct route failed: ${messageOf(cause).slice(0, 200)}`)
-      } finally {
-        leavingWarp = false
-        setSharedBusy(updateBusy, null)
-      }
-    }
-
     const onAddressCap = async (error: unknown) => {
-      if ((await readOpenCodeProxyEnabled(context)) === true) return leaveWarpForCap()
-      // Both routes are capped when WARP was just left for this: another free model is the only way on.
-      if (Date.now() - warpCappedAt < WARP_CAP_MEMORY_MS) return resumeRateLimitedChats({ fallback: "warp-unavailable" })
+      // Routing OpenCode through WARP is how the user keeps their own address out of its requests, so
+      // a limit reached through WARP never moves OpenCode back to the direct route; it only moves the
+      // chat to another free model.
+      if ((await readOpenCodeProxyEnabled(context)) === true) return resumeRateLimitedChats({ fallback: "warp-unavailable" })
       if (!autoRotate.enabled) return enableAutoRouteForCap()
       queueAutoRotation(error)
     }
@@ -1024,6 +984,8 @@ export default Plugin.define({
         // queue; otherwise a chat that stopped after the last retry would never be resumed.
         continuations.record(sessionID)
       }
+      // A refused or reset connection through the saved route usually means the tunnel dropped.
+      if (!isRateLimitFailure(error) && isAutoRotationFailure(error)) void healSavedRoute()
       queueAutoRotation(error)
     }
 
@@ -1140,10 +1102,16 @@ export default Plugin.define({
     // request fails with ECONNREFUSED until someone presses the button. Bring it back once per
     // session. Never touches a device-wide tunnel (ensureProxy refuses that) and never starts
     // the background service itself, so no surprise UAC prompt appears.
+    //
+    // The tunnel can also drop mid-session (a VPN that reconnects takes warp-svc's tunnel with it).
+    // OpenCode stays pinned to the WARP port meanwhile, so requests fail rather than leave from the
+    // user's own address, and the periodic refresh and network failures bring the tunnel back here.
+    let healFailedAt = 0
     const healSavedRoute = async () => {
-      if (busy.action !== null) return
+      if (busy.action !== null || Date.now() - healFailedAt < HEAL_RETRY_MS) return
       if ((await readOpenCodeProxyEnabled(context)) !== true) return
       if (!Warp.resolveCli()) return
+      const wasDown = status.state !== "connected"
       setSharedBusy(updateBusy, "proxy")
       try {
         await Warp.ensureProxy(Warp.DEFAULT_PORT)
@@ -1152,20 +1120,23 @@ export default Plugin.define({
         setSharedStatus(updateStatus, await Warp.status())
         updateProxy((draft) => { draft.enabled = true })
         await refreshExitIp({ force: true })
-        context.ui.toast.show({
+        if (wasDown) context.ui.toast.show({
           title: text(context, "WARP route restored", tr("WARP route restored")),
           message: text(context, "OpenCode is routed through WARP again. Other apps are unchanged.", tr("OpenCode goes through WARP again. Other apps' settings are unchanged.")),
           variant: "success",
         })
       } catch (cause) {
-        Warp.log(`startup route restore skipped: ${messageOf(cause).slice(0, 200)}`)
+        healFailedAt = Date.now()
+        Warp.log(`route restore skipped: ${messageOf(cause).slice(0, 200)}`)
         setSharedStatus(updateStatus, warpStatusError(describe(context, cause)))
       } finally {
         setSharedBusy(updateBusy, null)
       }
     }
     void healSavedRoute()
-    const timer = setInterval(() => void refresh(), STATUS_REFRESH_MS)
+    const timer = setInterval(() => void refresh().then(() => {
+      if (status.state !== "connected") void healSavedRoute()
+    }), STATUS_REFRESH_MS)
 
     return () => {
       clearInterval(timer)
