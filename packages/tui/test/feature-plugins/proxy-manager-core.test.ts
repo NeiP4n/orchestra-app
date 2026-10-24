@@ -22,9 +22,9 @@ describe("public HTTP proxy list parsing", () => {
 })
 
 
-test("prioritizes a maintained HTTPS-capable proxy source", () => {
-  expect(PROXY_SOURCES[0].name).toContain("HTTPS-verified")
-  expect(PROXY_SOURCES[0].url).toContain("free-proxy-list/main/https.txt")
+test("prioritizes the maintained HTTP proxy feed", () => {
+  expect(PROXY_SOURCES[0].name).toBe("Proxifly HTTP")
+  expect(PROXY_SOURCES[0].url).toContain("proxies/protocols/http/data.txt")
 })
 
 test("probes the actual OpenCode Zen model endpoint, not an unrelated health-check site", () => {
