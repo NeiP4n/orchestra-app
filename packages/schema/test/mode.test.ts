@@ -112,7 +112,9 @@ describe("work modes", () => {
     const text = Mode.guidanceBlock(required("fast"))
     expect(text).toContain("# Work mode: Fast (fast)")
     expect(text).toContain("one pass")
-    expect(text).toContain("about 20 steps")
+    // A step budget in the prompt made workers stop early; the guidance asks them to finish instead.
+    expect(text).not.toContain("steps")
+    expect(text).toContain("Carry the assigned scope through to the end")
     expect(Mode.guidanceBlock(required("auto"))).toBe("")
   })
 })

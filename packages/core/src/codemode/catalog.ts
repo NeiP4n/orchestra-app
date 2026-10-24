@@ -47,7 +47,8 @@ export type Options = {
 
 const DESCRIPTION_LIMIT = 120
 const CHARACTERS_PER_TOKEN = 4
-const INLINE_BUDGET = 2_000
+// Namespaces are always listed; their tools are found with `search`, so few full signatures need to be inline.
+const INLINE_BUDGET = 600
 
 // Keep every namespace visible, then select full listings one per namespace per round,
 // considering shorter listings first until the inline budget is exhausted.

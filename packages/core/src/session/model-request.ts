@@ -22,6 +22,7 @@ import type {
 } from "@orchestra/plugin/effect/session"
 import type { Agent } from "@orchestra/schema/agent"
 import type { Model } from "@orchestra/schema/model"
+import { Mode } from "@orchestra/schema/mode"
 import type { Content } from "@orchestra/schema/tool"
 import { Cause, Context, Effect, Layer, Result, Stream } from "effect"
 import { HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
@@ -32,10 +33,12 @@ import { PluginHooks } from "../plugin/hooks.js"
 import { zenRequiredToolNames } from "../provider-request-compatibility.js"
 import { QuestionTool } from "../tool/plugin/question.js"
 import { Tool } from "../tool.js"
+import { ToolRouter } from "../tool/router.js"
 import { SessionAffinity } from "./affinity.js"
 import { SessionModelTransport } from "./model-transport.js"
 import { SessionPrefixPin } from "./prefix-pin.js"
 import { SessionProviderContext } from "./provider-context.js"
+import { SessionRequestReport } from "./request-report.js"
 import { SessionRunnerModel } from "./runner/model.js"
 import { SessionSchema } from "./schema.js"
 import { SessionSystemPrompt } from "./system-prompt.js"
@@ -256,12 +259,22 @@ export const layer = Layer.effect(
       // snapshot's active executor maps.
       const deniedCompatibility =
         model.ref.providerID === "opencode" ? (tools.compatibilityDefinitions ?? []) : []
+      // On-demand direct tools join the request once the session loaded or called them, or the
+      // user's words triggered them. The rest stay one line each in the `tools` index.
+      const picked = new Set([
+        ...ToolRouter.selected(input.messages, tools.lazy ?? new Map()),
+        ...Mode.toolsOf(session.metadata, input.agent),
+      ])
+      const loaded = (tools.lazyDefinitions ?? []).filter((tool) => picked.has(tool.name))
       // Zen's upstream rejects more than 128 tools. Mirrored CodeMode schemas are only a validator
-      // courtesy (every one stays callable through `execute`), so large MCP catalogs are trimmed to
-      // fit, keeping the tools Zen's validator looks for first.
+      // courtesy (every one stays callable through `execute`), and mirroring a whole browser or MCP
+      // catalog cost ~9k prompt tokens per step, so only the tools Zen's validator looks for are
+      // mirrored. ORCHESTRA_ZEN_MIRROR=all restores the full mirror.
+      const mirrorAll = process.env.ORCHESTRA_ZEN_MIRROR === "all"
       const zenCompatibility =
         model.ref.providerID === "opencode"
           ? [...(tools.codeModeDefinitions ?? []), ...deniedCompatibility]
+              .filter((candidate) => mirrorAll || ZEN_REQUIRED_TOOLS.has(candidate.name))
               .filter(
                 (candidate, index, all) =>
                   !tools.definitions.some((tool) => tool.name === candidate.name) &&
@@ -271,9 +284,9 @@ export const layer = Layer.effect(
                 (left, right) =>
                   Number(!ZEN_REQUIRED_TOOLS.has(left.name)) - Number(!ZEN_REQUIRED_TOOLS.has(right.name)),
               )
-              .slice(0, Math.max(0, ZEN_TOOL_LIMIT - tools.definitions.length))
+              .slice(0, Math.max(0, ZEN_TOOL_LIMIT - tools.definitions.length - loaded.length))
           : []
-      const advertised = [...tools.definitions, ...zenCompatibility]
+      const advertised = [...tools.definitions, ...loaded, ...zenCompatibility]
       // Remember which tool each definition object came from. Hooks rename a tool by moving
       // its definition to a new key, so after the hook we find the tool by object identity.
       const given = new Map(
@@ -388,6 +401,8 @@ export const layer = Layer.effect(
         return yield* Effect.die(
           new Error("Provider context is incompatible with the route selected by model request hooks"),
         )
+      if (kind === "primary" && SessionRequestReport.enabled())
+        yield* SessionRequestReport.write({ sessionID: session.id, agent: input.agent, request })
 
       const hasHttpHooks =
         (yield* hooks.has("session", "http.request", model.ref.providerID)) ||
@@ -446,6 +461,10 @@ export const layer = Layer.effect(
             )
           : undefined
 
+      // A model may call an on-demand tool it has not loaded yet (it saw the name in the index).
+      // The call is not run here: the tool skipped this request's context hooks, which may narrow
+      // or remove it. The call itself loads the tool, so the next request offers it through them.
+      const unloaded = (name: string) => tools.lazy?.has(name) === true && !picked.has(name)
       return {
         event: shaped,
         request,
@@ -455,7 +474,14 @@ export const layer = Layer.effect(
         // Permission.assert and the question tool throw declines as defects so tools cannot
         // catch them and turn a "no" into model-visible output. Recover them here as failures.
         executeTool: (call: Parameters<Prepared["executeTool"]>[0]) =>
-          tools.execute({ ...call, definitions: hooked }).pipe(
+          (unloaded(call.call.name)
+            ? Effect.fail(
+                new Tool.Error({
+                  message: `${call.call.name} was not loaded for this step. It is loaded now: call it again.`,
+                }),
+              )
+            : tools.execute({ ...call, definitions: hooked })
+          ).pipe(
             Effect.catchCauseFilter(
               (cause) => {
                 const decline = cause.reasons.flatMap((r) =>

@@ -27,6 +27,16 @@ export interface Namespace {
 interface BaseOptions {
   readonly namespace?: string
   readonly permission?: string
+  /**
+   * A direct tool every request advertises. Other direct tools are on demand: the request lists
+   * them in the `tools` index and adds a schema once the session loads or calls that tool.
+   */
+  readonly core?: boolean
+  /**
+   * Case-insensitive regular expressions matched against the user's messages. A match loads this
+   * on-demand tool without waiting for the model to ask for it. The tool's own name always matches.
+   */
+  readonly triggers?: ReadonlyArray<string>
 }
 
 export type Options = BaseOptions &

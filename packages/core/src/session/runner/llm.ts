@@ -37,6 +37,9 @@ import { ToolOutput } from "../../tool-output.js"
 import { Plugin } from "../../plugin.js"
 import { MAX_STEPS_PROMPT } from "./max-steps.js"
 import { Limits } from "../../limits.js"
+import { Dod } from "../../dod.js"
+import { Location } from "../../location.js"
+import { SessionCompletionGate } from "../completion-gate.js"
 
 const CONTINUE_AFTER_INCOMPLETE_STREAM =
   "The previous response was interrupted. Continue from where you left off without repeating completed content."
@@ -54,6 +57,7 @@ const layer = Layer.effect(
     const plugins = yield* Plugin.Service
     const title = yield* SessionTitle.Service
     const steps = yield* SessionStep.make
+    const location = yield* Location.Service
     // Title generation starts once input is visible and must not delay model execution.
     const titles = yield* FiberMap.make<SessionSchema.ID, void, never>()
 
@@ -308,6 +312,22 @@ const layer = Layer.effect(
             assistantMessageID = SessionMessage.ID.create()
           }),
         })
+        if (completed === false) {
+          // The run would go idle: hold the session to what it took on before letting it stop.
+          const nudge = SessionCompletionGate.check(
+            yield* store.context(sessionID),
+            yield* Dod.status(location.project.directory),
+          )
+          if (nudge) {
+            yield* bus.publish(SessionEvent.Synthetic, {
+              sessionID,
+              text: nudge,
+              description: "Completion check",
+              metadata: { [SessionCompletionGate.MetadataKey]: true },
+            })
+            return true
+          }
+        }
         if (completed !== undefined) return completed
       }
     })
@@ -444,5 +464,6 @@ export const node = makeLocationNode({
     Snapshot.node,
     ToolOutput.node,
     Database.node,
+    Location.node,
   ],
 })

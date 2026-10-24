@@ -118,7 +118,7 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false },
+          options: { codemode: false, triggers: ["команд\\S* (агентов|ии|ai)|\\bteams?\\b|роли агентов"] },
           description,
           input: Input,
           output: Output,

@@ -144,7 +144,7 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false },
+          options: { codemode: false, triggers: ["заметк|\\bnotes?\\b"] },
           description,
           input: Input,
           output: Output,

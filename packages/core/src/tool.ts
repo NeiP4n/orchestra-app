@@ -16,6 +16,7 @@ import { SessionMessage } from "./session/message.js"
 import { SessionSchema } from "./session/schema.js"
 import { State } from "./state.js"
 import { ToolCallName } from "./tool/call-name.js"
+import { ToolRouter } from "./tool/router.js"
 import { definition, effectiveName, execute, normalizedName, normalizeContent } from "./tool/runtime.js"
 import { Wildcard } from "./util/wildcard.js"
 
@@ -62,6 +63,10 @@ export interface Snapshot {
    */
   readonly codeModeDefinitions?: ReadonlyArray<ToolDefinition>
   readonly codeModeCatalog?: CodeModeCatalog.Inventory
+  /** Direct tools advertised only once the session needs them, keyed by name. */
+  readonly lazy?: ReadonlyMap<string, Tool.Info>
+  /** Schemas of `lazy`, sorted by name; the request adds the ones the session selected. */
+  readonly lazyDefinitions?: ReadonlyArray<ToolDefinition>
   readonly execute: (input: {
     readonly sessionID: SessionSchema.ID
     readonly agent: Agent.ID
@@ -242,7 +247,16 @@ const layer = Layer.effect(
             if (whollyDisabled(tool.options?.permission ?? name, rules)) continue
             active.set(name, tool)
           }
-          const direct = new Map(Array.from(active).filter(([, tool]) => tool.options?.codemode === false))
+          const native = Array.from(active).filter(([, tool]) => tool.options?.codemode === false)
+          // Direct tools that are not core are advertised on demand; see ToolRouter. A registry that
+          // declares no core tools would leave the model only the index, so it keeps every tool direct.
+          const lazy = new Map(
+            ToolRouter.enabled() && !active.has(ToolRouter.name) && native.some(([, tool]) => ToolRouter.isCore(tool))
+              ? native.filter(([, tool]) => !ToolRouter.isCore(tool))
+              : [],
+          )
+          const router = lazy.size > 0 ? ToolRouter.create(lazy) : undefined
+          const direct = new Map<string, Tool.Info>([...native, ...(router ? [[router.name, router] as const] : [])])
           const codeModeTools = new Map(Array.from(active).filter(([, tool]) => tool.options?.codemode !== false))
           // Zen's free-tier validator can reject a reduced tool array. Keep denied schemas separate
           // from active CodeMode tools: both can be advertised where necessary, but only active
@@ -278,8 +292,13 @@ const layer = Layer.effect(
             compatibilityDefinitions,
             codeModeDefinitions,
             ...(codeModeCatalog === undefined ? {} : { codeModeCatalog }),
+            lazy,
+            lazyDefinitions: Array.from(lazy)
+              .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+              .map(([, tool]) => definition(tool)),
             definitions: [
               ...Array.from(direct)
+                .filter(([key]) => !lazy.has(key))
                 .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
                 .map(([, tool]) => definition(tool)),
               ...(codeModeTool ? [definition(codeModeTool)] : []),

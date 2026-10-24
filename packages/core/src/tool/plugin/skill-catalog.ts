@@ -248,7 +248,7 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false },
+          options: { codemode: false, triggers: ["skills?\\b|скилл|навык", "skillsmp"] },
           description,
           input: Input,
           output: Output,

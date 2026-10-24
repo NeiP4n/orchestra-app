@@ -154,7 +154,7 @@ export const Plugin = {
     })
 
     // The shortcuts share the batch tool's permission action, so filtering by role treats them as one.
-    const options = { codemode: false, permission: name }
+    const options = { codemode: false, permission: name, triggers: ["скриншот|screenshot|снимок экрана", "(на|с) экран|окн[оаеу]|window|мыш|mouse|клавиатур|keyboard|буфер обмена|clipboard"] }
     yield* ctx.tool
       .transform((editor) => {
         editor.add({ name, options, description, input: Input, output: Output, execute: (input, context) => perform(input.steps, context) })
