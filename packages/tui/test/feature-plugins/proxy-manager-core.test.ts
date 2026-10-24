@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { OPENCODE_PROBE, PROXY_SOURCES, parseHttpProxyList, proxyUrl } from "../../src/feature-plugins/system/proxy-manager-core"
+import { isOpenCodeModelList, OPENCODE_PROBE, PROXY_SOURCES, parseHttpProxyList, proxyUrl } from "../../src/feature-plugins/system/proxy-manager-core"
 
 describe("public HTTP proxy list parsing", () => {
   test("accepts bare IPv4 endpoints and explicit HTTP URLs", () => {
@@ -22,11 +22,18 @@ describe("public HTTP proxy list parsing", () => {
 })
 
 
-test("prioritizes a maintained HTTPS-capable proxy source", () => {
-  expect(PROXY_SOURCES[0].name).toContain("HTTPS-verified")
-  expect(PROXY_SOURCES[0].url).toContain("free-proxy-list/main/https.txt")
+test("prioritizes the maintained HTTP proxy feed", () => {
+  expect(PROXY_SOURCES[0].name).toBe("Proxifly HTTP")
+  expect(PROXY_SOURCES[0].url).toContain("proxies/protocols/http/data.txt")
 })
 
 test("probes the actual OpenCode Zen model endpoint, not an unrelated health-check site", () => {
   expect(OPENCODE_PROBE).toEqual({ host: "opencode.ai", path: "/zen/v1/models" })
+})
+
+
+test("accepts only complete OpenCode model-list JSON, not generic JSON error objects", () => {
+  expect(isOpenCodeModelList({ object: "list", data: [{ id: "example-model" }] })).toBe(true)
+  expect(isOpenCodeModelList({ error: { message: "temporary failure" } })).toBe(false)
+  expect(isOpenCodeModelList({ object: "list", data: "not-an-array" })).toBe(false)
 })

@@ -39,6 +39,9 @@ function describeError(value: unknown, depth = 0): string {
 function isZenAddressCap(error: unknown) {
   return /freeusagelimiterror|free tier counts requests per ip address|daily allowance.*ip|per ip address.*daily/i.test(describeError(error))
 }
+function isProxyTransportFailure(error: unknown) {
+  return /timed out|timeout|connection reset|connection refused|socket hang up|ECONNRESET|ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|fetch failed|TLS handshake|TLS failed|network error/i.test(describeError(error))
+}
 async function readConfiguredProxy(context: Plugin.Context): Promise<ProxySetting | undefined> {
   try {
     const entries = await context.client.config.get()
@@ -395,24 +398,26 @@ export default Plugin.define({
       }
     }
 
-    async function disableProxy() {
-      if (!route.enabled || !route.activeUrl) return
+    async function disableProxy(silent = false): Promise<boolean> {
+      if (!route.enabled || !route.activeUrl) return false
       const current = await readConfiguredProxy(context)
       if (current === undefined) {
         context.ui.toast.show({ title: text(context, "Could not read proxy configuration", "Не удалось прочитать настройки прокси"), variant: "error" })
-        return
+        return false
       }
       if (!matches(current, route.activeUrl)) {
         updateRoute((draft) => { draft.enabled = false; draft.activeUrl = undefined; draft.previousProxy = undefined; draft.hasPreviousProxy = false })
         context.ui.toast.show({ title: text(context, "Proxy changed elsewhere", "Прокси изменён извне"), message: text(context, "Left the newer setting untouched.", "Новые настройки оставлены без изменений."), variant: "warning" })
-        return
+        return false
       }
       try {
         await context.client.config.update({ proxy: route.hasPreviousProxy ? route.previousProxy ?? null : null })
         updateRoute((draft) => { draft.enabled = false; draft.activeUrl = undefined; draft.previousProxy = undefined; draft.hasPreviousProxy = false })
-        context.ui.toast.show({ title: text(context, "Proxy pool disabled", "Proxy Pool отключён"), message: text(context, "Previous proxy configuration restored.", "Предыдущие настройки прокси восстановлены."), variant: "success" })
+        if (!silent) context.ui.toast.show({ title: text(context, "Proxy pool disabled", "Proxy Pool отключён"), message: text(context, "Previous proxy configuration restored.", "Предыдущие настройки прокси восстановлены."), variant: "success" })
+        return true
       } catch (cause) {
         context.ui.toast.show({ title: text(context, "Could not restore proxy", "Не удалось восстановить прокси"), message: cause instanceof Error ? cause.message : String(cause), variant: "error" })
+        return false
       }
     }
 
@@ -475,18 +480,53 @@ export default Plugin.define({
         toggleAutoIP={toggleAutoIP} open={open} />,
     })
 
-    const disposeFailure = context.data.on("session.execution.failed", (event) => {
-      if (!route.enabled || !route.autoIP || !isZenAddressCap(event.data.error)) return
+    const handleRequestFailure = (error: unknown) => {
+      if (!route.enabled || !route.activeUrl) return
       if (Date.now() - lastRotation < ROTATION_COOLDOWN_MS) return
+
+      if (isZenAddressCap(error)) {
+        if (!route.autoIP) return
+        lastRotation = Date.now()
+        void nextProxy(true)
+        return
+      }
+
+      // A stalled public proxy must not remain configured for every later chat request.
+      // Restore the previous WARP/direct/Clash route when OpenCode schedules a transport retry.
+      if (!isProxyTransportFailure(error)) return
+      const failedUrl = route.activeUrl
       lastRotation = Date.now()
-      void nextProxy(true)
-    })
+      updatePool((draft) => {
+        draft.entries = draft.entries.map((entry) =>
+          proxyUrl(entry) === failedUrl
+            ? { ...entry, status: "dead", checkedAt: Date.now(), detail: "OpenCode request timed out or the connection failed" }
+            : entry,
+        )
+      })
+      void disableProxy(true).then((restored) => {
+        if (!restored) return
+        context.ui.toast.show({
+          title: text(context, "Slow proxy disabled", "Медленный прокси отключён"),
+          message: text(
+            context,
+            "OpenCode failed through this proxy. The previous route was restored; the current retry may recover, otherwise resend the prompt.",
+            "Запрос OpenCode не прошёл через этот прокси. Предыдущий маршрут восстановлен; текущая повторная попытка может сработать, иначе отправь запрос ещё раз.",
+          ),
+          variant: "warning",
+        })
+      })
+    }
+    // retry.scheduled fires before the automatic retry; execution.failed covers terminal failures.
+    // Share one cooldown so one network incident cannot trigger two route changes.
+    const disposeFailure = context.data.on("session.execution.failed", (event) => handleRequestFailure(event.data.error))
+    const disposeRetry = context.data.on("session.retry.scheduled", (event) => handleRequestFailure(event.data.error))
     const startup = setTimeout(() => void refreshSources(), 200)
     const timer = setInterval(() => void refreshSources(), REFRESH_MS)
     return () => {
       clearTimeout(startup)
       clearInterval(timer)
       disposeFailure()
+      disposeRetry()
     }
   },
 })
