@@ -1,5 +1,5 @@
 import path from "node:path"
-import { access } from "node:fs/promises"
+import { access, rename } from "node:fs/promises"
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { Plugin } from "@orchestra/plugin/tui"
 import type { PanelInput } from "@orchestra/plugin/tui/context"
@@ -116,6 +116,24 @@ export async function readDodBoard(file: string): Promise<DodTask[]> {
     if (second === first) throw cause
     return parseDodBoard(second)
   }
+}
+
+// Empties the board's task list and keeps the rest of the file (board id, stages, comments) as
+// written. Only the top-level `leaves` block is replaced; a board without one gets an empty one.
+export function clearDodBoard(source: string) {
+  const lines = source.split("\n")
+  const start = lines.findIndex((line) => /^leaves\s*:/.test(line))
+  if (start === -1) return `${source.trimEnd()}\nleaves: []\n`
+  const after = lines.findIndex((line, index) => index > start && /^[^\s#-][^:]*:/.test(line))
+  return [...lines.slice(0, start), "leaves: []", ...(after === -1 ? [""] : lines.slice(after))].join("\n")
+}
+
+// Written through a temporary file and a rename, so the sessions reading the board never see
+// it half-written.
+export async function deleteAllDodTasks(file: string) {
+  const temporary = `${file}.${process.pid}.${Date.now()}.tmp`
+  await Bun.write(temporary, clearDodBoard(await Bun.file(file).text()))
+  await rename(temporary, file)
 }
 
 // What needs a look comes first: failed, blocked, in progress, then not started, with
@@ -382,6 +400,24 @@ export function SidebarDodPanel(props: { context: Plugin.Context; panel: PanelIn
     return value.type === "ready" ? value.items : []
   }
   const summary = () => summarizeDodBoard(items())
+  const [deleteHovered, setDeleteHovered] = createSignal(false)
+  const deleteAll = async () => {
+    const root = boardRoot()
+    if (!root) return
+    const accepted = await props.context.ui.dialog.confirm({
+      title: t("Delete all DoD tasks?"),
+      message: t("All {count} tasks of this project's board will be removed from {file}. This cannot be undone.", {
+        count: String(items().length),
+        file: FILE,
+      }),
+      label: { confirm: t("Delete all"), cancel: t("Cancel") },
+    })
+    if (!accepted) return
+    await deleteAllDodTasks(path.join(root, FILE)).catch((cause) =>
+      setBoard({ type: "error", reason: cause instanceof Error ? cause.message : String(cause) }),
+    )
+    await refresh(directory())
+  }
   const barWidth = () => Math.max(8, Math.min(40, props.panel.width - 8))
   const filled = () => Math.round((summary().percent / 100) * barWidth())
   const errorHeading = () => {
@@ -406,7 +442,29 @@ export function SidebarDodPanel(props: { context: Plugin.Context; panel: PanelIn
             )}
           </Show>
         </box>
-        <box flexShrink={0}>
+        <box flexShrink={0} flexDirection="row" gap={1}>
+          <Show when={items().length > 0}>
+            <box
+              id="dod.panel.delete-all"
+              flexShrink={0}
+              paddingLeft={1}
+              paddingRight={1}
+              backgroundColor={deleteHovered() ? theme.background.action.destructive.hovered : undefined}
+              onMouseOver={() => setDeleteHovered(true)}
+              onMouseOut={() => setDeleteHovered(false)}
+              onMouseUp={(event) => {
+                event.stopPropagation()
+                void deleteAll()
+              }}
+            >
+              <text
+                fg={deleteHovered() ? theme.text.action.destructive.hovered : theme.text.action.destructive.base}
+                wrapMode="none"
+              >
+                {t("Delete all")}
+              </text>
+            </box>
+          </Show>
           <box
             id="dod.panel.close"
             flexShrink={0}
