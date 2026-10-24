@@ -480,11 +480,11 @@ export default Plugin.define({
         toggleAutoIP={toggleAutoIP} open={open} />,
     })
 
-    const disposeFailure = context.data.on("session.execution.failed", (event) => {
+    const handleRequestFailure = (error: unknown) => {
       if (!route.enabled || !route.activeUrl) return
       if (Date.now() - lastRotation < ROTATION_COOLDOWN_MS) return
 
-      if (isZenAddressCap(event.data.error)) {
+      if (isZenAddressCap(error)) {
         if (!route.autoIP) return
         lastRotation = Date.now()
         void nextProxy(true)
@@ -492,8 +492,8 @@ export default Plugin.define({
       }
 
       // A stalled public proxy must not remain configured for every later chat request.
-      // Restore the previously selected WARP/direct/Clash route when OpenCode reports a transport timeout.
-      if (!isProxyTransportFailure(event.data.error)) return
+      // Restore the previous WARP/direct/Clash route when OpenCode schedules a transport retry.
+      if (!isProxyTransportFailure(error)) return
       const failedUrl = route.activeUrl
       lastRotation = Date.now()
       updatePool((draft) => {
@@ -509,19 +509,24 @@ export default Plugin.define({
           title: text(context, "Slow proxy disabled", "Медленный прокси отключён"),
           message: text(
             context,
-            "The OpenCode request failed through this proxy. The previous route was restored; retry the prompt manually.",
-            "Запрос OpenCode не прошёл через этот прокси. Предыдущий маршрут восстановлен; повтори запрос вручную.",
+            "OpenCode failed through this proxy. The previous route was restored; the current retry may recover, otherwise resend the prompt.",
+            "Запрос OpenCode не прошёл через этот прокси. Предыдущий маршрут восстановлен; текущая повторная попытка может сработать, иначе отправь запрос ещё раз.",
           ),
           variant: "warning",
         })
       })
-    })
+    }
+    // retry.scheduled fires before the automatic retry; execution.failed covers terminal failures.
+    // Share one cooldown so one network incident cannot trigger two route changes.
+    const disposeFailure = context.data.on("session.execution.failed", (event) => handleRequestFailure(event.data.error))
+    const disposeRetry = context.data.on("session.retry.scheduled", (event) => handleRequestFailure(event.data.error))
     const startup = setTimeout(() => void refreshSources(), 200)
     const timer = setInterval(() => void refreshSources(), REFRESH_MS)
     return () => {
       clearTimeout(startup)
       clearInterval(timer)
       disposeFailure()
+      disposeRetry()
     }
   },
 })
