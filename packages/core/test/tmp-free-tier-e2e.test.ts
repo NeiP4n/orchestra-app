@@ -25,7 +25,7 @@ describe("free tier end to end", () => {
     const error = toSessionError(failure)
     expect(error.type).toBe("provider.rate-limit")
     expect(error.status).toBe(429)
-    expect(error.message).toContain("per IP address")
+    expect(error.message).toBe("Rate limit exceeded. Please try again later.")
     expect(SessionRunnerRetry.isRetryable(asRateLimit(failure))).toBe(true)
   })
 

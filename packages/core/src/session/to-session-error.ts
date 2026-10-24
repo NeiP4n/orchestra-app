@@ -1,3 +1,4 @@
+import { Option, Schema } from "effect"
 import { AIError, RateLimitError, ToolFailure, type FinishReasonDetails } from "@orchestra/ai"
 import { Tool } from "@orchestra/schema/tool"
 import { SessionError } from "@orchestra/schema/session-error"
@@ -122,17 +123,23 @@ export function contentFilterError(summary: string, reason: FinishReasonDetails)
 }
 
 const ORCHESTRA_FREE_TIER_ERROR = "OpenCode's free tier can only be used from within OpenCode"
-// The Zen console names its own per-address limiter in the error it answers with.
+// The Zen console names its free usage limiter in the error it answers with.
 const FREE_TIER_LIMIT_ERROR = "freeusagelimiterror"
+const decodeZenError = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Struct({ error: Schema.Struct({ message: Schema.String }) })),
+  { onExcessProperty: "ignore" },
+)
 
 function providerError(type: string, reason: AIError["reason"]): SessionError.Error {
   const status = reason.http?.status
   const raw = [reason.message, reason.body].filter(Boolean).join("\n")
   const tokenSharing = Object.entries(tokenSharingMessages).find(([code]) => reason.body?.includes(code))?.[1]
+  // Zen does not say what the free limit is keyed on or when it resets (one limit outlasted days
+  // and many addresses), so show its own words instead of asserting a per-IP daily cap.
   const message = raw.includes(ORCHESTRA_FREE_TIER_ERROR)
     ? "Zen rejected this request. The provider refused the selected model/access. Retrying the identical request will not change that decision. Check the provider connection or select another currently available model."
     : raw.toLowerCase().includes(FREE_TIER_LIMIT_ERROR)
-      ? "Zen's free tier counts requests per IP address, and this address has used its daily allowance until the daily reset. Retrying from the same address cannot help: turn on OpenCode-only WARP routing and Auto IP to continue from another address, or choose another model."
+      ? Option.getOrElse(Option.map(decodeZenError(reason.body), (body) => body.error.message), () => reason.message)
       : (tokenSharing ?? reason.message)
   return {
     type,

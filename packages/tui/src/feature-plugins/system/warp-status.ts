@@ -50,7 +50,7 @@ function failureDetails(error: unknown, depth = 0, seen = new Set<object>()): st
 
 /**
  * Zen's free tier caps requests per IP address until the daily reset (HTTP 429 FreeUsageLimitError).
- * Core rewrites the message, so both the provider's code and core's wording are recognized.
+ * Older core builds rewrote the message, so stored failures with that wording are still recognized.
  */
 export function isAddressCapFailure(error: unknown): boolean {
   return /freeusagelimiterror|free tier counts requests per IP address/i.test(failureDetails(error))

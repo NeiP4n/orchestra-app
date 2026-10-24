@@ -22,10 +22,14 @@ describe("free tier throttle", () => {
     const error = toSessionError(freeTierCap())
     expect(error.type).toBe("provider.rate-limit")
     expect(error.status).toBe(429)
-    // The message names the real cause and the two ways out, instead of repeating the provider's
-    // own "try again later".
-    expect(error.message).toContain("per IP address")
-    expect(error.message).toContain("Auto IP")
+    // Zen's own words, not a guess about what the limit is keyed on.
+    expect(error.message).toBe("Rate limit exceeded. Please try again later.")
+  })
+
+  test("shows Zen's message rather than claiming a per-IP daily cap", () => {
+    const error = toSessionError(zen("FreeUsageLimitError", "Free usage limit reached. Subscribe to OpenCode Go to keep going: https://opencode.ai/go"))
+    expect(error.message).toBe("Free usage limit reached. Subscribe to OpenCode Go to keep going: https://opencode.ai/go")
+    expect(error.message).not.toContain("per IP address")
   })
 
   test("retries the per-address free tier cap", () => {
