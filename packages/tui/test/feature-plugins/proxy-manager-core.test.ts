@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { parseHttpProxyList, proxyUrl } from "../../src/feature-plugins/system/proxy-manager-core"
+import { OPENCODE_PROBE, PROXY_SOURCES, parseHttpProxyList, proxyUrl } from "../../src/feature-plugins/system/proxy-manager-core"
 
 describe("public HTTP proxy list parsing", () => {
   test("accepts bare IPv4 endpoints and explicit HTTP URLs", () => {
@@ -19,4 +19,14 @@ describe("public HTTP proxy list parsing", () => {
   test("formats an HTTP proxy URL", () => {
     expect(proxyUrl({ host: "192.0.2.10", port: 8080 })).toBe("http://192.0.2.10:8080")
   })
+})
+
+
+test("prioritizes a maintained HTTPS-capable proxy source", () => {
+  expect(PROXY_SOURCES[0].name).toContain("HTTPS-verified")
+  expect(PROXY_SOURCES[0].url).toContain("free-proxy-list/main/https.txt")
+})
+
+test("probes the actual OpenCode Zen model endpoint, not an unrelated health-check site", () => {
+  expect(OPENCODE_PROBE).toEqual({ host: "opencode.ai", path: "/zen/v1/models" })
 })
