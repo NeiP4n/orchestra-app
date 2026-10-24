@@ -99,6 +99,23 @@ describe("ConfigNormalize", () => {
     expect(result.agents?.reviewer?.system).toBe("Use V2")
   })
 
+  test("keeps the orchestra worker policy through normalization", () => {
+    const result = normalized({
+      orchestra: {
+        worker: {
+          model: "opencode/big-pickle",
+          models: ["opencode/minimax-free"],
+          categories: { Build: { model: "zen/glm-4.6" } },
+        },
+      },
+    })
+    expect(result.diagnostics).toEqual([])
+    const info = Schema.decodeUnknownSync(Info)(result.encoded)
+    expect(info.orchestra?.worker?.model).toMatchObject({ providerID: "opencode", model: "big-pickle" })
+    expect(info.orchestra?.worker?.models).toHaveLength(1)
+    expect(info.orchestra?.worker?.categories?.Build?.model).toMatchObject({ providerID: "zen", model: "glm-4.6" })
+  })
+
   test("canonicalizes transformed native values through decode then encode", () => {
     const result = normalized({ warming: { interval: "4 minutes", duration: "30 minutes" } })
     expect(result.encoded.warming).toEqual({ interval: "240000 millis", duration: "1800000 millis" })
