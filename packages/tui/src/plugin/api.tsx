@@ -158,7 +158,10 @@ export function createPluginContext(input: {
     },
     app: { version: host.app.version, channel: host.app.channel },
     renderer: host.renderer,
-    client: host.client.api,
+    // The client is replaced when the TUI reconnects to a restarted service on a new port.
+    get client() {
+      return host.client.api
+    },
     data: host.data,
     attention: host.attention,
     get theme() {
