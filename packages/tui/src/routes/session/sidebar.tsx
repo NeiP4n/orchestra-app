@@ -11,8 +11,7 @@ import "../../component/title-shimmer"
 import { getScrollAcceleration } from "../../util/scroll"
 import { useCompactLayout } from "../../ui/compact-layout"
 import { NeuralLine, NeuronDot } from "../../component/neural"
-import { SessionNetwork } from "../../component/session-network"
-import { useTerminalDimensions } from "@opentui/solid"
+import { SessionNetwork, SessionNetworkField, useEmptyRoom } from "../../component/session-network"
 
 export function Sidebar(props: { sessionID: string; onHide?: () => void; width?: number; borderLeft?: boolean }) {
   const data = useData()
@@ -23,9 +22,8 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
   const layout = useCompactLayout()
   const width = () => props.width ?? layout.sidebarWidth()
   const running = () => data.session.status(props.sessionID) === "running"
-  const dimensions = useTerminalDimensions()
-  // The network gives way to the sidebar's content on short terminals.
-  const networkHeight = () => (dimensions().height >= 44 ? 9 : dimensions().height >= 30 ? 6 : 0)
+  // The Session's network fills whatever the sidebar's content leaves empty below it.
+  const empty = useEmptyRoom()
 
   return (
     <Show when={session()}>
@@ -76,38 +74,57 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
             backdrop={theme.background.raised.base}
           />
         </box>
-        <Show when={networkHeight() > 0}>
-          <box flexShrink={0} paddingRight={1} paddingBottom={1}>
-            <SessionNetwork
-              sessionID={props.sessionID}
-              backdrop={theme.background.raised.base}
-              height={networkHeight()}
-            />
-          </box>
-        </Show>
-        <scrollbox
+        <box flexShrink={0} paddingRight={1} paddingBottom={1}>
+          <SessionNetwork sessionID={props.sessionID} />
+        </box>
+        <box
           flexGrow={1}
           minHeight={0}
-          scrollAcceleration={scrollAcceleration()}
-          // The sidebar only scrolls vertically; a horizontal bar steals a row during initial layout.
-          horizontalScrollbarOptions={{ visible: false }}
-          verticalScrollbarOptions={{
-            // Use the content's reserved right padding instead of changing its width when the bar toggles.
-            position: "absolute",
-            right: 0,
-            top: 0,
-            width: 1,
-            height: "100%",
-            trackOptions: {
-              backgroundColor: theme.background.raised.base,
-              foregroundColor: theme.scrollbar.base,
-            },
+          position="relative"
+          onSizeChange={function () {
+            empty.area(this.height)
           }}
         >
-          <box flexShrink={0} gap={1} paddingRight={1}>
-            <Slot path="sidebar.content" input={{ sessionID: props.sessionID }} />
-          </box>
-        </scrollbox>
+          <scrollbox
+            flexGrow={1}
+            minHeight={0}
+            scrollAcceleration={scrollAcceleration()}
+            // The sidebar only scrolls vertically; a horizontal bar steals a row during initial layout.
+            horizontalScrollbarOptions={{ visible: false }}
+            verticalScrollbarOptions={{
+              // Use the content's reserved right padding instead of changing its width when the bar toggles.
+              position: "absolute",
+              right: 0,
+              top: 0,
+              width: 1,
+              height: "100%",
+              trackOptions: {
+                backgroundColor: theme.background.raised.base,
+                foregroundColor: theme.scrollbar.base,
+              },
+            }}
+          >
+            <box
+              flexShrink={0}
+              gap={1}
+              paddingRight={1}
+              onSizeChange={function () {
+                empty.content(this.height)
+              }}
+            >
+              <Slot path="sidebar.content" input={{ sessionID: props.sessionID }} />
+            </box>
+          </scrollbox>
+          <Show when={empty.room() >= 4}>
+            <box position="absolute" left={0} bottom={0} width="100%" height={empty.room()} paddingRight={1}>
+              <SessionNetworkField
+                sessionID={props.sessionID}
+                backdrop={theme.background.raised.base}
+                height={empty.room()}
+              />
+            </box>
+          </Show>
+        </box>
 
         <box flexShrink={0} gap={1} paddingTop={1}>
           <Slot path="sidebar.footer" input={{ sessionID: props.sessionID }} />

@@ -40,6 +40,7 @@ import { useT } from "../util/i18n"
 import { tint } from "../theme/color"
 import { hoverBackground } from "../ui/hover"
 import { Branch, NeuralChip, NeuralLine, NeuronDot, neuralPalette, useNeuralEnergy } from "./neural"
+import { AllSessionsField, useEmptyRoom } from "./session-network"
 
 // The left panel: the operator's own projects, each a name and a directory,
 // with its main session (the orchestrator) and the sessions opened in that
@@ -165,6 +166,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
   const current = () => (route.data.type === "session" ? data.session.get(route.data.sessionID) : undefined)
   const palette = () => neuralPalette(theme)
   const energy = useNeuralEnergy()
+  const empty = useEmptyRoom()
   const dimensions = useTerminalDimensions()
   // A narrow panel keeps the switch as two icons so the names below get the room.
   const iconOnly = () => props.width < 36
@@ -451,12 +453,22 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
         <Show when={notes.tab() === "notes"}>
           <ProjectNotes />
         </Show>
-        <scrollbox
+        <box
           visible={notes.tab() === "projects"}
           flexGrow={notes.tab() === "projects" ? 1 : 0}
           minHeight={0}
-          horizontalScrollbarOptions={{ visible: false }}
+          position="relative"
+          onSizeChange={function () {
+            empty.area(this.height)
+          }}
         >
+        <scrollbox flexGrow={1} minHeight={0} horizontalScrollbarOptions={{ visible: false }}>
+          <box
+            flexShrink={0}
+            onSizeChange={function () {
+              empty.content(this.height)
+            }}
+          >
           <Section
             title={t("Projects")}
             icon="◉"
@@ -850,7 +862,19 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
               </box>
             </Show>
           </Section>
+          </box>
         </scrollbox>
+        {/* In a chat, the room the tree leaves below it shows every Session's hub on the network. */}
+        <Show when={route.data.type === "session" && empty.room() >= 5}>
+          <box position="absolute" left={0} bottom={0} width="100%" height={empty.room()} paddingLeft={1} paddingRight={1}>
+            <AllSessionsField
+              currentID={route.data.type === "session" ? route.data.sessionID : undefined}
+              backdrop={theme.background.raised.base}
+              height={empty.room()}
+            />
+          </box>
+        </Show>
+        </box>
         <ClearSessionsAction
           api={client.api.session}
           confirm={confirmClear}

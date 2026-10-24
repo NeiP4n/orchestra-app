@@ -718,6 +718,7 @@ const ruExtra: Record<string, string> = {
   "{count} orchestrators · {names}": "{count} оркестратора · {names}",
   "waiting for an answer {seconds} s": "ждём ответа {seconds} с",
   "Session network": "Сеть сессии",
+  "this session": "эта сессия",
   "writing": "пишет",
   "thinking": "думает",
   "quiet": "тихо",

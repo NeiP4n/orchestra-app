@@ -1,4 +1,4 @@
-import { BoxRenderable, RGBA, type BoxOptions, type OptimizedBuffer, type RenderContext } from "@opentui/core"
+import { BoxRenderable, OptimizedBuffer, RGBA, type BoxOptions, type RenderContext } from "@opentui/core"
 import { extend } from "@opentui/solid"
 import { createMemo, createSignal, Show, splitProps, type JSX, type ParentProps } from "solid-js"
 import type { ResolvedTheme } from "@orchestra/theme/tui"
@@ -79,6 +79,11 @@ const MAX_BRIDGES = 8
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((value) => (value + 0.5) / 16)
 const DITHER_GLYPHS = ["░", "░", "▒", "▒"]
 const DITHER_LEVELS = [0.1, 0.16, 0.24, 0.34]
+// The haze is recomputed this often and blitted from a scratch buffer in between.
+const HAZE_MS = 70
+// Frame pacing: a quiet network needs only a few frames a second, a busy one gets thirty.
+const QUIET_FRAME_MS = 100
+const BUSY_FRAME_MS = 33
 
 type NeuralCanvasOptions = BoxOptions & {
   kind?: Kind
@@ -147,6 +152,9 @@ export class NeuralCanvasRenderable extends BoxRenderable {
   private glitchSpawn = 0
   private warmth = new Float32Array(0)
   private ramps: { cool: RGBA[]; warm: RGBA[]; key: unknown[] } | undefined
+  private hazeBuffer: OptimizedBuffer | undefined
+  private hazeAt = -Infinity
+  private ticker: ReturnType<typeof setTimeout> | undefined
   private signalFlash = 0
   private signalTone: keyof NeuralPalette = "signal"
   // The axon's message-to-message impulse: where it is, where the newest message ends, and the
@@ -167,7 +175,7 @@ export class NeuralCanvasRenderable extends BoxRenderable {
     this._scope = scope(options.session)
     this._names = options.names ?? {}
     this.cursor = this._activity?.cursor ?? 0
-    this.live = this._enabled
+    this.schedule()
     // The field answers the pointer: passing over it excites the nearest neuron, a click sends a wave.
     this.onMouseMove = (event) => {
       if (this._kind !== "field" || !this._enabled || this.clock - this.touched < 90) return
@@ -206,7 +214,7 @@ export class NeuralCanvasRenderable extends BoxRenderable {
   set enabled(value: boolean) {
     if (value === this._enabled) return
     this._enabled = value
-    this.live = value
+    this.schedule()
     this.requestRender()
   }
   set seed(value: number) {
@@ -222,6 +230,29 @@ export class NeuralCanvasRenderable extends BoxRenderable {
   }
   set session(value: string | readonly string[] | undefined) {
     this._scope = scope(value)
+  }
+
+  // The canvas paces its own frames instead of being `live`, which would keep the whole screen
+  // redrawing at the renderer's full rate and make every click wait behind the animation.
+  private schedule() {
+    clearTimeout(this.ticker)
+    this.ticker = undefined
+    if (!this._enabled || this.isDestroyed) return
+    this.ticker = setTimeout(
+      () => {
+        this.requestRender()
+        this.schedule()
+      },
+      this.energyNow > 0.15 ? BUSY_FRAME_MS : QUIET_FRAME_MS,
+    )
+  }
+
+  override destroy() {
+    clearTimeout(this.ticker)
+    this.ticker = undefined
+    this.hazeBuffer?.destroy()
+    this.hazeBuffer = undefined
+    super.destroy()
   }
 
   protected override renderSelf(buffer: OptimizedBuffer, deltaTime = 0) {
@@ -646,6 +677,21 @@ export class NeuralCanvasRenderable extends BoxRenderable {
   private paintHaze(buffer: OptimizedBuffer, palette: NeuralPalette) {
     const width = this.width
     const height = this.height
+    const resized = this.hazeBuffer?.width !== width || this.hazeBuffer?.height !== height
+    if (!this.hazeBuffer)
+      this.hazeBuffer = OptimizedBuffer.create(width, height, this._ctx.widthMethod, { respectAlpha: true })
+    if (resized) this.hazeBuffer.resize(width, height)
+    if (resized || this.clock - this.hazeAt >= HAZE_MS) {
+      this.hazeAt = this.clock
+      this.drawHaze(this.hazeBuffer, palette)
+    }
+    buffer.drawFrameBuffer(this.screenX, this.screenY, this.hazeBuffer)
+  }
+
+  private drawHaze(scratch: OptimizedBuffer, palette: NeuralPalette) {
+    const width = this.width
+    const height = this.height
+    scratch.clear(TRANSPARENT)
     const energy = this.energyNow
     const ramps = this.ditherRamps(palette)
     const drift = this.time / 1000
@@ -680,7 +726,7 @@ export class NeuralCanvasRenderable extends BoxRenderable {
         )
         if (level <= 0) continue
         const ramp = warm > 0.15 ? ramps.warm : ramps.cool
-        this.cell(buffer, x, y, DITHER_GLYPHS[level - 1]!, ramp[level - 1]!)
+        scratch.setCell(x, y, DITHER_GLYPHS[level - 1]!, ramp[level - 1]!, TRANSPARENT)
       }
     }
   }
