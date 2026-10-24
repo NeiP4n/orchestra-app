@@ -3,7 +3,7 @@ export * as SessionContext from "./context.js"
 import { Dod } from "../dod.js"
 import { Model } from "../model.js"
 import { Permission } from "../permission.js"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Option } from "effect"
 import { Agent } from "../agent.js"
 import { CodeModeInstructions } from "../codemode/instructions.js"
 import { Database } from "../database/database.js"
@@ -12,6 +12,7 @@ import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import { InstructionDiscovery } from "../instruction-discovery.js"
 import { Instructions } from "../instructions/index.js"
 import { InstructionBuiltIns } from "../instructions/builtins.js"
+import { InstructionRouter } from "../instructions/router.js"
 import { Location } from "../location.js"
 import { McpInstructions } from "../mcp/instructions.js"
 import { Memory } from "../memory/index.js"
@@ -87,6 +88,7 @@ const layer = Layer.effect(
     const entries = yield* InstructionEntry.Service
     const location = yield* Location.Service
     const projectDod = Dod.instructions(location.project.directory)
+    const areas = InstructionRouter.areas(location.project.directory)
     const mcpInstructions = yield* McpInstructions.Service
     const mcpTools = yield* McpTool.Service
     const memory = MemoryInstructions.make(yield* Memory.Service)
@@ -138,11 +140,26 @@ const layer = Layer.effect(
       if (!agent.info) return yield* new AgentNotFoundError({ sessionID: session.id, agent: session.agent ?? agent.id })
       // Session permissions narrow discovery the same way they narrow the tool snapshot.
       const permissions = Permission.merge(agent.info.permissions, session.permissions ?? [])
+      // Without readable history every section stays whole: a missed rule costs more than tokens.
+      const history = InstructionRouter.enabled()
+        ? yield* store.context(sessionID).pipe(Effect.option)
+        : Option.none()
+      const route = Option.match(history, {
+        onNone: () => undefined,
+        onSome: (messages) => {
+          const activity = InstructionRouter.activity(messages, session.location.directory)
+          return (file: InstructionDiscovery.File) =>
+            new InstructionDiscovery.File({
+              path: file.path,
+              content: InstructionRouter.route(file.content, { areas, ...activity }),
+            })
+        },
+      })
       const loaded = yield* Effect.all(
         {
           tools: registry.snapshot(permissions),
           builtins: builtins.load(),
-          discovery: discovery.load(),
+          discovery: discovery.load(route),
           skills: skillInstructions.load(permissions),
           references: referenceInstructions.load(),
           mcp: mcpInstructions.load(permissions),

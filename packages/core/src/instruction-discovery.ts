@@ -41,7 +41,8 @@ export interface Interface extends State.Transformable<Editor> {
   readonly project: boolean
   readonly global: boolean
   readonly list: () => Effect.Effect<File[] | Instructions.Unavailable>
-  readonly load: () => Effect.Effect<Instructions.List>
+  /** `route` may narrow each file's content for the session, as InstructionRouter does. */
+  readonly load: (route?: (file: File) => File) => Effect.Effect<Instructions.List>
 }
 
 export const Options = Schema.Struct({
@@ -101,10 +102,10 @@ export const layer = (options?: Options) =>
         transform: state.transform,
         reload: state.reload,
         list,
-        load: Effect.fn("InstructionDiscovery.load")(function* () {
+        load: Effect.fn("InstructionDiscovery.load")(function* (route?: (file: File) => File) {
           const files = yield* list()
           if (!Array.isArray(files)) return source(files)
-          return source(files.length === 0 ? Instructions.removed : files)
+          return source(files.length === 0 ? Instructions.removed : route ? files.map(route) : files)
         }),
       })
     }),
