@@ -85,8 +85,17 @@ describe("DodTool", () => {
         const checked = yield* run(tools, "check", { action: "check", id: "L-001", step: "1" })
         expect(text(checked)).toContain("1. [x] write the greeting")
 
+        yield* run(tools, "add-open", { action: "add", what: `Ship ${"a very long outcome ".repeat(12)}` })
+        const open = text(yield* run(tools, "show-open", { action: "show" }))
+        expect(open).toContain("Open (2):")
+        expect(open).toContain("…")
+
         const verified = yield* run(tools, "verify", { action: "verify", id: "L-001" })
         expect(text(verified)).toContain("L-001 is DONE now")
+        const shownAfter = text(yield* run(tools, "show-after", { action: "show" }))
+        expect(shownAfter).toContain("DoD: 1/2 done.")
+        expect(shownAfter).toContain("Closed: L-001.")
+        expect(shownAfter).not.toContain("Greet")
         expect(seen).toContain("shell:echo hello")
         expect(seen).toContain(`dod:${Dod.FILE}`)
 

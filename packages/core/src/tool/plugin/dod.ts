@@ -56,7 +56,7 @@ export const description = [
   "Keep the project's Definition of Done (.opencode/dod.yaml) true to the work. You are responsible for it.",
   "",
   "Actions:",
-  "  show — every item with its state, checked steps and holder.",
+  "  show — open items with state, checked steps and holder; finished items by ID only.",
   "  item — one item (id) with its numbered steps and verification command.",
   "  next — take the first item that is free and whose dependencies are done; your own unfinished item comes first.",
   "  take — take item id before working on it.",
@@ -217,19 +217,32 @@ function writes(action: Input["action"]) {
   return action !== "show" && action !== "item" && action !== "verify"
 }
 
+// The board stays in history for the rest of the session, so it lists open work in full and closed
+// items by ID only: a 54-item board shown whole was 11.7k characters, mostly finished items. Long
+// outcomes are cut to one line; `item` shows any item in full.
+const WHAT_LIMIT = 140
+
 function board(dod: Room.Dod) {
   if (dod.status === "disabled") return `This project has no DoD (${Dod.FILE}) yet. Start one with add.`
   if (dod.items.length === 0) return "The DoD has no items. An empty board does not mean the project is done."
-  const done = dod.items.filter((item) => item.state === "DONE" || item.state === "OUT_OF_SCOPE").length
+  const closed = dod.items.filter((item) => item.state === "DONE" || item.state === "OUT_OF_SCOPE")
+  const open = dod.items.filter((item) => item.state !== "DONE" && item.state !== "OUT_OF_SCOPE")
   return [
-    `DoD: ${done}/${dod.items.length} done.`,
-    ...dod.items.map(
+    `DoD: ${closed.length}/${dod.items.length} done.`,
+    ...(open.length === 0 ? [] : [`Open (${open.length}):`]),
+    ...open.map(
       (item) =>
-        `- ${item.id} [${item.state}] ${item.what} (${item.done}/${item.total})` +
+        `- ${item.id} [${item.state}] ${clip(item.what)} (${item.done}/${item.total})` +
         (item.owner ? ` · ${item.owner}` : "") +
         (item.waits?.length ? ` · waits for ${item.waits.join(", ")}` : ""),
     ),
+    ...(closed.length === 0 ? [] : [`Closed: ${closed.map((item) => item.id).join(", ")}.`]),
   ].join("\n")
+}
+
+function clip(text: string) {
+  const line = text.replace(/\s+/g, " ").trim()
+  return line.length <= WHAT_LIMIT ? line : `${line.slice(0, WHAT_LIMIT - 1).trimEnd()}…`
 }
 
 // The last lines of a check's output, short enough for one line of the DoD.
