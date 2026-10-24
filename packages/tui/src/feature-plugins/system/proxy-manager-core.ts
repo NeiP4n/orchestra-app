@@ -151,6 +151,7 @@ export function probeHttpProxy(entry: ProxyEntry, timeoutMs = MAX_PROBE_TIME_MS)
     let secureSocket: ReturnType<typeof tlsConnect> | undefined
     const chunks: Buffer[] = []
     let receivedBytes = 0
+    let responseEnded = false
     const request = httpRequest({
       hostname: entry.host,
       port: entry.port,
@@ -210,9 +211,13 @@ export function probeHttpProxy(entry: ProxyEntry, timeoutMs = MAX_PROBE_TIME_MS)
         if (body.length < contentLength) return // A Content-Length response is still in flight.
         bodyBytes = body.subarray(0, contentLength)
       } else {
+        if (!responseEnded) return
         bodyBytes = body
       }
-      if (!bodyBytes?.length) return
+      if (!bodyBytes?.length) {
+        if (responseEnded) finish(false, "empty Zen API body")
+        return
+      }
       try {
         const parsed: unknown = JSON.parse(bodyBytes.toString("utf8"))
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -221,8 +226,8 @@ export function probeHttpProxy(entry: ProxyEntry, timeoutMs = MAX_PROBE_TIME_MS)
         }
         finish(true, "complete Zen API response")
       } catch {
-        // A partial JSON body can arrive over multiple TCP chunks; wait for more until the deadline.
-        if (settled) return
+        // If the socket has ended, the response was truncated or malformed; don't mark it healthy.
+        if (responseEnded) finish(false, "incomplete or invalid Zen API JSON body")
       }
     }
 
@@ -251,10 +256,16 @@ export function probeHttpProxy(entry: ProxyEntry, timeoutMs = MAX_PROBE_TIME_MS)
         chunks.push(Buffer.from(chunk))
         validateResponse()
       })
-      secureSocket.once("end", () => validateResponse())
+      secureSocket.once("end", () => {
+        responseEnded = true
+        validateResponse()
+      })
       secureSocket.once("error", () => finish(false, "Zen API TLS failed"))
       secureSocket.once("close", () => {
-        if (!settled) validateResponse()
+        if (!settled) {
+          responseEnded = true
+          validateResponse()
+        }
       })
     })
     request.once("response", (response) => finish(false, "unexpected proxy HTTP " + String(response.statusCode ?? "response")))
