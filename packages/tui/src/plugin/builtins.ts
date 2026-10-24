@@ -39,6 +39,7 @@ export const builtins = [
   lazy("opencode.warp.exit-cleanup", () => import("../feature-plugins/system/warp-exit-cleanup")),
   lazy("opencode.warp", () => import("../feature-plugins/system/warp")),
   lazy("opencode.proxy-manager", () => import("../feature-plugins/system/proxy-manager")),
+  lazy("opencode.zen-models", () => import("../feature-plugins/system/zen-models")),
   lazy("opencode.stats", () => import("../feature-plugins/system/stats")),
   lazy("opencode.merman", () => import("@orchestra/merman/plugin")),
   lazy("opencode.latex", () => import("@orchestra/latex/plugin")),
