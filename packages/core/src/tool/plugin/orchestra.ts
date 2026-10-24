@@ -336,9 +336,11 @@ export const Plugin = {
                     }
                   }
 
-                  // A role without its own model runs on the orchestrator's, the one the operator picked,
-                  // rather than the server's first catalog model.
+                  // A role without its own model runs on the operator's `orchestra.worker` policy,
+                  // then on the orchestrator's model, the one the operator picked, rather than the
+                  // server's first catalog model. An explicit task model still wins.
                   const main = yield* sessions.get(context.sessionID).pipe(Effect.option)
+                  const worker = Orchestra.workerModels(yield* Orchestra.workerPolicy, role)
                   // The core service holds the project lifecycle lock across ownership, creation,
                   // access and category writes; removal cannot leave a half-created member behind.
                   const created = yield* orchestra
@@ -346,7 +348,8 @@ export const Plugin = {
                       project,
                       title: input.title?.trim() || undefined,
                       agent: role.agent,
-                      model: choice.model ?? Orchestra.modelOf(role) ?? Option.getOrUndefined(main)?.model,
+                      model: choice.model ?? worker.model ?? Option.getOrUndefined(main)?.model,
+                      models: worker.models,
                       category: input.category,
                     })
                     .pipe(

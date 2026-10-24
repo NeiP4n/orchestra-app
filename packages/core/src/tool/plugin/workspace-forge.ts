@@ -213,10 +213,19 @@ export const Plugin = {
                 yield* assertNotEmpty(directory, input.empty, "create_session")
                 yield* assertExternalDirectories([directory])
                 const sandbox = sandboxChoice(input.sandbox)
+                // A team's workers follow the operator's `orchestra.worker` policy unless their role
+                // sets its own model; the policy is read here, where the Location config lives.
+                const workerPolicy = team ? yield* Orchestra.workerPolicy : undefined
                 const created = yield* orchestra.create({
                   name: input.name?.trim() ?? "",
                   directory,
-                  ...(team ? { template: team } : {}),
+                  ...(team
+                    ? {
+                        template: team,
+                        workerModels: (role: Orchestra.Role | undefined) =>
+                          Orchestra.workerModels(workerPolicy, role),
+                      }
+                    : {}),
                   ...sandboxArgs(sandbox),
                 }).pipe(
                   Effect.mapError((error) => new ToolFailure({
@@ -227,11 +236,14 @@ export const Plugin = {
                 const selectedTeam = team ? templates.find((template) => template.id === team) : undefined
                 let workerSessionID: string | undefined
                 if (selectedRole) {
+                  const choice = Orchestra.workerModels(yield* Orchestra.workerPolicy, selectedRole)
                   const worker = yield* orchestra.createMember({
                     project: created,
                     agent: selectedRole.agent,
                     title: selectedRole.name,
                     category: selectedRole.category,
+                    model: choice.model,
+                    models: choice.models,
                   }).pipe(
                     Effect.mapError((error) => new ToolFailure({
                       message: 'Workspace ' + created.name + ' (' + created.id + ') was created, but the individual ' + selectedRole.name + ' session could not be created: ' + error.message,
@@ -326,6 +338,8 @@ export const Plugin = {
                   })
 
                 const resolved: Orchestra.Project[] = []
+                // Each new member team follows the operator's `orchestra.worker` policy.
+                const memberWorkerPolicy = yield* Orchestra.workerPolicy
                 for (const spec of specs) {
                   if (spec.kind === "existing") {
                     resolved.push(spec.project)
@@ -334,7 +348,13 @@ export const Plugin = {
                   const project = yield* orchestra.create({
                     name: spec.name,
                     directory: spec.directory,
-                    ...(spec.team ? { template: spec.team } : {}),
+                    ...(spec.team
+                      ? {
+                          template: spec.team,
+                          workerModels: (role: Orchestra.Role | undefined) =>
+                            Orchestra.workerModels(memberWorkerPolicy, role),
+                        }
+                      : {}),
                     ...sandboxArgs(spec.sandbox),
                   }).pipe(
                     Effect.mapError((error) => new ToolFailure({
@@ -349,11 +369,14 @@ export const Plugin = {
                   resolved.push(project)
                   if (spec.role) {
                     const role = spec.role
+                    const worker = Orchestra.workerModels(yield* Orchestra.workerPolicy, role)
                     yield* orchestra.createMember({
                       project,
                       agent: role.agent,
                       title: role.name,
                       category: role.category,
+                      model: worker.model,
+                      models: worker.models,
                     }).pipe(
                       Effect.mapError((error) => new ToolFailure({
                         message: "Group member workspace " + project.name + " (" + project.id + ") was created, but AI role " + role.name + " could not be started: " + error.message + ". No group was registered. Existing member projects:\n" + resolved.map(projectLine).join("\n"),

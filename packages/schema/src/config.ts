@@ -14,6 +14,7 @@ import { ConfigFormatter } from "./config/formatter.js"
 import { ConfigLSP } from "./config/lsp.js"
 import { ConfigMCP } from "./config/mcp.js"
 import { ConfigModel } from "./config/model.js"
+import { ConfigOrchestra } from "./config/orchestra.js"
 import { ConfigPlugin } from "./config/plugin.js"
 import { ConfigProvider } from "./config/provider.js"
 import { ConfigProxy } from "./config/proxy.js"
@@ -36,6 +37,9 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   }),
   default_agent: Schema.String.pipe(optional).annotate({
     description: "Default primary agent to use when no session agent is selected",
+  }),
+  orchestra: ConfigOrchestra.Info.pipe(optional).annotate({
+    description: "AI team behavior: which models worker sessions run",
   }),
   proxy: ConfigProxy.Info.pipe(optional).annotate({
     description: "HTTP/HTTPS proxy for OpenCode network requests only; local endpoints must be bypassed",

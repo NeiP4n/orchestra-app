@@ -93,10 +93,13 @@ export const Plugin = {
       // A project has one DoD owner: its main Orchestrator session. Worker sessions are
       // project-owned by Orchestra and must execute existing items instead of growing the
       // board independently. This is enforced here, rather than only in the prompt, so a
-      // model cannot bypass the rule by deciding to call `dod add` anyway.
+      // model cannot bypass the rule by deciding to call `dod add` anyway. The main session
+      // is project-owned too (it is claimed when the project opens), so being claimed alone
+      // is not enough: only a session that is not the project's main session is refused.
       if (input.action === "add") {
         const owners = yield* orchestra.owners()
-        if (owners[context.sessionID] !== undefined)
+        const project = owners[context.sessionID]
+        if (project !== undefined && (yield* orchestra.mainOf(context.sessionID)) === undefined)
           return yield* new ToolFailure({
             message:
               "DoD creation is owned by the project Orchestrator. This team session may use existing DoD items, but cannot add new ones. Report missing work to the Orchestrator instead.",

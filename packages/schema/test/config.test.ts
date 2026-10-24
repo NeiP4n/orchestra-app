@@ -154,3 +154,37 @@ describe("Config.Entry", () => {
     expect(encoded.info.providers?.custom).not.toHaveProperty("canonical")
   })
 })
+
+describe("Config.orchestra", () => {
+  const decode = Schema.decodeUnknownSync(Config.Info)
+
+  test("decodes the worker model policy and its category overrides", () => {
+    const decoded = decode({
+      orchestra: {
+        worker: {
+          model: "opencode/big-pickle",
+          models: ["opencode/minimax-free", { providerID: "zen", model: "glm-4.6", variant: "max" }],
+          categories: { Planning: { model: "zen/glm-4.6", models: [{ providerID: "zen", model: "glm-4.6" }] } },
+        },
+      },
+    })
+    const ref = (selection?: { providerID: string; model: string; variant?: string }) =>
+      selection && `${selection.providerID}/${selection.model}${selection.variant ? `#${selection.variant}` : ""}`
+    expect(ref(decoded.orchestra?.worker?.model)).toBe("opencode/big-pickle")
+    expect(decoded.orchestra?.worker?.models?.map(ref)).toEqual(["opencode/minimax-free", "zen/glm-4.6#max"])
+    expect(ref(decoded.orchestra?.worker?.categories?.Planning?.model)).toBe("zen/glm-4.6")
+    expect(decoded.orchestra?.worker?.categories?.Planning?.models?.map(ref)).toEqual(["zen/glm-4.6"])
+  })
+
+  test("encodes the policy and omits an absent orchestra section", () => {
+    const input = { orchestra: { worker: { model: "opencode/big-pickle" } } }
+    expect(Schema.encodeSync(Config.Info)(decode(input))).toEqual({
+      orchestra: { worker: { model: { providerID: "opencode", model: "big-pickle" } } },
+    })
+    expect(Schema.encodeSync(Config.Info)(decode({}))).not.toHaveProperty("orchestra")
+  })
+
+  test("rejects a malformed model selection", () => {
+    expect(() => decode({ orchestra: { worker: { model: "not-a-model" } } })).toThrow()
+  })
+})

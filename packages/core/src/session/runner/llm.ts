@@ -1,7 +1,11 @@
 export * as SessionRunnerLLM from "./llm.js"
 
-import { Message } from "@orchestra/ai"
+import { Message, isContextOverflowFailure } from "@orchestra/ai"
+import type { AIError } from "@orchestra/ai"
 import { Mode } from "@orchestra/schema/mode"
+import { Model } from "@orchestra/schema/model"
+import { Orchestra } from "@orchestra/schema/orchestra"
+import { SessionError } from "@orchestra/schema/session-error"
 import { and, desc, eq, sql } from "drizzle-orm"
 import { Cause, Effect, Exit, FiberMap, Layer } from "effect"
 import { Database } from "../../database/database.js"
@@ -21,7 +25,7 @@ import { SessionSchema } from "../schema.js"
 import { SessionStore } from "../store.js"
 import { SessionMessageTable } from "../sql.js"
 import { SessionTitle } from "../title.js"
-import { toSessionError } from "../to-session-error.js"
+import { toSessionError, isFreeTierAddressCap } from "../to-session-error.js"
 import { DrainResult, Service, type Interface } from "./index.js"
 import { Snapshot } from "../../snapshot.js"
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
@@ -212,6 +216,8 @@ const layer = Layer.effect(
       let initial: SessionContext.Loaded | undefined = first
       let recoverOverflow = true
       let recoverContinuation = true
+      // Models this run already gave up, so a failing provider cannot bounce between two of them.
+      const refused = new Set<string>([modelKey(first.model.ref)])
       while (true) {
         // Reuse boundary preparation once; retries refresh context without delivering more input.
         const loaded = initial ?? (yield* prepareContext(sessionID).pipe(Effect.flatMap(context.load)))
@@ -265,6 +271,7 @@ const layer = Layer.effect(
               retry: proposed,
             }),
           recoverContinuation,
+          fallback: (cause, error) => nextModel(loaded, cause, error, refused),
           recoverOverflow: Effect.suspend(() =>
             recoverOverflow
               ? compaction
@@ -297,9 +304,44 @@ const layer = Layer.effect(
           RecoverFull: Effect.fnUntraced(function* () {
             recoverContinuation = false
           }),
+          Switched: Effect.fnUntraced(function* () {
+            assistantMessageID = SessionMessage.ID.create()
+          }),
         })
         if (completed !== undefined) return completed
       }
+    })
+
+    // A worker whose provider refuses the current model outright continues on the next model
+    // the operator gave it (`orchestra.worker`, or the role's own list). Those models are
+    // snapshotted on the session at creation; the project's main session carries none and so
+    // never switches. Waiting cannot clear either a refusal or a spent free-tier address.
+    const nextModel = Effect.fn("SessionRunner.nextModel")(function* (
+      loaded: SessionContext.Loaded,
+      cause: AIError,
+      error: SessionError.Error,
+      refused: Set<string>,
+    ) {
+      const next = fallbackModel({
+        cause,
+        models: Orchestra.sessionModels(loaded.session.metadata),
+        current: loaded.model.ref,
+        refused,
+      })
+      if (!next) return false
+      refused.add(modelKey(next))
+      yield* Effect.logWarning("the provider refused this model; the worker continues on its next model", {
+        sessionID: loaded.session.id,
+        model: loaded.model.ref,
+        next,
+        message: error.message,
+      })
+      yield* bus.publish(SessionEvent.ModelSelected, {
+        sessionID: loaded.session.id,
+        model: next,
+        previous: loaded.session.model,
+      })
+      return true
     })
 
     const settleStaleCompactions = Effect.fn("SessionRunner.settleStaleCompactions")(function* (
@@ -360,6 +402,31 @@ const layer = Layer.effect(
     return Service.of({ drain })
   }),
 )
+
+const modelKey = (model: Model.Ref) => `${model.providerID}/${model.id}#${model.variant ?? ""}`
+
+/**
+ * The next model a worker may try after its provider refused the current one outright. A
+ * failure the retry policy can wait out is left to it; a refusal, a rejected request or a
+ * spent free-tier address cannot be waited out, so the worker continues on another model the
+ * operator gave it. A session with no such list (the project's main session) returns nothing.
+ * A content policy refusal belongs to the request, not to the model, so another model would
+ * only dodge the filter. A context overflow that survived compaction is the task's own size:
+ * another model hides it instead of reporting it, so the step fails honestly.
+ */
+export function fallbackModel(input: {
+  readonly cause: AIError
+  readonly models: ReadonlyArray<Model.Ref>
+  readonly current: Model.Ref
+  readonly refused: ReadonlySet<string>
+}) {
+  if (input.cause.reason._tag === "ContentPolicy") return undefined
+  if (isContextOverflowFailure(input.cause)) return undefined
+  if (SessionRunnerRetry.isRetryable(input.cause) && !isFreeTierAddressCap(input.cause)) return undefined
+  return input.models.find(
+    (model) => !input.refused.has(modelKey(model)) && modelKey(model) !== modelKey(input.current),
+  )
+}
 
 export const node = makeLocationNode({
   service: Service,

@@ -10,6 +10,8 @@ import { Mode } from "@orchestra/schema/mode"
 import { Federation } from "@orchestra/schema/federation"
 import { Form } from "@orchestra/schema/form"
 import { Model } from "@orchestra/schema/model"
+import type { ConfigModel } from "@orchestra/schema/config/model"
+import type { ConfigOrchestra } from "@orchestra/schema/config/orchestra"
 import { SessionID } from "@orchestra/schema/session-id"
 import type { Session as SessionSchema } from "@orchestra/schema/session"
 import { AbsolutePath } from "./schema.js"
@@ -23,6 +25,7 @@ import { SessionEvent } from "@orchestra/schema/session-event"
 import { SessionMessage } from "./session/message.js"
 import { SessionInbox } from "./session/inbox.js"
 import { Dod } from "./dod.js"
+import { Config } from "./config.js"
 import { Project as CoreProject } from "./project.js"
 import { Git } from "./git.js"
 import { Global } from "@orchestra/util/global"
@@ -103,6 +106,9 @@ export interface Interface {
     directory: string
     template?: string
     isolation?: Orchestra.SandboxIsolation
+    // The models each new worker runs, resolved from the role and the operator's worker policy.
+    // Absent, a worker keeps the role's own model and otherwise the Orchestrator's default.
+    workerModels?: (role: Role | undefined) => WorkerModelChoice | undefined
   }) => Effect.Effect<
     Project,
     ProjectNotFoundError | DirectoryError | TemplateNotFoundError | SandboxError | Dod.DodError
@@ -131,6 +137,8 @@ export interface Interface {
     agent: Role["agent"]
     model?: Model.Ref
     category?: string
+    // The models this worker may continue on when its provider refuses the current one.
+    models?: ReadonlyArray<Model.Ref>
   }) => Effect.Effect<SessionSchema.Info, DispatchError>
   // The project whose main session this is, if any.
   readonly mainOf: (sessionID: SessionID) => Effect.Effect<Project | undefined>
@@ -250,6 +258,8 @@ const PlannedTeamMember = Schema.Struct({
   id: SessionID,
   ...Orchestra.Member.fields,
   model: Model.Ref.pipe(Schema.optional),
+  // The models this worker may continue on when its provider refuses the current one.
+  models: Schema.Array(Model.Ref).pipe(Schema.optional),
 })
 const TeamPlan = Schema.Struct({
   created: Schema.Number,
@@ -271,6 +281,13 @@ const ProjectMovePlanSchema = Schema.Struct({
 })
 type ProjectMovePlan = typeof ProjectMovePlanSchema.Type
 const decodeProjectMovePlan = Schema.decodeUnknownOption(ProjectMovePlanSchema)
+
+// What a worker session runs: its starting model and the ones it may continue on. Both come
+// from the role and the operator's `orchestra.worker` config; see `workerModels` below.
+export interface WorkerModelChoice {
+  readonly model?: Model.Ref
+  readonly models?: ReadonlyArray<Model.Ref>
+}
 
 // Annotated: the layer calls Session operations whose types reach back through the
 // instance graph that includes this node, so an inferred type would be circular.
@@ -585,6 +602,10 @@ const layer: Layer.Layer<
               title: member.title,
               agent: member.agent,
               model: member.model,
+              // Kept on the session itself so a model fallback survives role and config edits.
+              ...(member.models?.length
+                ? { metadata: { [Orchestra.SessionModelsMetadataKey]: member.models } }
+                : {}),
             })
             .pipe(Effect.orDie)
         }
@@ -1582,11 +1603,16 @@ const layer: Layer.Layer<
           const plan = {
             created: record.created,
             members: template.members.toReversed().map((member) => {
-              const model = modelOf(team.find((role) => role.agent === member.agent))
+              const role = team.find((item) => item.agent === member.agent)
+              // The operator's worker policy answers for a role without its own model, so a
+              // template's workers stay off the Orchestrator's model and its limits.
+              const chosen = input.workerModels?.(role) ?? {}
+              const model = chosen.model ?? modelOf(role)
               return {
                 id: SessionID.create(),
                 ...member,
                 ...(model ? { model } : {}),
+                ...(chosen.models?.length ? { models: chosen.models } : {}),
               }
             }),
           }
@@ -1798,6 +1824,7 @@ const layer: Layer.Layer<
               title: input.title?.trim() || role.name,
               category: input.category?.trim() || role.category || "Team",
               model: input.model,
+              ...(input.models?.length ? { models: input.models } : {}),
             }
             yield* kv.set(
               TEAM_PLAN + project.id,
@@ -2091,6 +2118,68 @@ export function toolAllowed(tools: ReadonlyArray<string>, action: string) {
 export function modelOf(role: Role | undefined) {
   return role?.model ? Model.Ref.parse(role.model) : undefined
 }
+
+// The models a worker session runs: the role's own choice first, then the operator's
+// `orchestra.worker` policy for the role's category, then the general worker policy.
+// `models` lists what the worker may continue on when its provider refuses the current
+// model outright, so it excludes that model. An explicit task model passed by a caller
+// always wins; without any policy a worker keeps inheriting the Orchestrator's model.
+export function workerModels(
+  policy: ConfigOrchestra.Worker | undefined,
+  role: Role | undefined,
+): WorkerModelChoice {
+  const entry = categoryPolicy(policy, role)
+  const model = modelOf(role) ?? refOf(entry?.model) ?? refOf(policy?.model)
+  const models = distinctModels(
+    [
+      ...(role?.models ?? []).flatMap(parseModel),
+      ...(entry?.models ?? []).flatMap((selection) => [refOf(selection)]),
+      ...(policy?.models ?? []).flatMap((selection) => [refOf(selection)]),
+    ].filter((candidate) => candidate !== undefined),
+    model,
+  )
+  return { ...(model ? { model } : {}), ...(models.length > 0 ? { models } : {}) }
+}
+
+function categoryPolicy(policy: ConfigOrchestra.Worker | undefined, role: Role | undefined) {
+  const category = role?.category.trim().toLowerCase()
+  if (!policy?.categories || !category) return undefined
+  return Object.entries(policy.categories).find(([name]) => name.trim().toLowerCase() === category)?.[1]
+}
+
+const refOf = (selection: ConfigModel.Selection | undefined) =>
+  selection === undefined
+    ? undefined
+    : Model.Ref.make({
+        id: selection.model,
+        providerID: selection.providerID,
+        ...(selection.variant === undefined ? {} : { variant: selection.variant }),
+      })
+
+// A saved role list is validated when it is saved, so a stale entry is skipped rather than
+// breaking worker creation.
+function parseModel(input: string) {
+  try {
+    return [Model.Ref.parse(input)]
+  } catch {
+    return []
+  }
+}
+
+function distinctModels(candidates: ReadonlyArray<Model.Ref>, current: Model.Ref | undefined) {
+  const key = (model: Model.Ref) => `${model.providerID}/${model.id}#${model.variant ?? ""}`
+  const seen = new Map(candidates.map((model) => [key(model), model]))
+  if (current) seen.delete(key(current))
+  return [...seen.values()]
+}
+
+// The operator's `orchestra.worker` policy, read fresh so an edit applies to the next worker.
+// Config is optional so a location without it keeps inheriting the Orchestrator's model.
+export const workerPolicy = Effect.gen(function* () {
+  const config = yield* Effect.serviceOption(Config.Service)
+  if (Option.isNone(config)) return undefined
+  return Config.latest(yield* config.value.entries(), "orchestra")?.worker
+})
 
 function originOf(builtin: readonly { id: string }[], id: string): Orchestra.Origin {
   return builtin.some((item) => item.id === id) ? "edited" : "custom"

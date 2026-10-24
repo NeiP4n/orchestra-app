@@ -38,6 +38,8 @@ export type Outcome = Data.TaggedEnum<{
   }
   RecoverFull: {}
   Compacted: {}
+  /** The attempt moved to another model of this session and starts over on it. */
+  Switched: {}
 }>
 export const Outcome = Data.taggedEnum<Outcome>()
 
@@ -56,6 +58,8 @@ interface Input {
   readonly recoverContinuation: boolean
   /** The runner owns compaction policy; the attempt invokes it only before durable output. */
   readonly recoverOverflow: Effect.Effect<boolean>
+  /** Moves the session to its next model when the provider refuses this one outright. */
+  readonly fallback: (cause: AIError, error: SessionError.Error) => Effect.Effect<boolean>
 }
 
 const TOOLS_INTERRUPTED = { type: "aborted", message: "Tool execution interrupted" } as const
@@ -193,6 +197,11 @@ export const make = Effect.gen(function* () {
           // Retry state projects onto the existing assistant, even before it has produced output.
           yield* publisher.startAssistant()
           return Outcome.Retry({ error: llmError, decision: retry })
+        }
+        // Another model is the only way forward when waiting cannot help, so a worker moves on
+        // instead of failing the task. Nothing was produced yet, so the new attempt is clean.
+        if (llmFailure && llmError && !retry?.retry && !recorded.outputStarted) {
+          if (yield* restore(input.fallback(llmFailure, llmError))) return Outcome.Switched()
         }
         if (llmError) yield* publisher.failAssistant(llmError)
 

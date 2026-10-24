@@ -27,7 +27,7 @@ const pluginNode = makeLocationNode({
   deps: [Tool.node, Permission.node, Location.node, Orchestra.node],
 })
 
-function harness(directory: string, seen: string[]) {
+function harness(directory: string, seen: string[], team: Partial<Orchestra.Interface> = {}) {
   return AppNodeBuilder.build(LayerNode.group([Tool.node, pluginNode, Orchestra.node]), [
     Location.node.replace(
       Layer.succeed(Location.Service, Location.Service.of(location({ directory: AbsolutePath.make(directory) }))),
@@ -41,7 +41,7 @@ function harness(directory: string, seen: string[]) {
       }),
     ),
     // DodTool asks the Orchestrator who holds an item; a tool test has no team.
-    Orchestra.node.replace(orchestraLayer()),
+    Orchestra.node.replace(orchestraLayer(team)),
   ])
 }
 
@@ -96,4 +96,58 @@ describe("DodTool", () => {
       }).pipe(Effect.provide(harness(directory, seen)))
     }),
   )
+
+  // A project claims its main session too, so being claimed alone must not refuse the
+  // Orchestrator; only a claimed session that is not the project's main one may not add.
+  it.live("lets the project's main session add an item", () =>
+    withTempDir(({ path: directory }) =>
+      Effect.gen(function* () {
+        const tools = yield* Tool.Service
+        const added = yield* run(tools, "add", { action: "add", what: "Own the board" })
+        expect(text(added)).toContain("Added L-001")
+      }).pipe(
+        Effect.provide(
+          harness(directory, [], {
+            owners: () => Effect.succeed({ [sessionID]: Orchestra.ProjectID.make("prj_dod") }),
+            mainOf: () => Effect.succeed(project("prj_dod")),
+          }),
+        ),
+      ),
+    ),
+  )
+
+  it.live("refuses an item from a worker session", () =>
+    withTempDir(({ path: directory }) =>
+      Effect.gen(function* () {
+        const tools = yield* Tool.Service
+        // A worker is claimed by its project but is not that project's main session.
+        const added = yield* run(tools, "add", { action: "add", what: "Grow the board" })
+        expect(added.error?.message).toContain("owned by the project Orchestrator")
+      }).pipe(
+        Effect.provide(
+          harness(directory, [], { owners: () => Effect.succeed({ [sessionID]: Orchestra.ProjectID.make("prj_dod") }) }),
+        ),
+      ),
+    ),
+  )
+
+  it.live("lets an unclaimed chat start a board", () =>
+    withTempDir(({ path: directory }) =>
+      Effect.gen(function* () {
+        const tools = yield* Tool.Service
+        const added = yield* run(tools, "add", { action: "add", what: "Start the board" })
+        expect(text(added)).toContain("Added L-001")
+      }).pipe(Effect.provide(harness(directory, []))),
+    ),
+  )
 })
+
+// The project a claimed session belongs to; only its main session may grow the board.
+function project(id: string) {
+  return {
+    id: Orchestra.ProjectID.make(id),
+    name: "DoD",
+    directory: "/project",
+    created: 1,
+  }
+}

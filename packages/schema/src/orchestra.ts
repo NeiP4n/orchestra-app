@@ -3,6 +3,7 @@ export * as Orchestra from "./orchestra.js"
 import { Option, Schema } from "effect"
 import { Agent } from "./agent.js"
 import { ascending } from "./identifier.js"
+import { Model } from "./model.js"
 import { Permission } from "./permission.js"
 import { statics } from "./schema.js"
 import { SessionID } from "./session-id.js"
@@ -67,6 +68,17 @@ const decodeSessionOwner = Schema.decodeUnknownOption(SessionOwnerMetadata)
 export function sessionOwner(metadata?: SessionMetadata) {
   if (!metadata) return undefined
   return Option.getOrUndefined(decodeSessionOwner(metadata[SessionOwnerMetadataKey]))?.projectID
+}
+
+// The models a worker session may continue on when its provider refuses the current one.
+// Snapshotted onto the session when it is created, so a fallback survives edits to the role
+// and to `orchestra.worker`. The project's main session carries no such list and never switches.
+export const SessionModelsMetadataKey = "opencode-pp:worker-models"
+const decodeSessionModels = Schema.decodeUnknownOption(Schema.Array(Model.Ref))
+
+export function sessionModels(metadata?: SessionMetadata) {
+  if (!metadata) return []
+  return Option.getOrUndefined(decodeSessionModels(metadata[SessionModelsMetadataKey])) ?? []
 }
 
 // How strictly a sandbox project's shell commands are confined. "environment" gives them their
