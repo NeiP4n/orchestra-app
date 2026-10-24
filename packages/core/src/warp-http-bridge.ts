@@ -1,4 +1,4 @@
-import { createConnection, createServer, type Socket } from "node:net"
+import { createConnection, createServer, type Server, type Socket } from "node:net"
 
 type ParsedTarget = { host: string; port: number; path: string; requestLine: string }
 type SocksStage = "greeting" | "connect" | "stream"
@@ -9,7 +9,11 @@ function parseRequest(header: string): ParsedTarget | { connect: true; host: str
   const connect = /^CONNECT\s+([^\s]+)\s+HTTP\/1\.[01]$/i.exec(first)
   if (connect) {
     let url: URL
-    try { url = new URL("http://" + connect[1]) } catch { return }
+    try {
+      url = new URL("http://" + connect[1])
+    } catch {
+      return
+    }
     const port = Number(url.port || 443)
     if (!url.hostname || !Number.isInteger(port) || port < 1 || port > 65535) return
     return { connect: true, host: url.hostname, port }
@@ -17,7 +21,11 @@ function parseRequest(header: string): ParsedTarget | { connect: true; host: str
   const request = /^(\S+)\s+(\S+)\s+(HTTP\/1\.[01])$/i.exec(first)
   if (!request) return
   let url: URL
-  try { url = new URL(request[2]) } catch { return }
+  try {
+    url = new URL(request[2])
+  } catch {
+    return
+  }
   if (url.protocol !== "http:" || !url.hostname) return
   const port = Number(url.port || 80)
   if (!Number.isInteger(port) || port < 1 || port > 65535) return
@@ -33,7 +41,14 @@ function socksAddress(host: string, port: number) {
   return Buffer.concat([Buffer.from([5, 1, 0]), addr, Buffer.from([port >> 8, port & 255])])
 }
 
-function tunnel(client: Socket, socksPort: number, host: string, port: number, firstPayload?: Buffer, connectMode = false) {
+function tunnel(
+  client: Socket,
+  socksPort: number,
+  host: string,
+  port: number,
+  firstPayload?: Buffer,
+  connectMode = false,
+) {
   let upstream: Socket | undefined
   let stage: SocksStage = "greeting"
   let buffer = Buffer.alloc(0)
@@ -88,7 +103,8 @@ function tunnel(client: Socket, socksPort: number, host: string, port: number, f
       if (version !== 5 || reply !== 0) return fail(false)
 
       const addressType = buffer[3]
-      const addressLength = addressType === 1 ? 4 : addressType === 4 ? 16 : addressType === 3 ? (buffer[4] ?? 255) + 1 : 0
+      const addressLength =
+        addressType === 1 ? 4 : addressType === 4 ? 16 : addressType === 3 ? (buffer[4] ?? 255) + 1 : 0
       if (!addressLength) return fail(false)
       const required = 6 + addressLength
       if (buffer.length < required) return
@@ -120,8 +136,16 @@ function tunnel(client: Socket, socksPort: number, host: string, port: number, f
   open()
 }
 
-/** HTTP CONNECT/absolute-URI proxy bound to loopback and backed by WARP's SOCKS5 endpoint. */
-export async function startHttpBridge(socksPort: number, httpPort: number): Promise<void> {
+const bridges = new Map<number, Server>()
+
+/**
+ * HTTP CONNECT/absolute-URI proxy bound to loopback and backed by WARP's SOCKS5 endpoint. Setting up
+ * the WARP route runs again on every enable and every automatic IP change, so a bridge this process
+ * already runs is kept ("running"), and a port held by someone else is reported ("taken") for the
+ * caller to judge instead of failing with EADDRINUSE.
+ */
+export async function startHttpBridge(socksPort: number, httpPort: number): Promise<"started" | "running" | "taken"> {
+  if (bridges.has(httpPort)) return "running"
   const server = createServer((client) => {
     let buffer = Buffer.alloc(0)
     const onData = (chunk: Buffer) => {
@@ -153,12 +177,16 @@ export async function startHttpBridge(socksPort: number, httpPort: number): Prom
     client.on("data", onData)
     client.on("error", () => client.destroy())
   })
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject)
+  const listened = await new Promise<boolean>((resolve, reject) => {
+    const failed = (error: NodeJS.ErrnoException) => (error.code === "EADDRINUSE" ? resolve(false) : reject(error))
+    server.once("error", failed)
     server.listen(httpPort, "127.0.0.1", () => {
-      server.removeListener("error", reject)
-      resolve()
+      server.removeListener("error", failed)
+      resolve(true)
     })
   })
+  if (!listened) return "taken"
   server.unref()
+  bridges.set(httpPort, server)
+  return "started"
 }

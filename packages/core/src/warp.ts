@@ -538,13 +538,18 @@ export async function ensureProxy(port = DEFAULT_PORT, options: { takeOverDevice
     )
   }
   if (await isSocksOnly(effectivePort)) {
-    try {
-      await startHttpBridge(effectivePort, HTTP_BRIDGE_PORT)
-    } catch (cause) {
+    const bridge = await startHttpBridge(effectivePort, HTTP_BRIDGE_PORT).catch((cause: unknown) => {
       const message = cause instanceof Error ? cause.message : String(cause)
       throw new WarpError(
         "proxy-unreachable",
         `Could not start the OpenCode-only HTTP-to-SOCKS5 bridge on 127.0.0.1:${HTTP_BRIDGE_PORT}: ${message}`,
+      )
+    })
+    // Another OpenCode process already serves the bridge; anything else on the port is not ours.
+    if (bridge === "taken" && !(await speaksHttp(HTTP_BRIDGE_PORT))) {
+      throw new WarpError(
+        "proxy-unreachable",
+        `Port 127.0.0.1:${HTTP_BRIDGE_PORT} for the OpenCode-only HTTP-to-SOCKS5 bridge is taken by another program that is not an HTTP proxy. Free the port and retry.`,
       )
     }
   }
