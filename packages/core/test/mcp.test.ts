@@ -2750,7 +2750,7 @@ test("shares one local MCP process between locations until the last one leaves",
     Effect.gen(function* () {
       const first = yield* Scope.make()
       const second = yield* Scope.make()
-      const a = yield* McpPool.connect("shared", config, import.meta.dir).pipe(Scope.provide(first))
+      yield* McpPool.connect("shared", config, import.meta.dir).pipe(Scope.provide(first))
       const b = yield* McpPool.connect("shared", config, import.meta.dir).pipe(Scope.provide(second))
       yield* Scope.close(first, Exit.void)
       // The first location is gone; the second still holds a working connection to the same process.

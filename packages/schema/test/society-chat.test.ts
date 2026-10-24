@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { Federation } from "../src/federation"
-import { ProjectID } from "../src/orchestra"
+import { Federation } from "../src/federation.js"
+import { ProjectID } from "../src/orchestra.js"
 
 const ids = ["prj_a", "prj_b", "prj_c"].map((id) => id as ProjectID)
 

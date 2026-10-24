@@ -1624,8 +1624,8 @@ describe("Orchestra team", () => {
           session: {
             hook: ((name: string, callback: (event: never) => Effect.Effect<void>) =>
               Effect.sync(() => {
-                if (name === "context") contexts.push(callback)
-                if (name === "prompt") prompts.push(callback)
+                if (name === "context") contexts.push(callback as (event: SessionContext) => Effect.Effect<void>)
+                if (name === "prompt") prompts.push(callback as (event: { sessionID: Session.ID }) => Effect.Effect<void>)
               }).pipe(Effect.as({ dispose: Effect.void }))) as never,
           },
           tool: {
@@ -1633,6 +1633,9 @@ describe("Orchestra team", () => {
               Effect.sync(() => {
                 if (name === "execute.before") beforeTool.push(callback)
               }).pipe(Effect.as({ dispose: Effect.void }))) as never,
+            transform: () => Effect.die("unused tool.transform"),
+            reload: () => Effect.die("unused tool.reload"),
+            list: () => Effect.die("unused tool.list"),
           },
           permission: {
             hook: (_, callback) => Effect.sync(() => hooks.push(callback)).pipe(Effect.as({ dispose: Effect.void })),
