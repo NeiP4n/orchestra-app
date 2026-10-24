@@ -1,7 +1,7 @@
 import { useTerminalDimensions } from "@opentui/solid"
 import { Plugin } from "@orchestra/plugin/tui"
 import { For, Show, createSignal } from "solid-js"
-import { checkHttpProxies, loadHttpProxyPool, proxyUrl, type ProxyEntry } from "./proxy-manager-core"
+import { checkHttpProxies, fetchHttpProxySource, PROXY_SOURCES, proxyUrl, type ProxyEntry } from "./proxy-manager-core"
 import { hoverBackground } from "../../ui/hover"
 
 type ProxySetting = { http?: string; https?: string; no_proxy?: string[] } | null
@@ -13,12 +13,11 @@ type RouteState = {
   autoIP: boolean
   acceptedWarning: boolean
 }
-type SourceState = { name: string; count: number; error: string }
-type PoolState = { entries: ProxyEntry[]; sources: SourceState[]; total: number; loading: boolean; checked: number; error: string }
+type SourceState = { name: string; count: number; error: string; loading?: boolean }
+type PoolState = { entries: ProxyEntry[]; sources: SourceState[]; total: number; loading: boolean; scanning: boolean; pending: number; checked: number; error: string }
 
-const INITIAL_POOL: PoolState = { entries: [], sources: [], total: 0, loading: false, checked: 0, error: "" }
+const INITIAL_POOL: PoolState = { entries: [], sources: [], total: 0, loading: false, scanning: false, pending: 0, checked: 0, error: "" }
 const INITIAL_ROUTE: RouteState = { enabled: false, hasPreviousProxy: false, autoIP: false, acceptedWarning: false }
-const BATCH = 48
 const REFRESH_MS = 30 * 60 * 1000
 const ROTATION_COOLDOWN_MS = 30_000
 const BYPASS = ["localhost", "127.0.0.1", "::1"]
@@ -81,7 +80,6 @@ function ManagerDialog(props: {
   active: () => ProxyEntry | undefined
   entries: () => ProxyEntry[]
   refresh: () => void
-  checkMore: () => void
   use: (entry: ProxyEntry) => void
   disable: () => void
   close: () => void
@@ -99,11 +97,11 @@ function ManagerDialog(props: {
     <box width="100%" gap={1} paddingLeft={1} paddingRight={1}>
       <box flexDirection="row" justifyContent="space-between" gap={1}>
         <text fg={theme().text.base}><b>Proxy Manager</b></text>
-        <text fg={theme().text.muted} wrapMode="none">{props.pool().loading ? label("Updating…", "Обновление…") : label("Public HTTP pool", "Публичный HTTP-пул")}</text>
+        <text fg={props.pool().scanning ? theme().text.feedback.info.base : theme().text.muted} wrapMode="none">{props.pool().loading ? label("Downloading sources…", "Загрузка источников…") : props.pool().scanning ? label("Checking OpenCode live", "Проверка OpenCode в фоне") : label("OpenCode-compatible pool", "Пул для OpenCode")}</text>
       </box>
       <text fg={theme().text.muted} wrapMode="word">
-        {label(props.pool().entries.filter((item) => item.status === "healthy").length + " verified · " + props.pool().total + " unique · " + props.pool().checked + " checked",
-          "Проверено: " + props.pool().entries.filter((item) => item.status === "healthy").length + " · найдено: " + props.pool().total + " · тестов: " + props.pool().checked)}
+        {label(props.pool().entries.filter((item) => item.status === "healthy").length + " OpenCode-ready · " + props.pool().checked + "/" + props.pool().total + " checked · " + props.pool().pending + " queued",
+          "Готово для OpenCode: " + props.pool().entries.filter((item) => item.status === "healthy").length + " · проверено: " + props.pool().checked + "/" + props.pool().total + " · в очереди: " + props.pool().pending)}
       </text>
       <Show when={props.route().enabled && props.active()}>
         <text fg={theme().text.feedback.success.base} wrapMode="none" truncate>
@@ -125,37 +123,49 @@ function ManagerDialog(props: {
           {(entry, index) => {
             const selected = () => props.route().enabled && props.route().activeUrl === proxyUrl(entry)
             const rowHovered = () => hovered() === entry.id
+            const checked = () => entry.status === "healthy"
+            const stateLabel = () => checked()
+              ? String(entry.latencyMs) + " ms"
+              : entry.status === "dead"
+                ? label("blocked / failed", "нет доступа")
+                : label("checking OpenCode…", "проверка OpenCode…")
+            const stateColor = () => checked()
+              ? theme().text.feedback.success.base
+              : entry.status === "dead"
+                ? theme().text.feedback.error.base
+                : theme().text.feedback.info.base
             return (
               <box flexDirection="row" alignItems="center" gap={1}
                 backgroundColor={rowHovered() ? hoverBackground(theme()) : undefined}
                 onMouseOver={() => setHovered(entry.id)} onMouseOut={() => setHovered(undefined)}
-                onMouseUp={(event) => { event.stopPropagation(); props.use(entry) }}>
+                onMouseUp={(event) => { event.stopPropagation(); if (checked()) props.use(entry) }}>
                 <text fg={selected() ? theme().text.feedback.success.base : rowHovered() ? actionHover() : theme().text.muted} wrapMode="none">
                   {selected() ? "●" : String(index() + 1).padStart(2, " ")}
                 </text>
                 <box flexGrow={1} minWidth={0}>
-                  <text fg={rowHovered() ? actionHover() : theme().text.base} wrapMode="none" truncate>{entry.host + ":" + entry.port}</text>
+                  <text fg={rowHovered() ? actionHover() : checked() ? theme().text.base : theme().text.muted} wrapMode="none" truncate>{entry.host + ":" + entry.port}</text>
                   <text fg={rowHovered() ? theme().text.base : theme().text.muted} wrapMode="none" truncate>{entry.source}</text>
                 </box>
-                <text fg={rowHovered() ? actionHover() : theme().text.feedback.success.base} wrapMode="none">{entry.latencyMs + " ms"}</text>
-                <text fg={rowHovered() ? actionHover() : theme().text.action?.primary?.base ?? theme().text.base} wrapMode="none">{label("[Use]", "[Выбрать]")}</text>
+                <text fg={rowHovered() ? actionHover() : stateColor()} wrapMode="none">{stateLabel()}</text>
+                <text fg={checked() ? (rowHovered() ? actionHover() : theme().text.action?.primary?.base ?? theme().text.base) : theme().text.muted} wrapMode="none">
+                  {checked() ? label("[Use]", "[Выбрать]") : "…"}
+                </text>
               </box>
             )
           }}
         </For>
       </scrollbox>
       <text fg={theme().text.muted} wrapMode="word">
-        {label("Public proxies are operated by unknown parties. Selection requires HTTP CONNECT and verified HTTPS TLS. Do not disable certificate validation.",
-          "Публичными прокси управляют неизвестные операторы. Выбор требует HTTP CONNECT и успешной проверки HTTPS/TLS. Не отключай проверку сертификатов.")}
+        {label("Only proxies that reach opencode.ai/zen/v1/models over verified TLS are selectable. Public proxies are untrusted: don't send sensitive code, secrets, or credentials through them.",
+          "Выбираются только прокси, реально открывающие opencode.ai/zen/v1/models с проверкой TLS. Публичные прокси недоверенные: не передавай через них секреты, ключи и чувствительный код.")}
       </text>
       <text fg={theme().text.muted} wrapMode="none" truncate>
         {label("Sources: ", "Источники: ") + sourcesSummary()}
       </text>
       <box flexDirection="row" flexWrap="wrap" gap={1}>
-        <Button context={props.context} id="proxy.manager.refresh" label={label("Update sources", "Обновить источники")} run={props.refresh} disabled={props.pool().loading} emphasized />
-        <Button context={props.context} id="proxy.manager.check-more" label={label("Check next 48", "Проверить следующие 48")} run={props.checkMore} disabled={props.pool().loading} />
+        <Button context={props.context} id="proxy.manager.refresh" label={label("Refresh sources", "Обновить источники")} run={props.refresh} disabled={props.pool().loading || props.pool().scanning} emphasized />
         <Show when={props.route().enabled}>
-          <Button context={props.context} id="proxy.manager.disable" label={label("Disable / restore previous", "Отключить / восстановить")} run={props.disable} disabled={props.pool().loading} />
+          <Button context={props.context} id="proxy.manager.disable" label={label("Disable / restore previous", "Отключить / восстановить")} run={props.disable} />
         </Show>
         <Button context={props.context} id="proxy.manager.close" label={label("Close", "Закрыть")} run={props.close} />
       </box>
@@ -190,12 +200,14 @@ function Sidebar(props: {
           {(active()?.host ?? "") + ":" + (active()?.port ?? "") + " · " + (active()?.latencyMs ?? "—") + " ms"}
         </text>
       </Show>
-      <Show when={props.pool().loading}>
-        <text fg={theme().text.feedback.info.base} wrapMode="none" truncate>{label("Loading/checking…", "Загрузка/проверка…")}</text>
+      <Show when={props.pool().loading || props.pool().scanning}>
+        <text fg={theme().text.feedback.info.base} wrapMode="none" truncate>
+          {label("The scan runs in the background; you can use any verified result immediately.", "Сканирование работает в фоне — уже проверенные адреса можно выбирать сразу.")}
+        </text>
       </Show>
       <Button context={props.context} id="proxy.sidebar.next"
         label={props.route().enabled ? label("↻ Next verified IP", "↻ Следующий проверенный IP") : label("↗ Use fastest proxy", "↗ Быстрый прокси")}
-        run={props.next} disabled={props.pool().loading || healthy().length === 0} emphasized />
+        run={props.next} disabled={healthy().length === 0} emphasized />
       <box flexDirection="row" flexWrap="wrap" gap={1}>
         <Button context={props.context} id="proxy.sidebar.manage" label={label("Manage ↗", "Управление ↗")} run={props.open} />
         <Button context={props.context} id="proxy.sidebar.auto-ip"
@@ -211,76 +223,127 @@ export default Plugin.define({
   setup(context) {
     const [pool, updatePool] = context.storage.memory<PoolState>("pool", { initial: INITIAL_POOL })
     const [route, updateRoute] = context.storage.store<RouteState>("route", { initial: INITIAL_ROUTE })
-    let busy = false
+    let scanRunning = false
     let lastRotation = 0
 
     const healthy = () => pool.entries.filter((item) => item.status === "healthy").toSorted((a, b) => (a.latencyMs ?? 999_999) - (b.latencyMs ?? 999_999))
     const active = () => pool.entries.find((item) => proxyUrl(item) === route.activeUrl)
 
-    async function testBatch(batch: ProxyEntry[]) {
-      const checked = await checkHttpProxies(batch, 12)
-      const byId = new Map(checked.map((entry) => [entry.id, entry]))
-      updatePool((draft) => {
-        draft.entries = draft.entries.map((entry) => byId.get(entry.id) ?? entry)
-        draft.checked = draft.entries.filter((entry) => entry.status !== "unchecked").length
-      })
-    }
-
     async function refreshSources() {
-      if (busy) return
-      busy = true
-      updatePool((draft) => { draft.loading = true; draft.error = "" })
-      try {
-        const old = new Map(pool.entries.map((entry) => [entry.id, entry]))
-        const result = await loadHttpProxyPool()
-        const now = Date.now()
-        const entries = result.entries.map((entry) => {
-          const previous = old.get(entry.id)
-          return previous?.status === "healthy" && previous.checkedAt && now - previous.checkedAt < 15 * 60_000
-            ? { ...previous, source: entry.source }
-            : entry
-        })
+      if (scanRunning) return
+      scanRunning = true
+
+      const now = Date.now()
+      const recentWindow = 5 * 60_000
+      const entries = pool.entries.map((entry) => {
+        if (entry.status === "healthy" && entry.checkedAt && now - entry.checkedAt < recentWindow) return entry
+        return { ...entry, status: "unchecked" as const, latencyMs: undefined, checkedAt: undefined, detail: undefined }
+      })
+      const entryIndex = new Map<string, number>()
+      const seen = new Set<string>()
+      entries.forEach((entry, index) => {
+        entryIndex.set(entry.id, index)
+        seen.add(entry.id)
+      })
+
+      // Fresh verified results stay selectable while the other sources refresh.
+      const queue: ProxyEntry[] = entries.filter((entry) => entry.status === "unchecked")
+      let fetching = true
+      let wake: (() => void) | undefined
+      const signalWorker = () => {
+        const resume = wake
+        wake = undefined
+        resume?.()
+      }
+      const waitForQueue = () => new Promise<void>((resolve) => {
+        const resume = () => {
+          clearTimeout(timer)
+          if (wake === resume) wake = undefined
+          resolve()
+        }
+        const timer = setTimeout(resume, 250)
+        wake = resume
+      })
+
+      updatePool((draft) => {
+        draft.entries = entries
+        draft.sources = PROXY_SOURCES.map((source) => ({ name: source.name, count: 0, error: "", loading: true }))
+        draft.total = entries.length
+        draft.checked = entries.filter((entry) => entry.status === "healthy").length
+        draft.pending = queue.length
+        draft.loading = true
+        draft.scanning = true
+        draft.error = ""
+      })
+
+      const sources = PROXY_SOURCES.map(async (source, sourceIndex) => {
+        const result = await fetchHttpProxySource(source)
+        const additions: ProxyEntry[] = []
+        for (const entry of result.entries) {
+          if (seen.has(entry.id) || entryIndex.size >= 12_000) continue
+          seen.add(entry.id)
+          entryIndex.set(entry.id, entries.length + additions.length)
+          additions.push(entry)
+        }
+        // The first address is published to the list before any other source has to finish downloading.
         updatePool((draft) => {
-          draft.entries = entries
-          draft.sources = result.sources
-          draft.total = result.total
-          draft.checked = entries.filter((entry) => entry.status !== "unchecked").length
-          draft.error = result.total ? "" : "Public sources returned no valid HTTP proxies or are unreachable."
+          draft.sources[sourceIndex] = { name: result.name, count: result.count, error: result.error, loading: false }
+          if (additions.length) draft.entries.push(...additions)
+          draft.total = entryIndex.size
+          draft.pending = queue.length + additions.length
+          if (result.error && draft.sources.every((item) => !item.loading && item.count === 0)) {
+            draft.error = "All public proxy sources failed to load."
+          }
         })
-        const batch = entries.filter((entry) => entry.status === "unchecked").slice(0, BATCH)
-        await testBatch(batch)
+        if (additions.length) {
+          queue.push(...additions)
+          updatePool((draft) => { draft.pending = queue.length })
+          signalWorker()
+        }
+      })
+
+      const sourcesDone = Promise.all(sources).finally(() => {
+        fetching = false
+        updatePool((draft) => { draft.loading = false })
+        signalWorker()
+      })
+
+      const worker = async () => {
+        while (fetching || queue.length > 0) {
+          if (queue.length === 0) {
+            await waitForQueue()
+            continue
+          }
+          const batch = queue.splice(0, 8)
+          updatePool((draft) => { draft.pending = queue.length })
+          await checkHttpProxies(batch, 8, (checked) => {
+            const index = entryIndex.get(checked.id)
+            updatePool((draft) => {
+              if (index !== undefined && draft.entries[index]?.id === checked.id) {
+                draft.entries[index] = checked
+                draft.checked += 1
+              }
+              draft.pending = queue.length
+            })
+          })
+        }
+      }
+
+      try {
+        await Promise.all([sourcesDone, worker()])
+        const accepted = pool.entries.filter((entry) => entry.status === "healthy").length
         context.ui.toast.show({
-          title: text(context, "Proxy sources updated", "Источники прокси обновлены"),
-          message: text(context, "Loaded " + result.total + " unique endpoints; checking " + batch.length + ".", "Загружено уникальных адресов: " + result.total + "; проверка партии: " + batch.length + "."),
-          variant: result.total ? "success" : "warning",
+          title: text(context, "OpenCode proxy scan finished", "Проверка прокси для OpenCode завершена"),
+          message: text(context, accepted + " proxies passed the Zen API endpoint check.", "Прокси, прошедших проверку Zen API: " + accepted + "."),
+          variant: accepted > 0 ? "success" : "warning",
         })
       } catch (cause) {
         const reason = cause instanceof Error ? cause.message : String(cause)
         updatePool((draft) => { draft.error = reason })
-        context.ui.toast.show({ title: text(context, "Proxy update failed", "Не удалось обновить прокси"), message: reason, variant: "error" })
+        context.ui.toast.show({ title: text(context, "Proxy scan failed", "Ошибка проверки прокси"), message: reason, variant: "error" })
       } finally {
-        busy = false
-        updatePool((draft) => { draft.loading = false; draft.checked = draft.entries.filter((entry) => entry.status !== "unchecked").length })
-      }
-    }
-
-    async function checkMore() {
-      if (busy) return
-      const batch = pool.entries.filter((entry) => entry.status === "unchecked").slice(0, BATCH)
-      if (!batch.length) {
-        context.ui.toast.show({ title: text(context, "No unchecked proxies left", "Нет непроверенных прокси"), message: text(context, "Update the sources for new endpoints.", "Обнови источники для новых адресов."), variant: "info" })
-        return
-      }
-      busy = true
-      updatePool((draft) => { draft.loading = true })
-      try {
-        await testBatch(batch)
-        context.ui.toast.show({ title: text(context, "Proxy check completed", "Проверка завершена"), message: text(context, "Checked " + batch.length + " more endpoints.", "Проверено ещё адресов: " + batch.length + "."), variant: "success" })
-      } catch (cause) {
-        context.ui.toast.show({ title: text(context, "Proxy check failed", "Ошибка проверки"), message: cause instanceof Error ? cause.message : String(cause), variant: "error" })
-      } finally {
-        busy = false
-        updatePool((draft) => { draft.loading = false })
+        scanRunning = false
+        updatePool((draft) => { draft.loading = false; draft.scanning = false; draft.pending = 0 })
       }
     }
 
@@ -377,7 +440,11 @@ export default Plugin.define({
     const open = () => {
       context.ui.dialog.show(() => (
         <ManagerDialog context={context} pool={() => pool} route={() => route} active={active}
-          entries={() => healthy().slice(0, 12)} refresh={() => void refreshSources()} checkMore={() => void checkMore()}
+          entries={() => [
+            ...healthy().slice(0, 24),
+            ...pool.entries.filter((entry) => entry.status === "unchecked").slice(0, 24),
+          ]}
+          refresh={() => void refreshSources()}
           use={(entry) => void useProxy(entry)} disable={() => void disableProxy()} close={() => context.ui.dialog.clear()} />
       ))
       context.ui.dialog.set({ size: "medium", centered: true })
