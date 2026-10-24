@@ -22,12 +22,11 @@ export type ProxySourceResult = {
 }
 
 export const PROXY_SOURCES = [
-  // Recently verified HTTPS-capable HTTP proxies, sorted by measured speed by the upstream project.
-  { name: "HTTPS-verified shortlist", url: "https://raw.githubusercontent.com/maximilianfeix/free-proxy-list/main/https.txt" },
+  // Start with the actively maintained HTTP-protocol feed; every endpoint is then re-tested against OpenCode Zen.
+  { name: "Proxifly HTTP", url: "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt" },
   { name: "TheSpeedX", url: "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt" },
   { name: "monosans", url: "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt" },
   { name: "clarketm", url: "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt" },
-  { name: "Proxifly", url: "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt" },
   { name: "jetkai", url: "https://raw.githubusercontent.com/jetkai/proxy-list/main/online-proxies/txt/proxies-http.txt" },
 ] as const
 
