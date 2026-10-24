@@ -16,15 +16,21 @@ describe("public HTTP proxy list parsing", () => {
     expect(result.map((entry) => entry.id)).toEqual(["192.0.2.10:8080"])
   })
 
+  test("strips a trailing country label but rejects credential suffixes", () => {
+    const result = parseHttpProxyList("84.17.47.150:9002:The Netherlands\n192.0.2.12:8080:user:pass\n192.0.2.13:8080:1234\n", "fixture")
+    expect(result.map((entry) => entry.id)).toEqual(["84.17.47.150:9002"])
+  })
+
   test("formats an HTTP proxy URL", () => {
     expect(proxyUrl({ host: "192.0.2.10", port: 8080 })).toBe("http://192.0.2.10:8080")
   })
 })
 
 
-test("prioritizes the maintained HTTP proxy feed", () => {
-  expect(PROXY_SOURCES[0].name).toBe("Proxifly HTTP")
-  expect(PROXY_SOURCES[0].url).toContain("proxies/protocols/http/data.txt")
+test("prioritizes the SSL-capable ProxyScrape feed and keeps source names unique", () => {
+  expect(PROXY_SOURCES[0].name).toBe("ProxyScrape SSL")
+  expect(PROXY_SOURCES[0].url).toContain("ssl=yes")
+  expect(new Set(PROXY_SOURCES.map((source) => source.name)).size).toBe(PROXY_SOURCES.length)
 })
 
 test("checks Zen reachability separately from verifying the public egress IP", () => {

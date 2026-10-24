@@ -281,7 +281,9 @@ export default Plugin.define({
       })
 
       // Fresh verified results stay selectable while the other sources refresh.
-      const queue: ProxyEntry[] = entries.filter((entry) => entry.status === "unchecked")
+      // The queue stays ordered by source rank so high-yield feeds are checked before large low-yield ones.
+      const sourceRank = (entry: ProxyEntry) => PROXY_SOURCES.findIndex((source) => source.name === entry.source)
+      const queue: ProxyEntry[] = entries.filter((entry) => entry.status === "unchecked").toSorted((a, b) => sourceRank(a) - sourceRank(b))
       let fetching = true
       let wake: (() => void) | undefined
       const signalWorker = () => {
@@ -331,6 +333,7 @@ export default Plugin.define({
         })
         if (additions.length) {
           queue.push(...additions)
+          queue.sort((a, b) => sourceRank(a) - sourceRank(b))
           updatePool((draft) => { draft.pending = queue.length })
           signalWorker()
         }
@@ -348,9 +351,9 @@ export default Plugin.define({
             await waitForQueue()
             continue
           }
-          const batch = queue.splice(0, 8)
+          const batch = queue.splice(0, 32)
           updatePool((draft) => { draft.pending = queue.length })
-          await checkHttpProxies(batch, 8, (checked) => {
+          await checkHttpProxies(batch, 32, (checked) => {
             const index = entryIndex.get(checked.id)
             updatePool((draft) => {
               if (index !== undefined && draft.entries[index]?.id === checked.id) {
@@ -369,7 +372,7 @@ export default Plugin.define({
         const limited = pool.entries.filter((entry) => entry.status === "limited").length
         context.ui.toast.show({
           title: text(context, "OpenCode proxy scan finished", "Проверка прокси для OpenCode завершена"),
-          message: text(accepted + " unique exit IPs verified; " + limited + " report a Zen IP limit.", "Проверено уникальных внешних IP: " + accepted + "; IP с лимитом Zen: " + limited + "."),
+          message: text(context, accepted +" unique exit IPs verified; " + limited + " report a Zen IP limit.", "Проверено уникальных внешних IP: " + accepted + "; IP с лимитом Zen: " + limited + "."),
           variant: accepted > 0 ? "success" : "warning",
         })
       } catch (cause) {
@@ -387,7 +390,7 @@ export default Plugin.define({
       const url = proxyUrl(entry)
       const current = await readConfiguredProxy(context)
       if (current === undefined) {
-        context.ui.toast.show({ title: text(context, "Could not read proxy configuration", "Не удалось прочитать настройки прокси"), variant: "error" })
+        context.ui.toast.show({ title: text(context, "Could not read proxy configuration", "Не удалось прочитать настройки прокси"), message: text(context, "The OpenCode server did not return its config.", "Сервер OpenCode не вернул конфигурацию."), variant: "error" })
         return
       }
       const owned = route.enabled && matches(current, route.activeUrl ?? "")
@@ -434,7 +437,7 @@ export default Plugin.define({
       if (!route.enabled || !route.activeUrl) return false
       const current = await readConfiguredProxy(context)
       if (current === undefined) {
-        context.ui.toast.show({ title: text(context, "Could not read proxy configuration", "Не удалось прочитать настройки прокси"), variant: "error" })
+        context.ui.toast.show({ title: text(context, "Could not read proxy configuration", "Не удалось прочитать настройки прокси"), message: text(context, "The OpenCode server did not return its config.", "Сервер OpenCode не вернул конфигурацию."), variant: "error" })
         return false
       }
       if (!matches(current, route.activeUrl)) {

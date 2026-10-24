@@ -22,13 +22,18 @@ export type ProxySourceResult = {
   error: string
 }
 
+// Ordered by the share of endpoints that passed the real CONNECT + TLS + Zen probe (sampled October 2026);
+// the scan queue checks earlier sources first. Feeds that yielded nothing (clarketm, jetkai) were dropped.
 export const PROXY_SOURCES = [
-  // Start with the actively maintained HTTP-protocol feed; every endpoint is then re-tested against OpenCode Zen.
-  { name: "Proxifly HTTP", url: "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt" },
-  { name: "TheSpeedX", url: "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt" },
+  { name: "ProxyScrape SSL", url: "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&protocol=http&proxy_format=ipport&format=text&ssl=yes&timeout=5000" },
+  { name: "ProxyScrape v2 SSL", url: "https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=5000&country=all&ssl=yes&anonymity=all" },
   { name: "monosans", url: "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt" },
-  { name: "clarketm", url: "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt" },
-  { name: "jetkai", url: "https://raw.githubusercontent.com/jetkai/proxy-list/main/online-proxies/txt/proxies-http.txt" },
+  { name: "hideip.me", url: "https://raw.githubusercontent.com/zloi-user/hideip.me/main/http.txt" },
+  { name: "elliottophellia", url: "https://raw.githubusercontent.com/elliottophellia/proxylist/master/results/http/global/http_checked.txt" },
+  { name: "mmpx12", url: "https://raw.githubusercontent.com/mmpx12/proxy-list/master/https.txt" },
+  { name: "dpangestuw", url: "https://raw.githubusercontent.com/dpangestuw/Free-Proxy/main/http_proxies.txt" },
+  { name: "iplocate", url: "https://raw.githubusercontent.com/iplocate/free-proxy-list/main/protocols/http.txt" },
+  { name: "Proxifly HTTP", url: "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt" },
 ] as const
 
 const MAX_SOURCE_BYTES = 2_500_000
@@ -76,7 +81,8 @@ export function parseHttpProxyList(input: string, source: string): ProxyEntry[] 
     line = line.split(/\s+/)[0]
     if (line.toLowerCase().startsWith("http://")) line = line.slice(7)
     if (line.includes("://") || line.includes("/") || line.includes("@")) return []
-    const match = /^(\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})$/.exec(line)
+    // Some feeds append a country label (`ip:port:Country`); a numeric suffix would be credentials, so reject it.
+    const match = /^(\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})(?::[^\d:][^:]*)?$/.exec(line)
     if (!match || isIP(match[1]) !== 4) return []
     const port = Number(match[2])
     if (!Number.isInteger(port) || port < 1 || port > 65535) return []
@@ -256,7 +262,8 @@ function requestHttpsThroughProxy(
     }
 
     request.once("connect", (response, socket, head) => {
-      if (response.statusCode < 200 || response.statusCode >= 300) {
+      const status = response.statusCode ?? 0
+      if (status < 200 || status >= 300) {
         socket.destroy()
         finish(new Error("CONNECT " + String(response.statusCode ?? "failed")))
         return
@@ -271,7 +278,7 @@ function requestHttpsThroughProxy(
           "Connection: close\r\n\r\n",
         )
       })
-      secureSocket.on("data", (chunk) => {
+      secureSocket.on("data", (chunk: Buffer) => {
         receivedBytes += chunk.length
         if (receivedBytes > MAX_PROBE_RESPONSE_BYTES) {
           finish(new Error("oversized response"))
@@ -350,7 +357,7 @@ export async function probeHttpProxy(entry: ProxyEntry, timeoutMs = MAX_PROBE_TI
 /** Call onResult as each proxy finishes, instead of waiting for an entire batch before updating the UI. */
 export async function checkHttpProxies(
   entries: readonly ProxyEntry[],
-  concurrency = 8,
+  concurrency = 32,
   onResult?: (entry: ProxyEntry) => void,
 ) {
   const result = [...entries]
