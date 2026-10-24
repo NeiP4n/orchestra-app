@@ -39,6 +39,9 @@ function describeError(value: unknown, depth = 0): string {
 function isZenAddressCap(error: unknown) {
   return /freeusagelimiterror|free tier counts requests per ip address|daily allowance.*ip|per ip address.*daily/i.test(describeError(error))
 }
+function isProxyTransportFailure(error: unknown) {
+  return /timed out|timeout|connection reset|connection refused|socket hang up|ECONNRESET|ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|fetch failed|TLS handshake|TLS failed|network error/i.test(describeError(error))
+}
 async function readConfiguredProxy(context: Plugin.Context): Promise<ProxySetting | undefined> {
   try {
     const entries = await context.client.config.get()
@@ -476,10 +479,39 @@ export default Plugin.define({
     })
 
     const disposeFailure = context.data.on("session.execution.failed", (event) => {
-      if (!route.enabled || !route.autoIP || !isZenAddressCap(event.data.error)) return
+      if (!route.enabled || !route.activeUrl) return
       if (Date.now() - lastRotation < ROTATION_COOLDOWN_MS) return
+
+      if (isZenAddressCap(event.data.error)) {
+        if (!route.autoIP) return
+        lastRotation = Date.now()
+        void nextProxy(true)
+        return
+      }
+
+      // A stalled public proxy must not remain configured for every later chat request.
+      // Restore the previously selected WARP/direct/Clash route when OpenCode reports a transport timeout.
+      if (!isProxyTransportFailure(event.data.error)) return
+      const failedUrl = route.activeUrl
       lastRotation = Date.now()
-      void nextProxy(true)
+      updatePool((draft) => {
+        draft.entries = draft.entries.map((entry) =>
+          proxyUrl(entry) === failedUrl
+            ? { ...entry, status: "dead", checkedAt: Date.now(), detail: "OpenCode request timed out or the connection failed" }
+            : entry,
+        )
+      })
+      void disableProxy().then(() => {
+        context.ui.toast.show({
+          title: text(context, "Slow proxy disabled", "Медленный прокси отключён"),
+          message: text(
+            context,
+            "The OpenCode request failed through this proxy. The previous route was restored; retry the prompt manually.",
+            "Запрос OpenCode не прошёл через этот прокси. Предыдущий маршрут восстановлен; повтори запрос вручную.",
+          ),
+          variant: "warning",
+        })
+      })
     })
     const startup = setTimeout(() => void refreshSources(), 200)
     const timer = setInterval(() => void refreshSources(), REFRESH_MS)
