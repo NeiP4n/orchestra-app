@@ -23,6 +23,8 @@ export const Spec = Schema.Struct({
   readOnly: Schema.Boolean,
   /** A soft ceiling for one run; a worker that hits it reports the blocker instead of looping. */
   steps: PositiveInt.pipe(optional),
+  /** On-demand tools the mode needs from its first step, so the worker does not spend a step loading them. */
+  tools: Schema.Array(Schema.String).pipe(optional),
 }).annotate({ identifier: "Mode.Spec" })
 
 const spec = (input: {
@@ -32,6 +34,7 @@ const spec = (input: {
   guidance: string
   readOnly?: boolean
   steps?: number
+  tools?: ReadonlyArray<string>
 }): Spec => ({
   id: ID.make(input.id),
   name: input.name,
@@ -39,6 +42,7 @@ const spec = (input: {
   guidance: input.guidance,
   readOnly: input.readOnly ?? false,
   ...(input.steps === undefined ? {} : { steps: input.steps }),
+  ...(input.tools === undefined ? {} : { tools: input.tools }),
 })
 
 // `auto` is the explicit "no mode": it cancels a role default and restores the role's own rules.
@@ -111,6 +115,7 @@ export const builtins: readonly Spec[] = [
       "Report a table: criterion, exact command or steps, PASS, FAIL or NOT RUN, and the observed result. You may edit test files only; hand product-code defects back with the failing check.",
     ].join("\n"),
     steps: 60,
+    tools: ["playtest"],
   }),
   spec({
     id: "architecture",
@@ -236,9 +241,19 @@ function defaultForAgent(agent: string | undefined) {
   return agent === "team-tester" ? of("test") : undefined
 }
 
+// On-demand tools preloaded for the session's effective mode, resolved the same way as isQuiet.
+export function toolsOf(metadata: SessionMetadata | undefined, agent?: string) {
+  const stored = metadata?.[MetadataKey]
+  const mode = fromMetadata(metadata) ?? (stored === undefined ? defaultForAgent(agent) : undefined)
+  return mode?.tools ?? []
+}
+
 export function stepsOf(metadata: SessionMetadata | undefined) {
   return fromMetadata(metadata)?.steps
 }
+
+const FINISH =
+  "Carry the assigned scope through to the end in this run: do not stop after a plan, a first step or a partial change. Stop only when the acceptance criteria have evidence, when a blocker needs someone else (name it and the exact next step), or when a decision only the operator can make is open (ask it). If the same approach failed twice, change it instead of repeating it."
 
 export function guidanceBlock(mode: Spec) {
   if (!mode.guidance) return ""
@@ -247,8 +262,8 @@ export function guidanceBlock(mode: Spec) {
     mode.description,
     mode.guidance,
     ...(mode.readOnly ? ["This mode is read-only: do not edit project files."] : []),
-    ...(mode.steps === undefined
-      ? []
-      : [`Work within about ${mode.steps} steps. If the task cannot finish, report the blocker and the next step instead of looping.`]),
+    // A step budget in the prompt made models report "done" early to stay under it. The budget
+    // stays a configured ceiling (ORCHESTRA_ENFORCE_LIMITS); the model is told to finish instead.
+    FINISH,
   ].join("\n")
 }

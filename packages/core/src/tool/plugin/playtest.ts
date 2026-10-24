@@ -900,7 +900,7 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false },
+          options: { codemode: false, triggers: ["playtest|плейтест", "(запусти|протестируй|проверь)\\S*\\s+(игр|приложени|интерфейс|ui|окно)", "(run|test|play)\\s+(the\\s+)?(game|app|ui)"] },
           description,
           input: Input,
           output: Output,

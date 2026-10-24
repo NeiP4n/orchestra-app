@@ -146,7 +146,7 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false },
+          options: { codemode: false, triggers: ["запомни|не забудь|помни\\b|remember|memory|памят"] },
           description,
           input: Input,
           execute: (input, context) =>

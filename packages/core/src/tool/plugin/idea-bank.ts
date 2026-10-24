@@ -42,7 +42,7 @@ export const Plugin = {
     yield* ctx.tool.transform((editor) =>
       editor.add({
         name,
-        options: { codemode: false },
+        options: { codemode: false, triggers: ["иде[яиюей]|ideas?\\b"] },
         description,
         input: Input,
         output: Output,

@@ -329,7 +329,7 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false },
+          options: { codemode: false, triggers: ["slash.?command|слеш.?команд|команд\\S* /"] },
           description,
           input: Input,
           output: Output,

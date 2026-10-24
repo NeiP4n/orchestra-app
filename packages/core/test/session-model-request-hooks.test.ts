@@ -44,18 +44,24 @@ const transport = SessionModelTransport.Service.of({
 
 describe("SessionModelRequest HTTP hooks", () => {
   it.effect(
-    "advertises active CodeMode schemas to OpenCode Zen without changing other providers",
+    "mirrors only the CodeMode schemas Zen requires without changing other providers",
     () =>
       Effect.gen(function* () {
         const registry = yield* Tool.Service
-        yield* registry.transform((editor) =>
+        yield* registry.transform((editor) => {
           editor.add({
-            name: "zen-read",
+            name: "read",
             description: "Read a test resource",
             input: Schema.Struct({ text: Schema.String }),
             execute: ({ text }) => Effect.succeed({ output: { text } }),
-          }),
-        )
+          })
+          editor.add({
+            name: "zen-browser",
+            description: "Drive a test browser",
+            input: Schema.Struct({ text: Schema.String }),
+            execute: ({ text }) => Effect.succeed({ output: { text } }),
+          })
+        })
         const tools = yield* registry.snapshot()
         const requests = yield* SessionModelRequest.Service.pipe(Effect.provide(SessionModelRequest.layer))
         const makeModel = (provider: string) => {
@@ -80,8 +86,9 @@ describe("SessionModelRequest HTTP hooks", () => {
           system: [],
           messages: [],
         })
-        expect(zen.request.tools?.map((tool) => tool.name)).toContain("zen-read")
+        expect(zen.request.tools?.map((tool) => tool.name)).toContain("read")
         expect(zen.request.tools?.map((tool) => tool.name)).toContain("execute")
+        expect(zen.request.tools?.map((tool) => tool.name)).not.toContain("zen-browser")
 
         const other = yield* requests.primary({
           session,
@@ -92,12 +99,14 @@ describe("SessionModelRequest HTTP hooks", () => {
           messages: [],
         })
         expect(other.request.tools?.map((tool) => tool.name)).toContain("execute")
-        expect(other.request.tools?.map((tool) => tool.name)).not.toContain("zen-read")
+        expect(other.request.tools?.map((tool) => tool.name)).not.toContain("read")
       }).pipe(Effect.provideService(SessionModelTransport.Service, transport)),
   )
 
-  it.effect("keeps OpenCode Zen requests within its 128-tool limit for large CodeMode catalogs", () =>
+  it.effect("keeps a full OpenCode Zen mirror within its 128-tool limit for large CodeMode catalogs", () =>
     Effect.gen(function* () {
+      process.env.ORCHESTRA_ZEN_MIRROR = "all"
+      yield* Effect.addFinalizer(() => Effect.sync(() => delete process.env.ORCHESTRA_ZEN_MIRROR))
       const registry = yield* Tool.Service
       yield* registry.transform((editor) =>
         Array.from({ length: 200 }, (_, index) =>

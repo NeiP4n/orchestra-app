@@ -113,7 +113,7 @@ export const Plugin = {
     yield* ctx.tool.transform((editor) =>
       editor.add({
         name,
-        options: { codemode: false },
+        options: { codemode: false, triggers: ["workspace|воркспейс|рабоч\\S+ (пространств|област)"] },
         description: [
           "Create OpenCode++ workspaces and federated groups. Available only to a project's main Orchestrator; workers should ask their Orchestrator to do this.",
           "Call action=list first for exact project IDs, team-template IDs and roles. An AI team is an Orchestra team template of role-based sessions. A federated group is a set of projects with one group-bound chat: Президент in lead mode or Общество in council mode.",

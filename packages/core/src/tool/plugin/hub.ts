@@ -250,7 +250,7 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false },
+          options: { codemode: false, core: true },
           description: description(availableTools()),
           input: Input,
           output: Output,

@@ -41,7 +41,7 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false },
+          options: { codemode: false, triggers: ["график|диаграмм|chart|plot"] },
           description,
           input: Input,
           output: Output,

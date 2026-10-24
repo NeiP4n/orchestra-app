@@ -326,7 +326,7 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false },
+          options: { codemode: false, triggers: ["symbols?\\b|символ", "find (usages|references)|go to definition|где (используется|определ)"] },
           description,
           input: Input,
           execute: (input, context) =>

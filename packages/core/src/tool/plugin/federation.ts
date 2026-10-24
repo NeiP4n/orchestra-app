@@ -167,7 +167,7 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false },
+          options: { codemode: false, triggers: ["federat|федерац", "\\bpeers?\\b|другом проекте|другого проекта|other project", "president|президент"] },
           description,
           input: Input,
           output: Output,

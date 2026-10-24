@@ -159,7 +159,7 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false },
+          options: { codemode: false, triggers: ["\\bpeers?\\b|\\blan\\b|локальн\\S* сет"] },
           description,
           input: Input,
           output: Output,
