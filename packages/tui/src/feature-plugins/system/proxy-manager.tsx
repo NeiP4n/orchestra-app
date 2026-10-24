@@ -398,24 +398,26 @@ export default Plugin.define({
       }
     }
 
-    async function disableProxy() {
-      if (!route.enabled || !route.activeUrl) return
+    async function disableProxy(silent = false): Promise<boolean> {
+      if (!route.enabled || !route.activeUrl) return false
       const current = await readConfiguredProxy(context)
       if (current === undefined) {
         context.ui.toast.show({ title: text(context, "Could not read proxy configuration", "Не удалось прочитать настройки прокси"), variant: "error" })
-        return
+        return false
       }
       if (!matches(current, route.activeUrl)) {
         updateRoute((draft) => { draft.enabled = false; draft.activeUrl = undefined; draft.previousProxy = undefined; draft.hasPreviousProxy = false })
         context.ui.toast.show({ title: text(context, "Proxy changed elsewhere", "Прокси изменён извне"), message: text(context, "Left the newer setting untouched.", "Новые настройки оставлены без изменений."), variant: "warning" })
-        return
+        return false
       }
       try {
         await context.client.config.update({ proxy: route.hasPreviousProxy ? route.previousProxy ?? null : null })
         updateRoute((draft) => { draft.enabled = false; draft.activeUrl = undefined; draft.previousProxy = undefined; draft.hasPreviousProxy = false })
-        context.ui.toast.show({ title: text(context, "Proxy pool disabled", "Proxy Pool отключён"), message: text(context, "Previous proxy configuration restored.", "Предыдущие настройки прокси восстановлены."), variant: "success" })
+        if (!silent) context.ui.toast.show({ title: text(context, "Proxy pool disabled", "Proxy Pool отключён"), message: text(context, "Previous proxy configuration restored.", "Предыдущие настройки прокси восстановлены."), variant: "success" })
+        return true
       } catch (cause) {
         context.ui.toast.show({ title: text(context, "Could not restore proxy", "Не удалось восстановить прокси"), message: cause instanceof Error ? cause.message : String(cause), variant: "error" })
+        return false
       }
     }
 
@@ -501,7 +503,8 @@ export default Plugin.define({
             : entry,
         )
       })
-      void disableProxy().then(() => {
+      void disableProxy(true).then((restored) => {
+        if (!restored) return
         context.ui.toast.show({
           title: text(context, "Slow proxy disabled", "Медленный прокси отключён"),
           message: text(
