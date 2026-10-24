@@ -2,12 +2,13 @@ import { request as httpRequest } from "node:http"
 import { isIP } from "node:net"
 import { connect as tlsConnect } from "node:tls"
 
-export type ProxyStatus = "unchecked" | "healthy" | "dead"
+export type ProxyStatus = "unchecked" | "healthy" | "limited" | "dead"
 export type ProxyEntry = {
   id: string
   host: string
   port: number
   source: string
+  exitIp?: string
   status: ProxyStatus
   latencyMs?: number
   checkedAt?: number
@@ -34,12 +35,32 @@ const MAX_SOURCE_BYTES = 2_500_000
 const MAX_POOL_SIZE = 12_000
 const OPENCODE_HOST = "opencode.ai"
 const OPENCODE_PATH = "/zen/v1/models"
+const EGRESS_HOST = "api.ipify.org"
+const EGRESS_PATH = "/?format=json"
 
-/** OpenCode API compatibility check; this is a safe read-only model-list request, not an inference call. */
+/** The Zen probe is unauthenticated, so 401 means the endpoint is reachable—not that the proxy is dead. */
 export const OPENCODE_PROBE = { host: OPENCODE_HOST, path: OPENCODE_PATH } as const
+export const PROXY_EGRESS_PROBE = { host: EGRESS_HOST, path: EGRESS_PATH } as const
 
-export function isOpenCodeModelList(value: unknown): value is { data: unknown[] } {
-  return !!value && typeof value === "object" && !Array.isArray(value) && Array.isArray((value as { data?: unknown }).data)
+export function parseProxyExitIp(body: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(body)
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return
+    const ip = (parsed as { ip?: unknown }).ip
+    return typeof ip === "string" && isIP(ip) !== 0 ? ip : undefined
+  } catch {
+    return
+  }
+}
+
+export function classifyZenProbe(statusCode: number, body: string): ProxyStatus {
+  if (statusCode === 429 || /free tier counts requests per ip address|daily allowance.*ip|per ip address.*daily/i.test(body)) {
+    return "limited"
+  }
+  // Zen requires credentials for model access. An unauthenticated 401 proves the HTTPS/API
+  // route is reachable; the IP quota cannot be known without making a real authenticated inference.
+  if (statusCode === 200 || statusCode === 401) return "healthy"
+  return "dead"
 }
 
 export function proxyUrl(entry: Pick<ProxyEntry, "host" | "port">) {
@@ -142,14 +163,22 @@ function decodeChunkedBody(input: Buffer): Buffer | undefined {
   return
 }
 
-/**
- * A proxy is healthy only after the complete Zen model-list response arrives and parses as JSON.
- * The total deadline includes CONNECT, TLS, headers and body; headers-only checks let stalled
- * public relays look healthy even though actual OpenCode requests then hang indefinitely.
- */
-export function probeHttpProxy(entry: ProxyEntry, timeoutMs = MAX_PROBE_TIME_MS): Promise<ProxyEntry> {
+type ProxyHttpsResponse = {
+  statusCode: number
+  headers: Record<string, string>
+  body: Buffer
+  latencyMs: number
+}
+
+/** Small raw HTTPS request through an HTTP CONNECT proxy, with strict origin TLS validation. */
+function requestHttpsThroughProxy(
+  entry: ProxyEntry,
+  host: string,
+  path: string,
+  timeoutMs = MAX_PROBE_TIME_MS,
+): Promise<ProxyHttpsResponse> {
   const started = performance.now()
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let settled = false
     let secureSocket: ReturnType<typeof tlsConnect> | undefined
     const chunks: Buffer[] = []
@@ -159,124 +188,163 @@ export function probeHttpProxy(entry: ProxyEntry, timeoutMs = MAX_PROBE_TIME_MS)
       hostname: entry.host,
       port: entry.port,
       method: "CONNECT",
-      path: OPENCODE_HOST + ":443",
-      headers: { Host: OPENCODE_HOST + ":443" },
+      path: host + ":443",
+      headers: { Host: host + ":443" },
       agent: false,
     })
+    const timer = setTimeout(() => finish(new Error("timeout")), timeoutMs)
 
-    const timer = setTimeout(() => finish(false, "Zen API timed out"), timeoutMs)
-    const finish = (ok: boolean, detail: string) => {
+    const finish = (error?: Error, response?: Omit<ProxyHttpsResponse, "latencyMs">) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
       secureSocket?.destroy()
       request.destroy()
-      resolve({
-        ...entry,
-        status: ok ? "healthy" : "dead",
-        latencyMs: Math.round(performance.now() - started),
-        checkedAt: Date.now(),
-        detail,
-      })
+      if (error) reject(error)
+      else if (response) resolve({ ...response, latencyMs: Math.round(performance.now() - started) })
+      else reject(new Error("empty proxy response"))
     }
 
-    const validateResponse = () => {
+    const parseResponse = () => {
       const raw = Buffer.concat(chunks)
       const headerEnd = raw.indexOf(Buffer.from("\r\n\r\n"))
       if (headerEnd < 0) {
-        // TCP may split HTTP headers across multiple data events. Treat an incomplete header
-        // as pending until more bytes arrive; it is an error only after the connection ends.
-        if (responseEnded) finish(false, "incomplete Zen API headers")
+        if (responseEnded) finish(new Error("incomplete HTTP response headers"))
         return
       }
-      const headers = raw.subarray(0, headerEnd).toString("latin1").split("\r\n")
-      const match = /^HTTP\/1\.[01] (\d{3})\b/.exec(headers[0] ?? "")
+      const lines = raw.subarray(0, headerEnd).toString("latin1").split("\r\n")
+      const match = /^HTTP\/1\.[01] (\d{3})\b/.exec(lines[0] ?? "")
       if (!match) {
-        finish(false, "invalid Zen API status")
+        finish(new Error("invalid HTTP response status"))
         return
       }
-      const status = Number(match[1])
-      if (status !== 200) {
-        finish(false, "Zen API HTTP " + status)
-        return
+      const headers: Record<string, string> = {}
+      for (const line of lines.slice(1)) {
+        const colon = line.indexOf(":")
+        if (colon <= 0) continue
+        const name = line.slice(0, colon).trim().toLowerCase()
+        const value = line.slice(colon + 1).trim()
+        headers[name] = headers[name] ? headers[name] + ", " + value : value
       }
-      const contentType = headers.slice(1).find((line) => /^content-type:/i.test(line)) ?? ""
-      if (!/application\/(?:[\w.+-]+\+)?json\b/i.test(contentType)) {
-        finish(false, "Zen API did not return JSON")
-        return
-      }
-
       const body = raw.subarray(headerEnd + 4)
-      const transferEncoding = headers.find((line) => /^transfer-encoding:/i.test(line)) ?? ""
-      const contentLengthHeader = headers.find((line) => /^content-length:/i.test(line))
-      const contentLength = contentLengthHeader ? Number(contentLengthHeader.split(":", 2)[1].trim()) : undefined
       let bodyBytes: Buffer | undefined
-      if (/chunked/i.test(transferEncoding)) bodyBytes = decodeChunkedBody(body)
-      else if (contentLength !== undefined && Number.isSafeInteger(contentLength) && contentLength >= 0) {
-        if (body.length < contentLength) return // A Content-Length response is still in flight.
-        bodyBytes = body.subarray(0, contentLength)
+      if (/chunked/i.test(headers["transfer-encoding"] ?? "")) {
+        bodyBytes = decodeChunkedBody(body)
+        if (!bodyBytes && responseEnded) finish(new Error("incomplete chunked response"))
+      } else if (headers["content-length"] !== undefined) {
+        const length = Number(headers["content-length"])
+        if (!Number.isSafeInteger(length) || length < 0) {
+          finish(new Error("invalid content length"))
+          return
+        }
+        if (body.length < length) {
+          if (responseEnded) finish(new Error("truncated response body"))
+          return
+        }
+        bodyBytes = body.subarray(0, length)
       } else {
         if (!responseEnded) return
         bodyBytes = body
       }
-      if (!bodyBytes?.length) {
-        if (responseEnded) finish(false, "empty Zen API body")
-        return
-      }
-      try {
-        const parsed: unknown = JSON.parse(bodyBytes.toString("utf8"))
-        if (!isOpenCodeModelList(parsed)) {
-          finish(false, "Zen API response is not a model list")
-          return
-        }
-        finish(true, "complete Zen model-list response")
-      } catch {
-        // If the socket has ended, the response was truncated or malformed; don't mark it healthy.
-        if (responseEnded) finish(false, "incomplete or invalid Zen API JSON body")
+      if (bodyBytes) {
+        finish(undefined, {
+          statusCode: Number(match[1]),
+          headers,
+          body: bodyBytes,
+        })
       }
     }
 
     request.once("connect", (response, socket, head) => {
-      if (response.statusCode !== 200) {
+      if (response.statusCode < 200 || response.statusCode >= 300) {
         socket.destroy()
-        finish(false, "CONNECT " + String(response.statusCode ?? "failed"))
+        finish(new Error("CONNECT " + String(response.statusCode ?? "failed")))
         return
       }
       if (head.length) socket.unshift(head)
-      secureSocket = tlsConnect({ socket, servername: OPENCODE_HOST, rejectUnauthorized: true })
+      secureSocket = tlsConnect({ socket, servername: host, rejectUnauthorized: true })
       secureSocket.once("secureConnect", () => {
         secureSocket?.write(
-          "GET " + OPENCODE_PATH + " HTTP/1.1\r\n" +
-          "Host: " + OPENCODE_HOST + "\r\n" +
-          "Accept: application/json\r\n" +
+          "GET " + path + " HTTP/1.1\r\n" +
+          "Host: " + host + "\r\n" +
+          "Accept: application/json, text/plain, */*\r\n" +
           "Connection: close\r\n\r\n",
         )
       })
       secureSocket.on("data", (chunk) => {
         receivedBytes += chunk.length
         if (receivedBytes > MAX_PROBE_RESPONSE_BYTES) {
-          finish(false, "oversized Zen API response")
+          finish(new Error("oversized response"))
           return
         }
         chunks.push(Buffer.from(chunk))
-        validateResponse()
+        parseResponse()
       })
       secureSocket.once("end", () => {
         responseEnded = true
-        validateResponse()
+        parseResponse()
       })
-      secureSocket.once("error", () => finish(false, "Zen API TLS failed"))
+      secureSocket.once("error", () => finish(new Error("TLS failed")))
       secureSocket.once("close", () => {
         if (!settled) {
           responseEnded = true
-          validateResponse()
+          parseResponse()
         }
       })
     })
-    request.once("response", (response) => finish(false, "unexpected proxy HTTP " + String(response.statusCode ?? "response")))
-    request.once("error", (cause) => finish(false, cause instanceof Error ? cause.message.slice(0, 100) : "connection failed"))
+    request.once("response", (response) => finish(new Error("unexpected proxy HTTP " + String(response.statusCode ?? "response"))))
+    request.once("error", (cause) => finish(cause instanceof Error ? cause : new Error("connection failed")))
     request.end()
   })
+}
+
+/**
+ * Test both the actual public egress IP and the OpenCode Zen endpoint. The Zen test is anonymous:
+ * 401 is expected and means the route works; only the real per-IP allowance error is "limited".
+ */
+export async function probeHttpProxy(entry: ProxyEntry, timeoutMs = MAX_PROBE_TIME_MS): Promise<ProxyEntry> {
+  const started = performance.now()
+  try {
+    const [egress, zen] = await Promise.all([
+      requestHttpsThroughProxy(entry, EGRESS_HOST, EGRESS_PATH, timeoutMs),
+      requestHttpsThroughProxy(entry, OPENCODE_HOST, OPENCODE_PATH, timeoutMs),
+    ])
+    const exitIp = parseProxyExitIp(egress.body.toString("utf8"))
+    if (egress.statusCode !== 200 || !exitIp) {
+      return {
+        ...entry,
+        status: "dead",
+        latencyMs: Math.round(performance.now() - started),
+        checkedAt: Date.now(),
+        detail: "Could not verify public egress IP",
+      }
+    }
+    const body = zen.body.toString("utf8")
+    const status = classifyZenProbe(zen.statusCode, body)
+    const detail = status === "limited"
+      ? "Zen daily IP allowance appears exhausted"
+      : status === "healthy" && zen.statusCode === 401
+        ? "OpenCode reachable; authentication required; quota not tested"
+        : status === "healthy"
+          ? "OpenCode reachable; egress IP verified"
+          : "OpenCode returned HTTP " + zen.statusCode
+    return {
+      ...entry,
+      status,
+      exitIp,
+      latencyMs: Math.round(performance.now() - started),
+      checkedAt: Date.now(),
+      detail,
+    }
+  } catch (cause) {
+    return {
+      ...entry,
+      status: "dead",
+      latencyMs: Math.round(performance.now() - started),
+      checkedAt: Date.now(),
+      detail: cause instanceof Error ? cause.message.slice(0, 120) : "proxy check failed",
+    }
+  }
 }
 
 /** Call onResult as each proxy finishes, instead of waiting for an entire batch before updating the UI. */

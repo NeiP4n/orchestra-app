@@ -95,6 +95,8 @@ function ManagerDialog(props: {
   const sourcesSummary = () => props.pool().sources.map((source) =>
     source.name + " " + (source.loading ? "…" : source.count) + (source.error ? " !" : ""),
   ).join(" · ")
+  const uniqueExitCount = () => new Set(props.pool().entries.map((entry) => entry.exitIp).filter((ip): ip is string => !!ip)).size
+  const limitedCount = () => props.pool().entries.filter((entry) => entry.status === "limited").length
   const actionHover = () => theme().text.action?.primary?.hovered ?? theme().increase(theme().text.action?.primary?.base ?? theme().text.base, 2)
   return (
     <box width="100%" gap={1} paddingLeft={1} paddingRight={1}>
@@ -103,12 +105,14 @@ function ManagerDialog(props: {
         <text fg={props.pool().scanning ? theme().text.feedback.info.base : theme().text.muted} wrapMode="none">{props.pool().loading ? label("Downloading sources…", "Загрузка источников…") : props.pool().scanning ? label("Checking OpenCode live", "Проверка OpenCode в фоне") : label("OpenCode-compatible pool", "Пул для OpenCode")}</text>
       </box>
       <text fg={theme().text.muted} wrapMode="word">
-        {label(props.pool().entries.filter((item) => item.status === "healthy").length + " OpenCode-ready · " + props.pool().checked + "/" + props.pool().total + " checked · " + props.pool().pending + " queued",
-          "Готово для OpenCode: " + props.pool().entries.filter((item) => item.status === "healthy").length + " · проверено: " + props.pool().checked + "/" + props.pool().total + " · в очереди: " + props.pool().pending)}
+        {label(
+          props.pool().entries.filter((item) => item.status === "healthy").length + " routes ready · " + uniqueExitCount() + " unique exit IPs · " + limitedCount() + " Zen-limited · " + props.pool().checked + "/" + props.pool().total + " checked",
+          "Маршрутов: " + props.pool().entries.filter((item) => item.status === "healthy").length + " · разных IP: " + uniqueExitCount() + " · лимит Zen: " + limitedCount() + " · проверено: " + props.pool().checked + "/" + props.pool().total,
+        )}
       </text>
       <Show when={props.route().enabled && props.active()}>
         <text fg={theme().text.feedback.success.base} wrapMode="none" truncate>
-          {label("Active: ", "Активный: ") + (props.active()?.host ?? "") + ":" + (props.active()?.port ?? "")}
+          {label("Active: ", "Активный: ") + (props.active()?.host ?? "") + ":" + (props.active()?.port ?? "") + (props.active()?.exitIp ? " → " + props.active()?.exitIp : "")}
         </text>
       </Show>
       <Show when={props.pool().error}><text fg={theme().text.feedback.error.base} wrapMode="word">{props.pool().error}</text></Show>
@@ -126,17 +130,22 @@ function ManagerDialog(props: {
           {(entry, index) => {
             const selected = () => props.route().enabled && props.route().activeUrl === proxyUrl(entry)
             const rowHovered = () => hovered() === entry.id
-            const checked = () => entry.status === "healthy"
+            const checked = () => entry.status === "healthy" && !!entry.exitIp
+            const limited = () => entry.status === "limited"
             const stateLabel = () => checked()
               ? String(entry.latencyMs) + " ms"
-              : entry.status === "dead"
-                ? label("blocked / failed", "нет доступа")
-                : label("checking OpenCode…", "проверка OpenCode…")
+              : limited()
+                ? label("Zen IP limit", "лимит Zen")
+                : entry.status === "dead"
+                  ? label("failed", "ошибка")
+                  : label("checking…", "проверка…")
             const stateColor = () => checked()
               ? theme().text.feedback.success.base
-              : entry.status === "dead"
-                ? theme().text.feedback.error.base
-                : theme().text.feedback.info.base
+              : limited()
+                ? theme().text.feedback.warning.base
+                : entry.status === "dead"
+                  ? theme().text.feedback.error.base
+                  : theme().text.feedback.info.base
             return (
               <box flexDirection="row" alignItems="center" gap={1}
                 backgroundColor={rowHovered() ? hoverBackground(theme()) : undefined}
@@ -147,7 +156,9 @@ function ManagerDialog(props: {
                 </text>
                 <box flexGrow={1} minWidth={0}>
                   <text fg={rowHovered() ? actionHover() : checked() ? theme().text.base : theme().text.muted} wrapMode="none" truncate>{entry.host + ":" + entry.port}</text>
-                  <text fg={rowHovered() ? theme().text.base : theme().text.muted} wrapMode="none" truncate>{entry.source}</text>
+                  <text fg={rowHovered() ? theme().text.base : theme().text.muted} wrapMode="none" truncate>
+                    {entry.source + (entry.exitIp ? " → " + entry.exitIp : "")}
+                  </text>
                 </box>
                 <text fg={rowHovered() ? actionHover() : stateColor()} wrapMode="none">{stateLabel()}</text>
                 <text fg={checked() ? (rowHovered() ? actionHover() : theme().text.action?.primary?.base ?? theme().text.base) : theme().text.muted} wrapMode="none">
@@ -159,8 +170,10 @@ function ManagerDialog(props: {
         </For>
       </scrollbox>
       <text fg={theme().text.muted} wrapMode="word">
-        {label("Only proxies that reach opencode.ai/zen/v1/models over verified TLS are selectable. Public proxies are untrusted: don't send sensitive code, secrets, or credentials through them.",
-          "Выбираются только прокси, реально открывающие opencode.ai/zen/v1/models с проверкой TLS. Публичные прокси недоверенные: не передавай через них секреты, ключи и чувствительный код.")}
+        {label(
+          "The exit IP is verified through HTTPS and the Zen endpoint is checked separately. An unauthenticated 401 means the route is reachable, not dead; it cannot prove an IP's free-tier allowance is available. Public proxies are untrusted.",
+          "Внешний IP проверяется через HTTPS, а endpoint Zen проверяется отдельно. Ответ 401 без авторизации означает, что маршрут работает, а не что прокси мёртв; доступность дневного лимита без настоящего запроса ИИ проверить нельзя. Публичные прокси недоверенные.",
+        )}
       </text>
       <text fg={theme().text.muted} wrapMode="none" truncate>
         {label("Sources: ", "Источники: ") + sourcesSummary()}
@@ -187,7 +200,17 @@ function Sidebar(props: {
 }) {
   const theme = () => props.context.theme
   const label = (en: string, ruText: string) => text(props.context, en, ruText)
-  const healthy = () => props.pool().entries.filter((item) => item.status === "healthy").toSorted((a, b) => (a.latencyMs ?? 999_999) - (b.latencyMs ?? 999_999))
+  const healthy = () => {
+    const seen = new Set<string>()
+    return props.pool().entries
+      .filter((item) => item.status === "healthy" && !!item.exitIp)
+      .toSorted((a, b) => (a.latencyMs ?? 999_999) - (b.latencyMs ?? 999_999))
+      .filter((item) => {
+        if (!item.exitIp || seen.has(item.exitIp)) return false
+        seen.add(item.exitIp)
+        return true
+      })
+  }
   const active = () => props.active()
   return (
     <box gap={1}>
@@ -200,7 +223,7 @@ function Sidebar(props: {
       <text fg={theme().text.muted} wrapMode="none" truncate>{healthy().length + " verified / " + props.pool().total}</text>
       <Show when={active()}>
         <text fg={theme().text.feedback.success.base} wrapMode="none" truncate>
-          {(active()?.host ?? "") + ":" + (active()?.port ?? "") + " · " + (active()?.latencyMs ?? "—") + " ms"}
+          {(active()?.host ?? "") + ":" + (active()?.port ?? "") + " → " + (active()?.exitIp ?? "IP?") + " · " + (active()?.latencyMs ?? "—") + " ms"}
         </text>
       </Show>
       <Show when={props.pool().loading || props.pool().scanning}>
@@ -229,7 +252,15 @@ export default Plugin.define({
     let scanRunning = false
     let lastRotation = 0
 
-    const healthy = () => pool.entries.filter((item) => item.status === "healthy").toSorted((a, b) => (a.latencyMs ?? 999_999) - (b.latencyMs ?? 999_999))
+    const healthy = () => pool.entries.filter((item) => item.status === "healthy" && !!item.exitIp).toSorted((a, b) => (a.latencyMs ?? 999_999) - (b.latencyMs ?? 999_999))
+    const uniqueHealthy = () => {
+      const seen = new Set<string>()
+      return healthy().filter((entry) => {
+        if (!entry.exitIp || seen.has(entry.exitIp)) return false
+        seen.add(entry.exitIp)
+        return true
+      })
+    }
     const active = () => pool.entries.find((item) => proxyUrl(item) === route.activeUrl)
 
     async function refreshSources() {
@@ -239,7 +270,7 @@ export default Plugin.define({
       const now = Date.now()
       const recentWindow = 5 * 60_000
       const entries = pool.entries.map((entry) => {
-        if (entry.status === "healthy" && entry.checkedAt && now - entry.checkedAt < recentWindow) return entry
+        if (entry.status === "healthy" && entry.exitIp && entry.checkedAt && now - entry.checkedAt < recentWindow) return entry
         return { ...entry, status: "unchecked" as const, latencyMs: undefined, checkedAt: undefined, detail: undefined }
       })
       const entryIndex = new Map<string, number>()
@@ -334,10 +365,11 @@ export default Plugin.define({
 
       try {
         await Promise.all([sourcesDone, worker()])
-        const accepted = pool.entries.filter((entry) => entry.status === "healthy").length
+        const accepted = uniqueHealthy().length
+        const limited = pool.entries.filter((entry) => entry.status === "limited").length
         context.ui.toast.show({
           title: text(context, "OpenCode proxy scan finished", "Проверка прокси для OpenCode завершена"),
-          message: text(context, accepted + " proxies passed the Zen API endpoint check.", "Прокси, прошедших проверку Zen API: " + accepted + "."),
+          message: text(accepted + " unique exit IPs verified; " + limited + " report a Zen IP limit.", "Проверено уникальных внешних IP: " + accepted + "; IP с лимитом Zen: " + limited + "."),
           variant: accepted > 0 ? "success" : "warning",
         })
       } catch (cause) {
@@ -422,9 +454,10 @@ export default Plugin.define({
     }
 
     async function nextProxy(automatic = false) {
-      const entry = healthy().find((candidate) => proxyUrl(candidate) !== route.activeUrl)
+      const activeExitIp = active()?.exitIp
+      const entry = uniqueHealthy().find((candidate) => candidate.exitIp !== activeExitIp && proxyUrl(candidate) !== route.activeUrl)
       if (!entry) {
-        context.ui.toast.show({ title: text(context, "No other verified proxy", "Нет другого проверенного прокси"), message: text(context, "Check more endpoints or update sources.", "Проверь ещё адреса или обнови источники."), variant: "warning" })
+        context.ui.toast.show({ title: text(context, "No other verified exit IP", "Нет другого проверенного внешнего IP"), message: text(context, "Other proxy ports may share the same exit IP. Check the displayed exit IPs, or use your own WARP/VLESS routes.", "Другие прокси могут использовать тот же внешний IP. Сравни показанные IP либо используй собственный WARP/VLESS-маршрут."), variant: "warning" })
         return
       }
       await useProxy(entry, automatic)
@@ -445,10 +478,21 @@ export default Plugin.define({
     const open = () => {
       context.ui.dialog.show(() => (
         <ManagerDialog context={context} pool={() => pool} route={() => route} active={active}
-          entries={() => [
-            ...healthy().slice(0, 24),
-            ...pool.entries.filter((entry) => entry.status === "unchecked").slice(0, 24),
-          ]}
+          entries={() => {
+            const seen = new Set<string>()
+            const unique = healthy().filter((entry) => {
+              if (!entry.exitIp || seen.has(entry.exitIp)) return false
+              seen.add(entry.exitIp)
+              return true
+            })
+            const limited = pool.entries.filter((entry) => entry.status === "limited" && !!entry.exitIp && !seen.has(entry.exitIp))
+            for (const entry of limited) if (entry.exitIp) seen.add(entry.exitIp)
+            return [
+              ...unique.slice(0, 18),
+              ...limited.slice(0, 6),
+              ...pool.entries.filter((entry) => entry.status === "unchecked").slice(0, 24),
+            ]
+          }}
           refresh={() => void refreshSources()}
           use={(entry) => void useProxy(entry)} disable={() => void disableProxy()} close={() => context.ui.dialog.clear()} />
       ))
