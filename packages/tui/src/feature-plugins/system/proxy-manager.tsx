@@ -1,6 +1,8 @@
+import { useTerminalDimensions } from "@opentui/solid"
 import { Plugin } from "@orchestra/plugin/tui"
 import { For, Show, createSignal } from "solid-js"
 import { checkHttpProxies, loadHttpProxyPool, proxyUrl, type ProxyEntry } from "./proxy-manager-core"
+import { hoverBackground } from "../../ui/hover"
 
 type ProxySetting = { http?: string; https?: string; no_proxy?: string[] } | null
 type RouteState = {
@@ -62,7 +64,7 @@ function Button(props: { context: Plugin.Context; id: string; label: string; run
   const hover = () => theme().text.action?.primary?.hovered ?? theme().increase(base(), 2)
   return (
     <box id={props.id} paddingLeft={1} paddingRight={1}
-      backgroundColor={props.disabled ? undefined : hovered() ? (theme().background.raised?.base ?? theme().background.base) : undefined}
+      backgroundColor={props.disabled ? undefined : hovered() ? hoverBackground(theme()) : undefined}
       onMouseOver={() => setHovered(!props.disabled)} onMouseOut={() => setHovered(false)}
       onMouseUp={(event) => { event.stopPropagation(); if (!props.disabled) props.run() }}>
       <text fg={props.disabled ? theme().text.muted : hovered() ? hover() : props.emphasized ? base() : theme().text.muted} wrapMode="none" truncate>
@@ -85,8 +87,14 @@ function ManagerDialog(props: {
   close: () => void
 }) {
   const theme = () => props.context.theme
+  const dimensions = useTerminalDimensions()
   const label = (en: string, ruText: string) => text(props.context, en, ruText)
   const [hovered, setHovered] = createSignal<string>()
+  const listHeight = () => Math.max(3, Math.min(6, dimensions().height - 22))
+  const sourcesSummary = () => props.pool().sources.map((source) =>
+    source.name + " " + source.count + (source.error ? " !" : ""),
+  ).join(" · ")
+  const actionHover = () => theme().text.action?.primary?.hovered ?? theme().increase(theme().text.action?.primary?.base ?? theme().text.base, 2)
   return (
     <box width="100%" gap={1} paddingLeft={1} paddingRight={1}>
       <box flexDirection="row" justifyContent="space-between" gap={1}>
@@ -103,41 +111,46 @@ function ManagerDialog(props: {
         </text>
       </Show>
       <Show when={props.pool().error}><text fg={theme().text.feedback.error.base} wrapMode="word">{props.pool().error}</text></Show>
-      <For each={props.entries()}>
-        {(entry, index) => {
-          const selected = () => props.route().enabled && props.route().activeUrl === proxyUrl(entry)
-          return (
-            <box flexDirection="row" alignItems="center" gap={1}
-              backgroundColor={hovered() === entry.id ? (theme().background.raised?.base ?? theme().background.base) : undefined}
-              onMouseOver={() => setHovered(entry.id)} onMouseOut={() => setHovered(undefined)}
-              onMouseUp={(event) => { event.stopPropagation(); props.use(entry) }}>
-              <text fg={selected() ? theme().text.feedback.success.base : theme().text.muted} wrapMode="none">
-                {selected() ? "●" : String(index() + 1).padStart(2, " ")}
-              </text>
-              <box flexGrow={1} minWidth={0}>
-                <text fg={theme().text.base} wrapMode="none" truncate>{entry.host + ":" + entry.port}</text>
-                <text fg={theme().text.muted} wrapMode="none" truncate>{entry.source}</text>
+      <scrollbox
+        maxHeight={listHeight()}
+        contentOptions={{ minHeight: 0, gap: 0 }}
+        scrollbarOptions={{ visible: true }}
+      >
+        <Show when={props.entries().length === 0}>
+          <text fg={theme().text.muted} wrapMode="word">
+            {label("No verified proxies yet. Update sources and let the health checks finish.", "Пока нет проверенных прокси. Обнови источники и дождись завершения проверки.")}
+          </text>
+        </Show>
+        <For each={props.entries()}>
+          {(entry, index) => {
+            const selected = () => props.route().enabled && props.route().activeUrl === proxyUrl(entry)
+            const rowHovered = () => hovered() === entry.id
+            return (
+              <box flexDirection="row" alignItems="center" gap={1}
+                backgroundColor={rowHovered() ? hoverBackground(theme()) : undefined}
+                onMouseOver={() => setHovered(entry.id)} onMouseOut={() => setHovered(undefined)}
+                onMouseUp={(event) => { event.stopPropagation(); props.use(entry) }}>
+                <text fg={selected() ? theme().text.feedback.success.base : rowHovered() ? actionHover() : theme().text.muted} wrapMode="none">
+                  {selected() ? "●" : String(index() + 1).padStart(2, " ")}
+                </text>
+                <box flexGrow={1} minWidth={0}>
+                  <text fg={rowHovered() ? actionHover() : theme().text.base} wrapMode="none" truncate>{entry.host + ":" + entry.port}</text>
+                  <text fg={rowHovered() ? theme().text.base : theme().text.muted} wrapMode="none" truncate>{entry.source}</text>
+                </box>
+                <text fg={rowHovered() ? actionHover() : theme().text.feedback.success.base} wrapMode="none">{entry.latencyMs + " ms"}</text>
+                <text fg={rowHovered() ? actionHover() : theme().text.action?.primary?.base ?? theme().text.base} wrapMode="none">{label("[Use]", "[Выбрать]")}</text>
               </box>
-              <text fg={theme().text.feedback.success.base} wrapMode="none">{entry.latencyMs + " ms"}</text>
-              <text fg={theme().text.action?.primary?.base ?? theme().text.base} wrapMode="none">{label("[Use]", "[Выбрать]")}</text>
-            </box>
-          )
-        }}
-      </For>
-      <Show when={props.entries().length === 0}>
-        <text fg={theme().text.muted} wrapMode="word">
-          {label("No verified proxies yet. Update sources and let the health checks finish.", "Пока нет проверенных прокси. Обнови источники и дождись завершения проверки.")}
-        </text>
-      </Show>
+            )
+          }}
+        </For>
+      </scrollbox>
       <text fg={theme().text.muted} wrapMode="word">
         {label("Public proxies are operated by unknown parties. Selection requires HTTP CONNECT and verified HTTPS TLS. Do not disable certificate validation.",
           "Публичными прокси управляют неизвестные операторы. Выбор требует HTTP CONNECT и успешной проверки HTTPS/TLS. Не отключай проверку сертификатов.")}
       </text>
-      <For each={props.pool().sources}>
-        {(source) => <text fg={source.error ? theme().text.feedback.warning.base : theme().text.muted} wrapMode="none" truncate>
-          {source.name + ": " + source.count + (source.error ? " · " + source.error : "")}
-        </text>}
-      </For>
+      <text fg={theme().text.muted} wrapMode="none" truncate>
+        {label("Sources: ", "Источники: ") + sourcesSummary()}
+      </text>
       <box flexDirection="row" flexWrap="wrap" gap={1}>
         <Button context={props.context} id="proxy.manager.refresh" label={label("Update sources", "Обновить источники")} run={props.refresh} disabled={props.pool().loading} emphasized />
         <Button context={props.context} id="proxy.manager.check-more" label={label("Check next 48", "Проверить следующие 48")} run={props.checkMore} disabled={props.pool().loading} />
