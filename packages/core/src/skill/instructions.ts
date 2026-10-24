@@ -13,42 +13,27 @@ const Summary = Schema.Struct({
 })
 type Summary = typeof Summary.Type
 
-const entries = (skills: ReadonlyArray<Summary>) =>
-  skills.flatMap((skill) => [
-    "  <skill>",
-    `    <id>${skill.id}</id>`,
-    `    <name>${skill.name}</name>`,
-    `    <description>${skill.description}</description>`,
-    "  </skill>",
-  ])
-
-// Every request carries this list, so a large library is expensive: 331 skills with full descriptions were
-// 109 KB (about 30k tokens), a sixth of a free model's window before any work started. Past the budget the
-// list shrinks to one line per skill with a shortened description, the longest that still fits.
-const BUDGET = 24_000
-const LIMITS = [200, 120, 80, 60, 40, 0]
+// Every request carries this list, so it is an index, not documentation: one line per skill with the start
+// of its description, enough to pick one; the skill tool returns the full instructions. Full XML entries
+// for 27 installed skills were 13 KB (about 3.7k tokens, a fifth of a whole request). Past the budget the
+// descriptions shrink further, down to bare ids, so every skill stays named.
+const BUDGET = 6_000
+const LIMITS = [120, 80, 60, 40, 0]
 
 const clip = (text: string, limit: number) => {
   const line = text.replace(/\s+/g, " ").trim()
   return line.length <= limit ? line : `${line.slice(0, limit - 1).trimEnd()}…`
 }
 
-const compact = (skills: ReadonlyArray<Summary>) => {
-  const lines = (limit: number) =>
-    skills.map((skill) => (limit === 0 ? `  - ${skill.id}` : `  - ${skill.id}: ${clip(skill.description, limit)}`))
-  return lines(LIMITS.find((limit) => lines(limit).join("\n").length <= BUDGET) ?? 0)
-}
+const entries = (skills: ReadonlyArray<Summary>, limit = LIMITS[0]) =>
+  skills.map((skill) => (limit === 0 ? `  - ${skill.id}` : `  - ${skill.id}: ${clip(skill.description, limit)}`))
 
-const listing = (skills: ReadonlyArray<Summary>) => {
-  const full = entries(skills)
-  if (full.join("\n").length <= BUDGET) return ["<available_skills>", ...full, "</available_skills>"]
-  return [
-    "Descriptions below are shortened to fit; the skill tool loads the full instructions of any listed id.",
-    "<available_skills>",
-    ...compact(skills),
-    "</available_skills>",
-  ]
-}
+const listing = (skills: ReadonlyArray<Summary>) => [
+  "Descriptions below are shortened; the skill tool loads the full instructions of any listed id.",
+  "<available_skills>",
+  ...entries(skills, LIMITS.find((limit) => entries(skills, limit).join("\n").length <= BUDGET) ?? 0),
+  "</available_skills>",
+]
 
 const render = (skills: ReadonlyArray<Summary>) =>
   [
