@@ -200,7 +200,17 @@ function Sidebar(props: {
 }) {
   const theme = () => props.context.theme
   const label = (en: string, ruText: string) => text(props.context, en, ruText)
-  const healthy = () => props.pool().entries.filter((item) => item.status === "healthy").toSorted((a, b) => (a.latencyMs ?? 999_999) - (b.latencyMs ?? 999_999))
+  const healthy = () => {
+    const seen = new Set<string>()
+    return props.pool().entries
+      .filter((item) => item.status === "healthy" && !!item.exitIp)
+      .toSorted((a, b) => (a.latencyMs ?? 999_999) - (b.latencyMs ?? 999_999))
+      .filter((item) => {
+        if (!item.exitIp || seen.has(item.exitIp)) return false
+        seen.add(item.exitIp)
+        return true
+      })
+  }
   const active = () => props.active()
   return (
     <box gap={1}>
@@ -213,7 +223,7 @@ function Sidebar(props: {
       <text fg={theme().text.muted} wrapMode="none" truncate>{healthy().length + " verified / " + props.pool().total}</text>
       <Show when={active()}>
         <text fg={theme().text.feedback.success.base} wrapMode="none" truncate>
-          {(active()?.host ?? "") + ":" + (active()?.port ?? "") + " · " + (active()?.latencyMs ?? "—") + " ms"}
+          {(active()?.host ?? "") + ":" + (active()?.port ?? "") + " → " + (active()?.exitIp ?? "IP?") + " · " + (active()?.latencyMs ?? "—") + " ms"}
         </text>
       </Show>
       <Show when={props.pool().loading || props.pool().scanning}>
