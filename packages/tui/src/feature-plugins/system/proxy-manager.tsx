@@ -1,7 +1,7 @@
 import { useTerminalDimensions } from "@opentui/solid"
 import { Plugin } from "@orchestra/plugin/tui"
 import { For, Show, createSignal } from "solid-js"
-import { checkHttpProxies, fetchHttpProxySource, PROXY_SOURCES, proxyUrl, type ProxyEntry } from "./proxy-manager-core"
+import { checkHttpProxies, fetchHttpProxySource, probeHttpProxy, PROXY_SOURCES, proxyUrl, type ProxyEntry } from "./proxy-manager-core"
 import { hoverBackground } from "../../ui/hover"
 
 type ProxySetting = { http?: string; https?: string; no_proxy?: string[] } | null
@@ -20,6 +20,10 @@ const INITIAL_POOL: PoolState = { entries: [], sources: [], total: 0, loading: f
 const INITIAL_ROUTE: RouteState = { enabled: false, hasPreviousProxy: false, autoIP: false, acceptedWarning: false }
 const REFRESH_MS = 30 * 60 * 1000
 const ROTATION_COOLDOWN_MS = 30_000
+const RECHECK_MS = 60_000
+const STALL_MS = 45_000
+const PROXY_CONTINUATION_PROMPT =
+  "Continue the unfinished task from this session. The previous attempt stopped because the network proxy stalled and was replaced. Inspect the latest conversation and current project state, preserve completed work, and continue from the next unfinished step. Do not repeat completed actions or restart the task."
 const BYPASS = ["localhost", "127.0.0.1", "::1"]
 
 function ru(context: Plugin.Context) {
@@ -385,18 +389,35 @@ export default Plugin.define({
       }
     }
 
-    async function useProxy(entry: ProxyEntry, automatic = false) {
-      if (entry.status !== "healthy") return
+    const markDead = (url: string, detail: string) => updatePool((draft) => {
+      draft.entries = draft.entries.map((entry) =>
+        proxyUrl(entry) === url ? { ...entry, status: "dead", checkedAt: Date.now(), detail } : entry,
+      )
+    })
+
+    async function useProxy(entry: ProxyEntry, automatic: false | "zen-cap" | "stall" = false): Promise<boolean> {
+      if (entry.status !== "healthy") return false
       const url = proxyUrl(entry)
+      // Free proxies die within minutes; a stale "healthy" mark must not be what OpenCode is pointed at.
+      if (!entry.checkedAt || Date.now() - entry.checkedAt > RECHECK_MS) {
+        const fresh = await probeHttpProxy(entry)
+        updatePool((draft) => {
+          draft.entries = draft.entries.map((item) => item.id === fresh.id ? fresh : item)
+        })
+        if (fresh.status !== "healthy") {
+          if (!automatic) context.ui.toast.show({ title: text(context, "Proxy no longer works", "Прокси больше не работает"), message: text(context, "It failed a fresh check; pick another one.", "Он не прошёл повторную проверку — выбери другой."), variant: "warning" })
+          return false
+        }
+      }
       const current = await readConfiguredProxy(context)
       if (current === undefined) {
         context.ui.toast.show({ title: text(context, "Could not read proxy configuration", "Не удалось прочитать настройки прокси"), message: text(context, "The OpenCode server did not return its config.", "Сервер OpenCode не вернул конфигурацию."), variant: "error" })
-        return
+        return false
       }
       const owned = route.enabled && matches(current, route.activeUrl ?? "")
       if (automatic && route.enabled && !owned) {
         context.ui.toast.show({ title: text(context, "Proxy changed outside manager", "Прокси изменён вне менеджера"), message: text(context, "Auto IP left the newer setting untouched.", "Авто-IP не изменил новые настройки."), variant: "warning" })
-        return
+        return false
       }
       if (!automatic && !route.acceptedWarning) {
         const accepted = await context.ui.dialog.confirm({
@@ -405,7 +426,7 @@ export default Plugin.define({
             "Этими серверами управляют неизвестные операторы, которые видят метаданные соединений. Проверка сертификатов HTTPS остаётся включённой. Продолжай только если принимаешь этот риск."),
           label: { confirm: text(context, "I understand", "Понимаю"), cancel: text(context, "Cancel", "Отмена") },
         })
-        if (!accepted) return
+        if (!accepted) return false
         updateRoute((draft) => { draft.acceptedWarning = true })
       }
       if (!automatic && !owned && current && (current.http || current.https)) {
@@ -415,21 +436,24 @@ export default Plugin.define({
             "В OpenCode уже настроен прокси (возможно, WARP). Он будет сохранён и восстановлен при отключении пула."),
           label: { confirm: text(context, "Replace", "Заменить"), cancel: text(context, "Cancel", "Отмена") },
         })
-        if (!accepted) return
+        if (!accepted) return false
       }
       try {
         if (!owned) updateRoute((draft) => { draft.previousProxy = current; draft.hasPreviousProxy = true })
         await context.client.config.update({ proxy: configFor(url) })
         updateRoute((draft) => { draft.enabled = true; draft.activeUrl = url })
-        context.ui.toast.show({
+        // The stall path shows its own toast once the chat has been resumed.
+        if (automatic !== "stall") context.ui.toast.show({
           title: automatic ? text(context, "Auto IP switched proxy", "Авто-IP сменил прокси") : text(context, "Proxy activated", "Прокси включён"),
           message: automatic
             ? text(context, "Zen's daily IP cap was detected. Retry the failed request manually; it is not replayed automatically.", "Обнаружен дневной IP-лимит Zen. Повтори неудачный запрос вручную: автоматического повтора нет.")
             : text(context, "OpenCode now uses " + entry.host + ":" + entry.port + ".", "OpenCode теперь использует " + entry.host + ":" + entry.port + "."),
           variant: "success",
         })
+        return true
       } catch (cause) {
         context.ui.toast.show({ title: text(context, "Could not activate proxy", "Не удалось включить прокси"), message: cause instanceof Error ? cause.message : String(cause), variant: "error" })
+        return false
       }
     }
 
@@ -456,14 +480,14 @@ export default Plugin.define({
       }
     }
 
-    async function nextProxy(automatic = false) {
+    async function nextProxy(automatic: false | "zen-cap" | "stall" = false) {
       const activeExitIp = active()?.exitIp
-      const entry = uniqueHealthy().find((candidate) => candidate.exitIp !== activeExitIp && proxyUrl(candidate) !== route.activeUrl)
-      if (!entry) {
-        context.ui.toast.show({ title: text(context, "No other verified exit IP", "Нет другого проверенного внешнего IP"), message: text(context, "Other proxy ports may share the same exit IP. Check the displayed exit IPs, or use your own WARP/VLESS routes.", "Другие прокси могут использовать тот же внешний IP. Сравни показанные IP либо используй собственный WARP/VLESS-маршрут."), variant: "warning" })
-        return
+      // A candidate that fails its fresh check is marked dead by useProxy, so try the next one.
+      for (const entry of uniqueHealthy().filter((candidate) => candidate.exitIp !== activeExitIp && proxyUrl(candidate) !== route.activeUrl).slice(0, 5)) {
+        if (await useProxy(entry, automatic)) return true
       }
-      await useProxy(entry, automatic)
+      if (automatic !== "stall") context.ui.toast.show({ title: text(context, "No other verified exit IP", "Нет другого проверенного внешнего IP"), message: text(context, "Other proxy ports may share the same exit IP. Check the displayed exit IPs, or use your own WARP/VLESS routes.", "Другие прокси могут использовать тот же внешний IP. Сравни показанные IP либо используй собственный WARP/VLESS-маршрут."), variant: "warning" })
+      return false
     }
 
     const toggleAutoIP = () => {
@@ -534,22 +558,15 @@ export default Plugin.define({
       if (isZenAddressCap(error)) {
         if (!route.autoIP) return
         lastRotation = Date.now()
-        void nextProxy(true)
+        void nextProxy("zen-cap")
         return
       }
 
       // A stalled public proxy must not remain configured for every later chat request.
       // Restore the previous WARP/direct/Clash route when OpenCode schedules a transport retry.
       if (!isProxyTransportFailure(error)) return
-      const failedUrl = route.activeUrl
       lastRotation = Date.now()
-      updatePool((draft) => {
-        draft.entries = draft.entries.map((entry) =>
-          proxyUrl(entry) === failedUrl
-            ? { ...entry, status: "dead", checkedAt: Date.now(), detail: "OpenCode request timed out or the connection failed" }
-            : entry,
-        )
-      })
+      markDead(route.activeUrl, "OpenCode request timed out or the connection failed")
       void disableProxy(true).then((restored) => {
         if (!restored) return
         context.ui.toast.show({
@@ -567,6 +584,53 @@ export default Plugin.define({
     // Share one cooldown so one network incident cannot trigger two route changes.
     const disposeFailure = context.data.on("session.execution.failed", (event) => handleRequestFailure(event.data.error))
     const disposeRetry = context.data.on("session.retry.scheduled", (event) => handleRequestFailure(event.data.error))
+
+    // The provider's header timeout is five minutes, so a proxy that accepts CONNECT and then goes
+    // silent would hold the chat that long before any failure event. Watch each step for its first
+    // output instead and move off the proxy as soon as it stalls.
+    const stalls = new Map<string, ReturnType<typeof setTimeout>>()
+    const settle = (sessionID: string) => {
+      clearTimeout(stalls.get(sessionID))
+      stalls.delete(sessionID)
+    }
+    const watch = (sessionID: string) => {
+      settle(sessionID)
+      if (!route.enabled || !route.activeUrl) return
+      const url = route.activeUrl
+      stalls.set(sessionID, setTimeout(() => {
+        stalls.delete(sessionID)
+        void handleStall(sessionID, url)
+      }, STALL_MS))
+    }
+    async function handleStall(sessionID: string, url: string) {
+      if (!route.enabled || route.activeUrl !== url) return
+      lastRotation = Date.now()
+      markDead(url, "No model output within " + STALL_MS / 1000 + " s through this proxy")
+      const switched = await nextProxy("stall") || await disableProxy(true)
+      if (!switched) return
+      // The stalled request keeps its old socket, so it must be stopped and the chat continued.
+      // A subagent cannot be prompted directly; its own retry runs through the new route.
+      const session = context.data.session.get(sessionID)
+      const resumed = !session?.parentID && context.data.session.status(sessionID) === "running"
+      if (resumed) {
+        await context.client.session.interrupt({ sessionID })
+        await context.client.session.prompt({ sessionID, text: PROXY_CONTINUATION_PROMPT })
+      }
+      context.ui.toast.show({
+        title: text(context, "Stalled proxy replaced", "Зависший прокси заменён"),
+        message: route.enabled
+          ? text(context, "The model sent nothing through the proxy, so another verified proxy was selected" + (resumed ? " and the chat continues." : "."), "Модель ничего не отправила через прокси, поэтому выбран другой проверенный" + (resumed ? ", чат продолжается." : "."))
+          : text(context, "No other verified proxy was left, so the previous route was restored" + (resumed ? " and the chat continues." : "."), "Других проверенных прокси не осталось, поэтому восстановлен прежний маршрут" + (resumed ? ", чат продолжается." : ".")),
+        variant: "warning",
+      })
+    }
+    const disposeStall = [
+      context.data.on("session.step.started", (event) => watch(event.data.sessionID)),
+      ...(["session.text.started", "session.reasoning.started", "session.tool.input.started", "session.step.streamed", "session.step.ended",
+        "session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"] as const)
+        .map((type) => context.data.on(type, (event) => settle(event.data.sessionID))),
+    ]
+
     const startup = setTimeout(() => void refreshSources(), 200)
     const timer = setInterval(() => void refreshSources(), REFRESH_MS)
     return () => {
@@ -574,6 +638,8 @@ export default Plugin.define({
       clearInterval(timer)
       disposeFailure()
       disposeRetry()
+      disposeStall.forEach((dispose) => dispose())
+      stalls.forEach((stall) => clearTimeout(stall))
     }
   },
 })
