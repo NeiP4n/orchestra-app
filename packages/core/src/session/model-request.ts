@@ -29,6 +29,7 @@ import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import { App } from "../app.js"
 import { Permission } from "../permission.js"
 import { PluginHooks } from "../plugin/hooks.js"
+import { zenRequiredToolNames } from "../provider-request-compatibility.js"
 import { QuestionTool } from "../tool/plugin/question.js"
 import { Tool } from "../tool.js"
 import { SessionAffinity } from "./affinity.js"
@@ -228,6 +229,9 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@orchestra/SessionModelRequest") {}
 
+const ZEN_TOOL_LIMIT = 128
+const ZEN_REQUIRED_TOOLS = new Set<string>(zenRequiredToolNames)
+
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -250,15 +254,26 @@ export const layer = Layer.effect(
       // the built-in OpenCode provider, while Tool.snapshot.execute still enforces local policy.
       // This does not grant permission to execute either tool: hidden tools are not present in the
       // snapshot's active executor maps.
-      const zenCompatibility = model.ref.providerID === "opencode"
-        ? [...(tools.codeModeDefinitions ?? []), ...(tools.compatibilityDefinitions ?? [])]
-        : []
-      const advertised = [
-        ...tools.definitions,
-        ...zenCompatibility.filter((candidate) => !tools.definitions.some((tool) => tool.name === candidate.name)),
-      ]
       const deniedCompatibility =
         model.ref.providerID === "opencode" ? (tools.compatibilityDefinitions ?? []) : []
+      // Zen's upstream rejects more than 128 tools. Mirrored CodeMode schemas are only a validator
+      // courtesy (every one stays callable through `execute`), so large MCP catalogs are trimmed to
+      // fit, keeping the tools Zen's validator looks for first.
+      const zenCompatibility =
+        model.ref.providerID === "opencode"
+          ? [...(tools.codeModeDefinitions ?? []), ...deniedCompatibility]
+              .filter(
+                (candidate, index, all) =>
+                  !tools.definitions.some((tool) => tool.name === candidate.name) &&
+                  all.findIndex((other) => other.name === candidate.name) === index,
+              )
+              .sort(
+                (left, right) =>
+                  Number(!ZEN_REQUIRED_TOOLS.has(left.name)) - Number(!ZEN_REQUIRED_TOOLS.has(right.name)),
+              )
+              .slice(0, Math.max(0, ZEN_TOOL_LIMIT - tools.definitions.length))
+          : []
+      const advertised = [...tools.definitions, ...zenCompatibility]
       // Remember which tool each definition object came from. Hooks rename a tool by moving
       // its definition to a new key, so after the hook we find the tool by object identity.
       const given = new Map(
@@ -292,7 +307,7 @@ export const layer = Layer.effect(
       // Only restore denied schemas for Zen's brittle tool-list validator; Tool.snapshot.execute
       // has no executor for them, so a model cannot use this as a permission bypass.
       for (const candidate of deniedCompatibility) {
-        if (!hooked.has(candidate.name)) hooked.set(candidate.name, candidate)
+        if (!hooked.has(candidate.name) && hooked.size < ZEN_TOOL_LIMIT) hooked.set(candidate.name, candidate)
       }
       const entries = Object.entries(shaped.options)
       const generation = Object.fromEntries(entries.filter(([k]) => GENERATION_KEYS.has(k))) as GenerationOptionsFields

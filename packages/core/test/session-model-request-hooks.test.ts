@@ -96,6 +96,34 @@ describe("SessionModelRequest HTTP hooks", () => {
       }).pipe(Effect.provideService(SessionModelTransport.Service, transport)),
   )
 
+  it.effect("keeps OpenCode Zen requests within its 128-tool limit for large CodeMode catalogs", () =>
+    Effect.gen(function* () {
+      const registry = yield* Tool.Service
+      yield* registry.transform((editor) =>
+        Array.from({ length: 200 }, (_, index) =>
+          editor.add({
+            name: `word-${index}`,
+            description: "Edit a Word document",
+            input: Schema.Struct({ text: Schema.String }),
+            execute: ({ text }) => Effect.succeed({ output: { text } }),
+          }),
+        ),
+      )
+      const requests = yield* SessionModelRequest.Service.pipe(Effect.provide(SessionModelRequest.layer))
+      const zen = yield* requests.primary({
+        session,
+        agent: Agent.ID.make("build"),
+        model: { ...model, ref: Model.Ref.make({ id: model.ref.id, providerID: Provider.ID.make("opencode") }) },
+        tools: yield* registry.snapshot(),
+        system: [],
+        messages: [],
+      })
+      const names = zen.request.tools?.map((tool) => tool.name) ?? []
+      expect(names.length).toBe(128)
+      expect(names).toContain("execute")
+    }).pipe(Effect.provideService(SessionModelTransport.Service, transport)),
+  )
+
   it.effect("tags every Session request kind on http.request and http.response", () =>
     Effect.gen(function* () {
       const hooks = yield* PluginHooks.Service
