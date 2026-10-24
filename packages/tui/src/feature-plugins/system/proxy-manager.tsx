@@ -90,7 +90,7 @@ function ManagerDialog(props: {
   const [hovered, setHovered] = createSignal<string>()
   const listHeight = () => Math.max(3, Math.min(6, dimensions().height - 22))
   const sourcesSummary = () => props.pool().sources.map((source) =>
-    source.name + " " + source.count + (source.error ? " !" : ""),
+    source.name + " " + (source.loading ? "…" : source.count) + (source.error ? " !" : ""),
   ).join(" · ")
   const actionHover = () => theme().text.action?.primary?.hovered ?? theme().increase(theme().text.action?.primary?.base ?? theme().text.base, 2)
   return (
@@ -116,7 +116,7 @@ function ManagerDialog(props: {
       >
         <Show when={props.entries().length === 0}>
           <text fg={theme().text.muted} wrapMode="word">
-            {label("No verified proxies yet. Update sources and let the health checks finish.", "Пока нет проверенных прокси. Обнови источники и дождись завершения проверки.")}
+            {label("No OpenCode-ready proxies yet. The live scan will add results here as soon as endpoints pass.", "Пока нет прокси для OpenCode. Проверенные адреса появятся здесь сразу по мере завершения фонового сканирования.")}
           </text>
         </Show>
         <For each={props.entries()}>
@@ -282,7 +282,7 @@ export default Plugin.define({
         for (const entry of result.entries) {
           if (seen.has(entry.id) || entryIndex.size >= 12_000) continue
           seen.add(entry.id)
-          entryIndex.set(entry.id, entries.length + additions.length)
+          entryIndex.set(entry.id, entryIndex.size)
           additions.push(entry)
         }
         // The first address is published to the list before any other source has to finish downloading.
