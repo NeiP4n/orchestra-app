@@ -45,7 +45,8 @@ function isZenAddressCap(error: unknown) {
   return /freeusagelimiterror|free tier counts requests per ip address|daily allowance.*ip|per ip address.*daily/i.test(describeError(error))
 }
 function isProxyTransportFailure(error: unknown) {
-  return /timed out|timeout|connection reset|connection refused|socket hang up|ECONNRESET|ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|fetch failed|TLS handshake|TLS failed|network error/i.test(describeError(error))
+  // ERR_PROXY_TUNNEL is Bun's code when the proxy answers CONNECT with an error (e.g. 503 Too many open connections).
+  return /ERR_PROXY_TUNNEL|refused to open a tunnel|timed out|timeout|connection reset|connection refused|socket hang up|ECONNRESET|ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|fetch failed|TLS handshake|TLS failed|network error/i.test(describeError(error))
 }
 async function readConfiguredProxy(context: Plugin.Context): Promise<ProxySetting | undefined> {
   try {
@@ -396,7 +397,7 @@ export default Plugin.define({
       )
     })
 
-    async function useProxy(entry: ProxyEntry, automatic: false | "zen-cap" | "stall" = false): Promise<boolean> {
+    async function useProxy(entry: ProxyEntry, automatic: false | "zen-cap" | "failover" = false): Promise<boolean> {
       if (entry.status !== "healthy") return false
       const url = proxyUrl(entry)
       // Free proxies die within minutes; a stale "healthy" mark must not be what OpenCode is pointed at.
@@ -443,8 +444,8 @@ export default Plugin.define({
         if (!owned) updateRoute((draft) => { draft.previousProxy = current; draft.hasPreviousProxy = true })
         await context.client.config.update({ proxy: configFor(url) })
         updateRoute((draft) => { draft.enabled = true; draft.activeUrl = url })
-        // The stall path shows its own toast once the chat has been resumed.
-        if (automatic !== "stall") context.ui.toast.show({
+        // Failover callers show their own toast describing what happened to the chat.
+        if (automatic !== "failover") context.ui.toast.show({
           title: automatic ? text(context, "Auto IP switched proxy", "Авто-IP сменил прокси") : text(context, "Proxy activated", "Прокси включён"),
           message: automatic
             ? text(context, "Zen's daily IP cap was detected. Retry the failed request manually; it is not replayed automatically.", "Обнаружен дневной IP-лимит Zen. Повтори неудачный запрос вручную: автоматического повтора нет.")
@@ -481,13 +482,13 @@ export default Plugin.define({
       }
     }
 
-    async function nextProxy(automatic: false | "zen-cap" | "stall" = false) {
+    async function nextProxy(automatic: false | "zen-cap" | "failover" = false) {
       const activeExitIp = active()?.exitIp
       // A candidate that fails its fresh check is marked dead by useProxy, so try the next one.
       for (const entry of uniqueHealthy().filter((candidate) => candidate.exitIp !== activeExitIp && proxyUrl(candidate) !== route.activeUrl).slice(0, 5)) {
         if (await useProxy(entry, automatic)) return true
       }
-      if (automatic !== "stall") context.ui.toast.show({ title: text(context, "No other verified exit IP", "Нет другого проверенного внешнего IP"), message: text(context, "Other proxy ports may share the same exit IP. Check the displayed exit IPs, or use your own WARP/VLESS routes.", "Другие прокси могут использовать тот же внешний IP. Сравни показанные IP либо используй собственный WARP/VLESS-маршрут."), variant: "warning" })
+      if (automatic !== "failover") context.ui.toast.show({ title: text(context, "No other verified exit IP", "Нет другого проверенного внешнего IP"), message: text(context, "Other proxy ports may share the same exit IP. Check the displayed exit IPs, or use your own WARP/VLESS routes.", "Другие прокси могут использовать тот же внешний IP. Сравни показанные IP либо используй собственный WARP/VLESS-маршрут."), variant: "warning" })
       return false
     }
 
@@ -563,23 +564,23 @@ export default Plugin.define({
         return
       }
 
-      // A stalled public proxy must not remain configured for every later chat request.
-      // Restore the previous WARP/direct/Clash route when OpenCode schedules a transport retry.
+      // A failing public proxy must not remain configured for every later chat request. Move to the
+      // next stable proxy, or restore the previous WARP/direct/Clash route when none is left, so
+      // OpenCode's scheduled retry goes out through a working route.
       if (!isProxyTransportFailure(error)) return
       lastRotation = Date.now()
-      markDead(route.activeUrl, "OpenCode request timed out or the connection failed")
-      void disableProxy(true).then((restored) => {
-        if (!restored) return
+      markDead(route.activeUrl, "OpenCode request failed through this proxy")
+      void (async () => {
+        const switched = await nextProxy("failover")
+        if (!switched && !(await disableProxy(true))) return
         context.ui.toast.show({
-          title: text(context, "Slow proxy disabled", "Медленный прокси отключён"),
-          message: text(
-            context,
-            "OpenCode failed through this proxy. The previous route was restored; the current retry may recover, otherwise resend the prompt.",
-            "Запрос OpenCode не прошёл через этот прокси. Предыдущий маршрут восстановлен; текущая повторная попытка может сработать, иначе отправь запрос ещё раз.",
-          ),
+          title: text(context, "Failing proxy replaced", "Сбойный прокси заменён"),
+          message: switched
+            ? text(context, "OpenCode failed through this proxy, so the next stable one was selected; the retry goes through it.", "Запрос OpenCode не прошёл через этот прокси, поэтому выбран следующий стабильный — повтор пойдёт через него.")
+            : text(context, "No other verified proxy was left, so the previous route was restored; the current retry may recover, otherwise resend the prompt.", "Других проверенных прокси не осталось, поэтому восстановлен прежний маршрут; текущий повтор может сработать, иначе отправь запрос ещё раз."),
           variant: "warning",
         })
-      })
+      })()
     }
     // retry.scheduled fires before the automatic retry; execution.failed covers terminal failures.
     // Share one cooldown so one network incident cannot trigger two route changes.
@@ -607,7 +608,7 @@ export default Plugin.define({
       if (!route.enabled || route.activeUrl !== url) return
       lastRotation = Date.now()
       markDead(url, "No model output within " + STALL_MS / 1000 + " s through this proxy")
-      const switched = await nextProxy("stall") || await disableProxy(true)
+      const switched = await nextProxy("failover") || await disableProxy(true)
       if (!switched) return
       // The stalled request keeps its old socket, so it must be stopped and the chat continued.
       // A subagent cannot be prompted directly; its own retry runs through the new route.
