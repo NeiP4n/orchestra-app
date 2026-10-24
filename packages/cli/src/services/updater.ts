@@ -487,7 +487,9 @@ const make = Effect.gen(function* () {
 
   const check = Effect.fn("cli.updater.check")(function* () {
     const release = ORCHESTRA_LOCAL ? yield* sourceRelease() : undefined
-    if (release) return release.available ? { type: "available" as const, version: release.available } : undefined
+    if (release?.available) return { type: "available" as const, version: release.available }
+    // A detached release checkout must still compare HEAD with the live source branch when
+    // no newer release tag exists. Otherwise every merged main-branch fix appears "up to date".
     if (ORCHESTRA_LOCAL) return yield* developmentBranch()
     const version = yield* latest()
     if (!parseReleaseVersion(version)) return yield* Effect.fail(new Error(`Invalid version: ${version}`))
@@ -528,30 +530,27 @@ const make = Effect.gen(function* () {
 
   const developmentBranch = Effect.fnUntraced(function* () {
     const status = yield* sourceCheck(() => SourceRelease.branch())
-    if (!status) return yield* installedBranch()
-    if (status.type === "behind") return { type: "available" as const, version: `${status.name} +${status.behind}` }
-    if (status.type === "current") return undefined
-    return {
-      type: "unavailable" as const,
-      message:
-        status.type === "diverged"
-          ? "This branch and its copy on GitHub both have new commits. Merge them by hand with git pull."
-          : "This branch has no copy on GitHub to update from.",
+    if (status?.type === "behind") return { type: "available" as const, version: `${status.name} +${status.behind}` }
+    if (status?.type === "current") return undefined
+    if (status?.type === "diverged" || status?.type === "no-upstream") {
+      return {
+        type: "unavailable" as const,
+        message:
+          status.type === "diverged"
+            ? "This branch and its copy on GitHub both have new commits. Merge them by hand with git pull."
+            : "This branch has no copy on GitHub to update from.",
+      }
     }
-  })
 
-  const installedBranch = Effect.fnUntraced(function* () {
-    const newest = yield* Effect.tryPromise(() => SourceRelease.latest()).pipe(Effect.orElseSucceed(() => undefined))
-    if (newest) return { type: "available" as const, version: newest }
-    const status = yield* sourceCheck(() => SourceRelease.install())
-    if (status.type === "behind") return { type: "available" as const, version: `${status.branch} +${status.behind}` }
-    if (status.type === "current") return undefined
+    // Detached installs (including release-tag installs) follow the configured live source branch.
+    const install = yield* sourceCheck(() => SourceRelease.install())
+    if (install.type === "behind") return { type: "available" as const, version: `${install.branch} +${install.behind}` }
+    if (install.type === "current") return undefined
     return {
       type: "unavailable" as const,
       message: "This install has commits that are not on GitHub. Run the installer again to replace them.",
     }
   })
-
   const sourceRelease = Effect.fnUntraced(function* () {
     const pinned = yield* sourceCheck(() => SourceRelease.current())
     if (!pinned) return undefined

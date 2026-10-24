@@ -5,7 +5,7 @@ import path from "node:path"
 import { parseReleaseVersion } from "./updater-action"
 
 const PREFIX = "release/"
-const INSTALL_BRANCH = process.env.ORCHESTRA_PP_BRANCH || "lan-rooms"
+const DEFAULT_INSTALL_BRANCH = "main"
 const checkout = path.resolve(import.meta.dir, "../../../..")
 const DEPENDENCY_TIMEOUT_MS = 5 * 60 * 1000
 const VALIDATION_TIMEOUT_MS = 2 * 60 * 1000
@@ -103,8 +103,26 @@ async function refreshTracking(root: string, target: string) {
   await $`git -C ${root} fetch --quiet ${remote} ${refspec}`.quiet()
 }
 
+/**
+ * Resolve the source install's update branch. Explicit configuration wins; otherwise prefer
+ * main (the fork's current default), falling back to lan-rooms for older remotes.
+ */
+export async function installBranch(root = checkout) {
+  const configured = process.env.ORCHESTRA_PP_BRANCH?.trim()
+  if (configured) return configured
+  const result = await $`git -C ${root} ls-remote --heads origin main lan-rooms`.quiet().nothrow()
+  const branches = new Set(
+    result.text().split("\n")
+      .map((line) => line.split("\t")[1]?.replace("refs/heads/", ""))
+      .filter((name): name is string => Boolean(name)),
+  )
+  if (branches.has("main")) return "main"
+  if (branches.has("lan-rooms")) return "lan-rooms"
+  return DEFAULT_INSTALL_BRANCH
+}
+
 async function checkoutDevelopmentBranch(root: string) {
-  const target = `origin/${INSTALL_BRANCH}`
+  const target = `origin/${await installBranch(root)}`
   await refreshTracking(root, target)
   await $`git -C ${root} checkout --quiet --detach ${target}`.quiet()
 }
@@ -143,12 +161,13 @@ export type Install =
   | { readonly type: "ahead" }
 
 export async function install(root = checkout): Promise<Install> {
-  const refspec = `+refs/heads/${INSTALL_BRANCH}:refs/remotes/origin/${INSTALL_BRANCH}`
+  const branch = await installBranch(root)
+  const refspec = `+refs/heads/${branch}:refs/remotes/origin/${branch}`
   await $`git -C ${root} fetch --quiet origin ${refspec}`.quiet()
-  const [ahead, behind] = (await $`git -C ${root} rev-list --left-right --count ${"HEAD...origin/" + INSTALL_BRANCH}`.quiet().text()).trim().split(/\s+/).map(Number)
+  const [ahead, behind] = (await $`git -C ${root} rev-list --left-right --count ${"HEAD...origin/" + branch}`.quiet().text()).trim().split(/\s+/).map(Number)
   if (ahead) return { type: "ahead" }
   if (!behind) return { type: "current" }
-  return { type: "behind", branch: INSTALL_BRANCH, behind }
+  return { type: "behind", branch, behind }
 }
 
 export async function follow(root = checkout) {

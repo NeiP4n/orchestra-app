@@ -97,6 +97,39 @@ test("the newest release is chosen by version, not by name order", () => {
 
 // Before the first release the installer checks out its branch detached; that install
 // follows the branch the way running the installer again would.
+test("a detached release install follows an untagged main commit after the latest release", async () => {
+  await using repo = await setup()
+  // Add a commit to main without tagging it as a release. A release-pinned install must still see it.
+  await writeFile(path.join(repo.origin, "notes.txt"), "three")
+  await $`git -C ${repo.origin} add -A`.quiet()
+  await $`git -C ${repo.origin} commit -qm three`.env({
+    ...process.env,
+    GIT_AUTHOR_NAME: "t",
+    GIT_AUTHOR_EMAIL: "t@t",
+    GIT_COMMITTER_NAME: "t",
+    GIT_COMMITTER_EMAIL: "t@t",
+  }).quiet()
+  expect(await SourceRelease.install(repo.install)).toEqual({ type: "behind", branch: "main", behind: 2 })
+})
+
+test("main is preferred as the install branch when both main and lan-rooms exist", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "opencode-pp-branch-select-"))
+  try {
+    const origin = path.join(root, "origin")
+    const install = path.join(root, "install")
+    const identity = { GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" }
+    await $`git init -q -b main ${origin}`.quiet()
+    await writeFile(path.join(origin, "README.md"), "main")
+    await $`git -C ${origin} add -A`.quiet()
+    await $`git -C ${origin} commit -qm main`.env({ ...process.env, ...identity }).quiet()
+    await $`git -C ${origin} branch lan-rooms`.quiet()
+    await $`git clone -q ${origin} ${install}`.quiet()
+    await $`git -C ${install} checkout -q --detach HEAD`.quiet()
+    expect(await SourceRelease.installBranch(install)).toBe("main")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
 test("a detached install without releases follows the installer's branch", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "opencode-pp-branch-"))
   try {
