@@ -60,12 +60,9 @@ describe("SkillInstructions", () => {
           "Skills provide specialized instructions and workflows for specific tasks.",
           "Use the skill tool to load a skill when a task matches its description.",
           "The user may also invoke a skill directly. When that happens, its instructions appear in the conversation as a <skill_content> block, the same shape the skill tool returns. A skill that is already present this way does not need to be invoked again.",
+          "Descriptions below are shortened; the skill tool loads the full instructions of any listed id.",
           "<available_skills>",
-          "  <skill>",
-          "    <id>effect</id>",
-          "    <name>Effect</name>",
-          "    <description>Build applications with Effect</description>",
-          "  </skill>",
+          "  - effect: Build applications with Effect",
           "</available_skills>",
         ].join("\n"),
       )
@@ -101,11 +98,7 @@ describe("SkillInstructions", () => {
       expect(added.text).toBe(
         [
           "New skills are available in addition to those previously listed:",
-          "  <skill>",
-          "    <id>debugging</id>",
-          "    <name>Debugging</name>",
-          "    <description>Diagnose hard bugs</description>",
-          "  </skill>",
+          "  - debugging: Diagnose hard bugs",
         ].join("\n"),
       )
 
@@ -174,7 +167,7 @@ describe("SkillInstructions", () => {
       const instructions = yield* SkillInstructions.Service
       expect(
         (yield* instructions.load(agent.permissions).pipe(Effect.flatMap(readInitial))).text,
-      ).toContain("<name>Effect</name>")
+      ).toContain("  - effect: Build applications with Effect")
     }).pipe(Effect.provide(layer(() => [effect])))
   })
 
@@ -207,8 +200,7 @@ describe("SkillInstructions", () => {
     return Effect.gen(function* () {
       const instructions = yield* SkillInstructions.Service
       const text = (yield* instructions.load(agent.permissions).pipe(Effect.flatMap(readInitial))).text
-      expect(text.length).toBeLessThan(26_000)
-      expect(text).toContain("Descriptions below are shortened to fit")
+      expect(text.length).toBeLessThan(7_000)
       for (const skill of library) expect(text).toContain(skill.id)
     }).pipe(Effect.provide(layer(() => library)))
   })
