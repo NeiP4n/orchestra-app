@@ -38,6 +38,10 @@ const OPENCODE_PATH = "/zen/v1/models"
 /** OpenCode API compatibility check; this is a safe read-only model-list request, not an inference call. */
 export const OPENCODE_PROBE = { host: OPENCODE_HOST, path: OPENCODE_PATH } as const
 
+export function isOpenCodeModelList(value: unknown): value is { data: unknown[] } {
+  return !!value && typeof value === "object" && !Array.isArray(value) && Array.isArray((value as { data?: unknown }).data)
+}
+
 export function proxyUrl(entry: Pick<ProxyEntry, "host" | "port">) {
   return "http://" + entry.host + ":" + entry.port
 }
@@ -219,11 +223,11 @@ export function probeHttpProxy(entry: ProxyEntry, timeoutMs = MAX_PROBE_TIME_MS)
       }
       try {
         const parsed: unknown = JSON.parse(bodyBytes.toString("utf8"))
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-          finish(false, "invalid Zen API JSON body")
+        if (!isOpenCodeModelList(parsed)) {
+          finish(false, "Zen API response is not a model list")
           return
         }
-        finish(true, "complete Zen API response")
+        finish(true, "complete Zen model-list response")
       } catch {
         // If the socket has ended, the response was truncated or malformed; don't mark it healthy.
         if (responseEnded) finish(false, "incomplete or invalid Zen API JSON body")
