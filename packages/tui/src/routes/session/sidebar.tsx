@@ -38,7 +38,7 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
       >
         <box flexDirection="row" alignItems="center" flexShrink={0} paddingRight={1} gap={1}>
           {/* The session's own neuron: it beats faster while the agent works. */}
-          <NeuronDot energy={running() ? 0.95 : 0.25} />
+          <NeuronDot energy={running() ? 0.35 : 0.04} session={props.sessionID} />
           <box flexGrow={1} minWidth={0}>
             <title_shimmer
               fg={theme.text.base}
@@ -64,7 +64,12 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
           </Show>
         </box>
         <box flexShrink={0} paddingTop={1} paddingBottom={1}>
-          <NeuralLine energy={running() ? 0.9 : 0.15} seed={4} />
+          <NeuralLine
+            energy={running() ? 0.35 : 0.04}
+            seed={4}
+            session={props.sessionID}
+            backdrop={theme.background.raised.base}
+          />
         </box>
         <scrollbox
           flexGrow={1}

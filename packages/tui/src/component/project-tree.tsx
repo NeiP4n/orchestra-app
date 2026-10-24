@@ -445,7 +445,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
         {/* Decoration goes first on a short window: the tree needs every row. */}
         <Show when={dimensions().height >= 24} fallback={<box height={1} flexShrink={0} />}>
           <box paddingLeft={1} paddingRight={1} paddingTop={1} paddingBottom={1} flexShrink={0}>
-            <NeuralLine energy={energy()} seed={5} />
+            <NeuralLine energy={energy()} seed={5} backdrop={theme.background.raised.base} />
           </box>
         </Show>
         <Show when={notes.tab() === "notes"}>

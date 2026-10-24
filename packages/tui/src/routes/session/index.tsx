@@ -1793,7 +1793,7 @@ function TranscriptAxon(props: { sessionID: string }) {
       { defer: true },
     ),
   )
-  return <NeuralAxon active={running() || fresh()} energy={running() ? 0.85 : 0.35} />
+  return <NeuralAxon active={running() || fresh()} energy={running() ? 0.4 : 0.1} session={props.sessionID} />
 }
 
 type SessionRowViewProps = {

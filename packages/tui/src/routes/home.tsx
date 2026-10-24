@@ -20,6 +20,7 @@ import { useUpdateNotification } from "../context/update-notification"
 import { useExit } from "../context/exit"
 import { FadeInText } from "../component/fade-in-text"
 import { NeuralCard, NeuronDot, NeuronField, neuralPalette, useNeuralEnergy } from "../component/neural"
+import { useNeuralActivity } from "../component/neural-activity"
 import { useT } from "../util/i18n"
 import { Locale } from "../util/locale"
 import { useCompactLayout } from "../ui/compact-layout"
@@ -189,12 +190,21 @@ function BrainStatus(props: { energy: number; width: number }) {
   const palette = () => neuralPalette(theme)
   const sessions = createMemo(() => data.session.list().filter((session) => !session.parentID))
   const thinking = createMemo(() => sessions().filter((session) => data.session.status(session.id) === "running").length)
+  const activity = useNeuralActivity()
   return (
     <box flexDirection="row" flexShrink={0} gap={1} zIndex={1} paddingLeft={1} paddingRight={1} backgroundColor={theme.background.base}>
       <NeuronDot energy={props.energy} />
       <text fg={thinking() > 0 ? palette().signal : theme.text.muted} wrapMode="none">
         {thinking() > 0 ? t("{count} agents thinking", { count: thinking() }) : t("network ready")}
       </text>
+      {/* The newest action the network lit up, such as a tool's name, until it cools down. */}
+      <Show when={thinking() > 0 && activity.latest()}>
+        {(latest) => (
+          <text fg={palette().spark} wrapMode="none">
+            {`▸ ${latest()}`}
+          </text>
+        )}
+      </Show>
       {/* The counts are context, so a narrow column keeps only the network's state. */}
       <Show when={props.width >= 56}>
         <text fg={palette().synapse} wrapMode="none">
