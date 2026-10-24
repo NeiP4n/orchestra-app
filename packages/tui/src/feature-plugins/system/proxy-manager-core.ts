@@ -13,6 +13,8 @@ export type ProxyEntry = {
   latencyMs?: number
   checkedAt?: number
   detail?: string
+  /** Consecutive healthy probes; any failed probe resets it to 0. */
+  streak?: number
 }
 export type ProxySource = (typeof PROXY_SOURCES)[number]
 export type ProxySourceResult = {
@@ -66,6 +68,11 @@ export function classifyZenProbe(statusCode: number, body: string): ProxyStatus 
   // route is reachable; the IP quota cannot be known without making a real authenticated inference.
   if (statusCode === 200 || statusCode === 401) return "healthy"
   return "dead"
+}
+
+/** Most consecutive passes first: free proxies mostly die within minutes, so survivors are the best bet. Latency breaks ties. */
+export function byStability(a: ProxyEntry, b: ProxyEntry) {
+  return (b.streak ?? 0) - (a.streak ?? 0) || (a.latencyMs ?? 999_999) - (b.latencyMs ?? 999_999)
 }
 
 export function proxyUrl(entry: Pick<ProxyEntry, "host" | "port">) {
@@ -324,6 +331,7 @@ export async function probeHttpProxy(entry: ProxyEntry, timeoutMs = MAX_PROBE_TI
         latencyMs: Math.round(performance.now() - started),
         checkedAt: Date.now(),
         detail: "Could not verify public egress IP",
+        streak: 0,
       }
     }
     const body = zen.body.toString("utf8")
@@ -342,6 +350,7 @@ export async function probeHttpProxy(entry: ProxyEntry, timeoutMs = MAX_PROBE_TI
       latencyMs: Math.round(performance.now() - started),
       checkedAt: Date.now(),
       detail,
+      streak: status === "healthy" ? (entry.streak ?? 0) + 1 : 0,
     }
   } catch (cause) {
     return {
@@ -350,6 +359,7 @@ export async function probeHttpProxy(entry: ProxyEntry, timeoutMs = MAX_PROBE_TI
       latencyMs: Math.round(performance.now() - started),
       checkedAt: Date.now(),
       detail: cause instanceof Error ? cause.message.slice(0, 120) : "proxy check failed",
+      streak: 0,
     }
   }
 }

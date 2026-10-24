@@ -1,7 +1,7 @@
 import { useTerminalDimensions } from "@opentui/solid"
 import { Plugin } from "@orchestra/plugin/tui"
 import { For, Show, createSignal } from "solid-js"
-import { checkHttpProxies, fetchHttpProxySource, probeHttpProxy, PROXY_SOURCES, proxyUrl, type ProxyEntry } from "./proxy-manager-core"
+import { byStability, checkHttpProxies, fetchHttpProxySource, probeHttpProxy, PROXY_SOURCES, proxyUrl, type ProxyEntry } from "./proxy-manager-core"
 import { hoverBackground } from "../../ui/hover"
 
 type ProxySetting = { http?: string; https?: string; no_proxy?: string[] } | null
@@ -21,6 +21,7 @@ const INITIAL_ROUTE: RouteState = { enabled: false, hasPreviousProxy: false, aut
 const REFRESH_MS = 30 * 60 * 1000
 const ROTATION_COOLDOWN_MS = 30_000
 const RECHECK_MS = 60_000
+const RECHECK_INTERVAL_MS = 2 * 60_000
 const STALL_MS = 45_000
 const PROXY_CONTINUATION_PROMPT =
   "Continue the unfinished task from this session. The previous attempt stopped because the network proxy stalled and was replaced. Inspect the latest conversation and current project state, preserve completed work, and continue from the next unfinished step. Do not repeat completed actions or restart the task."
@@ -137,7 +138,7 @@ function ManagerDialog(props: {
             const checked = () => entry.status === "healthy" && !!entry.exitIp
             const limited = () => entry.status === "limited"
             const stateLabel = () => checked()
-              ? String(entry.latencyMs) + " ms"
+              ? "✓" + (entry.streak ?? 1) + " · " + String(entry.latencyMs) + " ms"
               : limited()
                 ? label("Zen IP limit", "лимит Zen")
                 : entry.status === "dead"
@@ -208,7 +209,7 @@ function Sidebar(props: {
     const seen = new Set<string>()
     return props.pool().entries
       .filter((item) => item.status === "healthy" && !!item.exitIp)
-      .toSorted((a, b) => (a.latencyMs ?? 999_999) - (b.latencyMs ?? 999_999))
+      .toSorted(byStability)
       .filter((item) => {
         if (!item.exitIp || seen.has(item.exitIp)) return false
         seen.add(item.exitIp)
@@ -227,7 +228,7 @@ function Sidebar(props: {
       <text fg={theme().text.muted} wrapMode="none" truncate>{healthy().length + " verified / " + props.pool().total}</text>
       <Show when={active()}>
         <text fg={theme().text.feedback.success.base} wrapMode="none" truncate>
-          {(active()?.host ?? "") + ":" + (active()?.port ?? "") + " → " + (active()?.exitIp ?? "IP?") + " · " + (active()?.latencyMs ?? "—") + " ms"}
+          {(active()?.host ?? "") + ":" + (active()?.port ?? "") + " → " + (active()?.exitIp ?? "IP?") + " · ✓" + (active()?.streak ?? 0) + " · " + (active()?.latencyMs ?? "—") + " ms"}
         </text>
       </Show>
       <Show when={props.pool().loading || props.pool().scanning}>
@@ -236,7 +237,7 @@ function Sidebar(props: {
         </text>
       </Show>
       <Button context={props.context} id="proxy.sidebar.next"
-        label={props.route().enabled ? label("↻ Next verified IP", "↻ Следующий проверенный IP") : label("↗ Use fastest proxy", "↗ Быстрый прокси")}
+        label={props.route().enabled ? label("↻ Next verified IP", "↻ Следующий проверенный IP") : label("↗ Use most stable proxy", "↗ Самый стабильный прокси")}
         run={props.next} disabled={healthy().length === 0} emphasized />
       <box flexDirection="row" flexWrap="wrap" gap={1}>
         <Button context={props.context} id="proxy.sidebar.manage" label={label("Manage ↗", "Управление ↗")} run={props.open} />
@@ -256,7 +257,7 @@ export default Plugin.define({
     let scanRunning = false
     let lastRotation = 0
 
-    const healthy = () => pool.entries.filter((item) => item.status === "healthy" && !!item.exitIp).toSorted((a, b) => (a.latencyMs ?? 999_999) - (b.latencyMs ?? 999_999))
+    const healthy = () => pool.entries.filter((item) => item.status === "healthy" && !!item.exitIp).toSorted(byStability)
     const uniqueHealthy = () => {
       const seen = new Set<string>()
       return healthy().filter((entry) => {
@@ -631,11 +632,27 @@ export default Plugin.define({
         .map((type) => context.data.on(type, (event) => settle(event.data.sessionID))),
     ]
 
+    // Survivors are rechecked so their streak shows how long they have stayed up, not one lucky probe.
+    // It runs alongside a source scan: the scan only probes unchecked entries, this only healthy ones.
+    let recheckRunning = false
+    async function recheckHealthy() {
+      const targets = healthy()
+      if (recheckRunning || targets.length === 0) return
+      recheckRunning = true
+      await checkHttpProxies(targets, 32, (checked) => updatePool((draft) => {
+        const index = draft.entries.findIndex((entry) => entry.id === checked.id)
+        if (index >= 0) draft.entries[index] = checked
+      }))
+      recheckRunning = false
+    }
+
     const startup = setTimeout(() => void refreshSources(), 200)
     const timer = setInterval(() => void refreshSources(), REFRESH_MS)
+    const recheck = setInterval(() => void recheckHealthy(), RECHECK_INTERVAL_MS)
     return () => {
       clearTimeout(startup)
       clearInterval(timer)
+      clearInterval(recheck)
       disposeFailure()
       disposeRetry()
       disposeStall.forEach((dispose) => dispose())

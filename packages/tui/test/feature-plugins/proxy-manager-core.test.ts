@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { classifyZenProbe, OPENCODE_PROBE, PROXY_EGRESS_PROBE, PROXY_SOURCES, parseHttpProxyList, parseProxyExitIp, proxyUrl } from "../../src/feature-plugins/system/proxy-manager-core"
+import { byStability, classifyZenProbe, OPENCODE_PROBE, PROXY_EGRESS_PROBE, PROXY_SOURCES, parseHttpProxyList, parseProxyExitIp, proxyUrl } from "../../src/feature-plugins/system/proxy-manager-core"
 
 describe("public HTTP proxy list parsing", () => {
   test("accepts bare IPv4 endpoints and explicit HTTP URLs", () => {
@@ -42,6 +42,14 @@ test("parses a public egress IP from the ipify JSON response", () => {
   expect(parseProxyExitIp('{"ip":"203.0.113.10"}')).toBe("203.0.113.10")
   expect(parseProxyExitIp('{"ip":"not-an-ip"}')).toBeUndefined()
   expect(parseProxyExitIp('{"error":"bad response"}')).toBeUndefined()
+})
+
+test("ranks proxies by consecutive passes before latency", () => {
+  const entry = (id: string, streak: number | undefined, latencyMs: number) =>
+    ({ id, host: "192.0.2.1", port: 80, source: "fixture", status: "healthy" as const, streak, latencyMs })
+  const ranked = [entry("fast-new", 1, 300), entry("slow-stable", 4, 3000), entry("unranked", undefined, 100), entry("fast-stable", 4, 900)]
+    .toSorted(byStability)
+  expect(ranked.map((item) => item.id)).toEqual(["fast-stable", "slow-stable", "fast-new", "unranked"])
 })
 
 test("does not mistake an unauthenticated Zen 401 for a dead proxy", () => {
