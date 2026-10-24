@@ -5,6 +5,7 @@ import { Agent } from "@orchestra/schema/agent"
 import { Money } from "@orchestra/schema/money"
 import { Session } from "@orchestra/schema/session"
 import { Location } from "@orchestra/core/location"
+import { PluginHooks } from "@orchestra/core/plugin/hooks"
 import { Project } from "@orchestra/core/project"
 import { AbsolutePath } from "@orchestra/core/schema"
 import { SessionMessage } from "@orchestra/core/session/message"
@@ -108,16 +109,44 @@ describe("ToolRouter", () => {
     }),
   )
 
-  it.effect("runs an on-demand tool the model calls before loading it", () =>
+  it.effect("loads an on-demand tool the model calls before loading it, without running it", () =>
     Effect.gen(function* () {
+      const call = { type: "tool-call" as const, id: "call_2", name: "playtest", input: { text: "go" } }
       const prepared = yield* prepare([Message.user("hello")])
-      const result = yield* prepared.executeTool({
-        sessionID: session.id,
-        agent: Agent.ID.make("build"),
-        messageID: SessionMessage.ID.make("msg_router"),
-        call: { type: "tool-call", id: "call_2", name: "playtest", input: { text: "go" } },
-      })
-      expect(result.content).toEqual([{ type: "text", text: "playtest:go" }])
+      const failure = yield* prepared
+        .executeTool({
+          sessionID: session.id,
+          agent: Agent.ID.make("build"),
+          messageID: SessionMessage.ID.make("msg_router"),
+          call,
+        })
+        .pipe(Effect.flip)
+      expect(failure).toBeInstanceOf(Tool.Error)
+      expect((failure as Tool.Error).message).toContain("playtest was not loaded for this step")
+      expect(names(yield* prepare([Message.user("hello"), Message.assistant([call])]))).toContain("playtest")
+    }),
+  )
+
+  it.effect("keeps a loaded tool that a context hook removed out of reach", () =>
+    Effect.gen(function* () {
+      const hooks = yield* PluginHooks.Service
+      yield* hooks.register("session", "context", (event) =>
+        Effect.sync(() => {
+          delete event.tools.playtest
+        }),
+      )
+      const prepared = yield* prepare([Message.user("use playtest")])
+      expect(names(prepared)).not.toContain("playtest")
+      const failure = yield* prepared
+        .executeTool({
+          sessionID: session.id,
+          agent: Agent.ID.make("build"),
+          messageID: SessionMessage.ID.make("msg_router"),
+          call: { type: "tool-call", id: "call_4", name: "playtest", input: { text: "go" } },
+        })
+        .pipe(Effect.flip)
+      expect(failure).toBeInstanceOf(Tool.Error)
+      expect((failure as Tool.Error).message).not.toContain("was not loaded")
     }),
   )
 

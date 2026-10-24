@@ -16,8 +16,10 @@ const limit = () => {
   return Number.isFinite(value) && value >= 0 ? value : 3
 }
 
-// The AI's own items carry this owner name on the board; see DodTool.owner.
+// The AI's own items carry this owner on the board; see DodTool.owner. `dod next` stamps the id,
+// older items written by hand carry only the name.
 const AI_OWNER = "AI"
+const AI_OWNER_ID = "local-ai"
 const WORK_ACTIONS = new Set(["next", "take", "add", "check", "uncheck"])
 
 // A reply whose last paragraph announces work instead of reporting it.
@@ -69,7 +71,11 @@ function openItems(messages: ReadonlyArray<SessionMessage.Info>, board: Dod.Stat
   const named = new Set(inputs.flatMap((input) => (typeof input.id === "string" ? [input.id] : [])))
   return board.items
     .filter((item) => item.state === "IN_PROGRESS" && item.done < item.total)
-    .filter((item) => named.has(item.id) || (item.owner === AI_OWNER && item.ownerID === undefined))
+    .filter(
+      (item) =>
+        named.has(item.id) ||
+        (item.owner === AI_OWNER && (item.ownerID === undefined || item.ownerID === AI_OWNER_ID)),
+    )
     .slice(0, 3)
     .map((item) => {
       const left = (board.steps?.get(item.id) ?? []).filter((step) => !/^\s*\[x\]/i.test(step)).slice(0, 5)

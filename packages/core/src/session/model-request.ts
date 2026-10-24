@@ -461,12 +461,10 @@ export const layer = Layer.effect(
             )
           : undefined
 
-      // A model may call an on-demand tool it has not loaded yet (it saw the name in the index);
-      // run it instead of failing, and the call itself loads the schema for the next step.
-      const callable = new Map([
-        ...(tools.lazyDefinitions ?? []).filter((tool) => !hooked.has(tool.name)).map((tool) => [tool.name, tool] as const),
-        ...hooked,
-      ])
+      // A model may call an on-demand tool it has not loaded yet (it saw the name in the index).
+      // The call is not run here: the tool skipped this request's context hooks, which may narrow
+      // or remove it. The call itself loads the tool, so the next request offers it through them.
+      const unloaded = (name: string) => tools.lazy?.has(name) === true && !picked.has(name)
       return {
         event: shaped,
         request,
@@ -476,7 +474,14 @@ export const layer = Layer.effect(
         // Permission.assert and the question tool throw declines as defects so tools cannot
         // catch them and turn a "no" into model-visible output. Recover them here as failures.
         executeTool: (call: Parameters<Prepared["executeTool"]>[0]) =>
-          tools.execute({ ...call, definitions: callable }).pipe(
+          (unloaded(call.call.name)
+            ? Effect.fail(
+                new Tool.Error({
+                  message: `${call.call.name} was not loaded for this step. It is loaded now: call it again.`,
+                }),
+              )
+            : tools.execute({ ...call, definitions: hooked })
+          ).pipe(
             Effect.catchCauseFilter(
               (cause) => {
                 const decline = cause.reasons.flatMap((r) =>

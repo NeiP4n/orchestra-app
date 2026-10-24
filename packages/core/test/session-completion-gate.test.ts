@@ -61,6 +61,17 @@ describe("SessionCompletionGate", () => {
     expect(text).toContain("[ ] add tests")
   })
 
+  test("holds a session to the item `dod next` claimed for it", () => {
+    const claimed = board(1)
+    const status: Dod.Status =
+      claimed.type === "ready" ? { ...claimed, items: claimed.items.map((item) => ({ ...item, ownerID: "local-ai" })) } : claimed
+    const text = SessionCompletionGate.check(
+      [user("ship it"), assistant("", [{ name: "dod", input: { action: "next" } }]), assistant("Done.")],
+      status,
+    )
+    expect(text).toContain('L-1 "Ship the feature": 1/3 steps checked.')
+  })
+
   test("lets a session stop when its item is finished or it never used the board", () => {
     const took = [user("ship it"), assistant("", [{ name: "dod", input: { action: "take", id: "L-1" } }]), assistant("Done.")]
     expect(SessionCompletionGate.check(took, board(3))).toBeUndefined()
