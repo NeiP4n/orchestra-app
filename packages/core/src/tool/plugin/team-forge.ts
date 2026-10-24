@@ -14,7 +14,13 @@ export const name = "team_forge"
 export const command = "forge-teams"
 
 const description = [
-  "Manage the shared team registry. This tool is available in every session so the operator can inspect, edit and delete teams without first running /forge-teams.",
+  "Manage the shared team registry: roles and team templates. Actions: list, get_role, get_team, role, edit_role, delete_role, team, edit_team, delete_team.",
+  "Never edit or delete an existing entry unless the operator explicitly requests that exact change. Automated forge runs should only list and add.",
+].join("\n")
+
+// Sent with the session's first call instead of on every request; see Tool.Options.guide.
+const guide = [
+  "This tool is available in every session so the operator can inspect, edit and delete teams without first running /forge-teams.",
   "Always list or fetch the exact entry before changing it. Only mutate the registry when the operator explicitly requests a specific change; never infer permission to edit or delete from an unrelated task.",
   "Actions: list shows role/team ids and summaries; get_role and get_team return the full editable definition by exact id;",
   "role creates a custom role; edit_role fully replaces an existing role by id; delete_role removes a custom role or restores an edited built-in role to defaults;",
@@ -22,7 +28,6 @@ const description = [
   "For edit_role, provide id, name, description, rules, category and readOnly. Optional model, models, autoTools, tools, hub and registry are replacement fields: omit a field to clear its override (omitting tools/hub/registry means unrestricted defaults).",
   "For edit_team, provide id, name, description and the complete members array. Omit playbook to clear it. Members use exact role ids, titles and optional categories.",
   "Deleting a role still used by a team fails; remove it from those teams first. Built-in roles/teams cannot be permanently deleted: the delete action restores their defaults.",
-  "Never edit or delete an existing entry unless the operator explicitly requests that exact change. Automated forge runs should only list and add.",
 ].join("\n")
 
 const Member = Schema.Struct({
@@ -118,7 +123,7 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false, triggers: ["команд\\S* (агентов|ии|ai)|\\bteams?\\b|роли агентов"] },
+          options: { codemode: false, guide, triggers: ["команд\\S* (агентов|ии|ai)|\\bteams?\\b|роли агентов"] },
           description,
           input: Input,
           output: Output,

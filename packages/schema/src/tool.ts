@@ -37,6 +37,12 @@ interface BaseOptions {
    * on-demand tool without waiting for the model to ask for it. The tool's own name always matches.
    */
   readonly triggers?: ReadonlyArray<string>
+  /**
+   * How to use a direct tool, sent once per session instead of on every request: the session's
+   * first call of the tool returns this text without running, and later calls run as usual. Keep
+   * the description to what the tool is for and the rules that must hold before any call.
+   */
+  readonly guide?: string
 }
 
 export type Options = BaseOptions &
