@@ -89,7 +89,10 @@ type NeuralCanvasOptions = BoxOptions & {
   seed?: number
   stimulus?: number
   activity?: NeuralActivity
-  session?: string
+  // The Sessions whose actions this canvas follows; omitted, it follows every Session.
+  session?: string | readonly string[]
+  // Short names drawn beside Session hubs, so each worker's neuron says whose it is.
+  names?: Readonly<Record<string, string>>
 }
 
 type Cells = readonly (readonly [number, number])[]
@@ -120,7 +123,8 @@ export class NeuralCanvasRenderable extends BoxRenderable {
   private _enabled: boolean
   private _seed: number
   private _activity: NeuralActivity | undefined
-  private _session: string | undefined
+  private _scope: readonly string[] | undefined
+  private _names: Readonly<Record<string, string>> = {}
   // `time` is the network's own clock, slowed or sped by the tempo; `clock` is wall time for
   // fades that must read the same at any tempo, such as a tool's label.
   private time = 0
@@ -160,7 +164,8 @@ export class NeuralCanvasRenderable extends BoxRenderable {
     this._enabled = options.enabled ?? true
     this._seed = options.seed ?? 7
     this._activity = options.activity
-    this._session = options.session
+    this._scope = scope(options.session)
+    this._names = options.names ?? {}
     this.cursor = this._activity?.cursor ?? 0
     this.live = this._enabled
     // The field answers the pointer: passing over it excites the nearest neuron, a click sends a wave.
@@ -212,8 +217,11 @@ export class NeuralCanvasRenderable extends BoxRenderable {
     this._activity = value
     this.cursor = value?.cursor ?? 0
   }
-  set session(value: string | undefined) {
-    this._session = value
+  set names(value: Readonly<Record<string, string>> | undefined) {
+    this._names = value ?? {}
+  }
+  set session(value: string | readonly string[] | undefined) {
+    this._scope = scope(value)
   }
 
   protected override renderSelf(buffer: OptimizedBuffer, deltaTime = 0) {
@@ -223,7 +231,7 @@ export class NeuralCanvasRenderable extends BoxRenderable {
     // A long pause (hidden tab, a slow frame) must not fast-forward the network in one jump.
     const dt = this._enabled ? Math.min(deltaTime, 100) : 0
     // The baseline raised by live activity, eased so a burst swells and a silence settles.
-    const target = Math.min(1, Math.max(this._energy * 0.6, this._activity?.level(this._session) ?? 0))
+    const target = Math.min(1, Math.max(this._energy * 0.6, this._activity?.level(this._scope) ?? 0))
     this.energyNow += (target - this.energyNow) * Math.min(1, dt / (target > this.energyNow ? 180 : 900))
     // Silence nearly freezes the network; a busy agent makes it race.
     const tempo = 0.08 + 1.9 * Math.pow(this.energyNow, 1.2)
@@ -244,8 +252,9 @@ export class NeuralCanvasRenderable extends BoxRenderable {
     if (!this._activity || !this._enabled) return []
     const signals = this._activity.since(this.cursor)
     this.cursor = this._activity.cursor
-    if (!this._session) return signals
-    return signals.filter((signal) => signal.sessionID === this._session)
+    const scoped = this._scope
+    if (!scoped) return signals
+    return signals.filter((signal) => scoped.includes(signal.sessionID))
   }
 
   private cell(buffer: OptimizedBuffer, x: number, y: number, char: string, fg: RGBA) {
@@ -726,6 +735,8 @@ export class NeuralCanvasRenderable extends BoxRenderable {
         )
       }
     })
+    // Named Sessions get their hub up front, so a worker shows on the mesh before it acts.
+    Object.keys(this._names).forEach((id) => this.hub(id))
     const hubs = new Set(this.hubs.values())
     const base = this.glow(palette.dormant, palette.signal, 0.28 + this.energyNow * 0.2)
     this.nodes.forEach((node, index) => {
@@ -733,6 +744,13 @@ export class NeuralCanvasRenderable extends BoxRenderable {
       const fg = node.flash > 0.6 ? this.glow(lit, palette.spark, node.flash - 0.6) : this.glow(base, lit, node.flash)
       const glyph = hubs.has(index) ? "◈" : node.flash > 0.45 ? "◉" : node.edges.length > 3 ? "●" : "•"
       this.cell(buffer, node.x, node.y, glyph, fg)
+    })
+    this.hubs.forEach((index, id) => {
+      const name = this._names[id]
+      if (!name) return
+      const node = this.nodes[index]!
+      const x = node.x + 2 + name.length <= this.width ? node.x + 2 : node.x - 1 - name.length
+      this.text(buffer, x, node.y, name, this.glow(palette.dormant, palette.signal, node.flash))
     })
     // The tool's name sits beside its neuron: `▸` while it runs, then `✓` or `✗` as it fades.
     this.bridges.forEach((bridge) => {
@@ -764,6 +782,11 @@ function mulberry32(seed: number) {
     value ^= value + Math.imul(value ^ (value >>> 7), value | 61)
     return ((value ^ (value >>> 14)) >>> 0) / 4294967296
   }
+}
+
+function scope(value: string | readonly string[] | undefined) {
+  if (value === undefined) return
+  return typeof value === "string" ? [value] : value
 }
 
 function hash(value: string) {
@@ -817,17 +840,26 @@ type CanvasLayout = {
 
 // A mesh of neurons filling its box, meant to sit behind content.
 export function NeuronField(
-  props: CanvasLayout & { energy?: number; seed?: number; backdrop?: RGBA; stimulus?: number },
+  props: CanvasLayout & {
+    energy?: number
+    seed?: number
+    backdrop?: RGBA
+    stimulus?: number
+    session?: string | readonly string[]
+    names?: Readonly<Record<string, string>>
+  },
 ) {
   const theme = useTheme()
   const motion = useMotion()
   const activity = useNeuralActivity()
-  const [own, layout] = splitProps(props, ["energy", "seed", "backdrop", "stimulus"])
+  const [own, layout] = splitProps(props, ["energy", "seed", "backdrop", "stimulus", "session", "names"])
   return (
     <neural_canvas
       {...layout}
       kind="field"
       activity={activity}
+      session={own.session}
+      names={own.names}
       palette={neuralPalette(theme)}
       backdrop={own.backdrop ?? theme.background.base}
       energy={own.energy ?? 0.2}
@@ -893,7 +925,7 @@ export function NeuralLine(props: {
 }
 
 // A single breathing neuron, a status light that flashes with each action of the agents.
-export function NeuronDot(props: { energy?: number; session?: string }) {
+export function NeuronDot(props: { energy?: number; session?: string | readonly string[] }) {
   const theme = useTheme()
   const motion = useMotion()
   const activity = useNeuralActivity()

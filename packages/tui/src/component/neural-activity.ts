@@ -78,10 +78,11 @@ export class NeuralActivity {
     return this.seq
   }
 
-  // 0 when quiet, approaching 1 while agents stream and call tools without pause.
-  level(sessionID?: string) {
+  // 0 when quiet, approaching 1 while agents stream and call tools without pause. Given Sessions,
+  // only their combined heat counts.
+  level(sessionIDs?: readonly string[]) {
     this.cool()
-    const heat = sessionID ? (this.sessionHeat.get(sessionID) ?? 0) : this.heat
+    const heat = sessionIDs ? sessionIDs.reduce((sum, id) => sum + (this.sessionHeat.get(id) ?? 0), 0) : this.heat
     return 1 - Math.exp(-heat / 10)
   }
 

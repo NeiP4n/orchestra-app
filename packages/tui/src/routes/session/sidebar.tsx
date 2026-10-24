@@ -11,6 +11,8 @@ import "../../component/title-shimmer"
 import { getScrollAcceleration } from "../../util/scroll"
 import { useCompactLayout } from "../../ui/compact-layout"
 import { NeuralLine, NeuronDot } from "../../component/neural"
+import { SessionNetwork } from "../../component/session-network"
+import { useTerminalDimensions } from "@opentui/solid"
 
 export function Sidebar(props: { sessionID: string; onHide?: () => void; width?: number; borderLeft?: boolean }) {
   const data = useData()
@@ -21,6 +23,9 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
   const layout = useCompactLayout()
   const width = () => props.width ?? layout.sidebarWidth()
   const running = () => data.session.status(props.sessionID) === "running"
+  const dimensions = useTerminalDimensions()
+  // The network gives way to the sidebar's content on short terminals.
+  const networkHeight = () => (dimensions().height >= 44 ? 9 : dimensions().height >= 30 ? 6 : 0)
 
   return (
     <Show when={session()}>
@@ -71,6 +76,15 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
             backdrop={theme.background.raised.base}
           />
         </box>
+        <Show when={networkHeight() > 0}>
+          <box flexShrink={0} paddingRight={1} paddingBottom={1}>
+            <SessionNetwork
+              sessionID={props.sessionID}
+              backdrop={theme.background.raised.base}
+              height={networkHeight()}
+            />
+          </box>
+        </Show>
         <scrollbox
           flexGrow={1}
           minHeight={0}
