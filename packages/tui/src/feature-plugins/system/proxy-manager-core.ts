@@ -111,8 +111,8 @@ export async function loadHttpProxyPool() {
  * Proxy is considered usable only when it completes CONNECT + verified TLS and the actual
  * OpenCode Zen models endpoint returns JSON. A working proxy for an unrelated site is not enough.
  */
-const MAX_PROBE_TIME_MS = 2_500
-const MAX_PROBE_RESPONSE_BYTES = 32_768
+const MAX_PROBE_TIME_MS = 6_000
+const MAX_PROBE_RESPONSE_BYTES = 1024 * 1024
 
 function decodeChunkedBody(input: Buffer): Buffer | undefined {
   const parts: Buffer[] = []
@@ -184,7 +184,9 @@ export function probeHttpProxy(entry: ProxyEntry, timeoutMs = MAX_PROBE_TIME_MS)
       const raw = Buffer.concat(chunks)
       const headerEnd = raw.indexOf(Buffer.from("\r\n\r\n"))
       if (headerEnd < 0) {
-        finish(false, "incomplete Zen API headers")
+        // TCP may split HTTP headers across multiple data events. Treat an incomplete header
+        // as pending until more bytes arrive; it is an error only after the connection ends.
+        if (responseEnded) finish(false, "incomplete Zen API headers")
         return
       }
       const headers = raw.subarray(0, headerEnd).toString("latin1").split("\r\n")
