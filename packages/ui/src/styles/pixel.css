@@ -1,0 +1,106 @@
+/*
+ * Sculk look and neuron effects.
+ *
+ * The pixel look belongs to the Sculk theme alone: square corners, hard shadows and stepped glow.
+ * The neuron effects are the same in every theme and run only while the user allows motion: a pulse
+ * travels along a running tool, rings off a sent message, flashes a fresh decision and a new selection.
+ * Steps keep the motion stepped like pixels instead of smooth.
+ */
+
+:root {
+  --neuron-color: var(--icon-info-base, #38b6ff);
+  --neuron-glow: color-mix(in srgb, var(--neuron-color) 55%, transparent);
+}
+
+:root[data-theme="sculk"] {
+  --neuron-color: #2de2e6;
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --v2-elevation-raised:
+    0 0 0 1px color-mix(in srgb, #2de2e6 22%, transparent), 4px 4px 0 0 rgb(0 0 0 / 0.55);
+  image-rendering: pixelated;
+  text-rendering: optimizeSpeed;
+}
+
+/* Square everything except circles and vector art. */
+:root[data-theme="sculk"] body *:not([class*="rounded-full"]):not(svg):not(svg *) {
+  border-radius: 0;
+}
+
+:root[data-theme="sculk"] :focus-visible {
+  outline: 2px solid var(--neuron-color);
+  outline-offset: 0;
+}
+
+:root[data-theme="sculk"] ::selection {
+  background: color-mix(in srgb, #2de2e6 35%, transparent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes neuron-sweep {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(250%);
+    }
+  }
+
+  @keyframes neuron-fire {
+    0% {
+      box-shadow: 0 0 0 0 var(--neuron-glow);
+    }
+    100% {
+      box-shadow: 0 0 0 10px transparent;
+    }
+  }
+
+  @keyframes neuron-breathe {
+    from {
+      box-shadow: 0 0 0 0 transparent;
+    }
+    to {
+      box-shadow: 0 0 0 3px var(--neuron-glow);
+    }
+  }
+
+  /* A tool at work: a pulse runs along its row like a signal along an axon. */
+  [data-component="tool-trigger"][data-pending="true"] {
+    position: relative;
+    overflow: hidden;
+  }
+
+  [data-component="tool-trigger"][data-pending="true"]::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 2px;
+    width: 30%;
+    background: linear-gradient(90deg, transparent, var(--neuron-color), transparent);
+    animation: neuron-sweep 1.4s steps(14) infinite;
+    pointer-events: none;
+  }
+
+  /* A message just sent fires once. */
+  [data-component="user-message"] {
+    animation: neuron-fire 0.7s steps(7) 1;
+  }
+
+  /* A decision waiting for the user keeps pulsing until it is answered. */
+  [data-component="session-question-dock"],
+  [data-component="dock-prompt"] {
+    animation:
+      neuron-fire 0.7s steps(7) 1,
+      neuron-breathe 1.8s steps(6) 0.7s infinite alternate;
+  }
+
+  /* A new selection (tab, project, session) fires once. */
+  [role="tab"][aria-selected="true"],
+  [aria-current="page"],
+  [data-selected="true"] {
+    animation: neuron-fire 0.5s steps(5) 1;
+  }
+}

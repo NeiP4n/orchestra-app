@@ -356,7 +356,7 @@ export const dict = {
   "error.chain.responseBody": "Nội dung phản hồi:\n{{body}}",
   "error.chain.didYouMean": "Có phải ý bạn là: {{suggestions}}",
   "error.chain.modelNotFound": "Không tìm thấy mô hình: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "Kiểm tra tên nhà cung cấp/mô hình cấu hình (opencode.json) của bạn",
+  "error.chain.checkConfig": "Kiểm tra tên nhà cung cấp/mô hình cấu hình (orchestra.json) của bạn",
   "error.chain.mcpFailed": 'Máy chủ MCP "{{name}}" gặp lỗi. Lưu ý: Orchestra chưa hỗ trợ xác thực MCP.',
   "error.chain.providerAuthFailed": "Không xác thực được nhà cung cấp ({{provider}}): {{message}}",
   "error.chain.providerInitFailed":
@@ -473,7 +473,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCP",
   "settings.extensions.tab.skills": "Kỹ năng",
   "settings.extensions.availableAll": "Có sẵn cho tất cả dự án",
-  "settings.extensions.manageConfig": "Quản lý trong opencode.json",
+  "settings.extensions.manageConfig": "Quản lý trong orchestra.json",
   "settings.extensions.addSkills": "Cách thêm kỹ năng",
   "project.settings.extensions.description": "Xem tiện ích mở rộng có sẵn cho dự án này",
   "project.settings.extensions.tab.lsps": "LSP",

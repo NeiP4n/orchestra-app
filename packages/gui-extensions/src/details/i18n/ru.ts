@@ -33,4 +33,7 @@ export default {
   "workspace.existing": "Рабочее дерево",
   "workspace.new": "Новое рабочее пространство",
   "mcp.interactiveAuth": "Сервер MCP {{name}} требует интерактивную форму аутентификации",
+  "branch.menu": "Сменить ветку",
+  "branch.loading": "Загрузка веток…",
+  "branch.failed": "Не удалось сменить ветку",
 }

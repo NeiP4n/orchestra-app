@@ -1,5 +1,5 @@
 import { lazy, onCleanup, Show, Suspense } from "solid-js"
-import { onIdle, Panel, Slot, usePanel, type PanelTab, type Setup } from "../sdk"
+import { MenuItem, onIdle, Panel, Slot, usePanel, type PanelTab, type Setup } from "../sdk"
 import type definition from "./index"
 import { SessionContextUsage } from "./indicator"
 
@@ -26,6 +26,22 @@ const setup: Setup<typeof definition> = (ctx) => {
       </div>
     ),
   }
+
+  // The "+" menu of the side region offers the tab, so it is findable without the small header indicator.
+  ctx.add(MenuItem, (): MenuItem | undefined => {
+    const session = ctx.sessions.current()
+
+    if (!session?.id) return
+
+    return {
+      menu: "session.panel",
+      id: "open",
+      title: ctx.t("tab.title"),
+      icon: "status",
+      order: 30,
+      run: () => ctx.layout.open(`${ctx.id}:main`, session),
+    }
+  })
 
   ctx.add(Slot, {
     at: "session.header",

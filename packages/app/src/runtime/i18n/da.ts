@@ -24,8 +24,8 @@ export const dict = {
   "server.connect.failed":
     "Kunne ikke oprette forbindelse. Tjek serveradressen og adgangskoden, og prøv derefter igen.",
   "server.connect.scan": "Scan QR kode",
-  "server.connect.scan.description": "Ret dit kamera mod QR-koden vist af opencode pair.",
-  "server.connect.scan.invalid": "Dette er ikke en Orchestra-parringskode. Scan koden vist af opencode pair.",
+  "server.connect.scan.description": "Ret dit kamera mod QR-koden vist af orchestra pair.",
+  "server.connect.scan.invalid": "Dette er ikke en Orchestra-parringskode. Scan koden vist af orchestra pair.",
   "server.connect.camera": "Parring af kamera",
   "server.connect.camera.starting": "Åbner kamera...",
   "server.connect.mixedContent":
@@ -501,7 +501,7 @@ export const dict = {
   "error.chain.responseBody": "Svarindhold:\n{{body}}",
   "error.chain.didYouMean": "Mente du: {{suggestions}}",
   "error.chain.modelNotFound": "Model ikke fundet: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "Kontrollér udbyder- og modelnavnene i din konfiguration (opencode.json)",
+  "error.chain.checkConfig": "Kontrollér udbyder- og modelnavnene i din konfiguration (orchestra.json)",
   "error.chain.mcpFailed": 'MCP-server "{{name}}" fejlede. Bemærk, Orchestra understøtter ikke MCP-godkendelse endnu.',
   "error.chain.providerAuthFailed": "Udbydergodkendelse mislykkedes ({{provider}}): {{message}}",
   "error.chain.providerInitFailed":
@@ -881,7 +881,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCP'er",
   "settings.extensions.tab.skills": "Færdigheder",
   "settings.extensions.availableAll": "Tilgængelig til alle projekter",
-  "settings.extensions.manageConfig": "Administrer i opencode.json",
+  "settings.extensions.manageConfig": "Administrer i orchestra.json",
   "settings.extensions.addSkills": "Sådan tilføjer du færdigheder",
   "project.settings.extensions.description": "Se tilgængelige udvidelser til dette projekt",
   "project.settings.extensions.tab.lsps": "LSP'er",

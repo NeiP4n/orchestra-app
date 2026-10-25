@@ -47,4 +47,5 @@ export default {
   "kind.cacheWrite": "Cache write",
   "kind.output": "Output",
   "kind.reasoning": "Reasoning",
+  "details.title": "Details",
 }

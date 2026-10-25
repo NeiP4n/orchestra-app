@@ -28,6 +28,7 @@ import orngThemeJson from "./themes/orng.json"
 import osakaJadeThemeJson from "./themes/osaka-jade.json"
 import palenightThemeJson from "./themes/palenight.json"
 import rosepineThemeJson from "./themes/rosepine.json"
+import sculkThemeJson from "./themes/sculk.json"
 import shadesOfPurpleThemeJson from "./themes/shadesofpurple.json"
 import solarizedThemeJson from "./themes/solarized.json"
 import synthwave84ThemeJson from "./themes/synthwave84.json"
@@ -75,6 +76,8 @@ export const materialTheme = materialThemeJson as DesktopTheme
 export const matrixTheme = matrixThemeJson as DesktopTheme
 
 export const mercuryTheme = mercuryThemeJson as DesktopTheme
+
+export const sculkTheme = sculkThemeJson as DesktopTheme
 
 export const monokaiTheme = monokaiThemeJson as DesktopTheme
 
@@ -130,6 +133,7 @@ export const DEFAULT_THEMES: Record<string, DesktopTheme> = {
   matrix: matrixTheme,
   mercury: mercuryTheme,
   monokai: monokaiTheme,
+  sculk: sculkTheme,
   nightowl: nightowlTheme,
   nord: nordTheme,
   "one-dark": oneDarkTheme,

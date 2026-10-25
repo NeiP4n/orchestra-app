@@ -347,7 +347,7 @@ export const dict = {
   "error.chain.responseBody": "តួការឆ្លើយតប៖\n{{body}}",
   "error.chain.didYouMean": "តើអ្នកមានន័យថា៖ {{suggestions}}",
   "error.chain.modelNotFound": "រកមិនឃើញម៉ូដែល៖ {{provider}}/{{model}}",
-  "error.chain.checkConfig": "ពិនិត្យការកំណត់រចនាសម្ព័ន្ធរបស់អ្នក (opencode.json) អ្នកផ្តល់សេវា/ឈ្មោះម៉ូដែល",
+  "error.chain.checkConfig": "ពិនិត្យការកំណត់រចនាសម្ព័ន្ធរបស់អ្នក (orchestra.json) អ្នកផ្តល់សេវា/ឈ្មោះម៉ូដែល",
   "error.chain.mcpFailed": 'ម៉ាស៊ីនមេ MCP "{{name}}" បានបរាជ័យ។ ចំណាំ Orchestra មិនគាំទ្រការផ្ទៀងផ្ទាត់ MCP នៅឡើយទេ។',
   "error.chain.providerAuthFailed": "ការផ្ទៀងផ្ទាត់អ្នកផ្តល់សេវាបានបរាជ័យ ({{provider}}): {{message}}",
   "error.chain.providerInitFailed":
@@ -464,7 +464,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCPs",
   "settings.extensions.tab.skills": "ជំនាញ",
   "settings.extensions.availableAll": "អាចប្រើបានសម្រាប់គម្រោងទាំងអស់",
-  "settings.extensions.manageConfig": "គ្រប់គ្រងនៅក្នុង opencode.json",
+  "settings.extensions.manageConfig": "គ្រប់គ្រងនៅក្នុង orchestra.json",
   "settings.extensions.addSkills": "របៀបបន្ថែមជំនាញ",
   "project.settings.extensions.description": "មើលផ្នែកបន្ថែមដែលអាចប្រើបានសម្រាប់គម្រោងនេះ",
   "project.settings.extensions.tab.lsps": "LSPs",
@@ -789,8 +789,8 @@ export const dict = {
   "server.connect.address.invalid": "បញ្ចូលអាសយដ្ឋានម៉ាស៊ីនមេ HTTP ឬ HTTPS ត្រឹមត្រូវ។",
   "server.connect.failed": "មិនអាចភ្ជាប់បានទេ។ សូមពិនិត្យអាសយដ្ឋានម៉ាស៊ីនមេ និងពាក្យសម្ងាត់ រួចព្យាយាមម្តងទៀត។",
   "server.connect.scan": "ស្កេនកូដ QR",
-  "server.connect.scan.description": "បង្ខំកាមេរ៉ារបស់អ្នកទៅកូដ QR ដែលបង្ហាញដោយ opencode pair។",
-  "server.connect.scan.invalid": "នេះមិនមែនជាកូដផ្គុំ Orchestra ទេ។ ស្កេនកូដដែលបង្ហាញដោយ opencode pair។",
+  "server.connect.scan.description": "បង្ខំកាមេរ៉ារបស់អ្នកទៅកូដ QR ដែលបង្ហាញដោយ orchestra pair។",
+  "server.connect.scan.invalid": "នេះមិនមែនជាកូដផ្គុំ Orchestra ទេ។ ស្កេនកូដដែលបង្ហាញដោយ orchestra pair។",
   "server.connect.camera": "កំពុងផ្គុំកាមេរ៉ា",
   "server.connect.camera.starting": "កំពុងបើកកាមេរ៉ា…",
   "server.connect.mixedContent":

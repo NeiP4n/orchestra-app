@@ -342,7 +342,7 @@ export const dict = {
   "error.chain.responseBody": "ප්‍රතිචාර අන්තර්ගතය:\n{{body}}",
   "error.chain.didYouMean": "ඔබ අදහස් කළේ: {{suggestions}}",
   "error.chain.modelNotFound": "ආකෘතිය හමු නොවීය: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "ඔබගේ වින්‍යාසය (opencode.json) සපයන්නා/ආදර්ශ නම් පරීක්ෂා කරන්න",
+  "error.chain.checkConfig": "ඔබගේ වින්‍යාසය (orchestra.json) සපයන්නා/ආදර්ශ නම් පරීක්ෂා කරන්න",
   "error.chain.mcpFailed": 'MCP සේවාදායකය "{{name}}" අසාර්ථක විය. සටහන, Orchestra තවමත් MCP සත්‍යාපනයට සහය නොදක්වයි.',
   "error.chain.providerAuthFailed": "සැපයුම්කරු සත්‍යාපනය අසාර්ථක විය ({{provider}}): {{message}}",
   "error.chain.providerInitFailed":
@@ -615,7 +615,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCP",
   "settings.extensions.tab.skills": "කුසලතා",
   "settings.extensions.availableAll": "සියලු ව්‍යාපෘති සඳහා ලබා ගත හැකිය",
-  "settings.extensions.manageConfig": "opencode.json තුළ කළමනාකරණය කරන්න",
+  "settings.extensions.manageConfig": "orchestra.json තුළ කළමනාකරණය කරන්න",
   "settings.extensions.addSkills": "කුසලතා එක් කරන ආකාරය",
   "project.settings.extensions.description": "මෙම ව්‍යාපෘතියට ඇති දිගු බලන්න",
   "project.settings.extensions.tab.lsps": "LSP",
@@ -790,9 +790,9 @@ export const dict = {
   "server.connect.address.invalid": "වලංගු HTTP හෝ HTTPS සේවාදායක ලිපිනයක් ඇතුළත් කරන්න.",
   "server.connect.failed": "සම්බන්ධ වීමට නොහැකි විය. සේවාදායක ලිපිනය සහ මුරපදය පරීක්ෂා කර නැවත උත්සාහ කරන්න.",
   "server.connect.scan": "QR කේතය පරිලෝකනය කරන්න",
-  "server.connect.scan.description": "opencode pair මගින් පෙන්වන QR කේතය වෙත ඔබේ කැමරාව යොමු කරන්න.",
+  "server.connect.scan.description": "orchestra pair මගින් පෙන්වන QR කේතය වෙත ඔබේ කැමරාව යොමු කරන්න.",
   "server.connect.scan.invalid":
-    "මෙය Orchestra යුගල කිරීමේ කේතයක් නොවේ. opencode pair මගින් පෙන්වන කේතය පරිලෝකනය කරන්න.",
+    "මෙය Orchestra යුගල කිරීමේ කේතයක් නොවේ. orchestra pair මගින් පෙන්වන කේතය පරිලෝකනය කරන්න.",
   "server.connect.camera": "කැමරාව යුගල කිරීම",
   "server.connect.camera.starting": "කැමරාව විවෘත කරමින්...",
   "server.connect.mixedContent":

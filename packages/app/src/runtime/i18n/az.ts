@@ -344,7 +344,7 @@ export const dict = {
   "error.chain.responseBody": "Cavab gövdəsi:\n{{body}}",
   "error.chain.didYouMean": "Bunu nəzərdə tuturdunuz: {{suggestions}}",
   "error.chain.modelNotFound": "Model tapılmadı: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "Konfiqurasiyanızdakı (opencode.json) provayder/model adlarını yoxlayın",
+  "error.chain.checkConfig": "Konfiqurasiyanızdakı (orchestra.json) provayder/model adlarını yoxlayın",
   "error.chain.mcpFailed":
     'MCP server "{{name}}" uğursuz oldu. Qeyd: Orchestra hələ MCP autentifikasiyasını dəstəkləmir.',
   "error.chain.providerAuthFailed": "Provayder autentifikasiyası uğursuz oldu ({{provider}}): {{message}}",
@@ -619,7 +619,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCP-lər",
   "settings.extensions.tab.skills": "Bacarıqlar",
   "settings.extensions.availableAll": "Bütün layihələr üçün mövcuddur",
-  "settings.extensions.manageConfig": "opencode.json-da idarə edin",
+  "settings.extensions.manageConfig": "orchestra.json-da idarə edin",
   "settings.extensions.addSkills": "Bacarıqları necə əlavə etməli",
   "project.settings.extensions.description": "Bu layihə üçün mövcud genişləndirmələrə baxın",
   "project.settings.extensions.tab.lsps": "LSP-lər",
@@ -797,8 +797,8 @@ export const dict = {
   "server.connect.address.invalid": "Etibarlı HTTP və ya HTTPS server ünvanını daxil edin.",
   "server.connect.failed": "Bağlana bilmədik. Server ünvanını və şifrəni yoxlayın, sonra yenidən cəhd edin.",
   "server.connect.scan": "QR kodu skan edin",
-  "server.connect.scan.description": "Kameranızı opencode pair tərəfindən göstərilən QR koda yönəldin.",
-  "server.connect.scan.invalid": "Bu, Orchestra qoşulma kodu deyil. opencode pair tərəfindən göstərilən kodu skan edin.",
+  "server.connect.scan.description": "Kameranızı orchestra pair tərəfindən göstərilən QR koda yönəldin.",
+  "server.connect.scan.invalid": "Bu, Orchestra qoşulma kodu deyil. orchestra pair tərəfindən göstərilən kodu skan edin.",
   "server.connect.camera": "Kamera cütləşdirilir",
   "server.connect.camera.starting": "Kamera açılır…",
   "server.connect.mixedContent":

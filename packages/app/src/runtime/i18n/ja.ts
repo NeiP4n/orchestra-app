@@ -345,7 +345,7 @@ export const dict = {
   "error.chain.responseBody": "レスポンス本文:\n{{body}}",
   "error.chain.didYouMean": "もしかして: {{suggestions}}",
   "error.chain.modelNotFound": "モデルが見つかりません: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "config (opencode.json) のプロバイダー/モデル名を確認してください",
+  "error.chain.checkConfig": "config (orchestra.json) のプロバイダー/モデル名を確認してください",
   "error.chain.mcpFailed": 'MCPサーバー "{{name}}" が失敗しました。注意: OrchestraはまだMCP認証をサポートしていません。',
   "error.chain.providerAuthFailed": "プロバイダー認証に失敗しました ({{provider}}): {{message}}",
   "error.chain.providerInitFailed":
@@ -440,7 +440,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCP",
   "settings.extensions.tab.skills": "スキル",
   "settings.extensions.availableAll": "すべてのプロジェクトで利用可能",
-  "settings.extensions.manageConfig": "opencode.jsonで管理",
+  "settings.extensions.manageConfig": "orchestra.jsonで管理",
   "settings.extensions.addSkills": "スキルの追加方法",
   "project.settings.extensions.description": "このプロジェクトで利用可能な拡張機能を表示します",
   "project.settings.extensions.tab.lsps": "LSP",
@@ -806,9 +806,9 @@ export const dict = {
   "server.connect.address.invalid": "有効なHTTPまたはHTTPSサーバーアドレスを入力してください。",
   "server.connect.failed": "接続できませんでした。サーバーアドレスとパスワードを確認して、もう一度お試しください。",
   "server.connect.scan": "QRコードをスキャン",
-  "server.connect.scan.description": "opencode pair に表示されたQRコードにカメラを向けてください。",
+  "server.connect.scan.description": "orchestra pair に表示されたQRコードにカメラを向けてください。",
   "server.connect.scan.invalid":
-    "これはOrchestraのペアリングコードではありません。opencode pair に表示されたコードをスキャンしてください。",
+    "これはOrchestraのペアリングコードではありません。orchestra pair に表示されたコードをスキャンしてください。",
   "server.connect.camera": "ペアリング用カメラ",
   "server.connect.camera.starting": "カメラを開いています…",
   "server.connect.mixedContent":

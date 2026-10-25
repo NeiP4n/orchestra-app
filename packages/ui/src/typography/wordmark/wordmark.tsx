@@ -24,38 +24,7 @@ export function Wordmark(
             stroke={props.outline ? "currentColor" : undefined}
             stroke-width={props.outline ? 1 : undefined}
           >
-            <path
-              pathLength={props.outline ? 1 : undefined}
-              d="M55.3846 36.4286H18.4615V91.7143H55.3846V36.4286ZM73.8462 110.143H0V18H73.8462V110.143Z"
-            />
-            <path
-              pathLength={props.outline ? 1 : undefined}
-              d="M110.462 91.7143H147.385V36.4286H110.462V91.7143ZM165.846 110.143H110.462V128.571H92V18H165.846V110.143Z"
-            />
-            <path
-              pathLength={props.outline ? 1 : undefined}
-              d="M258.846 73.2857H203.462V91.7143H258.846V110.143H185V18H258.846V73.2857ZM203.462 54.8571H240.385V36.4286H203.462V54.8571Z"
-            />
-            <path
-              pathLength={props.outline ? 1 : undefined}
-              d="M332.385 36.4286H295.462V110.143H277V18H332.385V36.4286ZM350.846 110.143H332.385V36.4286H350.846V110.143Z"
-            />
-            <path
-              pathLength={props.outline ? 1 : undefined}
-              d="M442.846 36.4286H387.462V91.7143H442.846V110.143H369V18H442.846V36.4286Z"
-            />
-            <path
-              pathLength={props.outline ? 1 : undefined}
-              d="M517.385 36.4286H480.462V91.7143H517.385V36.4286ZM535.846 110.143H462V18H535.846V110.143Z"
-            />
-            <path
-              pathLength={props.outline ? 1 : undefined}
-              d="M609.385 36.8571H572.462V92.1429H609.385V36.8571ZM627.846 110.571H554V18.4286H609.385V0H627.846V110.571Z"
-            />
-            <path
-              pathLength={props.outline ? 1 : undefined}
-              d="M664.462 36.4286V54.8571H701.385V36.4286H664.462ZM719.846 73.2857H664.462V91.7143H719.846V110.143H646V18H719.846V73.2857Z"
-            />
+            <path pathLength={props.outline ? 1 : undefined} d="M8 40.5h64v16h-64Z M8 56.5h16v16h-16Z M56 56.5h16v16h-16Z M8 72.5h16v16h-16Z M56 72.5h16v16h-16Z M8 88.5h16v16h-16Z M56 88.5h16v16h-16Z M8 104.5h64v16h-64Z M88 40.5h64v16h-64Z M88 56.5h16v16h-16Z M136 56.5h16v16h-16Z M88 72.5h16v16h-16Z M88 88.5h16v16h-16Z M88 104.5h16v16h-16Z M168 40.5h64v16h-64Z M168 56.5h16v16h-16Z M168 72.5h16v16h-16Z M168 88.5h16v16h-16Z M168 104.5h64v16h-64Z M248 8.5h16v16h-16Z M248 24.5h16v16h-16Z M248 40.5h64v16h-64Z M248 56.5h16v16h-16Z M296 56.5h16v16h-16Z M248 72.5h16v16h-16Z M296 72.5h16v16h-16Z M248 88.5h16v16h-16Z M296 88.5h16v16h-16Z M248 104.5h16v16h-16Z M296 104.5h16v16h-16Z M328 40.5h64v16h-64Z M328 56.5h16v16h-16Z M376 56.5h16v16h-16Z M328 72.5h64v16h-64Z M328 88.5h16v16h-16Z M328 104.5h64v16h-64Z M408 40.5h64v16h-64Z M408 56.5h16v16h-16Z M408 72.5h64v16h-64Z M456 88.5h16v16h-16Z M408 104.5h64v16h-64Z M488 8.5h16v16h-16Z M488 24.5h16v16h-16Z M488 40.5h64v16h-64Z M488 56.5h16v16h-16Z M488 72.5h16v16h-16Z M488 88.5h16v16h-16Z M488 104.5h48v16h-48Z M568 40.5h64v16h-64Z M568 56.5h16v16h-16Z M616 56.5h16v16h-16Z M568 72.5h16v16h-16Z M568 88.5h16v16h-16Z M568 104.5h16v16h-16Z M648 40.5h64v16h-64Z M696 56.5h16v16h-16Z M648 72.5h64v16h-64Z M648 88.5h16v16h-16Z M696 88.5h16v16h-16Z M648 104.5h64v16h-64Z" />
           </g>
         </g>
       </g>

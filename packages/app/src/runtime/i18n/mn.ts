@@ -340,7 +340,7 @@ export const dict = {
   "error.chain.responseBody": "Хариу өгөх байгууллага:\n{{body}}",
   "error.chain.didYouMean": "Та: {{suggestions}} гэсэн үг үү",
   "error.chain.modelNotFound": "Загвар олдсонгүй: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "Өөрийн тохиргооны (opencode.json) үйлчилгээ үзүүлэгч/загварын нэрийг шалгана уу",
+  "error.chain.checkConfig": "Өөрийн тохиргооны (orchestra.json) үйлчилгээ үзүүлэгч/загварын нэрийг шалгана уу",
   "error.chain.mcpFailed":
     'MCP сервер "{{name}}" амжилтгүй боллоо. Orchestra нь MCP баталгаажуулалтыг хараахан дэмждэггүйг анхаарна уу.',
   "error.chain.providerAuthFailed":
@@ -617,7 +617,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCP-үүд",
   "settings.extensions.tab.skills": "Ур чадварууд",
   "settings.extensions.availableAll": "Бүх төсөлд ашиглах боломжтой",
-  "settings.extensions.manageConfig": "opencode.json дотор удирдах",
+  "settings.extensions.manageConfig": "orchestra.json дотор удирдах",
   "settings.extensions.addSkills": "Ур чадвар хэрхэн нэмэх вэ",
   "project.settings.extensions.description": "Энэ төсөлд ашиглах боломжтой өргөтгөлүүдийг харах",
   "project.settings.extensions.tab.lsps": "LSP-үүд",
@@ -795,8 +795,8 @@ export const dict = {
   "server.connect.address.invalid": "Хүчинтэй HTTP эсвэл HTTPS серверийн хаягийг оруулна уу.",
   "server.connect.failed": "Холбогдож чадсангүй. Серверийн хаяг ба нууц үгийг шалгаад дахин оролдоно уу.",
   "server.connect.scan": "QR кодыг сканнердах",
-  "server.connect.scan.description": "Камераа opencode pair-ийн харуулсан QR код руу чиглүүлнэ үү.",
-  "server.connect.scan.invalid": "Энэ Orchestra холболтын код биш. opencode pair-ийн харуулсан кодыг уншуулна уу.",
+  "server.connect.scan.description": "Камераа orchestra pair-ийн харуулсан QR код руу чиглүүлнэ үү.",
+  "server.connect.scan.invalid": "Энэ Orchestra холболтын код биш. orchestra pair-ийн харуулсан кодыг уншуулна уу.",
   "server.connect.camera": "Камер холбох",
   "server.connect.camera.starting": "Камер нээж байна…",
   "server.connect.mixedContent":

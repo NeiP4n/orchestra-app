@@ -1,4 +1,4 @@
-import { createMemo, on, onCleanup, For, Show } from "solid-js"
+import { createMemo, createSignal, on, onCleanup, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { checksum } from "@orchestra/util/encode"
 import { Icon } from "@orchestra/ui/icon"
@@ -88,6 +88,8 @@ export default function SessionContextTab(props: { session: MountedSession }) {
   syncCatalog(() => props.session)
 
   const info = createMemo(() => (props.session.id ? data().session.get(props.session.id) : undefined))
+  // The overview is the panel; the statistics and raw messages below it open on demand.
+  const [detailed, setDetailed] = createSignal(false)
 
   const messages = createMemo(
     () => {
@@ -302,40 +304,52 @@ export default function SessionContextTab(props: { session: MountedSession }) {
           rev={messages().length}
         />
 
-        <div class="grid grid-cols-1 @[32rem]:grid-cols-2 gap-4">
-          <For each={stats}>{(stat) => <Stat label={ctx.t(stat.label)} value={stat.value()} />}</For>
-        </div>
+        <button
+          type="button"
+          class="flex items-center gap-1.5 self-start text-12-medium text-text-weak hover:text-text-base"
+          aria-expanded={detailed()}
+          onClick={() => setDetailed((open) => !open)}
+        >
+          <Icon name={detailed() ? "chevron-down" : "chevron-right"} size="small" />
+          {ctx.t("details.title")}
+        </button>
 
-        <Show when={systemPrompt()}>
-          {(prompt) => (
-            <div class="flex flex-col gap-2">
-              <div class="text-12-regular text-text-weak">{ctx.t("systemPrompt.title")}</div>
-              <div class="border border-border-base rounded-md bg-surface-base px-3 py-2">
-                <Markdown text={prompt()} class="text-12-regular" />
-              </div>
-            </div>
-          )}
-        </Show>
-
-        <div class="flex flex-col gap-2">
-          <div class="flex items-center justify-between">
-            <div class="text-12-regular text-text-weak">{ctx.t("rawMessages.title")}</div>
-            <Button
-              size="small"
-              variant="ghost"
-              class="gap-1.5 px-2 text-text-weak hover:text-text-base"
-              onClick={exportSession}
-            >
-              <Icon name="download" size="small" />
-              <span>{ctx.t("export.session")}</span>
-            </Button>
+        <Show when={detailed()}>
+          <div class="grid grid-cols-1 @[32rem]:grid-cols-2 gap-4">
+            <For each={stats}>{(stat) => <Stat label={ctx.t(stat.label)} value={stat.value()} />}</For>
           </div>
-          <Accordion multiple>
-            <For each={messages()}>
-              {(message) => <RawMessage message={message} onRendered={restoreScroll} time={formatter().time} />}
-            </For>
-          </Accordion>
-        </div>
+
+          <Show when={systemPrompt()}>
+            {(prompt) => (
+              <div class="flex flex-col gap-2">
+                <div class="text-12-regular text-text-weak">{ctx.t("systemPrompt.title")}</div>
+                <div class="border border-border-base rounded-md bg-surface-base px-3 py-2">
+                  <Markdown text={prompt()} class="text-12-regular" />
+                </div>
+              </div>
+            )}
+          </Show>
+
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <div class="text-12-regular text-text-weak">{ctx.t("rawMessages.title")}</div>
+              <Button
+                size="small"
+                variant="ghost"
+                class="gap-1.5 px-2 text-text-weak hover:text-text-base"
+                onClick={exportSession}
+              >
+                <Icon name="download" size="small" />
+                <span>{ctx.t("export.session")}</span>
+              </Button>
+            </div>
+            <Accordion multiple>
+              <For each={messages()}>
+                {(message) => <RawMessage message={message} onRendered={restoreScroll} time={formatter().time} />}
+              </For>
+            </Accordion>
+          </div>
+        </Show>
       </div>
     </ScrollView>
   )

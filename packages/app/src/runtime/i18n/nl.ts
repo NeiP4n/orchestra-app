@@ -24,8 +24,8 @@ export const dict = {
   "server.connect.failed":
     "Kan geen verbinding maken. Controleer het serveradres en het wachtwoord en probeer het opnieuw.",
   "server.connect.scan": "Scan de QR-code",
-  "server.connect.scan.description": "Richt uw camera op de QR-code weergegeven door opencode pair.",
-  "server.connect.scan.invalid": "Dit is geen Orchestra-koppelingscode. Scan de code weergegeven door opencode pair.",
+  "server.connect.scan.description": "Richt uw camera op de QR-code weergegeven door orchestra pair.",
+  "server.connect.scan.invalid": "Dit is geen Orchestra-koppelingscode. Scan de code weergegeven door orchestra pair.",
   "server.connect.camera": "Camera koppelen",
   "server.connect.camera.starting": "Camera openen…",
   "server.connect.mixedContent":
@@ -554,7 +554,7 @@ export const dict = {
   "error.chain.responseBody": "Antwoordtekst:\n{{body}}",
   "error.chain.didYouMean": "Bedoelde je: {{suggestions}}",
   "error.chain.modelNotFound": "Model niet gevonden: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "Controleer de provider- en modelnamen in je configuratie (opencode.json)",
+  "error.chain.checkConfig": "Controleer de provider- en modelnamen in je configuratie (orchestra.json)",
   "error.chain.mcpFailed": 'MCP-server "{{name}}" is mislukt. Let op: Orchestra ondersteunt nog geen MCP-authenticatie.',
   "error.chain.providerAuthFailed": "Authenticatie bij aanbieder mislukt ({{provider}}): {{message}}",
   "error.chain.providerInitFailed":
@@ -831,7 +831,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCP's",
   "settings.extensions.tab.skills": "Vaardigheden",
   "settings.extensions.availableAll": "Beschikbaar voor alle projecten",
-  "settings.extensions.manageConfig": "Beheer in opencode.json",
+  "settings.extensions.manageConfig": "Beheer in orchestra.json",
   "settings.extensions.addSkills": "Hoe vaardigheden toe te voegen",
   "project.settings.extensions.description": "Bekijk de extensies die beschikbaar zijn voor dit project",
   "project.settings.extensions.tab.lsps": "LSP's",

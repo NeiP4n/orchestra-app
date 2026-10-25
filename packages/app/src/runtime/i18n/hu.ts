@@ -351,7 +351,7 @@ export const dict = {
   "error.chain.responseBody": "Válasz törzse:\n{{body}}",
   "error.chain.didYouMean": "Erre gondolt: {{suggestions}}?",
   "error.chain.modelNotFound": "A modell nem található: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "Ellenőrizze a konfigurációs (opencode.json) szolgáltató/modell nevét",
+  "error.chain.checkConfig": "Ellenőrizze a konfigurációs (orchestra.json) szolgáltató/modell nevét",
   "error.chain.mcpFailed":
     'A "{{name}}" MCP szerver meghibásodott. Megjegyzés: a Orchestra még nem támogatja a MCP hitelesítést.',
   "error.chain.providerAuthFailed": "A szolgáltató hitelesítése nem sikerült ({{provider}}): {{message}}",
@@ -661,7 +661,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCP-k",
   "settings.extensions.tab.skills": "Készségek",
   "settings.extensions.availableAll": "Minden projekt számára elérhető",
-  "settings.extensions.manageConfig": "Kezelés az opencode.json fájlban",
+  "settings.extensions.manageConfig": "Kezelés az orchestra.json fájlban",
   "settings.extensions.addSkills": "Készségek hozzáadása",
   "project.settings.extensions.description": "A projekthez elérhető bővítmények megtekintése",
   "project.settings.extensions.tab.lsps": "LSP-k",
@@ -792,8 +792,8 @@ export const dict = {
   "server.connect.address.invalid": "Adjon meg egy érvényes HTTP vagy HTTPS szervercímet.",
   "server.connect.failed": "Nem sikerült csatlakozni. Ellenőrizze a szerver címét és jelszavát, majd próbálja újra.",
   "server.connect.scan": "QR-kód beolvasása",
-  "server.connect.scan.description": "Irányítsa kameráját a opencode pair által mutatott QR kódra.",
-  "server.connect.scan.invalid": "Ez nem egy Orchestra párosítási kód. Olvassa be a opencode pair által mutatott kódot.",
+  "server.connect.scan.description": "Irányítsa kameráját a orchestra pair által mutatott QR kódra.",
+  "server.connect.scan.invalid": "Ez nem egy Orchestra párosítási kód. Olvassa be a orchestra pair által mutatott kódot.",
   "server.connect.camera": "Kamera párosítása",
   "server.connect.camera.starting": "Kamera nyitása…",
   "server.connect.mixedContent":

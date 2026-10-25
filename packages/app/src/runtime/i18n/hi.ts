@@ -348,7 +348,7 @@ export const dict = {
   "error.chain.responseBody": "प्रतिक्रिया निकाय:\n{{body}}",
   "error.chain.didYouMean": "क्या आपका मतलब था: {{suggestions}}",
   "error.chain.modelNotFound": "मॉडल नहीं मिला: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "अपने कॉन्फ़िगरेशन (opencode.json) प्रोवाइडर/मॉडल नामों की जाँच करें",
+  "error.chain.checkConfig": "अपने कॉन्फ़िगरेशन (orchestra.json) प्रोवाइडर/मॉडल नामों की जाँच करें",
   "error.chain.mcpFailed":
     'MCP सर्वर "{{name}}" विफल रहा। ध्यान दें, Orchestra अभी तक MCP प्रमाणीकरण का समर्थन नहीं करता है।',
   "error.chain.providerAuthFailed": "प्रोवाइडर प्रमाणीकरण विफल ({{provider}}): {{message}}",
@@ -618,7 +618,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCPs",
   "settings.extensions.tab.skills": "कौशल",
   "settings.extensions.availableAll": "सभी प्रोजेक्ट के लिए उपलब्ध",
-  "settings.extensions.manageConfig": "opencode.json में प्रबंधित करें",
+  "settings.extensions.manageConfig": "orchestra.json में प्रबंधित करें",
   "settings.extensions.addSkills": "कौशल कैसे जोड़ें",
   "project.settings.extensions.description": "इस प्रोजेक्ट के लिए उपलब्ध एक्सटेंशन देखें",
   "project.settings.extensions.tab.lsps": "LSPs",

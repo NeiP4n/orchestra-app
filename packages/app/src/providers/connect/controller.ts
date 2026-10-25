@@ -447,7 +447,7 @@ export function createProviderConnectionController(options: {
 
     polling.attempt = result.authorization
     dispatch({ type: "auth.waiting", authorization: result.authorization })
-    // Same as `opencode auth login`: hand the user straight to the browser instead of
+    // Same as `orchestra auth login`: hand the user straight to the browser instead of
     // asking them to click a link and retype a code.
     void open()
 

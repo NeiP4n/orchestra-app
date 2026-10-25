@@ -339,7 +339,7 @@ export const dict = {
   "error.chain.responseBody": "Tělo odpovědi:\n{{body}}",
   "error.chain.didYouMean": "Měli jste na mysli: {{suggestions}}",
   "error.chain.modelNotFound": "Model nenalezen: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "Zkontrolujte název poskytovatele/modelu konfigurace (opencode.json).",
+  "error.chain.checkConfig": "Zkontrolujte název poskytovatele/modelu konfigurace (orchestra.json).",
   "error.chain.mcpFailed": 'MCP server "{{name}}" selhal. Poznámka: Orchestra zatím nepodporuje ověřování MCP.',
   "error.chain.providerAuthFailed": "Ověření poskytovatele se nezdařilo ({{provider}}): {{message}}",
   "error.chain.providerInitFailed":
@@ -618,7 +618,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCP",
   "settings.extensions.tab.skills": "Dovednosti",
   "settings.extensions.availableAll": "Dostupné pro všechny projekty",
-  "settings.extensions.manageConfig": "Spravujte v opencode.json",
+  "settings.extensions.manageConfig": "Spravujte v orchestra.json",
   "settings.extensions.addSkills": "Jak přidat dovednosti",
   "project.settings.extensions.description": "Zobrazit rozšíření dostupná pro tento projekt",
   "project.settings.extensions.tab.lsps": "LSP",
@@ -804,8 +804,8 @@ export const dict = {
   "server.connect.address.invalid": "Zadejte platnou adresu serveru HTTP nebo HTTPS.",
   "server.connect.failed": "Připojení se nezdařilo. Zkontrolujte adresu serveru a heslo a zkuste to znovu.",
   "server.connect.scan": "Naskenovat QR kód",
-  "server.connect.scan.description": "Namiřte kameru na QR kód zobrazený příkazem opencode pair.",
-  "server.connect.scan.invalid": "Toto není párovací kód Orchestra. Naskenujte kód zobrazený příkazem opencode pair.",
+  "server.connect.scan.description": "Namiřte kameru na QR kód zobrazený příkazem orchestra pair.",
+  "server.connect.scan.invalid": "Toto není párovací kód Orchestra. Naskenujte kód zobrazený příkazem orchestra pair.",
   "server.connect.camera": "Kamera pro párování",
   "server.connect.camera.starting": "Otevírání kamery…",
   "server.connect.mixedContent":

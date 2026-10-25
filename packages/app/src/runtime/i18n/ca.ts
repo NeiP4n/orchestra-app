@@ -340,7 +340,7 @@ export const dict = {
   "error.chain.responseBody": "Òrgan de resposta:\n{{body}}",
   "error.chain.didYouMean": "Volíeu dir: {{suggestions}}",
   "error.chain.modelNotFound": "No s'ha trobat el model: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "Comproveu els noms del vostre proveïdor/model de configuració (opencode.json).",
+  "error.chain.checkConfig": "Comproveu els noms del vostre proveïdor/model de configuració (orchestra.json).",
   "error.chain.mcpFailed":
     'El servidor MCP "{{name}}" ha fallat. Tingueu en compte que Orchestra encara no admet l\'autenticació MCP.',
   "error.chain.providerAuthFailed": "L'autenticació del proveïdor ha fallat ({{provider}}): {{message}}",
@@ -652,7 +652,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCP",
   "settings.extensions.tab.skills": "Habilitats",
   "settings.extensions.availableAll": "Disponible per a tots els projectes",
-  "settings.extensions.manageConfig": "Gestiona-ho a opencode.json",
+  "settings.extensions.manageConfig": "Gestiona-ho a orchestra.json",
   "settings.extensions.addSkills": "Com afegir habilitats",
   "project.settings.extensions.description": "Consulteu les extensions disponibles per a aquest projecte",
   "project.settings.extensions.tab.lsps": "LSP",
@@ -794,9 +794,9 @@ export const dict = {
   "server.connect.failed":
     "No s'ha pogut connectar. Comproveu l'adreça i la contrasenya del servidor i torneu-ho a provar.",
   "server.connect.scan": "Escaneja el codi QR",
-  "server.connect.scan.description": "Apunteu la càmera al codi QR que mostra opencode pair.",
+  "server.connect.scan.description": "Apunteu la càmera al codi QR que mostra orchestra pair.",
   "server.connect.scan.invalid":
-    "Aquest no és un codi d'aparellament Orchestra. Escaneja el codi mostrat per opencode pair.",
+    "Aquest no és un codi d'aparellament Orchestra. Escaneja el codi mostrat per orchestra pair.",
   "server.connect.camera": "Càmera d'aparellament",
   "server.connect.camera.starting": "Obertura de la càmera...",
   "server.connect.mixedContent":

@@ -33,4 +33,7 @@ export default {
   "workspace.existing": "Worktree",
   "workspace.new": "New worktree",
   "mcp.interactiveAuth": "MCP server {{name}} requires an interactive authentication form",
+  "branch.menu": "Switch branch",
+  "branch.loading": "Loading branches…",
+  "branch.failed": "Failed to switch branch",
 }

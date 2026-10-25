@@ -339,7 +339,7 @@ export const dict = {
   "error.chain.responseBody": "პასუხის სხეული:\n{{body}}",
   "error.chain.didYouMean": "იგულისხმეთ: {{suggestions}}",
   "error.chain.modelNotFound": "მოდელი ვერ მოიძებნა: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "შეამოწმეთ თქვენი კონფიგურაცია (opencode.json) პროვაიდერის/მოდელების სახელები",
+  "error.chain.checkConfig": "შეამოწმეთ თქვენი კონფიგურაცია (orchestra.json) პროვაიდერის/მოდელების სახელები",
   "error.chain.mcpFailed":
     'MCP სერვერი "{{name}}" ვერ მოხერხდა. შენიშვნა, Orchestra ჯერ არ უჭერს მხარს MCP ავთენტიფიკაციას.',
   "error.chain.providerAuthFailed": "პროვაიდერის ავთენტიფიკაცია ვერ მოხერხდა ({{provider}}): {{message}}",
@@ -612,7 +612,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCP-ები",
   "settings.extensions.tab.skills": "უნარები",
   "settings.extensions.availableAll": "ხელმისაწვდომია ყველა პროექტისთვის",
-  "settings.extensions.manageConfig": "მართეთ opencode.json-ში",
+  "settings.extensions.manageConfig": "მართეთ orchestra.json-ში",
   "settings.extensions.addSkills": "როგორ დავამატოთ უნარები",
   "project.settings.extensions.description": "იხილეთ ამ პროექტისთვის ხელმისაწვდომი გაფართოებები",
   "project.settings.extensions.tab.lsps": "LSP-ები",
@@ -789,9 +789,9 @@ export const dict = {
   "server.connect.address.invalid": "შეიყვანეთ ვალიდური HTTP ან HTTPS სერვერის მისამართი.",
   "server.connect.failed": "ვერ მოხერხდა დაკავშირება. შეამოწმეთ სერვერის მისამართი და პაროლი, შემდეგ კვლავ სცადეთ.",
   "server.connect.scan": "სკანირება QR კოდით",
-  "server.connect.scan.description": "მიმართეთ კამერა opencode pair-ის მიერ ნაჩვენებ QR კოდზე.",
+  "server.connect.scan.description": "მიმართეთ კამერა orchestra pair-ის მიერ ნაჩვენებ QR კოდზე.",
   "server.connect.scan.invalid":
-    "ეს Orchestra-ის დაწყვილების კოდი არ არის. დაასკანირეთ opencode pair-ის მიერ ნაჩვენები კოდი.",
+    "ეს Orchestra-ის დაწყვილების კოდი არ არის. დაასკანირეთ orchestra pair-ის მიერ ნაჩვენები კოდი.",
   "server.connect.camera": "კამერასთან წყვილობა",
   "server.connect.camera.starting": "კამერის გახსნა…",
   "server.connect.mixedContent":

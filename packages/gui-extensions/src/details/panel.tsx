@@ -4,6 +4,7 @@ import { containsDirectory, getFilename } from "@orchestra/util/path"
 import { createMemo, Show } from "solid-js"
 import { useExtension, type Project, type MountedSession } from "../sdk"
 import { workspaceDirectories } from "./paths"
+import { createGithubProject, SessionBranchMenu } from "./branch-menu"
 import { ProjectDetailsCard } from "./project-card"
 import { SessionServerPanel } from "./server-panel"
 import { SessionWorkspaceMenu } from "./workspace-menu"
@@ -62,6 +63,37 @@ export default function SessionDetailsPanel(props: DetailsPanelProps) {
   const branch = () => data().location.vcs.info({ directory: props.session.directory })?.branch.current
   const baseBranch = () => data().location.vcs.info({ directory: props.project.worktree })?.branch.current
 
+  const github = createGithubProject(
+    () => props.session,
+    () => props.project.worktree,
+  )
+
+  const branchLabel = () => (
+    <>
+      <Icon name="branch" class="shrink-0 text-v2-icon-icon-muted" />
+      <Show
+        when={branch()}
+        fallback={
+          <span class="flex min-w-0 items-center gap-1.5">
+            <span class="shrink-0 whitespace-nowrap">{ctx.t("noBranch")}</span>
+            <Show when={baseBranch()}>
+              {(base) => (
+                <>
+                  <span class="text-v2-text-text-muted">·</span>
+                  <span class="truncate text-v2-text-text-faint">{ctx.t("basedOn", { branch: base() })}</span>
+                </>
+              )}
+            </Show>
+          </span>
+        }
+      >
+        <span dir="auto" class="min-w-0 truncate">
+          {branch()}
+        </span>
+      </Show>
+    </>
+  )
+
   return (
     <div data-component="session-summary-panel" data-mobile={props.mobile || undefined}>
       <div>
@@ -82,29 +114,23 @@ export default function SessionDetailsPanel(props: DetailsPanelProps) {
               <Icon name="fill-triangle-down" class="session-summary-menu-indicator shrink-0 text-v2-icon-icon-muted" />
             </SessionWorkspaceMenu>
           </Show>
-          <div class="session-summary-row">
-            <Icon name="branch" class="shrink-0 text-v2-icon-icon-muted" />
-            <Show
-              when={branch()}
-              fallback={
-                <span class="flex min-w-0 items-center gap-1.5">
-                  <span class="shrink-0 whitespace-nowrap">{ctx.t("noBranch")}</span>
-                  <Show when={baseBranch()}>
-                    {(base) => (
-                      <>
-                        <span class="text-v2-text-text-muted">·</span>
-                        <span class="truncate text-v2-text-text-faint">{ctx.t("basedOn", { branch: base() })}</span>
-                      </>
-                    )}
-                  </Show>
-                </span>
-              }
-            >
-              <span dir="auto" class="min-w-0 truncate">
-                {branch()}
-              </span>
-            </Show>
-          </div>
+          <Show
+            when={github() && !subagent() && branch()}
+            fallback={<div class="session-summary-row">{branchLabel()}</div>}
+          >
+            {(current) => (
+              <SessionBranchMenu
+                session={props.session}
+                directory={props.session.directory}
+                current={current()}
+                placement={placement()}
+                class="session-summary-row"
+              >
+                {branchLabel()}
+                <Icon name="fill-triangle-down" class="session-summary-menu-indicator shrink-0 text-v2-icon-icon-muted" />
+              </SessionBranchMenu>
+            )}
+          </Show>
           <Show when={props.onReview}>
             <button type="button" class="session-summary-row" onClick={() => props.onReview?.()}>
               <Icon name="review" class="shrink-0 text-v2-icon-icon-muted" />

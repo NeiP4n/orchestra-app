@@ -347,7 +347,7 @@ export const dict = {
   "error.chain.responseBody": "ޖަވާބުދާރީވާ ހަށިގަނޑު:\n\u2068{{body}}\u2069 އެވެ",
   "error.chain.didYouMean": "ތިޔަ މާނަކުރީ: \u2068{{suggestions}}\u2069 ހެއްޔެވެ",
   "error.chain.modelNotFound": "މޮޑެލް ނުފެނޭ: \u2068{{provider}}\u2069/\u2068{{model}}\u2069",
-  "error.chain.checkConfig": "ތިބާގެ ކޮންފިގް (opencode.json) ޕްރޮވައިޑަރ/މޮޑެލް ނަންތައް ޗެކްކުރުން",
+  "error.chain.checkConfig": "ތިބާގެ ކޮންފިގް (orchestra.json) ޕްރޮވައިޑަރ/މޮޑެލް ނަންތައް ޗެކްކުރުން",
   "error.chain.mcpFailed":
     'MCP ސަރވަރ "\u2068{{name}}\u2069" ފޭލްވެއްޖެއެވެ. ނޯޓް، Orchestra އިން އަދި MCP އޮތެންޓިކޭޝަން އަށް ސަޕޯޓް ނުކުރެއެވެ.',
   "error.chain.providerAuthFailed":
@@ -634,7 +634,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCPs",
   "settings.extensions.tab.skills": "ހުނަރުތައް",
   "settings.extensions.availableAll": "ހުރިހާ ޕްރޮޖެކްޓަކަށް ލިބެންހުރި",
-  "settings.extensions.manageConfig": "opencode.json ގައި މެނޭޖްކުރާށެވެ",
+  "settings.extensions.manageConfig": "orchestra.json ގައި މެނޭޖްކުރާށެވެ",
   "settings.extensions.addSkills": "ހުނަރުތައް އިތުރުކުރާނެ ގޮތް",
   "project.settings.extensions.description": "މި ޕްރޮޖެކްޓަށް ލިބެންހުރި އެކްސްޓެންޝަންތައް ބަލާށެވެ",
   "project.settings.extensions.tab.lsps": "LSPs",

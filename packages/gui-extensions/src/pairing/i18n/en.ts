@@ -26,9 +26,9 @@ export default {
   "custom.title": "Custom address",
   "custom.description":
     "An address that reaches this computer from other devices, such as a VPN, tunnel, or reverse proxy URL.",
-  "custom.placeholder": "https://opencode.example.com",
-  "custom.invalid": "Enter an HTTP or HTTPS address without a path, such as https://opencode.example.com.",
-  "unreachable.title": "Only this computer can reach the OpenCode server",
+  "custom.placeholder": "https://orchestra.example.com",
+  "custom.invalid": "Enter an HTTP or HTTPS address without a path, such as https://orchestra.example.com.",
+  "unreachable.title": "Only this computer can reach the Orchestra server",
   "unreachable.description":
     "To pair a device on your network, run this command in a terminal, then reopen Pairing. You can also add a custom address below.",
   "unreachable.copy": "Copy command",

@@ -343,7 +343,7 @@ export const dict = {
   "error.chain.responseBody": "প্রতিক্রিয়ার অংশ:\n{{body}}৷",
   "error.chain.didYouMean": "আপনি কি বলতে চাইছেন: {{suggestions}}",
   "error.chain.modelNotFound": "মডেল পাওয়া যায়নি: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "আপনার কনফিগারেশন (opencode.json) প্রদানকারী/মডেলের নাম পরীক্ষা করুন",
+  "error.chain.checkConfig": "আপনার কনফিগারেশন (orchestra.json) প্রদানকারী/মডেলের নাম পরীক্ষা করুন",
   "error.chain.mcpFailed":
     'MCP সার্ভার "{{name}}" ব্যর্থ হয়েছে৷ মনে রাখবেন, Orchestra এখনও MCP প্রমাণীকরণ সমর্থন করে না।',
   "error.chain.providerAuthFailed": "প্রদানকারীর প্রমাণীকরণ ব্যর্থ হয়েছে ({{provider}}): {{message}}",
@@ -615,7 +615,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCPs",
   "settings.extensions.tab.skills": "স্কিল",
   "settings.extensions.availableAll": "সব প্রকল্পে উপলভ্য",
-  "settings.extensions.manageConfig": "opencode.json-এ পরিচালনা করুন",
+  "settings.extensions.manageConfig": "orchestra.json-এ পরিচালনা করুন",
   "settings.extensions.addSkills": "স্কিল যোগ করার নিয়ম",
   "project.settings.extensions.description": "এই প্রকল্পে উপলভ্য এক্সটেনশন দেখুন",
   "project.settings.extensions.tab.lsps": "LSPs",

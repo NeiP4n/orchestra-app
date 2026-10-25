@@ -338,7 +338,7 @@ export const dict = {
   "error.chain.responseBody": "Vastuse keha:\n{{body}}",
   "error.chain.didYouMean": "Kas mõtlesite: {{suggestions}}",
   "error.chain.modelNotFound": "Mudelit ei leitud: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "Kontrollige oma konfiguratsiooni (opencode.json) pakkuja/mudeli nimesid",
+  "error.chain.checkConfig": "Kontrollige oma konfiguratsiooni (orchestra.json) pakkuja/mudeli nimesid",
   "error.chain.mcpFailed": 'MCP server "{{name}}" ebaõnnestus. Pange tähele, Orchestra ei toeta veel MCP autentimist.',
   "error.chain.providerAuthFailed": "Pakkuja autentimine ebaõnnestus ({{provider}}): {{message}}",
   "error.chain.providerInitFailed":
@@ -640,7 +640,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCP-d",
   "settings.extensions.tab.skills": "Oskused",
   "settings.extensions.availableAll": "Saadaval kõigile projektidele",
-  "settings.extensions.manageConfig": "Halda failis opencode.json",
+  "settings.extensions.manageConfig": "Halda failis orchestra.json",
   "settings.extensions.addSkills": "Kuidas oskusi lisada",
   "project.settings.extensions.description": "Vaadake selle projekti jaoks saadaolevaid laiendusi",
   "project.settings.extensions.tab.lsps": "LSP-d",
@@ -773,8 +773,8 @@ export const dict = {
   "server.connect.address.invalid": "Sisestage kehtiv serveri aadress HTTP või HTTPS.",
   "server.connect.failed": "Ühendust ei õnnestunud luua. Kontrollige serveri aadressi ja parooli ning proovige uuesti.",
   "server.connect.scan": "Skaneeri QR-kood",
-  "server.connect.scan.description": "Suunake oma kaamera koodile QR, mida näitab opencode pair.",
-  "server.connect.scan.invalid": "See ei ole Orchestra sidumiskood. Skannige koodi, mida näitab opencode pair.",
+  "server.connect.scan.description": "Suunake oma kaamera koodile QR, mida näitab orchestra pair.",
+  "server.connect.scan.invalid": "See ei ole Orchestra sidumiskood. Skannige koodi, mida näitab orchestra pair.",
   "server.connect.camera": "Kaamera sidumine",
   "server.connect.camera.starting": "Kaamera avamine…",
   "server.connect.mixedContent":

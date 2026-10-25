@@ -71,6 +71,7 @@ const names: Record<string, string> = {
   matrix: "Matrix",
   mercury: "Mercury",
   monokai: "Monokai",
+  sculk: "Sculk",
   nightowl: "Night Owl",
   nord: "Nord",
   "one-dark": "One Dark",

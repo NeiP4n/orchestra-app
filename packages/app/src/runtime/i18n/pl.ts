@@ -336,7 +336,7 @@ export const dict = {
   "error.chain.responseBody": "Treść odpowiedzi:\n{{body}}",
   "error.chain.didYouMean": "Czy miałeś na myśli: {{suggestions}}",
   "error.chain.modelNotFound": "Model nie znaleziony: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "Sprawdź nazwy dostawców i modeli w konfiguracji (opencode.json)",
+  "error.chain.checkConfig": "Sprawdź nazwy dostawców i modeli w konfiguracji (orchestra.json)",
   "error.chain.mcpFailed":
     "Serwer MCP „{{name}}” nie uruchomił się. Uwaga: Orchestra nie obsługuje jeszcze uwierzytelniania MCP.",
   "error.chain.providerAuthFailed": "Uwierzytelnianie dostawcy nie powiodło się ({{provider}}): {{message}}",
@@ -630,7 +630,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCP",
   "settings.extensions.tab.skills": "Umiejętności",
   "settings.extensions.availableAll": "Dostępne dla wszystkich projektów",
-  "settings.extensions.manageConfig": "Zarządzaj w opencode.json",
+  "settings.extensions.manageConfig": "Zarządzaj w orchestra.json",
   "settings.extensions.addSkills": "Jak dodać umiejętności",
   "project.settings.extensions.description": "Wyświetl rozszerzenia dostępne dla tego projektu",
   "project.settings.extensions.tab.lsps": "LSP",

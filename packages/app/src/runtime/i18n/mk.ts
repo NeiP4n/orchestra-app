@@ -340,7 +340,7 @@ export const dict = {
   "error.chain.responseBody": "Тело за одговор:\n{{body}}",
   "error.chain.didYouMean": "Дали сакаше да каже: {{suggestions}}",
   "error.chain.modelNotFound": "Моделот не е пронајден: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "Проверете ги имињата на давателот/моделот за конфигурација (opencode.json).",
+  "error.chain.checkConfig": "Проверете ги имињата на давателот/моделот за конфигурација (orchestra.json).",
   "error.chain.mcpFailed":
     "MCP серверот „{{name}}“ не успеа. Забелешка, Orchestra сè уште не поддржува автентикација MCP.",
   "error.chain.providerAuthFailed": "Неуспешна автентикација на провајдерот ({{provider}}): {{message}}",
@@ -616,7 +616,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCPs",
   "settings.extensions.tab.skills": "Вештини",
   "settings.extensions.availableAll": "Достапно за сите проекти",
-  "settings.extensions.manageConfig": "Управувајте во opencode.json",
+  "settings.extensions.manageConfig": "Управувајте во orchestra.json",
   "settings.extensions.addSkills": "Како да додадете вештини",
   "project.settings.extensions.description": "Погледнете ги наставките достапни за овој проект",
   "project.settings.extensions.tab.lsps": "LSPs",
@@ -793,8 +793,8 @@ export const dict = {
   "server.connect.failed":
     "Не можеше да се поврзе. Проверете ја адресата на серверот и лозинката, потоа обидете се повторно.",
   "server.connect.scan": "Скенирај QR код",
-  "server.connect.scan.description": "Насочете ја вашата камера кон QR кодот прикажан од opencode pair.",
-  "server.connect.scan.invalid": "Ова не е Orchestra паринг код. Скенирајте го кодот прикажан од opencode pair.",
+  "server.connect.scan.description": "Насочете ја вашата камера кон QR кодот прикажан од orchestra pair.",
+  "server.connect.scan.invalid": "Ова не е Orchestra паринг код. Скенирајте го кодот прикажан од orchestra pair.",
   "server.connect.camera": "Парирање со камера",
   "server.connect.camera.starting": "Отворање на камерата…",
   "server.connect.mixedContent":

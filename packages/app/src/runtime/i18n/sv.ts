@@ -23,8 +23,8 @@ export const dict = {
   "server.connect.address.invalid": "Ange en giltig HTTP- eller HTTPS-serveradress.",
   "server.connect.failed": "Kunde inte ansluta. Kontrollera serveradressen och lösenordet och försök sedan igen.",
   "server.connect.scan": "Skanna QR-koden",
-  "server.connect.scan.description": "Rikta kameran mot QR-koden som visas av opencode pair.",
-  "server.connect.scan.invalid": "Detta är inte en Orchestra parningskod. Skanna koden som visas av opencode pair.",
+  "server.connect.scan.description": "Rikta kameran mot QR-koden som visas av orchestra pair.",
+  "server.connect.scan.invalid": "Detta är inte en Orchestra parningskod. Skanna koden som visas av orchestra pair.",
   "server.connect.camera": "Para ihop kamera",
   "server.connect.camera.starting": "Öppnar kameran...",
   "server.connect.mixedContent":
@@ -547,7 +547,7 @@ export const dict = {
   "error.chain.responseBody": "Svarstext:\n{{body}}",
   "error.chain.didYouMean": "Menade du: {{suggestions}}",
   "error.chain.modelNotFound": "Modellen hittades inte: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "Kontrollera leverantörs- och modellnamnen i konfigurationen (opencode.json)",
+  "error.chain.checkConfig": "Kontrollera leverantörs- och modellnamnen i konfigurationen (orchestra.json)",
   "error.chain.mcpFailed": 'MCP-servern "{{name}}" misslyckades. Obs, Orchestra stöder inte MCP-autentisering ännu.',
   "error.chain.providerAuthFailed": "Leverantörsautentisering misslyckades ({{provider}}): {{message}}",
   "error.chain.providerInitFailed":
@@ -821,7 +821,7 @@ export const dict = {
   "settings.extensions.tab.mcps": "MCP:er",
   "settings.extensions.tab.skills": "Färdigheter",
   "settings.extensions.availableAll": "Tillgänglig för alla projekt",
-  "settings.extensions.manageConfig": "Hantera i opencode.json",
+  "settings.extensions.manageConfig": "Hantera i orchestra.json",
   "settings.extensions.addSkills": "Hur man lägger till färdigheter",
   "project.settings.extensions.description": "Visa tillägg som är tillgängliga för detta projekt",
   "project.settings.extensions.tab.lsps": "LSP:er",

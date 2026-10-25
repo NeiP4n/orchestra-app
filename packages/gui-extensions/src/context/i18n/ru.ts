@@ -47,4 +47,5 @@ export default {
   "kind.cacheWrite": "Запись кэша",
   "kind.output": "Вывод",
   "kind.reasoning": "Рассуждения",
+  "details.title": "Подробности",
 }
