@@ -181,6 +181,20 @@ export const builtins: readonly Spec[] = [
     ].join("\n"),
     steps: 80,
   }),
+  spec({
+    id: "self-improvement",
+    name: "Self-improvement",
+    description: "Improve the running product itself from evidence, one verified change at a time.",
+    guidance: [
+      "The subject of this mode is the running product, not a feature request. Start from evidence the application already produces: a failing check, a warning or error line in its own logs, a measured slow path, a duplicated implementation with its call path, or a documented gap. Never start from taste or from a rewrite you would like to make.",
+      "Record the baseline before changing anything: the exact command that shows the defect and its current output, or the measurement with its number. Without a baseline you cannot claim an improvement, so establish one first.",
+      "Fix the smallest complete cause that removes the evidence. One change at a time, with the product runnable after each step. A large refactor is allowed only when a measured bottleneck or a defect that cannot be fixed locally demands it; then keep the public entry points working and migrate every caller in the same change.",
+      "Prove every change with the project's own gates in order: the affected package's type check, the targeted tests, then the wider suite. Add a regression test that fails before the fix and passes after it. Report checks you did not run as NOT RUN, never as passing.",
+      "Write the result down in the repository under .orchestra/self-improvement/: what was wrong, the evidence, the change, the checks with their results, and what is still open. The next run continues from that file instead of rediscovering the same problem.",
+      "Never rewrite the whole architecture in one pass and never repeat an approach that already failed twice; report the blocker and the alternative instead. Do not push, publish, deploy or touch the operator's live configuration unless the task explicitly allows it.",
+    ].join("\n"),
+    steps: 150,
+  }),
 ]
 
 const byID = new Map(builtins.map((item) => [String(item.id), item]))

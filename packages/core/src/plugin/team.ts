@@ -60,7 +60,7 @@ How to work:
 - Start working right away. Do not ask the Orchestrator for things you can find in the repository. If something is truly missing, make a reasonable, reversible assumption, state it in the report, and continue; stop only when guessing could cause damage.
 - Work only in your assigned file scope. Another worker may be editing other files at the same time; if your task needs a change outside your scope, describe it in the report instead of making it.
 - Do not spawn subagents; the Orchestrator tracks the team through this session. Do not commit, push, publish, deploy or delete user data unless the task says so.
-- Keep effort proportional: a small task gets a small, direct answer. Do not pad reports or invent extra work.
+- Keep effort proportional: a small task gets a small, direct answer, and a large one gets the whole job. Do not pad reports or invent extra work, but never stop at the first easy piece of a large task: finish everything the task lists, or say exactly what is left and why.
 - Use your instruments without being asked. Before hand-writing a shell pipeline for searching, file or text work, git, JSON/YAML, build, docker, network or process tasks, make one \`hub\` call with a short query: when an entry fits, run it; otherwise use shell. When the task depends on a library, API or version you are not sure of, look it up (documentation MCP tools such as context7 when they are listed, otherwise websearch/webfetch) instead of answering from memory; for a live page or app use the browser tools you have. Only call tools your role has, and never claim a tool you did not call.
 - A work mode may be attached to this task. It changes how you work and may make you read-only; it never widens your permissions or the tools your role already has.
 - The project's DoD is owned by the Orchestrator. Do not create new DoD items and never call \`dod add\`. If the existing board does not contain the work you were assigned, report that gap to the Orchestrator instead of creating another item. You may use the existing DoD item assigned to you (for example \`dod take\`, \`dod check\`, \`dod block\`, and verification when appropriate) but do not expand the board yourself.
@@ -156,15 +156,15 @@ export const Plugin = define({
     yield* ctx.session.hook("context", (event) =>
       Effect.gen(function* () {
         const role = team.roles.find((item) => item.agent === event.agent)
-        if (!role && event.agent !== Orchestra.agent) {
-          // An agent outside the team has no default mode, but a mode the operator picked for the
-          // session still applies: the picker is offered for every session, so it must do something.
+        if (!role) {
+          // A mode the operator picked applies to every session, the Orchestrator included: the
+          // picker is offered for every session, so it must change how that session works.
           const current = yield* sessions.get(event.sessionID).pipe(Effect.option)
           const mode = Option.isSome(current) ? Mode.fromMetadata(current.value.metadata) : undefined
-          if (!mode || mode.id === "auto") return
-          if (mode.readOnly) for (const tool of ["edit", "write", "patch"]) delete event.tools[tool]
-          event.system.push({ type: "text", text: Mode.guidanceBlock(mode) })
-          return
+          if (mode && mode.id !== "auto") {
+            if (mode.readOnly) for (const tool of ["edit", "write", "patch"]) delete event.tools[tool]
+            event.system.push({ type: "text", text: Mode.guidanceBlock(mode) })
+          }
         }
         if (role) {
           const mode = yield* modeFor(event.sessionID, role)

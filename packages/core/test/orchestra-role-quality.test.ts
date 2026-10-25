@@ -207,8 +207,22 @@ describe("orchestrator triage and modes", () => {
   test("sizes the task before it dispatches a team", () => {
     expect(PROMPT_ORCHESTRATOR).toContain("Task size — decide before you dispatch")
     expect(PROMPT_ORCHESTRATOR).toContain("Quick: one file or one obvious change")
-    expect(PROMPT_ORCHESTRATOR).toContain("Default to the smaller size")
+    expect(PROMPT_ORCHESTRATOR).toContain("Pick the smallest size that really covers the request")
     expect(PROMPT_ORCHESTRATOR).toContain("at most five of your own tool calls before the first dispatch")
+  })
+
+  test("never shrinks a requested project to one simple task", () => {
+    expect(PROMPT_ORCHESTRATOR).not.toContain("Default to the smaller size")
+    expect(PROMPT_ORCHESTRATOR).toContain("it is Deep: never shrink it to one simple task")
+    expect(PROMPT_ORCHESTRATOR).toContain("Deep work — how you run it")
+    expect(PROMPT_ORCHESTRATOR).toContain("Research first")
+    expect(PROMPT_ORCHESTRATOR).toContain("Put every milestone on the DoD board")
+    expect(PROMPT_ORCHESTRATOR).toContain("dispatch the next milestone that is now unblocked")
+    expect(PROMPT_ORCHESTRATOR).toContain("A turn that ends with open milestones and no worker running is a stall")
+  })
+
+  test("tells the Orchestrator to pass a model when the operator asks for another one", () => {
+    expect(PROMPT_ORCHESTRATOR).toContain("a new worker runs on your own model unless you pass model")
   })
 
   test("has stop rules against stalling and endless planning", () => {
@@ -219,14 +233,16 @@ describe("orchestrator triage and modes", () => {
   })
 
   test("names the modes and keeps a planner read-only in coding mode", () => {
-    expect(PROMPT_ORCHESTRATOR).toContain("auto, fast, coding, research, planning, review, debug, design, ops")
+    expect(PROMPT_ORCHESTRATOR).toContain(
+      "auto, fast, coding, research, planning, test, architecture, review, debug, design, ops, self-improvement",
+    )
     expect(PROMPT_ORCHESTRATOR).toContain("A planner in coding mode still cannot edit")
     expect(PROMPT_ORCHESTRATOR).toContain("set_mode")
   })
 
   test("every built-in role gets a default mode that matches its job", () => {
     expect(String(Mode.defaultForRole(findRole("developer")!)?.id)).toBe("coding")
-    expect(String(Mode.defaultForRole(findRole("architect")!)?.id)).toBe("planning")
+    expect(String(Mode.defaultForRole(findRole("architect")!)?.id)).toBe("architecture")
     expect(String(Mode.defaultForRole(findRole("researcher")!)?.id)).toBe("research")
     expect(String(Mode.defaultForRole(findRole("reviewer")!)?.id)).toBe("review")
     expect(String(Mode.defaultForRole(findRole("debugger")!)?.id)).toBe("debug")
