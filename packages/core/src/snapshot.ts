@@ -2,7 +2,7 @@ export * as Snapshot from "./snapshot.js"
 
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import path from "path"
-import { Context, Effect, Fiber, Layer, Schema, Scope } from "effect"
+import { Context, Deferred, Effect, Fiber, Layer, Schema, Scope, Semaphore } from "effect"
 import { FileDiff } from "@orchestra/schema/file-diff"
 import { FSUtil } from "@orchestra/util/fs-util"
 import { Git } from "./git.js"
@@ -114,8 +114,32 @@ const layer = Layer.effect(
 
     const enabled = () => location.vcs?.type === "git" && state.get().enabled
 
+    // Every model step captures twice, and the sessions of one project step at the same time; each
+    // capture walks the whole worktree with three git processes. A caller that arrives while a scan
+    // runs joins the next scan, which starts only after it arrived, so the tree still holds every
+    // change made before the call while any number of concurrent callers cost at most two scans.
+    const scanning = Semaphore.makeUnsafe(1)
+    let queued: Deferred.Deferred<ID | undefined> | undefined
     const capture = Effect.fn("Snapshot.capture")(function* () {
       if (!enabled()) return undefined
+      if (queued) return yield* Deferred.await(queued)
+      const next = Deferred.makeUnsafe<ID | undefined>()
+      queued = next
+      yield* scanning
+        .withPermit(
+          Effect.suspend(() => {
+            if (queued === next) queued = undefined
+            return scan()
+          }),
+        )
+        .pipe(
+          Effect.onExit((exit) => Effect.sync(() => Deferred.doneUnsafe(next, exit))),
+          Effect.forkIn(lifetime),
+        )
+      return yield* Deferred.await(next)
+    })
+
+    const scan = Effect.fnUntraced(function* () {
       return yield* Effect.gen(function* () {
         const repo = yield* repository
         return ID.make(

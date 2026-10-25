@@ -210,6 +210,70 @@ describe("Snapshot", () => {
       ),
     { timeout: 15_000 },
   )
+
+  testEffect(Layer.empty).live("concurrent captures share scans without returning a stale tree", () =>
+    Effect.acquireUseRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) =>
+        Effect.gen(function* () {
+          const project = path.join(tmp.path, "project")
+          yield* Effect.promise(async () => {
+            await fs.mkdir(project)
+            await fs.writeFile(path.join(project, "tracked.txt"), "one\n")
+            await initGit(project)
+          })
+          const git = yield* Git.Service.pipe(Effect.provide(AppNodeBuilder.build(Git.node)))
+          const location = yield* Location.Service.pipe(
+            Effect.provide(
+              AppNodeBuilder.build(Location.boundNode(Location.Ref.make({ directory: AbsolutePath.make(project) }))),
+            ),
+          )
+          const started = yield* Deferred.make<void>()
+          const release = yield* Deferred.make<void>()
+          let scans = 0
+          const instrumented = Git.Service.of({
+            ...git,
+            tree: {
+              ...git.tree,
+              capture: (input) =>
+                Effect.gen(function* () {
+                  scans++
+                  const tree = yield* git.tree.capture(input)
+                  // Hold the first scan open after it has read the worktree.
+                  if (scans === 1) {
+                    yield* Deferred.succeed(started, undefined)
+                    yield* Deferred.await(release)
+                  }
+                  return tree
+                }),
+            },
+          })
+          const layer = AppNodeBuilder.build(Snapshot.node, [
+            Location.node.replace(Layer.succeed(Location.Service, location)),
+            Global.node.replace(Global.layerWith({ data: tmp.path, config: path.join(tmp.path, "config") })),
+            Git.node.replace(Layer.succeed(Git.Service, instrumented)),
+          ])
+
+          yield* Effect.gen(function* () {
+            const snapshot = yield* Snapshot.Service
+            const first = yield* snapshot.capture().pipe(Effect.forkChild)
+            yield* Deferred.await(started)
+            // A change made while the first scan runs must be in the tree every later caller gets.
+            yield* Effect.promise(() => fs.writeFile(path.join(project, "tracked.txt"), "two\n"))
+            const later = yield* Effect.forEach(Array.from({ length: 5 }), () => snapshot.capture().pipe(Effect.forkChild))
+            yield* Deferred.succeed(release, undefined)
+            const before = yield* Fiber.join(first)
+            const after = yield* Effect.forEach(later, (fiber) => Fiber.join(fiber))
+
+            expect(scans).toBe(2)
+            expect(new Set(after).size).toBe(1)
+            expect(after[0]).toBeDefined()
+            expect(after[0]).not.toBe(before)
+          }).pipe(Effect.provide(layer))
+        }),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ),
+  )
 })
 
 function snapshotLayer(data: string, directory: string) {
