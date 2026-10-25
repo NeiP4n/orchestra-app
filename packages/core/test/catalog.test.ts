@@ -671,6 +671,32 @@ describe("Provider and Model", () => {
       expect(yield* models.small(providerID)).toBeUndefined()
     }),
   )
+
+  it.effect("keeps a model its provider disabled out of the available catalog", () =>
+    Effect.gen(function* () {
+      const providers = yield* Provider.Service
+      const models = yield* Model.Service
+      const providerID = Provider.ID.make("test")
+      const modelID = Model.ID.make("native-without-credentials")
+      yield* providers.transform((editor) => editor.update(providerID, () => {}))
+      yield* models.transform((editor) =>
+        editor.update(providerID, modelID, (model) => {
+          model.enabled = false
+        }),
+      )
+
+      // A provider plugin marks a model it cannot serve as disabled; it must not be pickable.
+      expect((yield* models.available()).some((model) => model.id === modelID)).toBe(false)
+      expect(yield* models.get(providerID, modelID)).toBeDefined()
+
+      yield* models.transform((editor) =>
+        editor.update(providerID, modelID, (model) => {
+          model.enabled = true
+        }),
+      )
+      expect((yield* models.available()).some((model) => model.id === modelID)).toBe(true)
+    }),
+  )
 })
 
 // Bus subscribers run on their own fibers, so give them turns until the condition holds.

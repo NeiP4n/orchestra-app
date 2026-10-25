@@ -43,6 +43,9 @@ const fixture = {
   },
 }
 
+// Providers that need no account are appended to every catalog after the fetched ones.
+const anonymousProviders = ModelsDev.normalize({})
+
 const fixtureSnapshot = [
   {
     info: {
@@ -83,6 +86,7 @@ const fixtureSnapshot = [
     ],
     environment: ["ACME_API_KEY"],
   },
+  ...anonymousProviders,
 ] satisfies readonly ModelsDev.Snapshot[]
 
 const fixture2 = {
@@ -145,6 +149,7 @@ const fixture2Snapshot = [
     ],
     environment: ["BETA_API_KEY"],
   },
+  ...anonymousProviders,
 ] satisfies readonly ModelsDev.Snapshot[]
 
 interface MockState {
@@ -156,6 +161,9 @@ interface MockState {
 const makeMockClient = (state: Ref.Ref<MockState>) =>
   HttpClient.make((request) =>
     Effect.gen(function* () {
+      // The service also refreshes Kilo's public free-model list; these tests count catalog fetches.
+      if (request.url.startsWith("https://ai-gateway.kilo.ai/"))
+        return HttpClientResponse.fromWeb(request, new Response(JSON.stringify({ data: [] }), { status: 200 }))
       yield* Ref.update(state, (s) => ({
         ...s,
         calls: [...s.calls, { url: request.url, userAgent: request.headers["user-agent"] ?? null }],
@@ -364,7 +372,7 @@ describe("ModelsDev Service", () => {
       yield* ModelsDev.Service.use((service) => service.get()).pipe(
         Effect.provide(buildLayer(state, cache, { url: "", fetch: true, snapshot: false })),
       )
-      expect((yield* Ref.get(state)).calls[0]?.url).toBe("https://models.opencode.ai/api.json")
+      expect((yield* Ref.get(state)).calls[0]?.url).toBe("https://models.dev/api.json")
     }),
   )
 

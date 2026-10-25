@@ -30,6 +30,11 @@ export class ModelUnavailableError extends Schema.TaggedError<ModelUnavailableEr
   }
 }
 export type Error = ModelNotSelectedError | ModelUnavailableError | ModelResolver.Error
+
+// How long a session waits for a plugin to finish populating the catalog before it reports a
+// requested model as unavailable. Provider plugins fetch their model list over the network.
+const CATALOG_SETTLE_ATTEMPTS = 40
+const CATALOG_SETTLE_INTERVAL = "250 millis"
 export type Resolved = ModelResolver.Resolved
 
 export interface Interface {
@@ -67,7 +72,7 @@ export const resolved = (
   transport: options.transport,
 })
 
-const layer = Layer.effect(
+export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const resolver = yield* ModelResolver.Service
@@ -80,7 +85,7 @@ const layer = Layer.effect(
           return yield* new ModelNotSelectedError({ sessionID: session.id })
         }
 
-        const catalog = yield* available()
+        let catalog = yield* available()
         const requested = session.model
 
         // Migrate the model reference before looking it up. Older OpenCode++ builds could
@@ -98,9 +103,22 @@ const layer = Layer.effect(
           })
         }
 
-        const selected = catalog.find(
+        let selected = catalog.find(
           (model) => model.providerID === requested.providerID && model.id === requested.id,
         )
+        // Provider plugins add their models after activation, and some of them finish that in a
+        // background network refresh. A session started in that window used to fail with
+        // "Model unavailable" for a model the catalog showed a moment later, so give the catalog
+        // a short, bounded chance to include the requested model before rejecting it.
+        if (!selected) {
+          for (let attempt = 0; attempt < CATALOG_SETTLE_ATTEMPTS && !selected; attempt++) {
+            yield* Effect.sleep(CATALOG_SETTLE_INTERVAL)
+            catalog = yield* available()
+            selected = catalog.find(
+              (model) => model.providerID === requested.providerID && model.id === requested.id,
+            )
+          }
+        }
         if (!selected)
           return yield* new ModelUnavailableError({
             providerID: requested.providerID,
