@@ -11,4 +11,6 @@ export class Info extends Schema.Class<Info>("Config.Compaction")({
   auto: Schema.Boolean.pipe(optional),
   keep: Keep.pipe(optional),
   buffer: NonNegativeInt.pipe(optional),
+  // Most tokens a request may carry before automatic compaction, whatever the model's window; 0 uses the window.
+  threshold: NonNegativeInt.pipe(optional),
 }) {}

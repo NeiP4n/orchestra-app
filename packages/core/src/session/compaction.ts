@@ -44,6 +44,8 @@ export type Settings = {
   buffer?: number
   /** Tokens of recent conversation kept verbatim beside the summary. */
   keep: number
+  /** Most tokens a request carries before automatic compaction, below the window's own ceiling; 0 uses the window. */
+  threshold: number
 }
 
 export type Editor = {
@@ -194,7 +196,9 @@ export const layer = Layer.effect(
 
     const state = State.create<Settings, Editor>({
       name: "session-compaction",
-      initial: () => ({ auto: true, keep: 15_000 }),
+      // A 1M window used to grow every step to hundreds of thousands of cached tokens before the
+      // first compaction; each step re-reads all of it, which is where long sessions spent their tokens.
+      initial: () => ({ auto: true, keep: 15_000, threshold: 200_000 }),
       editor: (settings) => ({
         configure: (update) => {
           Object.assign(settings, update)
@@ -208,7 +212,16 @@ export const layer = Layer.effect(
 
       // Only the user compacts when automatic compaction is off, overflow included.
       if (trigger.reason !== "manual" && !settings.auto) return { status: "skipped" }
-      if (trigger.reason === "auto" && !due(context, calculateCeiling(context.model.limit, settings.buffer)))
+      if (
+        trigger.reason === "auto" &&
+        !due(
+          context,
+          Math.min(
+            calculateCeiling(context.model.limit, settings.buffer),
+            settings.threshold || Number.POSITIVE_INFINITY,
+          ),
+        )
+      )
         return { status: "skipped" }
       const native = context.model.compaction?.type === "native"
       const agent = native ? undefined : yield* agents.get(Agent.ID.make("compaction"))

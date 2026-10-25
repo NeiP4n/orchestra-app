@@ -378,6 +378,15 @@ function normalizeCompaction(
     : undefined
   const buffer = prefer(legacyBuffer, nativeBuffer, ["compaction", "buffer"], diagnostics)
   if (buffer !== undefined) result.buffer = buffer
+  if (own(input.compaction, "threshold")) {
+    const threshold = decodeEncoded(
+      ConfigCompaction.Info.fields.threshold,
+      input.compaction.threshold,
+      ["compaction", "threshold"],
+      diagnostics,
+    )
+    if (threshold !== undefined) result.threshold = threshold
+  }
   if (Object.keys(result).length || !Object.keys(input.compaction).length) encoded.compaction = result
 }
 

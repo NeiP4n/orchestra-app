@@ -205,8 +205,13 @@ it.effect("auto compaction estimates current content against the buffered prompt
     const due = (context: SessionContext.Loaded) =>
       compaction.compact({ reason: "auto", context }).pipe(Effect.map((outcome) => outcome.status !== "skipped"))
 
-    // 90% of the input limit, which takes precedence over the context window.
+    // The default working threshold compacts a large window long before its own ceiling.
     const inputLimited = { context: 400_000, input: 272_000, output: 128_000 }
+    expect(yield* due(input(199_999, inputLimited))).toBe(false)
+    expect(yield* due(input(200_000, inputLimited))).toBe(true)
+    yield* compaction.transform((editor) => editor.configure({ threshold: 0 }))
+
+    // Without it, 90% of the input limit, which takes precedence over the context window.
     expect(yield* due(input(244_799, inputLimited))).toBe(false)
     expect(yield* due(input(244_800, inputLimited))).toBe(true)
     const native = (tokens: number, limit: { context: number; input?: number; output: number } = inputLimited) => {
