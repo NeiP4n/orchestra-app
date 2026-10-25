@@ -1219,13 +1219,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "orchestra-widgets"
-version = "0.1.0"
-dependencies = [
- "unicode-width",
-]
-
-[[package]]
 name = "ordered-float"
 version = "4.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
