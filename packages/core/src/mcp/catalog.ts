@@ -35,23 +35,28 @@ export const all: readonly Entry[] = [
     id: "context7",
     name: "Context7",
     description: "Up-to-date documentation and code examples for libraries and frameworks.",
-    usage: "Before using a library API you are not sure about, resolve the library id, then fetch its docs for the exact version and topic.",
+    usage:
+      "Before using a library API you are not sure about, resolve the library id, then fetch its docs for the exact version and topic.",
     runtime: "npx",
     config: local(["npx", "-y", "@upstash/context7-mcp"]),
   },
   {
     id: "rea-anything",
     name: "REA — Reverse Engineer Anything",
-    description: "Official REA MCP for evidence-based reverse engineering of native binaries, JavaScript/Electron apps, websites, Android APKs, and .NET assemblies.",
-    usage: "Use REA to investigate how an app feature works without source code. Start with the narrowest matching analysis tool, inspect its evidence and limitations, and use runtime capture only when appropriate for the target.",
+    description:
+      "Official REA MCP for evidence-based reverse engineering of native binaries, JavaScript/Electron apps, websites, Android APKs, and .NET assemblies.",
+    usage:
+      "Use REA to investigate how an app feature works without source code. Start with the narrowest matching analysis tool, inspect its evidence and limitations, and use runtime capture only when appropriate for the target.",
     runtime: "npx",
     config: local(["npx", "-y", "rea-agents@latest", "mcp"]),
   },
   {
     id: "playwright",
     name: "Playwright",
-    description: "Drive a real browser: open pages, click, fill forms, read the accessibility tree, and take screenshots.",
-    usage: "For web apps: navigate, inspect the page, interact with elements by stable references, and take screenshots to verify the result.",
+    description:
+      "Drive a real browser: open pages, click, fill forms, read the accessibility tree, and take screenshots.",
+    usage:
+      "For web apps: navigate, inspect the page, interact with elements by stable references, and take screenshots to verify the result.",
     runtime: "npx",
     config: local(["npx", "-y", "@playwright/mcp@latest", ...(windows ? ["--browser", "msedge"] : [])]),
   },
@@ -59,7 +64,8 @@ export const all: readonly Entry[] = [
     id: "chrome-devtools",
     name: "Chrome DevTools",
     description: "Inspect Chrome pages, console errors, network requests, DOM state, and performance traces.",
-    usage: "Use it to debug browser failures, inspect network/API calls, investigate console errors, and profile slow pages.",
+    usage:
+      "Use it to debug browser failures, inspect network/API calls, investigate console errors, and profile slow pages.",
     runtime: "npx",
     config: local(["npx", "-y", "chrome-devtools-mcp@latest", ...(windows ? ["--executablePath", edge] : [])]),
   },
@@ -67,7 +73,8 @@ export const all: readonly Entry[] = [
     id: "desktop-commander",
     name: "Desktop Commander",
     description: "Long-running terminal sessions, process management, fast file search, and edits across the computer.",
-    usage: "Use for interactive or long-running programs: start a process, inspect its output later, send input, search files, or manage processes.",
+    usage:
+      "Use for interactive or long-running programs: start a process, inspect its output later, send input, search files, or manage processes.",
     runtime: "npx",
     config: local(["npx", "-y", "@wonderwhy-er/desktop-commander"]),
   },
@@ -75,7 +82,8 @@ export const all: readonly Entry[] = [
     id: "windows",
     name: "Windows MCP",
     description: "Windows UI automation by accessible element name: inspect windows, click controls, and type text.",
-    usage: "Use on Windows for reliable desktop automation by inspecting controls and operating them by semantic names instead of screen coordinates.",
+    usage:
+      "Use on Windows for reliable desktop automation by inspecting controls and operating them by semantic names instead of screen coordinates.",
     runtime: "uvx",
     platforms: ["win32"],
     config: local(["uvx", "windows-mcp"]),
@@ -84,7 +92,8 @@ export const all: readonly Entry[] = [
     id: "sequential-thinking",
     name: "Sequential Thinking",
     description: "Structured step-by-step problem solving with revisions and branches.",
-    usage: "Use only for genuinely difficult planning, architecture, debugging, or analysis where explicit revision of intermediate hypotheses helps.",
+    usage:
+      "Use only for genuinely difficult planning, architecture, debugging, or analysis where explicit revision of intermediate hypotheses helps.",
     runtime: "npx",
     config: local(["npx", "-y", "@modelcontextprotocol/server-sequential-thinking"]),
   },
@@ -92,7 +101,8 @@ export const all: readonly Entry[] = [
     id: "memory",
     name: "Memory",
     description: "Persistent knowledge graph for storing and recalling useful facts across sessions.",
-    usage: "Store durable project facts, decisions, entities, and relationships; retrieve them before asking the user for information already recorded.",
+    usage:
+      "Store durable project facts, decisions, entities, and relationships; retrieve them before asking the user for information already recorded.",
     runtime: "npx",
     config: local(["npx", "-y", "@modelcontextprotocol/server-memory"]),
   },
@@ -100,7 +110,8 @@ export const all: readonly Entry[] = [
     id: "filesystem",
     name: "Filesystem",
     description: "Secure file and directory operations with search and access control.",
-    usage: "Use for file operations when direct tools are insufficient; prefer narrow project roots and never grant access to secrets or unrelated personal directories.",
+    usage:
+      "Use for file operations when direct tools are insufficient; prefer narrow project roots and never grant access to secrets or unrelated personal directories.",
     runtime: "npx",
     config: local(["npx", "-y", "@modelcontextprotocol/server-filesystem"]),
   },
@@ -108,29 +119,34 @@ export const all: readonly Entry[] = [
     id: "git",
     name: "Git",
     description: "Inspect Git status, diffs, history, branches, and repository state through MCP.",
-    usage: "Use for repository-aware Git inspection and safe version-control operations. Prefer read-only inspection before modifying history or pushing changes.",
+    usage:
+      "Use for repository-aware Git inspection and safe version-control operations. Prefer read-only inspection before modifying history or pushing changes.",
     runtime: "uvx",
     config: local(["uvx", "mcp-server-git"]),
   },
   {
     id: "github",
     name: "GitHub",
-    description: "Official GitHub MCP for repositories, code, issues, pull requests, Actions, and workflow intelligence.",
-    usage: "Use when a task involves GitHub repositories, issues, pull requests, CI, releases, or code search. Authenticate with OAuth or a token supported by the host.",
+    description:
+      "Official GitHub MCP for repositories, code, issues, pull requests, Actions, and workflow intelligence.",
+    usage:
+      "Use when a task involves GitHub repositories, issues, pull requests, CI, releases, or code search. Authenticate with OAuth or a token supported by the host.",
     config: remote("https://api.githubcopilot.com/mcp/"),
   },
   {
     id: "deepwiki",
     name: "DeepWiki",
     description: "Ask questions about public GitHub repositories and read generated project documentation.",
-    usage: "Use to quickly understand an unfamiliar public repository, its architecture, and the location of a feature before making changes.",
+    usage:
+      "Use to quickly understand an unfamiliar public repository, its architecture, and the location of a feature before making changes.",
     config: remote("https://mcp.deepwiki.com/mcp"),
   },
   {
     id: "fetch",
     name: "Fetch",
     description: "Fetch web pages and convert their contents into model-friendly text.",
-    usage: "Use to read documentation, articles, changelogs, and other web pages when direct web retrieval is unavailable or when a plain MCP resource is preferable.",
+    usage:
+      "Use to read documentation, articles, changelogs, and other web pages when direct web retrieval is unavailable or when a plain MCP resource is preferable.",
     runtime: "uvx",
     config: local(["uvx", "mcp-server-fetch"]),
   },
@@ -138,7 +154,8 @@ export const all: readonly Entry[] = [
     id: "brave-search",
     name: "Brave Search",
     description: "Web, news, image, video, local, and place search through the Brave Search API.",
-    usage: "Use when current web search is required and a Brave API key is configured. Prefer narrow queries and only enable the search tools actually needed.",
+    usage:
+      "Use when current web search is required and a Brave API key is configured. Prefer narrow queries and only enable the search tools actually needed.",
     runtime: "npx",
     requires: ["BRAVE_API_KEY"],
     config: local(["npx", "-y", "@brave/brave-search-mcp-server", "--transport", "stdio"]),
@@ -147,7 +164,8 @@ export const all: readonly Entry[] = [
     id: "sentry",
     name: "Sentry",
     description: "Inspect application errors, events, performance data, and debugging context from Sentry.",
-    usage: "Use when investigating production errors or regressions: inspect the relevant issue and recent events before proposing a fix.",
+    usage:
+      "Use when investigating production errors or regressions: inspect the relevant issue and recent events before proposing a fix.",
     runtime: "npx",
     requires: ["SENTRY_ACCESS_TOKEN"],
     config: local(["npx", "-y", "@sentry/mcp-server"]),
@@ -164,10 +182,22 @@ export const all: readonly Entry[] = [
     id: "mcp-docs",
     name: "MCP Documentation",
     description: "Official Model Context Protocol documentation exposed as a remote MCP server.",
-    usage: "Use when implementing or debugging MCP clients, servers, transports, schemas, authentication, or protocol behavior.",
+    usage:
+      "Use when implementing or debugging MCP clients, servers, transports, schemas, authentication, or protocol behavior.",
     config: remote("https://modelcontextprotocol.io/mcp"),
   },
 ]
+
+// The variables a catalog server exits without that neither its config nor the host provides. A key
+// passed as a command-line flag instead (--brave-api-key, --access-token) counts as provided.
+export function missing(name: string, config: ServerConfig) {
+  if (config.type !== "local") return []
+  const flagged = config.command.some((arg) => /^--[\w-]*(key|token)/i.test(arg))
+  if (flagged) return []
+  return (all.find((entry) => entry.id === name)?.requires ?? []).filter(
+    (key) => !config.environment?.[key] && !process.env[key],
+  )
+}
 
 export const forPlatform = (platform: NodeJS.Platform = process.platform) =>
   all.filter((entry) => !entry.platforms || entry.platforms.includes(platform))
@@ -180,6 +210,16 @@ export const Plugin = {
     yield* ctx.session.hook("context", (event) =>
       Effect.gen(function* () {
         const servers = Config.latest(yield* config.entries(), "mcp")?.servers ?? {}
+        // A server that failed or waits for sign-in has no tools; advertising it sent models into
+        // calls that could only fail. A pending one is still listed: it usually connects in seconds.
+        const down = new Set(
+          (yield* ctx.mcp.list().pipe(
+            Effect.map((response) => response.data),
+            Effect.orElseSucceed(() => []),
+          ))
+            .filter((server) => server.status.status !== "connected" && server.status.status !== "pending")
+            .map((server) => server.name),
+        )
         // A server's tools are direct tools named <server>_<tool> when its Code Mode is off, and run
         // through the `execute` tool otherwise. Only servers this session can reach are listed, so a
         // role whose tool list leaves a server out is not told about it.
@@ -187,6 +227,7 @@ export const Plugin = {
           (entry) =>
             servers[entry.id] !== undefined &&
             servers[entry.id]?.disabled !== true &&
+            !down.has(entry.id) &&
             (Object.keys(event.tools).some((tool) => tool.startsWith(`${entry.id}_`)) ||
               (event.tools.execute !== undefined && servers[entry.id]?.codemode !== false)),
         )

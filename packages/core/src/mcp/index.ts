@@ -430,6 +430,18 @@ export const layer = (options?: Options) =>
         Effect.gen(function* () {
           // Announce the handshake so connect() and credential reconnects don't show a stale
           // disabled/failed status for the duration of the connection attempt.
+          // A catalog server without its key exits on start; spawning it anyway cost an npx install
+          // check on every startup and reported only the server's own usage dump.
+          const { McpCatalog } = yield* Effect.promise(() => import("./catalog.js"))
+          const absent = McpCatalog.missing(name, entry.config)
+          if (absent.length > 0) {
+            entry.status = {
+              status: "failed",
+              error: `Needs ${absent.join(", ")}: add it under this server's environment in the MCP config, then reconnect.`,
+            }
+            yield* bus.publish(McpEvent.StatusChanged, { server: name })
+            return
+          }
           entry.status = { status: "pending" }
           yield* bus.publish(McpEvent.StatusChanged, { server: name })
           const scope = yield* Scope.fork(root)
@@ -679,7 +691,12 @@ export const layer = (options?: Options) =>
               message: unavailable(target.name, target.entry.status),
             })
           const result = yield* recovering(target.name, target.entry, target.entry.client, (connection) =>
-            connection.callTool({ name: input.name, args: input.args, sessionID: input.sessionID, readOnly: input.readOnly }),
+            connection.callTool({
+              name: input.name,
+              args: input.args,
+              sessionID: input.sessionID,
+              readOnly: input.readOnly,
+            }),
           ).pipe(
             Effect.mapError(
               (error) =>
