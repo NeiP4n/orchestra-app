@@ -984,7 +984,6 @@ describe("ModelResolver", () => {
         ["@orchestra/ai/providers/google-vertex/chat", "accessToken"],
         ["@orchestra/ai/providers/google-vertex/responses", "accessToken"],
         ["@orchestra/ai/providers/google-vertex/messages", "accessToken"],
-        ["@orchestra/ai/providers/google-antigravity", "accessToken"],
         ["@orchestra/ai/providers/anthropic", "authToken"],
         ["@orchestra/ai/providers/anthropic-compatible", "authToken"],
       ] as const
@@ -1226,8 +1225,8 @@ describe("ModelResolver", () => {
     ModelResolver.fromCatalogModel(
       model(Provider.aisdk("@openrouter/ai-sdk-provider"), {
         settings: {
-          appName: "Orchestra",
-          appUrl: "https://github.com/NeiP4n/orchestra-app",
+          appName: "OpenCode",
+          appUrl: "https://opencode.ai",
           extraBody: { transforms: ["middle-out"], provider: { sort: "price" } },
         },
         headers: { "X-OpenRouter-Title": "Custom" },
@@ -1239,7 +1238,7 @@ describe("ModelResolver", () => {
           Effect.succeed({
             model: (modelID, settings) => {
               expect(settings.headers).toEqual({
-                "HTTP-Referer": "https://github.com/NeiP4n/orchestra-app",
+                "HTTP-Referer": "https://opencode.ai",
                 "X-OpenRouter-Title": "Custom",
               })
               expect(settings.body).toEqual({
@@ -1602,55 +1601,6 @@ describe("ModelResolver", () => {
       expect(ModelResolver.hasPackage(model(Provider.aisdk("@ai-sdk/openai")))).toBe(true)
       expect(ModelResolver.hasPackage(model("@orchestra/ai/providers/custom"))).toBe(true)
       expect(ModelResolver.hasPackage(model(undefined))).toBe(false)
-    }),
-  )
-
-  it.effect("resolves Google Antigravity models and passes projectId from credential metadata", () =>
-    Effect.gen(function* () {
-      const catalog = model("@orchestra/ai/providers/google-antigravity", {
-        providerID: Provider.ID.make("google-antigravity"),
-        modelID: "gemini-3.8-flash",
-      })
-      const credential = Credential.OAuth.make({
-        type: "oauth",
-        methodID: Integration.MethodID.make("oauth"),
-        access: "antigravity-token-123",
-        refresh: "refresh-token-456",
-        expires: Date.now() + 60_000,
-        metadata: {
-          projectId: "test-cloud-project-789",
-        },
-      })
-      const resolved = yield* ModelResolver.fromCatalogModel(catalog, credential)
-
-      expect(resolved.route.id).toBe("gemini-cloudcode")
-      expect(resolved.route.endpoint.baseURL).toBe("https://daily-cloudcode-pa.googleapis.com")
-
-      const request = LLM.request({ model: resolved, prompt: "Hello Antigravity" })
-      const prepared = yield* compileRequest(request)
-
-      expect(prepared.body).toMatchObject({
-        project: "test-cloud-project-789",
-        model: "gemini-3.8-flash",
-        request: {
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: "Hello Antigravity" }],
-            },
-          ],
-        },
-      })
-
-      const headers = yield* resolved.route.auth.apply({
-        request,
-        method: "POST",
-        url: "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
-        body: JSON.stringify(prepared.body),
-        headers: Headers.empty,
-      })
-
-      expect(headers.authorization).toBe("Bearer antigravity-token-123")
     }),
   )
 })

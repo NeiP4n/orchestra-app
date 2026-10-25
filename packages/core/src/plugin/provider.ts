@@ -10,7 +10,6 @@ import { FreebuffPlugin } from "./provider/freebuff.js"
 import { DynamicProviderPlugin } from "./provider/dynamic.js"
 import { GithubCopilotPlugin } from "./provider/github-copilot.js"
 import { GitLabPlugin } from "./provider/gitlab.js"
-import { GoogleAntigravityPlugin } from "./provider/google-antigravity.js"
 import { GoogleVertexPlugin } from "./provider/google-vertex.js"
 import { KiloPlugin } from "./provider/kilo.js"
 import { LLMGatewayPlugin } from "./provider/llmgateway.js"
@@ -44,7 +43,6 @@ export const ProviderPlugins: PluginInternal.InternalPlugin[] = [
   FreebuffPlugin,
   GithubCopilotPlugin,
   GitLabPlugin,
-  GoogleAntigravityPlugin,
   GoogleVertexPlugin,
   KiloPlugin,
   LLMGatewayPlugin,

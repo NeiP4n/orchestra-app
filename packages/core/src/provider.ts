@@ -75,7 +75,6 @@ const builtins = new Map<string, () => Promise<unknown>>([
   ["@orchestra/ai/providers/fireworks", () => import("@orchestra/ai/providers/fireworks")],
   ["@orchestra/ai/providers/google", () => import("@orchestra/ai/providers/google")],
   ["@orchestra/ai/providers/google/interactions", () => import("@orchestra/ai/providers/google/interactions")],
-  ["@orchestra/ai/providers/google-antigravity", () => import("@orchestra/ai/providers/google-antigravity")],
   ["@orchestra/ai/providers/google-vertex", () => import("@orchestra/ai/providers/google-vertex")],
   ["@orchestra/ai/providers/google-vertex/gemini", () => import("@orchestra/ai/providers/google-vertex/gemini")],
   ["@orchestra/ai/providers/google-vertex/chat", () => import("@orchestra/ai/providers/google-vertex/chat")],
