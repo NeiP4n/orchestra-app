@@ -31,6 +31,11 @@ at all — it is the `SKILL.md` in the skill's GitHub repository.
   where the project's own loader will find it.
 - `skill-marketplace/save.ts` — the one global write: `SKILL.md` into
   `<global config>/skills/<name>/`, the directory the config loader already scans.
+- `skill-marketplace/scan.ts` — a native static scan modelled on NVIDIA SkillSpector's first stage
+  (regex rules by threat category, severity weights 50/25/10/5, score bands SAFE / CAUTION / DO NOT INSTALL).
+  `scan` checks without writing; `read` and `save` run it themselves and refuse a DO NOT INSTALL skill, so
+  nothing blocked reaches `.opencode/skills`. It reads only `SKILL.md`: no scripts, CVE lookup or model review,
+  so SAFE means "no known bad pattern in the text".
 - `skill-marketplace/index.ts` — the Location-scoped service (`makeLocationNode`, deps
   `Global.node` and `Location.node`) with `search`, `read`, `save` and `stats`.
 - `tool/plugin/skill-catalog.ts` — the `skill_catalog` tool over that service.

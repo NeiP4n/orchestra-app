@@ -33,7 +33,7 @@ const DESCRIPTION_LIMIT = 200
 const RAW_LIMIT = 4000
 
 export const description = [
-  "Search the SkillsMP marketplace for ready-made agent skills, read one skill's text, and keep a skill for good.",
+  "Search the SkillsMP marketplace for ready-made agent skills, scan them for danger, read one skill's text, and keep a skill for good.",
   "",
   "Use the skill tool for skills already installed on this machine; use this one when nothing local fits the task and a published skill might.",
   "",
@@ -41,21 +41,24 @@ export const description = [
   "",
   "Actions:",
   `  search — find skills by words in query (required), up to ${MAX_RESULTS} results (${DEFAULT_RESULTS} by default); narrow with category or language, and order by stars or recent. A category or an order always asks the catalog.`,
+  "  scan — a static security scan (SkillSpector-style rules) of one skill by id (required), with nothing written to the project. Scan the candidates you are considering BEFORE you get one.",
   '  get — the full text of one skill, by the bare name from a search row in id (required). The text is saved into this project, so reading it again costs no request. Add save: "global" to keep the skill for good in every project.',
+  "",
+  "get and save scan the skill themselves and refuse one that scores DO NOT INSTALL, so a dangerous skill is never written to disk. A scan reads only SKILL.md: SAFE means no known bad pattern in that text, not that the skill's scripts were checked. Tell the user the score and findings when you recommend a skill, and never install one flagged CAUTION without saying why.",
   "",
   'Keeping a skill globally is the user\'s decision and only happens when you pass save: "global".',
   `Permission: each call is checked under the old MCP tool name (${McpTool.name(server, "search_skills")}, ${McpTool.name(server, "get_skill")}), the name a saved rule for that server already uses, and under ${name}. A write into the global skills directory is additionally checked under the skill registry.`,
 ].join("\n")
 
 export const Input = Schema.Struct({
-  action: Schema.Literals(["search", "get"]).annotate({
-    description: "Search the marketplace for skills, or read the details of one found skill",
+  action: Schema.Literals(["search", "scan", "get"]).annotate({
+    description: "Search the marketplace for skills, scan one found skill for danger, or read and install one",
   }),
   query: Schema.optionalKey(Schema.String).annotate({
     description: "A few words naming the task, for search",
   }),
   id: Schema.optionalKey(Schema.String).annotate({
-    description: "Exact skill name or slug from a search result, for get",
+    description: "Exact skill name or slug from a search result, for scan and get",
   }),
   limit: Schema.optionalKey(Schema.Number).annotate({
     description: `How many results search returns, 1 to ${MAX_RESULTS}`,
@@ -76,6 +79,15 @@ export const Input = Schema.Struct({
 })
 export type Input = typeof Input.Type
 
+const Finding = Schema.Struct({
+  rule: Schema.String,
+  category: Schema.String,
+  severity: Schema.String,
+  line: Schema.Number,
+  excerpt: Schema.String,
+  message: Schema.String,
+})
+
 const Skill = Schema.Struct({
   name: Schema.String,
   stars: Schema.optionalKey(Schema.Number),
@@ -85,7 +97,11 @@ const Skill = Schema.Struct({
 
 export const Output = Schema.Struct({
   output: Schema.String,
-  action: Schema.Literals(["search", "get"]),
+  action: Schema.Literals(["search", "scan", "get"]),
+  /** The scan's risk score, 0 to 100, for scan and get. */
+  score: Schema.optionalKey(Schema.Number),
+  recommendation: Schema.optionalKey(Schema.String),
+  findings: Schema.optionalKey(Schema.Array(Finding)),
   reported: Schema.optionalKey(Schema.Number),
   skills: Schema.optionalKey(Schema.Array(Skill)),
   truncated: Schema.optionalKey(Schema.Boolean),
@@ -118,6 +134,7 @@ type Call =
       readonly input: SkillMarketplace.SearchInput
       readonly resource: string
     }
+  | { readonly action: "scan"; readonly name: string; readonly resource: string }
   | {
       readonly action: "get"
       readonly name: string
@@ -126,6 +143,11 @@ type Call =
     }
 
 const call = (input: Input): Effect.Effect<Call, ToolFailure> => {
+  if (input.action === "scan") {
+    if (input.id === undefined)
+      return Effect.fail(new ToolFailure({ message: "skill_catalog scan needs id: the skill name from a search" }))
+    return Effect.succeed({ action: "scan", name: input.id, resource: "get_skill" })
+  }
   if (input.action === "get") {
     if (input.id === undefined)
       return Effect.fail(new ToolFailure({ message: "skill_catalog get needs id: the skill name from a search" }))
@@ -186,11 +208,39 @@ const searched = (answer: SkillMarketplace.SearchResult): Output => {
   }
 }
 
+const MAX_FINDINGS = 20
+
+const verdict = (report: SkillMarketplace.ReadResult["scan"]) => ({
+  score: report.score,
+  recommendation: report.recommendation,
+  findings: report.findings.slice(0, MAX_FINDINGS),
+})
+
+/** A get also carries the skill text, so it shows fewer findings than a scan; the structured list holds all of them. */
+const summary = (report: SkillMarketplace.ReadResult["scan"], shown = MAX_FINDINGS) =>
+  [
+    `Scan: ${report.score}/100 ${report.recommendation} (SKILL.md text only; scripts, dependencies and runtime behaviour are not checked).`,
+    ...report.findings
+      .slice(0, shown)
+      .map((finding) => `- ${finding.severity} ${finding.rule} line ${finding.line}: ${finding.message} — ${finding.excerpt}`),
+  ].join("\n")
+
+const scanned = (answer: SkillMarketplace.ScanResult): Output => ({
+  action: "scan",
+  ...verdict(answer.scan),
+  output: [
+    `${answer.name}: ${summary(answer.scan)}`,
+    ...(answer.truncated ? ["The text was cut at the read limit; the tail was not scanned."] : []),
+  ].join("\n"),
+})
+
 const detailed = (answer: SkillMarketplace.ReadResult, global?: SkillMarketplace.SaveResult): Output => {
-  const clipped = answer.content.length > RAW_LIMIT
+  const full = `${summary(answer.scan, 5)}\n\n${answer.content || EMPTY}`
+  const clipped = full.length > RAW_LIMIT
   return {
     action: "get",
-    output: clip(answer.content || EMPTY, RAW_LIMIT),
+    ...verdict(answer.scan),
+    output: clip(full, RAW_LIMIT),
     // An optional key that is present as `undefined` fails the output schema; it has to be absent.
     ...(clipped ? { truncated: true } : {}),
     ...(global === undefined && answer.applied === undefined ? {} : { saved: global?.path ?? answer.applied }),
@@ -266,6 +316,10 @@ export const Plugin = {
                 return yield* catalog
                   .search(target.input)
                   .pipe(Effect.timeout(CALL_TIMEOUT), Effect.map(searched), Effect.mapError(failed))
+              if (target.action === "scan")
+                return yield* catalog
+                  .scan({ name: target.name })
+                  .pipe(Effect.timeout(CALL_TIMEOUT), Effect.map(scanned), Effect.mapError(failed))
               const read = yield* catalog
                 .read({ name: target.name })
                 .pipe(Effect.timeout(CALL_TIMEOUT), Effect.mapError(failed))
