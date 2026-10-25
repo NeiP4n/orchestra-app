@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { SystemPart } from "@orchestra/ai"
+import { Message, SystemPart } from "@orchestra/ai"
 import { Agent } from "@orchestra/core/agent"
 import { Plugin } from "@orchestra/core/plugin"
 import { PluginHooks } from "@orchestra/core/plugin/hooks"
@@ -20,6 +20,7 @@ import PROMPT_ASTRA from "../../src/plugin/system-prompt/gpt-astra.txt"
 import PROMPT_KIMI from "../../src/plugin/system-prompt/kimi.txt"
 import PROMPT_TRINITY from "../../src/plugin/system-prompt/trinity.txt"
 import PROMPT_ANTHROPIC from "../../src/plugin/system-prompt/anthropic.txt"
+import PROMPT_AUTONOMY from "../../src/plugin/system-prompt/autonomy.txt"
 
 const it = testEffect(PluginTestLayer)
 const fallback = SessionSystemPrompt.make([])
@@ -288,7 +289,10 @@ describe("OptimizePlugin", () => {
             Effect.tap(() =>
               Effect.sync(() => {
                 expect(event.system[0]?.text).toBe(
-                  SessionSystemPrompt.render(PROMPT_DEEPSEEK.replaceAll("{{MODEL_NAME}}", name), Object.keys(event.tools)),
+                  SessionSystemPrompt.render(
+                    PROMPT_DEEPSEEK.replaceAll("{{MODEL_NAME}}", name),
+                    Object.keys(event.tools),
+                  ),
                 )
                 expect(event.system[0]?.text).not.toContain("{{MODEL_NAME}}")
                 expect(event.system[0]?.text).not.toContain("${ORCHESTRA_TOOL_GUIDANCE}")
@@ -408,6 +412,43 @@ describe("OptimizePlugin", () => {
           }),
         { discard: true },
       )
+    }),
+  )
+  test("follows the user's latest word on autonomy", () => {
+    const user = (text: string) => Message.user(text)
+    expect(OptimizePlugin.autonomous([])).toBe(false)
+    expect(OptimizePlugin.autonomous([user("Почини тесты")])).toBe(false)
+    expect(OptimizePlugin.autonomous([user("Работайте автономно, я ухожу")])).toBe(true)
+    expect(OptimizePlugin.autonomous([user("не спрашивай меня, делай")])).toBe(true)
+    expect(OptimizePlugin.autonomous([user("Work autonomously until it is done")])).toBe(true)
+    expect(OptimizePlugin.autonomous([user("работай автономно"), user("теперь продолжай")])).toBe(true)
+    expect(
+      OptimizePlugin.autonomous([user("работай автономно"), user("дальше спрашивай меня перед каждым шагом")]),
+    ).toBe(false)
+    // Command templates such as /init say "Do not ask about…" to the model, not about the user.
+    expect(OptimizePlugin.autonomous([user("Do not ask about anything the repo already makes clear.")])).toBe(false)
+  })
+
+  it.effect("drops the question tool and adds the autonomy rules while autonomous", () =>
+    Effect.gen(function* () {
+      const hooks = yield* PluginHooks.Service
+      const pluginHost = yield* makeHost
+      yield* OptimizePlugin.AutonomyPlugin.effect(pluginHost)
+      const tools = { description: "question", input: { type: "object" } } as const
+      const asking = context("gemini-3.8-flash")
+      asking.tools.question = tools
+      asking.messages.push(Message.user("Fix the build"))
+      const silent = context("gemini-3.8-flash")
+      silent.tools.question = tools
+      silent.messages.push(Message.user("Fix the build, работай автономно"))
+
+      yield* hooks.trigger("session", "context", asking)
+      yield* hooks.trigger("session", "context", silent)
+
+      expect(asking.tools.question).toBeDefined()
+      expect(asking.system.map((part) => part.text)).not.toContain(PROMPT_AUTONOMY)
+      expect(silent.tools.question).toBeUndefined()
+      expect(silent.system.map((part) => part.text)).toContain(PROMPT_AUTONOMY)
     }),
   )
 })

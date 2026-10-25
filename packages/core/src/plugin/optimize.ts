@@ -3,6 +3,7 @@ export * as OptimizePlugin from "./optimize.js"
 import { define } from "@orchestra/plugin/effect/plugin"
 import type { SessionHooks } from "@orchestra/plugin/effect/session"
 import { Model } from "@orchestra/schema/model"
+import type { Message } from "@orchestra/ai"
 import { Effect } from "effect"
 import { SessionSystemPrompt } from "../session/system-prompt.js"
 
@@ -16,6 +17,7 @@ import PROMPT_ANTHROPIC from "./system-prompt/anthropic.txt"
 import PROMPT_WORKSTYLE from "./system-prompt/workstyle.txt"
 import PROMPT_PRINCIPLES from "./system-prompt/principles.txt"
 import PROMPT_INTERACTIVE from "./system-prompt/interactive.txt"
+import PROMPT_AUTONOMY from "./system-prompt/autonomy.txt"
 
 export const OpenAIPlugin = make("opencode.prompt.openai", (model) => {
   const id = model.id.toLowerCase()
@@ -109,14 +111,43 @@ export const InteractivePlugin = define({
   }),
 })
 
-export const Plugins = [
-  OpenAIPlugin,
-  AnthropicPlugin,
-  DeepSeekPlugin,
-  KimiPlugin,
-  ArceePlugin,
-  MetaPlugin,
-] as const
+// "Work autonomously" used to be one sentence in a long history that the next step's prompts
+// outweighed: models kept asking through the question tool and @ui choices and stopped after the
+// first piece of the task. While the user's latest word on it says autonomous, every request
+// repeats the rule and drops the question tool, so asking is not even an option.
+export const AutonomyPlugin = define({
+  id: "opencode.prompt.autonomy",
+  effect: Effect.fn("OptimizePlugin.autonomy")(function* (ctx) {
+    yield* ctx.session.hook("context", (event) =>
+      Effect.sync(() => {
+        if (!autonomous(event.messages)) return
+        event.system.push({ type: "text", text: PROMPT_AUTONOMY })
+        delete event.tools.question
+      }),
+    )
+  }),
+})
+
+const AUTONOMY_ON =
+  /автономн|самостоятельно|без (лишних )?вопрос|не (спрашивай|задавай (мне )?вопрос|переспрашивай)|\bautonomous(ly)?\b|without asking (me|questions)|\bno questions\b|don'?t ask me/i
+const AUTONOMY_OFF = /(спрашивай|уточняй) (меня|у меня)|задавай (мне )?вопрос|\bask me (first|before)|check with me/i
+
+// The user's latest message that speaks about it wins; "не спрашивай меня" matches both, so on is checked first.
+export function autonomous(messages: ReadonlyArray<Message>) {
+  return (
+    messages
+      .findLast(
+        (message) =>
+          message.role === "user" &&
+          message.content.some(
+            (part) => part.type === "text" && (AUTONOMY_ON.test(part.text) || AUTONOMY_OFF.test(part.text)),
+          ),
+      )
+      ?.content.some((part) => part.type === "text" && AUTONOMY_ON.test(part.text)) ?? false
+  )
+}
+
+export const Plugins = [OpenAIPlugin, AnthropicPlugin, DeepSeekPlugin, KimiPlugin, ArceePlugin, MetaPlugin] as const
 
 function make(
   id: string,
