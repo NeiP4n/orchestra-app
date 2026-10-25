@@ -1,6 +1,7 @@
 export * as ConfigDiscovery from "./discovery.js"
 
 import path from "path"
+import os from "os"
 import { Effect } from "effect"
 import { FSUtil } from "@orchestra/util/fs-util"
 import { Global } from "@orchestra/util/global"
@@ -38,6 +39,7 @@ export const discover = Effect.fn("ConfigDiscovery.discover")(function* (options
   const resolvedLocation = yield* fs.resolve(location.directory)
   const resolvedProject = yield* fs.resolve(location.project.directory)
   const resolvedHome = yield* fs.resolve(global.home)
+  const hostHome = yield* fs.resolve(os.homedir())
   const isWithin = (root: string, candidate: string) => {
     const relative = path.relative(root, candidate)
     return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
@@ -57,6 +59,7 @@ export const discover = Effect.fn("ConfigDiscovery.discover")(function* (options
     (projectDirectories as readonly string[]).includes(path.basename(globalRoots[0])) &&
     isWithin(resolvedProject, globalRoots[0])
   const locationInsideHome = isWithin(resolvedHome, resolvedLocation)
+  const locationInsideHostHome = isWithin(hostHome, resolvedLocation)
   const directories = yield* Effect.gen(function* () {
     const result: typeof upward = []
     for (const directory of upward) {
@@ -70,6 +73,9 @@ export const discover = Effect.fn("ConfigDiscovery.discover")(function* (options
           result.push(directory)
         }
         continue
+      }
+      if (locationInsideHostHome && resolvedHome !== hostHome) {
+        if (resolved === hostHome || !isWithin(hostHome, resolved)) continue
       }
       result.push(directory)
     }

@@ -184,6 +184,7 @@ describe("Agent", () => {
         "general",
         "notes",
         "orchestrator",
+        "president",
         "summary",
         "title",
       ])
