@@ -2,6 +2,7 @@ export * as SourceRelease from "./source-release"
 
 import { $ } from "bun"
 import path from "node:path"
+import { existsSync } from "node:fs"
 import { parseReleaseVersion } from "./updater-action"
 
 const PREFIX = "release/"
@@ -210,6 +211,7 @@ async function installDependencies(root: string) {
 }
 
 async function validateServer(root: string) {
+  if (!existsSync(path.join(root, "packages", "server"))) return
   const result = await runBun(["--cwd", "packages/server", "run", "typecheck"], root, VALIDATION_TIMEOUT_MS)
   if (result.exitCode !== 0) {
     const detail = result.stderr.trim() || result.stdout.trim() || `Server typecheck exited with code ${result.exitCode}`

@@ -103,6 +103,6 @@ test("a group chat is recognized by its marker", () => {
 
 test("the group chat marker keeps a stable public identifier", () => {
   expect(Federation.GroupSupervisorMetadata.ast.annotations?.identifier).toBe("Federation.GroupSupervisorMetadata")
-  expect(Federation.GroupSupervisorMetadataKey).toBe("opencode-pp:group-supervisor")
-  expect(Federation.GroupBootstrapMetadataKey).toBe("opencode-pp:group-supervisor-bootstrap")
+  expect(Federation.GroupSupervisorMetadataKey).toBe("orchestra:group-supervisor")
+  expect(Federation.GroupBootstrapMetadataKey).toBe("orchestra:group-supervisor-bootstrap")
 })

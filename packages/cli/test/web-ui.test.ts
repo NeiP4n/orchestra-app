@@ -162,7 +162,7 @@ describe("web UI", () => {
                     version: "test",
                     pid: 1,
                     urls: [origin],
-                    paths: { tmp: "/tmp/opencode" },
+                    paths: { tmp: "/tmp/orchestra" },
                   })
                 return yield* Effect.fail(
                   new HttpServerError.HttpServerError({
@@ -179,7 +179,7 @@ describe("web UI", () => {
             version: "test",
             pid: 1,
             urls: [origin],
-            paths: { tmp: "/tmp/opencode" },
+            paths: { tmp: "/tmp/orchestra" },
           })
 
           const missing = yield* Effect.promise(() => fetch(`${origin}/api/missing`))
@@ -230,3 +230,4 @@ describe("web UI", () => {
     )
   })
 })
+

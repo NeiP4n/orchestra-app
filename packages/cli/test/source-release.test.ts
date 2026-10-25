@@ -197,6 +197,7 @@ test("an edit the update does not touch is put back on top of it", async () => {
 test("an edit that clashes with the update waits in the stash and the install stays clean", async () => {
   await using repo = await edited()
   await writeFile(path.join(repo.install, "notes.txt"), "my own notes")
+  await $`git -C ${repo.install} add notes.txt`.quiet()
   const kept = await SourceRelease.keepingEdits(repo.install, repo.move)
   expect(kept).toEqual({ type: "stashed", files: ["notes.txt"] })
   expect(await SourceRelease.current(repo.install)).toBe("1.2.0")

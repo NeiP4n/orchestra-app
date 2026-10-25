@@ -35,7 +35,7 @@ describe("mini command", () => {
           version: ORCHESTRA_VERSION,
           pid: process.pid,
           urls: [],
-          paths: { tmp: "/tmp/opencode" },
+          paths: { tmp: "/tmp/orchestra" },
         })
       },
     })
@@ -47,7 +47,7 @@ describe("mini command", () => {
           version: ORCHESTRA_VERSION,
           pid: process.pid,
           urls: [],
-          paths: { tmp: "/tmp/opencode" },
+          paths: { tmp: "/tmp/orchestra" },
         })
       },
     })
@@ -128,7 +128,7 @@ describe("mini command", () => {
 
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toMatch(/^  mini[ \t]+Start the minimal interactive interface\r?$/m)
-    expect(result.stdout).toMatch(/^  run[ \t]+Run Opencode\+\+ with a message\r?$/m)
+    expect(result.stdout).toMatch(/^  run[ \t]+Run Orchestra with a message\r?$/m)
   })
 
   test("exposes run without legacy interactive, attach, or command modes", async () => {
@@ -162,7 +162,7 @@ describe("mini command", () => {
             version: ORCHESTRA_VERSION,
             pid: process.pid,
             urls: [],
-            paths: { tmp: "/tmp/opencode" },
+            paths: { tmp: "/tmp/orchestra" },
           })
         if (url.pathname === "/api/location")
           return Response.json({ directory: process.cwd(), project: { id: "global", directory: process.cwd() } })
@@ -209,7 +209,7 @@ describe("mini command", () => {
           version: "incompatible",
           pid: process.pid,
           urls: [],
-          paths: { tmp: "/tmp/opencode" },
+          paths: { tmp: "/tmp/orchestra" },
         })
       },
     })
@@ -246,7 +246,8 @@ describe("mini command", () => {
       const result = await cli(args)
 
       expect(result.exitCode).toBe(1)
-      expect(result.stderr).toContain("opencode mini requires a TTY stdout")
+      expect(result.stderr).toContain("orchestra mini requires a TTY stdout")
     }
   })
 })
+

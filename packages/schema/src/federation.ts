@@ -75,7 +75,11 @@ export function modeOf(group: Pick<Group, "mode">): CoordinationMode {
 // The marker a group-bound chat carries in its session metadata. It names the group the chat
 // belongs to, the coordinator project and the coordination mode, so any reader can tell a
 // group's chat from a project's own session without asking the group registry.
-export const GroupSupervisorMetadataKey = "opencode-pp:group-supervisor"
+// Primary key for the current Orchestra contract; the legacy "opencode-pp:" key is retained
+// as a read fallback so sessions persisted before the rebrand still resolve their group chat.
+export const GroupSupervisorMetadataKey = "orchestra:group-supervisor"
+const LEGACY_GROUP_SUPERVISOR_METADATA_KEY = "opencode-pp:group-supervisor"
+
 export const GroupSupervisorMetadata = Schema.Struct({
   groupName: Schema.String,
   leader: ProjectID,
@@ -87,12 +91,17 @@ const decodeGroupSupervisor = Schema.decodeUnknownOption(GroupSupervisorMetadata
 
 export function groupSupervisor(metadata?: SessionMetadata) {
   if (!metadata) return undefined
-  return Option.getOrUndefined(decodeGroupSupervisor(metadata[GroupSupervisorMetadataKey]))
+  const candidates = [metadata[GroupSupervisorMetadataKey], metadata[LEGACY_GROUP_SUPERVISOR_METADATA_KEY]]
+  for (const candidate of candidates) {
+    const decoded = Option.getOrUndefined(decodeGroupSupervisor(candidate))
+    if (decoded) return decoded
+  }
+  return undefined
 }
 
 // The marker of the message that sets a group chat up. It tells the Council that the message is
 // context, not a task the operator gave.
-export const GroupBootstrapMetadataKey = "opencode-pp:group-supervisor-bootstrap"
+export const GroupBootstrapMetadataKey = "orchestra:group-supervisor-bootstrap"
 
 // Every unordered pair of a group's projects.
 export function pairs<T>(items: ReadonlyArray<T>): ReadonlyArray<readonly [T, T]> {

@@ -2,17 +2,18 @@ import { NodeFileSystem } from "@effect/platform-node"
 import { Global } from "@orchestra/util/global"
 import { Effect, Option } from "effect"
 import { expect, mock, test } from "bun:test"
-import { mkdir, rm } from "node:fs/promises"
+import fs from "node:fs/promises"
+import os from "node:os"
 import path from "node:path"
 import { Config } from "../src/config"
 import type { MiniCommandInput } from "../src/mini"
 import { ORCHESTRA_VERSION } from "../src/version"
 
 test("mini handler passes resolved CLI keybinds to the runtime", async () => {
-  const root = await Bun.$`mktemp -d`.text().then((value) => value.trim())
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-mini-config-"))
   const configDirectory = path.join(root, "config")
   const stateDirectory = path.join(root, "state")
-  await mkdir(configDirectory, { recursive: true })
+  await fs.mkdir(configDirectory, { recursive: true })
   await Bun.write(
     path.join(configDirectory, "cli.json"),
     JSON.stringify({

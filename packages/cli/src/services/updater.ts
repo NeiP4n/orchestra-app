@@ -156,7 +156,7 @@ const make = Effect.gen(function* () {
       new UpgradeError({
         title: "Git Bash is required to update Orchestra",
         detail: "The Orchestra installer runs with Git Bash on Windows, and it was not found.",
-        retry: "Install Git for Windows or set ORCHESTRA_GIT_BASH_PATH, then run opencode upgrade again.",
+        retry: "Install Git for Windows or set ORCHESTRA_GIT_BASH_PATH, then run orchestra upgrade again.",
       }),
     )
   })
@@ -235,7 +235,7 @@ const make = Effect.gen(function* () {
           {
             title: "Could not check for Orchestra updates",
             detail: errorDetail(cause),
-            retry: "Check your network, then run opencode upgrade again.",
+            retry: "Check your network, then run orchestra upgrade again.",
           },
           { cause },
         ),
@@ -307,7 +307,7 @@ const make = Effect.gen(function* () {
           title: input.title ?? `${installNames[input.method]} could not install OpenCode`,
           detail,
           command: (input.displayCommand ?? input.command).join(" "),
-          retry: input.retry ?? "Fix the issue above, then run opencode upgrade again.",
+          retry: input.retry ?? "Fix the issue above, then run orchestra upgrade again.",
         },
         cause === undefined ? undefined : { cause },
       )
@@ -399,7 +399,7 @@ const make = Effect.gen(function* () {
             command: ["curl", "-fsSL", "-o", installer, installURL],
             displayCommand: ["curl", "-fsSL", installURL],
             title: "Could not download the Orchestra installer",
-            retry: "Check your network, then run opencode upgrade again.",
+            retry: "Check your network, then run orchestra upgrade again.",
           })
           return yield* retaining(
             method,
@@ -422,7 +422,7 @@ const make = Effect.gen(function* () {
               {
                 title: "Could not prepare the Orchestra upgrade",
                 detail: errorDetail(cause),
-                retry: "Fix the issue above, then run opencode upgrade again.",
+                retry: "Fix the issue above, then run orchestra upgrade again.",
               },
               { cause },
             ),

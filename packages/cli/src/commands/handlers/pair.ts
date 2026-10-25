@@ -12,7 +12,7 @@ export default Runtime.handler(
   Effect.fn("cli.pair")(function* (input: Runtime.Input<typeof Commands.commands.pair>) {
     if ((yield* ServiceConfig.read()).disabled === true)
       return yield* Effect.fail(
-        new Error("Pairing requires the background service; run `opencode service unset disabled` first"),
+        new Error("Pairing requires the background service; run `orchestra service unset disabled` first"),
       )
     const endpoint = yield* Service.ensure(yield* ServiceConfig.options())
     const client = OpenCode.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
@@ -54,7 +54,7 @@ export default Runtime.handler(
         `  ssh -L ${url.port}:${url.hostname}:${url.port} <host>`,
         `  If port ${url.port} is busy locally, forward another port and use it in the link.`,
         "",
-        "  To connect from other devices, run `opencode service set hostname 0.0.0.0`.",
+        "  To connect from other devices, run `orchestra service set hostname 0.0.0.0`.",
         "",
       ].join(EOL) + EOL,
     )

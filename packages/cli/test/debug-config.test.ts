@@ -13,7 +13,7 @@ describe("debug config command", () => {
     expect(debug.stdout).toContain("config")
     expect(debug.stdout).toContain("List configuration sources")
     expect(config.exitCode).toBe(0)
-    expect(config.stdout).toContain("opencode debug config [flags]")
+    expect(config.stdout).toContain("orchestra debug config [flags]")
     expect(config.stdout).toContain("List configuration sources")
     expect(config.stdout).not.toContain("--reveal-secrets")
   })
@@ -55,7 +55,7 @@ describe("debug config command", () => {
             version: ORCHESTRA_VERSION,
             pid: process.pid,
             urls: [],
-            paths: { tmp: "/tmp/opencode" },
+            paths: { tmp: "/tmp/orchestra" },
           })
         }
         requested = url
@@ -130,3 +130,4 @@ async function cli(args: string[], cwd = path.join(import.meta.dir, ".."), env?:
   ])
   return { stdout, stderr, exitCode }
 }
+

@@ -154,7 +154,7 @@ export default { path: file, version: ${JSON.stringify(opencodePty.version)}, sh
     },
     define: {
       ORCHESTRA_VERSION: `'${Script.version}'`,
-      ORCHESTRA_CLI_NAME: "'opencode'",
+      ORCHESTRA_CLI_NAME: "'orchestra'",
       ORCHESTRA_CHANNEL: `'${Script.channel}'`,
       ORCHESTRA_ARTIFACT: `'cli'`,
       ORCHESTRA_LIBC: item.os === "linux" ? `'${item.abi ?? "glibc"}'` : "undefined",

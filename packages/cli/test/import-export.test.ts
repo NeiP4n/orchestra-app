@@ -43,7 +43,7 @@ const sanitizedTransfer = {
 }
 
 const status = () =>
-  Response.json({ version: ORCHESTRA_VERSION, pid: process.pid, urls: [], paths: { tmp: "/tmp/opencode" } })
+  Response.json({ version: ORCHESTRA_VERSION, pid: process.pid, urls: [], paths: { tmp: "/tmp/orchestra" } })
 
 function run(args: string[], stdin?: string) {
   const child = Bun.spawn([process.execPath, "run", "src/index.ts", ...args], {
@@ -225,3 +225,4 @@ test("import reports an existing session without a stack trace", async () => {
     await fs.rm(root, { recursive: true, force: true })
   }
 })
+

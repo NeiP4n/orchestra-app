@@ -59,7 +59,11 @@ export type ProjectID = typeof ProjectID.Type
 // A session created from a project's own entry point carries its intended owner
 // in the creation payload, so shared-directory projects never have to infer it
 // from the path while a separate owner record is being saved.
-export const SessionOwnerMetadataKey = "opencode-pp:project-owner"
+// Primary key for the current Orchestra contract; the legacy "opencode-pp:" key is retained
+// as a read fallback so sessions persisted before the rebrand still resolve their owner.
+export const SessionOwnerMetadataKey = "orchestra:project-owner"
+const LEGACY_SESSION_OWNER_METADATA_KEY = "opencode-pp:project-owner"
+
 export const SessionOwnerMetadata = Schema.Struct({ projectID: ProjectID }).annotate({
   identifier: "Orchestra.SessionOwnerMetadata",
 })
@@ -67,18 +71,29 @@ const decodeSessionOwner = Schema.decodeUnknownOption(SessionOwnerMetadata)
 
 export function sessionOwner(metadata?: SessionMetadata) {
   if (!metadata) return undefined
-  return Option.getOrUndefined(decodeSessionOwner(metadata[SessionOwnerMetadataKey]))?.projectID
+  const candidates = [metadata[SessionOwnerMetadataKey], metadata[LEGACY_SESSION_OWNER_METADATA_KEY]]
+  for (const candidate of candidates) {
+    const decoded = Option.getOrUndefined(decodeSessionOwner(candidate))?.projectID
+    if (decoded) return decoded
+  }
+  return undefined
 }
 
 // The models a worker session may continue on when its provider refuses the current one.
 // Snapshotted onto the session when it is created, so a fallback survives edits to the role
 // and to `orchestra.worker`. The project's main session carries no such list and never switches.
-export const SessionModelsMetadataKey = "opencode-pp:worker-models"
+export const SessionModelsMetadataKey = "orchestra:worker-models"
+const LEGACY_SESSION_MODELS_METADATA_KEY = "opencode-pp:worker-models"
 const decodeSessionModels = Schema.decodeUnknownOption(Schema.Array(Model.Ref))
 
 export function sessionModels(metadata?: SessionMetadata) {
   if (!metadata) return []
-  return Option.getOrUndefined(decodeSessionModels(metadata[SessionModelsMetadataKey])) ?? []
+  const candidates = [metadata[SessionModelsMetadataKey], metadata[LEGACY_SESSION_MODELS_METADATA_KEY]]
+  for (const candidate of candidates) {
+    const decoded = Option.getOrUndefined(decodeSessionModels(candidate))
+    if (decoded) return decoded
+  }
+  return []
 }
 
 // How strictly a sandbox project's shell commands are confined. "environment" gives them their

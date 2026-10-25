@@ -27,15 +27,15 @@ describe("auth command", () => {
     expect(auth.stdout).toContain("switch the active account for an integration")
     expect(auth.stdout).not.toMatch(/^  connect\s/m)
     expect(list.exitCode).toBe(0)
-    expect(list.stdout).toContain("opencode auth list [flags]")
+    expect(list.stdout).toContain("orchestra auth list [flags]")
     expect(list.stdout).toContain("--format")
     expect(login.exitCode).toBe(0)
-    expect(login.stdout).toContain("opencode auth login [flags] [<target>]")
+    expect(login.stdout).toContain("orchestra auth login [flags] [<target>]")
     expect(login.stdout).toContain("Integration ID, name, or well-known provider URL")
     expect(login.stdout).toContain("--method")
     expect(login.stdout).toContain("--answer")
     expect(logout.exitCode).toBe(0)
-    expect(logout.stdout).toContain("opencode auth logout [flags] [<target>] [<credential>]")
+    expect(logout.stdout).toContain("orchestra auth logout [flags] [<target>] [<credential>]")
   })
 
   test("lists stored and environment connections", async () => {
@@ -323,7 +323,7 @@ function authServer(fetch: (request: Request, url: URL) => Response | Promise<Re
 }
 
 function status() {
-  return Response.json({ version: ORCHESTRA_VERSION, pid: process.pid, urls: [], paths: { tmp: "/tmp/opencode" } })
+  return Response.json({ version: ORCHESTRA_VERSION, pid: process.pid, urls: [], paths: { tmp: "/tmp/orchestra" } })
 }
 
 function located<T>(data: T) {
@@ -349,3 +349,4 @@ async function cli(args: string[]) {
   ])
   return { stdout, stderr, exitCode }
 }
+

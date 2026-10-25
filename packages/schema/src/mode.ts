@@ -8,7 +8,10 @@ import type { SessionMetadata } from "./session-metadata.js"
 // permissions; the mode narrows the work (read-only investigation, implementation, review,
 // a one-pass fast path) and tells the model which behaviour is expected. A mode never widens
 // permissions: a planner switched to coding still cannot edit files.
-export const MetadataKey = "opencode-pp:mode"
+// Primary key for the current Orchestra contract; the legacy "opencode-pp:" key is retained
+// as a read fallback so sessions persisted before the rebrand still resolve their mode.
+export const MetadataKey = "orchestra:mode"
+const LEGACY_MODE_METADATA_KEY = "opencode-pp:mode"
 
 export const ID = Schema.String.pipe(Schema.brand("Mode.ID"))
 export type ID = typeof ID.Type
@@ -235,7 +238,7 @@ export function defaultForRole(role: {
 // The mode a session currently stores, if any. Unknown ids are ignored: a saved mode that
 // disappeared from a newer build must not break the session.
 export function fromMetadata(metadata: SessionMetadata | undefined) {
-  const stored = metadata?.[MetadataKey]
+  const stored = metadata?.[MetadataKey] ?? metadata?.[LEGACY_MODE_METADATA_KEY]
   return typeof stored === "string" ? of(stored) : undefined
 }
 
@@ -245,7 +248,7 @@ const quietModes = new Set(["test"])
 // A session is silent when its stored mode is. Without a stored mode the role's default applies,
 // and an explicit `auto` cancels it, exactly like the mode the model is told to work in.
 export function isQuiet(metadata: SessionMetadata | undefined, agent?: string) {
-  const stored = metadata?.[MetadataKey]
+  const stored = metadata?.[MetadataKey] ?? metadata?.[LEGACY_MODE_METADATA_KEY]
   const mode = fromMetadata(metadata) ?? (stored === undefined ? defaultForAgent(agent) : undefined)
   return mode !== undefined && quietModes.has(String(mode.id))
 }
@@ -257,7 +260,7 @@ function defaultForAgent(agent: string | undefined) {
 
 // On-demand tools preloaded for the session's effective mode, resolved the same way as isQuiet.
 export function toolsOf(metadata: SessionMetadata | undefined, agent?: string) {
-  const stored = metadata?.[MetadataKey]
+  const stored = metadata?.[MetadataKey] ?? metadata?.[LEGACY_MODE_METADATA_KEY]
   const mode = fromMetadata(metadata) ?? (stored === undefined ? defaultForAgent(agent) : undefined)
   return mode?.tools ?? []
 }

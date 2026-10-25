@@ -275,7 +275,7 @@ export function mainConfig(input: NodeBuildInput): UserConfig {
     esbuild: { jsx: "automatic" },
     define: {
       ORCHESTRA_VERSION: JSON.stringify(input.version),
-      ORCHESTRA_CLI_NAME: JSON.stringify("opencode2-node"),
+      ORCHESTRA_CLI_NAME: JSON.stringify("orchestra2-node"),
       ORCHESTRA_CHANNEL: JSON.stringify(input.channel),
       ORCHESTRA_ARTIFACT: JSON.stringify("cli-node"),
       ORCHESTRA_LIBC: input.target.platform === "linux" ? JSON.stringify("glibc") : "undefined",

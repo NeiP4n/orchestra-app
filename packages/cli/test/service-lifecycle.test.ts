@@ -117,7 +117,7 @@ serviceTest(
       (error: Error) => error.message,
     )
     expect(conflict).toContain(`Managed service port ${home.port} on 127.0.0.1 is already in use by another process`)
-    expect(conflict).toContain("opencode service set port <port>")
+    expect(conflict).toContain("orchestra service set port <port>")
     expect(await servers(home)).toEqual([])
     expect(await Bun.file(home.registration).exists()).toBe(false)
 
@@ -187,7 +187,7 @@ async function serviceHome(options: { readonly failBoot?: boolean } = {}) {
     root,
     port,
     entry: homeEntry,
-    registration: path.join(root, "state", "opencode", "service-local.json"),
+    registration: path.join(root, "state", "orchestra", "service-local.json"),
     env: Object.fromEntries(
       Object.entries(isolatedEnv(root, overrides)).filter((entry): entry is [string, string] => entry[1] !== undefined),
     ),

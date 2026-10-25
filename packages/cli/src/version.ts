@@ -74,7 +74,9 @@ function releaseVersion() {
 // development branch are managed by source-release.ts. Do not send these checkouts to the
 // public updater, otherwise /upgrade offers an upstream OpenCode version.
 // The marker is kept in the repository and is not shipped by normal package installations.
-const ORCHESTRA_PLUS_PLUS_SOURCE = existsSync(path.join(REPO_ROOT, "script", "release-pp.ts"))
+const ORCHESTRA_PLUS_PLUS_SOURCE =
+  (typeof ORCHESTRA_VERSION !== "string" || ORCHESTRA_VERSION === "undefined") &&
+  existsSync(path.join(REPO_ROOT, "script", "release-pp.ts"))
 
 const rawChannel =
   typeof ORCHESTRA_CHANNEL === "string" && ORCHESTRA_CHANNEL !== "undefined"

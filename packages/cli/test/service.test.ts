@@ -233,10 +233,10 @@ test("concurrent service processes elect one server", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-election-"))
   const env = serviceEnv(root)
   const command = [process.execPath, path.join(import.meta.dir, "../src/index.ts"), "serve", "--service"]
-  const registration = path.join(root, "state", "opencode", "service-local.json")
+  const registration = path.join(root, "state", "orchestra", "service-local.json")
   const port = await availablePort()
-  const config = path.join(root, "config", "opencode", "service-local.json")
-  await fs.mkdir(path.join(root, "config", "opencode"), { recursive: true })
+  const config = path.join(root, "config", "orchestra", "service-local.json")
+  await fs.mkdir(path.join(root, "config", "orchestra"), { recursive: true })
   await fs.writeFile(config, JSON.stringify({ port }))
   const processes = Array.from({ length: 10 }, () => Bun.spawn(command, { env, stderr: "pipe", stdout: "pipe" }))
 
@@ -271,7 +271,7 @@ test("concurrent service processes elect one server", async () => {
       pid: info.pid,
       urls: [info.url],
       // The server reports the canonical tmp directory; Windows os.tmpdir() can be an 8.3 short name.
-      paths: { tmp: await fs.realpath(path.join(os.tmpdir(), "opencode")) },
+      paths: { tmp: await fs.realpath(path.join(os.tmpdir(), "orchestra")) },
       capabilities: { persistentPty: process.platform !== "win32" },
     })
     const contender = Bun.spawn(command, { env, stderr: "pipe", stdout: "ignore" })
@@ -301,9 +301,9 @@ test("configured managed service port overrides the channel default", async () =
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-port-"))
   const port = await availablePort()
   const env = serviceEnv(root)
-  const registration = path.join(root, "state", "opencode", "service-local.json")
-  const config = path.join(root, "config", "opencode", "service-local.json")
-  await fs.mkdir(path.join(root, "config", "opencode"), { recursive: true })
+  const registration = path.join(root, "state", "orchestra", "service-local.json")
+  const config = path.join(root, "config", "orchestra", "service-local.json")
+  await fs.mkdir(path.join(root, "config", "orchestra"), { recursive: true })
   await fs.writeFile(config, JSON.stringify({ port, password: "" }))
   const owner = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/index.ts"), "serve", "--service"], {
     env,
@@ -335,7 +335,7 @@ test.each([
   async ({ args, origins }) => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-cors-"))
     const config = path.join(root, "config", ServiceConfig.filename())
-    const registration = path.join(root, "state", "opencode", ServiceConfig.filename())
+    const registration = path.join(root, "state", "orchestra", ServiceConfig.filename())
     const cors = ["http://192.0.2.10:3001", "https://configured.example.com"]
     await fs.mkdir(path.dirname(config), { recursive: true })
     await fs.writeFile(config, JSON.stringify({ cors }))
@@ -381,7 +381,7 @@ test("the original managed service contender binds when the occupied port is rel
   })
   const port = listener.port
   if (port === undefined) throw new Error("Server did not bind a port")
-  const registration = path.join(root, "state", "opencode", "service-local.json")
+  const registration = path.join(root, "state", "orchestra", "service-local.json")
   await fs.mkdir(path.join(root, "config"), { recursive: true })
   await fs.mkdir(path.dirname(registration), { recursive: true })
   await fs.writeFile(path.join(root, "config", "service-local.json"), JSON.stringify({ port }))
@@ -450,11 +450,11 @@ test("unresponsive managed port occupancy reports a bounded conflict", async () 
       return new Promise<Response>(() => {})
     },
   })
-  const registration = path.join(root, "state", "opencode", "service-local.json")
-  await fs.mkdir(path.join(root, "config", "opencode"), { recursive: true })
+  const registration = path.join(root, "state", "orchestra", "service-local.json")
+  await fs.mkdir(path.join(root, "config", "orchestra"), { recursive: true })
   await fs.mkdir(path.dirname(registration), { recursive: true })
   await fs.writeFile(
-    path.join(root, "config", "opencode", "service-local.json"),
+    path.join(root, "config", "orchestra", "service-local.json"),
     JSON.stringify({ port: listener.port }),
   )
   const stale = {
@@ -496,13 +496,13 @@ test("port contender recognizes an incumbent registered during the bind race", a
       requests.count += 1
       if (requests.count === 2) recognizing.resolve()
       return Response.json(
-        { version: ORCHESTRA_VERSION, pid: process.pid, urls: [], paths: { tmp: "/tmp/opencode" } },
+        { version: ORCHESTRA_VERSION, pid: process.pid, urls: [], paths: { tmp: "/tmp/orchestra" } },
         { status: 503 },
       )
     },
   })
-  const registration = path.join(root, "state", "opencode", "service-local.json")
-  const config = path.join(root, "config", "opencode", "service-local.json")
+  const registration = path.join(root, "state", "orchestra", "service-local.json")
+  const config = path.join(root, "config", "orchestra", "service-local.json")
   await fs.mkdir(path.dirname(config), { recursive: true })
   await fs.writeFile(config, JSON.stringify({ port: listener.port }))
   await fs.mkdir(path.dirname(registration), { recursive: true })
@@ -545,7 +545,7 @@ test("port contender recognizes an incumbent registered during the bind race", a
 
 test("service registration replaces a stale owner with the bound address", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-stale-"))
-  const registration = path.join(root, "state", "opencode", "service-local.json")
+  const registration = path.join(root, "state", "orchestra", "service-local.json")
   await fs.mkdir(path.dirname(registration), { recursive: true })
   await fs.writeFile(
     registration,
@@ -580,11 +580,11 @@ test("a failed service stays registered and owns the selected port until stopped
   const port = await availablePort()
   const database = path.join(root, "database")
   await fs.mkdir(database)
-  await fs.mkdir(path.join(root, "config", "opencode"), { recursive: true })
-  await fs.writeFile(path.join(root, "config", "opencode", "service-local.json"), JSON.stringify({ port }))
+  await fs.mkdir(path.join(root, "config", "orchestra"), { recursive: true })
+  await fs.writeFile(path.join(root, "config", "orchestra", "service-local.json"), JSON.stringify({ port }))
   const env = { ...serviceEnv(root), ORCHESTRA_DB: database }
   const command = [process.execPath, path.join(import.meta.dir, "../src/index.ts"), "serve", "--service"]
-  const registration = path.join(root, "state", "opencode", "service-local.json")
+  const registration = path.join(root, "state", "orchestra", "service-local.json")
   const owner = Bun.spawn(command, { env, stderr: "pipe", stdout: "ignore" })
 
   try {
@@ -686,10 +686,10 @@ function serviceEnv(root: string) {
 async function startManagedService(prefix: string, failBoot = false) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), prefix))
   const port = await availablePort()
-  const registration = path.join(root, "state", "opencode", "service-local.json")
-  await fs.mkdir(path.join(root, "config", "opencode"), { recursive: true })
+  const registration = path.join(root, "state", "orchestra", "service-local.json")
+  await fs.mkdir(path.join(root, "config", "orchestra"), { recursive: true })
   if (failBoot) await fs.mkdir(path.join(root, "database"))
-  await fs.writeFile(path.join(root, "config", "opencode", "service-local.json"), JSON.stringify({ port }))
+  await fs.writeFile(path.join(root, "config", "orchestra", "service-local.json"), JSON.stringify({ port }))
   const owner = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/index.ts"), "serve", "--service"], {
     env: failBoot ? { ...serviceEnv(root), ORCHESTRA_DB: path.join(root, "database") } : serviceEnv(root),
     stderr: "pipe",
@@ -718,3 +718,4 @@ async function expectPortAvailable(port: number) {
   const server = Bun.serve({ hostname: "127.0.0.1", port, fetch: () => new Response() })
   await server.stop(true)
 }
+
