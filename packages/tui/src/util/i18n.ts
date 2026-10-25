@@ -1,12 +1,14 @@
 import { createSignal } from "solid-js"
 import { useOptionalConfig } from "../config"
 import { translate as baseTranslate } from "./i18n-base"
+import { ruContext } from "./i18n-context"
 
 export type Language = "en" | "ru"
 
 // LAN Rooms and federation were added after the original locale table. Keep these
 // additions isolated so the upstream translation table can be replaced independently.
 const ruExtra: Record<string, string> = {
+  ...ruContext,
   // Mesh
   Mesh: "Mesh",
   "Mesh room": "Комната Mesh",

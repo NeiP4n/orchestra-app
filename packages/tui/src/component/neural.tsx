@@ -311,7 +311,13 @@ export class NeuralCanvasRenderable extends BoxRenderable {
     signals.forEach((signal) => {
       this.signalFlash = 1
       this.signalTone =
-        signal.kind === "fail" ? "fail" : signal.kind === "done" ? "done" : signal.kind === "tool" ? "spark" : "signal"
+        signal.kind === "fail"
+          ? "fail"
+          : signal.kind === "done" || signal.kind === "answer"
+            ? "done"
+            : signal.kind === "tool" || signal.kind === "ask"
+              ? "spark"
+              : "signal"
     })
     this.signalFlash = Math.max(0, this.signalFlash - dt / 600)
     const breath = this._enabled ? 0.5 + 0.5 * Math.sin(this.time / 420) : 1
@@ -384,7 +390,7 @@ export class NeuralCanvasRenderable extends BoxRenderable {
     signals.forEach((signal) => {
       if (signal.kind === "write" || signal.kind === "think") return
       this.arrival = 1
-      this.signalTone = signal.kind === "fail" ? "fail" : signal.kind === "done" ? "done" : "spark"
+      this.signalTone = signal.kind === "fail" ? "fail" : signal.kind === "done" || signal.kind === "answer" ? "done" : "spark"
     })
     if (this.travel && dt > 0) {
       this.travel.at += (dt / 1000) * (28 + (this.travel.to - this.travel.at) * 2)
@@ -551,6 +557,27 @@ export class NeuralCanvasRenderable extends BoxRenderable {
       // A new step sweeps a scan line down the haze, the camelAI-style refresh of the screen.
       this.scans.push(-2)
       node.flash = 1
+      return
+    }
+    if (signal.kind === "ask") {
+      // A decision waits for the user: the hub flares and every link out of it carries an impulse.
+      node.flash = 1
+      node.tone = "spark"
+      node.edges.forEach((edge) => this.fire(edge, this.edges[edge]!.a === hub ? 1 : -1, 2, "spark"))
+      this.poke(node.x, node.y, true)
+      return
+    }
+    if (signal.kind === "answer") {
+      // The answer settles it: the hub relaxes into the done color and the haze refreshes.
+      node.flash = 1
+      node.tone = "signal"
+      this.scans.push(-2)
+      return
+    }
+    if (signal.kind === "select") {
+      node.flash = 1
+      node.tone = "signal"
+      this.poke(node.x, node.y, false)
       return
     }
     // A prompt lands on the hub as a wave.

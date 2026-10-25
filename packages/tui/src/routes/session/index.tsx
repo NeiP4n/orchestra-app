@@ -16,6 +16,7 @@ import path from "node:path"
 import { EOL, tmpdir } from "node:os"
 import { mkdir, writeFile } from "node:fs/promises"
 import { useRoute, useRouteData } from "../../context/route"
+import { useNeuralActivity } from "../../component/neural-activity"
 import { createStore } from "solid-js/store"
 import { useData } from "../../context/data"
 import { FlowRule } from "../../component/flow-rule"
@@ -177,6 +178,9 @@ export function Session(props: {
   const { navigate } = useRoute()
   const data = useData()
   const local = useLocal()
+  // Opening a session, from the tree, a tab or a project, fires its neuron.
+  const neural = useNeuralActivity()
+  createEffect(on(() => route.sessionID, (id) => neural.select(id)))
   // Permission explanations ask the model chosen in the prompt, not the session's last one.
   const promptModel = createMemo(() => {
     const model = local.model.current()

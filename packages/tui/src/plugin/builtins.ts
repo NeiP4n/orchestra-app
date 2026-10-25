@@ -41,6 +41,7 @@ export const builtins = [
   lazy("opencode.proxy-manager", () => import("../feature-plugins/system/proxy-manager")),
   lazy("opencode.zen-models", () => import("../feature-plugins/system/zen-models")),
   lazy("opencode.stats", () => import("../feature-plugins/system/stats")),
+  lazy("opencode.branch", () => import("../feature-plugins/system/branch")),
   lazy("opencode.merman", () => import("@orchestra/merman/plugin")),
   lazy("opencode.latex", () => import("@orchestra/latex/plugin")),
   // The storybook is a development tool; keep its route and palette commands out of

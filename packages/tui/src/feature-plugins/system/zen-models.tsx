@@ -1,5 +1,6 @@
 import { Plugin } from "@orchestra/plugin/tui"
 import { For, Show, createSignal } from "solid-js"
+import { FoldHeader } from "../../component/fold-header"
 import { classifyFailure, freeZenModels, ZEN_PROVIDER_ID, type ZenModelCheck } from "./zen-models-core"
 import { hoverBackground } from "../../ui/hover"
 
@@ -21,6 +22,8 @@ function Panel(props: {
   refresh: () => void
   autoFallbackEnabled: boolean
   toggleAutoFallback: () => void
+  expanded: boolean
+  toggleExpanded: () => void
 }) {
   const theme = () => props.context.theme
   const label = (en: string, russian: string) => text(props.context, en, russian)
@@ -45,14 +48,20 @@ function Panel(props: {
   const actionColor = () => hovered() ? theme().text.action?.primary?.hovered ?? theme().text.base : theme().text.action?.primary?.base ?? theme().text.base
   return (
     <box gap={1}>
-      <box flexDirection="row" justifyContent="space-between" gap={1}>
-        <text fg={theme().text.base}><b>{label("FREE ZEN MODELS", "БЕСПЛАТНЫЕ ZEN")}</b></text>
-        <Show when={props.state().checkedAt}>
-          <text fg={working().length > 0 ? theme().text.feedback.success.base : theme().text.feedback.warning.base} wrapMode="none">
-            {working().length + "/" + props.models().length + " ✓"}
-          </text>
-        </Show>
-      </box>
+      <FoldHeader
+        id="zen.sidebar.fold"
+        title={label("FREE ZEN MODELS", "БЕСПЛАТНЫЕ ZEN")}
+        open={props.expanded}
+        onToggle={props.toggleExpanded}
+        summary={
+          <Show when={props.state().checkedAt}>
+            <text fg={working().length > 0 ? theme().text.feedback.success.base : theme().text.feedback.warning.base} wrapMode="none">
+              {working().length + "/" + props.models().length + " ✓"}
+            </text>
+          </Show>
+        }
+      />
+      <Show when={props.expanded}>
       <box paddingLeft={1} paddingRight={1} backgroundColor={!props.state().running && hovered() ? hoverBackground(theme()) : undefined}
         onMouseOver={() => setHovered(!props.state().running)} onMouseOut={() => setHovered(false)}
         onMouseUp={(event) => { event.stopPropagation(); if (!props.state().running) props.refresh() }}>
@@ -110,6 +119,7 @@ function Panel(props: {
           {label("Checked ", "Проверено ") + new Date(props.state().checkedAt ?? 0).toLocaleTimeString().slice(0, 5)}
         </text>
       </Show>
+      </Show>
     </box>
   )
 }
@@ -117,6 +127,12 @@ function Panel(props: {
 export default Plugin.define({
   id: "opencode.zen-models",
   setup(context) {
+    // Network and model tools start folded: their title row keeps the status that matters.
+    const [fold, updateFold] = context.storage.store("fold", { initial: { open: false } })
+    const toggleFold = () =>
+      void updateFold((draft) => {
+        draft.open = !draft.open
+      }).catch((error: unknown) => console.error("Failed to persist sidebar fold state", error))
     const [state, update] = context.storage.memory<CheckState>("checks", { initial: INITIAL })
     const [autoFallback, updateAutoFallback] = context.storage.store<{ enabled: boolean }>("autoFallback", {
       initial: { enabled: false },
@@ -192,6 +208,8 @@ export default Plugin.define({
           refresh={() => void refresh()}
           autoFallbackEnabled={autoFallback.enabled}
           toggleAutoFallback={() => void toggleAutoFallback()}
+          expanded={fold.open}
+          toggleExpanded={toggleFold}
         />
       ),
     })

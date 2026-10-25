@@ -11,7 +11,20 @@ import { useClient } from "../context/client"
 // Canvases sample both every frame, so a delta never re-runs Solid; the `pulse` signal is a
 // slow, rounded copy for text that reads the level.
 
-export type NeuralSignalKind = "write" | "think" | "tool" | "done" | "fail" | "step" | "prompt" | "compact"
+export type NeuralSignalKind =
+  | "write"
+  | "think"
+  | "tool"
+  | "done"
+  | "fail"
+  | "step"
+  | "prompt"
+  | "compact"
+  // A question or permission request waits for the user, and the user's answer to it.
+  | "ask"
+  | "answer"
+  // The user moved to another session or project.
+  | "select"
 export type NeuralSignal = Readonly<{
   seq: number
   kind: NeuralSignalKind
@@ -91,7 +104,14 @@ export class NeuralActivity {
     return this.ring.filter((signal) => signal.seq > cursor)
   }
 
+  // The user chose another session or project: its hub fires and the network turns to it.
+  select(sessionID: string) {
+    this.push({ kind: "select", sessionID })
+  }
+
   take(event: OpenCodeEvent) {
+    const decision = this.decision(event)
+    if (decision) return this.push(decision)
     if (!weighted(event)) return
     const weight = WEIGHT[event.type]
     const sessionID = event.data.sessionID
@@ -101,10 +121,33 @@ export class NeuralActivity {
     const signal = this.translate(event, sessionID)
     if (!signal) return
     if ((signal.kind === "write" || signal.kind === "think") && !this.beat(`${sessionID}:${signal.kind}`)) return
+    this.push(signal)
+  }
+
+  private push(signal: Omit<NeuralSignal, "seq">) {
+    this.cool()
+    if (signal.kind === "ask" || signal.kind === "answer" || signal.kind === "select") {
+      this.heat += 2
+      this.sessionHeat.set(signal.sessionID, (this.sessionHeat.get(signal.sessionID) ?? 0) + 2)
+    }
     this.seq += 1
     this.ring.push({ ...signal, seq: this.seq })
     if (this.ring.length > SIGNAL_RING) this.ring.shift()
     if (signal.label) this.latestSignal[1](signal.label)
+  }
+
+  // A decision waiting for the user, and its resolution, whichever way it was asked.
+  private decision(event: OpenCodeEvent): Omit<NeuralSignal, "seq"> | undefined {
+    switch (event.type) {
+      case "form.created":
+        return { kind: "ask", sessionID: event.data.form.sessionID }
+      case "permission.asked":
+        return { kind: "ask", sessionID: event.data.sessionID }
+      case "form.replied":
+      case "form.cancelled":
+      case "permission.replied":
+        return { kind: "answer", sessionID: event.data.sessionID }
+    }
   }
 
   private translate(event: Weighted, sessionID: string): Omit<NeuralSignal, "seq"> | undefined {

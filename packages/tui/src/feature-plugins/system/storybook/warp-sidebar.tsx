@@ -77,6 +77,7 @@ function WarpSidebarStory(props: { context: Plugin.Context }) {
   const theme = props.context.theme
   const [scenario, setScenario] = createSignal(0)
   const [width, setWidth] = createSignal(NARROW)
+  const [expanded, setExpanded] = createSignal(true)
   const current = () => scenarios[scenario()]
   const columns = () => width() - CHROME
 
@@ -135,6 +136,8 @@ function WarpSidebarStory(props: { context: Plugin.Context }) {
               autoRotation={current().autoRotation}
               exitIp={current().exitIp}
               directIp={current().directIp}
+              expanded={expanded()}
+              toggleExpanded={() => setExpanded((value) => !value)}
               open={() => {}}
               toggleProxy={() => setScenario((value) => (value === 2 ? 0 : 2))}
               toggleAutoRotate={() => {}}

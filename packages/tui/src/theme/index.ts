@@ -3,6 +3,7 @@ import { resolveThemeColors } from "./resolve"
 import { DEFAULT_THEMES, type Theme, type ThemeV1Json } from "./v1"
 import opencode from "./assets/v2/opencode.json" with { type: "json" }
 import orchestra from "./assets/v2/orchestra.json" with { type: "json" }
+import sculk from "./assets/v2/sculk.json" with { type: "json" }
 
 export { DEFAULT_THEMES, type Theme, type ThemeV1Json } from "./v1"
 
@@ -27,6 +28,15 @@ export function getOpenCodeTheme() {
 let orchestraTheme: ThemeDocument | undefined
 
 // The house theme: three colors (ink, cyan, amber), no fills, borders carry the structure.
+let sculkTheme: ThemeDocument | undefined
+
+// Deep sculk blue-black with a bright cyan glow and one violet accent, for the pixel look.
+export function getSculkTheme() {
+  if (sculkTheme) return sculkTheme
+  sculkTheme = parseThemeDocument(sculk, "sculk")
+  return sculkTheme
+}
+
 export function getOrchestraTheme() {
   if (orchestraTheme) return orchestraTheme
   orchestraTheme = parseThemeDocument(orchestra, "orchestra")
@@ -39,6 +49,7 @@ function listThemes(): Record<string, ThemeDocumentSource> {
     ...DEFAULT_THEMES,
     opencode: getOpenCodeTheme(),
     orchestra: getOrchestraTheme(),
+    sculk: getSculkTheme(),
     ...customThemes,
   }
   return {

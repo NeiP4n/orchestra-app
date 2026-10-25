@@ -3,7 +3,8 @@ import { execFile, spawn } from "node:child_process"
 import { access, readFile } from "node:fs/promises"
 import * as Warp from "@orchestra/core/warp"
 import { Plugin } from "@orchestra/plugin/tui"
-import { createSignal } from "solid-js"
+import { Show, createSignal } from "solid-js"
+import { FoldHeader } from "../../component/fold-header"
 import { hoverBackground } from "../../ui/hover"
 import { installerExitSucceeded, installerFailureDetail, warpWingetArgs } from "./warp-install"
 import { isAddressCapFailure, isAutoRotationFailure, isRateLimitFailure, warpStatusError, type WarpConnectionState, type WarpStatus } from "./warp-status"
@@ -415,7 +416,7 @@ function ActionButton(props: { context: Plugin.Context; id: string; label: strin
   )
 }
 
-export function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus; busy: SharedBusy; proxyEnabled: boolean; autoRotateEnabled: boolean; autoFallbackEnabled?: boolean; autoRotation: AutoRotationState; exitIp: string; directIp: string; open: () => void; toggleProxy: () => void; toggleAutoRotate: () => void; toggleAutoFallback?: () => void }) {
+export function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus; busy: SharedBusy; proxyEnabled: boolean; autoRotateEnabled: boolean; autoFallbackEnabled?: boolean; autoRotation: AutoRotationState; exitIp: string; directIp: string; expanded: boolean; toggleExpanded: () => void; open: () => void; toggleProxy: () => void; toggleAutoRotate: () => void; toggleAutoFallback?: () => void }) {
   const theme = () => props.context.theme
   const ru = () => language(props.context) === "ru"
   // The session sidebar is a narrow column, so the labels form a fixed-width column and the
@@ -429,12 +430,18 @@ export function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus
   )
   return (
     <box gap={1}>
-      <box flexDirection="row" alignItems="center" justifyContent="space-between" gap={1}>
-        <text fg={theme().text.base} flexShrink={0}><b>WARP</b></text>
-        <text fg={statusColor(props.context, props.status.state)} wrapMode="none" truncate>
-          {"● " + statusLabel(props.context, props.status.state)}
-        </text>
-      </box>
+      <FoldHeader
+        id="warp.sidebar.fold"
+        title="WARP"
+        open={props.expanded}
+        onToggle={props.toggleExpanded}
+        summary={
+          <text fg={statusColor(props.context, props.status.state)} wrapMode="none" truncate>
+            {"● " + statusLabel(props.context, props.status.state)}
+          </text>
+        }
+      />
+      <Show when={props.expanded}>
       <box>
         {row(
           ru() ? tr("Route") : "Route",
@@ -482,6 +489,7 @@ export function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus
           <ActionButton context={props.context} id="warp.sidebar.autoFallback" label={ru() ? tr(props.autoFallbackEnabled ? "Auto Fallback: ON" : "Auto Fallback: OFF") : `Auto Fallback: ${props.autoFallbackEnabled ? "ON" : "OFF"}`} run={props.toggleAutoFallback} disabled={props.busy.action !== null} emphasized={props.autoFallbackEnabled} accent />
         )}
       </box>
+      </Show>
     </box>
   )
 }
@@ -553,6 +561,12 @@ function WarpPage(props: { context: Plugin.Context; status: WarpStatus; busy: Sh
 export default Plugin.define({
   id: "opencode.warp",
   setup(context) {
+    // Network and model tools start folded: their title row keeps the status that matters.
+    const [fold, updateFold] = context.storage.store("fold", { initial: { open: false } })
+    const toggleFold = () =>
+      void updateFold((draft) => {
+        draft.open = !draft.open
+      }).catch((error: unknown) => console.error("Failed to persist sidebar fold state", error))
     const [status, updateStatus] = context.storage.memory<WarpStatus>("status", { initial: { state: "checking", details: "Checking Cloudflare WARP…" } })
     const [busy, updateBusy] = context.storage.memory<SharedBusy>("busy", { initial: { action: null } })
     const [proxy, updateProxy] = context.storage.memory<{ enabled: boolean }>("proxy", { initial: { enabled: false } })
@@ -1122,7 +1136,7 @@ export default Plugin.define({
       context.keymap.layer(() => ({ mode: "global", commands: [{ id: "opencode.warp.open", title: text(context, "Cloudflare WARP controls", tr("Cloudflare WARP control")), description: text(context, "View status, connect, reconnect, or reset registration", tr("Status, connect, reconnect and registration reset")), group: "System", slash: { name: "warp", arguments: true }, palette: true, run: open }] }))
       return null
     }})
-    context.ui.slot({ append: "sidebar.content", render: () => <WarpSidebar context={context} status={status} busy={busy} proxyEnabled={proxy.enabled} autoRotateEnabled={autoRotate.enabled} autoFallbackEnabled={autoFallback.enabled} autoRotation={autoRotation.state} exitIp={exit.ip} directIp={exit.direct} open={open} toggleProxy={() => void perform(proxy.enabled ? "disableProxy" : "proxy")} toggleAutoRotate={() => void toggleAutoRotate()} toggleAutoFallback={() => void toggleAutoFallback()} /> })
+    context.ui.slot({ append: "sidebar.content", render: () => <WarpSidebar context={context} status={status} busy={busy} proxyEnabled={proxy.enabled} autoRotateEnabled={autoRotate.enabled} autoFallbackEnabled={autoFallback.enabled} autoRotation={autoRotation.state} exitIp={exit.ip} directIp={exit.direct} expanded={fold.open} toggleExpanded={toggleFold} open={open} toggleProxy={() => void perform(proxy.enabled ? "disableProxy" : "proxy")} toggleAutoRotate={() => void toggleAutoRotate()} toggleAutoFallback={() => void toggleAutoFallback()} /> })
 
     void Warp.hideGui()
     void refresh()

@@ -1,6 +1,7 @@
 import { useTerminalDimensions } from "@opentui/solid"
 import { Plugin } from "@orchestra/plugin/tui"
 import { For, Show, createSignal } from "solid-js"
+import { FoldHeader } from "../../component/fold-header"
 import { byStability, checkHttpProxies, fetchHttpProxySource, probeHttpProxy, PROXY_SOURCES, proxyUrl, type ProxyEntry } from "./proxy-manager-core"
 import { hoverBackground } from "../../ui/hover"
 
@@ -202,6 +203,8 @@ function Sidebar(props: {
   active: () => ProxyEntry | undefined
   next: () => void
   toggleAutoIP: () => void
+  expanded: boolean
+  toggleExpanded: () => void
   open: () => void
 }) {
   const theme = () => props.context.theme
@@ -220,12 +223,18 @@ function Sidebar(props: {
   const active = () => props.active()
   return (
     <box gap={1}>
-      <box flexDirection="row" justifyContent="space-between" gap={1} alignItems="center">
-        <text fg={theme().text.base}><b>PROXY POOL</b></text>
-        <text fg={props.route().enabled ? theme().text.feedback.success.base : theme().text.muted} wrapMode="none">
-          {props.route().enabled ? "● ON" : "○ OFF"}
-        </text>
-      </box>
+      <FoldHeader
+        id="proxy.sidebar.fold"
+        title="PROXY POOL"
+        open={props.expanded}
+        onToggle={props.toggleExpanded}
+        summary={
+          <text fg={props.route().enabled ? theme().text.feedback.success.base : theme().text.muted} wrapMode="none">
+            {props.route().enabled ? "● ON" : "○ OFF"}
+          </text>
+        }
+      />
+      <Show when={props.expanded}>
       <text fg={theme().text.muted} wrapMode="none" truncate>{healthy().length + " verified / " + props.pool().total}</text>
       <Show when={active()}>
         <text fg={theme().text.feedback.success.base} wrapMode="none" truncate>
@@ -246,6 +255,7 @@ function Sidebar(props: {
           label={label(props.route().autoIP ? "Auto IP: ON" : "Auto IP: OFF", props.route().autoIP ? "Авто-IP: ВКЛ" : "Авто-IP: ВЫКЛ")}
           run={props.toggleAutoIP} emphasized={props.route().autoIP} />
       </box>
+      </Show>
     </box>
   )
 }
@@ -253,6 +263,12 @@ function Sidebar(props: {
 export default Plugin.define({
   id: "opencode.proxy-manager",
   setup(context) {
+    // Network and model tools start folded: their title row keeps the status that matters.
+    const [fold, updateFold] = context.storage.store("fold", { initial: { open: false } })
+    const toggleFold = () =>
+      void updateFold((draft) => {
+        draft.open = !draft.open
+      }).catch((error: unknown) => console.error("Failed to persist sidebar fold state", error))
     const [pool, updatePool] = context.storage.memory<PoolState>("pool", { initial: INITIAL_POOL })
     const [route, updateRoute] = context.storage.store<RouteState>("route", { initial: INITIAL_ROUTE })
     let scanRunning = false
@@ -568,7 +584,7 @@ export default Plugin.define({
       append: "sidebar.content",
       render: () => <Sidebar context={context} pool={() => pool} route={() => route} active={active}
         next={() => void (route.enabled ? nextProxy() : healthy()[0] && useProxy(healthy()[0]))}
-        toggleAutoIP={toggleAutoIP} open={open} />,
+        toggleAutoIP={toggleAutoIP} expanded={fold.open} toggleExpanded={toggleFold} open={open} />,
     })
 
     const handleRequestFailure = (error: unknown) => {

@@ -21,3 +21,18 @@ for (const mode of ["dark", "light"] as const) {
     expect(resolved.border.base).not.toEqual(resolved.background.base)
   })
 }
+
+test("registers the sculk theme and resolves it in both modes", async () => {
+  const { getSculkTheme } = await import("../src/theme")
+  expect(allThemes().sculk).toBe(getSculkTheme())
+  for (const mode of ["dark", "light"] as const) {
+    const resolved = resolveThemeDocument(getSculkTheme(), mode) as unknown as {
+      background: { base: unknown }
+      border: { base: unknown }
+      text: { base: unknown; neural: { signal: unknown } }
+    }
+    expect(resolved.border.base).not.toEqual(resolved.background.base)
+    expect(resolved.text.base).not.toEqual(resolved.background.base)
+    expect(resolved.text.neural.signal).toBeDefined()
+  }
+})
