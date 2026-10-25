@@ -269,6 +269,32 @@ export default Plugin.define({
     }
     const active = () => pool.entries.find((item) => proxyUrl(item) === route.activeUrl)
 
+    // Each probe result used to be its own pool update, and every update re-ran the panel's filters
+    // over up to 12 000 entries on the render thread, thousands of times per scan. Results now land
+    // together a few times a second.
+    let landed: { entry: ProxyEntry; scanned: boolean }[] = []
+    let landing: ReturnType<typeof setTimeout> | undefined
+    const land = (entry: ProxyEntry, scanned: boolean) => {
+      landed.push({ entry, scanned })
+      landing ??= setTimeout(flushLanded, 250)
+    }
+    function flushLanded() {
+      clearTimeout(landing)
+      landing = undefined
+      const batch = landed
+      landed = []
+      if (batch.length === 0) return
+      updatePool((draft) => {
+        const positions = new Map(draft.entries.map((entry, index) => [entry.id, index]))
+        for (const item of batch) {
+          const index = positions.get(item.entry.id)
+          if (index === undefined) continue
+          draft.entries[index] = item.entry
+          if (item.scanned) draft.checked += 1
+        }
+      })
+    }
+
     async function refreshSources() {
       if (scanRunning) return
       scanRunning = true
@@ -359,21 +385,13 @@ export default Plugin.define({
           }
           const batch = queue.splice(0, 32)
           updatePool((draft) => { draft.pending = queue.length })
-          await checkHttpProxies(batch, 32, (checked) => {
-            const index = entryIndex.get(checked.id)
-            updatePool((draft) => {
-              if (index !== undefined && draft.entries[index]?.id === checked.id) {
-                draft.entries[index] = checked
-                draft.checked += 1
-              }
-              draft.pending = queue.length
-            })
-          })
+          await checkHttpProxies(batch, 32, (checked) => land(checked, true))
         }
       }
 
       try {
         await Promise.all([sourcesDone, worker()])
+        flushLanded()
         const accepted = uniqueHealthy().length
         const limited = pool.entries.filter((entry) => entry.status === "limited").length
         context.ui.toast.show({
@@ -640,10 +658,8 @@ export default Plugin.define({
       const targets = healthy()
       if (recheckRunning || targets.length === 0) return
       recheckRunning = true
-      await checkHttpProxies(targets, 32, (checked) => updatePool((draft) => {
-        const index = draft.entries.findIndex((entry) => entry.id === checked.id)
-        if (index >= 0) draft.entries[index] = checked
-      }))
+      await checkHttpProxies(targets, 32, (checked) => land(checked, false))
+      flushLanded()
       recheckRunning = false
     }
 
@@ -654,6 +670,7 @@ export default Plugin.define({
       clearTimeout(startup)
       clearInterval(timer)
       clearInterval(recheck)
+      clearTimeout(landing)
       disposeFailure()
       disposeRetry()
       disposeStall.forEach((dispose) => dispose())
