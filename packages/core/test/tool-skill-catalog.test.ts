@@ -126,6 +126,7 @@ const catalog = (options: {
         truncated: false,
         source: RAW_PDF,
         applied: `/project/.opencode/skills/${skill.name}/SKILL.md`,
+        scan: { score: 0, recommendation: "SAFE" as const, findings: [] },
       })
     },
     save: (input) => {

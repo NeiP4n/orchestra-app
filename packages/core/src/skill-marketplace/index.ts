@@ -7,6 +7,7 @@ import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import { Location } from "../location.js"
 import { SkillMarketplaceRead } from "./read.js"
 import { SkillMarketplaceSave } from "./save.js"
+import { SkillMarketplaceScan } from "./scan.js"
 import { SkillMarketplaceSearch } from "./search.js"
 import { SkillMarketplaceStore } from "./store.js"
 import { SkillMarketplaceUpstream } from "./upstream.js"
@@ -14,6 +15,7 @@ import { SkillMarketplaceUpstream } from "./upstream.js"
 export {
   SkillMarketplaceRead,
   SkillMarketplaceSave,
+  SkillMarketplaceScan,
   SkillMarketplaceSearch,
   SkillMarketplaceStore,
   SkillMarketplaceUpstream,
@@ -41,6 +43,15 @@ export interface ReadResult {
   readonly source: string
   /** The file written into this project, or `undefined` when it was already there. */
   readonly applied: string | undefined
+  /** What the static scan found in this text; a blocked skill never reaches `read`'s result. */
+  readonly scan: SkillMarketplaceScan.Report
+}
+
+export interface ScanResult {
+  readonly name: string
+  readonly source: string
+  readonly truncated: boolean
+  readonly scan: SkillMarketplaceScan.Report
 }
 
 export interface SaveResult extends SkillMarketplaceSave.Result {}
@@ -71,6 +82,12 @@ export interface Interface {
    * from GitHub otherwise. The text is always left in the project afterwards.
    */
   readonly read: (input: ReadInput) => Effect.Effect<ReadResult, Failure>
+  /**
+   * Scans one skill's text without putting anything in the project. This is the check to run on
+   * every candidate before choosing one; `read` and `save` run the same scan themselves and refuse
+   * a skill it blocks, so skipping this step never skips the check.
+   */
+  readonly scan: (input: ReadInput) => Effect.Effect<ScanResult, Failure>
   /** Keeps the skill for good, in the global registry. Nothing else here ever calls this. */
   readonly save: (input: ReadInput) => Effect.Effect<SaveResult, Failure>
   /** What this project has cached and whether that cache is trustworthy. */
@@ -179,8 +196,17 @@ export const layerWith = (options: LayerOptions = {}) =>
           const applied = SkillMarketplaceRead.appliedPath(projectSkills, row.name)
           const local = applied === undefined ? undefined : yield* localText(applied)
           if (applied !== undefined && local !== undefined)
-            return { name: row.name, content: local, truncated: false, source: applied, applied: undefined }
+            return {
+              name: row.name,
+              content: local,
+              truncated: false,
+              source: applied,
+              applied: undefined,
+              scan: SkillMarketplaceScan.scan(local),
+            }
           const fetched = yield* text(row.githubUrl)
+          const report = SkillMarketplaceScan.scan(fetched.content)
+          if (SkillMarketplaceScan.blocked(report)) return yield* new SkillMarketplaceRead.ReadError({ message: refusal(row.name, report) })
           // Left in the project either way: the next read of this skill is then a file read.
           const written = yield* SkillMarketplaceRead.apply(projectSkills, row.name, fetched.content)
           return {
@@ -189,6 +215,26 @@ export const layerWith = (options: LayerOptions = {}) =>
             truncated: fetched.truncated,
             source: fetched.url,
             applied: written,
+            scan: report,
+          }
+        }),
+
+        scan: Effect.fn("SkillMarketplace.scan")(function* (input) {
+          const row = yield* resolve(input.name)
+          if (row === undefined)
+            return yield* new SkillMarketplaceRead.ReadError({
+              message: `The catalog cache holds no skill called "${input.name}". Search first, and use a name from the results.`,
+            })
+          const applied = SkillMarketplaceRead.appliedPath(projectSkills, row.name)
+          const local = applied === undefined ? undefined : yield* localText(applied)
+          if (applied !== undefined && local !== undefined)
+            return { name: row.name, source: applied, truncated: false, scan: SkillMarketplaceScan.scan(local) }
+          const fetched = yield* text(row.githubUrl)
+          return {
+            name: row.name,
+            source: fetched.url,
+            truncated: fetched.truncated,
+            scan: SkillMarketplaceScan.scan(fetched.content),
           }
         }),
 
@@ -201,6 +247,9 @@ export const layerWith = (options: LayerOptions = {}) =>
           const applied = SkillMarketplaceRead.appliedPath(projectSkills, row.name)
           const local = applied === undefined ? undefined : yield* localText(applied)
           const content = local ?? (yield* text(row.githubUrl)).content
+          const report = SkillMarketplaceScan.scan(content)
+          if (SkillMarketplaceScan.blocked(report))
+            return yield* new SkillMarketplaceSave.SaveError({ message: refusal(row.name, report) })
           return yield* SkillMarketplaceSave.save(globalSkills, row.name, content)
         }),
 
@@ -232,6 +281,13 @@ export const layerWith = (options: LayerOptions = {}) =>
       }
     }),
   )
+
+/** Why a skill was not written anywhere, with the findings that decided it. */
+const refusal = (name: string, report: SkillMarketplaceScan.Report) =>
+  [
+    `Skill "${name}" was not installed: scan score ${report.score}/100, ${report.recommendation}.`,
+    ...report.findings.map((finding) => `- ${finding.severity} ${finding.rule} line ${finding.line}: ${finding.message}`),
+  ].join("\n")
 
 const layer = layerWith()
 
