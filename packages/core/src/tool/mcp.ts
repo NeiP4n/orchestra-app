@@ -32,13 +32,21 @@ export const layer = Layer.effect(
     const permission = yield* Permission.Service
     const lock = Semaphore.makeUnsafe(1)
     let discovered: Mcp.Tool[] = []
+    let described = new Map<string, string>()
+    // A namespace line is all the model sees of a server it has not searched yet, so it has to say
+    // what the server is for; a bare name and a count give it no reason to look inside.
+    const discover = Effect.gen(function* () {
+      discovered = yield* mcp.tools()
+      described = describe(discovered)
+    })
 
     // Register once after initial discovery; only subsequent updates need a debounced reload.
     const initial = yield* lock
       .withPermit(
         Effect.gen(function* () {
-          discovered = yield* mcp.tools()
+          yield* discover
           yield* tools.transform((editor) => {
+            described.forEach((description, name) => editor.namespace({ name, description }))
             for (const tool of discovered) {
               editor.add({
                 name: tool.name,
@@ -124,7 +132,7 @@ export const layer = Layer.effect(
       .pipe(Effect.forkScoped)
     const reconcile = lock.withPermit(
       Effect.gen(function* () {
-        discovered = yield* mcp.tools()
+        yield* discover
         yield* tools.reload()
       }),
     )
@@ -151,3 +159,26 @@ export const node = makeLocationNode({
   layer,
   deps: [Tool.node, Mcp.node, Bus.node, Permission.node],
 })
+
+const SAMPLE_TOOLS = 4
+
+/**
+ * One line per Code Mode server, naming a few of its tools: the model sees only this line until it
+ * searches the namespace, and the names are what let it judge whether the server fits the task.
+ * Server instructions already reach the model on their own, so they are not repeated here.
+ */
+function describe(discovered: ReadonlyArray<Mcp.Tool>) {
+  const servers = Map.groupBy(
+    discovered.filter((tool) => tool.codemode !== false),
+    (tool) => tool.server,
+  )
+  return new Map(
+    Array.from(servers, ([server, owned]) => [
+      namespace(server),
+      `MCP server: ${owned
+        .slice(0, SAMPLE_TOOLS)
+        .map((tool) => tool.name)
+        .join(", ")}${owned.length > SAMPLE_TOOLS ? ", ..." : ""}`,
+    ]),
+  )
+}

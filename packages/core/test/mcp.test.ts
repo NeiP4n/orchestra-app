@@ -26,6 +26,7 @@ import { Integration } from "@orchestra/core/integration"
 import { Environment } from "@orchestra/core/environment/index"
 import { EnvironmentUnavailable } from "@orchestra/core/environment/unavailable"
 import { Location } from "@orchestra/core/location"
+import { CodeModeCatalog } from "@orchestra/core/codemode/catalog"
 import { Mcp } from "@orchestra/core/mcp/index"
 import { McpClient } from "@orchestra/core/mcp/client"
 import { McpPool } from "@orchestra/core/mcp/pool"
@@ -2371,6 +2372,12 @@ it.effect("advertises MCP output schemas to Code Mode", () =>
       "ok: boolean",
     )
     expect(execute?.description).not.toContain("tools.demo.search")
+    // The namespace line is all the model sees of a server it has not searched, so it names tools.
+    expect(
+      CodeModeCatalog.summarize(toolSet.codeModeCatalog!, { budget: Infinity }).namespaces.find(
+        (namespace) => namespace.name === "demo",
+      )?.description,
+    ).toMatch(/^MCP server: .*search/)
   }),
 )
 
