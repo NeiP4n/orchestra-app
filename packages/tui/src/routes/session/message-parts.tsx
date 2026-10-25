@@ -187,8 +187,14 @@ export function TextPart(props: {
   const reply = createMemo(() => Federation.parseReplyOptions(props.part.text.trim()))
   const data = useData()
   const finished = () => props.message.time.completed !== undefined
-  // Only the newest message still waits for an answer; older offers stay visible but inert.
-  const latest = () => data.session.message.list(ctx.sessionID).at(-1)?.id === props.message.id
+  // Only the newest exchange still waits for an answer; older offers stay visible but inert. System
+  // notes, reminders and switches land after the answer without replying to it, so only a later
+  // user or assistant message settles it (checking for the very last message left most offers dead).
+  const latest = () => {
+    const list = data.session.message.list(ctx.sessionID)
+    const at = list.findIndex((message) => message.id === props.message.id)
+    return at >= 0 && !list.slice(at + 1).some((message) => message.type === "user" || message.type === "assistant")
+  }
   // Interactive elements (`@ui ... @end`) are cut out of the prose once the message is complete;
   // while it streams the text is shown as written so nothing flickers into a half-built element.
   const segments = createMemo(() => (finished() ? parse(reply().body) : [{ type: "text" as const, text: reply().body }]))

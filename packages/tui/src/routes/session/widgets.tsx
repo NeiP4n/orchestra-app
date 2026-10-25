@@ -53,7 +53,7 @@ export function WidgetBlock(props: { id: string; widget: Widget; width: number; 
     switch (tone) {
       case "accent":
       case "accentBold":
-        return theme.hue.accent[200]
+        return theme.text.formfield.selected
       case "dim":
         return theme.text.muted
       case "warn":

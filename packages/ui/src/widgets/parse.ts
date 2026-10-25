@@ -207,7 +207,7 @@ function progressOf(label: string) {
 
 export const GUIDE = [
   "You can answer with interactive elements. Write a block: a line `@ui <kind> <title>`, the body, then `@end`.",
-  "The person's action comes back as a normal message. Use them whenever a click is quicker than typing; ordinary text may surround them.",
+  "The person's action comes back as a normal message. Use an element that needs an answer only for a decision that is genuinely the person's; decide everything else yourself and keep working. Display elements (progress, steps, diff, code, kv, callout, table, timeline, tree) need no answer; ordinary text may surround them.",
   "Kinds:",
   "choice (one of: `- label | hint`), multi (`- [x] label`, many), confirm (text lines, optional `yes:` `no:`), buttons (`- label`),",
   "input (`placeholder:` `default:`), form (`- Name: text default` | number | bool yes | select a, b, c),",
