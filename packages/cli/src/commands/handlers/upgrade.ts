@@ -15,7 +15,7 @@ export default Runtime.handler(
       const updater = yield* Updater.Service
 
       // Orchestra source installs update from release/* tags or the configured development
-      // branch. Never ask the public opencode.ai updater for a source checkout: that would offer
+      // branch. Never ask the public updater for a source checkout: that would offer
       // an upstream OpenCode version (for example 2.0.32) instead of the fork's update.
       if (ORCHESTRA_LOCAL) {
         const status = yield* updater.check()
@@ -32,6 +32,12 @@ export default Runtime.handler(
           Effect.tap(() => Effect.sync(() => progress.stop("Update complete"))),
           Effect.tapCause(() => Effect.sync(() => progress.stop("Update failed", 1))),
         )
+        outro("Done")
+        return
+      }
+
+      if (!process.env.ORCHESTRA_UPDATE_URL?.trim()) {
+        log.warn("Updates are disabled: ORCHESTRA_UPDATE_URL is not set.")
         outro("Done")
         return
       }

@@ -5,7 +5,13 @@ import { Dialog } from "@orchestra/ui/dialog"
 import { useExtension, type DialogHandle, type SetupContext } from "../sdk"
 import type definition from "./index"
 
-const CHANGELOG_URL = "https://opencode.ai/changelog.json"
+function resolveChangelogUrl() {
+  const base = typeof process !== "undefined" ? process.env?.ORCHESTRA_UPDATE_URL : undefined
+
+  if (!base) return undefined
+
+  return new URL("changelog.json", base.endsWith("/") ? base : `${base}/`).href
+}
 
 type Highlight = {
   title: string
@@ -57,14 +63,22 @@ export function showWhatsNew(
   ctx: SetupContext<typeof definition>,
   input: { readonly previous: string; readonly current: string; readonly markSeen: () => void },
 ) {
+  const changelogUrl = resolveChangelogUrl()
+
+  if (!changelogUrl) {
+    input.markSeen()
+
+    return
+  }
+
   const timers = new Set<ReturnType<typeof setTimeout>>()
 
   ctx.signal.addEventListener("abort", () => timers.forEach(clearTimeout))
 
-  fetch(CHANGELOG_URL, { signal: ctx.signal, headers: { Accept: "application/json" } })
+  fetch(changelogUrl, { signal: ctx.signal, headers: { Accept: "application/json" } })
     .then((response) => (response.ok ? response.json() : undefined))
     .then((json) => {
-      if (!json) return
+      if (!json) return input.markSeen()
 
       const highlights = Option.match(decodeChangelog(json), {
         onNone: () => [],
@@ -84,7 +98,7 @@ export function showWhatsNew(
         }, 500),
       )
     })
-    .catch(() => undefined)
+    .catch(() => input.markSeen())
 }
 
 function releases(changelog: typeof Changelog.Type) {

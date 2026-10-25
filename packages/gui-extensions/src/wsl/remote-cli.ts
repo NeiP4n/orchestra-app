@@ -39,11 +39,15 @@ export function parseVersion(output: string) {
 }
 
 /** The managed CLI installer also configures the user's shell PATH. */
-export function installScript(input: { version: string; binary?: string }) {
+export function installScript(input: { version: string; binary?: string; url?: string }) {
   const version = requireVersion(input.version)
+  const installerUrl = input.url ?? process.env.ORCHESTRA_INSTALLER_URL ?? process.env.ORCHESTRA_INSTALL_URL
+
+  if (!installerUrl)
+    throw new Error("Remote CLI installer URL is not configured. Set ORCHESTRA_INSTALLER_URL to install remote CLI.")
 
   return `set -eu
-curl -fsSL https://raw.githubusercontent.com/anomalyco/opencode/v2/install | bash -s -- ${input.binary ? `--binary ${input.binary}` : `--version ${quote(version)}`}
+curl -fsSL ${quote(installerUrl)} | bash -s -- ${input.binary ? `--binary ${input.binary}` : `--version ${quote(version)}`}
 test "$("$HOME/.opencode/bin/opencode" --version | awk '{print $NF}' | sed 's/^v//')" = ${quote(version)}
 `
 }

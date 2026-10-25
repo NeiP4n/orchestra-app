@@ -151,7 +151,7 @@ describe("gateway HTTP guards", () => {
   })
 
   test("rejects missing or weak secrets, invalid ports, and cleartext remote upstreams", () => {
-    expect(() => readConfig({})).toThrow("ORCHESTRA_GATEWAY_TOKEN is required")
+    expect(() => readConfig({})).toThrow("Set ORCHESTRA_GATEWAY_TOKEN")
     expect(() => readConfig({
       ORCHESTRA_GATEWAY_TOKEN: "short",
       ORCHESTRA_GATEWAY_UPSTREAM_KEY: "upstream",

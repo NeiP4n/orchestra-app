@@ -8,9 +8,11 @@ const updateClient = pkg.autoUpdater
 
 const restartTimeout = 10_000
 
-const stableArtifact = "https://opencode.ai/update/api/latest/desktop/opencode"
-
 export const make = Effect.fn("Updater.platform")(function* (channel: string) {
+  const updateUrl = process.env.ORCHESTRA_UPDATE_URL
+
+  if (!updateUrl) return undefined
+
   const external = requiresStableMacInstaller(process.platform, channel)
   const userAgent = `opencode/${channel === "prod" ? "latest" : channel}/${app.getVersion()}/desktop`
   const runFork = Effect.runForkWith(yield* Effect.context())
@@ -26,18 +28,20 @@ export const make = Effect.fn("Updater.platform")(function* (channel: string) {
   updateClient.allowDowngrade = true
   updateClient.autoDownload = false
   updateClient.autoInstallOnAppQuit = process.platform === "darwin"
+  updateClient.setFeedURL({ provider: "generic", url: updateUrl })
   yield* Effect.logInfo("auto updater configured", {
+    url: updateUrl,
     channel: updateClient.channel,
     allowPrerelease: updateClient.allowPrerelease,
     allowDowngrade: updateClient.allowDowngrade,
     currentVersion: app.getVersion(),
   })
 
-  return {
+  const platform: Platform = {
     checkForUpdate: Effect.tryPromise({
       try: async () => {
         if (external) {
-          const response = await fetch(stableArtifact, { headers: { "User-Agent": userAgent } })
+          const response = await fetch(updateUrl, { headers: { "User-Agent": userAgent } })
 
           if (!response.ok) throw new Error(`Stable Orchestra update check failed: ${response.status}`)
           const download = stableMacDownload(await response.json(), process.arch)
@@ -58,7 +62,9 @@ export const make = Effect.fn("Updater.platform")(function* (channel: string) {
     stageUpdate,
     installAndRestart,
     externalInstall: external ? openExternal : undefined,
-  } satisfies Platform
+  }
+
+  return platform
 })
 
 function stageUpdate(options: { readonly differential: boolean }) {

@@ -105,11 +105,11 @@ const make = Effect.gen(function* () {
     const manifest: { name: string; bin?: Record<string, string> } = yield* fs
       .readFileString(path.join(directory, "package.json"))
       .pipe(Effect.flatMap((text) => Effect.try(() => JSON.parse(text))))
-    if (!/^@opencode(?:-ai)?\/cli(?:-node)?$/.test(manifest.name)) return
+    if (!/^@(orchestra|opencode(?:-ai)?)\/cli(?:-node)?$/.test(manifest.name)) return
     if (Object.values(manifest.bin ?? {}).some((bin) => path.resolve(directory, bin) === executable))
       return manifest.name
   }).pipe(Effect.orElseSucceed(() => undefined))
-  const installedFormula = ["opencode", "opencode-beta", "opencode-v2"].find((name) =>
+  const installedFormula = ["opencode-beta", "opencode-v2"].find((name) =>
     executable.includes(`${path.sep}Cellar${path.sep}${name}${path.sep}`),
   )
 
@@ -212,14 +212,22 @@ const make = Effect.gen(function* () {
   }
 
   const release = Effect.fnUntraced(function* (method?: Method) {
+    const updateURL = process.env.ORCHESTRA_UPDATE_URL?.trim()
+    if (!updateURL) {
+      return yield* Effect.fail(
+        new UpgradeError({
+          title: "Could not check for Orchestra updates",
+          detail: "ORCHESTRA_UPDATE_URL is not set.",
+          retry: "Set ORCHESTRA_UPDATE_URL to enable updates.",
+        }),
+      )
+    }
     const distribution = method === "brew" ? "homebrew" : "npm"
-    const core = method === "brew" && installedFormula === "opencode"
+    const base = updateURL.replace(/\/+$/, "")
     const response = yield* Effect.tryPromise({
       try: (signal) =>
         fetch(
-          core
-            ? "https://formulae.brew.sh/api/formula/opencode.json"
-            : `https://opencode.ai/update/api/${encodeURIComponent(channel)}/${encodeURIComponent(ORCHESTRA_ARTIFACT)}/${distribution}?current=${encodeURIComponent(ORCHESTRA_VERSION)}`,
+          `${base}/${encodeURIComponent(channel)}/${encodeURIComponent(ORCHESTRA_ARTIFACT)}/${distribution}?current=${encodeURIComponent(ORCHESTRA_VERSION)}`,
           { signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]) },
         ),
       catch: (cause) =>
@@ -240,7 +248,7 @@ const make = Effect.gen(function* () {
           retry: "Try again in a few minutes.",
         }),
       )
-    const data: { version?: string; metadata?: { package?: string }; versions?: { stable?: string } } =
+    const data: { version?: string; metadata?: { package?: string } } =
       yield* Effect.tryPromise({
         try: () => response.json(),
         catch: (cause) =>
@@ -253,8 +261,8 @@ const make = Effect.gen(function* () {
             { cause },
           ),
       })
-    const version = core ? data.versions?.stable : data.version
-    const packageName = core ? "opencode" : data.metadata?.package
+    const version = data.version
+    const packageName = data.metadata?.package
     if (!version || !packageName)
       return yield* Effect.fail(
         new UpgradeError({
@@ -321,10 +329,18 @@ const make = Effect.gen(function* () {
   }
 
   const upgrade = Effect.fnUntraced(function* (method: Method, input: string) {
+    if (!process.env.ORCHESTRA_UPDATE_URL?.trim()) {
+      return yield* Effect.fail(
+        new UpgradeError({
+          title: "Could not prepare the Orchestra upgrade",
+          detail: "ORCHESTRA_UPDATE_URL is not set.",
+          retry: "Set ORCHESTRA_UPDATE_URL to enable updates.",
+        }),
+      )
+    }
     if (!parseReleaseVersion(input)) return yield* Effect.fail(new Error(`Invalid version: ${input}`))
     const version = input.trim().replace(/^v/, "")
-    const packageName =
-      method === "brew" && installedFormula === "opencode" ? "opencode" : (yield* release(method)).package
+    const packageName = (yield* release(method)).package
     const target = `${packageName}@${version}`
     if (installedPackage && packageName !== installedPackage && (method === "pnpm" || method === "yarn")) {
       return yield* Effect.fail(new Error(`Reinstall ${target} with ${method} to migrate from ${installedPackage}.`))
@@ -363,14 +379,25 @@ const make = Effect.gen(function* () {
           )
         }
         if (method === "curl") {
+          const updateURL = process.env.ORCHESTRA_UPDATE_URL?.trim()
+          if (!updateURL) {
+            return yield* Effect.fail(
+              new UpgradeError({
+                title: "Could not download the Orchestra installer",
+                detail: "ORCHESTRA_UPDATE_URL is not set.",
+                retry: "Set ORCHESTRA_UPDATE_URL to enable updates.",
+              }),
+            )
+          }
+          const installURL = process.env.ORCHESTRA_INSTALL_URL?.trim() || `${updateURL.replace(/\/+$/, "")}/install`
           const bash = yield* installerBash()
           yield* fs.makeDirectory(global.cache, { recursive: true })
           const directory = yield* temporaryDirectory("update-")
           const installer = path.join(directory, "install")
           yield* runUpgrade({
             method,
-            command: ["curl", "-fsSL", "-o", installer, "https://opencode.ai/v2/install"],
-            displayCommand: ["curl", "-fsSL", "https://opencode.ai/v2/install"],
+            command: ["curl", "-fsSL", "-o", installer, installURL],
+            displayCommand: ["curl", "-fsSL", installURL],
             title: "Could not download the Orchestra installer",
             retry: "Check your network, then run opencode upgrade again.",
           })
@@ -407,7 +434,7 @@ const make = Effect.gen(function* () {
   const inspect = Effect.fnUntraced(function* () {
     if (ORCHESTRA_LOCAL) {
       // Source installs use Orchestra release tags or the development branch, never the public
-      // opencode.ai update service. A release checkout checks release/* first; a lan-rooms
+      // update service. A release checkout checks release/* first; a lan-rooms
       // checkout then falls through to its own branch tracking.
       const release = yield* sourceRelease()
       if (release?.available) return { policy: "notify" as const, version: release.available }
@@ -417,6 +444,10 @@ const make = Effect.gen(function* () {
       if (branch?.type === "unavailable") {
         yield* Effect.logWarning("Orchestra update check unavailable", { message: branch.message })
       }
+      return undefined
+    }
+
+    if (!process.env.ORCHESTRA_UPDATE_URL?.trim()) {
       return undefined
     }
 
@@ -491,6 +522,7 @@ const make = Effect.gen(function* () {
     // A detached release checkout must still compare HEAD with the live source branch when
     // no newer release tag exists. Otherwise every merged main-branch fix appears "up to date".
     if (ORCHESTRA_LOCAL) return yield* developmentBranch()
+    if (!process.env.ORCHESTRA_UPDATE_URL?.trim()) return undefined
     const version = yield* latest()
     if (!parseReleaseVersion(version)) return yield* Effect.fail(new Error(`Invalid version: ${version}`))
     const current = yield* Ref.get(installedVersion)
@@ -504,6 +536,7 @@ const make = Effect.gen(function* () {
 
   const run = Effect.fn("cli.updater.run")(
     function* (onInstall: (version: string) => void = () => {}) {
+      if (!ORCHESTRA_LOCAL && !process.env.ORCHESTRA_UPDATE_URL?.trim()) return undefined
       const result = yield* inspect()
       if (!result) return undefined
       if (result.policy === "notify") return { type: "available" as const, version: result.version }

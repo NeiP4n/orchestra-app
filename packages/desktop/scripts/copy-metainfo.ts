@@ -10,6 +10,14 @@ const productName = channel === "prod" ? "OpenCode" : `OpenCode ${channel.charAt
 
 const summary = `Open source AI coding agent${channel !== "prod" ? ` (${channel})` : ""}`
 
+const bugtrackerUrl = process.env.ORCHESTRA_BUGTRACKER_URL ?? "https://github.com/orchestra-app/orchestra/issues"
+
+const homepageUrl = process.env.ORCHESTRA_HOMEPAGE_URL ?? "https://github.com/orchestra-app"
+
+const vcsBrowserUrl = process.env.ORCHESTRA_VCS_URL ?? "https://github.com/orchestra-app/orchestra"
+
+const screenshotUrl = process.env.ORCHESTRA_SCREENSHOT_URL
+
 const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
   <id>${appId}</id>
@@ -34,15 +42,19 @@ const xml = `<?xml version="1.0" encoding="UTF-8"?>
 
   <content_rating type="oars-1.1" />
 
-  <url type="bugtracker">https://github.com/anomalyco/opencode/issues</url>
-  <url type="homepage">https://opencode.ai</url>
-  <url type="vcs-browser">https://github.com/anomalyco/opencode</url>
+  <url type="bugtracker">${bugtrackerUrl}</url>
+  <url type="homepage">${homepageUrl}</url>
+  <url type="vcs-browser">${vcsBrowserUrl}</url>${
+    screenshotUrl
+      ? `
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/anomalyco/opencode/b75d4d1c5ec449585d515c756fc81f080a157a9a/packages/web/src/assets/lander/screenshot.png</image>
+      <image>${screenshotUrl}</image>
     </screenshot>
-  </screenshots>
+  </screenshots>`
+      : ""
+  }
 </component>
 `
 

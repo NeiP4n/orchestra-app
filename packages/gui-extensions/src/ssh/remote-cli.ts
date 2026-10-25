@@ -79,18 +79,27 @@ export function archiveUrl(target: string, version: string) {
   return `https://registry.npmjs.org/@orchestra/cli-${target}/-/cli-${target}-${requireVersion(version)}.tgz`
 }
 
-type Source = { type: "download"; url: string } | { type: "archive" } | { type: "installer"; binary?: string }
+type Source = { type: "download"; url: string } | { type: "archive" } | { type: "installer"; binary?: string; url?: string }
 
 export function installScript(input: { version: string; directory?: string; source: Source }) {
   const version = requireVersion(input.version)
 
   // The managed CLI installer also configures the user's shell PATH. Private
   // installations use archives so their destination and shell setup stay isolated.
-  if (input.source.type === "installer")
+  if (input.source.type === "installer") {
+    const installerUrl = input.source.url ?? process.env.ORCHESTRA_INSTALLER_URL ?? process.env.ORCHESTRA_INSTALL_URL
+
+    if (!installerUrl)
+      throw new Failure({
+        code: "install",
+        detail: "Remote CLI installer URL is not configured. Set ORCHESTRA_INSTALLER_URL or provide source.url.",
+      })
+
     return `set -eu
-curl -fsSL https://raw.githubusercontent.com/anomalyco/opencode/v2/install | bash -s -- ${input.source.binary ? `--binary ${input.source.binary}` : `--version ${quote(version)}`}
+curl -fsSL ${quote(installerUrl)} | bash -s -- ${input.source.binary ? `--binary ${input.source.binary}` : `--version ${quote(version)}`}
 ${verifyScript('"$HOME/.opencode/bin/opencode"', version)}
 `
+  }
 
   return `set -eu
 umask 077

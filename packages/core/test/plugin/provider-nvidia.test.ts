@@ -35,9 +35,9 @@ describe("NvidiaPlugin", () => {
       yield* addPlugin()
       expect((yield* catalog.get(Provider.ID.make("nvidia")))?.headers).toEqual({
         Existing: "value",
-        "HTTP-Referer": "https://opencode.ai/",
-        "X-Title": "opencode",
-        "X-BILLING-INVOKE-ORIGIN": "OpenCode",
+        "HTTP-Referer": "https://github.com/NeiP4n/orchestra-app",
+        "X-Title": "orchestra",
+        "X-BILLING-INVOKE-ORIGIN": "Orchestra",
       })
       expect((yield* catalog.get(Provider.ID.openrouter))?.headers).toBeUndefined()
     }),
@@ -55,9 +55,9 @@ describe("NvidiaPlugin", () => {
       yield* addPlugin()
 
       expect((yield* catalog.get(Provider.ID.make("nvidia")))?.headers).toEqual({
-        "HTTP-Referer": "https://opencode.ai/",
-        "X-Title": "opencode",
-        "X-BILLING-INVOKE-ORIGIN": "OpenCode",
+        "HTTP-Referer": "https://github.com/NeiP4n/orchestra-app",
+        "X-Title": "orchestra",
+        "X-BILLING-INVOKE-ORIGIN": "Orchestra",
       })
     }),
   )
@@ -75,8 +75,8 @@ describe("NvidiaPlugin", () => {
       yield* addPlugin()
 
       expect((yield* catalog.get(Provider.ID.make("nvidia")))?.headers).toEqual({
-        "HTTP-Referer": "https://opencode.ai/",
-        "X-Title": "opencode",
+        "HTTP-Referer": "https://github.com/NeiP4n/orchestra-app",
+        "X-Title": "orchestra",
         "X-BILLING-INVOKE-ORIGIN": "CustomOrigin",
       })
     }),
