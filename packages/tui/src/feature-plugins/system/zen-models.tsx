@@ -14,10 +14,18 @@ function text(context: Plugin.Context, en: string, russian: string) {
   return context.ui.language() === "ru" ? russian : en
 }
 
-function Panel(props: { context: Plugin.Context; state: () => CheckState; models: () => ReturnType<typeof freeZenModels>; refresh: () => void }) {
+function Panel(props: {
+  context: Plugin.Context
+  state: () => CheckState
+  models: () => ReturnType<typeof freeZenModels>
+  refresh: () => void
+  autoFallbackEnabled: boolean
+  toggleAutoFallback: () => void
+}) {
   const theme = () => props.context.theme
   const label = (en: string, russian: string) => text(props.context, en, russian)
   const [hovered, setHovered] = createSignal(false)
+  const [fallbackHovered, setFallbackHovered] = createSignal(false)
   const [showAll, setShowAll] = createSignal(false)
   const check = (id: string): ZenModelCheck => props.state().checks[id] ?? { state: "unchecked" }
   const working = () => props.models().filter((model) => check(model.modelID).state === "ok")
@@ -50,6 +58,21 @@ function Panel(props: { context: Plugin.Context; state: () => CheckState; models
         onMouseUp={(event) => { event.stopPropagation(); if (!props.state().running) props.refresh() }}>
         <text fg={props.state().running ? theme().text.muted : actionColor()} wrapMode="none" truncate>
           <b>{props.state().running ? label("Checking…", "Проверка…") : label("↻ Check connection", "↻ Проверить подключение")}</b>
+        </text>
+      </box>
+      <box
+        paddingLeft={1}
+        paddingRight={1}
+        backgroundColor={fallbackHovered() ? hoverBackground(theme()) : undefined}
+        onMouseOver={() => setFallbackHovered(true)}
+        onMouseOut={() => setFallbackHovered(false)}
+        onMouseUp={(event) => {
+          event.stopPropagation()
+          props.toggleAutoFallback()
+        }}
+      >
+        <text fg={props.autoFallbackEnabled ? theme().text.feedback.success.base : theme().text.muted} wrapMode="none" truncate>
+          <b>{label(props.autoFallbackEnabled ? "Auto Fallback: ON" : "Auto Fallback: OFF", props.autoFallbackEnabled ? "Автооткат моделей: ВКЛ" : "Автооткат моделей: ВЫКЛ")}</b>
         </text>
       </box>
       <Show when={props.models().length === 0}>
@@ -95,7 +118,42 @@ export default Plugin.define({
   id: "opencode.zen-models",
   setup(context) {
     const [state, update] = context.storage.memory<CheckState>("checks", { initial: INITIAL })
+    const [autoFallback, updateAutoFallback] = context.storage.store<{ enabled: boolean }>("autoFallback", {
+      initial: { enabled: false },
+    })
     const models = () => freeZenModels(context.data.location.model.list(context.location) ?? [])
+
+    const toggleAutoFallback = async () => {
+      try {
+        const enabled = !autoFallback.enabled
+        await updateAutoFallback((draft) => {
+          draft.enabled = enabled
+        })
+        context.ui.toast.show({
+          title: enabled
+            ? text(context, "Auto Fallback enabled", "Автооткат моделей включён")
+            : text(context, "Auto Fallback disabled", "Автооткат моделей выключен"),
+          message: enabled
+            ? text(
+                context,
+                "OpenCode will switch to another free model when rate limits are hit.",
+                "OpenCode будет переключаться на другую бесплатную модель при лимитах.",
+              )
+            : text(
+                context,
+                "OpenCode keeps the current model on rate limits without switching.",
+                "OpenCode сохраняет текущую модель при лимитах без переключения.",
+              ),
+          variant: "info",
+        })
+      } catch (cause) {
+        context.ui.toast.show({
+          title: text(context, "Could not save Auto Fallback setting", "Не удалось сохранить настройку автоотката"),
+          message: cause instanceof Error ? cause.message : String(cause),
+          variant: "error",
+        })
+      }
+    }
 
     // Runs only when asked: every check is one request per model through the server, so it follows
     // the same route as chat (direct, WARP or a proxy) and spends the same allowance.
@@ -126,7 +184,16 @@ export default Plugin.define({
 
     context.ui.slot({
       append: "sidebar.content",
-      render: () => <Panel context={context} state={() => state} models={models} refresh={() => void refresh()} />,
+      render: () => (
+        <Panel
+          context={context}
+          state={() => state}
+          models={models}
+          refresh={() => void refresh()}
+          autoFallbackEnabled={autoFallback.enabled}
+          toggleAutoFallback={() => void toggleAutoFallback()}
+        />
+      ),
     })
   },
 })

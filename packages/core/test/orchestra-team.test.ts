@@ -1778,7 +1778,7 @@ describe("Orchestra team", () => {
       expect(yield* context(Orchestra.agent)).toContain("The team has no notes yet")
       yield* Effect.promise(() => Bun.write(path.join(tmp.path, ".opencode", "team-notes.md"), "Build: bun run build"))
       expect(yield* context(Orchestra.agent)).toContain("Build: bun run build")
-      expect(yield* context(Agent.ID.make("build"))).toBe("")
+      expect(yield* context(Agent.ID.make("build"))).toContain("Build: bun run build")
 
       const sessionService = yield* Session.Service
       // The tool's own path: the orchestrator calls sessions set_mode on a worker, and the

@@ -399,7 +399,7 @@ describe("Permission", () => {
         effect: "ask",
       })
       const requests = yield* service.list()
-      expect(requests[0]?.message).toContain("host approval to use: git")
+      expect(requests[0]?.message).toContain("host approval to use git")
     }),
   )
 
