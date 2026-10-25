@@ -158,7 +158,8 @@ export interface DaemonTransport {
 export const makeDaemonTransport = Effect.fn("PersistentPty.makeDaemonTransport")(function* (
   root: string,
   initialID: string,
-  binary: () => Promise<string> = () => Promise.resolve(process.env.ORCHESTRA_PTY_BIN || "opencode-pty"),
+  binary: () => Promise<string> = () =>
+    Promise.resolve(process.env.ORCHESTRA_PTY_BIN || process.env.OPENCODE_PTY_BIN || "opencode-pty"),
   inherited?: Handoff,
 ) {
   const startup = Semaphore.makeUnsafe(1)

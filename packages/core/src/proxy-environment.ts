@@ -41,7 +41,7 @@ export interface Options {
 const TARGET = "models.dev:443"
 const TIMEOUT = 2_000
 /** Skip probing entirely; a configured proxy is then always applied as written. */
-const DISABLE = process.env.ORCHESTRA_PROXY_PROBE === "0"
+const DISABLE = (process.env.ORCHESTRA_PROXY_PROBE ?? process.env.OPENCODE_PROXY_PROBE) === "0"
 
 export function settings(proxy: Settings | undefined): Settings | undefined {
   if (!proxy) return undefined

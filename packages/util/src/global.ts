@@ -14,15 +14,29 @@ const { data, cache, config, state, tmp } = roots(app)
 
 const paths = {
   get home() {
-    return process.env.ORCHESTRA_TEST_HOME ?? os.homedir()
+    return process.env.ORCHESTRA_TEST_HOME ?? process.env.OPENCODE_TEST_HOME ?? os.homedir()
   },
-  data,
-  bin: path.join(cache, "bin"),
-  log: path.join(data, "log"),
-  repos: path.join(data, "repos"),
-  cache,
-  config,
-  state,
+  get data() {
+    return process.env.ORCHESTRA_DATA_DIR ?? process.env.OPENCODE_DATA_DIR ?? data
+  },
+  get bin() {
+    return path.join(this.cache, "bin")
+  },
+  get log() {
+    return path.join(this.data, "log")
+  },
+  get repos() {
+    return path.join(this.data, "repos")
+  },
+  get cache() {
+    return process.env.ORCHESTRA_CACHE_DIR ?? process.env.OPENCODE_CACHE_DIR ?? cache
+  },
+  get config() {
+    return process.env.ORCHESTRA_CONFIG_DIR ?? process.env.OPENCODE_CONFIG_DIR ?? config
+  },
+  get state() {
+    return process.env.ORCHESTRA_STATE_DIR ?? process.env.OPENCODE_STATE_DIR ?? state
+  },
   tmp,
 }
 
@@ -76,7 +90,9 @@ const acquire = (input: Partial<Interface>) =>
 
 const layer = Layer.effect(
   Service,
-  Effect.suspend(() => acquire({ config: process.env.ORCHESTRA_CONFIG_DIR ?? Path.config })),
+  Effect.suspend(() =>
+    acquire({ config: process.env.ORCHESTRA_CONFIG_DIR ?? process.env.OPENCODE_CONFIG_DIR ?? Path.config }),
+  ),
 )
 
 export const node = makeGlobalNode({ service: Service, layer: layer, deps: [] })

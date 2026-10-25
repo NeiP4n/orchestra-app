@@ -9,6 +9,7 @@ export default function load() {
   const libc = typeof ORCHESTRA_LIBC === "undefined" ? undefined : ORCHESTRA_LIBC
   return require(
     process.env.ORCHESTRA_PARCEL_WATCHER_PATH ??
+      process.env.OPENCODE_PARCEL_WATCHER_PATH ??
       `@parcel/watcher-${process.platform}-${process.arch}${process.platform === "linux" ? `-${libc || "glibc"}` : ""}`,
   )
 }

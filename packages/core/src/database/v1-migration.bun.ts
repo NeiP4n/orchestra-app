@@ -701,7 +701,9 @@ export function run(options: Options = {}): Effect.Effect<RunResult, never, Data
 
 function nextPath(options: Options, data: string) {
   if (options.nextDatabasePath) return options.nextDatabasePath
-  if (process.env.ORCHESTRA_DB === ":memory:") return undefined
+  if (process.env.ORCHESTRA_DB === ":memory:" || process.env.OPENCODE_DB === ":memory:") return undefined
+  const orchestraNext = path.join(data, "orchestra-next.db")
+  if (existsSync(orchestraNext)) return orchestraNext
   return path.join(data, "opencode-next.db")
 }
 

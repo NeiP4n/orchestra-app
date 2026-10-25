@@ -12,7 +12,7 @@ export const MetadataKey = "orchestra:completion-gate"
 
 // ORCHESTRA_COMPLETION_NUDGES=0 turns the gate off; the default allows three wake-ups per user turn.
 const limit = () => {
-  const value = Number(process.env.ORCHESTRA_COMPLETION_NUDGES ?? 3)
+  const value = Number(process.env.ORCHESTRA_COMPLETION_NUDGES ?? process.env.OPENCODE_COMPLETION_NUDGES ?? 3)
   return Number.isFinite(value) && value >= 0 ? value : 3
 }
 

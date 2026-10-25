@@ -14,7 +14,7 @@ import type { SessionMessage } from "../session/message.js"
 // Short sections and sections no area claims are always sent whole.
 
 // ORCHESTRA_INSTRUCTION_ROUTER=off sends every section whole, as before routing existed.
-export const enabled = () => process.env.ORCHESTRA_INSTRUCTION_ROUTER !== "off"
+export const enabled = () => (process.env.ORCHESTRA_INSTRUCTION_ROUTER ?? process.env.OPENCODE_INSTRUCTION_ROUTER) !== "off"
 
 const MIN_SECTION = 600
 const IGNORED = new Set(["node_modules", "dist", "build", "out", "target", "vendor"])

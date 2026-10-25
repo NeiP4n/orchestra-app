@@ -5,11 +5,14 @@ import { sqliteLayer, supportsForeignKeyToggle, supportsTuningPragmas } from "#s
 import { Context, Effect, Layer, Schema, Semaphore } from "effect"
 import type { SqlClient } from "effect/unstable/sql"
 import { Global } from "@orchestra/util/global"
-import { closeSync, existsSync, openSync } from "node:fs"
+import { closeSync, copyFileSync, existsSync, openSync } from "node:fs"
 import { chmod } from "node:fs/promises"
-import { isAbsolute, join } from "path"
+import { basename, dirname, isAbsolute, join } from "path"
 import { DatabaseMigration } from "./migration.js"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
+
+export const DEFAULT_DATABASE_FILE = "orchestra-local.db"
+export const LEGACY_DATABASE_FILE = "opencode-local.db"
 
 const makeDatabase = EffectDrizzleSqlite.makeWithDefaults()
 type DatabaseShape = Effect.Success<typeof makeDatabase>
@@ -71,9 +74,29 @@ export function layer(options: Options = { path: ":memory:" }) {
         databaseLayer(filename === ":memory:" ? Semaphore.make(1) : Effect.succeed(lockFor(filename))).pipe(
           Layer.provide(sqliteLayer({ filename })),
         )
-      const filename = options.path ?? ":memory:"
-      if (filename === ":memory:") return provide(filename)
-      const file = isAbsolute(filename) ? filename : join((yield* Global.Service).data, filename)
+      const envDb = process.env.ORCHESTRA_DB ?? process.env.OPENCODE_DB
+      const raw = options.path ?? envDb ?? ":memory:"
+      if (raw === ":memory:") return provide(raw)
+      const dataDir = (yield* Global.Service).data
+      let file = isAbsolute(raw) ? raw : join(dataDir, raw)
+      if (basename(file) === DEFAULT_DATABASE_FILE && !existsSync(file)) {
+        const legacyCandidates = [
+          join(dirname(file), LEGACY_DATABASE_FILE),
+          join(dataDir, LEGACY_DATABASE_FILE),
+          join(dirname(file), "opencode.db"),
+          join(dataDir, "opencode.db"),
+        ]
+        const existingLegacy = legacyCandidates.find((candidate) => existsSync(candidate))
+        if (existingLegacy) {
+          try {
+            copyFileSync(existingLegacy, file)
+            if (existsSync(`${existingLegacy}-wal`)) copyFileSync(`${existingLegacy}-wal`, `${file}-wal`)
+            if (existsSync(`${existingLegacy}-shm`)) copyFileSync(`${existingLegacy}-shm`, `${file}-shm`)
+          } catch {
+            file = existingLegacy
+          }
+        }
+      }
       yield* Effect.promise(() => restrictToOwner(file))
       return provide(file)
     }),

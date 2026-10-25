@@ -8,6 +8,7 @@ export const available = process.platform !== "win32"
 
 export async function resolveBinary(bin: string) {
   if (process.env.ORCHESTRA_PTY_BIN) return process.env.ORCHESTRA_PTY_BIN
+  if (process.env.OPENCODE_PTY_BIN) return process.env.OPENCODE_PTY_BIN
   if (!asset) return "opencode-pty"
   if (typeof asset === "string") return asset
   return install(bin, asset)
