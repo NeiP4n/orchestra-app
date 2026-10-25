@@ -143,6 +143,7 @@ export function host(overrides: Overrides = {}): Plugin.Context {
       get: () => Effect.die("unused vcs.get"),
       branch: {
         list: () => Effect.die("unused vcs.branch.list"),
+        checkout: () => Effect.die("unused vcs.branch.checkout"),
       },
       status: () => Effect.die("unused vcs.status"),
       diff: () => Effect.die("unused vcs.diff"),

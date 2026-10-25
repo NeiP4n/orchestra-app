@@ -477,6 +477,7 @@ export const make = Effect.fn("PluginHost.make")(function* (
       base: () => response(vcs.base()),
       branch: {
         list: (input) => response(vcs.branches({ search: input?.search, limit: input?.limit })),
+        checkout: (input) => response(vcs.checkout(input.branch).pipe(Effect.andThen(vcs.info()))),
       },
       status: () => response(vcs.status()),
       diff: (input) => response(vcs.diff(input.mode, { context: input.context, base: input.base })),

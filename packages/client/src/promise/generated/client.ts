@@ -252,6 +252,8 @@ import type {
   VcsStatusOutput,
   VcsBranchListInput,
   VcsBranchListOutput,
+  VcsBranchCheckoutInput,
+  VcsBranchCheckoutOutput,
   VcsDiffInput,
   VcsDiffOutput,
   NoteListInput,
@@ -2282,6 +2284,19 @@ export function make(options: ClientOptions) {
               query: { location: input?.["location"], search: input?.["search"], limit: input?.["limit"] },
               successStatus: 200,
               declaredStatuses: [400, 401, 404],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        checkout: (input: VcsBranchCheckoutInput, requestOptions?: RequestOptions) =>
+          request<VcsBranchCheckoutOutput>(
+            {
+              method: "POST",
+              path: `/api/vcs/branch/checkout`,
+              query: { location: input["location"] },
+              body: { branch: input["branch"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401, 404, 409, 503],
               empty: false,
             },
             requestOptions,

@@ -15,6 +15,10 @@ export interface VcsBranchesInput extends VcsScope {
   readonly limit?: number
 }
 
+export interface VcsCheckoutInput extends VcsScope {
+  readonly branch: string
+}
+
 export interface VcsDiffInput extends VcsScope {
   readonly mode: Vcs.Mode
   readonly base?: string
@@ -29,6 +33,7 @@ export interface VcsDefinition {
   readonly info: (input: VcsScope, context: { readonly signal: AbortSignal }) => Promise<Vcs.Info>
   readonly base?: (input: VcsScope, context: { readonly signal: AbortSignal }) => Promise<Vcs.Base | null>
   readonly branches: (input: VcsBranchesInput, context: { readonly signal: AbortSignal }) => Promise<Vcs.BranchList>
+  readonly checkout?: (input: VcsCheckoutInput, context: { readonly signal: AbortSignal }) => Promise<void>
   readonly status: (input: VcsScope, context: { readonly signal: AbortSignal }) => Promise<readonly Vcs.FileStatus[]>
   readonly diff: (input: VcsDiffInput, context: { readonly signal: AbortSignal }) => Promise<readonly FileDiff.Info[]>
 }

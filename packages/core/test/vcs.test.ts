@@ -581,6 +581,31 @@ describe("Vcs", () => {
     ),
   )
 
+  it.live("switches branches and refuses unsafe or conflicting switches", () =>
+    withGit((directory) =>
+      Effect.gen(function* () {
+        yield* Effect.promise(async () => {
+          await fs.writeFile(path.join(directory, "file.txt"), "one\n")
+          await commitAll(directory, "initial")
+          await $`git checkout -q -b feature`.cwd(directory).quiet()
+          await fs.writeFile(path.join(directory, "file.txt"), "two\n")
+          await commitAll(directory, "feature change")
+        })
+        const vcs = yield* Vcs.Service
+
+        yield* vcs.checkout("main")
+        expect((yield* vcs.info()).branch.current).toBe("main")
+
+        expect((yield* vcs.checkout("--detach").pipe(Effect.flip)).kind).toBe("invalid")
+        expect((yield* vcs.checkout("missing").pipe(Effect.flip)).kind).toBe("failed")
+
+        // Uncommitted edits that the switch would overwrite keep git's refusal.
+        yield* Effect.promise(() => fs.writeFile(path.join(directory, "file.txt"), "local\n"))
+        expect((yield* vcs.checkout("feature").pipe(Effect.flip)).kind).toBe("failed")
+        expect((yield* vcs.info()).branch.current).toBe("main")
+      }),
+    ),
+  )
   it.live("caches branch info and publishes HEAD changes", () =>
     withGit((directory) =>
       Effect.gen(function* () {

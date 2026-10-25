@@ -7084,6 +7084,13 @@ export type VcsBranchListInput = {
 
 export type VcsBranchListOutput = { location: LocationPublicRef; data: VcsBranchList }
 
+export type VcsBranchCheckoutInput = {
+  readonly location?: { readonly location?: { readonly directory?: string | undefined } | undefined }["location"]
+  readonly branch: { readonly branch: string }["branch"]
+}
+
+export type VcsBranchCheckoutOutput = { location: LocationPublicRef; data: VcsInfo }
+
 export type VcsDiffInput = {
   readonly location?: {
     readonly location?: { readonly directory?: string | undefined } | undefined

@@ -107,6 +107,23 @@ export const VcsGroup = HttpApiGroup.make("server.vcs")
       ),
   )
   .add(
+    HttpApiEndpoint.post("vcs.branch.checkout", "/api/vcs/branch/checkout", {
+      query: LocationQuery,
+      payload: Schema.Struct({ branch: Schema.String }),
+      success: Location.response(Vcs.Info),
+      error: [InvalidRequestError, ConflictError, ServiceUnavailableError],
+    })
+      .annotateMerge(locationQueryOpenApi)
+      .annotateMerge(
+        OpenApi.annotations({
+          identifier: "vcs.branch.checkout",
+          summary: "Switch branch",
+          description:
+            "Switch the requested location to an existing local branch, or to the remote branch of that name. Returns the updated branch information. Fails with 409 when the working copy has changes that the switch would overwrite, and with 503 when the VCS provider cannot switch branches.",
+        }),
+      ),
+  )
+  .add(
     HttpApiEndpoint.get("vcs.diff", "/api/vcs/diff", {
       query: DiffQuery,
       success: Location.response(Schema.Array(FileDiff.Info)),

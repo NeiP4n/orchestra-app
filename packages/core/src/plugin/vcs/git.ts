@@ -43,6 +43,14 @@ export const Plugin = define({
             )
             if (result.exitCode !== 0) return yield* Effect.fail(new Error("Git initialization failed"))
           }),
+        checkout: (input) =>
+          Effect.gen(function* () {
+            const result = yield* processes.run(
+              ChildProcess.make(gitExecutable, ["switch", input.branch], { cwd: input.directory, stdin: "ignore" }),
+            )
+            if (result.exitCode !== 0)
+              return yield* Effect.fail(new Error(result.stderr.toString("utf8").trim() || "Could not switch branch"))
+          }),
         info: () => adapter.info(),
         base: () => adapter.base(),
         branches: (input) => adapter.branches({ search: input.search, limit: input.limit }),

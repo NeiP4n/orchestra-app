@@ -101,6 +101,7 @@ const vcsLayer = Layer.succeed(
     reload: () => Effect.void,
     info: () => Effect.succeed({ branch: {} }),
     branches: () => Effect.succeed([]),
+    checkout: () => Effect.fail(new Vcs.CheckoutError({ kind: "unsupported", message: "Branches are unavailable in the workerd profile" })),
     status: () => Effect.succeed([]),
     diff: () => Effect.succeed([]),
   }),

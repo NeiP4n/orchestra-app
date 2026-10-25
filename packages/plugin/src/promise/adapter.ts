@@ -513,6 +513,7 @@ export function fromPromise(plugin: Plugin) {
             base: adaptApiMethod(VcsEndpoints["vcs.base"], host.vcs.base),
             branch: {
               list: adaptApiMethod(VcsEndpoints["vcs.branch.list"], host.vcs.branch.list),
+              checkout: adaptApiMethod(VcsEndpoints["vcs.branch.checkout"], host.vcs.branch.checkout),
             },
             status: adaptApiMethod(VcsEndpoints["vcs.status"], host.vcs.status),
             diff: adaptApiMethod(VcsEndpoints["vcs.diff"], host.vcs.diff),
@@ -524,6 +525,7 @@ export function fromPromise(plugin: Plugin) {
                     add: (definition) => {
                       const init = definition.init?.bind(definition)
                       const base = definition.base?.bind(definition)
+                      const checkout = definition.checkout?.bind(definition)
                       editor.add({
                         id: definition.id,
                         name: definition.name,
@@ -531,6 +533,7 @@ export function fromPromise(plugin: Plugin) {
                         info: (input) => attempt((signal) => definition.info(input, { signal })),
                         base: base ? (input) => attempt((signal) => base(input, { signal })) : undefined,
                         branches: (input) => attempt((signal) => definition.branches(input, { signal })),
+                        checkout: checkout ? (input) => attempt((signal) => checkout(input, { signal })) : undefined,
                         status: (input) => attempt((signal) => definition.status(input, { signal })),
                         diff: (input) => attempt((signal) => definition.diff(input, { signal })),
                       })

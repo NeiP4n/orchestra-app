@@ -254,6 +254,8 @@ import type {
   VcsStatusOutput,
   VcsBranchListInput,
   VcsBranchListOutput,
+  VcsBranchCheckoutInput,
+  VcsBranchCheckoutOutput,
   VcsDiffInput,
   VcsDiffOutput,
   NoteListInput,
@@ -1692,6 +1694,13 @@ const EndpointVcsBranchList = (raw: RawClient["server.vcs"]) => (input?: VcsBran
     }).pipe(Effect.mapError(mapClientError)),
   )
 
+const EndpointVcsBranchCheckout = (raw: RawClient["server.vcs"]) => (input: VcsBranchCheckoutInput) =>
+  preserveEffect<VcsBranchCheckoutOutput>()(
+    raw["vcs.branch.checkout"]({ query: { location: input["location"] }, payload: { branch: input["branch"] } }).pipe(
+      Effect.mapError(mapClientError),
+    ),
+  )
+
 const EndpointVcsDiff = (raw: RawClient["server.vcs"]) => (input: VcsDiffInput) =>
   preserveEffect<VcsDiffOutput>()(
     raw["vcs.diff"]({
@@ -1704,7 +1713,7 @@ const adaptGroupVcs = (raw: RawClient["server.vcs"]) => ({
   get: EndpointVcsGet(raw),
   base: EndpointVcsBase(raw),
   status: EndpointVcsStatus(raw),
-  branch: { list: EndpointVcsBranchList(raw) },
+  branch: { list: EndpointVcsBranchList(raw), checkout: EndpointVcsBranchCheckout(raw) },
   diff: EndpointVcsDiff(raw),
 })
 

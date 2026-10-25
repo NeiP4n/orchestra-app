@@ -62,6 +62,22 @@ export const VcsHandler = HttpApiBuilder.group(Api, "server.vcs", (handlers) =>
           }),
         ),
       )
+      .handle("vcs.branch.checkout", (ctx) =>
+        response(
+          Effect.gen(function* () {
+            const vcs = yield* Vcs.Service
+            yield* vcs.checkout(ctx.payload.branch).pipe(
+              Effect.mapError((error) => {
+                if (error.kind === "invalid") return new InvalidRequestError({ message: error.message, field: "branch" })
+                if (error.kind === "unsupported")
+                  return new ServiceUnavailableError({ service: "vcs", message: error.message })
+                return new ConflictError({ message: error.message, resource: ctx.payload.branch })
+              }),
+            )
+            return yield* vcs.info()
+          }),
+        ),
+      )
       .handle("vcs.base", () =>
         response(
           Effect.gen(function* () {

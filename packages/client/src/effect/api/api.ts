@@ -2318,6 +2318,15 @@ export type VcsBranchListInput = {
 export type VcsBranchListOutput = { readonly location: Location.PublicRef; readonly data: Vcs.BranchList }
 export type VcsBranchListOperation<E = never> = (input?: VcsBranchListInput) => Effect.Effect<VcsBranchListOutput, E>
 
+export type VcsBranchCheckoutInput = {
+  readonly location?: { readonly directory?: string | undefined } | undefined
+  readonly branch: string
+}
+export type VcsBranchCheckoutOutput = { readonly location: Location.PublicRef; readonly data: Vcs.Info }
+export type VcsBranchCheckoutOperation<E = never> = (
+  input: VcsBranchCheckoutInput,
+) => Effect.Effect<VcsBranchCheckoutOutput, E>
+
 export type VcsDiffInput = {
   readonly location?: { readonly directory?: string | undefined } | undefined
   readonly mode: Vcs.Mode
@@ -2332,7 +2341,7 @@ export interface VcsApi<E = never> {
   readonly get: VcsGetOperation<E>
   readonly base: VcsBaseOperation<E>
   readonly status: VcsStatusOperation<E>
-  readonly branch: { readonly list: VcsBranchListOperation<E> }
+  readonly branch: { readonly list: VcsBranchListOperation<E>; readonly checkout: VcsBranchCheckoutOperation<E> }
   readonly diff: VcsDiffOperation<E>
 }
 

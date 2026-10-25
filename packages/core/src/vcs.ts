@@ -25,6 +25,11 @@ export class InitializeError extends Schema.TaggedError<InitializeError>()("Vcs.
   kind: Schema.Literals(["missing", "conflict", "unknown", "unsupported", "failed"]),
 }) {}
 
+export class CheckoutError extends Schema.TaggedError<CheckoutError>()("Vcs.CheckoutError", {
+  kind: Schema.Literals(["invalid", "unsupported", "failed"]),
+  message: Schema.String,
+}) {}
+
 export interface DiffOptions {
   readonly context?: number
   readonly base?: string
@@ -46,6 +51,7 @@ export interface Adapter {
 export interface Interface extends Adapter, State.Transformable<VcsEditor> {
   readonly base: () => Effect.Effect<Base | null, DiffError>
   readonly initialize: (providerID: string) => Effect.Effect<void, InitializeError>
+  readonly checkout: (branch: string) => Effect.Effect<void, CheckoutError>
 }
 
 interface Data {
@@ -191,6 +197,31 @@ const layer = Layer.effect(
                   ),
             ),
           )
+      }),
+      checkout: Effect.fn("Vcs.checkout")(function* (branch: string) {
+        const provider = selected()
+        if (!provider?.checkout)
+          return yield* new CheckoutError({ kind: "unsupported", message: "VCS provider cannot switch branches" })
+        // A leading dash would be read as an option by the provider's command.
+        if (!branch.trim() || branch.startsWith("-"))
+          return yield* new CheckoutError({ kind: "invalid", message: "Invalid branch name" })
+        yield* provider.checkout({ ...scope, branch }).pipe(
+          Effect.catchCause((cause) => {
+            if (Cause.hasInterrupts(cause)) return Effect.failCause(cause).pipe(Effect.orDie)
+            const error = Cause.squash(cause)
+            return Effect.logWarning("vcs checkout failed", { provider: provider.id, cause }).pipe(
+              Effect.andThen(
+                Effect.fail(
+                  new CheckoutError({
+                    kind: "failed",
+                    message: error instanceof Error && error.message ? error.message : "Could not switch branch",
+                  }),
+                ),
+              ),
+            )
+          }),
+        )
+        yield* refresh()
       }),
       info: Effect.fn("Vcs.info")(function* () {
         return current.info
