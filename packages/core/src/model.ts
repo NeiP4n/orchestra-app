@@ -206,7 +206,13 @@ const layer = Layer.effect(
           if (selected) return selected
         }
         // `available` is ordered newest release first, so this is the newest model that can answer text.
-        return value.available.find((model) => supportsText(model))
+        const textModels = value.available.filter((model) => supportsText(model))
+        const functional = textModels.find((model) => {
+          if (model.cost.length > 0 && model.cost.every((cost) => cost.input === 0)) return true
+          const key = model.settings?.apiKey
+          return typeof key === "string" && key.length > 0 && !key.includes("{env:")
+        })
+        return functional ?? textModels.at(0)
       }),
       // Titles and summaries run on the provider's cheapest family instead of the session's own
       // model, which is often a large paid one. `available` is ordered newest release first.

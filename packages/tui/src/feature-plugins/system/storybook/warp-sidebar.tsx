@@ -18,6 +18,7 @@ type Scenario = {
   state: WarpConnectionState
   proxyEnabled: boolean
   autoRotateEnabled: boolean
+  autoFallbackEnabled?: boolean
   autoRotation: AutoRotationState
   exitIp: string
   directIp: string
@@ -130,12 +131,14 @@ function WarpSidebarStory(props: { context: Plugin.Context }) {
               busy={{ action: null }}
               proxyEnabled={current().proxyEnabled}
               autoRotateEnabled={current().autoRotateEnabled}
+              autoFallbackEnabled={current().autoFallbackEnabled ?? false}
               autoRotation={current().autoRotation}
               exitIp={current().exitIp}
               directIp={current().directIp}
               open={() => {}}
               toggleProxy={() => setScenario((value) => (value === 2 ? 0 : 2))}
               toggleAutoRotate={() => {}}
+              toggleAutoFallback={() => {}}
             />
           </box>
           <box flexGrow={1} />

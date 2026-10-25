@@ -261,11 +261,24 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           }
         }
 
-        const model = models()?.[0]
-        if (!model) return undefined
+        const functional = models()?.find((item) => {
+          if (!item.enabled || item.status === "deprecated") return false
+          if (item.cost.length > 0 && item.cost.every((cost) => cost.input === 0)) return true
+          const integrations = data.location.integration.list(location.ref) ?? []
+          const activeIntegrations = new Set(
+            integrations
+              .filter((i) => i.connections.some((c) => c.type === "credential"))
+              .map((i) => i.id),
+          )
+          const provider = providers()?.find((p) => p.id === item.providerID)
+          if (provider && activeIntegrations.has(provider.integrationID ?? provider.id)) return true
+          const key = (item.settings as Record<string, unknown> | undefined)?.apiKey ?? (provider?.settings as Record<string, unknown> | undefined)?.apiKey
+          return typeof key === "string" && key.length > 0 && !key.includes("{env:")
+        })
+        if (!functional) return undefined
         return {
-          providerID: model.providerID,
-          modelID: model.id,
+          providerID: functional.providerID,
+          modelID: functional.id,
         }
       })
 

@@ -56,4 +56,13 @@ describe("WARP model fallback after the free-tier address cap", () => {
     )
     expect(picked?.modelID).toBe("newer-free")
   })
+
+  test("auto fallback guard respects enabled setting", () => {
+    const isAutoFallbackAllowed = (enabled: boolean, models: readonly ModelInfo[]) => {
+      if (!enabled) return undefined
+      return pickFallbackModel(models, current, new Set())
+    }
+    expect(isAutoFallbackAllowed(false, [model("nemotron-3-ultra-free")])).toBeUndefined()
+    expect(isAutoFallbackAllowed(true, [model("nemotron-3-ultra-free")])?.modelID).toBe("nemotron-3-ultra-free")
+  })
 })

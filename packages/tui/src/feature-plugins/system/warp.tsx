@@ -415,7 +415,7 @@ function ActionButton(props: { context: Plugin.Context; id: string; label: strin
   )
 }
 
-export function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus; busy: SharedBusy; proxyEnabled: boolean; autoRotateEnabled: boolean; autoRotation: AutoRotationState; exitIp: string; directIp: string; open: () => void; toggleProxy: () => void; toggleAutoRotate: () => void }) {
+export function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus; busy: SharedBusy; proxyEnabled: boolean; autoRotateEnabled: boolean; autoFallbackEnabled?: boolean; autoRotation: AutoRotationState; exitIp: string; directIp: string; open: () => void; toggleProxy: () => void; toggleAutoRotate: () => void; toggleAutoFallback?: () => void }) {
   const theme = () => props.context.theme
   const ru = () => language(props.context) === "ru"
   // The session sidebar is a narrow column, so the labels form a fixed-width column and the
@@ -478,6 +478,9 @@ export function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus
       <box flexDirection="row" gap={1} flexWrap="wrap">
         <ActionButton context={props.context} id="warp.sidebar.open" label={ru() ? tr("Manage ↗") : "Manage ↗"} run={props.open} accent />
         <ActionButton context={props.context} id="warp.sidebar.autoRotate" label={ru() ? tr(props.autoRotateEnabled ? "Auto IP: ON" : "Auto IP: OFF") : `Auto IP: ${props.autoRotateEnabled ? "ON" : "OFF"}`} run={props.toggleAutoRotate} disabled={props.busy.action !== null} emphasized={props.autoRotateEnabled} accent />
+        {props.toggleAutoFallback && (
+          <ActionButton context={props.context} id="warp.sidebar.autoFallback" label={ru() ? tr(props.autoFallbackEnabled ? "Auto Fallback: ON" : "Auto Fallback: OFF") : `Auto Fallback: ${props.autoFallbackEnabled ? "ON" : "OFF"}`} run={props.toggleAutoFallback} disabled={props.busy.action !== null} emphasized={props.autoFallbackEnabled} accent />
+        )}
       </box>
     </box>
   )
@@ -554,6 +557,7 @@ export default Plugin.define({
     const [busy, updateBusy] = context.storage.memory<SharedBusy>("busy", { initial: { action: null } })
     const [proxy, updateProxy] = context.storage.memory<{ enabled: boolean }>("proxy", { initial: { enabled: false } })
     const [autoRotate, updateAutoRotate] = context.storage.store<{ enabled: boolean; optedOut?: boolean }>("autoRotate", { initial: { enabled: false } })
+    const [autoFallback, updateAutoFallback] = context.storage.store<{ enabled: boolean }>("autoFallback", { initial: { enabled: false } })
     const [autoRotation, updateAutoRotation] = context.storage.memory<{ state: AutoRotationState }>("autoRotation", { initial: { state: { phase: "idle" } } })
     const [exit, updateExit] = context.storage.memory<{ ip: string; direct: string }>("exit", { initial: { ip: "", direct: "" } })
 
@@ -794,6 +798,10 @@ export default Plugin.define({
         continuations.clear()
         return
       }
+      if (options.fallback && !autoFallback.enabled) {
+        Warp.log(`automatic model fallback skipped: autoFallback is disabled`)
+        return
+      }
       const plain = new Set(continuations.due())
       const due = options.fallback
         ? continuations.due({ addressChanged: true }).filter((sessionID) => !plain.has(sessionID))
@@ -831,7 +839,11 @@ export default Plugin.define({
             continue
           }
           const current = latest.type === "assistant" ? latest.model : session?.model
-          const replacement = options.fallback && session && current ? await fallbackModel(session.location, current) : undefined
+          const replacement = options.fallback && autoFallback.enabled && session && current ? await fallbackModel(session.location, current) : undefined
+          if (options.fallback && !autoFallback.enabled) {
+            Warp.log(`automatic model fallback skipped for ${sessionID}: autoFallback is disabled`)
+            continue
+          }
           if (options.fallback && !replacement) {
             Warp.log(`automatic model fallback skipped for ${sessionID}: no other free model left for ${current ? modelKey(current) : "?"}`)
             continue
@@ -1082,6 +1094,24 @@ export default Plugin.define({
       }
     }
 
+    const toggleAutoFallback = async () => {
+      try {
+        const enabled = !autoFallback.enabled
+        await updateAutoFallback((draft) => {
+          draft.enabled = enabled
+        })
+        context.ui.toast.show({
+          title: enabled ? text(context, "Auto Fallback enabled", tr("Auto model fallback on")) : text(context, "Auto Fallback disabled", tr("Auto model fallback off")),
+          message: enabled
+            ? text(context, "OpenCode will automatically switch to another free model when rate limits are hit.", tr("OpenCode will switch to another free model on rate limits."))
+            : text(context, "OpenCode will keep the current model on rate limits without switching.", tr("OpenCode keeps the current model on rate limits without switching.")),
+          variant: "info",
+        })
+      } catch (cause) {
+        context.ui.toast.show({ title: text(context, "Could not save Auto Fallback setting", tr("Could not save the auto fallback setting")), message: messageOf(cause), variant: "error" })
+      }
+    }
+
     const close = () => context.ui.dialog.clear()
     const open = () => {
       context.ui.dialog.show(() => <WarpPage context={context} status={status} busy={busy} proxyEnabled={proxy.enabled} exitIp={exit.ip} directIp={exit.direct} run={(action) => void perform(action)} onClose={close} />)
@@ -1092,7 +1122,7 @@ export default Plugin.define({
       context.keymap.layer(() => ({ mode: "global", commands: [{ id: "opencode.warp.open", title: text(context, "Cloudflare WARP controls", tr("Cloudflare WARP control")), description: text(context, "View status, connect, reconnect, or reset registration", tr("Status, connect, reconnect and registration reset")), group: "System", slash: { name: "warp", arguments: true }, palette: true, run: open }] }))
       return null
     }})
-    context.ui.slot({ append: "sidebar.content", render: () => <WarpSidebar context={context} status={status} busy={busy} proxyEnabled={proxy.enabled} autoRotateEnabled={autoRotate.enabled} autoRotation={autoRotation.state} exitIp={exit.ip} directIp={exit.direct} open={open} toggleProxy={() => void perform(proxy.enabled ? "disableProxy" : "proxy")} toggleAutoRotate={() => void toggleAutoRotate()} /> })
+    context.ui.slot({ append: "sidebar.content", render: () => <WarpSidebar context={context} status={status} busy={busy} proxyEnabled={proxy.enabled} autoRotateEnabled={autoRotate.enabled} autoFallbackEnabled={autoFallback.enabled} autoRotation={autoRotation.state} exitIp={exit.ip} directIp={exit.direct} open={open} toggleProxy={() => void perform(proxy.enabled ? "disableProxy" : "proxy")} toggleAutoRotate={() => void toggleAutoRotate()} toggleAutoFallback={() => void toggleAutoFallback()} /> })
 
     void Warp.hideGui()
     void refresh()

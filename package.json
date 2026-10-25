@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "name": "opencode",
+  "name": "orchestra",
   "description": "AI-powered development tool",
   "version": "2.0.24",
   "private": true,
@@ -9,9 +9,9 @@
   "scripts": {
     "dev": "bun run --cwd packages/cli src/index.ts",
     "release:pp": "bun run script/release-pp.ts",
-    "dev:live": "sh -c 'ORCHESTRA_TUI_CHANNEL=dev ORCHESTRA_PASSWORD=\"$(opencode service get password)\" exec bun run dev \"$@\" --server \"$(opencode service status)\"' --",
+    "dev:live": "sh -c 'ORCHESTRA_TUI_CHANNEL=dev ORCHESTRA_PASSWORD=\"$(orchestra service get password 2>/dev/null || opencode service get password)\" exec bun run dev \"$@\" --server \"$(orchestra service status 2>/dev/null || opencode service status)\"' --",
     "dev:vite": "bun run --cwd packages/cli --conditions=browser dev/vite.ts",
-    "dev:vite:live": "sh -c 'ORCHESTRA_TUI_CHANNEL=dev ORCHESTRA_PASSWORD=\"$(opencode service get password)\" exec bun run dev:vite \"$@\" --server \"$(opencode service status)\"' --",
+    "dev:vite:live": "sh -c 'ORCHESTRA_TUI_CHANNEL=dev ORCHESTRA_PASSWORD=\"$(orchestra service get password 2>/dev/null || opencode service get password)\" exec bun run dev:vite \"$@\" --server \"$(orchestra service status 2>/dev/null || opencode service status)\"' --",
     "dev:desktop": "bun --cwd packages/desktop dev",
     "dev:web": "bun --cwd packages/app dev",
     "dev:console": "ulimit -n 10240 2>/dev/null; bun run --cwd packages/console/app dev",
@@ -146,7 +146,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/anomalyco/opencode"
+    "url": "https://github.com/NeiP4n/orchestra-app.git"
   },
   "license": "MIT",
   "prettier": {
