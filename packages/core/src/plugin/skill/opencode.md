@@ -115,13 +115,13 @@ for themselves without limiting it to the current project; omit it when they
 explicitly want project-local configuration.
 
 ```sh
-opencode mcp add <name> --global --url <remote-url>
-opencode mcp list
+orchestra mcp add <name> --global --url <remote-url>
+orchestra mcp list
 ```
 
 Remote servers use OAuth by default. If `mcp list` reports that a server needs
 authentication, tell the user to run `/mcps`, select the server, and sign in.
-Do not run `opencode mcp auth` through the shell tool: it starts an interactive
+Do not run `orchestra mcp auth` through the shell tool: it starts an interactive
 flow whose authorization link can be hidden in background process output.
 Use the user-facing MCP interface instead.
 
@@ -172,13 +172,13 @@ OpenCode normally discovers or starts the shared background service
 automatically. If the service is stuck or unhealthy, restart it:
 
 ```sh
-opencode service restart
+orchestra service restart
 ```
 
 Check its status after restarting:
 
 ```sh
-opencode service status
+orchestra service status
 ```
 
 ## [API](https://opencode.ai/v2/docs/api)
@@ -244,7 +244,7 @@ Effect applications. For Cloudflare Durable Objects, use the
 OpenCode runs a client and a background server. Start by determining whether a
 problem belongs to the client, the shared server, or one project.
 
-- Check the service with `opencode service status` and verify the API with
+- Check the service with `orchestra service status` and verify the API with
   `opencode api get /api/info`.
 - Compare with `opencode --standalone`, which runs the TUI with a private
   server, to isolate shared-service issues.

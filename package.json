@@ -9,9 +9,9 @@
   "scripts": {
     "dev": "bun run --cwd packages/cli src/index.ts",
     "release:pp": "bun run script/release-pp.ts",
-    "dev:live": "sh -c 'ORCHESTRA_TUI_CHANNEL=dev ORCHESTRA_PASSWORD=\"$(orchestra service get password 2>/dev/null || opencode service get password)\" exec bun run dev \"$@\" --server \"$(orchestra service status 2>/dev/null || opencode service status)\"' --",
+    "dev:live": "sh -c 'ORCHESTRA_TUI_CHANNEL=dev ORCHESTRA_PASSWORD=\"$(orchestra service get password)\" exec bun run dev \"$@\" --server \"$(orchestra service status)\"' --",
     "dev:vite": "bun run --cwd packages/cli --conditions=browser dev/vite.ts",
-    "dev:vite:live": "sh -c 'ORCHESTRA_TUI_CHANNEL=dev ORCHESTRA_PASSWORD=\"$(orchestra service get password 2>/dev/null || opencode service get password)\" exec bun run dev:vite \"$@\" --server \"$(orchestra service status 2>/dev/null || opencode service status)\"' --",
+    "dev:vite:live": "sh -c 'ORCHESTRA_TUI_CHANNEL=dev ORCHESTRA_PASSWORD=\"$(orchestra service get password)\" exec bun run dev:vite \"$@\" --server \"$(orchestra service status)\"' --",
     "dev:desktop": "bun --cwd packages/desktop dev",
     "dev:web": "bun --cwd packages/app dev",
     "dev:console": "ulimit -n 10240 2>/dev/null; bun run --cwd packages/console/app dev",
