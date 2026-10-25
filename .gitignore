@@ -43,3 +43,10 @@ tsconfig.tsbuildinfo
 
 # Test logs
 .*.log
+
+# Per-machine agent and editor state: boards, notes, memory, indexes and settings
+.opencode/
+.orchestra/
+.freebuff/
+.ideas/
+.zed/
