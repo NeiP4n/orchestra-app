@@ -15,6 +15,7 @@ import { createKeyed, useExtension, type MountedSession } from "../sdk"
 import { catalogModel, syncCatalog } from "./catalog"
 import { fetchSessionExport, sessionExportFilename } from "./export"
 import { createSessionContextFormatter } from "./format"
+import { ContextOverview } from "./overview"
 
 function Stat(props: { label: string; value: JSX.Element }) {
   return (
@@ -290,6 +291,17 @@ export default function SessionContextTab(props: { session: MountedSession }) {
       onScroll={handleScroll}
     >
       <div data-slot="session-usage-content" class="px-4 pt-4 pb-6 flex flex-col gap-6 md:px-6 md:pb-10 md:gap-10">
+        <ContextOverview
+          session={props.session}
+          usage={(() => {
+            const c = context()
+
+            return c ? { tokens: c.tokens, total: c.total, limit: c.limit } : undefined
+          })()}
+          cost={info()?.cost ?? 0}
+          rev={messages().length}
+        />
+
         <div class="grid grid-cols-1 @[32rem]:grid-cols-2 gap-4">
           <For each={stats}>{(stat) => <Stat label={ctx.t(stat.label)} value={stat.value()} />}</For>
         </div>
