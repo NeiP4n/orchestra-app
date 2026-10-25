@@ -130,13 +130,19 @@ const decodeZenError = Schema.decodeUnknownOption(
   { onExcessProperty: "ignore" },
 )
 
+// Gemini and Antigravity answer an unsupported exit address with a 400 that reads like a bad request
+// and carries a long debug dump; the only fix is another network route, so say that instead.
+const GEO_BLOCKED = /user location is not supported/i
+
 function providerError(type: string, reason: AIError["reason"]): SessionError.Error {
   const status = reason.http?.status
   const raw = [reason.message, reason.body].filter(Boolean).join("\n")
   const tokenSharing = Object.entries(tokenSharingMessages).find(([code]) => reason.body?.includes(code))?.[1]
   // Zen does not say what the free limit is keyed on or when it resets (one limit outlasted days
   // and many addresses), so show its own words instead of asserting a per-IP daily cap.
-  const message = raw.includes(ORCHESTRA_FREE_TIER_ERROR)
+  const message = GEO_BLOCKED.test(raw)
+    ? "Google refused this network's location. Requests leave through a VPN or proxy exit that Google does not serve for this model; switch the exit to another country or route OpenCode through WARP, then retry."
+    : raw.includes(ORCHESTRA_FREE_TIER_ERROR)
     ? "Zen rejected this request. The provider refused the selected model/access. Retrying the identical request will not change that decision. Check the provider connection or select another currently available model."
     : raw.toLowerCase().includes(FREE_TIER_LIMIT_ERROR)
       ? Option.getOrElse(Option.map(decodeZenError(reason.body), (body) => body.error.message), () => reason.message)

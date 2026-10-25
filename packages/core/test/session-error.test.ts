@@ -28,6 +28,20 @@ import { SessionRunnerRetry } from "@orchestra/core/session/runner/retry"
 const llm = (reason: AIError["reason"]) => new AIError({ reason })
 
 describe("toSessionError", () => {
+  test("explains a Google location refusal instead of echoing its debug dump", () => {
+    const error = toSessionError(
+      llm(
+        new InvalidRequestError({
+          message:
+            "User location is not supported for the API use.\n\n[Debug Info]\nRequested Model: antigravity-gemini-3.8-flash-high",
+        }),
+      ),
+    )
+    expect(error.type).toBe("provider.invalid-request")
+    expect(error.message).toContain("Google refused this network's location")
+    expect(error.message).not.toContain("Debug Info")
+  })
+
   test("maps every AI error reason to the open wire type", () => {
     expect(toSessionError(llm(new RateLimitError({ message: "rate", retryAfterMs: 123 })))).toEqual({
       type: "provider.rate-limit",
