@@ -31,4 +31,13 @@ describe("useful MCP registry entries", () => {
     expect(forPlatform("linux").some((entry) => entry.id === "windows")).toBe(false)
     expect(forPlatform("darwin").some((entry) => entry.id === "windows")).toBe(false)
   })
+
+  test("entries that exit without a secret say which environment variable they need", () => {
+    const requires = Object.fromEntries(all.map((entry) => [entry.id, entry.requires]))
+
+    expect(requires["brave-search"]).toEqual(["BRAVE_API_KEY"])
+    expect(requires["sentry"]).toEqual(["SENTRY_ACCESS_TOKEN"])
+    expect(requires["context7"]).toBeUndefined()
+    expect(requires["memory"]).toBeUndefined()
+  })
 })
