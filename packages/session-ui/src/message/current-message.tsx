@@ -51,6 +51,7 @@ export function SessionAssistantContent(props: {
   toolOpen?: boolean
   onToolOpenChange?: (open: boolean) => void
   onContentRendered?: () => void
+  actions?: SessionUserActions
 }) {
   return (
     <Switch>
@@ -62,6 +63,7 @@ export function SessionAssistantContent(props: {
             message={props.message}
             showCopy={props.showAssistantCopyPartID === props.contentID}
             turnDurationMs={props.turnDurationMs}
+            actions={props.actions}
           />
         )}
       </Match>

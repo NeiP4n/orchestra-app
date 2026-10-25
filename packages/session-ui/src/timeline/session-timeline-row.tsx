@@ -366,6 +366,7 @@ export function createSessionTimelineRowRenderer(input: {
                 toolOpen={input.disclosure.value(disclosureKey()) ?? defaultOpen()}
                 onToolOpenChange={(open) => input.disclosure.set(disclosureKey(), open)}
                 onContentRendered={onSizeChange}
+                actions={input.actions}
               />
             )}
           </Show>

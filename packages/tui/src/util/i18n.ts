@@ -758,10 +758,15 @@ export function useT() {
   return (text: string, values?: Record<string, string | number>) => translate(config?.data.language, text, values)
 }
 
+import { setWidgetLanguage } from "@orchestra/ui/widgets/i18n"
+
 // Code outside components (widget renderers, the flow line, plugin status texts) translates through
 // the language the app last applied. It is a signal, so whatever reads it redraws on a switch.
-const [activeLanguage, setActiveLanguage] = createSignal<Language>("en")
-export { setActiveLanguage }
+const [activeLanguage, _setActiveLanguage] = createSignal<Language>("en")
+export function setActiveLanguage(language: Language) {
+  setWidgetLanguage(language)
+  _setActiveLanguage(language)
+}
 
 export function tr(text: string, values?: Record<string, string | number>) {
   return translate(activeLanguage(), text, values)

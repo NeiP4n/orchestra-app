@@ -1,5 +1,8 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show, type ComponentProps, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Match, onCleanup, Show, Switch, type ComponentProps, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
+import { parse, type Segment, type Widget } from "@orchestra/ui/widgets"
+import { setWidgetLanguage } from "@orchestra/ui/widgets/i18n"
+import { SessionWidgetBlock } from "../widgets/session-widget-block"
 import { useData } from "../context"
 import { useDialog } from "@orchestra/ui/context/dialog"
 import { useI18n } from "@orchestra/ui/context/i18n"
@@ -603,10 +606,26 @@ export function AssistantTextContent(props: {
   message: SessionMessageAssistant
   showCopy: boolean
   turnDurationMs?: number | null
+  actions?: SessionUserActions
 }) {
   const data = useData()
   const i18n = useI18n()
   const numfmt = createMemo(() => new Intl.NumberFormat(i18n.locale()))
+
+  createEffect(() => {
+    const loc = i18n.locale()
+    if (loc) setWidgetLanguage(loc.startsWith("ru") ? "ru" : "en")
+  })
+
+  const finished = () => props.message.time.completed !== undefined
+  const segments = createMemo(() => (finished() ? parse(props.text) : [{ type: "text" as const, text: props.text }]))
+  const [changed, setChanged] = createStore<Record<number, Widget>>({})
+
+  const handleAnswer = (index: number, currentWidget: Widget, outcome: { value: string; text: string }) => {
+    const next: Widget = { ...currentWidget, answered: outcome.value }
+    setChanged(index, next)
+    props.actions?.sendPrompt?.(outcome.text)
+  }
 
   const interrupted = () => {
     const type = props.message.error?.type.toLowerCase()
@@ -664,7 +683,33 @@ export function AssistantTextContent(props: {
     <Show when={props.text}>
       <div data-component="text-part" data-timeline-part-id={props.id}>
         <div data-slot="text-part-body">
-          <PacedMarkdown text={props.text} cacheKey={props.id} streaming={props.message.time.completed === undefined} />
+          <For each={segments()}>
+            {(segment, index) => (
+              <Switch>
+                <Match when={segment.type === "widget" ? (segment as Extract<Segment, { type: "widget" }>) : undefined}>
+                  {(s) => (
+                    <SessionWidgetBlock
+                      id={`${props.id}:${index()}`}
+                      widget={changed[index()] ?? s().widget}
+                      live={props.message.time.completed !== undefined}
+                      onAnswer={(outcome) => handleAnswer(index(), changed[index()] ?? s().widget, outcome)}
+                    />
+                  )}
+                </Match>
+                <Match when={segment.type === "text" ? (segment as Extract<Segment, { type: "text" }>) : undefined}>
+                  {(s) => (
+                    <Show when={s().text.trim()}>
+                      <PacedMarkdown
+                        text={s().text}
+                        cacheKey={`${props.id}:${index()}`}
+                        streaming={props.message.time.completed === undefined}
+                      />
+                    </Show>
+                  )}
+                </Match>
+              </Switch>
+            )}
+          </For>
         </div>
         <Show when={props.showCopy}>
           <div data-slot="text-part-copy-wrapper" data-interrupted={interrupted() ? "" : undefined}>
