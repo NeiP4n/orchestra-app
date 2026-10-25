@@ -15,7 +15,7 @@ export const Metadata = Context.Reference<Info>("@orchestra/App", {
 
 export function make(input: Partial<Info> = {}): Info {
   return {
-    name: input.name ?? "opencode",
+    name: input.name ?? "orchestra",
     version: input.version ?? "unknown",
     channel: input.channel ?? "unknown",
   }
@@ -27,8 +27,8 @@ export function useragent(app: Info) {
   // the channel position makes Zen reject an otherwise compatible request. Keep the explicit
   // channel/artifact format for the official latest channel; non-release versions carry a git
   // build identifier from packages/script so they remain distinguishable without claiming latest.
-  if (app.channel === "latest") return `opencode/latest/${app.version}/${app.name}`
-  return `opencode/${app.version}`
+  if (app.channel === "latest") return `orchestra/latest/${app.version}/${app.name}`
+  return `orchestra/${app.version}`
 }
 
 export const layer = (input?: Partial<Info>) => Layer.succeed(Metadata, make(input))

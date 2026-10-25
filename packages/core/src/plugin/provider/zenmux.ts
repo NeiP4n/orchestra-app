@@ -10,8 +10,8 @@ export const ZenmuxPlugin = define({
         if (item.provider.settings?.baseURL !== "https://zenmux.ai/api/v1") continue
         evt.update(item.provider.id, (provider) => {
           provider.headers = {
-            "HTTP-Referer": "https://opencode.ai/",
-            "X-Title": "opencode",
+            "HTTP-Referer": "https://github.com/NeiP4n/orchestra-app",
+            "X-Title": "orchestra",
             ...provider.headers,
           }
         })

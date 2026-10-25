@@ -31,3 +31,16 @@ Durable facts about working in this fork. Keep short and factual.
 - The shell is Nushell. `$env:FOO = "x"` does not reliably reach child processes; use `with-env { FOO: 'x' } { ... }` instead.
 - No `pwsh` and no `rg` binary; `grep`/`glob` tools work, the hub's `search.content` entry does not.
 - `2>&1` is invalid; use `| complete` to get stdout, stderr and exit code of a command that exits non-zero (for example `git diff --no-index`).
+
+## TUI Network & Free Models
+
+- Public proxy probe in `packages/tui` checks only `api.ipify.org` by default; upstream target probe is null unless configured via `ORCHESTRA_PROXY_PROBE_HOST`. Rotator is inert without `ORCHESTRA_ENABLE_PROXY_ROTATOR=1`.
+- `freeZenModels` in `zen-models-core.ts` falls back to `kilo-free` and local providers (`ollama`, `local`, `lmstudio`, `llamacpp`) when `opencode` is absent. Docs command in `app.tsx` defaults to repo README or `ORCHESTRA_DOCS_URL`.
+
+## Models catalog source
+
+- `defaultSource` is `https://models.dev` (overridden by `ORCHESTRA_MODELS_URL`). Provider `opencode` is stripped in `ModelsDev.normalize` and `script/update-models-snapshot.ts`.
+
+## Google Antigravity (Cloud Code Assist)
+
+- Uses `daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse`, wraps `{ project, model, request }`, and unwraps `data: {"response": ...}` SSE frames through `GeminiCloudCode` protocol.

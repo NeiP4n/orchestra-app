@@ -16,7 +16,7 @@
     "@orchestra/client": "workspace:*",
     "@orchestra/core": "workspace:*",
     "@orchestra/schema": "workspace:*",
-    "@opencode-ai/sdk": "1.18.21",
+    "@orchestra/sdk": "workspace:*",
     "@orchestra/session-ui": "workspace:*",
     "@orchestra/ui": "workspace:*",
     "@orchestra/util": "workspace:*",

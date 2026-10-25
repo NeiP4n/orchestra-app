@@ -26,41 +26,16 @@ import type { ClaudeHookConfig } from "./compat/claude/hooks/config.js"
 import { InstructionDiscovery } from "./instruction-discovery.js"
 import type { ConfigCompatibility } from "@orchestra/schema/config/compatibility"
 import { ConfigMCP } from "@orchestra/schema/config/mcp"
+import { ProxyEnvironment } from "./proxy-environment.js"
 
-
-const initialProxyEnvironment = {
-  HTTP_PROXY: process.env.HTTP_PROXY,
-  http_proxy: process.env.http_proxy,
-  HTTPS_PROXY: process.env.HTTPS_PROXY,
-  https_proxy: process.env.https_proxy,
-  NO_PROXY: process.env.NO_PROXY,
-  no_proxy: process.env.no_proxy,
-}
-
-function applyProxyEnvironment(entries: readonly Entry[]) {
+// A relay declared in config is probed before it is used: a proxy that no longer
+// answers used to take the model catalog, MCP servers and OAuth refreshes down with it.
+const applyProxyEnvironment = Effect.fn("Config.applyProxyEnvironment")(function* (entries: readonly Entry[]) {
   const proxy = entries.findLast(
     (entry): entry is Document => entry.type === "document" && entry.info.proxy !== undefined,
   )?.info.proxy
-  const set = (name: keyof typeof initialProxyEnvironment, value: string | undefined) => {
-    if (value) process.env[name] = value
-    else delete process.env[name]
-  }
-  if (!proxy) {
-    for (const [name, value] of Object.entries(initialProxyEnvironment) as Array<[keyof typeof initialProxyEnvironment, string | undefined]>) {
-      set(name, value)
-    }
-    return
-  }
-  const http = proxy.http ?? initialProxyEnvironment.HTTP_PROXY ?? initialProxyEnvironment.http_proxy
-  const https = proxy.https ?? initialProxyEnvironment.HTTPS_PROXY ?? initialProxyEnvironment.https_proxy
-  const noProxy = proxy.no_proxy?.join(",") ?? initialProxyEnvironment.NO_PROXY ?? initialProxyEnvironment.no_proxy
-  set("HTTP_PROXY", http)
-  set("http_proxy", http)
-  set("HTTPS_PROXY", https)
-  set("https_proxy", https)
-  set("NO_PROXY", noProxy)
-  set("no_proxy", noProxy)
-}
+  yield* ProxyEnvironment.apply(proxy)
+})
 
 export function latest<K extends keyof Info>(entries: readonly Entry[], key: K): Info[K] | undefined {
   return entries.findLast((entry): entry is Document => entry.type === "document" && entry.info[key] !== undefined)
@@ -381,7 +356,7 @@ export const layer = (options?: Options) =>
       let sources = initial
       const first = yield* load(initial)
       let configs = first.entries
-      applyProxyEnvironment(configs)
+      yield* applyProxyEnvironment(configs)
       let claude = first.claude
       const updates = yield* PubSub.unbounded<Watcher.Update>()
       const reloads = yield* PubSub.sliding<void>(1)
@@ -420,7 +395,7 @@ export const layer = (options?: Options) =>
           if (isDeepStrictEqual(configs, next.entries) && !compatibilityChanged) return
           sources = discovered
           configs = next.entries
-          applyProxyEnvironment(configs)
+          yield* applyProxyEnvironment(configs)
           yield* bus.publish(Event.Updated, {})
         },
         (effect) => reloadLock.withPermit(effect),

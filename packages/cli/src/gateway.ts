@@ -48,8 +48,10 @@ export function readConfig(env: Record<string, string | undefined> = process.env
     roomAPIURL = roomURL.href.replace(/\/+$/, "")
   }
 
-  const upstreamURL = env.ORCHESTRA_GATEWAY_UPSTREAM_URL?.trim() ||
-    "https://opencode.ai/zen/v1/chat/completions"
+  const upstreamURL = env.ORCHESTRA_GATEWAY_UPSTREAM_URL?.trim()
+  if (!upstreamURL) {
+    throw new Error("ORCHESTRA_GATEWAY_UPSTREAM_URL is required.")
+  }
   const parsedURL = new URL(upstreamURL)
   if (parsedURL.protocol !== "https:" && parsedURL.protocol !== "http:") {
     throw new Error("ORCHESTRA_GATEWAY_UPSTREAM_URL must use HTTP or HTTPS.")
@@ -69,7 +71,10 @@ export function readConfig(env: Record<string, string | undefined> = process.env
     throw new Error("ORCHESTRA_GATEWAY_TIMEOUT_MS must be between 1000 and 600000.")
   }
 
-  const model = env.ORCHESTRA_GATEWAY_MODEL?.trim() || "glm-4.7-free"
+  const model = env.ORCHESTRA_GATEWAY_MODEL?.trim()
+  if (!model) {
+    throw new Error("ORCHESTRA_GATEWAY_MODEL is required.")
+  }
   const fallbackModels = [...new Set(
     (env.ORCHESTRA_GATEWAY_FALLBACK_MODELS ?? "")
       .split(",")

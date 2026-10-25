@@ -175,6 +175,16 @@ function getConfig() {
   const appId = APP_IDS[channel]
   const base = getBase(appId)
 
+  const updateUrl = process.env.ORCHESTRA_UPDATE_URL
+
+  const publish = updateUrl
+    ? {
+        provider: "generic" as const,
+        url: updateUrl,
+        channel: "latest",
+      }
+    : undefined
+
   switch (channel) {
     case "dev": {
       return {
@@ -192,11 +202,7 @@ function getConfig() {
         appId,
         productName: "OpenCode Beta",
         protocols: { name: "OpenCode Beta", schemes: ["opencode"] },
-        publish: {
-          provider: "generic",
-          url: "https://opencode.ai/update/api/beta/desktop/opencode/",
-          channel: "latest",
-        },
+        publish,
         deb: { fpm: [metainfoFpm(appId)] },
         rpm: { packageName: "opencode-beta", fpm: [metainfoFpm(appId)] },
       }
@@ -208,11 +214,7 @@ function getConfig() {
         appId,
         productName: "OpenCode",
         protocols: { name: "OpenCode", schemes: ["opencode"] },
-        publish: {
-          provider: "generic",
-          url: "https://opencode.ai/update/api/latest/desktop/opencode/",
-          channel: "latest",
-        },
+        publish,
         deb: { fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
         rpm: { packageName: "opencode", fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
       }

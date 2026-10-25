@@ -22,6 +22,13 @@ const dryRun = process.argv.includes("--dry-run")
 const name = Script.channel === "beta" ? "opencode-beta" : "opencode-v2"
 const formulaClass = Script.channel === "beta" ? "OpencodeBeta" : "OpencodeV2"
 
+const binBaseURL = (
+  process.env.ORCHESTRA_BIN_URL ??
+  process.env.ORCHESTRA_FILES_URL ??
+  process.env.ORCHESTRA_UPDATE_URL
+)?.trim().replace(/\/+$/, "")
+if (!binBaseURL) throw new Error("ORCHESTRA_BIN_URL or ORCHESTRA_UPDATE_URL is required to update the Homebrew tap")
+
 const targets = await Promise.all(
   [
     { name: "darwin-arm64", archive: "zip" },
@@ -36,7 +43,7 @@ const targets = await Promise.all(
     for await (const chunk of file.stream()) sha256.update(chunk)
     return {
       ...target,
-      url: `https://opencode.ai/files/bin/${encodeURIComponent(Script.version)}/${filename}`,
+      url: `${binBaseURL}/${encodeURIComponent(Script.version)}/${filename}`,
       sha256: sha256.digest("hex"),
     }
   }),

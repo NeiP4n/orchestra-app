@@ -34,4 +34,6 @@ export type SessionUserActions = {
     queue: (input: { sessionID: string; messageID: string }) => Promise<void>
     remove: (input: { sessionID: string; messageID: string }) => Promise<void>
   }
+  /** Send an operator reply into the session transcript, used by interactive widgets. */
+  sendPrompt?: (text: string) => Promise<void> | void
 }

@@ -22,3 +22,38 @@ test("rejects unsafe versions and platforms in remote installation paths", () =>
   expect(() => RemoteCli.installScript({ version: '2.0.0"; whoami', source: { type: "installer" } })).toThrow()
   expect(() => RemoteCli.archiveUrl("linux-x64;whoami", "2.0.0")).toThrow()
 })
+
+test("requires an explicit installer URL for remote CLI installation", () => {
+  const previous = process.env.ORCHESTRA_INSTALLER_URL
+  delete process.env.ORCHESTRA_INSTALLER_URL
+  delete process.env.ORCHESTRA_INSTALL_URL
+
+  try {
+    expect(() => RemoteCli.installScript({ version: "2.0.0", source: { type: "installer" } })).toThrow(
+      RemoteCli.Failure,
+    )
+
+    const script = RemoteCli.installScript({
+      version: "2.0.0",
+      source: { type: "installer", url: "https://custom.test/install.sh" },
+    })
+
+    expect(script).toContain("curl -fsSL 'https://custom.test/install.sh'")
+    expect(script).not.toContain("anomalyco/opencode")
+
+    process.env.ORCHESTRA_INSTALLER_URL = "https://env.test/install.sh"
+
+    const envScript = RemoteCli.installScript({
+      version: "2.0.0",
+      source: { type: "installer" },
+    })
+
+    expect(envScript).toContain("curl -fsSL 'https://env.test/install.sh'")
+    expect(envScript).not.toContain("anomalyco/opencode")
+  } finally {
+    delete process.env.ORCHESTRA_INSTALLER_URL
+    delete process.env.ORCHESTRA_INSTALL_URL
+
+    if (previous !== undefined) process.env.ORCHESTRA_INSTALLER_URL = previous
+  }
+})

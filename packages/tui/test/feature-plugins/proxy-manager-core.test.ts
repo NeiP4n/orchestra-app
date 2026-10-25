@@ -1,5 +1,17 @@
 import { describe, expect, test } from "bun:test"
-import { byStability, classifyZenProbe, OPENCODE_PROBE, PROXY_EGRESS_PROBE, PROXY_SOURCES, parseHttpProxyList, parseProxyExitIp, proxyUrl } from "../../src/feature-plugins/system/proxy-manager-core"
+import {
+  byStability,
+  classifyTargetProbe,
+  classifyZenProbe,
+  loadHttpProxyPool,
+  OPENCODE_PROBE,
+  PROXY_EGRESS_PROBE,
+  PROXY_SOURCES,
+  parseHttpProxyList,
+  parseProxyExitIp,
+  proxyUrl,
+  TARGET_PROBE,
+} from "../../src/feature-plugins/system/proxy-manager-core"
 
 describe("public HTTP proxy list parsing", () => {
   test("accepts bare IPv4 endpoints and explicit HTTP URLs", () => {
@@ -33,9 +45,16 @@ test("prioritizes the SSL-capable ProxyScrape feed and keeps source names unique
   expect(new Set(PROXY_SOURCES.map((source) => source.name)).size).toBe(PROXY_SOURCES.length)
 })
 
-test("checks Zen reachability separately from verifying the public egress IP", () => {
-  expect(OPENCODE_PROBE).toEqual({ host: "opencode.ai", path: "/zen/v1/models" })
+test("disables target probe by default and verifies public egress IP", () => {
+  expect(TARGET_PROBE).toBeNull()
+  expect(OPENCODE_PROBE).toBeNull()
   expect(PROXY_EGRESS_PROBE).toEqual({ host: "api.ipify.org", path: "/?format=json" })
+})
+
+test("keeps public proxy pool loader inert by default unless configured or forced", async () => {
+  const pool = await loadHttpProxyPool()
+  expect(pool.entries).toEqual([])
+  expect(pool.total).toBe(0)
 })
 
 test("parses a public egress IP from the ipify JSON response", () => {
@@ -52,14 +71,14 @@ test("ranks proxies by consecutive passes before latency", () => {
   expect(ranked.map((item) => item.id)).toEqual(["fast-stable", "slow-stable", "fast-new", "unranked"])
 })
 
-test("does not mistake an unauthenticated Zen 401 for a dead proxy", () => {
+test("does not mistake an unauthenticated 401 for a dead proxy", () => {
   expect(classifyZenProbe(401, '{"error":"API key required"}')).toBe("healthy")
-  expect(classifyZenProbe(200, '{"data":[]}')).toBe("healthy")
+  expect(classifyTargetProbe(200, '{"data":[]}')).toBe("healthy")
   expect(classifyZenProbe(503, '{"error":"temporarily unavailable"}')).toBe("dead")
 })
 
-test("marks an IP as Zen-limited only when the allowance response says so", () => {
+test("marks an IP as limited only when rate limit or quota response says so", () => {
   expect(classifyZenProbe(429, '{"error":"rate limited"}')).toBe("limited")
-  expect(classifyZenProbe(403, '{"message":"Zen route forbidden"}')).toBe("dead")
+  expect(classifyTargetProbe(403, '{"message":"route forbidden"}')).toBe("dead")
   expect(classifyZenProbe(401, '{"error":"API key required"}')).not.toBe("limited")
 })

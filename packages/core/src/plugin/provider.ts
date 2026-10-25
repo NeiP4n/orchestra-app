@@ -10,6 +10,7 @@ import { FreebuffPlugin } from "./provider/freebuff.js"
 import { DynamicProviderPlugin } from "./provider/dynamic.js"
 import { GithubCopilotPlugin } from "./provider/github-copilot.js"
 import { GitLabPlugin } from "./provider/gitlab.js"
+import { GoogleAntigravityPlugin } from "./provider/google-antigravity.js"
 import { GoogleVertexPlugin } from "./provider/google-vertex.js"
 import { KiloPlugin } from "./provider/kilo.js"
 import { LLMGatewayPlugin } from "./provider/llmgateway.js"
@@ -19,7 +20,6 @@ import { NvidiaPlugin } from "./provider/nvidia.js"
 import { OllamaPlugin } from "./provider/ollama.js"
 import { OpenAIPlugin } from "./provider/openai.js"
 import { SnowflakeCortexPlugin } from "./provider/snowflake-cortex.js"
-import { OpencodePlugin } from "./provider/opencode.js"
 import { OpenRouterPlugin } from "./provider/openrouter.js"
 import { PerplexityPlugin } from "./provider/perplexity.js"
 import { PoePlugin } from "./provider/poe.js"
@@ -43,6 +43,7 @@ export const ProviderPlugins: PluginInternal.InternalPlugin[] = [
   FreebuffPlugin,
   GithubCopilotPlugin,
   GitLabPlugin,
+  GoogleAntigravityPlugin,
   GoogleVertexPlugin,
   KiloPlugin,
   LLMGatewayPlugin,
@@ -50,7 +51,6 @@ export const ProviderPlugins: PluginInternal.InternalPlugin[] = [
   ModalPlugin,
   NvidiaPlugin,
   OllamaPlugin,
-  OpencodePlugin,
   SnowflakeCortexPlugin,
   OpenAIPlugin,
   OpenRouterPlugin,

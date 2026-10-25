@@ -9,7 +9,6 @@ import { Integration } from "@orchestra/core/integration"
 import { ModelResolver } from "@orchestra/core/model-resolver"
 import { ID, Info, Model, Ref } from "@orchestra/core/model"
 import { Provider } from "@orchestra/core/provider"
-import { zenRequiredToolNames } from "@orchestra/core/provider-request-compatibility"
 import { Npm } from "@orchestra/util/npm"
 import { Effect, Layer } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
@@ -204,13 +203,6 @@ testEffect(Layer.empty).effect(
       }).pipe(Effect.provide(Generate.layer.pipe(Layer.provide(Layer.merge(zenResolver, native)))))
 
       expect(text).toBe("OK")
-      expect(requests[0]?.headers["x-opencode-client"]).toBeDefined()
       expect(requests[0]?.headers["user-agent"]).toBeDefined()
-      // Stateless generation has no tool list of its own, so it carries exactly the tool names
-      // Zen's free-tier gate counts: schemas with no executor behind them and no tool choice.
-      expect(requests[0]?.body).toMatchObject({
-        tools: zenRequiredToolNames.map((name) => ({ function: { name } })),
-        tool_choice: "none",
-      })
     }),
 )

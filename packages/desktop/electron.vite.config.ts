@@ -1,5 +1,4 @@
 import { defineConfig } from "electron-vite"
-import { pickerPlugin } from "./scripts/picker"
 
 const channel = (() => {
   const raw = process.env.ORCHESTRA_CHANNEL
@@ -136,7 +135,7 @@ const require = __cjs_mod__.createRequire(import.meta.url);
         command === "serve" && process.env.ORCHESTRA_TEST_ONBOARDING === "1",
       ),
     },
-    plugins: [pickerPlugin(), appPlugin, sentry],
+    plugins: [appPlugin, sentry],
     publicDir: "../../../app/public",
     root: "src/renderer",
     build: {

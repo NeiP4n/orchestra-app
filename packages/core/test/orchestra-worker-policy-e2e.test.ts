@@ -277,6 +277,50 @@ describe("orchestra.worker policy through workspace_forge", () => {
       expect(worker.model).toMatchObject({ providerID: "opencode", id: "task-model" })
     }),
   )
+
+  itPolicy.live("lets the Orchestrator put a role without a model list on any other model", () =>
+    Effect.gen(function* () {
+      const { main, sessions } = yield* setup
+      const tools = yield* Tool.Service
+
+      const output = text(
+        yield* runTool(tools, main.main!, OrchestraTool.name, "create-other", {
+          action: "create",
+          role: "developer",
+          model: "opencode/other-model",
+          newInstance: true,
+        }),
+      )
+      const sessionID = /Created (ses_[A-Za-z0-9]+)/.exec(output)?.[1]
+      expect(sessionID).toBeDefined()
+      const worker = yield* sessions.get(Session.ID.make(sessionID!))
+      expect(worker.model).toMatchObject({ providerID: "opencode", id: "other-model" })
+      expect(worker.model).not.toMatchObject(mainModel)
+    }),
+  )
+
+  itPolicy.live("keeps a role the operator pinned to its model", () =>
+    Effect.gen(function* () {
+      const { main, orchestra } = yield* setup
+      const tools = yield* Tool.Service
+
+      const role = yield* orchestra.saveRole(undefined, {
+        name: "Pinned",
+        description: "A role pinned to one model",
+        rules: "Work.",
+        category: "Build",
+        readOnly: false,
+        model: "opencode/pinned-model",
+      })
+      const result = yield* runTool(tools, main.main!, OrchestraTool.name, "create-pinned", {
+        action: "create",
+        role: role.id,
+        model: "opencode/other-model",
+        newInstance: true,
+      })
+      expect(JSON.stringify(result)).toContain("pinned to opencode/pinned-model")
+    }),
+  )
 })
 
 describe("orchestra.worker policy without configuration", () => {

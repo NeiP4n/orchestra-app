@@ -9,7 +9,11 @@ export const OpenRouterPlugin = define({
       for (const item of evt.list()) {
         if (item.provider.package !== "@orchestra/ai/providers/openrouter") continue
         evt.update(item.provider.id, (provider) => {
-          provider.headers = { ...provider.headers, "HTTP-Referer": "https://opencode.ai/", "X-Title": "opencode" }
+          provider.headers = {
+            ...provider.headers,
+            "HTTP-Referer": "https://github.com/NeiP4n/orchestra-app",
+            "X-Title": "orchestra",
+          }
         })
       }
     })

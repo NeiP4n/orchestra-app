@@ -763,6 +763,15 @@ function AiTools(props: {
       .set(entry.id, install ? entry.config : null)
       .then(() => {
         setLocal((current) => ({ ...current, [entry.id]: install }))
+        if (install && entry.requires)
+          return toast.show({
+            message: t(
+              "{name}: installed, but it will not start until {keys} is set in the environment of the Orchestra server; set it and restart",
+              { name: entry.name, keys: entry.requires.join(", ") },
+            ),
+            variant: "warning",
+            duration: 12000,
+          })
         toast.show({ message: `${entry.name}: ${install ? t("installed") : t("removed")}`, variant: "success" })
       })
       .catch((error: unknown) =>
@@ -826,6 +835,13 @@ function AiTools(props: {
               </text>
               <Show when={entry.runtime}>
                 {(runtime) => <text fg={theme.text.muted} flexShrink={0}>{runtime()}</text>}
+              </Show>
+              <Show when={entry.requires}>
+                {(keys) => (
+                  <text fg={theme.text.feedback.warning.base} flexShrink={0}>
+                    {t("needs {keys}", { keys: keys().join(", ") })}
+                  </text>
+                )}
               </Show>
               <box flexGrow={1} />
               <Switch>

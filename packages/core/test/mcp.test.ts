@@ -2763,3 +2763,44 @@ test("shares one local MCP process between locations until the last one leaves",
   expect(names.spawned).toBe(1)
   expect(names.a).toBeGreaterThan(0)
 })
+
+test("starts an identical local launcher one location at a time", async () => {
+  const events: string[] = []
+  const config = new ConfigMCP.Local({
+    type: "local",
+    command: [process.execPath, path.join(import.meta.dir, "fixture/mcp-output-schema.ts")],
+  })
+  const recording = Layer.effect(
+    Environment.Service,
+    Effect.gen(function* () {
+      const environment = yield* Environment.Service
+      return Environment.Service.of({
+        ...environment,
+        spawner: ChildProcessSpawner.make((command) => {
+          events.push("spawn")
+          return environment.spawner.spawn(command)
+        }),
+      })
+    }),
+  ).pipe(Layer.provide(hostEnvironmentLayer))
+
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const first = yield* Scope.make()
+      const second = yield* Scope.make()
+      const start = (directory: string, scope: Scope.Closeable) =>
+        McpPool.connect("shared", config, directory).pipe(
+          Scope.provide(scope),
+          Effect.tap(() => Effect.sync(() => events.push("ready"))),
+        )
+      // Different directories keep different processes, but both would install the same package.
+      yield* Effect.all([start(import.meta.dir, first), start(path.join(import.meta.dir, "fixture"), second)], {
+        concurrency: 2,
+      })
+      yield* Scope.close(first, Exit.void)
+      yield* Scope.close(second, Exit.void)
+    }).pipe(Effect.provide(recording)),
+  )
+
+  expect(events).toEqual(["spawn", "ready", "spawn", "ready"])
+})

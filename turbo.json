@@ -53,9 +53,6 @@
       "dependsOn": ["^build"],
       "outputs": []
     },
-    "@orchestra/function#test": {
-      "outputs": []
-    },
     "@orchestra/desktop#test": {
       "outputs": [],
       "cache": false

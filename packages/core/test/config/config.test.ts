@@ -1075,10 +1075,13 @@ describe("Config", () => {
                   ".gemini",
                   ".mcp.json",
                   ".opencode",
+                  ".orchestra",
                   "CLAUDE.local.md",
                   "CLAUDE.md",
                   "opencode.json",
                   "opencode.jsonc",
+                  "orchestra.json",
+                  "orchestra.jsonc",
                 ],
               },
             ])
@@ -1653,10 +1656,13 @@ describe("Config", () => {
                 ".gemini",
                 ".mcp.json",
                 ".opencode",
+                ".orchestra",
                 "CLAUDE.local.md",
                 "CLAUDE.md",
                 "opencode.json",
                 "opencode.jsonc",
+                "orchestra.json",
+                "orchestra.jsonc",
               ],
             })
           }).pipe(Effect.provide(testLayer(tmp.path)))

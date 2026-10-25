@@ -434,8 +434,8 @@ describe("AISDKNative", () => {
   test("maps OpenRouter settings to native destinations", () => {
     expect(
       map("@openrouter/ai-sdk-provider", {
-        appName: "OpenCode",
-        appUrl: "https://opencode.ai",
+        appName: "Orchestra",
+        appUrl: "https://github.com/NeiP4n/orchestra-app",
         headers: { "x-openrouter-title": "Configured", "x-provider-api-keys": "Configured BYOK" },
         api_keys: { anthropic: "provider-key" },
         extraBody: { transforms: ["middle-out"] },
@@ -454,7 +454,7 @@ describe("AISDKNative", () => {
       },
       headers: {
         "x-openrouter-title": "Configured",
-        "HTTP-Referer": "https://opencode.ai",
+        "HTTP-Referer": "https://github.com/NeiP4n/orchestra-app",
         "x-provider-api-keys": "Configured BYOK",
       },
       body: { transforms: ["middle-out"] },

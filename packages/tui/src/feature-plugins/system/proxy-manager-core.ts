@@ -40,14 +40,38 @@ export const PROXY_SOURCES = [
 
 const MAX_SOURCE_BYTES = 2_500_000
 const MAX_POOL_SIZE = 12_000
-const OPENCODE_HOST = "opencode.ai"
-const OPENCODE_PATH = "/zen/v1/models"
 const EGRESS_HOST = "api.ipify.org"
 const EGRESS_PATH = "/?format=json"
 
-/** The Zen probe is unauthenticated, so 401 means the endpoint is reachable—not that the proxy is dead. */
-export const OPENCODE_PROBE = { host: OPENCODE_HOST, path: OPENCODE_PATH } as const
+export type ProbeTarget = {
+  readonly host: string
+  readonly path: string
+}
+
+/**
+ * Target probe for upstream model / API endpoints through the proxy.
+ * By default, secondary upstream probe is disabled (null) unless explicitly configured
+ * via ORCHESTRA_PROXY_PROBE_HOST / ORCHESTRA_PROXY_PROBE_PATH env variables or passed directly.
+ */
+export const TARGET_PROBE: ProbeTarget | null =
+  process.env.ORCHESTRA_PROXY_PROBE_HOST
+    ? {
+        host: process.env.ORCHESTRA_PROXY_PROBE_HOST,
+        path: process.env.ORCHESTRA_PROXY_PROBE_PATH || "/",
+      }
+    : null
+
+/** Backwards compatibility alias for target probe configuration. Null by default when unconfigured. */
+export const OPENCODE_PROBE: ProbeTarget | null = TARGET_PROBE
 export const PROXY_EGRESS_PROBE = { host: EGRESS_HOST, path: EGRESS_PATH } as const
+
+/**
+ * Public proxy rotator was originally introduced for circumventing external rate limits.
+ * Kept inert behind an explicit configuration flag when not explicitly enabled.
+ */
+export const PROXY_ROTATOR_ENABLED =
+  process.env.ORCHESTRA_ENABLE_PROXY_ROTATOR === "1" ||
+  process.env.ORCHESTRA_ENABLE_PROXY_ROTATOR === "true"
 
 export function parseProxyExitIp(body: string): string | undefined {
   try {
@@ -60,15 +84,16 @@ export function parseProxyExitIp(body: string): string | undefined {
   }
 }
 
-export function classifyZenProbe(statusCode: number, body: string): ProxyStatus {
-  if (statusCode === 429 || /free tier counts requests per ip address|daily allowance.*ip|per ip address.*daily/i.test(body)) {
+export function classifyTargetProbe(statusCode: number, body: string): ProxyStatus {
+  if (statusCode === 429 || /free tier counts requests per ip address|daily allowance.*ip|per ip address.*daily|rate limit|quota|too many requests/i.test(body)) {
     return "limited"
   }
-  // Zen requires credentials for model access. An unauthenticated 401 proves the HTTPS/API
-  // route is reachable; the IP quota cannot be known without making a real authenticated inference.
+  // An unauthenticated 401 proves the HTTPS/API route is reachable
   if (statusCode === 200 || statusCode === 401) return "healthy"
   return "dead"
 }
+
+export const classifyZenProbe = classifyTargetProbe
 
 /** Most consecutive passes first: free proxies mostly die within minutes, so survivors are the best bet. Latency breaks ties. */
 export function byStability(a: ProxyEntry, b: ProxyEntry) {
@@ -120,7 +145,14 @@ export async function fetchHttpProxySource(source: ProxySource): Promise<ProxySo
   }
 }
 
-export async function loadHttpProxyPool() {
+export async function loadHttpProxyPool(options?: { force?: boolean }) {
+  if (!PROXY_ROTATOR_ENABLED && !options?.force) {
+    return {
+      entries: [],
+      sources: PROXY_SOURCES.map((source) => ({ name: source.name, count: 0, error: "" })),
+      total: 0,
+    }
+  }
   const downloaded = await Promise.all(PROXY_SOURCES.map(fetchHttpProxySource))
   const unique = new Set<string>()
   const entries: ProxyEntry[] = []
@@ -142,8 +174,8 @@ export async function loadHttpProxyPool() {
 }
 
 /**
- * Proxy is considered usable only when it completes CONNECT + verified TLS and the actual
- * OpenCode Zen models endpoint returns JSON. A working proxy for an unrelated site is not enough.
+ * Proxy is considered usable only when it completes CONNECT + verified TLS and returns
+ * valid egress data. An optional target endpoint probe can also be verified.
  */
 const MAX_PROBE_TIME_MS = 6_000
 const MAX_PROBE_RESPONSE_BYTES = 1024 * 1024
@@ -313,15 +345,44 @@ function requestHttpsThroughProxy(
 }
 
 /**
- * Test both the actual public egress IP and the OpenCode Zen endpoint. The Zen test is anonymous:
- * 401 is expected and means the route works; only the real per-IP allowance error is "limited".
+ * Test the public egress IP through the proxy, and optionally the configured target endpoint.
+ * By default, only public egress IP is checked, which proves CONNECT + verified TLS without
+ * any dependency on third-party model servers.
  */
-export async function probeHttpProxy(entry: ProxyEntry, timeoutMs = MAX_PROBE_TIME_MS): Promise<ProxyEntry> {
+export async function probeHttpProxy(
+  entry: ProxyEntry,
+  timeoutMs = MAX_PROBE_TIME_MS,
+  targetProbe: ProbeTarget | null = TARGET_PROBE,
+): Promise<ProxyEntry> {
   const started = performance.now()
   try {
-    const [egress, zen] = await Promise.all([
+    if (!targetProbe) {
+      const egress = await requestHttpsThroughProxy(entry, EGRESS_HOST, EGRESS_PATH, timeoutMs)
+      const exitIp = parseProxyExitIp(egress.body.toString("utf8"))
+      if (egress.statusCode !== 200 || !exitIp) {
+        return {
+          ...entry,
+          status: "dead",
+          latencyMs: Math.round(performance.now() - started),
+          checkedAt: Date.now(),
+          detail: "Could not verify public egress IP",
+          streak: 0,
+        }
+      }
+      return {
+        ...entry,
+        status: "healthy",
+        exitIp,
+        latencyMs: Math.round(performance.now() - started),
+        checkedAt: Date.now(),
+        detail: "Egress IP verified: " + exitIp,
+        streak: (entry.streak ?? 0) + 1,
+      }
+    }
+
+    const [egress, target] = await Promise.all([
       requestHttpsThroughProxy(entry, EGRESS_HOST, EGRESS_PATH, timeoutMs),
-      requestHttpsThroughProxy(entry, OPENCODE_HOST, OPENCODE_PATH, timeoutMs),
+      requestHttpsThroughProxy(entry, targetProbe.host, targetProbe.path, timeoutMs),
     ])
     const exitIp = parseProxyExitIp(egress.body.toString("utf8"))
     if (egress.statusCode !== 200 || !exitIp) {
@@ -334,15 +395,15 @@ export async function probeHttpProxy(entry: ProxyEntry, timeoutMs = MAX_PROBE_TI
         streak: 0,
       }
     }
-    const body = zen.body.toString("utf8")
-    const status = classifyZenProbe(zen.statusCode, body)
+    const body = target.body.toString("utf8")
+    const status = classifyTargetProbe(target.statusCode, body)
     const detail = status === "limited"
-      ? "Zen daily IP allowance appears exhausted"
-      : status === "healthy" && zen.statusCode === 401
-        ? "OpenCode reachable; authentication required; quota not tested"
+      ? "Target rate limit / daily quota appears exhausted"
+      : status === "healthy" && target.statusCode === 401
+        ? "Target reachable; authentication required"
         : status === "healthy"
-          ? "OpenCode reachable; egress IP verified"
-          : "OpenCode returned HTTP " + zen.statusCode
+          ? "Target reachable; egress IP verified"
+          : "Target returned HTTP " + target.statusCode
     return {
       ...entry,
       status,
@@ -369,13 +430,14 @@ export async function checkHttpProxies(
   entries: readonly ProxyEntry[],
   concurrency = 32,
   onResult?: (entry: ProxyEntry) => void,
+  targetProbe: ProbeTarget | null = TARGET_PROBE,
 ) {
   const result = [...entries]
   let next = 0
   await Promise.all(Array.from({ length: Math.min(Math.max(1, concurrency), entries.length) }, async () => {
     while (next < entries.length) {
       const index = next++
-      result[index] = await probeHttpProxy(entries[index])
+      result[index] = await probeHttpProxy(entries[index], MAX_PROBE_TIME_MS, targetProbe)
       onResult?.(result[index])
     }
   }))

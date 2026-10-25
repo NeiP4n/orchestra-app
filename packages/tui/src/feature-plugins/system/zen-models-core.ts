@@ -6,19 +6,39 @@ export type ZenModelCheck =
   | { readonly state: "limit" | "error"; readonly detail: string }
 
 export const ZEN_PROVIDER_ID = "opencode"
+export const FALLBACK_FREE_PROVIDERS = ["kilo-free", "ollama", "local", "lmstudio", "llamacpp"] as const
 
-/** Zen's free models: every price is zero. Newest release first, the order the model picker uses. */
-export function freeZenModels(models: readonly ModelInfo[]) {
-  return models
-    .filter(
-      (model) =>
-        model.providerID === ZEN_PROVIDER_ID &&
-        model.enabled &&
-        model.status !== "deprecated" &&
-        model.cost.length > 0 &&
-        model.cost.every((cost) => cost.input === 0),
-    )
-    .toSorted((left, right) => right.time.released - left.time.released)
+function isZeroCost(model: ModelInfo) {
+  if (!model.enabled || model.status === "deprecated") return false
+  if (model.cost && model.cost.length > 0) {
+    return model.cost.every((cost: { input: number }) => cost.input === 0)
+  }
+  // Local or zero-cost providers may have an empty cost array
+  return true
+}
+
+/** Free models: zero cost, newest release first. Falls back to known free/local providers if opencode provider is absent. */
+export function freeZenModels(models?: readonly ModelInfo[] | null): ModelInfo[] {
+  if (!models || !Array.isArray(models) || models.length === 0) return []
+
+  const zenModels = models.filter(
+    (model) =>
+      model.providerID === ZEN_PROVIDER_ID &&
+      model.cost.length > 0 &&
+      isZeroCost(model),
+  )
+
+  if (zenModels.length > 0) {
+    return zenModels.toSorted((left, right) => (right.time?.released ?? 0) - (left.time?.released ?? 0))
+  }
+
+  const fallback = models.filter(
+    (model) =>
+      (FALLBACK_FREE_PROVIDERS as readonly string[]).includes(model.providerID) &&
+      isZeroCost(model),
+  )
+
+  return fallback.toSorted((left, right) => (right.time?.released ?? 0) - (left.time?.released ?? 0))
 }
 
 /** A refusal for usage is told apart from a connection or model failure so the panel can say which. */

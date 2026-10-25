@@ -151,7 +151,7 @@ describe("gateway HTTP guards", () => {
   })
 
   test("rejects missing or weak secrets, invalid ports, and cleartext remote upstreams", () => {
-    expect(() => readConfig({})).toThrow("ORCHESTRA_GATEWAY_TOKEN is required")
+    expect(() => readConfig({})).toThrow("Set ORCHESTRA_GATEWAY_TOKEN")
     expect(() => readConfig({
       ORCHESTRA_GATEWAY_TOKEN: "short",
       ORCHESTRA_GATEWAY_UPSTREAM_KEY: "upstream",
@@ -159,17 +159,30 @@ describe("gateway HTTP guards", () => {
     expect(() => readConfig({
       ORCHESTRA_GATEWAY_TOKEN: "t".repeat(32),
       ORCHESTRA_GATEWAY_UPSTREAM_KEY: "upstream",
+    })).toThrow("ORCHESTRA_GATEWAY_UPSTREAM_URL is required")
+    expect(() => readConfig({
+      ORCHESTRA_GATEWAY_TOKEN: "t".repeat(32),
+      ORCHESTRA_GATEWAY_UPSTREAM_KEY: "upstream",
+      ORCHESTRA_GATEWAY_UPSTREAM_URL: "https://example.com/v1/chat/completions",
       ORCHESTRA_GATEWAY_PORT: "70000",
     })).toThrow("ORCHESTRA_GATEWAY_PORT")
     expect(() => readConfig({
       ORCHESTRA_GATEWAY_TOKEN: "t".repeat(32),
       ORCHESTRA_GATEWAY_UPSTREAM_KEY: "upstream",
+      ORCHESTRA_GATEWAY_UPSTREAM_URL: "https://example.com/v1/chat/completions",
+    })).toThrow("ORCHESTRA_GATEWAY_MODEL is required")
+    expect(() => readConfig({
+      ORCHESTRA_GATEWAY_TOKEN: "t".repeat(32),
+      ORCHESTRA_GATEWAY_UPSTREAM_KEY: "upstream",
       ORCHESTRA_GATEWAY_UPSTREAM_URL: "http://192.168.1.10:1234/v1/chat/completions",
+      ORCHESTRA_GATEWAY_MODEL: "primary",
     })).toThrow("must use HTTPS")
     expect(() => readConfig({
       ORCHESTRA_GATEWAY_UPSTREAM_KEY: "upstream",
       ORCHESTRA_GATEWAY_ROOM_API_URL: "http://192.168.1.10:4096",
       ORCHESTRA_GATEWAY_ROOM_ID: "room_test",
+      ORCHESTRA_GATEWAY_UPSTREAM_URL: "https://example.com/v1/chat/completions",
+      ORCHESTRA_GATEWAY_MODEL: "primary",
     })).toThrow("must use HTTPS")
   })
 })

@@ -17,6 +17,8 @@ export type Entry = {
   // The launcher the server needs on PATH, when it is a local process.
   readonly runtime?: "npx" | "uvx"
   readonly platforms?: readonly NodeJS.Platform[]
+  // Environment variables the server exits without, so the Registry can say so before it looks installed.
+  readonly requires?: readonly string[]
   readonly config: ServerConfig
 }
 
@@ -138,6 +140,7 @@ export const all: readonly Entry[] = [
     description: "Web, news, image, video, local, and place search through the Brave Search API.",
     usage: "Use when current web search is required and a Brave API key is configured. Prefer narrow queries and only enable the search tools actually needed.",
     runtime: "npx",
+    requires: ["BRAVE_API_KEY"],
     config: local(["npx", "-y", "@brave/brave-search-mcp-server", "--transport", "stdio"]),
   },
   {
@@ -146,6 +149,7 @@ export const all: readonly Entry[] = [
     description: "Inspect application errors, events, performance data, and debugging context from Sentry.",
     usage: "Use when investigating production errors or regressions: inspect the relevant issue and recent events before proposing a fix.",
     runtime: "npx",
+    requires: ["SENTRY_ACCESS_TOKEN"],
     config: local(["npx", "-y", "@sentry/mcp-server"]),
   },
   {

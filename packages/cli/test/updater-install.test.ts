@@ -42,6 +42,17 @@ function fixture(
         JSON.stringify({ name, bin: { opencode: "bin/opencode" } }),
       )
     const requests: string[] = []
+    const previousUpdateUrl = process.env.ORCHESTRA_UPDATE_URL
+    process.env.ORCHESTRA_UPDATE_URL = "https://update.example.test"
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (previousUpdateUrl === undefined) {
+          delete process.env.ORCHESTRA_UPDATE_URL
+          return
+        }
+        process.env.ORCHESTRA_UPDATE_URL = previousUpdateUrl
+      }),
+    )
     // The updater uses global fetch; scope this replacement to each install test.
     yield* Effect.acquireRelease(
       Effect.sync(() =>
@@ -220,7 +231,7 @@ it.live("bun ignores install cache cleanup failures", () =>
       const installer = test.commands[0]?.[3]
       expect(installer).toStartWith(path.join(test.global.cache, "update-"))
       expect(test.commands).toEqual([
-        ["curl", "-fsSL", "-o", installer, "https://opencode.ai/v2/install"],
+        ["curl", "-fsSL", "-o", installer, "https://update.example.test/install"],
         ...(failure === "download" ? [] : [[test.bash, installer, "--version", "2.3.4-beta.1", "--no-modify-path"]]),
       ])
       expect(yield* test.fs.readDirectory(test.global.cache)).toEqual([])
@@ -307,19 +318,11 @@ it.live("vp detection ignores no-match output that repeats the package name", ()
   }),
 )
 
-it.live("Homebrew Core installs check and upgrade the Core formula", () =>
+it.live("Homebrew formula opencode is ignored as a supported brew formula", () =>
   Effect.gen(function* () {
     const test = yield* fixture(() => ({}), "@orchestra/cli", false, "anomalyco/tap/opencode-v2", "opencode")
-    expect(yield* test.updater.method()).toBe("brew")
-    expect(yield* test.updater.latest()).toBe("2.0.21")
-    yield* test.updater.upgrade("brew", "2.0.21")
-    expect(test.commands).toEqual([["brew", "upgrade", "opencode"]])
-    // An explicitly selected method keeps its own release source.
-    expect(yield* test.updater.latest("npm")).toBe("2.3.4")
-    expect(test.requests).toEqual([
-      "https://formulae.brew.sh/api/formula/opencode.json",
-      `https://opencode.ai/update/api/local/cli/npm?current=${encodeURIComponent(ORCHESTRA_VERSION)}`,
-    ])
+    expect(yield* test.updater.method()).toBeUndefined()
+    expect(test.requests).toEqual([])
   }),
 )
 ;["opencode-v2", "opencode-beta"].forEach((formula) => {
@@ -331,12 +334,26 @@ it.live("Homebrew Core installs check and upgrade the Core formula", () =>
       yield* test.updater.upgrade("brew", "2.3.4")
       expect(test.commands).toEqual([["brew", "upgrade", `anomalyco/tap/${formula}`]])
       expect(test.requests).toEqual([
-        `https://opencode.ai/update/api/local/cli/homebrew?current=${encodeURIComponent(ORCHESTRA_VERSION)}`,
-        `https://opencode.ai/update/api/local/cli/homebrew?current=${encodeURIComponent(ORCHESTRA_VERSION)}`,
+        `https://update.example.test/local/cli/homebrew?current=${encodeURIComponent(ORCHESTRA_VERSION)}`,
+        `https://update.example.test/local/cli/homebrew?current=${encodeURIComponent(ORCHESTRA_VERSION)}`,
       ])
     }),
   )
 })
+
+it.live("без ORCHESTRA_UPDATE_URL сеть не вызывается", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture()
+    delete process.env.ORCHESTRA_UPDATE_URL
+    const checkResult = yield* test.updater.check()
+    expect(checkResult).toBeUndefined()
+    const runResult = yield* test.updater.run()
+    expect(runResult).toBeUndefined()
+    const latestError = yield* test.updater.latest().pipe(Effect.flip)
+    expect(latestError).toBeDefined()
+    expect(test.requests).toEqual([])
+  }),
+)
 
 // Links are named opencode-upgrade-<pid>-<random>.exe; read them from inside the installer run.
 const links = (directory: string) =>

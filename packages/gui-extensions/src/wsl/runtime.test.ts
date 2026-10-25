@@ -1,5 +1,36 @@
 import { expect, test } from "bun:test"
 import { createWslRuntime, wslArgs } from "./runtime"
+import { installScript } from "./remote-cli"
+
+test("requires an explicit installer URL for WSL remote CLI installation", () => {
+  const previous = process.env.ORCHESTRA_INSTALLER_URL
+  delete process.env.ORCHESTRA_INSTALLER_URL
+  delete process.env.ORCHESTRA_INSTALL_URL
+
+  try {
+    expect(() => installScript({ version: "2.0.0" })).toThrow("Remote CLI installer URL is not configured")
+
+    const script = installScript({
+      version: "2.0.0",
+      url: "https://custom.test/install.sh",
+    })
+
+    expect(script).toContain("curl -fsSL 'https://custom.test/install.sh'")
+    expect(script).not.toContain("anomalyco/opencode")
+
+    process.env.ORCHESTRA_INSTALLER_URL = "https://env.test/install.sh"
+
+    const envScript = installScript({ version: "2.0.0" })
+
+    expect(envScript).toContain("curl -fsSL 'https://env.test/install.sh'")
+    expect(envScript).not.toContain("anomalyco/opencode")
+  } finally {
+    delete process.env.ORCHESTRA_INSTALLER_URL
+    delete process.env.ORCHESTRA_INSTALL_URL
+
+    if (previous !== undefined) process.env.ORCHESTRA_INSTALLER_URL = previous
+  }
+})
 
 test("wslArgs bypasses the distro default shell", () => {
   expect(wslArgs(["sh", "-lc", 'printf "%s\\n" "$HOME"'], "Debian")).toEqual([

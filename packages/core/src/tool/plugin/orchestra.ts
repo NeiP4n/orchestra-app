@@ -4,10 +4,10 @@ import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import type { SessionHooks } from "@orchestra/plugin/effect/session"
 import { Mode } from "@orchestra/schema/mode"
-import { Model } from "@orchestra/schema/model"
 import type { Permission } from "@orchestra/schema/permission"
 import { Effect, Option, Schema } from "effect"
 import { Form } from "../../form.js"
+import { Model } from "../../model.js"
 import { Orchestra } from "../../orchestra.js"
 import { Session } from "../../session.js"
 import { SessionSchema } from "../../session/schema.js"
@@ -76,7 +76,7 @@ export const Input = Schema.Struct({
   limit: Schema.optionalKey(Schema.Int).annotate({ description: "How many recent messages read returns (default 10)" }),
   model: Schema.optionalKey(Schema.String).annotate({
     description:
-      "For send and create: the provider/model the worker runs this task on, optionally with a reasoning variant (provider/model#high). Only for roles in automatic model mode, and only one of the models listed for that role.",
+      "For send and create: the provider/model the worker runs this task on, optionally with a reasoning variant (provider/model#high). Without it a new worker runs on your own model; pass it whenever the operator asks for another model. A role with a model list accepts only models from that list; a role the operator pinned to one model cannot be changed.",
   }),
   tools: Schema.optionalKey(Schema.Array(Schema.String)).annotate({
     description:
@@ -99,6 +99,36 @@ export const Plugin = {
     const sessions = yield* Session.Service
     const orchestra = yield* Orchestra.Service
     const forms = yield* Form.Service
+    const catalog = yield* Effect.serviceOption(Model.Service)
+
+    // A role the operator gave a model list keeps to that list and a pinned model is never overridden;
+    // any other role may run on any model the catalog has, so the Orchestrator can honour a request for
+    // a model other than its own.
+    const requireModel = Effect.fnUntraced(function* (role: Orchestra.Role | undefined, model: string) {
+      if (!role)
+        return yield* new ToolFailure({ message: "This session has no team role, so it keeps its own model; omit model" })
+      if (role.models?.length && !role.models.includes(model))
+        return yield* new ToolFailure({ message: `${model} is not one of ${role.name}'s models: ${role.models.join(", ")}` })
+      if (!role.models?.length && role.model)
+        return yield* new ToolFailure({
+          message: `${role.name} is pinned to ${role.model} by the operator; omit model`,
+        })
+      const ref = yield* Effect.try({
+        try: () => Model.Ref.parse(model),
+        catch: () => new ToolFailure({ message: `Invalid model "${model}". Use provider/model or provider/model#variant.` }),
+      })
+      if (role.models?.length || Option.isNone(catalog)) return ref
+      const available = yield* catalog.value.available()
+      const known = available.find((item) => item.providerID === ref.providerID && item.id === ref.id)
+      if (available.length > 0 && !known)
+        return yield* new ToolFailure({
+          message: `Model ${ref.providerID}/${ref.id} is not available. Some that are: ${available
+            .slice(0, 20)
+            .map((item) => `${item.providerID}/${item.id}`)
+            .join(", ")}`,
+        })
+      return ref
+    })
 
     // Every action runs on behalf of the project's main session and only
     // reaches sessions of the same project at the level the operator granted.
@@ -226,13 +256,7 @@ export const Plugin = {
               // The Orchestrator's automatic choices for one task: a model from the role's list
               // and a narrower tool set. Both are checked against what the operator allowed.
               const choose = Effect.fnUntraced(function* (role: Orchestra.Role | undefined) {
-                const model = input.model?.trim()
-                if (model && !role?.models?.includes(model))
-                  return yield* new ToolFailure({
-                    message: role?.models?.length
-                      ? `${model} is not one of ${role.name}'s models: ${role.models.join(", ")}`
-                      : `${role?.name ?? "This session"} has no automatic model choice; omit model`,
-                  })
+                const model = input.model?.trim() ? yield* requireModel(role, input.model.trim()) : undefined
                 const tools = input.tools?.map((tool) => tool.trim()).filter(Boolean)
                 if (tools && !role?.autoTools)
                   return yield* new ToolFailure({
@@ -246,7 +270,7 @@ export const Plugin = {
                     message: `${role?.name} may not use ${outside.join(", ")}; its tools are ${role?.tools?.join(", ")}`,
                   })
                 return {
-                  model: model ? Model.Ref.parse(model) : undefined,
+                  model,
                   permissions: tools ? (tools.includes("all") ? [] : Orchestra.toolRules(tools)) : undefined,
                 }
               })
@@ -497,7 +521,11 @@ export const Plugin = {
 function setup(role: Orchestra.Role) {
   const parts = [
     `mode ${role.mode ?? Mode.defaultForRole(role)?.id ?? "auto"}`,
-    role.models?.length ? `model: you choose per task from ${role.models.join(", ")}` : role.model ? `model ${role.model}` : "",
+    role.models?.length
+      ? `model: you choose per task from ${role.models.join(", ")}`
+      : role.model
+        ? `model ${role.model}`
+        : "model: your own unless you pass model",
     role.tools ? `tools: ${role.tools.join(", ")}` : "",
     role.autoTools ? "you may narrow its tools per task" : "",
     role.hub ? `hub categories: ${role.hub.join(", ") || "none"}` : "",

@@ -7,7 +7,7 @@ declare const ORCHESTRA_CHANNEL: string
 declare const ORCHESTRA_ARTIFACT: string
 
 // A dev checkout run straight from source (bun src/index.ts) has no compile-time define,
-// so the version would fall back to "local" and the opencode.ai free tier would reject the
+// so the version would fall back to "local" and the free tier would reject the
 // client as below 1.18.0. Resolve the tagged release like the build script does, and fall
 // back to a known-good floor when there is no tag or git is unavailable.
 const MINIMUM_ANNOUNCED_VERSION = "1.18.0"
@@ -72,7 +72,7 @@ function releaseVersion() {
 
 // An Orchestra source install has its own updater: release/* tags and the lan-rooms
 // development branch are managed by source-release.ts. Do not send these checkouts to the
-// public opencode.ai updater, otherwise /upgrade offers an upstream OpenCode version.
+// public updater, otherwise /upgrade offers an upstream OpenCode version.
 // The marker is kept in the repository and is not shipped by normal package installations.
 const ORCHESTRA_PLUS_PLUS_SOURCE = existsSync(path.join(REPO_ROOT, "script", "release-pp.ts"))
 

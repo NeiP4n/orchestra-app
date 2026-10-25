@@ -226,6 +226,7 @@ const resolveCatalogModel = Effect.fn("ModelResolver.resolveCatalogModel")(funct
     ...(credential ? Struct.omit(mapped, ["accessToken", "apiKey", "authToken"]) : mapped),
     ...(resolved.canonical === undefined ? {} : { provider: resolved.canonical }),
     ...nativeCredentialSettings(resolved, specifier, credential),
+    ...(typeof credential?.metadata?.projectId === "string" ? { projectId: credential.metadata.projectId } : {}),
     headers: resolved.headers,
     body: resolved.body,
   }
@@ -319,7 +320,8 @@ const tokenSettings = (specifier: string, token: string) => {
     return { authToken: token }
   if (
     specifier === "@orchestra/ai/providers/google-vertex" ||
-    specifier.startsWith("@orchestra/ai/providers/google-vertex/")
+    specifier.startsWith("@orchestra/ai/providers/google-vertex/") ||
+    specifier === "@orchestra/ai/providers/google-antigravity"
   )
     return { accessToken: token }
   return { apiKey: token }

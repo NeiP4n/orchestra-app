@@ -1333,7 +1333,7 @@ function App() {
         title: "Open docs",
         slash: { name: "docs" },
         run: () => {
-          openUrl("https://opencode.ai/docs").catch(() => {})
+          openUrl(process.env.ORCHESTRA_DOCS_URL || "https://github.com/NeiP4n/orchestra-app#readme").catch(() => {})
           dialog.clear()
         },
         category: "System",

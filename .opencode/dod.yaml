@@ -699,7 +699,197 @@ stages:
     goal: Атомарная запись заметки temp+rename по образцу hub/state.ts
     done_when: every step is checked and the result was run
     added_by: agent
-leaves: []
+leaves:
+  - id: L-001
+    what: "Доскональное исследование и отчет по работе трафика Opencode Zen в проекте"
+    group: "research"
+    task_state: IN_PROGRESS
+    owner: "AI"
+    owner_id: "local-ai"
+    steps:
+      - "[x] Исследовать реализацию OpenCode Zen в кодовой базе (провайдер, роутинг, эндпоинты, авторизация, телеметрия/проксирование)"
+      - "[x] Сформировать подробный структурированный технический отчет о работе трафика Zen"
+
+  - id: L-002
+    what: "Избавиться от зависимости от opencode (Zen/инфраструктура), сохранить бесплатные модели, добавить Google Antigravity как провайдера"
+    group: "infra-rebuild"
+    task_state: DONE
+    owner: "AI"
+    owner_id: "local-ai"
+    steps:
+      - "[x] Карта зависимостей от opencode (код, конфиг, сеть, пакеты) готова"
+      - "[x] Исследование Google Antigravity как провайдера готово"
+      - "[x] Архитектурный план с границами, этапами и рисками утверждён"
+      - "[x] Реализация по этапам выполнена"
+      - "[x] Тесты, typecheck и ревью пройдены"
+    verification:
+      state: PASSED
+      command: "cd packages/core; bun typecheck"
+      evidence:
+        command: "cd packages/core; bun typecheck"
+        exit_code: 0
+        at: "2026-10-24T19:18:48.371Z"
+        by: "AI"
+        output_summary: "exit code 0, no output"
+
+  - id: L-003
+    what: "Глубокая оптимизация Orchestra, устранение дублирования кода и полное системное отделение от OpenCode"
+    group: "optimization-rebrand"
+    task_state: DONE
+    owner: "AI"
+    owner_id: "local-ai"
+    steps:
+      - "[x] Дедупликация логики виджетов и парсера (@ui) между TUI и GUI в пакете @orchestra/ui"
+      - "[x] Миграция путей и БД (.opencode -> .orchestra, opencode.db -> orchestra.db с обратной совместимостью)"
+      - "[x] Устранение legacy-пакетов и замена зависимостей @opencode-ai/*"
+      - "[x] Оптимизация скорости старта, кэширования моделей и работы с историей сессий"
+      - "[x] Сквозной typecheck, запуск тестов и ревью качества"
+    verification:
+      state: PASSED
+      command: "cd packages/core; bun typecheck"
+      evidence:
+        command: "cd packages/core; bun typecheck"
+        exit_code: 0
+        at: "2026-10-24T19:47:26.419Z"
+        by: "AI"
+        output_summary: "exit code 0, no output"
+
+  - id: L-004
+    what: "Полный ребрендинг User-Agent/Referer заголовков и отключение авто-активации Zen по умолчанию"
+    group: "rebrand-cleanup"
+    task_state: DONE
+    owner: "AI"
+    owner_id: "local-ai"
+    steps:
+      - "[x] Ребрендинг app.ts (name -> orchestra, useragent -> orchestra/<version>) и webfetch.ts"
+      - "[x] Ребрендинг заголовков Referer/X-Title в provider/*.ts на нейтральные (orchestra)"
+      - "[x] Отключение автоактивации ключа 'public' в opencode.ts (Zen включается только при явной настройке)"
+      - "[x] Тесты model-resolver, aisdk-native и webfetch пройдены"
+      - "[x] Сквозной typecheck в packages/core чист"
+    verification:
+      state: PASSED
+      command: "cd packages/core; bun typecheck"
+      evidence:
+        command: "cd packages/core; bun typecheck"
+        exit_code: 0
+        at: "2026-10-24T20:16:49.594Z"
+        by: "AI"
+        output_summary: "exit code 0, no output"
+
+  - id: L-005
+    what: "Устранение остаточных ссылок на opencode.ai (MCP CIMD OAuth, схемы, ссылки feedback) и изоляция сервисов"
+    group: "metadata-cleanup"
+    task_state: DONE
+    owner: "AI"
+    owner_id: "local-ai"
+    steps:
+      - "[x] В mcp/oauth.ts сделать CLIENT_METADATA_URL конфигурируемым и безопасным без привязки к opencode.ai"
+      - "[x] Обновить метасхемы $schema в cli/schema.ts и файлах тем на нейтральные/локальные схемы"
+      - "[x] Заменить ссылки обратной связи (desktop-feedback) в packages/app на репозиторий Orchestra"
+      - "[x] Тесты mcp.test.ts, config.test.ts и typecheck пройдены"
+      - "[x] Сквозная валидация пакетов packages/core, packages/cli, packages/app чиста"
+    verification:
+      state: PASSED
+      command: "cd packages/core; bun typecheck"
+      evidence:
+        command: "cd packages/core; bun typecheck"
+        exit_code: 0
+        at: "2026-10-24T20:27:14.467Z"
+        by: "AI"
+        output_summary: "exit code 0, no output"
+
+  - id: L-006
+    what: "Полное физическое удаление провайдера opencode из ядра и очистка мёртвых пакетов монорепозитория"
+    group: "core-purification"
+    task_state: DONE
+    owner: "AI"
+    owner_id: "local-ai"
+    steps:
+      - "[x] Удалить плагин opencode.ts из core и провайдер opencode-zen.ts из ai"
+      - "[x] Очистить спец-ветки и заголовки x-opencode-session-id в session/model-request.ts и openai-chat.ts"
+      - "[x] Удалить мёртвые вендорные пакеты (packages/console, packages/function, packages/posts)"
+      - "[x] Запуск unit-тестов в packages/core и packages/ai без регрессий"
+      - "[x] Сквозной typecheck во всех пакетах чист"
+    verification:
+      state: PASSED
+      command: "cd packages/core; bun typecheck"
+      evidence:
+        command: "cd packages/core; bun typecheck"
+        exit_code: 0
+        at: "2026-10-24T20:51:15.961Z"
+        by: "AI"
+        output_summary: "exit code 0, no output"
+
+  - id: L-007
+    what: "Закрыть непроверенное и недоделанное после L-002…L-006: GUI @ui, остаток .opencode в core, независимое ревью и сквозные проверки"
+    group: "hardening"
+    task_state: IN_PROGRESS
+    owner: "AI"
+    owner_id: "local-ai"
+    steps:
+      - "[x] GUI @ui: блоки рендерятся и отправляют ответ, typecheck и тесты ui/session-ui/app зелёные (с выводом команд)"
+      - "[ ] Остаток литералов .opencode в core заменён общей константой с fallback, данные старых проектов читаются"
+      - "[ ] Независимое ревью всего diff (reviewer): дефекты исправлены или явно приняты"
+      - "[ ] Сквозной typecheck по всем изменённым пакетам и тесты пакетов, результаты приведены как есть"
+      - "[ ] Отчёт оператору: что проверено, что нет (Antigravity OAuth вживую, pty, desktop-сборка)"
+    verification:
+      command: "cd packages/core; bun typecheck"
+
+  - id: L-008
+    what: "Оркестратор выбирает модель воркера в пределах разрешённого оператором списка и видит модель и расход каждой сессии"
+    group: "orchestrator-tools"
+    task_state: IN_PROGRESS
+    owner: "AI"
+    owner_id: "local-ai"
+    steps:
+      - "[ ] В sessions create/send модель принимается, если она входит в разрешённый список оператора (orchestra.worker.model/models), а не только в models роли; чужая модель отклоняется понятной ошибкой"
+      - "[ ] Роли с моделью по умолчанию и политика orchestra.worker не ломаются, встроенные роли не переписываются"
+      - "[ ] sessions list показывает модель каждой сессии и её накопленный расход (токены/стоимость), если данные есть"
+      - "[ ] Тесты на допустимую и недопустимую модель и на вывод list, реальный вывод приведён"
+      - "[ ] typecheck core чист"
+    verification:
+      command: "cd packages/core; bun test test/orchestra-role-quality.test.ts test/orchestra-worker-policy-e2e.test.ts"
+
+  - id: L-009
+    what: "Найти и устранить сбой «Location plugins did not finish activating» у opencode models и проверить, не вызван ли он нашими правками"
+    group: "regression"
+    task_state: IN_PROGRESS
+    owner: "AI"
+    owner_id: "local-ai"
+    steps:
+      - "[ ] Воспроизведено из репозитория (bun run dev models) и из установленного бинарника, оба результата записаны"
+      - "[ ] Выяснено, какой плагин не активируется и почему; проверено, виноваты ли google-antigravity, удаление opencode или mcp/catalog/pool"
+      - "[ ] Причина исправлена минимальной правкой с регрессионным тестом, либо доказано, что сбой был до наших правок"
+      - "[ ] bun run dev models завершается с кодом 0 и печатает модели, включая google/antigravity-gemini-3.8-*"
+    verification:
+      command: "bun run dev models"
+
+  - id: L-010
+    what: "Охранный скрипт: падает, если в коде снова появляются обращения к opencode.ai и удалённым провайдерам; подключён к проверке"
+    group: "guardrails"
+    task_state: IN_PROGRESS
+    owner: "AI"
+    owner_id: "local-ai"
+    steps:
+      - "[ ] script/check-decoupling.ts ищет opencode.ai, models.opencode.ai, anomalyco/opencode, x-opencode-, opencode-zen, Provider.ID.opencode в packages/*/src, github и script, с явным списком разрешённых исключений и причинами"
+      - "[ ] Исключения (миграция БД opencode-next.db, чтение .opencode, тесты на отсутствие ссылок) перечислены, а не замалчиваются"
+      - "[ ] Скрипт подключён как bun-скрипт в корневом package.json и запускается из check"
+      - "[ ] Скрипт реально падает на подставленной запрещённой ссылке (проверено) и проходит на чистом дереве"
+    verification:
+      command: "bun run script/check-decoupling.ts"
+
+  - id: L-011
+    what: "Показ остатка квоты Google Antigravity (5-часовое и недельное окно) и мягкая остановка при исчерпании, чтобы не получить бан"
+    group: "antigravity"
+    task_state: NOT_STARTED
+    steps:
+      - "[ ] Проверено по источникам, какой запрос отдаёт квоту (retrieveUserQuotaSummary / fetchAvailableModels) и его форма ответа"
+      - "[ ] ai-слой умеет запросить квоту с теми же заголовками и токеном, без утечки токенов в логи, тесты на фикстурах"
+      - "[ ] core/UI показывает остаток и при 0% не шлёт запросы шквалом, а отдаёт понятную ошибку лимита с повтором не раньше окна"
+      - "[ ] Тесты проходят, живой вызов явно помечен как не проверенный без вторичного аккаунта"
+    verification:
+      command: "cd packages/ai; bun test test/protocols/gemini-cloudcode.test.ts"
+    depends_on: ["L-007"]
 dead_ends: []
 
 handover:

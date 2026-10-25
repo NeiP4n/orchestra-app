@@ -184,6 +184,7 @@ export function normalize(
   kiloFreeModels: Record<string, SourceModel> = {},
 ): readonly Snapshot[] {
   const catalog = { ...input }
+  delete catalog.opencode
   for (const item of ANONYMOUS_FREE_PROVIDERS) {
     catalog[item.id] =
       item.id === "kilo-free" ? { ...item, models: { ...item.models, ...kiloFreeModels } } : item
@@ -371,15 +372,16 @@ const Cache = Schema.Struct({
   digest: Schema.optional(Schema.String),
   body: CatalogJson,
 })
-const defaultSource = "https://models.opencode.ai"
+const defaultSource = "https://models.dev"
 
-// Bundled snapshot of https://models.opencode.ai/api.json, committed at
+// Bundled snapshot of https://models.dev/api.json, committed at
 // packages/core/src/models-dev/snapshot.txt and refreshed via
 // `bun run script/update-models-snapshot.ts`. Decoded once per isolate: the snapshot
 // is a multi-MB module-level constant and one isolate can host many runtimes
 // (Cloudflare colocates Durable Object instances), so per-runtime decoding would
 // multiply the cost.
 let bundledCache: Record<string, SourceProvider> | undefined
+let bundledNormalizedCache: readonly Snapshot[] | undefined
 const bundledSnapshot = Effect.suspend(() =>
   bundledCache
     ? Effect.succeed(bundledCache)
@@ -443,17 +445,39 @@ export const layer = (options?: Options) =>
       })
       const ttl = Duration.minutes(5)
       const lock = Semaphore.makeUnsafe(1)
+      let memoryCached:
+        | {
+            raw: unknown
+            catalog: Record<string, SourceProvider>
+            updatedAt: number
+            digest?: string
+            normalized?: readonly Snapshot[]
+            kiloFreeCount?: number
+          }
+        | undefined
 
       const loadFromCache = Effect.fnUntraced(function* () {
         const value = yield* kv.get(key)
+        if (value === undefined) {
+          memoryCached = undefined
+          return undefined
+        }
+        if (memoryCached && memoryCached.raw === value) {
+          return memoryCached
+        }
         const cached = Schema.decodeUnknownOption(Cache)(value)
-        if (Option.isSome(cached))
-          return {
-            catalog: cached.value.body as Record<string, SourceProvider>,
+        if (Option.isSome(cached)) {
+          const catalog = cached.value.body as Record<string, SourceProvider>
+          memoryCached = {
+            raw: value,
+            catalog,
             updatedAt: cached.value.updatedAt,
             digest: cached.value.digest,
           }
-        if (value !== undefined) yield* kv.remove(key)
+          return memoryCached
+        }
+        memoryCached = undefined
+        yield* kv.remove(key)
       })
 
       const fetchApi = Effect.fn("ModelsDev.fetchApi")(function* () {
@@ -500,9 +524,26 @@ export const layer = (options?: Options) =>
         const fromFile = yield* loadFromFile
         if (fromFile) return normalize(fromFile, kiloFreeModels)
         const cached = options?.file ? undefined : yield* loadFromCache()
-        if (cached) return normalize(cached.catalog, kiloFreeModels)
+        if (cached) {
+          const kiloCount = Object.keys(kiloFreeModels).length
+          if (cached.normalized && cached.kiloFreeCount === kiloCount) {
+            return cached.normalized
+          }
+          const normalized = normalize(cached.catalog, kiloFreeModels)
+          cached.normalized = normalized
+          cached.kiloFreeCount = kiloCount
+          return normalized
+        }
         const bundled = yield* loadSnapshot
-        if (bundled) return normalize(bundled, kiloFreeModels)
+        if (bundled) {
+          if (Object.keys(kiloFreeModels).length === 0) {
+            if (!bundledNormalizedCache) {
+              bundledNormalizedCache = normalize(bundled, {})
+            }
+            return bundledNormalizedCache
+          }
+          return normalize(bundled, kiloFreeModels)
+        }
         if (!fetch) return []
         const catalog = yield* lock.withPermit(
           Effect.gen(function* () {
@@ -563,6 +604,9 @@ export const layer = (options?: Options) =>
               }
 
               if (catalogChanged || kiloChanged || force) {
+                if (memoryCached) {
+                  memoryCached.normalized = undefined
+                }
                 yield* invalidate
                 yield* bus.publish(ModelsDev.Event.Refreshed, {})
               }
@@ -575,8 +619,15 @@ export const layer = (options?: Options) =>
       })
 
       if (fetch && !process.argv.includes("--get-yargs-completions")) {
-        // Schedule.spaced runs the effect once, then waits between completions.
-        yield* Effect.forkScoped(refresh().pipe(Effect.repeat(Schedule.spaced(ttl)), Effect.ignore))
+        // Do not block initial runtime startup with immediate background network fetch;
+        // background refresh starts after an initial quiet period and repeats every ttl.
+        yield* Effect.forkScoped(
+          Effect.sleep(Duration.seconds(3)).pipe(
+            Effect.andThen(refresh()),
+            Effect.repeat(Schedule.spaced(ttl)),
+            Effect.ignore,
+          ),
+        )
       }
 
       return Service.of({ get, refresh })

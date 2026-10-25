@@ -21,6 +21,7 @@ describe("work modes", () => {
       "debug",
       "design",
       "ops",
+      "self-improvement",
     ])
     expect(new Set(Mode.list()).size).toBe(Mode.list().length)
     for (const mode of Mode.builtins) {
@@ -37,7 +38,7 @@ describe("work modes", () => {
     for (const id of ["research", "planning", "review", "debug", "design"]) {
       expect(required(id).readOnly).toBe(true)
     }
-    for (const id of ["auto", "fast", "coding", "ops"]) {
+    for (const id of ["auto", "fast", "coding", "ops", "self-improvement"]) {
       expect(required(id).readOnly).toBe(false)
     }
     expect(Mode.guidanceBlock(required("planning"))).toContain("read-only")
@@ -91,6 +92,17 @@ describe("work modes", () => {
     expect(mode.readOnly).toBe(true)
     expect(Mode.guidanceBlock(mode)).toContain("do not overlap")
     expect(required("test").readOnly).toBe(false)
+  })
+
+  test("self-improvement works from evidence and records what it proved", () => {
+    const mode = required("self-improvement")
+    expect(mode.readOnly).toBe(false)
+    const text = Mode.guidanceBlock(mode)
+    expect(text).toContain("baseline")
+    expect(text).toContain("One change at a time")
+    expect(text).toContain(".orchestra/self-improvement/")
+    expect(text).toContain("NOT RUN")
+    expect(text).not.toContain("todo")
   })
 
   test("reads and clears the stored override, including the explicit auto value", () => {

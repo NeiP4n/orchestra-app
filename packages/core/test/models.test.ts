@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test"
-import { Money } from "@orchestra/schema/money"
 import { Effect, Fiber, Layer, Ref, Scope, Stream } from "effect"
 import { HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
@@ -9,7 +8,6 @@ import { Bus } from "@orchestra/core/bus"
 import { KV } from "@orchestra/core/kv"
 import { Model } from "@orchestra/core/model"
 import { bodyDigest, ModelsDev } from "@orchestra/core/models-dev"
-import { Provider } from "@orchestra/core/provider"
 import { it } from "./lib/effect"
 
 const cacheKey = "models-dev:catalog"
@@ -43,47 +41,7 @@ const fixture = {
   },
 }
 
-const fixtureSnapshot = [
-  {
-    info: {
-      id: Provider.ID.make("acme"),
-      name: "Acme",
-      activation: "auto",
-      package: "@orchestra/ai/providers/openai-compatible",
-    },
-    models: [
-      {
-        id: Model.ID.make("acme-1"),
-        modelID: Model.ID.make("acme-1"),
-        providerID: Provider.ID.make("acme"),
-        name: "Acme One",
-        compatibility: { reasoningField: "vendor_reasoning" },
-        family: undefined,
-        package: undefined,
-        settings: { provider: "acme" },
-        capabilities: { tools: true, input: [], output: [] },
-        variants: [],
-        time: { released: Date.parse("2026-01-01") },
-        cost: [
-          {
-            input: Money.USDPerMillionTokens.zero,
-            output: Money.USDPerMillionTokens.zero,
-            cache: {
-              read: Money.USDPerMillionTokens.zero,
-              write: Money.USDPerMillionTokens.zero,
-            },
-          },
-        ],
-        status: "active",
-        enabled: true,
-        limit: { context: 128000, input: undefined, output: 8192 },
-        headers: undefined,
-        body: undefined,
-      },
-    ],
-    environment: ["ACME_API_KEY"],
-  },
-] satisfies readonly ModelsDev.Snapshot[]
+const fixtureSnapshot = ModelsDev.normalize(fixture)
 
 const fixture2 = {
   beta: {
@@ -106,46 +64,7 @@ const fixture2 = {
   },
 }
 
-const fixture2Snapshot = [
-  {
-    info: {
-      id: Provider.ID.make("beta"),
-      name: "Beta",
-      activation: "auto",
-      package: "@orchestra/ai/providers/openai-compatible",
-    },
-    models: [
-      {
-        id: Model.ID.make("beta-1"),
-        modelID: Model.ID.make("beta-1"),
-        providerID: Provider.ID.make("beta"),
-        name: "Beta One",
-        family: undefined,
-        package: undefined,
-        settings: { provider: "beta" },
-        capabilities: { tools: false, input: [], output: [] },
-        variants: [],
-        time: { released: Date.parse("2026-02-01") },
-        cost: [
-          {
-            input: Money.USDPerMillionTokens.zero,
-            output: Money.USDPerMillionTokens.zero,
-            cache: {
-              read: Money.USDPerMillionTokens.zero,
-              write: Money.USDPerMillionTokens.zero,
-            },
-          },
-        ],
-        status: "active",
-        enabled: true,
-        limit: { context: 64000, input: undefined, output: 4096 },
-        headers: undefined,
-        body: undefined,
-      },
-    ],
-    environment: ["BETA_API_KEY"],
-  },
-] satisfies readonly ModelsDev.Snapshot[]
+const fixture2Snapshot = ModelsDev.normalize(fixture2)
 
 interface MockState {
   body: string
@@ -156,12 +75,15 @@ interface MockState {
 const makeMockClient = (state: Ref.Ref<MockState>) =>
   HttpClient.make((request) =>
     Effect.gen(function* () {
-      yield* Ref.update(state, (s) => ({
-        ...s,
-        calls: [...s.calls, { url: request.url, userAgent: request.headers["user-agent"] ?? null }],
-      }))
-      const s = yield* Ref.get(state)
-      return HttpClientResponse.fromWeb(request, new Response(s.body, { status: s.status }))
+      if (request.url.includes("/api.json")) {
+        yield* Ref.update(state, (s) => ({
+          ...s,
+          calls: [...s.calls, { url: request.url, userAgent: request.headers["user-agent"] ?? null }],
+        }))
+        const s = yield* Ref.get(state)
+        return HttpClientResponse.fromWeb(request, new Response(s.body, { status: s.status }))
+      }
+      return HttpClientResponse.fromWeb(request, new Response(JSON.stringify({ data: [] }), { status: 200 }))
     }),
   )
 
@@ -316,6 +238,8 @@ describe("ModelsDev Service", () => {
       expect(result.length).toBeGreaterThan(0)
       const anthropic = result.find((snapshot) => snapshot.info.id === "anthropic")
       expect(anthropic?.environment).toContain("ANTHROPIC_API_KEY")
+      const opencode = result.find((snapshot) => snapshot.info.id === "opencode")
+      expect(opencode).toBeUndefined()
       const final = yield* Ref.get(state)
       expect(final.calls).toEqual([])
     }),
@@ -364,7 +288,7 @@ describe("ModelsDev Service", () => {
       yield* ModelsDev.Service.use((service) => service.get()).pipe(
         Effect.provide(buildLayer(state, cache, { url: "", fetch: true, snapshot: false })),
       )
-      expect((yield* Ref.get(state)).calls[0]?.url).toBe("https://models.opencode.ai/api.json")
+      expect((yield* Ref.get(state)).calls[0]?.url).toBe("https://models.dev/api.json")
     }),
   )
 
@@ -429,7 +353,7 @@ describe("ModelsDev Service", () => {
       const final = yield* Ref.get(state)
       expect(final.calls.length).toBe(1)
       expect(final.calls[0].url).toContain("/api.json")
-      expect(final.calls[0].userAgent).toStartWith("opencode/")
+      expect(final.calls[0].userAgent).toStartWith("orchestra/")
     }),
   )
 

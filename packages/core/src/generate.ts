@@ -1,7 +1,6 @@
 export * as Generate from "./generate.js"
 
 import { LLM, LLMClient, AIError } from "@orchestra/ai"
-import { SessionID } from "@orchestra/schema/session-id"
 import { Context, Effect, Layer, Schema } from "effect"
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import { App } from "./app.js"
@@ -69,7 +68,6 @@ export const layer = Layer.effect(
         providerID: resolved.ref.providerID,
         stateless: true,
       })
-      const sessionID = SessionID.create()
       const response = yield* llm
         .generate(
           LLM.request({
@@ -79,10 +77,7 @@ export const layer = Layer.effect(
             toolChoice: compatibility.toolChoice,
             http: {
               headers: {
-                "x-opencode-session": sessionID,
-                "x-opencode-session-id": sessionID,
                 "User-Agent": App.useragent(app),
-                "x-opencode-client": app.name,
               },
             },
           }),

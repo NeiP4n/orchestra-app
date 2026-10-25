@@ -2,6 +2,7 @@ export * as McpPool from "./pool.js"
 
 import path from "node:path"
 import { Deferred, Effect, Exit, Scope } from "effect"
+import { KeyedMutex } from "../effect/keyed-mutex.js"
 import { Environment } from "../environment/index.js"
 import { McpClient } from "./client.js"
 
@@ -22,6 +23,12 @@ type Shared = {
 
 // One pool per Environment, so a workspace-backed location never shares a process with the host.
 const pools = new WeakMap<Environment.Interface, Map<string, Shared>>()
+
+// Locations with different working directories keep separate processes, so several of them start the same
+// `npx -y <package>` at once. npm installs into one shared cache directory per package, and concurrent
+// installs corrupt it (ENOTEMPTY, missing files, ERR_MODULE_NOT_FOUND) until the directory is deleted by
+// hand. Starting an identical launcher one at a time lets the first install and the rest reuse the cache.
+const launches = KeyedMutex.makeUnsafe<string>()
 
 /**
  * Connects an MCP server, sharing one stdio process between every Location that would spawn an
@@ -93,7 +100,7 @@ const open = Effect.fnUntraced(function* (
   plane: Map<string, Shared>,
   key: string,
   server: string,
-  config: Parameters<typeof McpClient.connect>[1],
+  config: Extract<Parameters<typeof McpClient.connect>[1], { type: "local" }>,
   directory: string,
   authProvider: Parameters<typeof McpClient.connect>[3],
   elicitation: Parameters<typeof McpClient.connect>[4],
@@ -115,6 +122,7 @@ const open = Effect.fnUntraced(function* (
   yield* McpClient.connect(server, config, directory, authProvider, elicitation, clientInfo).pipe(
     Effect.provideService(Environment.Service, environment),
     Scope.provide(scope),
+    launches.withLock(JSON.stringify(config.command)),
     Effect.exit,
     Effect.flatMap((exit) => {
       if (Exit.isFailure(exit)) {

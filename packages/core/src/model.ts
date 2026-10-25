@@ -167,7 +167,12 @@ const layer = Layer.effect(
           }),
         )
         const all = Array.from(byProvider.values()).flatMap((models) => Array.from(models.values())).sort((left, right) => right.time.released - left.time.released)
-        cached = freeze({ data, all, available: all, byProvider }, true)
+        // A provider plugin disables the models it cannot serve on its connection (for example the
+        // native Google models when only an Antigravity OAuth account is connected). Such a model
+        // must stay out of the picker and out of resolution: choosing it used to fail every request
+        // with a missing API key while the catalog still advertised it.
+        const available = all.filter((model) => model.enabled !== false)
+        cached = freeze({ data, all, available, byProvider }, true)
         return cached
       }
     })
@@ -194,7 +199,14 @@ const layer = Layer.effect(
       default: Effect.fn("Model.default")(function* () {
         const value = yield* read()
         const requested = value.data.defaultModel
-        return requested ? value.byProvider.get(requested.providerID)?.get(requested.modelID) : undefined
+        if (requested) {
+          const selected = value.byProvider.get(requested.providerID)?.get(requested.modelID)
+          // A configured model may be gone (a removed provider, a disabled one): fall through to
+          // the catalog instead of leaving the runtime without any model at all.
+          if (selected) return selected
+        }
+        // `available` is ordered newest release first, so this is the newest model that can answer text.
+        return value.available.find((model) => supportsText(model))
       }),
       small: Effect.fn("Model.small")(function* (providerID) {
         const value = yield* read()

@@ -30,7 +30,6 @@ import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import { App } from "../app.js"
 import { Permission } from "../permission.js"
 import { PluginHooks } from "../plugin/hooks.js"
-import { zenRequiredToolNames } from "../provider-request-compatibility.js"
 import { QuestionTool } from "../tool/plugin/question.js"
 import { Tool } from "../tool.js"
 import { ToolRouter } from "../tool/router.js"
@@ -232,9 +231,6 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@orchestra/SessionModelRequest") {}
 
-const ZEN_TOOL_LIMIT = 128
-const ZEN_REQUIRED_TOOLS = new Set<string>(zenRequiredToolNames)
-
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -252,41 +248,12 @@ export const layer = Layer.effect(
         definitions: [],
         execute: () => new Tool.Error({ message: "Tools are not available for this request" }),
       }
-      // OpenCode Zen's free-tier validator rejects requests when a permission rule removes
-      // built-in read/bash from the advertised tool list. Keep their schemas in the request for
-      // the built-in OpenCode provider, while Tool.snapshot.execute still enforces local policy.
-      // This does not grant permission to execute either tool: hidden tools are not present in the
-      // snapshot's active executor maps.
-      const deniedCompatibility =
-        model.ref.providerID === "opencode" ? (tools.compatibilityDefinitions ?? []) : []
-      // On-demand direct tools join the request once the session loaded or called them, or the
-      // user's words triggered them. The rest stay one line each in the `tools` index.
       const picked = new Set([
         ...ToolRouter.selected(input.messages, tools.lazy ?? new Map()),
         ...Mode.toolsOf(session.metadata, input.agent),
       ])
       const loaded = (tools.lazyDefinitions ?? []).filter((tool) => picked.has(tool.name))
-      // Zen's upstream rejects more than 128 tools. Mirrored CodeMode schemas are only a validator
-      // courtesy (every one stays callable through `execute`), and mirroring a whole browser or MCP
-      // catalog cost ~9k prompt tokens per step, so only the tools Zen's validator looks for are
-      // mirrored. ORCHESTRA_ZEN_MIRROR=all restores the full mirror.
-      const mirrorAll = process.env.ORCHESTRA_ZEN_MIRROR === "all"
-      const zenCompatibility =
-        model.ref.providerID === "opencode"
-          ? [...(tools.codeModeDefinitions ?? []), ...deniedCompatibility]
-              .filter((candidate) => mirrorAll || ZEN_REQUIRED_TOOLS.has(candidate.name))
-              .filter(
-                (candidate, index, all) =>
-                  !tools.definitions.some((tool) => tool.name === candidate.name) &&
-                  all.findIndex((other) => other.name === candidate.name) === index,
-              )
-              .sort(
-                (left, right) =>
-                  Number(!ZEN_REQUIRED_TOOLS.has(left.name)) - Number(!ZEN_REQUIRED_TOOLS.has(right.name)),
-              )
-              .slice(0, Math.max(0, ZEN_TOOL_LIMIT - tools.definitions.length - loaded.length))
-          : []
-      const advertised = [...tools.definitions, ...loaded, ...zenCompatibility]
+      const advertised = [...tools.definitions, ...loaded]
       // Remember which tool each definition object came from. Hooks rename a tool by moving
       // its definition to a new key, so after the hook we find the tool by object identity.
       const given = new Map(
@@ -316,24 +283,10 @@ export const layer = Layer.effect(
           return t ? [[name, { ...t, description: d.description, inputSchema: d.input }] as const] : []
         }),
       )
-      // Context hooks may intentionally trim active CodeMode tools. Do not re-add those here.
-      // Only restore denied schemas for Zen's brittle tool-list validator; Tool.snapshot.execute
-      // has no executor for them, so a model cannot use this as a permission bypass.
-      for (const candidate of deniedCompatibility) {
-        if (!hooked.has(candidate.name) && hooked.size < ZEN_TOOL_LIMIT) hooked.set(candidate.name, candidate)
-      }
       const entries = Object.entries(shaped.options)
       const generation = Object.fromEntries(entries.filter(([k]) => GENERATION_KEYS.has(k))) as GenerationOptionsFields
       const providerOptions = Object.fromEntries(entries.filter(([k]) => !GENERATION_KEYS.has(k)))
       const affinity = SessionAffinity.get(session)
-      // Zen's free-tier gate rejects anything outside OpenCode's own id shape with 403 "free tier
-      // can only be used from within OpenCode". It reads both `x-opencode-session` and
-      // `x-opencode-session-id`; a hashed `x-opencode-session` alone is not enough, so the
-      // well-formed token goes into both. A group chat keeps a derived id (`ses_group_…`) so
-      // reopening the group finds the same chat. Other providers and the remaining headers keep
-      // the real id.
-      const gateway =
-        model.ref.providerID === "opencode" ? SessionAffinity.gateway(session) : affinity
       // Only the agent loop resends a growing history; titles, summaries, and generation are one-shot.
       const prefix =
         kind === "primary"
@@ -348,15 +301,10 @@ export const layer = Layer.effect(
         model: model.model,
         http: {
           headers: {
-            "x-opencode-session-id": model.ref.providerID === "opencode" ? gateway : session.id,
-            ...(session.parentID ? { "x-opencode-parent-session-id": session.parentID } : {}),
             "x-session-affinity": affinity,
             "X-Session-Id": affinity,
             ...(session.parentID ? { "x-parent-session-id": session.parentID } : {}),
             "User-Agent": App.useragent(app),
-            "x-opencode-project": session.projectID,
-            "x-opencode-session": gateway,
-            "x-opencode-client": app.name,
           },
         },
         // TODO: Persist cache lineage so nested forks reuse the root session's cache key.

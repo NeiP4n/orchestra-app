@@ -212,6 +212,24 @@ export function createActiveSessionRegion(input: {
       server.api.session.inbox.cancel({ sessionID, inboxID: messageID }).then(() => undefined, notifyFailed),
   }
 
+  const sendPrompt: NonNullable<SessionUserActions["sendPrompt"]> = async (text) => {
+    const sessionID = input.session.identity.params.id
+    if (!sessionID || input.session.data.isChild()) return
+    const selection = resolveSessionComposerSelection(input.session.data.info(), input.timeline.lastUserMessage()?.metadata)
+    const agent = selection.agent ?? input.session.data.info()?.agent
+    const model = selection.model
+    await data.session.prompt({
+      sessionID,
+      text,
+      delivery: "steer",
+      metadata: {
+        displayText: text,
+        ...(agent ? { agent } : {}),
+        ...(model ? { model: { id: model.modelID, providerID: model.providerID, ...(model.variant ? { variant: model.variant } : {}) } } : {}),
+      },
+    })
+  }
+
   useComposerCommands()
   useSessionCommands({
     session: input.session,
@@ -277,6 +295,7 @@ export function createActiveSessionRegion(input: {
           return pendingSteer
         },
         openAttachment,
+        sendPrompt,
       } satisfies SessionUserActions,
     },
     requests: state,

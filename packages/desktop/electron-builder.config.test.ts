@@ -53,6 +53,51 @@ test.each(channels)("channel identity for $channel", async ({ channel, appId }) 
   }
 })
 
+test.each(channels)("auto update disabled without ORCHESTRA_UPDATE_URL for $channel", async ({ channel }) => {
+  const previousChannel = process.env.ORCHESTRA_CHANNEL
+  const previousUrl = process.env.ORCHESTRA_UPDATE_URL
+  process.env.ORCHESTRA_CHANNEL = channel
+  delete process.env.ORCHESTRA_UPDATE_URL
+
+  try {
+    // SAFETY: electron-builder config module exports a Configuration object by default
+    const config = (await import(`./electron-builder.config.ts?no-url-${channel}-${Date.now()}`)).default as Configuration
+
+    expect(config.publish).toBeUndefined()
+  } finally {
+    delete process.env.ORCHESTRA_CHANNEL
+
+    if (previousChannel !== undefined) process.env.ORCHESTRA_CHANNEL = previousChannel
+
+    if (previousUrl !== undefined) process.env.ORCHESTRA_UPDATE_URL = previousUrl
+  }
+})
+
+test.each(["beta", "prod"])("auto update uses custom ORCHESTRA_UPDATE_URL for %s", async (channel) => {
+  const previousChannel = process.env.ORCHESTRA_CHANNEL
+  const previousUrl = process.env.ORCHESTRA_UPDATE_URL
+  process.env.ORCHESTRA_CHANNEL = channel
+  process.env.ORCHESTRA_UPDATE_URL = "https://updates.test/api"
+
+  try {
+    // SAFETY: electron-builder config module exports a Configuration object by default
+    const config = (await import(`./electron-builder.config.ts?custom-url-${channel}-${Date.now()}`)).default as Configuration
+
+    expect(config.publish).toEqual({
+      provider: "generic",
+      url: "https://updates.test/api",
+      channel: "latest",
+    })
+  } finally {
+    delete process.env.ORCHESTRA_CHANNEL
+    delete process.env.ORCHESTRA_UPDATE_URL
+
+    if (previousChannel !== undefined) process.env.ORCHESTRA_CHANNEL = previousChannel
+
+    if (previousUrl !== undefined) process.env.ORCHESTRA_UPDATE_URL = previousUrl
+  }
+})
+
 test("legacy Linux launcher stays hidden", async () => {
   const desktop = await Bun.file(path.join(import.meta.dirname, "resources/linux/opencode-desktop.desktop")).text()
   expect(desktop).toContain("Exec=/opt/OpenCode/ai.opencode.desktop %U")

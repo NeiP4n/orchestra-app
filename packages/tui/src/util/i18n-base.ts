@@ -583,6 +583,8 @@ const ru: Record<string, string> = {
   "AI tools": "ИИ-инструменты",
   "removed": "удалён",
   "needs {runtime}": "нужен {runtime}",
+  "needs {keys}": "нужен {keys}",
+  "{name}: installed, but it will not start until {keys} is set in the environment of the Orchestra server; set it and restart": "{name}: установлен, но не запустится, пока {keys} не задан в окружении сервера Orchestra; задайте и перезапустите",
   "Up-to-date documentation and code examples for libraries and frameworks.": "Свежая документация и примеры кода для библиотек и фреймворков.",
   "Drive a real browser: open pages, click, fill forms, read the accessibility tree, take screenshots.": "Управление настоящим браузером: страницы, клики, формы, дерево доступности, скриншоты.",
   "Inspect a Chrome page: console, network requests, performance traces, DOM.": "Отладка страницы в Chrome: консоль, сеть, производительность, DOM.",
