@@ -4445,6 +4445,7 @@ export type OrchestraRoleCreateInput = {
   readonly rules: string
   readonly category: string
   readonly readOnly: boolean
+  readonly mode?: string | undefined
   readonly model?: string | undefined
   readonly models?: ReadonlyArray<string> | undefined
   readonly tools?: ReadonlyArray<string> | undefined
@@ -4464,6 +4465,7 @@ export type OrchestraRoleUpdateInput = {
   readonly rules: string
   readonly category: string
   readonly readOnly: boolean
+  readonly mode?: string | undefined
   readonly model?: string | undefined
   readonly models?: ReadonlyArray<string> | undefined
   readonly tools?: ReadonlyArray<string> | undefined

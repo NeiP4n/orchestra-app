@@ -1996,6 +1996,7 @@ export type OrchestraRole = {
   rules: string
   category: string
   readOnly: boolean
+  mode?: string | undefined
   model?: string | undefined
   models?: Array<string> | undefined
   tools?: Array<string> | undefined
@@ -2396,6 +2397,18 @@ export type ConfigEntry =
         shell?: string
         model?: string | { providerID: string; model: string; variant?: string }
         default_agent?: string
+        orchestra?: {
+          worker?: {
+            model?: string | { providerID: string; model: string; variant?: string }
+            models?: Array<string | { providerID: string; model: string; variant?: string }>
+            categories?: {
+              [x: string]: {
+                model?: string | { providerID: string; model: string; variant?: string }
+                models?: Array<string | { providerID: string; model: string; variant?: string }>
+              }
+            }
+          }
+        }
         proxy?: ConfigProxy
         update?: "disable" | "notify" | "auto"
         share?: "manual" | "auto" | "disabled"
@@ -2480,7 +2493,7 @@ export type ConfigEntry =
                 }
           }
         }
-        compaction?: { auto?: boolean; keep?: { tokens?: number }; buffer?: number }
+        compaction?: { auto?: boolean; keep?: { tokens?: number }; buffer?: number; threshold?: number }
         skills?: Array<string>
         commands?: {
           [x: string]: {
@@ -8699,6 +8712,7 @@ export type OrchestraRoleCreateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8712,6 +8726,7 @@ export type OrchestraRoleCreateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8725,6 +8740,7 @@ export type OrchestraRoleCreateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8738,6 +8754,7 @@ export type OrchestraRoleCreateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8751,6 +8768,7 @@ export type OrchestraRoleCreateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8758,12 +8776,27 @@ export type OrchestraRoleCreateInput = {
     readonly hub?: ReadonlyArray<string> | undefined
     readonly registry?: ReadonlyArray<string> | undefined
   }["readOnly"]
+  readonly mode?: {
+    readonly name: string
+    readonly description: string
+    readonly rules: string
+    readonly category: string
+    readonly readOnly: boolean
+    readonly mode?: string | undefined
+    readonly model?: string | undefined
+    readonly models?: ReadonlyArray<string> | undefined
+    readonly tools?: ReadonlyArray<string> | undefined
+    readonly autoTools?: boolean | undefined
+    readonly hub?: ReadonlyArray<string> | undefined
+    readonly registry?: ReadonlyArray<string> | undefined
+  }["mode"]
   readonly model?: {
     readonly name: string
     readonly description: string
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8777,6 +8810,7 @@ export type OrchestraRoleCreateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8790,6 +8824,7 @@ export type OrchestraRoleCreateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8803,6 +8838,7 @@ export type OrchestraRoleCreateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8816,6 +8852,7 @@ export type OrchestraRoleCreateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8829,6 +8866,7 @@ export type OrchestraRoleCreateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8848,6 +8886,7 @@ export type OrchestraRoleUpdateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8861,6 +8900,7 @@ export type OrchestraRoleUpdateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8874,6 +8914,7 @@ export type OrchestraRoleUpdateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8887,6 +8928,7 @@ export type OrchestraRoleUpdateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8900,6 +8942,7 @@ export type OrchestraRoleUpdateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8907,12 +8950,27 @@ export type OrchestraRoleUpdateInput = {
     readonly hub?: ReadonlyArray<string> | undefined
     readonly registry?: ReadonlyArray<string> | undefined
   }["readOnly"]
+  readonly mode?: {
+    readonly name: string
+    readonly description: string
+    readonly rules: string
+    readonly category: string
+    readonly readOnly: boolean
+    readonly mode?: string | undefined
+    readonly model?: string | undefined
+    readonly models?: ReadonlyArray<string> | undefined
+    readonly tools?: ReadonlyArray<string> | undefined
+    readonly autoTools?: boolean | undefined
+    readonly hub?: ReadonlyArray<string> | undefined
+    readonly registry?: ReadonlyArray<string> | undefined
+  }["mode"]
   readonly model?: {
     readonly name: string
     readonly description: string
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8926,6 +8984,7 @@ export type OrchestraRoleUpdateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8939,6 +8998,7 @@ export type OrchestraRoleUpdateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8952,6 +9012,7 @@ export type OrchestraRoleUpdateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8965,6 +9026,7 @@ export type OrchestraRoleUpdateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined
@@ -8978,6 +9040,7 @@ export type OrchestraRoleUpdateInput = {
     readonly rules: string
     readonly category: string
     readonly readOnly: boolean
+    readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
     readonly tools?: ReadonlyArray<string> | undefined

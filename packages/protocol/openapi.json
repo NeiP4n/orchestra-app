@@ -17294,11 +17294,18 @@
             }
           },
           "404": {
-            "description": "RoomNotFoundError",
+            "description": "RoomNotFoundError | SessionNotFoundError",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RoomNotFoundErrorEncoded"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RoomNotFoundErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionNotFoundErrorEncoded"
+                    }
+                  ]
                 }
               }
             }
@@ -22398,6 +22405,57 @@
           "default_agent": {
             "type": "string"
           },
+          "orchestra": {
+            "type": "object",
+            "properties": {
+              "worker": {
+                "type": "object",
+                "properties": {
+                  "model": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[^/#]+\\/[^#]+(?:#[^#]+)?$"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "providerID": {
+                            "type": "string",
+                            "pattern": "^[^/#]+$"
+                          },
+                          "model": {
+                            "type": "string",
+                            "pattern": "^[^#]+$"
+                          },
+                          "variant": {
+                            "type": "string",
+                            "pattern": "^[^#]+$"
+                          }
+                        },
+                        "required": ["providerID", "model"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "models": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Config.ModelSelectionEncoded"
+                    }
+                  },
+                  "categories": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "$ref": "#/components/schemas/Config.Orchestra.Worker.PolicyEncoded"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
           "proxy": {
             "$ref": "#/components/schemas/Config.Proxy"
           },
@@ -22581,6 +22639,10 @@
                 "additionalProperties": false
               },
               "buffer": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "threshold": {
                 "type": "integer",
                 "minimum": 0
               }
@@ -22904,6 +22966,72 @@
               }
             },
             "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "Config.ModelSelectionEncoded": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "^[^/#]+\\/[^#]+(?:#[^#]+)?$"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "providerID": {
+                "type": "string",
+                "pattern": "^[^/#]+$"
+              },
+              "model": {
+                "type": "string",
+                "pattern": "^[^#]+$"
+              },
+              "variant": {
+                "type": "string",
+                "pattern": "^[^#]+$"
+              }
+            },
+            "required": ["providerID", "model"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "Config.Orchestra.Worker.PolicyEncoded": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[^/#]+\\/[^#]+(?:#[^#]+)?$"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "providerID": {
+                    "type": "string",
+                    "pattern": "^[^/#]+$"
+                  },
+                  "model": {
+                    "type": "string",
+                    "pattern": "^[^#]+$"
+                  },
+                  "variant": {
+                    "type": "string",
+                    "pattern": "^[^#]+$"
+                  }
+                },
+                "required": ["providerID", "model"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Config.ModelSelectionEncoded"
+            }
           }
         },
         "additionalProperties": false
@@ -25811,6 +25939,16 @@
           "readOnly": {
             "type": "boolean"
           },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "model": {
             "anyOf": [
               {
@@ -25913,6 +26051,16 @@
           },
           "readOnly": {
             "type": "boolean"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "model": {
             "anyOf": [
