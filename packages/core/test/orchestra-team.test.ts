@@ -1804,6 +1804,36 @@ describe("Orchestra team", () => {
       expect(setModeResult.content).toContain("Planning")
       expect((yield* sessionService.get(modeWorker.id))?.metadata?.[Mode.MetadataKey]).toBe("planning")
 
+      // Some models truncate sessionID to "ses" and put the real ID in text. The tool reads the
+      // worker anyway, and a send explains that the message is missing instead of "not found: ses".
+      const slip = (action: "read" | "send") =>
+        sessionsTool.execute(
+          { action, sessionID: "ses", text: modeWorker.id },
+          {
+            sessionID: project.main!,
+            agent: Orchestra.agent,
+            messageID: SessionMessage.ID.create(),
+            id: Tool.CallID.make("call_slip"),
+            progress: () => Effect.void,
+          },
+        )
+      expect((yield* slip("read")).metadata).toEqual({ sessionID: modeWorker.id })
+      expect((yield* slip("send").pipe(Effect.flip)).message).toContain("Pass the message as text")
+      expect(
+        (yield* sessionsTool
+          .execute(
+            { action: "read", sessionID: "ses" },
+            {
+              sessionID: project.main!,
+              agent: Orchestra.agent,
+              messageID: SessionMessage.ID.create(),
+              id: Tool.CallID.make("call_unknown"),
+              progress: () => Effect.void,
+            },
+          )
+          .pipe(Effect.flip)).message,
+      ).toContain("complete ID")
+
       // A mode narrows how a session works without changing its role. Planning removes the
       // editing tools from the request and still denies an edit that reaches the permission
       // hook; explicit `auto` restores the developer's normal working set.

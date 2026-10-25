@@ -140,10 +140,10 @@ export const Plugin = {
       if (!sessionID) return yield* new ToolFailure({ message: "Pass the sessionID of the target session" })
       const session = yield* sessions
         .get(sessionID)
-        .pipe(Effect.mapError(() => new ToolFailure({ message: `Session not found: ${sessionID}` })))
+        .pipe(Effect.mapError(() => new ToolFailure({ message: `Session not found: ${sessionID}. Use the complete ID from the team roster.` })))
       const access = yield* orchestra.access(session.id)
       if (session.id === project.main || access === "hidden" || !(yield* orchestra.owns(project, session)))
-        return yield* new ToolFailure({ message: `Session not found: ${sessionID}` })
+        return yield* new ToolFailure({ message: `Session not found: ${sessionID}. Use the complete ID from the team roster.` })
       if (!Orchestra.allows(access, required))
         return yield* new ToolFailure({
           message: `Access to ${sessionID} is "${access}"; this action needs "${required}". The operator can raise it in the project panel.`,
@@ -216,6 +216,21 @@ export const Plugin = {
               const project = yield* orchestra.mainOf(context.sessionID)
               if (!project)
                 return yield* new ToolFailure({ message: "Only a project's main session can manage sessions" })
+
+        // A common slip: the model puts the target session ID in `text` and a
+        // placeholder in `sessionID`. Recover by using `text` as the ID when it
+        // names a real session and `sessionID` does not.
+        if (input.sessionID && input.text?.startsWith("ses_")) {
+          const current = yield* sessions.get(input.sessionID).pipe(Effect.option)
+          if (current._tag === "None") {
+            const fallback = yield* sessions.get(input.text as SessionSchema.ID).pipe(Effect.option)
+            if (fallback._tag === "Some") {
+              ;(input as any).sessionID = input.text as SessionSchema.ID
+              ;(input as any).text = undefined
+            }
+          }
+        }
+
               const dispatch = (sessionID: SessionSchema.ID, text: string) =>
                 orchestra.dispatch({ project, sessionID, text }).pipe(
                   Effect.mapError((error) => new ToolFailure({ message: `Could not send task: ${error.message}`, error })),
@@ -235,7 +250,7 @@ export const Plugin = {
               const setMode = Effect.fnUntraced(function* (sessionID: SessionSchema.ID, mode: Mode.Spec) {
                 const session = yield* sessions
                   .get(sessionID)
-                  .pipe(Effect.mapError(() => new ToolFailure({ message: `Session not found: ${sessionID}` })))
+                  .pipe(Effect.mapError(() => new ToolFailure({ message: `Session not found: ${sessionID}. Use the complete ID from the team roster.` })))
                 const metadata = { ...(session.metadata ?? {}) }
                 if (mode.id === "auto") delete metadata[Mode.MetadataKey]
                 else metadata[Mode.MetadataKey] = mode.id
