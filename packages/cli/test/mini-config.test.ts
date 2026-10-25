@@ -65,6 +65,6 @@ test("mini handler passes resolved CLI keybinds to the runtime", async () => {
   } finally {
     server.stop(true)
     mock.restore()
-    await rm(root, { recursive: true, force: true })
+    await fs.rm(root, { recursive: true, force: true })
   }
 })
