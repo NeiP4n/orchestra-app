@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@orchestra/plugin-antigravity-auth",
+  "version": "2.1.2",
+  "description": "Google Antigravity OAuth for Orchestra, with account rotation, live models, and quota management",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NeiP4n/orchestra-app.git",
+    "directory": "packages/plugin-antigravity-auth"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json",
+    "./tui": {
+      "types": "./dist/tui.d.ts",
+      "import": "./dist/tui.js",
+      "default": "./dist/tui.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "tui.js",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node script/fix-esm-imports.mjs",
+    "typecheck": "tsgo --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@ai-sdk/google": "^3.0.73",
+    "@openauthjs/openauth": "catalog:",
+    "@orchestra/client": "workspace:*",
+    "@orchestra/plugin": "workspace:*",
+    "@orchestra/schema": "workspace:*",
+    "effect": "catalog:",
+    "proper-lockfile": "^4.1.2",
+    "xdg-basedir": "^5.1.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@types/node": "catalog:",
+    "@types/proper-lockfile": "^4.1.4",
+    "typescript": "catalog:"
+  }
+}

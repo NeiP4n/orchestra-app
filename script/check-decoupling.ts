@@ -37,6 +37,11 @@ export interface DecouplingAllowlistEntry {
  * Structured allowlist of permitted legacy and integration exceptions.
  */
 export const ALLOWLIST: readonly DecouplingAllowlistEntry[] = [
+  {
+    path: /^packages\/plugin-antigravity-auth\//,
+    allowed: "*",
+    reason: "opencode-antigravity-auth plugin integration with upstream OpenCode compatibility",
+  },
   // --------------------------------------------------------------------------
   // Core AI & Provider Integrations (OpenCode Zen & Protocol Adapters)
   // --------------------------------------------------------------------------

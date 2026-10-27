@@ -120,6 +120,7 @@ import { AgentPlugin } from "./agent.js"
 import { TeamPlugin } from "./team.js"
 import { SandboxPlugin } from "./sandbox.js"
 import BrowserPlugin from "@orchestra/plugin-browser"
+import { AntigravityAuthEffectPlugin } from "@orchestra/plugin-antigravity-auth"
 import { CommandPlugin } from "./command.js"
 import { IdentityPlugin } from "./identity.js"
 import { PlanPlugin } from "./plan.js"
@@ -330,6 +331,7 @@ const post = [
   ConfigReferencePlugin.Plugin,
   ConfigAgentPlugin.Plugin,
   BrowserPlugin,
+  AntigravityAuthEffectPlugin,
   ConfigCommandPlugin.Plugin,
   ConfigCompactionPlugin.Plugin,
   ConfigFormatterPlugin.Plugin,

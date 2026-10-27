@@ -45,6 +45,7 @@ export const MONOREPO_LAYERS: LayerDefinition = {
   // L3 - Plugins & Extensibility (Plugin host & specific plugins)
   "packages/plugin": 3,
   "packages/plugin-browser": 3,
+  "packages/plugin-antigravity-auth": 3,
   "packages/latex": 3,
   "packages/merman": 3,
   "services/idea-bank": 3,
