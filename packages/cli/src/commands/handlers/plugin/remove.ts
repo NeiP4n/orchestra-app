@@ -7,6 +7,7 @@ import { Commands } from "../../commands"
 import { Runtime } from "../../../framework/runtime"
 import { Config } from "../../../config"
 import { resolveConfigPath } from "../mcp/add"
+import { matches } from "./enable"
 
 export default Runtime.handler(
   Commands.commands.plugin.commands.remove,
@@ -66,8 +67,4 @@ export async function removePluginConfig(configPath: string, spec: string) {
 
 function configured(plugins: readonly unknown[] | undefined, spec: string) {
   return plugins?.some((entry) => matches(entry, spec)) ?? false
-}
-
-function matches(entry: unknown, spec: string) {
-  return entry === spec || (typeof entry === "object" && entry !== null && "package" in entry && entry.package === spec)
 }

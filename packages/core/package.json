@@ -112,7 +112,6 @@
     "@orchestra/ai": "workspace:*",
     "@orchestra/codemode": "workspace:*",
     "@orchestra/plugin": "workspace:*",
-    "@orchestra/plugin-antigravity-auth": "workspace:*",
     "@orchestra/plugin-browser": "workspace:*",
     "@orchestra/schema": "workspace:*",
     "@orchestra/util": "workspace:*",

@@ -135,11 +135,11 @@ graph TB
 | **L3** | [`packages/plugin`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/plugin) | 72 | Контракты и хостинг плагинов (Auth, TUI, Tool, Hook). |
 | **L3** | [`packages/latex`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/latex) | 17 | Рендеринг математических формул и уравнений LaTeX (плагин OpenTUI markdown). |
 | **L3** | [`packages/merman`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/merman) | 92 | Парсинг и рендеринг диаграмм Mermaid (плагин OpenTUI markdown). |
-| **L3** | [`packages/plugin-browser`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/plugin-browser) | 23 | Примитивы взаимодействия с Playwright и браузерной автоматизацией (плагин Core). |
-| **L3** | [`packages/plugin-antigravity-auth`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/plugin-antigravity-auth) | 110 | Google Antigravity OAuth аутентификация, мульти-аккаунтная ротация, отслеживание квот и адаптация моделей (плагин Core). |
+| **L3** | [`packages/plugin-browser`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/plugin-browser) | 23 | Примитивы взаимодействия с Playwright и браузерной автоматизацией (отдельно устанавливаемый плагин L3). |
+| **L3** | [`packages/plugin-antigravity-auth`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/plugin-antigravity-auth) | 110 | Google Antigravity OAuth аутентификация, мульти-аккаунтная ротация, отслеживание квот и адаптация моделей (отдельно устанавливаемый плагин L3). |
 | **L3** | [`services/idea-bank`](file:///C:/Users/Isako/AppData/Local/orchestra-app/services/idea-bank) | 16 | Сервис банка идей и межсессионных сюжетов. |
 | **L3** | [`services/files`](file:///C:/Users/Isako/AppData/Local/orchestra-app/services/files) | 6 | Хранилище блобов и вложений. |
-| **L4** | [`packages/core`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/core) | 1 062 | **Ядро**: Session Runner, AI Software Factory, Tool Engine, Hub Registry (144 рецепта), SQLite DB, MCP pool. |
+| **L4** | [`packages/core`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/core) | 1 062 | **Ядро**: Session Runner, AI Software Factory, Tool Engine (включая plugin_forge), Hub Registry (144 рецепта), SQLite DB, MCP pool. |
 | **L4** | [`packages/simulation`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/simulation) | 29 | Имитационное тестирование многоагентных сред без реальных LLM-затрат. |
 | **L4** | [`packages/kernel`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/kernel) | 5 | Низкоуровневые механизмы изоляции процессов и контейнеров. |
 | **L5** | [`packages/server`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/server) | 105 | HTTP + SSE сервер на Hono/Effect. Аутентификация, роуты сессий, проектов, инструментов. |

@@ -298,6 +298,22 @@ const Root = Spec.make(typeof ORCHESTRA_CLI_NAME === "string" ? ORCHESTRA_CLI_NA
             package: Argument.string("package").pipe(Argument.withDescription("configured package specifier")),
           },
         }),
+        Spec.make("enable", {
+          description: "Enable a plugin in configuration",
+          params: {
+            package: Argument.string("package").pipe(
+              Argument.withDescription("Plugin package specifier or ID to enable"),
+            ),
+          },
+        }),
+        Spec.make("disable", {
+          description: "Disable a plugin in configuration",
+          params: {
+            package: Argument.string("package").pipe(
+              Argument.withDescription("Plugin package specifier or ID to disable"),
+            ),
+          },
+        }),
       ],
     }),
     Spec.make("models", {

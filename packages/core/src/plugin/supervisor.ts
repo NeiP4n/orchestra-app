@@ -48,16 +48,28 @@ const resolve = Effect.fn("PluginSupervisor.resolve")(function* (
   >()
   const plugins = () => [...definitions, ...packages.values()]
 
+  const matchesPlugin = (selector: string, plugin: Plugin.Generation) => {
+    if (matches(selector, plugin.id)) return true
+    if (plugin.source?.type === "package" && matches(selector, plugin.source.target)) return true
+    if (plugin.source?.type === "local") {
+      if (selector === plugin.source.path || plugin.source.path.endsWith(selector)) return true
+      if (selector.endsWith(`/${plugin.id}`) || selector.endsWith(`\\${plugin.id}`) || selector.endsWith(plugin.id)) return true
+    }
+    const pkg = packages.get(selector)
+    if (pkg && pkg.id === plugin.id) return true
+    return false
+  }
+
   for (const operation of operations) {
     if (operation.type === "remove") {
       if (operation.target === "*") failures.clear()
       plugins()
-        .filter((plugin) => matches(operation.target, plugin.id) && !PluginInternal.guarded.has(plugin.id))
+        .filter((plugin) => matchesPlugin(operation.target, plugin) && !PluginInternal.guarded.has(plugin.id))
         .forEach((plugin) => enabled.delete(plugin.id))
       continue
     }
 
-    const matched = plugins().filter((plugin) => matches(operation.target, plugin.id))
+    const matched = plugins().filter((plugin) => matchesPlugin(operation.target, plugin))
     const selectsPlugins =
       matched.length > 0 ||
       operation.target === "*" ||

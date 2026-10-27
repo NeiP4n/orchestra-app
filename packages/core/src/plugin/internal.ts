@@ -81,6 +81,7 @@ import { WorkspaceForgeTool } from "../tool/plugin/workspace-forge.js"
 import { TeamForgeTool } from "../tool/plugin/team-forge.js"
 import { CommandForgeTool } from "../tool/plugin/command-forge.js"
 import { McpForgeTool } from "../tool/plugin/mcp-forge.js"
+import { PluginForgeTool } from "../tool/plugin/plugin-forge.js"
 import { DesktopTool } from "../tool/plugin/desktop.js"
 import { McpCatalog } from "../mcp/catalog.js"
 import { Orchestra } from "../orchestra.js"
@@ -120,7 +121,6 @@ import { AgentPlugin } from "./agent.js"
 import { TeamPlugin } from "./team.js"
 import { SandboxPlugin } from "./sandbox.js"
 import BrowserPlugin from "@orchestra/plugin-browser"
-import { AntigravityAuthEffectPlugin } from "@orchestra/plugin-antigravity-auth"
 import { CommandPlugin } from "./command.js"
 import { IdentityPlugin } from "./identity.js"
 import { PlanPlugin } from "./plan.js"
@@ -304,6 +304,7 @@ const pre = [
   TeamForgeTool.Plugin,
   CommandForgeTool.Plugin,
   McpForgeTool.Plugin,
+  PluginForgeTool.Plugin,
   DesktopTool.Plugin,
   PlaytestTool.Plugin,
   McpCatalog.Plugin,
@@ -331,7 +332,6 @@ const post = [
   ConfigReferencePlugin.Plugin,
   ConfigAgentPlugin.Plugin,
   BrowserPlugin,
-  AntigravityAuthEffectPlugin,
   ConfigCommandPlugin.Plugin,
   ConfigCompactionPlugin.Plugin,
   ConfigFormatterPlugin.Plugin,
