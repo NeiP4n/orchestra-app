@@ -104,6 +104,7 @@ type ApiGroups<
   | typeof CredentialGroup
   | typeof RoomGroup
   | typeof OrchestraGroup
+  | typeof QuotaGroup
   | LocationGroups<LocationId>
   | LocationGroup<LocationId, LocationService>
   | PtyGroups<LocationId, LocationService>
