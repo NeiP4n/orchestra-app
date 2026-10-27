@@ -49,6 +49,12 @@ export const defaultRules: ReadonlyArray<GuidanceRule> = [
     guidance: "Call research first: one call searches and reads the most relevant pages. Then read the primary source (official docs, changelog, source) before relying on the fact.",
   },
   {
+    intent: "Binary analysis, decompilation, APK reversing & native library inspection",
+    tools: ["rea-anything_*", "rea_*"],
+    guidance:
+      "Use rea-anything tools (JADX, Ghidra, Hopper, APK inspector, native disassembly) to extract exact exported symbols, function signatures, struct layouts, and decompiled code before writing integration code. Never guess native function signatures, JNI exports, or undocumented protocols.",
+  },
+  {
     intent: "A capability missing from this request",
     tools: ["tools", "execute", "mcp_forge"],
     guidance:

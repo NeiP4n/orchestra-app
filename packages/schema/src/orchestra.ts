@@ -219,7 +219,7 @@ export const toolGroups: readonly { id: string; name: string; actions: readonly 
   { id: "desktop", name: "Desktop", actions: ["desktop", "playtest"] },
   { id: "skills", name: "Skills", actions: ["skill", "skill_catalog"] },
   { id: "notes", name: "Notes", actions: ["note", "idea_bank", "plots"] },
-  { id: "reverse", name: "Reverse engineering", actions: ["rea-anything_*"] },
+  { id: "reverse", name: "Reverse engineering", actions: ["rea-anything_*", "rea_*"] },
   { id: "reasoning", name: "Reasoning", actions: ["sequential-thinking_*"] },
   { id: "vcs", name: "Version control", actions: ["git_*", "github_*"] },
 ]
@@ -694,7 +694,7 @@ const WEB = ["webfetch", "websearch", "research"]
 const SCREEN = ["browser", "desktop", "playtest"]
 const SKILLS = ["skill", "skill_catalog"]
 const NOTES = ["note", "idea_bank", "plots"]
-const REVERSE = ["rea-anything_*"]
+const REVERSE = ["rea-anything_*", "rea_*"]
 const REASONING = ["sequential-thinking_*"]
 const VCS = ["git_*", "github_*"]
 const kit = (...groups: readonly string[][]) => [...new Set(groups.flat())]
@@ -713,24 +713,24 @@ const SERVER = [...CODE, "data", "docker", "network", "process", "system"]
 const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   "product-analyst": { tools: kit(READ, WEB, SKILLS, NOTES, REASONING, VCS), hub: ["search", "files", "text", "json", "data"] },
   architect: { tools: kit(READ, PROBE, WEB, REASONING, VCS, REVERSE, SKILLS, NOTES), hub: [...CODE, "github", "data"] },
-  researcher: { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, REASONING, VCS), hub: [...CODE, "github", "data", "network"] },
+  researcher: { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, REASONING, VCS, REVERSE), hub: [...CODE, "github", "data", "network"] },
   "deep-researcher": {
-    tools: kit(READ, WEB, SCREEN, REASONING, VCS, SKILLS, NOTES),
+    tools: kit(READ, WEB, SCREEN, REASONING, VCS, REVERSE, SKILLS, NOTES),
     hub: [...SERVER, "github", "security"],
   },
   designer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING), hub: CODE },
-  developer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING) },
+  developer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE) },
   "frontend-developer": {
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE),
     hub: [...CODE, "network", "process"],
   },
-  "backend-developer": { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING), hub: SERVER },
+  "backend-developer": { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING, REVERSE), hub: SERVER },
   "mobile-developer": {
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE),
     hub: [...CODE, "mobile", "process"],
   },
   "desktop-developer": {
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE),
     hub: [...CODE, "process", "system", "windows"],
   },
   "database-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, REASONING), hub: SERVER },
@@ -742,10 +742,10 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   },
   tester: {
     // The tester drives apps through playtest, browser, and desktop automation; git for checking diffs.
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE),
     hub: [...CODE, "data", "network", "process", "mobile"],
   },
-  reviewer: { tools: kit(READ, PROBE, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING), hub: [...CODE, "github"] },
+  reviewer: { tools: kit(READ, PROBE, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING, REVERSE), hub: [...CODE, "github"] },
   "counterexample-engineer": { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, REASONING, VCS), hub: [...CODE, "data", "process"] },
   "security-auditor": {
     tools: kit(READ, PROBE, WEB, REVERSE, REASONING, VCS, SKILLS, NOTES),
@@ -753,16 +753,16 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   },
   "accessibility-auditor": { tools: kit(READ, PROBE, WEB, SCREEN, SKILLS, NOTES, REASONING, VCS), hub: CODE },
   "performance-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING), hub: SERVER },
-  "dependency-auditor": { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, VCS, REASONING), hub: [...CODE, "github", "security"] },
-  "compatibility-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING) },
+  "dependency-auditor": { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, VCS, REASONING, REVERSE), hub: [...CODE, "github", "security"] },
+  "compatibility-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE) },
   "data-migration-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, REASONING), hub: SERVER },
   "reliability-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, REASONING), hub: [...SERVER, "systemd"] },
   "core-maintainer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE) },
   "integration-engineer": {
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE),
     hub: [...CODE, "github", "network", "docker"],
   },
-  "api-contract-engineer": { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING), hub: [...CODE, "network"] },
+  "api-contract-engineer": { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING, REVERSE), hub: [...CODE, "network"] },
 };
 
 export const roles: readonly (RoleSpec & { id: string })[] = baseRoles.map((role) => ({ ...role, ...toolkits[role.id] }))
