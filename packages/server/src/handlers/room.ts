@@ -812,10 +812,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               // Decode once per event; this runs for every record in the guest replay.
               // Replay marker (log.synced) passes through directly to demarcate replay completion.
               Stream.map((event) => {
-                if (event.type === "log.synced") return Option.some(event)
+                if (event.type === "log.synced") return Option.some(event as any)
                 return decodeGuestRoomEvent(event)
               }),
-              Stream.filter((item) => Option.isSome(item)),
+              Stream.filter((item): item is Option.Some<any> => Option.isSome(item)),
               Stream.map((item) => Option.getOrUndefined(item)!),
             )
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
