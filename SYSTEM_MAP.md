@@ -59,20 +59,20 @@ graph TB
 
     subgraph "L3 — Plugins & Extensibility"
         Plugin[packages/plugin]
+        PluginBrowser[packages/plugin-browser]
+        Latex[packages/latex]
+        Merman[packages/merman]
         ServicesIdea[services/idea-bank]
         ServicesFiles[services/files]
     end
 
     subgraph "L2 — Client Adapters & Automation"
         Client[packages/client]
-        PluginBrowser[packages/plugin-browser]
     end
 
     subgraph "L1 — Protocols, Domain Models & AI Engine"
         Protocol[packages/protocol]
         AI[packages/ai]
-        Latex[packages/latex]
-        Merman[packages/merman]
     end
 
     subgraph "L0 — Foundation & Pure Schemas"
@@ -130,11 +130,11 @@ graph TB
 | **L0** | [`packages/posts`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/posts) | 17 | Движок статических блогов и постов. |
 | **L1** | [`packages/protocol`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/protocol) | 57 | Спецификация 28 HttpApi групп, маршруты REST/SSE, ошибки API, заголовки. |
 | **L1** | [`packages/ai`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/ai) | 688 | Движок LLM: протоколы OpenAI, Anthropic, Gemini, Bedrock, Mistral, Ollama, streaming, tool-calling. |
-| **L1** | [`packages/latex`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/latex) | 17 | Рендеринг математических формул и уравнений LaTeX. |
-| **L1** | [`packages/merman`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/merman) | 92 | Парсинг и рендеринг диаграмм Mermaid (flowcharts, state, sequence). |
 | **L2** | [`packages/client`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/client) | 71 | Типизированный клиент доступа к Orchestra Server (SSE поток + HTTP вызовы). |
-| **L2** | [`packages/plugin-browser`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/plugin-browser) | 23 | Примитивы взаимодействия с Playwright и браузерной автоматизацией. |
 | **L3** | [`packages/plugin`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/plugin) | 72 | Контракты и хостинг плагинов (Auth, TUI, Tool, Hook). |
+| **L3** | [`packages/latex`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/latex) | 17 | Рендеринг математических формул и уравнений LaTeX (плагин OpenTUI markdown). |
+| **L3** | [`packages/merman`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/merman) | 92 | Парсинг и рендеринг диаграмм Mermaid (плагин OpenTUI markdown). |
+| **L3** | [`packages/plugin-browser`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/plugin-browser) | 23 | Примитивы взаимодействия с Playwright и браузерной автоматизацией (плагин Core). |
 | **L3** | [`services/idea-bank`](file:///C:/Users/Isako/AppData/Local/orchestra-app/services/idea-bank) | 16 | Сервис банка идей и межсессионных сюжетов. |
 | **L3** | [`services/files`](file:///C:/Users/Isako/AppData/Local/orchestra-app/services/files) | 6 | Хранилище блобов и вложений. |
 | **L4** | [`packages/core`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/core) | 1 062 | **Ядро**: Session Runner, AI Software Factory, Tool Engine, Hub Registry (144 рецепта), SQLite DB, MCP pool. |
