@@ -138,6 +138,19 @@ export const Plugin = {
           return `${id} is free again.`
         }
         case "add": {
+          if (input.command) {
+            const cmd = input.command.trim()
+            if (
+              /fs\.existsSync\s*\(/i.test(cmd) ||
+              /^(test|\[)\s+-[fea]\s+/i.test(cmd) ||
+              /^Test-Path\s+/i.test(cmd)
+            ) {
+              return yield* new ToolFailure({
+                message:
+                  "DoD verification command cannot be a trivial file existence check (such as fs.existsSync, test -f, or Test-Path). Verification must execute real tests, typechecks, compilation, or assertions that validate runtime behavior and operational correctness.",
+              })
+            }
+          }
           const added = yield* Dod.add({
             directory,
             what: yield* need(input.what, "what"),

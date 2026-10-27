@@ -149,6 +149,27 @@ describe("DodTool", () => {
       }).pipe(Effect.provide(harness(directory, []))),
     ),
   )
+
+  it.live("refuses trivial file existence verification commands on add", () =>
+    withTempDir(({ path: directory }) =>
+      Effect.gen(function* () {
+        const tools = yield* Tool.Service
+        const fakeNode = yield* run(tools, "add", {
+          action: "add",
+          what: "Fake test",
+          command: "node -e \"const fs = require('fs'); if (!fs.existsSync('foo')) process.exit(1)\"",
+        })
+        expect(fakeNode.error?.message).toContain("cannot be a trivial file existence check")
+
+        const fakeShell = yield* run(tools, "add", {
+          action: "add",
+          what: "Fake test 2",
+          command: "test -f foo.txt",
+        })
+        expect(fakeShell.error?.message).toContain("cannot be a trivial file existence check")
+      }).pipe(Effect.provide(harness(directory, []))),
+    ),
+  )
 })
 
 // The project a claimed session belongs to; only its main session may grow the board.
