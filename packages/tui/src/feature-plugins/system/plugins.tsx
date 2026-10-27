@@ -1,5 +1,6 @@
 import type { PluginInfo } from "@orchestra/client"
 import { Plugin } from "@orchestra/plugin/tui"
+import { categorizePlugin, comparePluginCategories, type PluginCategory } from "@orchestra/plugin/category"
 import path from "path"
 import { createEffect, createMemo, createResource, createSignal, onCleanup, onMount, Show } from "solid-js"
 import { DialogErrorDetails } from "../../component/dialog-error-details"
@@ -71,10 +72,14 @@ export function PluginsDialog(props: { context: Plugin.Context; plugins: ReturnT
       internal: plugin.source.type === "builtin",
       plugin,
     }))
-    return [
-      ...[...builtins, ...external].sort((a, b) => label(a, props.context).localeCompare(label(b, props.context))),
-      ...serverEntries.sort((a, b) => label(a, props.context).localeCompare(label(b, props.context))),
-    ]
+    const all: Entry[] = [...builtins, ...external, ...serverEntries]
+    return all.sort((a, b) => {
+      const catA = entryCategory(a, props.context)
+      const catB = entryCategory(b, props.context)
+      const catDiff = comparePluginCategories(catA, catB)
+      if (catDiff !== 0) return catDiff
+      return label(a, props.context).localeCompare(label(b, props.context))
+    })
   })
   const visibleEntries = createMemo(() =>
     entries().filter((entry) => showInternal() || !entry.internal || status(entry) === "failed"),
@@ -90,7 +95,7 @@ export function PluginsDialog(props: { context: Plugin.Context; plugins: ReturnT
       (entry): DialogSelectOption<string> => ({
         title: label(entry, props.context),
         value: entry.key,
-        category: entry.runtime === "tui" ? "TUI" : "Server",
+        category: entryCategory(entry, props.context),
         searchText: entry.runtime === "tui" ? entry.target : source(entry.plugin, props.context),
         footer: updating(entry) ? "updating" : footer(entry),
         footerColor:
@@ -186,6 +191,7 @@ export function PluginsDialog(props: { context: Plugin.Context; plugins: ReturnT
             options={options()}
             locked={locked()}
             preserveSelection={true}
+            sectionNavigation={true}
             bindings={[
               {
                 bind: "ctrl+a",
@@ -196,7 +202,10 @@ export function PluginsDialog(props: { context: Plugin.Context; plugins: ReturnT
                 },
               },
             ]}
-            footerHints={[{ title: "ctrl+a", label: `${showInternal() ? "hide" : "show"} internal` }]}
+            footerHints={[
+              { title: "ctrl+a", label: `${showInternal() ? "hide" : "show"} internal` },
+              { title: "alt+↑/↓", label: "jump category" },
+            ]}
             onMove={(option) => setFocused(option.value)}
             onSelect={(option) => {
               const entry = entries().find((entry) => entry.key === option.value)
@@ -274,6 +283,12 @@ export function PluginsDialog(props: { context: Plugin.Context; plugins: ReturnT
   )
 }
 
+function entryCategory(entry: Entry, context: Plugin.Context): PluginCategory {
+  const lbl = label(entry, context)
+  const src = pluginSource(entry, context)
+  return categorizePlugin(lbl, src)
+}
+
 function label(entry: Entry, context: Plugin.Context) {
   if (entry.runtime === "tui") return entry.id ?? entry.target
   return entry.plugin.id ?? source(entry.plugin, context)
@@ -307,6 +322,7 @@ function outdated(entry: Entry) {
 
 function footer(entry: Entry) {
   const details = [
+    ...(entry.runtime === "tui" ? ["tui"] : []),
     ...(status(entry) === "active" ? [] : [status(entry)]),
     ...(isLocal(entry) ? ["local"] : []),
     ...(entry.runtime === "server" && entry.plugin.source.type === "package" && entry.plugin.source.version

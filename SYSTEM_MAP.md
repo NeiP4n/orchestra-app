@@ -132,11 +132,11 @@ graph TB
 | **L1** | [`packages/protocol`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/protocol) | 57 | Спецификация 28 HttpApi групп, маршруты REST/SSE, ошибки API, заголовки. |
 | **L1** | [`packages/ai`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/ai) | 688 | Движок LLM: протоколы OpenAI, Anthropic, Gemini, Bedrock, Mistral, Ollama, streaming, tool-calling. |
 | **L2** | [`packages/client`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/client) | 71 | Типизированный клиент доступа к Orchestra Server (SSE поток + HTTP вызовы). |
-| **L3** | [`packages/plugin`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/plugin) | 72 | Контракты и хостинг плагинов (Auth, TUI, Tool, Hook). |
+| **L3** | [`packages/plugin`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/plugin) | 73 | Контракты и хостинг плагинов (Auth, TUI, Tool, Hook), каноническая классификация плагинов по категориям (`category.ts`). |
 | **L3** | [`packages/latex`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/latex) | 17 | Рендеринг математических формул и уравнений LaTeX (плагин OpenTUI markdown). |
 | **L3** | [`packages/merman`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/merman) | 92 | Парсинг и рендеринг диаграмм Mermaid (плагин OpenTUI markdown). |
 | **L3** | [`packages/plugin-browser`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/plugin-browser) | 23 | Примитивы взаимодействия с Playwright и браузерной автоматизацией (отдельно устанавливаемый плагин L3). |
-| **L3** | [`packages/plugin-antigravity-auth`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/plugin-antigravity-auth) | 110 | Google Antigravity OAuth аутентификация, мульти-аккаунтная ротация, отслеживание квот и адаптация моделей (отдельно устанавливаемый плагин L3). |
+| **L3** | [`packages/plugin-antigravity-auth`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/plugin-antigravity-auth) | 110 | Google Antigravity OAuth аутентификация, мульти-аккаунтная ротация, отслеживание квот и адаптация моделей (активен из коробки в Core, отдельно управляемый плагин L3). |
 | **L3** | [`services/idea-bank`](file:///C:/Users/Isako/AppData/Local/orchestra-app/services/idea-bank) | 16 | Сервис банка идей и межсессионных сюжетов. |
 | **L3** | [`services/files`](file:///C:/Users/Isako/AppData/Local/orchestra-app/services/files) | 6 | Хранилище блобов и вложений. |
 | **L4** | [`packages/core`](file:///C:/Users/Isako/AppData/Local/orchestra-app/packages/core) | 1 062 | **Ядро**: Session Runner, AI Software Factory, Tool Engine (включая plugin_forge), Hub Registry (144 рецепта), SQLite DB, MCP pool. |

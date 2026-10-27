@@ -72,6 +72,7 @@ it.effect("lists installed and disabled plugins", () =>
     const output = text(result)
     expect(output).toContain("plugin-beta")
     expect(output).toContain("disabled")
+    expect(output).toContain("[Other]")
   }),
 )
 

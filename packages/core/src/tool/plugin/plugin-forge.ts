@@ -2,6 +2,7 @@ export * as PluginForgeTool from "./plugin-forge.js"
 
 import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
+import { categorizePlugin, PLUGIN_CATEGORIES, type PluginCategory } from "@orchestra/plugin/category"
 import { Effect, Schema } from "effect"
 import { Config } from "../../config.js"
 
@@ -75,7 +76,7 @@ export const Plugin = {
               const configured = yield* getConfiguredPlugins()
 
               if (input.action === "list") {
-                const rows: Array<{ id: string; status: string; source: string }> = []
+                const rows: Array<{ id: string; status: string; source: string; category: PluginCategory }> = []
 
                 for (const entry of configured) {
                   const target = typeof entry === "string" ? entry : entry.package
@@ -85,6 +86,7 @@ export const Plugin = {
                     id: raw,
                     status: disabled ? "disabled" : "active",
                     source: raw,
+                    category: categorizePlugin(raw, raw),
                   })
                 }
 
@@ -92,10 +94,26 @@ export const Plugin = {
                   return { output: { output: "No plugins are configured." } }
                 }
 
-                const lines = rows.map((r) => `- [${r.status}] ${r.id} (source: ${r.source})`)
+                const categoriesPresent = PLUGIN_CATEGORIES.filter((cat) => rows.some((r) => r.category === cat))
+                const extraCategories = Array.from(
+                  new Set(rows.map((r) => r.category).filter((cat) => !PLUGIN_CATEGORIES.includes(cat))),
+                )
+                const orderedCategories = [...categoriesPresent, ...extraCategories]
+
+                const sections: string[] = ["Installed and configured plugins:"]
+
+                for (const category of orderedCategories) {
+                  const categoryRows = rows.filter((r) => r.category === category)
+                  if (!categoryRows.length) continue
+                  sections.push(`\n[${category}]`)
+                  for (const r of categoryRows) {
+                    sections.push(`- [${r.status}] ${r.id} (source: ${r.source})`)
+                  }
+                }
+
                 return {
                   output: {
-                    output: ["Installed and configured plugins:", ...lines].join("\n"),
+                    output: sections.join("\n"),
                   },
                 }
               }

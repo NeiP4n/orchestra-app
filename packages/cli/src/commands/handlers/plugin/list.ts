@@ -12,6 +12,7 @@ import { Config } from "../../../config"
 import { Global } from "@orchestra/util/global"
 import { Npm } from "@orchestra/util/npm"
 import { Host } from "@orchestra/plugin/host"
+import { categorizePlugin, PLUGIN_CATEGORIES } from "@orchestra/plugin/category"
 import { fileURLToPath } from "node:url"
 import { discoverPluginTargets, localPluginDirectories, localSource } from "@orchestra/tui/plugin/discovery"
 import { resolveConfigPath } from "../mcp/add"
@@ -117,6 +118,7 @@ export function format(
               ? "local"
               : "-",
         target,
+        category: categorizePlugin(id !== "-" ? id : undefined, target),
       }
     })
 
@@ -131,6 +133,7 @@ export function format(
       status: isTargetDisabled("-", plugin.target) ? "disabled" : "active",
       version: plugin.version ?? "-",
       target: plugin.target,
+      category: categorizePlugin(undefined, plugin.target),
     }))
 
   const disabledRows = disabled
@@ -145,18 +148,42 @@ export function format(
       status: "disabled",
       version: "-",
       target: item,
+      category: categorizePlugin(path.basename(item), item),
     }))
 
-  const rows = [...server, ...targets, ...disabledRows]
-    .toSorted((a, b) => a.id.localeCompare(b.id) || a.target.localeCompare(b.target))
-    .map((item) => [
+  const allItems = [...server, ...targets, ...disabledRows]
+  if (!allItems.length) return ""
+
+  const categoriesPresent = PLUGIN_CATEGORIES.filter((cat) => allItems.some((item) => item.category === cat))
+  const extraCategories = Array.from(
+    new Set(allItems.map((item) => item.category).filter((cat) => !PLUGIN_CATEGORIES.includes(cat))),
+  )
+  const orderedCategories = [...categoriesPresent, ...extraCategories]
+
+  const sections: string[] = []
+
+  for (const category of orderedCategories) {
+    const categoryItems = allItems
+      .filter((item) => item.category === category)
+      .toSorted((a, b) => a.id.localeCompare(b.id) || a.target.localeCompare(b.target))
+
+    if (!categoryItems.length) continue
+
+    const rows = categoryItems.map((item) => [
       item.id,
       item.status,
       /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(item.version) ? item.version.slice(0, 7) : item.version,
       item.target,
     ])
-  if (!rows.length) return ""
-  const table = [["ID", "STATUS", "VERSION", "SOURCE"], ...rows]
-  const widths = [0, 1, 2].map((index) => Math.max(...table.map((row) => row[index].length)))
-  return table.map((row) => `${row[0].padEnd(widths[0])}  ${row[1].padEnd(widths[1])}  ${row[2].padEnd(widths[2])}  ${row[3]}`).join(EOL)
+
+    const table = [["ID", "STATUS", "VERSION", "SOURCE"], ...rows]
+    const widths = [0, 1, 2].map((index) => Math.max(...table.map((row) => row[index].length)))
+    const renderedTable = table
+      .map((row) => `${row[0].padEnd(widths[0])}  ${row[1].padEnd(widths[1])}  ${row[2].padEnd(widths[2])}  ${row[3]}`)
+      .join(EOL)
+
+    sections.push(`[${category}]${EOL}${renderedTable}`)
+  }
+
+  return sections.join(`${EOL}${EOL}`)
 }
