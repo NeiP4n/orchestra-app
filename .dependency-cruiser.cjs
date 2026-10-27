@@ -10,7 +10,7 @@ module.exports = {
   ],
   options: {
     doNotFollow: {
-      path: "node_modules"
+      path: "node_modules|generated|dist"
     },
     tsConfig: {
       fileName: "./tsconfig.json"
