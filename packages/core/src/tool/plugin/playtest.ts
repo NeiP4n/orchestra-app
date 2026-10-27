@@ -14,10 +14,12 @@ import { Location } from "../../location.js"
 import { Permission } from "../../permission.js"
 import { Session } from "../../session.js"
 import { makeHost } from "./desktop.js"
+import { ProjectDirs } from "../../project-dirs.js"
 
 export const name = "playtest"
 
-export const DIRECTORY = path.join(".opencode", "playtest")
+export const DIRECTORY = ProjectDirs.primary("playtest")
+export const LEGACY_DIRECTORY = ProjectDirs.legacy("playtest")
 
 const description = [
   "Test a game or any windowed app with a virtual mouse and keyboard, without touching the real ones.",
@@ -212,7 +214,7 @@ const RAISE: Record<Exclude<Placement, "hidden">, { script: (hwnd: string) => st
 }
 
 export const Plugin = {
-  id: "opencode.tool.playtest",
+  id: "orchestra.tool.playtest",
   effect: Effect.fn("PlaytestTool.Plugin")(function* (ctx: Context) {
     const location = yield* Location.Service
     const permission = yield* Permission.Service
@@ -924,8 +926,15 @@ export const Plugin = {
 }
 
 const loadScript = Effect.fnUntraced(function* (root: string, file: string) {
+  const resolved = path.resolve(root, file)
+  const fallback = file.startsWith(DIRECTORY)
+    ? path.resolve(root, file.replace(DIRECTORY, LEGACY_DIRECTORY))
+    : existsSync(resolved)
+      ? resolved
+      : ProjectDirs.resolveRead(root, file)
+  const target = existsSync(resolved) ? resolved : fallback
   const text = yield* Effect.tryPromise({
-    try: () => readFile(path.resolve(root, file), "utf8"),
+    try: () => readFile(target, "utf8"),
     catch: (error) => new ToolFailure({ message: `Could not read script ${file}: ${String(error)}` }),
   })
   const parsed = yield* Effect.try({

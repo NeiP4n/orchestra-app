@@ -1,4 +1,4 @@
-import { describe, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { Agent } from "@orchestra/schema/agent"
 import { Model } from "@orchestra/schema/model"
 import { Money } from "@orchestra/schema/money"
@@ -13,6 +13,7 @@ import { Database } from "@orchestra/core/database/database"
 import { ProjectTable } from "@orchestra/core/project/sql"
 import { SessionMessageTable, SessionTable } from "@orchestra/core/session/sql"
 import { SessionStats } from "@orchestra/core/session/stats"
+import { Token } from "@orchestra/core/util/token"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
 import { LayerNode } from "@orchestra/util/effect/layer-node"
 import { DateTime, Effect, Schema } from "effect"
@@ -246,6 +247,76 @@ describe("SessionStats", () => {
       expect(future._tag).toBe("SessionStats.InvalidRangeError")
     }),
   )
+
+  test("Token.calculateBudget calculates context utilization and triggers preemptive warnings", () => {
+    // Safe (<80%)
+    const safe = Token.calculateBudget({ contextLimit: 100_000, usedTokens: 50_000, reserveOutput: 10_000 })
+    expect(safe.window).toBe(100_000)
+    expect(safe.used).toBe(50_000)
+    expect(safe.available).toBe(40_000)
+    expect(safe.utilization).toBe(0.5556)
+    expect(safe.status).toBe("safe")
+    expect(safe.warning).toBeUndefined()
+
+    // Warning (>=80% and <95%)
+    const warning = Token.calculateBudget({ contextLimit: 100_000, usedTokens: 81_000 })
+    expect(warning.status).toBe("warning")
+    expect(warning.utilization).toBe(0.81)
+    expect(warning.warning).toContain("Context limit warning: 81.0% used")
+
+    // Critical (>=95% and <=100%)
+    const critical = Token.calculateBudget({ contextLimit: 100_000, usedTokens: 96_000 })
+    expect(critical.status).toBe("critical")
+    expect(critical.utilization).toBe(0.96)
+    expect(critical.warning).toContain("Context limit critical: 96.0% used")
+
+    // Exceeded (>100%)
+    const exceeded = Token.calculateBudget({ contextLimit: 100_000, usedTokens: 105_000 })
+    expect(exceeded.status).toBe("exceeded")
+    expect(exceeded.available).toBe(0)
+    expect(exceeded.warning).toContain("Context limit exceeded: used 105000 tokens")
+  })
+
+  test("Token.formatCount and Token.estimateBytes format memory and token quantities", () => {
+    expect(Token.formatCount(500)).toBe("500")
+    expect(Token.formatCount(12_500)).toBe("12.5k")
+    expect(Token.formatCount(1_500_000)).toBe("1.5M")
+    expect(Token.estimateBytes(1_000)).toBe(4_000)
+  })
+
+  test("SessionStats.sessionBudget analyzes message token usage and evaluates context limits", () => {
+    const messages = [
+      SessionMessage.User.make({
+        id: SessionMessage.ID.make("msg_user_1"),
+        type: "user",
+        text: "first query",
+        time: { created: DateTime.makeUnsafe(Date.UTC(2026, 0, 1)) },
+      }),
+      assistant("msg_assistant_1", Date.UTC(2026, 0, 1), [], "sonnet", 1),
+      assistant("msg_assistant_2", Date.UTC(2026, 0, 1, 1), [], "sonnet", 2),
+    ]
+
+    const report = SessionStats.sessionBudget(messages, { context: 100, input: 100, output: 20 })
+    expect(report.stepCount).toBe(2)
+    // Scale 1: 10 in + 5 out + 2 reasoning + 4 cacheRead + 1 cacheWrite = 22
+    // Scale 2: 20 in + 10 out + 4 reasoning + 8 cacheRead + 2 cacheWrite = 44
+    // Total = 66
+    expect(report.sessionTokens.input).toBe(30)
+    expect(report.sessionTokens.output).toBe(15)
+    expect(report.sessionTokens.reasoning).toBe(6)
+    expect(report.sessionTokens.cache.read).toBe(12)
+    expect(report.sessionTokens.cache.write).toBe(3)
+    expect(report.sessionTokens.total).toBe(66)
+    expect(report.budget).toBeDefined()
+    expect(report.budget?.used).toBe(66)
+    expect(report.budget?.available).toBe(34)
+    expect(report.budget?.status).toBe("safe")
+
+    // With a tighter limit triggering warning:
+    const warningReport = SessionStats.sessionBudget(messages, { context: 75, input: 75, output: 10 })
+    expect(warningReport.budget?.status).toBe("warning")
+    expect(warningReport.budget?.warning).toContain("Context limit warning")
+  })
 })
 
 function assistant(

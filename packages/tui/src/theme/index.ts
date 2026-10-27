@@ -1,7 +1,6 @@
 import { migrateV1, parseThemeDocument, type ThemeDocument, type ModeDefinition } from "@orchestra/theme/tui"
 import { resolveThemeColors } from "./resolve"
 import { DEFAULT_THEMES, type Theme, type ThemeV1Json } from "./v1"
-import opencode from "./assets/v2/opencode.json" with { type: "json" }
 import orchestra from "./assets/v2/orchestra.json" with { type: "json" }
 import sculk from "./assets/v2/sculk.json" with { type: "json" }
 
@@ -13,19 +12,34 @@ let customThemes: Record<string, ThemeDocumentSource> = {}
 let systemTheme: ThemeDocumentSource | undefined
 const listeners = new Set<(themes: Record<string, ThemeDocumentSource>) => void>()
 const parsed = new WeakMap<object, ThemeDocument>()
-let opencodeTheme: (ThemeDocument & {
+let orchestraTheme: (ThemeDocument & {
   readonly light: ModeDefinition
   readonly dark: ModeDefinition
 }) | undefined
 
-export function getOpenCodeTheme() {
-  if (opencodeTheme) return opencodeTheme
-  const document = parseThemeDocument(opencode, "opencode") as NonNullable<typeof opencodeTheme>
-  opencodeTheme = document
+const orchestraSource = {
+  ...orchestra,
+  base: {
+    ...orchestra.base,
+    text: {
+      ...orchestra.base.text,
+      backend: {
+        bash: "$hue.cyan.200",
+        nu: "$hue.orange.200",
+        pwsh: "$hue.gray.200",
+      },
+    },
+  },
+}
+
+export function getOrchestraTheme() {
+  if (orchestraTheme) return orchestraTheme
+  const document = parseThemeDocument(orchestraSource, "orchestra") as NonNullable<typeof orchestraTheme>
+  orchestraTheme = document
   return document
 }
 
-let orchestraTheme: ThemeDocument | undefined
+export const getOpenCodeTheme = getOrchestraTheme
 
 // The house theme: three colors (ink, cyan, amber), no fills, borders carry the structure.
 let sculkTheme: ThemeDocument | undefined
@@ -35,12 +49,6 @@ export function getSculkTheme() {
   if (sculkTheme) return sculkTheme
   sculkTheme = parseThemeDocument(sculk, "sculk")
   return sculkTheme
-}
-
-export function getOrchestraTheme() {
-  if (orchestraTheme) return orchestraTheme
-  orchestraTheme = parseThemeDocument(orchestra, "orchestra")
-  return orchestraTheme
 }
 
 function listThemes(): Record<string, ThemeDocumentSource> {

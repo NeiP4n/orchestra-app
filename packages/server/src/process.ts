@@ -21,6 +21,7 @@ import { createRoutes } from "./routes"
 import { ServerInfo } from "./server-info"
 import { ServerRoomDiscovery } from "./room-discovery"
 import { Status } from "./service-status"
+import { aliasRequest } from "./alias"
 import type { ServerOptions } from "./options"
 
 export interface Lifecycle<E = never, R = never> {
@@ -185,7 +186,8 @@ function dispatch(
 ): App {
   const auth = ServerAuth.Config.of({ password: Option.some(password), username: "opencode" })
   return Effect.gen(function* () {
-    const request = yield* HttpServerRequest.HttpServerRequest
+    const rawRequest = yield* HttpServerRequest.HttpServerRequest
+    const request = aliasRequest(rawRequest)
     const url = new URL(request.url, "http://localhost")
     const state = yield* status.current
     const app = yield* Ref.get(application)
@@ -203,7 +205,11 @@ function dispatch(
       !(yield* authorizedRequest(request, auth))
     )
       return unauthorizedResponse(request)
-    if (ready) return yield* app.value
+    if (ready) {
+      return yield* request === rawRequest
+        ? app.value
+        : app.value.pipe(Effect.provideService(HttpServerRequest.HttpServerRequest, request))
+    }
     return unavailable(state)
   })
 }

@@ -66,7 +66,7 @@ export const toModelContent = (matches: EncodedOutput, truncated = false) => {
 
 /** Grep leaf that defaults its filesystem root to the active Location. */
 export const Plugin = {
-  id: "opencode.tool.grep",
+  id: "orchestra.tool.grep",
   effect: Effect.fn("GrepTool.Plugin")(function* (ctx: Context) {
     const environment = yield* Environment.Service
     const ripgrep = yield* Ripgrep.Service
@@ -187,13 +187,13 @@ export const Plugin = {
                 ),
                 metadata: { matches: result.matches.length, truncated: result.truncated },
               })),
-              Effect.mapError((error) =>
-                error instanceof ToolFailure
-                  ? error
-                  : error instanceof Ripgrep.InvalidPatternError
-                    ? new ToolFailure({ message: `Invalid regex pattern: ${error.message}` })
-                    : new ToolFailure({ message: `Unable to grep for ${input.pattern}`, error }),
-              ),
+              Effect.mapError((error) => {
+                if (error instanceof ToolFailure) return error
+                if (error instanceof Ripgrep.InvalidPatternError)
+                  return new ToolFailure({ message: `Invalid regex pattern: ${error.message}` })
+                const cause = error instanceof Error ? `: ${error.message}` : error ? `: ${String(error)}` : ""
+                return new ToolFailure({ message: `Unable to grep for ${input.pattern}${cause}`, error })
+              }),
             ),
         }),
       )

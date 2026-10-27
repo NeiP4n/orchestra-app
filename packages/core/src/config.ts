@@ -25,7 +25,16 @@ import { ClaudeAdapter } from "./compat/claude/index.js"
 import type { ClaudeHookConfig } from "./compat/claude/hooks/config.js"
 import { InstructionDiscovery } from "./instruction-discovery.js"
 import type { ConfigCompatibility } from "@orchestra/schema/config/compatibility"
+import { ConfigCompaction } from "@orchestra/schema/config/compaction"
 import { ConfigMCP } from "@orchestra/schema/config/mcp"
+import { ConfigAgent } from "@orchestra/schema/config/agent"
+import { ConfigCommand } from "@orchestra/schema/config/command"
+import { ConfigMedia } from "@orchestra/schema/config/media"
+import { ConfigPlugin } from "@orchestra/schema/config/plugin"
+import { ConfigProxy } from "@orchestra/schema/config/proxy"
+import { ConfigToolOutput } from "@orchestra/schema/config/tool-output"
+import { ConfigWarming } from "@orchestra/schema/config/warming"
+import { Permission } from "@orchestra/schema/permission"
 import { ProxyEnvironment } from "./proxy-environment.js"
 
 // A relay declared in config is probed before it is used: a proxy that no longer
@@ -36,6 +45,20 @@ const applyProxyEnvironment = Effect.fn("Config.applyProxyEnvironment")(function
   )?.info.proxy
   yield* ProxyEnvironment.apply(proxy)
 })
+
+function encodeValue(schema: Schema.Codec<any, any, never>, value: unknown): unknown {
+  if (value === null || value === undefined) return undefined
+  try {
+    return Schema.encodeSync(schema)(value as any)
+  } catch {
+    try {
+      const decoded = Schema.decodeUnknownSync(schema)(value, { errors: "all", onExcessProperty: "ignore" })
+      return Schema.encodeSync(schema)(decoded)
+    } catch {
+      return value
+    }
+  }
+}
 
 export function latest<K extends keyof Info>(entries: readonly Entry[], key: K): Info[K] | undefined {
   return entries.findLast((entry): entry is Document => entry.type === "document" && entry.info[key] !== undefined)
@@ -219,8 +242,10 @@ export const layer = (options?: Options) =>
       })
 
       const loadDirectory = Effect.fnUntraced(function* (directory: AbsolutePath) {
+        // Ascending priority order: legacy opencode first, canonical orchestra last (highest precedence)
+        const priorityOrder = ["opencode.json", "opencode.jsonc", "orchestra.json", "orchestra.jsonc"]
         return [
-          ...(yield* Effect.forEach(ConfigDiscovery.names, (file) => loadFile(path.join(directory, file))).pipe(
+          ...(yield* Effect.forEach(priorityOrder, (file) => loadFile(path.join(directory, file))).pipe(
             Effect.map((configs) => configs.filter((config): config is Document => config !== undefined)),
           )),
           new Directory({ type: "directory", path: directory }),
@@ -452,40 +477,238 @@ export const layer = (options?: Options) =>
       const update = Effect.fn("Config.update")(
         function* (patch: Patch) {
           const directory = initial.global ?? AbsolutePath.make(globalService.config)
-          const candidates = ConfigDiscovery.names.map((name) => path.join(directory, name))
-          const filepath =
-            (yield* Effect.filter(candidates, fs.isFile)).at(-1) ?? path.join(directory, "orchestra.jsonc")
+          const candidates = [
+            path.join(directory, "orchestra.jsonc"),
+            path.join(directory, "orchestra.json"),
+            path.join(directory, "opencode.jsonc"),
+            path.join(directory, "opencode.json"),
+          ]
+          const existing = yield* Effect.filter(candidates, fs.isFile)
+          const filepath = existing[0] ?? path.join(directory, "orchestra.jsonc")
           const formatting = { formattingOptions: { tabSize: 2, insertSpaces: true } }
           const original = (yield* fs.readFileStringSafe(filepath)) ?? "{}\n"
-          const text =
-            "compatibilityEnabled" in patch
-              ? applyEdits(
-                  original,
-                  modify(original, ["compatibility", "enabled"], patch.compatibilityEnabled ?? undefined, formatting),
-                )
-              : original
+
           const updated = yield* Effect.try({
-            try: () =>
-              Object.entries(patch.mcpServers ?? {}).reduce(
-                (current, [server, value]) =>
-                  applyEdits(
+            try: () => {
+              let current = original
+
+              // 1. compatibilityEnabled
+              if ("compatibilityEnabled" in patch) {
+                current = applyEdits(
+                  current,
+                  modify(current, ["compatibility", "enabled"], patch.compatibilityEnabled ?? undefined, formatting),
+                )
+              }
+
+              // 2. mcpServers
+              if (patch.mcpServers !== undefined) {
+                for (const [server, value] of Object.entries(patch.mcpServers)) {
+                  current = applyEdits(
                     current,
                     modify(
                       current,
                       ["mcp", "servers", server],
-                      value === null ? undefined : Schema.encodeSync(ConfigMCP.Server)(value),
+                      value === null ? undefined : encodeValue(ConfigMCP.Server, value),
                       formatting,
                     ),
+                  )
+                }
+              }
+
+              // 3. Simple atomic/top-level fields
+              if ("shell" in patch) {
+                current = applyEdits(current, modify(current, ["shell"], patch.shell ?? undefined, formatting))
+              }
+              if ("model" in patch) {
+                current = applyEdits(current, modify(current, ["model"], patch.model ?? undefined, formatting))
+              }
+              if ("proxy" in patch) {
+                current = applyEdits(
+                  current,
+                  modify(
+                    current,
+                    ["proxy"],
+                    patch.proxy === null || patch.proxy === undefined ? undefined : encodeValue(ConfigProxy.Info, patch.proxy),
+                    formatting,
                   ),
-                (["shell", "model", "proxy"] as const)
-                  .filter((key) => key in patch)
-                  .reduce(
-                    (current, key) => applyEdits(current, modify(current, [key], patch[key] ?? undefined, formatting)),
-                    text,
+                )
+              }
+              if ("update" in patch) {
+                current = applyEdits(current, modify(current, ["update"], patch.update ?? undefined, formatting))
+              }
+              if ("skills" in patch) {
+                current = applyEdits(current, modify(current, ["skills"], patch.skills ?? undefined, formatting))
+              }
+              if ("instructions" in patch) {
+                current = applyEdits(current, modify(current, ["instructions"], patch.instructions ?? undefined, formatting))
+              }
+              if ("permissions" in patch) {
+                current = applyEdits(
+                  current,
+                  modify(
+                    current,
+                    ["permissions"],
+                    patch.permissions === null || patch.permissions === undefined
+                      ? undefined
+                      : encodeValue(Permission.Ruleset, patch.permissions),
+                    formatting,
                   ),
-              ),
+                )
+              }
+              if ("plugins" in patch) {
+                current = applyEdits(
+                  current,
+                  modify(
+                    current,
+                    ["plugins"],
+                    patch.plugins === null || patch.plugins === undefined
+                      ? undefined
+                      : encodeValue(ConfigPlugin.Plugins, patch.plugins),
+                    formatting,
+                  ),
+                )
+              }
+              if ("warming" in patch) {
+                current = applyEdits(
+                  current,
+                  modify(
+                    current,
+                    ["warming"],
+                    patch.warming === null || patch.warming === undefined
+                      ? undefined
+                      : typeof patch.warming === "object"
+                        ? encodeValue(ConfigWarming.Warming, patch.warming)
+                        : patch.warming,
+                    formatting,
+                  ),
+                )
+              }
+              if ("default_agent" in patch) {
+                current = applyEdits(current, modify(current, ["default_agent"], patch.default_agent ?? undefined, formatting))
+              }
+
+              // 4. Nested structures: compaction
+              if ("compaction" in patch) {
+                if (patch.compaction === null) {
+                  current = applyEdits(current, modify(current, ["compaction"], undefined, formatting))
+                } else if (patch.compaction !== undefined) {
+                  const encoded = (encodeValue(ConfigCompaction.Info, patch.compaction) ?? patch.compaction) as Record<string, unknown>
+                  for (const [key, value] of Object.entries(encoded)) {
+                    current = applyEdits(current, modify(current, ["compaction", key], value ?? undefined, formatting))
+                  }
+                }
+              }
+
+              // 5. Nested structures: media
+              if ("media" in patch) {
+                if (patch.media === null) {
+                  current = applyEdits(current, modify(current, ["media"], undefined, formatting))
+                } else if (patch.media !== undefined) {
+                  const encoded = (encodeValue(ConfigMedia.Info, patch.media) ?? patch.media) as Record<string, unknown>
+                  for (const [key, value] of Object.entries(encoded)) {
+                    current = applyEdits(current, modify(current, ["media", key], value ?? undefined, formatting))
+                  }
+                }
+              }
+
+              // 6. Nested structures: tool_output
+              if ("tool_output" in patch) {
+                if (patch.tool_output === null) {
+                  current = applyEdits(current, modify(current, ["tool_output"], undefined, formatting))
+                } else if (patch.tool_output !== undefined) {
+                  const encoded = (encodeValue(ConfigToolOutput.Info, patch.tool_output) ?? patch.tool_output) as Record<string, unknown>
+                  for (const [key, value] of Object.entries(encoded)) {
+                    current = applyEdits(current, modify(current, ["tool_output", key], value ?? undefined, formatting))
+                  }
+                }
+              }
+
+              // 7. Commands: Record<string, ConfigCommand.Info | null>
+              if ("commands" in patch) {
+                if (patch.commands === null) {
+                  current = applyEdits(current, modify(current, ["commands"], undefined, formatting))
+                } else if (patch.commands !== undefined) {
+                  for (const [cmd, value] of Object.entries(patch.commands)) {
+                    current = applyEdits(
+                      current,
+                      modify(
+                        current,
+                        ["commands", cmd],
+                        value === null ? undefined : encodeValue(ConfigCommand.Info, value),
+                        formatting,
+                      ),
+                    )
+                  }
+                }
+              }
+
+              // 8. Agent: string (default_agent) | Record<string, ConfigAgent.Info | null>
+              if ("agent" in patch) {
+                if (patch.agent === null) {
+                  current = applyEdits(current, modify(current, ["agent"], undefined, formatting))
+                  current = applyEdits(current, modify(current, ["agents"], undefined, formatting))
+                } else if (typeof patch.agent === "string") {
+                  current = applyEdits(current, modify(current, ["default_agent"], patch.agent, formatting))
+                } else if (typeof patch.agent === "object") {
+                  for (const [name, value] of Object.entries(patch.agent)) {
+                    current = applyEdits(
+                      current,
+                      modify(
+                        current,
+                        ["agents", name],
+                        value === null ? undefined : encodeValue(ConfigAgent.Info, value),
+                        formatting,
+                      ),
+                    )
+                  }
+                }
+              }
+
+              // 9. Agents: Record<string, ConfigAgent.Info | null>
+              if ("agents" in patch) {
+                if (patch.agents === null) {
+                  current = applyEdits(current, modify(current, ["agents"], undefined, formatting))
+                } else if (typeof patch.agents === "object" && patch.agents !== null) {
+                  for (const [name, value] of Object.entries(patch.agents)) {
+                    current = applyEdits(
+                      current,
+                      modify(
+                        current,
+                        ["agents", name],
+                        value === null ? undefined : encodeValue(ConfigAgent.Info, value),
+                        formatting,
+                      ),
+                    )
+                  }
+                }
+              }
+
+              // 10. Mode: string | Record<string, ConfigAgent.Info | null>
+              if ("mode" in patch) {
+                if (patch.mode === null) {
+                  current = applyEdits(current, modify(current, ["mode"], undefined, formatting))
+                } else if (typeof patch.mode === "string") {
+                  current = applyEdits(current, modify(current, ["mode"], patch.mode, formatting))
+                } else if (typeof patch.mode === "object" && patch.mode !== null) {
+                  for (const [name, value] of Object.entries(patch.mode)) {
+                    current = applyEdits(
+                      current,
+                      modify(
+                        current,
+                        ["mode", name],
+                        value === null ? undefined : encodeValue(ConfigAgent.Info, value),
+                        formatting,
+                      ),
+                    )
+                  }
+                }
+              }
+
+              return current
+            },
             catch: (cause) => new FSUtil.FileSystemError({ method: "config.update", cause }),
           })
+
           yield* fs.writeWithDirs(filepath, updated.endsWith("\n") ? updated : `${updated}\n`)
           yield* requestReload
         },

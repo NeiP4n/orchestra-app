@@ -29,7 +29,7 @@ export interface Interface {
   readonly exportDebug: Effect.Effect<string>
 }
 
-export class Service extends Context.Service<Service, Interface>()("opencode/desktop/DesktopLogging") {}
+export class Service extends Context.Service<Service, Interface>()("orchestra/desktop/DesktopLogging") {}
 
 const serviceLayer = Layer.effect(
   Service,
@@ -152,7 +152,7 @@ function exportDebugLogsEffect(fs: FileSystem.FileSystem, path: Path.Path) {
       )
     }
 
-    const output = path.join(app.getPath("downloads"), `opencode-debug-${stamp()}.zip`)
+    const output = path.join(app.getPath("downloads"), `orchestra-debug-${stamp()}.zip`)
 
     return yield* Effect.gen(function* () {
       yield* Effect.logInfo("exporting debug logs", { output })
@@ -259,7 +259,12 @@ function serverLogRoots(path: Path.Path) {
   const xdgData = process.env.XDG_DATA_HOME || path.join(homedir(), ".local", "share")
 
   return [
-    ...new Set([path.join(xdgData, "opencode", "log"), path.join(app.getPath("userData"), "opencode", "log")]),
+    ...new Set([
+      path.join(xdgData, "orchestra", "log"),
+      path.join(app.getPath("userData"), "orchestra", "log"),
+      path.join(xdgData, "opencode", "log"),
+      path.join(app.getPath("userData"), "opencode", "log"),
+    ]),
   ]
 }
 

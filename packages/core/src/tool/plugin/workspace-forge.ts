@@ -112,7 +112,7 @@ const guide = [
 ].join("\n")
 
 export const Plugin = {
-  id: "opencode.tool.workspace-forge",
+  id: "orchestra.tool.workspace-forge",
   effect: Effect.fn("WorkspaceForgeTool.Plugin")(function* (ctx: Context) {
     const orchestra = yield* Orchestra.Service
     const federation = yield* Federation.Service

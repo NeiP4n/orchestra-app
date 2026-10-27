@@ -1,4 +1,4 @@
-import type { OpenCodeClient, OpenCodeEvent } from "@orchestra/client/effect"
+import type { OrchestraClient, OpenCodeEvent } from "@orchestra/client/effect"
 import type { Agent } from "@orchestra/schema/agent"
 import type { Command } from "@orchestra/schema/command"
 import type { Model } from "@orchestra/schema/model"
@@ -38,7 +38,7 @@ type Entry = {
 
 const reloadOn = new Set<OpenCodeEvent["type"]>(["model.updated", "agent.updated", "command.updated"])
 
-export const make = Effect.fnUntraced(function* (client: OpenCodeClient) {
+export const make = Effect.fnUntraced(function* (client: OrchestraClient) {
   const scope = yield* Effect.scope
   const entries = new Map<string, Deferred.Deferred<Entry, ACPError.CatalogError>>()
   const connected = yield* Deferred.make<void>()
@@ -127,7 +127,7 @@ export const make = Effect.fnUntraced(function* (client: OpenCodeClient) {
 const poll = Schedule.spaced("25 millis").pipe(Schedule.upTo({ duration: "5 seconds" }))
 
 // A cold Location lists no plugins until activation finishes, and providers may still discover models after that.
-const load = Effect.fn("cli.acp.catalog.load")(function* (client: OpenCodeClient, cwd: string) {
+const load = Effect.fn("cli.acp.catalog.load")(function* (client: OrchestraClient, cwd: string) {
   yield* client.plugin
     .list({ location: { directory: cwd } })
     .pipe(Effect.repeat({ until: (plugins) => plugins.data.length > 0, schedule: poll }), Effect.ignore)
@@ -136,7 +136,7 @@ const load = Effect.fn("cli.acp.catalog.load")(function* (client: OpenCodeClient
   )
 })
 
-const read = Effect.fnUntraced(function* (client: OpenCodeClient, cwd: string) {
+const read = Effect.fnUntraced(function* (client: OrchestraClient, cwd: string) {
   const location = { directory: cwd }
   const [modelResult, defaultResult, agentResult, commandResult] = yield* Effect.all(
     [

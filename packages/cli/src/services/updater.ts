@@ -15,7 +15,24 @@ export const methods = ["curl", "npm", "pnpm", "bun", "yarn", "vp", "brew"] as c
 
 export type Method = (typeof methods)[number]
 export type RunResult = { readonly type: "available" | "installed"; readonly version: string }
-export type CheckResult = RunResult | { readonly type: "unavailable"; readonly message: string }
+export type CheckResult =
+  | RunResult
+  | { readonly type: "unavailable"; readonly message: string }
+  | { readonly type: "offline"; readonly cachedVersion?: string; readonly message?: string }
+
+export const DEFAULT_UPDATE_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
+
+export interface VersionCacheEntry {
+  readonly version: string
+  readonly checkedAt: number
+  readonly channel?: string
+  readonly artifact?: string
+}
+
+export interface CheckOptions {
+  readonly force?: boolean
+  readonly ttlMs?: number
+}
 
 export class UpgradeError extends Error {
   readonly title: string
@@ -65,14 +82,17 @@ function resultDetail(result: { code: number; stdout: string; stderr: string }) 
 
 export interface Interface {
   readonly run: (onInstall?: (version: string) => void) => Effect.Effect<RunResult | undefined>
-  readonly check: () => Effect.Effect<CheckResult | undefined, Error>
+  readonly check: (options?: CheckOptions) => Effect.Effect<CheckResult | undefined, Error>
   readonly apply: (version: string) => Effect.Effect<SourceRelease.Kept | undefined, Error>
   readonly method: () => Effect.Effect<Method | undefined>
-  readonly latest: (method?: Method) => Effect.Effect<string, Error>
+  readonly latest: (method?: Method, options?: CheckOptions) => Effect.Effect<string, Error>
   readonly upgrade: (method: Method, version: string) => Effect.Effect<void, Error>
   readonly removal: (
     method: Method,
   ) => { readonly command: ReadonlyArray<string>; readonly run: Effect.Effect<void, Error> } | undefined
+  readonly readCache?: () => Effect.Effect<VersionCacheEntry | undefined>
+  readonly writeCache?: (entry: VersionCacheEntry) => Effect.Effect<void>
+  readonly clearCache?: () => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@orchestra/cli/Updater") {}
@@ -113,8 +133,38 @@ const make = Effect.gen(function* () {
     executable.includes(`${path.sep}Cellar${path.sep}${name}${path.sep}`),
   )
 
+  const cacheFile = path.join(global.cache, "version-cache.json")
+
+  const readCache = Effect.fnUntraced(function* () {
+    const exists = yield* fs.exists(cacheFile).pipe(Effect.orElseSucceed(() => false))
+    if (!exists) return undefined
+    const content = yield* fs.readFileString(cacheFile).pipe(Effect.orElseSucceed(() => undefined))
+    if (!content) return undefined
+    try {
+      const parsed = JSON.parse(content)
+      if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        typeof parsed.version === "string" &&
+        typeof parsed.checkedAt === "number"
+      ) {
+        return parsed as VersionCacheEntry
+      }
+    } catch {}
+    return undefined
+  })
+
+  const writeCache = Effect.fnUntraced(function* (entry: VersionCacheEntry) {
+    yield* fs.makeDirectory(global.cache, { recursive: true }).pipe(Effect.orElseSucceed(() => undefined))
+    yield* fs.writeFileString(cacheFile, JSON.stringify(entry, null, 2)).pipe(Effect.orElseSucceed(() => undefined))
+  })
+
+  const clearCache = Effect.fnUntraced(function* () {
+    yield* fs.remove(cacheFile).pipe(Effect.orElseSucceed(() => undefined))
+  })
+
   const readPolicy = Effect.fnUntraced(function* () {
-    const values = yield* Effect.forEach(["config.json", "opencode.json", "opencode.jsonc"], (name) =>
+    const values = yield* Effect.forEach(["config.json", "opencode.json", "opencode.jsonc", "orchestra.json", "orchestra.jsonc"], (name) =>
       fs.readFileString(path.join(global.config, name)).pipe(
         Effect.map(decodePolicy),
         Effect.orElseSucceed(() => undefined),
@@ -274,11 +324,26 @@ const make = Effect.gen(function* () {
     return { package: packageName, version }
   })
 
-  const latest = (selected?: Method) =>
-    (selected ? Effect.succeed(selected) : method()).pipe(
-      Effect.flatMap(release),
-      Effect.map((data) => data.version),
-    )
+  const latest = (selected?: Method, options?: CheckOptions) =>
+    Effect.gen(function* () {
+      const ttl = options?.ttlMs ?? DEFAULT_UPDATE_CACHE_TTL_MS
+      if (!options?.force) {
+        const cached = yield* readCache()
+        if (cached && Date.now() - cached.checkedAt < ttl) {
+          return cached.version
+        }
+      }
+
+      const m = selected ? yield* Effect.succeed(selected) : yield* method()
+      const data = yield* release(m)
+      yield* writeCache({
+        version: data.version,
+        checkedAt: Date.now(),
+        channel,
+        artifact: ORCHESTRA_ARTIFACT,
+      })
+      return data.version
+    })
 
   const temporaryDirectory = (prefix: string) =>
     Effect.acquireRelease(fs.makeTempDirectory({ directory: global.cache, prefix }), (directory) =>
@@ -516,14 +581,42 @@ const make = Effect.gen(function* () {
     return undefined
   })
 
-  const check = Effect.fn("cli.updater.check")(function* () {
-    const release = ORCHESTRA_LOCAL ? yield* sourceRelease() : undefined
-    if (release?.available) return { type: "available" as const, version: release.available }
-    // A detached release checkout must still compare HEAD with the live source branch when
-    // no newer release tag exists. Otherwise every merged main-branch fix appears "up to date".
-    if (ORCHESTRA_LOCAL) return yield* developmentBranch()
-    if (!process.env.ORCHESTRA_UPDATE_URL?.trim()) return undefined
-    const version = yield* latest()
+  const check = Effect.fn("cli.updater.check")(function* (options?: CheckOptions) {
+    if (!process.env.ORCHESTRA_UPDATE_URL?.trim()) {
+      if (ORCHESTRA_LOCAL) {
+        const release = yield* sourceRelease()
+        if (release?.available) return { type: "available" as const, version: release.available }
+        return yield* developmentBranch()
+      }
+      return undefined
+    }
+
+    const ttl = options?.ttlMs ?? DEFAULT_UPDATE_CACHE_TTL_MS
+    const cached = yield* readCache()
+    const hasValidCache = !options?.force && cached && Date.now() - cached.checkedAt < ttl
+
+    let version: string
+    if (hasValidCache && cached) {
+      version = cached.version
+    } else {
+      const fetchResult = yield* latest(undefined, options).pipe(
+        Effect.map((ver) => ({ ok: true as const, version: ver })),
+        Effect.catch((cause) => Effect.succeed({ ok: false as const, cause })),
+      )
+
+      if (!fetchResult.ok) {
+        return {
+          type: "offline" as const,
+          cachedVersion: cached?.version,
+          message:
+            fetchResult.cause instanceof Error
+              ? fetchResult.cause.message
+              : String(fetchResult.cause),
+        }
+      }
+      version = fetchResult.version
+    }
+
     if (!parseReleaseVersion(version)) return yield* Effect.fail(new Error(`Invalid version: ${version}`))
     const current = yield* Ref.get(installedVersion)
     if (action(current, version, "auto") === "none") {
@@ -591,7 +684,7 @@ const make = Effect.gen(function* () {
     return { current: pinned, available: newest && Bun.semver.order(newest, pinned) > 0 ? newest : undefined }
   })
 
-  return Service.of({ run, check, apply, method, latest, upgrade, removal })
+  return Service.of({ run, check, apply, method, latest, upgrade, removal, readCache, writeCache, clearCache })
 })
 
 export const layer = Layer.effect(Service, make)

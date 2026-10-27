@@ -29,7 +29,7 @@ export const Input = Schema.Struct({
 export const Output = Schema.Struct({ output: Schema.String })
 
 export const Plugin = {
-  id: "opencode.tool.plot",
+  id: "orchestra.tool.plot",
   effect: Effect.fn("PlotTool.Plugin")(function* (ctx: Context) {
     const plots = yield* Plot.Service
     const location = yield* Location.Service

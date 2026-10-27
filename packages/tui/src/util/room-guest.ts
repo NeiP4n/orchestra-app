@@ -1,10 +1,10 @@
-import { OpenCode, type OpenCodeClient } from "@orchestra/client"
+import { OpenCode, type OrchestraClient } from "@orchestra/client"
 import type { JoinedRoom } from "./room"
 
 // Room clients are immutable transport wrappers. Recreating one for every render/poll creates
 // unnecessary objects and can retain short-lived transport state until the next GC cycle.
 // WeakMap keeps the cache bounded by the lifetime of the joined-room object itself.
-const clients = new WeakMap<object, OpenCodeClient>()
+const clients = new WeakMap<object, OrchestraClient>()
 
 export function roomClient(room: Pick<JoinedRoom, "url" | "token">) {
   const key = room as object
@@ -17,13 +17,13 @@ export function roomClient(room: Pick<JoinedRoom, "url" | "token">) {
 
 // The joined room as this computer's server keeps it, so this computer's AI can work with
 // the AI there. Registering is idempotent; a server that cannot be reached is told next time.
-export function linkRoom(client: OpenCodeClient, room: JoinedRoom) {
+export function linkRoom(client: OrchestraClient, room: JoinedRoom) {
   return client.room.link
     .save({ url: room.url, roomID: room.roomID, token: room.token, name: room.name, guest: room.guest })
     .catch(() => undefined)
 }
 
-export function unlinkRoom(client: OpenCodeClient, room: Pick<JoinedRoom, "url" | "roomID">) {
+export function unlinkRoom(client: OrchestraClient, room: Pick<JoinedRoom, "url" | "roomID">) {
   return client.room.link.remove({ url: room.url, roomID: room.roomID }).catch(() => undefined)
 }
 
@@ -41,7 +41,7 @@ export function tellHostLeft(room: Pick<JoinedRoom, "url" | "token" | "roomID">)
 // reaches past the slice fails loudly instead of touching this computer's server.
 // onLive runs once the first log connection has caught up with the host: events that came
 // while it replayed were skipped, so the view reloads what the host has now.
-export function guestApi(room: JoinedRoom, sessionID?: string, onLive?: () => void): OpenCodeClient {
+export function guestApi(room: JoinedRoom, sessionID?: string, onLive?: () => void): OrchestraClient {
   const remote = roomClient(room)
   const roomID = room.roomID
   // Where this view's room log has read up to, so a reconnect only replays what it missed.
@@ -91,7 +91,7 @@ export function guestApi(room: JoinedRoom, sessionID?: string, onLive?: () => vo
     },
   }
   // A typed client cannot be assembled from a slice; the proxy stands in for the rest of it.
-  return host(slice, "") as unknown as OpenCodeClient
+  return host(slice, "") as unknown as OrchestraClient
 }
 
 // The room log replays the session's history before following it. The data layer

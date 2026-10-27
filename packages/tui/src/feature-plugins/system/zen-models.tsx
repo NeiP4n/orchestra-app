@@ -152,13 +152,13 @@ export default Plugin.define({
           message: enabled
             ? text(
                 context,
-                "OpenCode will switch to another free model when rate limits are hit.",
-                "OpenCode будет переключаться на другую бесплатную модель при лимитах.",
+                "Orchestra will switch to another free model when rate limits are hit.",
+                "Orchestra будет переключаться на другую бесплатную модель при лимитах.",
               )
             : text(
                 context,
-                "OpenCode keeps the current model on rate limits without switching.",
-                "OpenCode сохраняет текущую модель при лимитах без переключения.",
+                "Orchestra keeps the current model on rate limits without switching.",
+                "Orchestra сохраняет текущую модель при лимитах без переключения.",
               ),
           variant: "info",
         })

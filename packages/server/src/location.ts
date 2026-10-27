@@ -54,11 +54,17 @@ export const sessionInfo = Effect.fnUntraced(function* (sessions: Session.Interf
   return yield* sessions.get(id).pipe(Effect.catchTag("Session.NotFoundError", missingSession))
 })
 
+export const LOCATION_DIRECTORY_HEADER = "x-orchestra-directory"
+export const LEGACY_LOCATION_DIRECTORY_HEADER = "x-opencode-directory"
+
 export function requestRef(request: HttpServerRequest.HttpServerRequest): Location.Ref {
   const query = new URL(request.url, "http://localhost").searchParams
+  const canonical = request.headers[LOCATION_DIRECTORY_HEADER]
+  const legacy = request.headers[LEGACY_LOCATION_DIRECTORY_HEADER]
+  const header = canonical && canonical.trim() !== "" ? canonical : legacy
   const directory =
     query.get("location[directory]") ||
-    (request.headers["x-opencode-directory"] ? decode(request.headers["x-opencode-directory"]) : process.cwd())
+    (header ? decode(header) : process.cwd())
   return Location.Ref.make({
     directory: AbsolutePath.make(directory),
   })

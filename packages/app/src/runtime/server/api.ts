@@ -1,4 +1,4 @@
-import { OpenCode, type OpenCodeClient } from "@orchestra/client/promise"
+import { OpenCode, type OrchestraClient } from "@orchestra/client/promise"
 import type { ServerConnection } from "@/runtime/server/registry"
 import { decode64 } from "@/runtime/persistence/base64"
 
@@ -22,7 +22,7 @@ export function authFromToken(token: string | null) {
 export function createApiForServer(input: {
   server: ServerConnection.HttpBase
   fetch?: typeof globalThis.fetch
-}): OpenCodeClient {
+}): OrchestraClient {
   return OpenCode.make({
     baseUrl: input.server.url,
     fetch: input.fetch,
@@ -36,4 +36,4 @@ export function createApiForServer(input: {
   })
 }
 
-export type ServerApi = OpenCodeClient
+export type ServerApi = OrchestraClient

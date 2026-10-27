@@ -1,13 +1,45 @@
 #!/bin/sh
-# Canonical Opencode++ installer for Linux, macOS and Android/Termux.
+# Canonical Orchestra (Opencode++) installer for Linux, macOS and Android/Termux.
 # Contains the runtime compatibility checks directly; no pinned helper script is downloaded.
-INSTALLER_REVISION="lan-rooms-unified-2026-10-18-r2"
-echo "opencode-pp: installer revision $INSTALLER_REVISION"
+INSTALLER_REVISION="orchestra-unified-2026-10-26-r1"
+echo "orchestra: installer revision $INSTALLER_REVISION"
 set -eu
 
-REPO="${ORCHESTRA_PP_REPO:-https://github.com/NeiP4n/opencode-plus-plus.git}"
-DIR="${ORCHESTRA_PP_DIR:-$HOME/.local/share/opencode-pp}"
-BRANCH="${ORCHESTRA_PP_BRANCH:-lan-rooms}"
+REPO="${ORCHESTRA_REPO:-${ORCHESTRA_PP_REPO:-https://github.com/NeiP4n/opencode-plus-plus.git}}"
+BRANCH="${ORCHESTRA_BRANCH:-${ORCHESTRA_PP_BRANCH:-lan-rooms}}"
+
+resolve_dir() {
+  if [ -n "${ORCHESTRA_DIR:-}" ]; then
+    echo "$ORCHESTRA_DIR"
+    return
+  fi
+  if [ -n "${ORCHESTRA_PP_DIR:-}" ]; then
+    echo "$ORCHESTRA_PP_DIR"
+    return
+  fi
+
+  data_base="${XDG_DATA_HOME:-$HOME/.local/share}"
+  orchestra_share="$data_base/orchestra"
+  opencode_share="$data_base/opencode"
+  opencode_pp_share="$data_base/opencode-pp"
+
+  if [ -d "$orchestra_share/.git" ]; then
+    echo "$orchestra_share"
+  elif [ -d "$opencode_share/.git" ]; then
+    echo "$opencode_share"
+  elif [ -d "$opencode_pp_share/.git" ]; then
+    echo "$opencode_pp_share"
+  elif [ -d "$orchestra_share" ]; then
+    echo "$orchestra_share"
+  elif [ -d "$opencode_share" ]; then
+    echo "$opencode_share"
+  elif [ -d "$opencode_pp_share" ]; then
+    echo "$opencode_pp_share"
+  else
+    echo "$orchestra_share"
+  fi
+}
+DIR="$(resolve_dir)"
 # 1.4.0-patched still calls close_range(436), which Android 12's seccomp policy
 # traps with SIGSYS ("Bad system call"); 1.4.3-patched replaces that syscall.
 TERMUX_BUN_VERSION="${ORCHESTRA_PP_TERMUX_BUN_VERSION:-1.4.3}"
@@ -18,11 +50,11 @@ TERMUX_RELEASES="https://github.com/bd-loser/bun-termux/releases/download"
 TERMUX_MODE=0
 case "${PREFIX:-}" in
   # $PREFIX/bin is always on Termux's PATH, so no shell profile edits are needed.
-  */com.termux/*) BIN="${ORCHESTRA_PP_BIN:-$PREFIX/bin}"; TERMUX_MODE=1 ;;
-  *) BIN="${ORCHESTRA_PP_BIN:-$HOME/.local/bin}" ;;
+  */com.termux/*) BIN="${ORCHESTRA_BIN:-${ORCHESTRA_PP_BIN:-$PREFIX/bin}}"; TERMUX_MODE=1 ;;
+  *) BIN="${ORCHESTRA_BIN:-${ORCHESTRA_PP_BIN:-$HOME/.local/bin}}" ;;
 esac
 
-fail() { echo "opencode-pp: $1" >&2; exit 1; }
+fail() { echo "orchestra: $1" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1; }
 
 packages() {
@@ -350,8 +382,10 @@ termux() {
 export LD_PRELOAD=\"$PREFIX/lib/libopencode-sigsys-compat.so\${LD_PRELOAD:+:\$LD_PRELOAD}\""
   fi
   # Earlier installers put the launcher in ~/.local/bin, which Termux never puts on PATH.
-  old="$HOME/.local/bin/opencode-pp"
-  if [ "$old" != "$BIN/opencode-pp" ] && [ -f "$old" ] && grep -q 'installed by install.sh' "$old"; then rm -f "$old"; fi
+  for old_bin in opencode-pp opencode orchestra; do
+    old="$HOME/.local/bin/$old_bin"
+    if [ "$old" != "$BIN/$old_bin" ] && [ -f "$old" ] && grep -q 'installed by install.sh' "$old"; then rm -f "$old"; fi
+  done
   # Pin the runtime in the generated launcher. Do not bake in whichever
   # unrelated Bun happens to appear first on PATH during installation.
   ORCHESTRA_PP_BUN_BIN="$PREFIX/bin/bun"
@@ -506,8 +540,14 @@ install_opencode() {
     echo "Updating $DIR…"
     git -C "$DIR" fetch --force --prune origin '+refs/tags/release/*:refs/tags/release/*'
   else
-    echo "Downloading Opencode++ into $DIR…"
-    git clone --filter=blob:none "$REPO" "$DIR"
+    echo "Downloading Orchestra into $DIR…"
+    if [ -d "$DIR" ] && [ -n "$(ls -A "$DIR" 2>/dev/null)" ]; then
+      git init "$DIR"
+      git -C "$DIR" remote add origin "$REPO" 2>/dev/null || git -C "$DIR" remote set-url origin "$REPO"
+      git -C "$DIR" fetch --filter=blob:none origin
+    else
+      git clone --filter=blob:none "$REPO" "$DIR"
+    fi
   fi
 
   TAG=$(git -C "$DIR" tag -l 'release/*' --sort=-v:refname | head -n 1)
@@ -523,7 +563,7 @@ install_opencode() {
   STASHED=0
   if [ -n "$LOCAL_CHANGES" ]; then
     echo "Preserving local changes before updating…"
-    git -C "$DIR" stash push --message "opencode-pp installer update $(date -u +%Y-%m-%dT%H:%M:%SZ)" || fail "could not save tracked local changes"
+    git -C "$DIR" stash push --message "orchestra installer update $(date -u +%Y-%m-%dT%H:%M:%SZ)" || fail "could not save tracked local changes"
     STASHED=1
   fi
   restore() {
@@ -553,20 +593,47 @@ install_opencode() {
   fi
 
   mkdir -p "$BIN"
-  cat >"$BIN/opencode-pp" <<WRAPPER
+  cat >"$BIN/orchestra" <<WRAPPER
 #!/bin/sh
-# Opencode++ $VERSION, installed by install.sh.
+# Orchestra $VERSION, installed by install.sh.
 ${TERMUX_ENV:-}
-ORCHESTRA_COMMAND=opencode-pp exec "$BUN_BIN" --preload="$DIR/packages/cli/node_modules/@opentui/solid/scripts/preload.js" "$DIR/packages/cli/src/index.ts" "\$@"
+cmd="\$(basename "\$0")"
+case "\$cmd" in
+  orchestra|opencode-pp|opencode) ;;
+  *) cmd="orchestra" ;;
+esac
+ORCHESTRA_COMMAND="\${ORCHESTRA_COMMAND:-\$cmd}" exec "$BUN_BIN" --preload="$DIR/packages/cli/node_modules/@opentui/solid/scripts/preload.js" "$DIR/packages/cli/src/index.ts" "\$@"
 WRAPPER
-  chmod +x "$BIN/opencode-pp"
+  chmod +x "$BIN/orchestra"
 
-  if [ -f "$BIN/opencode" ] && grep -q 'installed by install.sh' "$BIN/opencode"; then rm -f "$BIN/opencode"; fi
+  for alias_name in opencode opencode-pp; do
+    rm -f "$BIN/$alias_name"
+    ln -s "orchestra" "$BIN/$alias_name" 2>/dev/null || cp -f "$BIN/orchestra" "$BIN/$alias_name"
+    chmod +x "$BIN/$alias_name" 2>/dev/null || true
+  done
+
+  cat >"$BIN/orchestra.cmd" <<CMD_WRAPPER
+@echo off
+setlocal
+for /f "tokens=2 delims=:" %%c in ('chcp') do set "ORCHESTRA_PP_CP=%%c"
+chcp 65001 >nul
+if not defined ORCHESTRA_COMMAND set "ORCHESTRA_COMMAND=%~n0"
+"$BUN_BIN" --preload="$DIR/packages/cli/node_modules/@opentui/solid/scripts/preload.js" "$DIR/packages/cli/src/index.ts" %*
+set "ORCHESTRA_PP_EXIT=%ERRORLEVEL%"
+if defined ORCHESTRA_PP_CP chcp %ORCHESTRA_PP_CP% >nul
+exit /b %ORCHESTRA_PP_EXIT%
+CMD_WRAPPER
+
+  for alias_cmd in opencode.cmd opencode-pp.cmd; do
+    rm -f "$BIN/$alias_cmd"
+    ln -s "orchestra.cmd" "$BIN/$alias_cmd" 2>/dev/null || cp -f "$BIN/orchestra.cmd" "$BIN/$alias_cmd"
+  done
+
   add_path() {
     file="$1"; line="$2"
     [ -f "$file" ] && grep -qF "$BIN" "$file" && return 0
     mkdir -p "$(dirname "$file")"
-    printf '\n# Opencode++\n%s\n' "$line" >>"$file"
+    printf '\n# Orchestra\n%s\n' "$line" >>"$file"
   }
   case ":$PATH:" in
     *":$BIN:"*) ;;
@@ -580,12 +647,12 @@ WRAPPER
       ADDED=1 ;;
   esac
   echo
-  echo "Opencode++ $VERSION is installed."
+  echo "Orchestra $VERSION is installed."
   if [ "${ADDED:-0}" = 1 ]; then
     echo "PATH was updated for new terminals. To use it in this one, run:"
-    echo "  export PATH=\"$BIN:\$PATH\" && opencode-pp"
+    echo "  export PATH=\"$BIN:\$PATH\" && orchestra"
   else
-    echo "Run: opencode-pp"
+    echo "Run: orchestra"
   fi
 }
 
@@ -770,7 +837,7 @@ fi
 # store even though the Android .so is present. Resolve all workspace references
 # to the Android aliases explicitly, reinstall, and assert what the CLI imports.
 if [ -n "${PREFIX:-}" ] && [ -x "$PREFIX/bin/bun" ] && [ -f "$PREFIX/lib/libopencode-sigsys-compat.so" ]; then
-  opencode_dir="${ORCHESTRA_PP_DIR:-$HOME/.local/share/opencode-pp}"
+  opencode_dir="$DIR"
   aliaser="$PREFIX/tmp/opencode-pp-androidtui-runtime.mjs"
   cat >"$aliaser" <<'ANDROIDTUI_RUNTIME'
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs"

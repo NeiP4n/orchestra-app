@@ -56,7 +56,7 @@ export const description = [
 ].join("\n")
 
 export const Plugin = {
-  id: "opencode.tool.memory",
+  id: "orchestra.tool.memory",
   effect: Effect.fn("MemoryTool.Plugin")(function* (ctx: Context) {
     const memory = yield* Memory.Service
 

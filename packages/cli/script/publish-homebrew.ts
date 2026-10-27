@@ -19,8 +19,8 @@ const dir = fileURLToPath(new URL("..", import.meta.url))
 const root = path.resolve(process.env.ORCHESTRA_CLI_DIST ?? path.join(dir, "dist"))
 const outdir = path.join(root, "homebrew-tap")
 const dryRun = process.argv.includes("--dry-run")
-const name = Script.channel === "beta" ? "opencode-beta" : "opencode-v2"
-const formulaClass = Script.channel === "beta" ? "OpencodeBeta" : "OpencodeV2"
+const name = Script.channel === "beta" ? "orchestra-beta" : "orchestra"
+const formulaClass = Script.channel === "beta" ? "OrchestraBeta" : "Orchestra"
 
 const binBaseURL = (
   process.env.ORCHESTRA_BIN_URL ??
@@ -36,7 +36,7 @@ const targets = await Promise.all(
     { name: "linux-arm64", archive: "tar.gz" },
     { name: "linux-x64-baseline", archive: "tar.gz" },
   ].map(async (target) => {
-    const filename = `opencode-${target.name}.${target.archive}`
+    const filename = `orchestra-${target.name}.${target.archive}`
     const file = Bun.file(path.join(root, filename))
     if (!(await file.exists()) || !file.size) throw new Error(`Missing Homebrew archive: ${filename}`)
     const sha256 = new Bun.CryptoHasher("sha256")
@@ -75,13 +75,13 @@ await Bun.write(
     "# frozen_string_literal: true",
     "",
     `class ${formulaClass} < Formula`,
-    `  desc "OpenCode V2${Script.channel === "beta" ? " beta" : ""} - the AI coding agent for the terminal"`,
-    '  homepage "https://github.com/anomalyco/opencode"',
+    `  desc "Orchestra${Script.channel === "beta" ? " beta" : ""} - the AI coding agent for the terminal"`,
+    '  homepage "https://github.com/NeiP4n/orchestra-app"',
     `  version "${Script.version}"`,
     '  license "MIT"',
     "",
     '  depends_on "ripgrep"',
-    '  conflicts_with "opencode", because: "both install an opencode binary"',
+    '  conflicts_with "orchestra", because: "both install an orchestra binary"',
     "",
     "  on_macos do",
     "    if Hardware::CPU.arm?",
@@ -104,7 +104,7 @@ await Bun.write(
     "  end",
     "",
     "  def install",
-    '    bin.install "opencode"',
+    '    bin.install "orchestra"',
     "  end",
     "end",
     "",

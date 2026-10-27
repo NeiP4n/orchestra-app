@@ -12,6 +12,15 @@ export const supportsTuningPragmas = true
 // Foreign keys default OFF and can be toggled per connection.
 export const supportsForeignKeyToggle = true
 
+export function checkpointWal(filename: string): void {
+  const native = new Database(filename)
+  try {
+    native.run("PRAGMA wal_checkpoint(TRUNCATE);")
+  } finally {
+    native.close()
+  }
+}
+
 interface Config extends Sqlite.ClientConfig {
   readonly filename: string
   readonly readonly?: boolean

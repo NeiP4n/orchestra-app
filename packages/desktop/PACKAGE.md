@@ -69,7 +69,7 @@ Dependencies: `electron-updater` (updates), `electron-log`,
    `electron.vite.config.test.ts`) — editing them breaks the tests, not
    just the build.
 3. **`drizzle.config.ts` is about the desktop database**, not the
-   opencode core database (`packages/core/src/database`); two different
+   orchestra core database (`packages/core/src/database`); two different
    files.
 4. **`main`, `preload`, `renderer` are different contexts.** The only
    shared part is `shared/`; using the DOM in `main/` or the Node API in

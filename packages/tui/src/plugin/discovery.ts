@@ -7,11 +7,12 @@ export { localSource }
 
 export async function localPluginDirectories(cwd: string, configDirectory: string) {
   const projectDirectory = await localProjectDirectory(cwd)
-  const projectConfig = path.join(projectDirectory, ".opencode")
+  const orchestraConfig = path.join(projectDirectory, ".orchestra")
+  const opencodeConfig = path.join(projectDirectory, ".opencode")
   const directories = [configDirectory, ...projectConfigDirectories(projectDirectory, cwd)]
   const exists = await Promise.all(
     directories.map(async (directory) => {
-      if (directory === configDirectory || directory === projectConfig) return true
+      if (directory === configDirectory || directory === orchestraConfig || directory === opencodeConfig) return true
       return await stat(directory).then(
         (info) => info.isDirectory(),
         (error) => (isMissingPath(error) ? false : Promise.reject(error)),

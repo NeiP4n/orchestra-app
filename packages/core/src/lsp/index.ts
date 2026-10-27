@@ -49,6 +49,8 @@ export class LspError extends Schema.TaggedError<LspError>()("Lsp.Error", {
 export interface Interface {
   /** Whether some server handles the file, without starting it. */
   readonly supports: (file: string) => Effect.Effect<boolean>
+  /** Opens or updates a document in the language server. */
+  readonly touch: (file: string) => Effect.Effect<void, LspError>
   readonly symbols: (file: string) => Effect.Effect<ReadonlyArray<Symbol>, LspError>
   readonly references: (file: string, position: Position) => Effect.Effect<ReadonlyArray<Reference>, LspError>
   readonly rename: (file: string, position: Position, name: string) => Effect.Effect<ReadonlyArray<FileEdit>, LspError>
@@ -222,8 +224,8 @@ const layer = Layer.effect(
         const known = BUILTIN.find((server) => server.extensions.includes(path.extname(file).toLowerCase()))
         return yield* new LspError({
           message: known
-            ? `No language server for ${path.basename(file)}: install one of ${known.commands.map((command) => command[0]).join(", ")} or configure "lsp" in opencode.json.`
-            : `No language server handles ${path.extname(file) || path.basename(file)} files; configure one under "lsp" in opencode.json.`,
+            ? `No language server for ${path.basename(file)}: install one of ${known.commands.map((command) => command[0]).join(", ")} or configure "lsp" in orchestra.json.`
+            : `No language server handles ${path.extname(file) || path.basename(file)} files; configure one under "lsp" in orchestra.json.`,
         })
       }
       const existing = running.get(found.server.id)
@@ -276,6 +278,9 @@ const layer = Layer.effect(
           Effect.map((found) => found !== undefined),
           Effect.orElseSucceed(() => false),
         ),
+      touch: Effect.fn("Lsp.touch")(function* (file) {
+        yield* open(file)
+      }),
       symbols: Effect.fn("Lsp.symbols")(function* (file) {
         const document = yield* open(file)
         const result = yield* call(() =>

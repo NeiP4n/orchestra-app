@@ -74,6 +74,8 @@ describe.skipIf(!available)("Lsp over typescript-language-server", () => {
               expect(get.kind).toBe("method")
               expect(get.range.start.line).toBe(3)
 
+              yield* lsp.touch("use.ts")
+
               const references = yield* lsp.references("store.ts", get.selection.start)
               expect(references.map((item) => [path.basename(item.file), item.range.start.line]).toSorted()).toEqual([
                 ["store.ts", 13],

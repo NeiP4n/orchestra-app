@@ -87,7 +87,7 @@ export async function connect(url: string) {
       }
     },
     close() {
-      shutdown("closed by opencode")
+      shutdown("closed by orchestra")
       socket.close()
     },
   }

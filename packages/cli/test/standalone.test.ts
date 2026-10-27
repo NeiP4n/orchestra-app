@@ -34,9 +34,21 @@ test("standalone server exits when its owner is killed", async () => {
     owner.kill("SIGKILL")
     await owner.exited
     if (running(pid)) process.kill(pid, "SIGKILL")
-    await fs.rm(root, { recursive: true, force: true })
+    await remove(root)
   }
 })
+
+async function remove(dir: string) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.rm(dir, { recursive: true, force: true })
+      return
+    } catch (error) {
+      if (attempt === 19) throw error
+      await Bun.sleep(250)
+    }
+  }
+}
 
 async function readLine(stream: ReadableStream<Uint8Array>, prefix: string) {
   const reader = stream.getReader()

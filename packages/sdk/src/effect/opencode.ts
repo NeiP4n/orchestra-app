@@ -1,6 +1,6 @@
 export * as OpenCode from "./opencode"
 
-import { OpenCode, type OpenCodeClient } from "@orchestra/client/effect"
+import { OpenCode, type OrchestraClient } from "@orchestra/client/effect"
 import type { Session } from "@orchestra/core/session"
 import type { Workspace } from "@orchestra/core/workspace"
 import { Context, Effect, Layer } from "effect"
@@ -16,13 +16,13 @@ export type EmbedOptions = EmbeddedHost.EmbedOptions
 export type InstanceOptions<R = never> = SdkInstances.Options<R>
 export type InstanceConfiguration = SdkInstances.Configuration
 
-export type Interface = Omit<OpenCodeClient, "plugin" | "workspace"> & {
-  readonly sessions: Omit<OpenCodeClient["session"], "create" | "get" | "move"> & {
+export type Interface = Omit<OrchestraClient, "plugin" | "workspace"> & {
+  readonly sessions: Omit<OrchestraClient["session"], "create" | "get" | "move"> & {
     readonly create: Session.Interface["create"]
     readonly get: (input: { readonly sessionID: Session.ID }) => ReturnType<Session.Interface["get"]>
     readonly move: Session.Interface["move"]
   }
-  readonly events: OpenCodeClient["event"]
+  readonly events: OrchestraClient["event"]
   readonly workspace: {
     readonly create: Workspace.Interface["create"]
     readonly provision: (options: {
@@ -30,7 +30,7 @@ export type Interface = Omit<OpenCodeClient, "plugin" | "workspace"> & {
     }) => ReturnType<Workspace.Interface["provision"]>
     readonly destroy: (options: { readonly workspaceID: Workspace.ID }) => ReturnType<Workspace.Interface["destroy"]>
   }
-  readonly plugin: EmbeddedHost.Interface["plugins"]["register"] & OpenCodeClient["plugin"]
+  readonly plugin: EmbeddedHost.Interface["plugins"]["register"] & OrchestraClient["plugin"]
 }
 
 export const create: <R = never>(

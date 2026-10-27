@@ -265,7 +265,7 @@ test("snapshots lazy semantic hierarchy and interaction state", async () => {
         actions.add(once)
 
         expect(snapshot(createHarness(renderer))).toEqual({
-          format: "opencode-ui-snapshot-v1",
+          format: "orchestra-ui-snapshot-v1",
           nodes: [
             {
               id: "session.permission",

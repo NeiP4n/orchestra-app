@@ -22,7 +22,7 @@ const decodeError = Schema.decodeUnknownOption(
 )
 
 export const PoePlugin = define({
-  id: "opencode.provider.poe",
+  id: "orchestra.provider.poe",
   effect: Effect.fn(function* (ctx) {
     const http = yield* HttpClient.HttpClient
     yield* ctx.integration.transform((editor) => {

@@ -425,6 +425,7 @@ describe("runNonInteractivePrompt", () => {
     })
     const globalOptions = {
       headers: {
+        "x-orchestra-directory": "%2Fwork%20tree",
         "x-opencode-directory": "%2Fwork%20tree",
       },
     }

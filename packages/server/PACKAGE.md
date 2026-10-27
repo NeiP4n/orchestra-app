@@ -1,4 +1,4 @@
-# @orchestra/server — opencode HTTP server
+# @orchestra/server — Orchestra HTTP server
 
 ## What This Is
 

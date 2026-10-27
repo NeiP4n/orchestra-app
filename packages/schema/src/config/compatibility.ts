@@ -3,7 +3,7 @@ export * as ConfigCompatibility from "./compatibility.js"
 import { Schema } from "effect"
 import { optional } from "../schema.js"
 
-/** Other agent tools whose project and home folders OpenCode can read. */
+/** Other agent tools whose project and home folders Orchestra can read. */
 export const Ecosystem = Schema.Literals(["agents", "claude", "codex", "gemini", "cursor"]).annotate({
   identifier: "Config.Compatibility.Ecosystem",
 })

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import type { DiscoverOptions, Endpoint, Info } from "./service.js"
@@ -37,7 +38,16 @@ function fail(message: string) {
 
 /** The default registration file. */
 export function fallback() {
-  return join(process.env["XDG_STATE_HOME"] ?? join(homedir(), ".local", "state"), "opencode", "service.json")
+  const base = process.env["XDG_STATE_HOME"] ?? join(homedir(), ".local", "state")
+  const orchestra = process.env["ORCHESTRA_STATE_DIR"]
+    ? join(process.env["ORCHESTRA_STATE_DIR"], "service.json")
+    : join(base, "orchestra", "service.json")
+  if (existsSync(orchestra)) return orchestra
+  const opencode = process.env["OPENCODE_STATE_DIR"]
+    ? join(process.env["OPENCODE_STATE_DIR"], "service.json")
+    : join(base, "opencode", "service.json")
+  if (existsSync(opencode)) return opencode
+  return orchestra
 }
 
 /** Whether two registrations describe the same service instance. */

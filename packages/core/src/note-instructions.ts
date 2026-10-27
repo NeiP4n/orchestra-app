@@ -84,7 +84,8 @@ export const node = makeLocationNode({ service: Service, layer, deps: [NoteStore
 function render(canvas: Canvas) {
   return [
     "<canvas>",
-    `  The user is working on the note "${canvas.title}" (.opencode/notes/${canvas.name}.md) alongside this chat.`,
+    `  The user is working on the note "${canvas.title}" (.orchestra/notes/${canvas.name}.md) alongside this chat.`,
+    "  Existing notes under .opencode/notes/ are read as a fallback; new and updated notes are saved under .orchestra/notes/.",
     "  This is the only thing you can change in this chat: read the note with the note tool, then write the result into it with note edit, passing expectedMtime from that read.",
     "  If the user asks for anything outside the note, do not do it and do not look for another tool: say in one sentence that this chat works only on this note and nothing else will be changed.",
     "  Reply in chat with a one or two sentence summary of what changed instead of repeating the note.",

@@ -14,7 +14,13 @@ import { State } from "./state.js"
 
 export { awaitActivation, type Generation, type Interface, Service } from "./plugin/service.js"
 
+// External plugins discover accounts and model catalogs over the network during setup; a slow
+// provider must not be disabled for taking longer than a local hook to answer.
 const LOAD_TIMEOUT = "30 seconds"
+const EXTERNAL_LOAD_TIMEOUT = "120 seconds"
+
+const loadTimeout = (plugin: Generation) =>
+  plugin.source === undefined || plugin.source.type === "builtin" ? LOAD_TIMEOUT : EXTERNAL_LOAD_TIMEOUT
 
 const layer = Layer.effect(
   Service,
@@ -79,8 +85,8 @@ const layer = Layer.effect(
         // settles would stall all live sessions. A setup that blocks the thread cannot be interrupted.
         // Applied outside the replaced context above so the caller's clock times it.
         Effect.timeoutOrElse({
-          duration: LOAD_TIMEOUT,
-          orElse: () => Effect.fail(new Error(`Plugin setup did not finish within ${LOAD_TIMEOUT}`)),
+          duration: loadTimeout(plugin),
+          orElse: () => Effect.fail(new Error(`Plugin setup did not finish within ${loadTimeout(plugin)}`)),
         }),
         Effect.onExit((exit) =>
           Exit.isFailure(exit) && !activation.failure ? Scope.close(activation.scope, exit) : Effect.void,

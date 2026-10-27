@@ -23,7 +23,7 @@ const providerIDs = [
 ] as const
 
 export const PromptCacheKeyPlugin = define({
-  id: "opencode.provider.prompt-cache-key",
+  id: "orchestra.provider.prompt-cache-key",
   effect: Effect.fn(function* (ctx) {
     yield* ctx.model.transform((models) => {
       for (const id of providerIDs) {

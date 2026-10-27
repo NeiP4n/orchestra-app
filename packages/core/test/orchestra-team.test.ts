@@ -869,10 +869,15 @@ describe("Orchestra team", () => {
         Effect.timeout("2 seconds"),
       )
       expect(question).toContain(`session="${developer.id}"`)
+      expect(question).toMatch(/task="[a-zA-Z0-9_]+"/)
       expect(question).toContain("Which database should the fix target?")
       expect(question).toContain("- Postgres: Production")
       expect(question).toContain("- SQLite")
       expect(yield* questions(project.main!)).toHaveLength(1)
+      const qItem = (yield* sessions.inbox(project.main!)).find(
+        (item) => item.type === "synthetic" && item.payload.text.startsWith("<team-question"),
+      )
+      expect((qItem?.payload as { metadata?: { taskID?: string } })?.metadata?.taskID).toBeDefined()
     }).pipe(Effect.scoped),
   )
 

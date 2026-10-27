@@ -18,7 +18,18 @@ export const Plugin = define({
         editor.configure({
           ...(entry.info.compaction.auto === undefined ? {} : { auto: entry.info.compaction.auto }),
           ...(entry.info.compaction.buffer === undefined ? {} : { buffer: entry.info.compaction.buffer }),
-          ...(entry.info.compaction.threshold === undefined ? {} : { threshold: entry.info.compaction.threshold }),
+          ...(entry.info.compaction.threshold === undefined
+            ? {}
+            : {
+                threshold: SessionCompaction.parseCompactionThreshold(entry.info.compaction.threshold),
+                thresholdPercent: undefined,
+              }),
+          ...(entry.info.compaction.threshold_percent === undefined
+            ? {}
+            : { thresholdPercent: entry.info.compaction.threshold_percent }),
+          ...(entry.info.compaction.keep_free_percent === undefined
+            ? {}
+            : { keepFreePercent: entry.info.compaction.keep_free_percent }),
           ...(entry.info.compaction.keep?.tokens === undefined ? {} : { keep: entry.info.compaction.keep.tokens }),
         })
       }

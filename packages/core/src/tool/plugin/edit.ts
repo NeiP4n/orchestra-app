@@ -137,7 +137,7 @@ export const closestRegion = (source: string, search: string) => {
 // TODO: Add LSP notification and diagnostics after LSP runtime exists.
 
 export const Plugin = {
-  id: "opencode.tool.edit",
+  id: "orchestra.tool.edit",
   effect: Effect.fn("EditTool.Plugin")(function* (ctx: Context) {
     const access = yield* FileAccess.Service
     const fileMutation = yield* FileMutation.Service
@@ -252,11 +252,11 @@ export const Plugin = {
                 content: `Edited ${output.files[0]?.file} (${output.replacements} replacement${output.replacements === 1 ? "" : "s"})`,
                 metadata: { files: output.files },
               })),
-              Effect.mapError((error) =>
-                error instanceof ToolFailure
-                  ? error
-                  : new ToolFailure({ message: `Unable to edit ${input.path}`, error }),
-              ),
+              Effect.mapError((error) => {
+                if (error instanceof ToolFailure) return error
+                const cause = error instanceof Error ? `: ${error.message}` : error ? `: ${String(error)}` : ""
+                return new ToolFailure({ message: `Unable to edit ${input.path}${cause}`, error })
+              }),
             )
           },
         }),

@@ -1,18 +1,56 @@
-# Installs Opencode++ for Windows with one command. In PowerShell:
+# Installs Orchestra (Opencode++) for Windows with one command. In PowerShell:
 #
 #   irm https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/lan-rooms/opencode-pp-install.ps1 | iex
 #
 # The installer installs Git through winget when needed, installs Bun through the official
 # Bun PowerShell installer, checks out the lan-rooms branch (or the newest release tag),
-# installs the CLI dependencies, and creates `opencode-pp.cmd`.
-# A normal `opencode` installation is left untouched.
+# installs the CLI dependencies, and creates `orchestra.cmd`, `opencode-pp.cmd`, and `opencode.cmd`.
 & {
 $ErrorActionPreference = "Stop"
 
-$Repo = if ($env:ORCHESTRA_PP_REPO) { $env:ORCHESTRA_PP_REPO } else { "https://github.com/NeiP4n/opencode-plus-plus.git" }
-$Dir = if ($env:ORCHESTRA_PP_DIR) { $env:ORCHESTRA_PP_DIR } else { Join-Path $env:LOCALAPPDATA "opencode-pp" }
+$Repo = if ($env:ORCHESTRA_REPO) { $env:ORCHESTRA_REPO } elseif ($env:ORCHESTRA_PP_REPO) { $env:ORCHESTRA_PP_REPO } else { "https://github.com/NeiP4n/opencode-plus-plus.git" }
+$Branch = if ($env:ORCHESTRA_BRANCH) { $env:ORCHESTRA_BRANCH } elseif ($env:ORCHESTRA_PP_BRANCH) { $env:ORCHESTRA_PP_BRANCH } else { "lan-rooms" }
+
+$UserHome = if ($env:USERPROFILE) { $env:USERPROFILE } elseif ($HOME) { $HOME } else { "." }
+$DefaultShare = Join-Path $UserHome ".local\share"
+
+$Dir = if ($env:ORCHESTRA_DIR) {
+  $env:ORCHESTRA_DIR
+} elseif ($env:ORCHESTRA_PP_DIR) {
+  $env:ORCHESTRA_PP_DIR
+} else {
+  $OrchestraShare = Join-Path $DefaultShare "orchestra"
+  $OpencodeShare = Join-Path $DefaultShare "opencode"
+  $OpencodePpShare = Join-Path $DefaultShare "opencode-pp"
+  $LegacyLocalApp = Join-Path $env:LOCALAPPDATA "opencode-pp"
+  $LegacyLocalAppOrch = Join-Path $env:LOCALAPPDATA "orchestra"
+  $LegacyLocalAppOc = Join-Path $env:LOCALAPPDATA "opencode"
+
+  if (Test-Path (Join-Path $OrchestraShare "src\.git")) {
+    $OrchestraShare
+  } elseif (Test-Path (Join-Path $OpencodeShare "src\.git")) {
+    $OpencodeShare
+  } elseif (Test-Path (Join-Path $OpencodePpShare "src\.git")) {
+    $OpencodePpShare
+  } elseif (Test-Path (Join-Path $LegacyLocalApp "src\.git")) {
+    $LegacyLocalApp
+  } elseif (Test-Path (Join-Path $LegacyLocalAppOrch "src\.git")) {
+    $LegacyLocalAppOrch
+  } elseif (Test-Path (Join-Path $LegacyLocalAppOc "src\.git")) {
+    $LegacyLocalAppOc
+  } elseif (Test-Path $OrchestraShare) {
+    $OrchestraShare
+  } elseif (Test-Path $OpencodeShare) {
+    $OpencodeShare
+  } elseif (Test-Path $OpencodePpShare) {
+    $OpencodePpShare
+  } elseif (Test-Path $LegacyLocalApp) {
+    $LegacyLocalApp
+  } else {
+    $OrchestraShare
+  }
+}
 $Bin = Join-Path $Dir "bin"
-$Branch = if ($env:ORCHESTRA_PP_BRANCH) { $env:ORCHESTRA_PP_BRANCH } else { "lan-rooms" }
 
 function Update-SessionPath {
   $Known = @(
@@ -52,12 +90,20 @@ if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
 
 $Source = Join-Path $Dir "src"
 if (Test-Path (Join-Path $Source ".git")) {
-  Write-Host "Updating Opencode++..."
+  Write-Host "Updating Orchestra..."
   git -C $Source fetch --tags --force origin
 } else {
-  New-Item -ItemType Directory -Force -Path $Dir | Out-Null
-  Write-Host "Downloading Opencode++..."
-  git clone --filter=blob:none $Repo $Source
+  New-Item -ItemType Directory -Force -Path $Source | Out-Null
+  Write-Host "Downloading Orchestra..."
+  $SourceItems = @(Get-ChildItem -LiteralPath $Source -Force -ErrorAction SilentlyContinue)
+  if ($SourceItems.Count -gt 0) {
+    git -C $Source init
+    git -C $Source remote add origin $Repo 2>$null
+    git -C $Source remote set-url origin $Repo
+    git -C $Source fetch --filter=blob:none origin
+  } else {
+    git clone --filter=blob:none $Repo $Source
+  }
 }
 if ($LASTEXITCODE -ne 0) { throw "git failed." }
 
@@ -77,7 +123,7 @@ $PreviousStash = (git -C $Source stash list --format=%H -1 | Out-String).Trim()
 if ($LASTEXITCODE -ne 0) { throw "Could not inspect the Git stash." }
 
 # Preserve tracked edits only; untracked runtime data (.opencode/index, notes, packages/android) must stay in place.
-git -C $Source stash push --message "opencode-pp installer update $(Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK')"
+git -C $Source stash push --message "orchestra installer update $(Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK')"
 if ($LASTEXITCODE -ne 0) { throw "Could not save local changes; no checkout was attempted." }
 
 $CurrentStash = (git -C $Source stash list --format=%H -1 | Out-String).Trim()
@@ -170,20 +216,34 @@ New-Item -ItemType Directory -Force -Path $Bin | Out-Null
 $Bun = (Get-Command bun).Source
 $Cli = Join-Path $Source "packages\cli"
 
-$Wrapper = @"
+$CmdWrapper = @"
 @echo off
 setlocal
 for /f "tokens=2 delims=:" %%c in ('chcp') do set "ORCHESTRA_PP_CP=%%c"
 chcp 65001 >nul
-set "ORCHESTRA_COMMAND=opencode-pp"
+if not defined ORCHESTRA_COMMAND set "ORCHESTRA_COMMAND=%~n0"
 "$Bun" --preload="$Cli\node_modules\@opentui\solid\scripts\preload.js" "$Cli\src\index.ts" %*
 set "ORCHESTRA_PP_EXIT=%ERRORLEVEL%"
 if defined ORCHESTRA_PP_CP chcp %ORCHESTRA_PP_CP% >nul
 exit /b %ORCHESTRA_PP_EXIT%
 "@
-[System.IO.File]::WriteAllText((Join-Path $Bin "opencode-pp.cmd"), $Wrapper, (New-Object System.Text.UTF8Encoding($false)))
 
-Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $Bin "opencode.cmd")
+[System.IO.File]::WriteAllText((Join-Path $Bin "orchestra.cmd"), $CmdWrapper, (New-Object System.Text.UTF8Encoding($false)))
+[System.IO.File]::WriteAllText((Join-Path $Bin "opencode-pp.cmd"), $CmdWrapper, (New-Object System.Text.UTF8Encoding($false)))
+[System.IO.File]::WriteAllText((Join-Path $Bin "opencode.cmd"), $CmdWrapper, (New-Object System.Text.UTF8Encoding($false)))
+
+$ShWrapper = @"
+#!/bin/sh
+cmd=`$(basename "`$0")
+case "`$cmd" in
+  orchestra|opencode-pp|opencode) ;;
+  *) cmd="orchestra" ;;
+esac
+ORCHESTRA_COMMAND="`${ORCHESTRA_COMMAND:-`$cmd}" exec "$Bun" --preload="$Cli/node_modules/@opentui/solid/scripts/preload.js" "$Cli/src/index.ts" "`$@"
+"@
+[System.IO.File]::WriteAllText((Join-Path $Bin "orchestra"), ($ShWrapper -replace "`r`n", "`n"), (New-Object System.Text.UTF8Encoding($false)))
+[System.IO.File]::WriteAllText((Join-Path $Bin "opencode-pp"), ($ShWrapper -replace "`r`n", "`n"), (New-Object System.Text.UTF8Encoding($false)))
+[System.IO.File]::WriteAllText((Join-Path $Bin "opencode"), ($ShWrapper -replace "`r`n", "`n"), (New-Object System.Text.UTF8Encoding($false)))
 
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
 $UserPathEntries = @($UserPath -split ";" | Where-Object { $_ })
@@ -195,6 +255,6 @@ if ($UserPathEntries -notcontains $Bin) {
 if (@($env:Path -split ";") -notcontains $Bin) { $env:Path = "$Bin;$env:Path" }
 
 Write-Host ""
-Write-Host "Opencode++ $Version is installed."
-Write-Host "Run: opencode-pp"
+Write-Host "Orchestra $Version is installed."
+Write-Host "Run: orchestra"
 }

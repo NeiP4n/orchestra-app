@@ -1,8 +1,8 @@
-import type { LocationGetOutput, OpenCodeClient } from "@orchestra/client/promise"
+import type { LocationGetOutput, OrchestraClient } from "@orchestra/client/promise"
 import type { Data } from "@orchestra/client/solid"
 
 export async function createWorktree(input: {
-  api: Pick<OpenCodeClient, "location" | "worktree">
+  api: Pick<OrchestraClient, "location" | "worktree">
   data: Pick<Data, "location">
   directory: string
   project?: LocationGetOutput["project"]

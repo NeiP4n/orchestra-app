@@ -5,13 +5,15 @@ import fs from "fs/promises"
 import path from "path"
 import { Effect, Option, Result, Schema } from "effect"
 import { SkillMarketplace } from "@orchestra/schema/skill-marketplace"
+import { ProjectDirs } from "../project-dirs.js"
 
 /**
- * The cache lives inside the project, beside the other `.opencode` state, so what an agent can
+ * The cache lives inside the project, beside the other project state, so what an agent can
  * find is what this project already knows: the directory travels with the repository, and two
  * projects never share an answer about what they have seen.
  */
-export const DIRECTORY = ".opencode/skill-catalog"
+export const DIRECTORY = ProjectDirs.primary("skill-catalog")
+export const LEGACY_DIRECTORY = ProjectDirs.legacy("skill-catalog")
 
 /** Layout version; an index written by another version counts as damaged rather than guessed at. */
 export const VERSION = 1
@@ -73,7 +75,19 @@ const attempt = <A>(run: () => Promise<A>) => Effect.tryPromise({ try: run, catc
  */
 export const load = (directory: string): Effect.Effect<Index> =>
   Effect.gen(function* () {
-    const read = yield* attempt(() => fs.readFile(paths(directory).skills, "utf8")).pipe(Effect.result)
+    let read = yield* attempt(() => fs.readFile(paths(directory).skills, "utf8")).pipe(Effect.result)
+    if (Result.isFailure(read) && absent(read.failure)) {
+      const fallbackDir = directory.replace(
+        new RegExp(`([/\\\\])${ProjectDirs.PRIMARY_DIR.replace(".", "\\.")}([/\\\\]|$)`),
+        `$1${ProjectDirs.LEGACY_DIR}$2`,
+      )
+      if (fallbackDir !== directory) {
+        const fallbackRead = yield* attempt(() => fs.readFile(paths(fallbackDir).skills, "utf8")).pipe(Effect.result)
+        if (Result.isSuccess(fallbackRead) || !absent(fallbackRead.failure)) {
+          read = fallbackRead
+        }
+      }
+    }
     if (Result.isFailure(read))
       return absent(read.failure)
         ? { skills: new Map(), degraded: false, damage: undefined }
@@ -102,7 +116,16 @@ const damaged = (damage: string): Index => ({ skills: new Map(), degraded: true,
 /** Meta is provenance, not data: a damaged one answers with "never written" and leaves the rows. */
 export const loadMeta = (directory: string): Effect.Effect<Meta> =>
   Effect.gen(function* () {
-    const read = yield* attempt(() => fs.readFile(paths(directory).meta, "utf8")).pipe(Effect.option)
+    let read = yield* attempt(() => fs.readFile(paths(directory).meta, "utf8")).pipe(Effect.option)
+    if (Option.isNone(read)) {
+      const fallbackDir = directory.replace(
+        new RegExp(`([/\\\\])${ProjectDirs.PRIMARY_DIR.replace(".", "\\.")}([/\\\\]|$)`),
+        `$1${ProjectDirs.LEGACY_DIR}$2`,
+      )
+      if (fallbackDir !== directory) {
+        read = yield* attempt(() => fs.readFile(paths(fallbackDir).meta, "utf8")).pipe(Effect.option)
+      }
+    }
     if (Option.isNone(read)) return emptyMeta
     const decoded = Schema.decodeUnknownOption(metaSchema)(safeParse(read.value))
     if (Option.isNone(decoded) || decoded.value.version !== VERSION) return emptyMeta

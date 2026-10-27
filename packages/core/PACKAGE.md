@@ -1,10 +1,10 @@
-# @orchestra/core — the opencode core
+# @orchestra/core — the Orchestra core
 
 ## What This Is
 
 The heart of the system: 431 files, ~65k lines in `src/` (plus ~96k lines
 of tests in `core/test/` — the logic lives in `src/`). Everything that
-makes opencode opencode lives here: sessions, model tools, providers,
+makes Orchestra Orchestra lives here: sessions, model tools, providers,
 permissions, database, configuration, plugins, filesystem, git, MCP,
 skills.
 

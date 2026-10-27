@@ -157,7 +157,7 @@ export const Input = Schema.Struct({
 export const Output = Schema.Struct({ output: Schema.String })
 
 export const Plugin = {
-  id: "opencode.tool.federation",
+  id: "orchestra.tool.federation",
   effect: Effect.fn("FederationTool.Plugin")(function* (ctx: Context) {
     const federation = yield* Federation.Service
     const orchestra = yield* Orchestra.Service

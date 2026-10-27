@@ -1,10 +1,10 @@
 // TODO: Keep additional network capabilities inside Schema and Protocol as the client grows; /effect must never import
 // Core or Server. Preserve these datatype exports so internal model reorganizations do not require caller migrations.
 import type { Effect } from "effect"
-import type { OpenCode } from "./client.js"
+import type { Orchestra } from "./client.js"
 
 export * from "./generated/index"
-export { OpenCode } from "./client.js"
+export { OpenCode, Orchestra } from "./client.js"
 export type {
   AgentApi,
   AppApi,
@@ -50,5 +50,6 @@ export { SessionMessage } from "@orchestra/schema/session-message"
 export { Skill } from "@orchestra/schema/skill"
 export { Prompt } from "@orchestra/schema/prompt"
 export { PromptInput } from "@orchestra/schema/prompt-input"
-export type { OpenCodeEvent } from "@orchestra/protocol/groups/event"
-export type OpenCodeClient = Effect.Success<ReturnType<typeof OpenCode.make>>
+export type { OpenCodeEvent, OrchestraEvent } from "@orchestra/protocol/groups/event"
+export type OrchestraClient = Effect.Success<ReturnType<typeof Orchestra.make>>
+export type OpenCodeClient = OrchestraClient

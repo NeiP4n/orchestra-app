@@ -1,6 +1,7 @@
 import path from "path"
 import fs from "fs/promises"
 import { describe, expect, test } from "bun:test"
+import { parse as parseJsonc } from "jsonc-parser"
 import { Effect, Fiber, Layer, Logger, Schema, Stream } from "effect"
 import { FastCheck } from "effect/testing"
 import { Config } from "@orchestra/core/config"
@@ -1136,6 +1137,85 @@ describe("Config", () => {
     ),
   )
 
+  it.live("loads orchestra.json with higher priority than opencode.json and falls back gracefully", () =>
+    Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          yield* Effect.promise(() =>
+            Promise.all([
+              fs.writeFile(
+                path.join(tmp.path, "opencode.json"),
+                JSON.stringify({ $schema: "legacy-json", username: "legacy-user" }),
+              ),
+              fs.writeFile(
+                path.join(tmp.path, "orchestra.json"),
+                JSON.stringify({ $schema: "orchestra-json", username: "orchestra-user" }),
+              ),
+              fs.writeFile(
+                path.join(tmp.path, "orchestra.jsonc"),
+                JSON.stringify({ $schema: "orchestra-jsonc" }),
+              ),
+            ]),
+          )
+          return yield* Effect.gen(function* () {
+            const config = yield* Config.Service
+            const documents = (yield* config.entries()).filter((entry) => entry.type === "document")
+
+            expect(documents).toHaveLength(3)
+            expect(documents.map((document) => document.info.$schema)).toEqual([
+              "legacy-json",
+              "orchestra-json",
+              "orchestra-jsonc",
+            ])
+            expect(documents.findLast((document) => document.info.username !== undefined)?.info.username).toBe(
+              "orchestra-user",
+            )
+          }).pipe(Effect.provide(testLayer(tmp.path)))
+        }),
+      ),
+    ),
+  )
+
+  it.live("loads .orchestra project directory with higher priority than .opencode", () =>
+    Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const dotOpencode = path.join(tmp.path, ".opencode")
+          const dotOrchestra = path.join(tmp.path, ".orchestra")
+          yield* Effect.promise(async () => {
+            await fs.mkdir(dotOpencode, { recursive: true })
+            await fs.mkdir(dotOrchestra, { recursive: true })
+            await Promise.all([
+              fs.writeFile(
+                path.join(dotOpencode, "opencode.json"),
+                JSON.stringify({ $schema: "legacy-dot", username: "legacy-dot-user" }),
+              ),
+              fs.writeFile(
+                path.join(dotOrchestra, "orchestra.json"),
+                JSON.stringify({ $schema: "orchestra-dot", username: "orchestra-dot-user" }),
+              ),
+            ])
+          })
+          return yield* Effect.gen(function* () {
+            const config = yield* Config.Service
+            const entries = yield* config.entries()
+            const directories = entries.filter((entry) => entry.type === "directory")
+            const documents = entries.filter((entry) => entry.type === "document")
+
+            expect(directories.map((entry) => entry.path)).toContain(AbsolutePath.make(dotOpencode))
+            expect(directories.map((entry) => entry.path)).toContain(AbsolutePath.make(dotOrchestra))
+            expect(directories.findIndex((entry) => entry.path === dotOrchestra)).toBeGreaterThan(
+              directories.findIndex((entry) => entry.path === dotOpencode),
+            )
+            expect(documents.findLast((document) => document.info.username !== undefined)?.info.username).toBe(
+              "orchestra-dot-user",
+            )
+          }).pipe(Effect.provide(testLayer(tmp.path)))
+        }),
+      ),
+    ),
+  )
+
   it.live("substitutes environment variables and relative file contents", () =>
     Effect.acquireUseRelease(
       Effect.sync(() => {
@@ -1321,6 +1401,8 @@ describe("Config", () => {
                   prune: false,
                   keep: { tokens: 2000 },
                   buffer: 10000,
+                  threshold_percent: 75,
+                  keep_free_percent: 25,
                 },
                 skills: ["./skills", "~/shared-skills", "https://example.com/.well-known/skills/"],
                 instructions: ["CONTRIBUTING.md", ".cursor/rules/*.md", "https://example.com/shared-rules.md"],
@@ -1405,6 +1487,8 @@ describe("Config", () => {
               auto: true,
               keep: { tokens: 2000 },
               buffer: 10000,
+              threshold_percent: 75,
+              keep_free_percent: 25,
             })
             expect(documents[0]?.info.skills).toEqual([
               "./skills",
@@ -1756,6 +1840,97 @@ describe("Config", () => {
               }),
             ),
           )
+        })
+      }),
+    ),
+  )
+
+  it.live("updates and persists global configuration fields through Config.update (CORE-AUDIT-001)", () =>
+    Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
+      Effect.flatMap((tmp) => {
+        const global = path.join(tmp.path, "global")
+        const project = path.join(tmp.path, "project")
+        return Effect.gen(function* () {
+          yield* Effect.promise(async () => {
+            await fs.mkdir(global, { recursive: true })
+            await fs.mkdir(project, { recursive: true })
+            await fs.writeFile(
+              path.join(global, "orchestra.jsonc"),
+              JSON.stringify({
+                shell: "/bin/sh",
+                model: "openai/gpt-4o",
+              }),
+            )
+          })
+
+          return yield* Effect.gen(function* () {
+            const config = yield* Config.Service
+            expect(config.update).toBeDefined()
+
+            // 1. Применяем patch со всеми новыми поддерживаемыми полями
+            yield* config.update!({
+              shell: "/bin/zsh",
+              update: "auto",
+              warming: true,
+              skills: ["./custom-skills", "https://skills.example.com"],
+              instructions: ["./AGENTS.md"],
+              permissions: [{ action: "shell", resource: "*", effect: "allow" }],
+              plugins: ["@orchestra/plugin-test"],
+              tool_output: { max_lines: 500, max_bytes: 50000 },
+              media: { image: { max_width: 1920 } },
+              commands: {
+                build: { template: "bun run build", description: "Build project" },
+              },
+              default_agent: "lead",
+              agents: {
+                coder: { system: "You are coder.", mode: "primary" },
+              },
+              compaction: { threshold: 350000 },
+            })
+
+            // 2. Читаем сохраненный orchestra.jsonc с диска и проверяем AST сериализацию
+            const diskContent = yield* Effect.promise(() => fs.readFile(path.join(global, "orchestra.jsonc"), "utf8"))
+            const parsed = parseJsonc(diskContent)
+            expect(parsed.shell).toBe("/bin/zsh")
+            expect(parsed.update).toBe("auto")
+            expect(parsed.warming).toBe(true)
+            expect(parsed.skills).toEqual(["./custom-skills", "https://skills.example.com"])
+            expect(parsed.instructions).toEqual(["./AGENTS.md"])
+            expect(parsed.permissions).toEqual([{ action: "shell", resource: "*", effect: "allow" }])
+            expect(parsed.plugins).toEqual(["@orchestra/plugin-test"])
+            expect(parsed.tool_output.max_lines).toBe(500)
+            expect(parsed.tool_output.max_bytes).toBe(50000)
+            expect(parsed.media.image.max_width).toBe(1920)
+            expect(parsed.commands.build.template).toBe("bun run build")
+            expect(parsed.default_agent).toBe("lead")
+            expect(parsed.agents.coder.system).toBe("You are coder.")
+            expect(parsed.compaction.threshold).toBe(350000)
+
+            // 3. Удаляем часть полей через null и обновляем вложенный ключ
+            yield* config.update!({
+              shell: null,
+              skills: null,
+              commands: { build: null },
+              compaction: null,
+              media: null,
+              tool_output: null,
+            })
+
+            const updatedDiskContent = yield* Effect.promise(() =>
+              fs.readFile(path.join(global, "orchestra.jsonc"), "utf8"),
+            )
+            const updatedParsed = parseJsonc(updatedDiskContent)
+            expect(updatedParsed.shell).toBeUndefined()
+            expect(updatedParsed.skills).toBeUndefined()
+            expect(updatedParsed.commands.build).toBeUndefined()
+            expect(updatedParsed.compaction).toBeUndefined()
+            expect(updatedParsed.media).toBeUndefined()
+            expect(updatedParsed.tool_output).toBeUndefined()
+            // Сохраненные поля не затерты
+            expect(updatedParsed.update).toBe("auto")
+            expect(updatedParsed.default_agent).toBe("lead")
+            expect(updatedParsed.agents.coder.system).toBe("You are coder.")
+          }).pipe(Effect.provide(testLayer(project, global)))
         })
       }),
     ),

@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A thin transport to the opencode server: 30 files, ~16.7k lines in `src/`.
+A thin transport to the Orchestra server: 30 files, ~16.7k lines in `src/`.
 The package contains no core logic — only calls to the endpoints described in
 `protocol`, in three flavours: promise-based, Effect-based and for Solid.
 

@@ -230,7 +230,7 @@ const headless = (app: App.Info) =>
   }) satisfies IntegrationOAuthMethodRegistration
 
 export const OpenAIPlugin = define({
-  id: "opencode.provider.openai",
+  id: "orchestra.provider.openai",
   effect: Effect.fn(function* (ctx) {
     const bus = yield* Bus.Service
     const loading = Semaphore.makeUnsafe(1)

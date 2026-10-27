@@ -1273,4 +1273,43 @@ Earlier work
       },
     ])
   })
+
+  test("truncates excessively large tool output to protect context window", () => {
+    const hugeOutput = "A".repeat(120_000)
+    const messages = toLLMMessages(
+      [
+        SessionMessage.Assistant.make({
+          id: SessionMessage.ID.make("msg_tool"),
+          agent: Agent.ID.make("build"),
+          model: Model.Ref.make({ id: Model.ID.make("same"), providerID: Provider.ID.make("provider") }),
+          content: [
+            SessionMessage.AssistantTool.make({
+              id: "call_read_large",
+              name: "read",
+              state: {
+                status: "completed",
+                input: { path: "big.txt" },
+                content: [{ type: "text", text: hugeOutput }],
+              },
+              time: { created },
+            }),
+          ],
+          time: { created, completed: created },
+        }),
+      ],
+      Model.Ref.make({ id: Model.ID.make("same"), providerID: Provider.ID.make("provider") }),
+    )
+
+    const toolMessage = messages.find((m) => m.role === "tool")
+    expect(toolMessage).toBeDefined()
+    const toolResult = toolMessage?.content.find((p) => p.type === "tool-result")
+    expect(toolResult).toBeDefined()
+    if (toolResult && toolResult.type === "tool-result") {
+      const text = (toolResult.result as any).value
+      expect(text.length).toBeLessThan(120_000)
+      expect(text).toContain("[... truncated:")
+      expect(text.startsWith("A".repeat(1000))).toBe(true)
+      expect(text.endsWith("A".repeat(1000))).toBe(true)
+    }
+  })
 })

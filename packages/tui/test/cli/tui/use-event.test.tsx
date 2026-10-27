@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/solid */
 import { describe, expect, test } from "bun:test"
-import type { OpenCodeClient, OpenCodeEvent } from "@orchestra/client"
+import type { OrchestraClient, OpenCodeEvent } from "@orchestra/client"
 import { testRender } from "@opentui/solid"
 import { onMount } from "solid-js"
 import { ClientProvider, useClient } from "../../../src/context/client"
@@ -46,7 +46,7 @@ function update(version: string): OpenCodeEvent {
   }
 }
 
-async function mount(reconnect?: (signal: AbortSignal) => Promise<{ api: OpenCodeClient }>, log?: LogSink) {
+async function mount(reconnect?: (signal: AbortSignal) => Promise<{ api: OrchestraClient }>, log?: LogSink) {
   const events = createEventStream()
   const calls = createFetch(undefined, events)
   const seen: OpenCodeEvent[] = []

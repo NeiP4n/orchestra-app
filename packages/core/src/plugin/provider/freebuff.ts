@@ -152,7 +152,7 @@ const clientID = "freebuff-opencode"
 const costMode = "free"
 
 export const FreebuffPlugin = define({
-  id: "opencode.provider.freebuff",
+  id: "orchestra.provider.freebuff",
   effect: Effect.fn(function* (ctx) {
     const http = yield* HttpClient.HttpClient
     const bus = yield* Bus.Service

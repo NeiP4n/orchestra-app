@@ -1,6 +1,6 @@
 export * as PromiseSdk from "./promise"
 
-import { OpenCode, type OpenCodeClient } from "@orchestra/client"
+import { OpenCode, type OrchestraClient } from "@orchestra/client"
 import type { Plugin } from "@orchestra/plugin"
 import { Session } from "@orchestra/schema/session"
 import { Effect, Schema } from "effect"
@@ -22,10 +22,10 @@ export interface CreateOptions extends Omit<EmbeddedHost.CreateOptions, "workspa
   readonly instances?: InstanceOptions
 }
 
-export type Interface = Omit<OpenCodeClient, "plugin"> & {
-  readonly sessions: OpenCodeClient["session"]
-  readonly events: OpenCodeClient["event"]
-  readonly plugin: ((plugin: Plugin.Plugin) => Promise<void>) & OpenCodeClient["plugin"]
+export type Interface = Omit<OrchestraClient, "plugin"> & {
+  readonly sessions: OrchestraClient["session"]
+  readonly events: OrchestraClient["event"]
+  readonly plugin: ((plugin: Plugin.Plugin) => Promise<void>) & OrchestraClient["plugin"]
   readonly close: () => Promise<void>
   readonly [Symbol.asyncDispose]: () => Promise<void>
 }

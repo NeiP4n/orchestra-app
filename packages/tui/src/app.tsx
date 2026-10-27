@@ -1,5 +1,5 @@
 import { render, useRenderer, useTerminalDimensions } from "@opentui/solid"
-import { registerOpencodeSpinner } from "./component/register-spinner"
+import { registerOrchestraSpinner } from "./component/register-spinner"
 import { Effect, Latch } from "effect"
 import { Service, type Endpoint } from "@orchestra/client/effect/service"
 import { OpenCode, type SessionInfo } from "@orchestra/client"
@@ -134,7 +134,7 @@ import { PanelProvider, usePanel } from "./context/panel"
 import { SessionFrame } from "./component/session-frame"
 import { createTuiClipboard } from "./clipboard"
 
-registerOpencodeSpinner()
+registerOrchestraSpinner()
 
 const appGlobalBindingCommands = ["session.list", "session.new", "open.menu"] as const
 

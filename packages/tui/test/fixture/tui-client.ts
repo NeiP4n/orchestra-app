@@ -168,6 +168,7 @@ export function createFetch(override?: FetchHandler, events?: ReturnType<typeof 
     if (url.pathname === "/vcs") return json({ branch: "main" })
     if (url.pathname === "/api/experimental/migration/v1") return json({ status: "completed" })
     if (url.pathname === "/api/room") return json({ data: [] })
+    if (url.pathname === "/api/room/mesh") return json({ status: "unconfigured" })
     // The rooms this computer joined, which the app registers so its AI can reach them.
     if (url.pathname === "/api/room/link")
       return request.method === "GET" ? json({ data: [] }) : new Response(null, { status: 204 })
@@ -179,6 +180,8 @@ export function createFetch(override?: FetchHandler, events?: ReturnType<typeof 
     if (url.pathname === "/api/note" && request.method === "GET")
       return json({ location: { directory, project: { id: "proj_test", directory: worktree } }, data: [] })
     if (url.pathname === "/api/orchestra/project") return json([])
+    if (/^\/api\/orchestra\/project\/[^/]+\/session$/.test(url.pathname))
+      return json({ data: [], access: {}, category: {} })
     if (url.pathname === "/api/orchestra/group") return json([])
     if (url.pathname === "/api/orchestra/owner") return json({})
     // Other agent tools' folders (/compat): none in the test project.

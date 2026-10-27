@@ -28,7 +28,7 @@ export function icons(channel: string): Plugin {
   ]
 
   return {
-    name: "opencode-app:icons",
+    name: "orchestra-app:icons",
     generateBundle() {
       files.forEach((file) => this.emitFile({ type: "asset", fileName: file.fileName, source: file.source }))
     },

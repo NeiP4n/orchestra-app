@@ -9,7 +9,8 @@ import { hoverBackground } from "../../ui/hover"
 import { useTheme } from "../../context/theme"
 
 export const DOD_PANEL = "opencode.sidebar.dod"
-const FILE = path.join(".opencode", "dod.yaml")
+const FILE = path.join(".orchestra", "dod.yaml")
+const LEGACY_FILE = path.join(".opencode", "dod.yaml")
 const FINISHED = new Set(["DONE", "OUT_OF_SCOPE"])
 
 // Match the core's project-root rule: the nearest .git/.hg marker wins, otherwise
@@ -21,6 +22,14 @@ async function exists(target: string) {
   } catch {
     return false
   }
+}
+
+export async function resolveDodPath(root: string): Promise<string | undefined> {
+  const primary = path.join(root, FILE)
+  if (await Bun.file(primary).exists()) return primary
+  const legacy = path.join(root, LEGACY_FILE)
+  if (await Bun.file(legacy).exists()) return legacy
+  return undefined
 }
 
 export async function resolveDodRoot(directory: string): Promise<string> {
@@ -190,12 +199,12 @@ export function SidebarDod(props: { context: Plugin.Context; sessionID: string }
     }
     try {
       const root = await resolveDodRoot(directory)
-      const file = Bun.file(path.join(root, FILE))
-      if (!(await file.exists())) {
+      const target = await resolveDodPath(root)
+      if (!target) {
         if (current === revision) setBoard({ type: "missing" })
         return
       }
-      const items = await readDodBoard(path.join(root, FILE))
+      const items = await readDodBoard(target)
       if (current === revision) setBoard({ type: "ready", items })
       strike = false
     } catch (cause) {
@@ -366,12 +375,12 @@ export function SidebarDodPanel(props: { context: Plugin.Context; panel: PanelIn
       const root = await resolveDodRoot(directory)
       if (current !== revision) return
       setBoardRoot(root)
-      const file = Bun.file(path.join(root, FILE))
-      if (!(await file.exists())) {
+      const target = await resolveDodPath(root)
+      if (!target) {
         if (current === revision) setBoard({ type: "missing" })
         return
       }
-      const items = await readDodBoard(path.join(root, FILE))
+      const items = await readDodBoard(target)
       if (current === revision) setBoard({ type: "ready", items })
       strike = false
     } catch (cause) {
@@ -413,7 +422,8 @@ export function SidebarDodPanel(props: { context: Plugin.Context; panel: PanelIn
       label: { confirm: t("Delete all"), cancel: t("Cancel") },
     })
     if (!accepted) return
-    await deleteAllDodTasks(path.join(root, FILE)).catch((cause) =>
+    const target = (await resolveDodPath(root)) ?? path.join(root, FILE)
+    await deleteAllDodTasks(target).catch((cause) =>
       setBoard({ type: "error", reason: cause instanceof Error ? cause.message : String(cause) }),
     )
     await refresh(directory())

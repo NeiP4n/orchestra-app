@@ -1,5 +1,5 @@
 import { getDirectory, getFilename } from "@orchestra/util/path"
-import type { OpenCodeClient } from "@orchestra/client/promise"
+import type { OrchestraClient } from "@orchestra/client/promise"
 
 const types = new Map([
   ["png", "image/png"],
@@ -14,7 +14,7 @@ const types = new Map([
 ])
 
 export async function readLocalImage(
-  api: Pick<OpenCodeClient, "file">,
+  api: Pick<OrchestraClient, "file">,
   directory: string,
   path: string,
   signal: AbortSignal,

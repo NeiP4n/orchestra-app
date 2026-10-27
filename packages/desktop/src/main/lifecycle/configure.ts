@@ -51,7 +51,7 @@ export function acquireApplicationLock() {
 
 function createTestRoot() {
   const root = testOnboarding
-    ? path.join(tmpdir(), `opencode-onboarding-${randomUUID()}`)
+    ? path.join(tmpdir(), `orchestra-onboarding-${randomUUID()}`)
     : app.isPackaged
       ? undefined
       : process.env.ORCHESTRA_DESKTOP_TEST_ROOT

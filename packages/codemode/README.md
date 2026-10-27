@@ -115,7 +115,7 @@ create namespaces:
 
 ```ts
 const api = OpenAPI.fromSpec({ spec, auth: { resolve } })
-const runtime = CodeMode.make({ tools: { opencode: api.tools } })
+const runtime = CodeMode.make({ tools: { orchestra: api.tools } })
 ```
 
 The synchronous result is `{ tools, skipped }`. Operations with unsupported parameter encodings, request bodies

@@ -8,11 +8,13 @@ import { optional } from "@orchestra/schema/schema"
 import { Effect, Result, Schema } from "effect"
 import { NoteStore } from "../../note.js"
 import { Permission } from "../../permission.js"
+import { ProjectDirs } from "../../project-dirs.js"
 
 export const name = "note"
 
 /** Notes folder relative to the working directory, and what the permission ask names. */
-const FOLDER = ".opencode/notes"
+const FOLDER = ProjectDirs.primary("notes")
+const LEGACY_FOLDER = ProjectDirs.legacy("notes")
 
 export const Input = Schema.Struct({
   action: Schema.Literals(["list", "read", "create", "edit", "update"]).annotate({
@@ -53,7 +55,7 @@ export const Output = Schema.Struct({
 export type Output = typeof Output.Type
 
 export const description = [
-  "Read and write the project notes: markdown files in .opencode/notes/, one file per note, and the file name is the note id.",
+  `Read and write the project notes: markdown files in ${FOLDER}/, one file per note, and the file name is the note id. Existing notes in ${LEGACY_FOLDER}/ are read as a fallback; new and updated notes are saved in ${FOLDER}/.`,
   "",
   "Actions:",
   "  list — every note as `- name [status] title`, then its tags and its `updated` file mtime, newest first; an `updated` value from here can be passed straight back as expectedMtime.",
@@ -70,7 +72,7 @@ export const description = [
 ].join("\n")
 
 export const Plugin = {
-  id: "opencode.tool.note",
+  id: "orchestra.tool.note",
   effect: Effect.fn("NoteTool.Plugin")(function* (ctx: Context) {
     const notes = yield* NoteStore.Service
     const permission = yield* Permission.Service

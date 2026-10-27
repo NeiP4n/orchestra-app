@@ -1,8 +1,6 @@
 import { Context, Effect, Exit, Layer, LayerMap, RcMap } from "effect"
 import { LayerNode } from "@orchestra/util/effect/layer-node"
 import { Node } from "@orchestra/util/effect/app-node"
-import { AbsolutePath } from "@orchestra/schema/schema"
-import path from "path"
 import { Location } from "./location.js"
 import type { Instance } from "./instance.js"
 
@@ -38,7 +36,7 @@ export const reload = Effect.fn("LocationServiceMap.reload")(function* () {
 /** Normalize equivalent placements before they become resource-cache keys. */
 export function canonical(ref: Location.Ref) {
   return Location.Ref.make({
-    directory: AbsolutePath.make(process.platform === "win32" ? path.normalize(ref.directory) : ref.directory),
+    directory: Location.sanitizePath(ref.directory),
     workspaceID: ref.workspaceID,
   })
 }

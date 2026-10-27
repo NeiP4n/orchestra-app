@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import path from "node:path"
 import electron from "electron"
 
-import { SETTINGS_STORE } from "./keys"
+import { LEGACY_SETTINGS_STORE, SETTINGS_STORE } from "./keys"
 
 const cache = new Map<string, SettingsStore>()
 
@@ -17,20 +17,30 @@ export type SettingsStore = ReturnType<typeof createSettingsStore>
 //
 // We cannot instantiate the store at module load time because module import hoisting causes this
 // to run before app.setPath("userData", ...) has executed, which would result in files being
-// written to the default directory (e.g. bad: %APPDATA%\@opencode\desktop\opencode.settings vs
-// good: %APPDATA%\ai.opencode.desktop.dev\opencode.settings).
+// written to the default directory (e.g. bad: %APPDATA%\@orchestra\desktop\orchestra.settings vs
+// good: %APPDATA%\com.nei4pn.orchestra.dev\orchestra.settings).
 export function getStore(name = SETTINGS_STORE) {
   const cached = cache.get(name)
 
   if (cached) return cached
-  const next = createSettingsStore(path.join(electron.app.getPath("userData"), name))
+  const userData = electron.app.getPath("userData")
+  const file = path.join(userData, name)
+  const fallback = name === SETTINGS_STORE ? path.join(userData, LEGACY_SETTINGS_STORE) : undefined
+  const next = createSettingsStore(file, fallback)
   cache.set(name, next)
 
   return next
 }
 
-export function createSettingsStore(file: string) {
+export function createSettingsStore(file: string, fallbackFile?: string) {
   let data = read(file)
+
+  if (Object.keys(data).length === 0 && fallbackFile && existsSync(fallbackFile)) {
+    const fallbackData = read(fallbackFile)
+    if (Object.keys(fallbackData).length > 0) {
+      data = { ...fallbackData }
+    }
+  }
 
   const write = () => {
     mkdirSync(path.dirname(file), { recursive: true })

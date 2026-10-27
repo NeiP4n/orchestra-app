@@ -3,10 +3,10 @@
 ## What This Is
 
 TUI: 281 files, ~62k lines in `src/` — the second largest package after
-`app`. A full terminal interface for opencode: sessions, tabs, prompt, dialogs,
+`app`. A full terminal interface for Orchestra: sessions, tabs, prompt, dialogs,
 themes, attention sounds, editor integration.
 
-Started with the `opencode tui` command from `packages/cli`.
+Started with the `orchestra tui` command from `packages/cli`.
 
 ## Layers and Dependencies
 

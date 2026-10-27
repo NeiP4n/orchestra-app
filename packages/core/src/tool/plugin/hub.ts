@@ -149,7 +149,7 @@ export const matches = (entry: Hub.Entry, query: string, category?: string) => {
 }
 
 export const Plugin = {
-  id: "opencode.tool.hub",
+  id: "orchestra.tool.hub",
   effect: Effect.fn("HubTool.Plugin")(function* (ctx: Context) {
     const sessions = yield* Session.Service
     const jobs = yield* Job.Service
@@ -357,6 +357,7 @@ export const Plugin = {
                 (invocation) =>
                   Effect.gen(function* () {
                     invocation.env.AGENT = "1"
+                    invocation.env.ORCHESTRA = "1"
                     invocation.env.OPENCODE = "1"
                     invocation.env.AI_AGENT ||= "opencode"
                     invocation.env.ORCHESTRA_SESSION_ID = context.sessionID

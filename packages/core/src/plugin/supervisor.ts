@@ -24,8 +24,20 @@ const resolve = Effect.fn("PluginSupervisor.resolve")(function* (
   install: boolean,
   running: ReadonlyMap<string, Plugin.Generation>,
 ) {
-  const matches = (selector: string, target: string) =>
-    selector === "*" || (selector.endsWith(".*") ? target.startsWith(selector.slice(0, -1)) : selector === target)
+  const matches = (selector: string, target: string) => {
+    if (selector === "*") return true
+    if (selector.endsWith(".*")) {
+      const prefix = selector.slice(0, -1)
+      if (target.startsWith(prefix)) return true
+      if (prefix.startsWith("opencode.") && target.startsWith(`orchestra.${prefix.slice(9)}`)) return true
+      if (prefix.startsWith("orchestra.") && target.startsWith(`opencode.${prefix.slice(10)}`)) return true
+      return false
+    }
+    if (selector === target) return true
+    if (selector.startsWith("opencode.") && target === `orchestra.${selector.slice(9)}`) return true
+    if (selector.startsWith("orchestra.") && target === `opencode.${selector.slice(10)}`) return true
+    return false
+  }
   const definitions = [...pre, ...post]
   const enabled = new Set(definitions.map((plugin) => plugin.id))
   const packages = new Map<string, Plugin.Generation>()
@@ -50,7 +62,8 @@ const resolve = Effect.fn("PluginSupervisor.resolve")(function* (
       matched.length > 0 ||
       operation.target === "*" ||
       operation.target.endsWith(".*") ||
-      operation.target.startsWith("opencode.")
+      operation.target.startsWith("opencode.") ||
+      operation.target.startsWith("orchestra.")
     if (selectsPlugins) {
       matched.forEach((plugin) => enabled.add(plugin.id))
       continue

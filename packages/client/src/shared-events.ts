@@ -4,6 +4,7 @@ export type SubscribeOptions = {
   readonly signal?: AbortSignal
   /** Reports transport activity on the shared stream, including keepalive frames that carry no event. */
   readonly onActivity?: () => void
+  readonly lastEventID?: string
 }
 
 export function make<A extends { readonly type: string }>(

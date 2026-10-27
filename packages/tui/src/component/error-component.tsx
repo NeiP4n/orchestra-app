@@ -14,7 +14,7 @@ export function ErrorComponent(props: { error: Error; reset: () => void; mode?: 
   const app = useTuiApp()
   const [copyState, setCopyState] = createSignal<"idle" | "copied" | "failed">("idle")
 
-  // Safe fallback palette per mode (mirrors theme/assets/opencode.json) since the
+  // Safe fallback palette per mode (mirrors theme/assets/orchestra.json) since the
   // theme context may be the thing that crashed.
   const isLight = props.mode === "light"
   const colors = isLight
@@ -222,9 +222,9 @@ function buildIssueURL(message: string, stack: string, version: string) {
   // Field keys match the ids in .github/ISSUE_TEMPLATE/bug-report.yml so the issue
   // form opens pre-filled. Populating os/terminal/reproduce keeps the report past
   // the contributing-guidelines compliance check, which pushes for system info.
-  const url = new URL("https://github.com/anomalyco/opencode/issues/new?template=bug-report.yml")
+  const url = new URL("https://github.com/NeiP4n/orchestra-app/issues/new?template=bug-report.yml")
   url.searchParams.set("title", `TUI crash: ${message}`)
-  url.searchParams.set("opencode-version", version)
+  url.searchParams.set("orchestra-version", version)
   url.searchParams.set("os", describeOS())
   url.searchParams.set("terminal", describeTerminal())
   url.searchParams.set(

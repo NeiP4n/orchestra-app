@@ -21,6 +21,8 @@ export const supportsTuningPragmas = false
 // allowlisted for migrations that must relax checking inside a transaction.
 export const supportsForeignKeyToggle = false
 
+export function checkpointWal(_filename: string): void {}
+
 // Minimal structural types for the Durable Object storage API so this adapter
 // does not depend on @cloudflare/workers-types (whose ambient globals conflict
 // with @types/bun). Shapes match the SqlStorage and DurableObjectStorage docs.

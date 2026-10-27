@@ -222,7 +222,7 @@ export function defaultForRole(role: {
 }) {
   const explicit = of(role.mode)
   if (explicit) return explicit
-  if (role.id === "researcher") return of("research")
+  if (role.id === "researcher" || role.id === "deep-researcher") return of("research")
   if (role.id === "tester") return of("test")
   if (role.id === "architect") return of("architecture")
   if (role.id === "designer") return of("design")

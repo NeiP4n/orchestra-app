@@ -1,4 +1,4 @@
-import type { OpenCodeClient } from "@orchestra/client/effect"
+import type { OrchestraClient } from "@orchestra/client/effect"
 import { SessionsCursor } from "@orchestra/protocol/groups/session"
 import { AbsolutePath } from "@orchestra/schema/schema"
 import { FSUtil } from "@orchestra/util/fs-util"
@@ -66,7 +66,7 @@ export interface Interface {
 }
 
 export function make(input: {
-  readonly client: OpenCodeClient
+  readonly client: OrchestraClient
   readonly connection: ACPConnection.Interface
   readonly catalog: ACPCatalog.Interface
   readonly sessions: ACPSessions.Interface
@@ -107,13 +107,13 @@ export function make(input: {
       yield* Ref.set(input.capabilities, ACPCapabilities.parse(params.clientCapabilities))
       const authMethod: AuthMethod = {
         description: "Run `orchestra auth login` in the terminal",
-        name: "Login with opencode",
+        name: "Login with Orchestra",
         id: AuthMethodID,
         ...(params.clientCapabilities?.auth?.terminal ? { type: "terminal" as const, args: ["--login"] } : {}),
       }
       if (params.clientCapabilities?._meta?.["terminal-auth"] === true) {
         authMethod._meta = {
-          "terminal-auth": { command: "opencode", args: ["auth", "login"], label: "Orchestra Login" },
+          "terminal-auth": { command: "orchestra", args: ["auth", "login"], label: "Orchestra Login" },
         }
       }
       return {

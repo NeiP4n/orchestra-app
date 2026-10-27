@@ -102,4 +102,24 @@ describe("SessionCompletionGate", () => {
     const messages = [user("fix it"), nudge(), work(), nudge(), work(), nudge(), work(), assistant("Now I will fix it.")]
     expect(SessionCompletionGate.check(messages, empty)).toBeUndefined()
   })
+
+  test("does not nudge while a team subagent task is outstanding", () => {
+    const dispatch = assistant("Dispatched worker.", [
+      { name: "dod", input: { action: "take", id: "L-1" } },
+      { name: "sessions", input: { action: "send", sessionID: "ses_worker", text: "do work" } },
+    ])
+    // Still waiting for team report, so should NOT nudge even though DoD board has open items
+    expect(SessionCompletionGate.check([user("ship it"), dispatch], board(1))).toBeUndefined()
+
+    // Once team report arrives, if item is still open and assistant replies without finishing, it can nudge
+    const report: SessionMessage.Info = {
+      type: "synthetic",
+      id: id(),
+      time,
+      text: '<team-report worker="Worker">Done with task</team-report>',
+      metadata: { source: "team" },
+    }
+    const afterReport = [user("ship it"), dispatch, report, assistant("Worker finished, but steps remain.")]
+    expect(SessionCompletionGate.check(afterReport, board(1))).toContain('L-1 "Ship the feature"')
+  })
 })

@@ -361,7 +361,7 @@ export function emitPromise(
       {
         path: "index.ts",
         content:
-          'export { ClientError, type ClientErrorReason } from "./client-error.js"\nexport * as OpenCode from "./client.js"\nexport * from "./types.js"\n',
+          'export { ClientError, type ClientErrorReason } from "./client-error.js"\nexport * as OpenCode from "./client.js"\nexport * as Orchestra from "./client.js"\nexport * from "./types.js"\n',
       },
     ],
   }
@@ -524,6 +524,7 @@ function effectType(schema: Schema.Top, references: ReturnType<typeof effectType
   }
   if (type.includes("Brand.Brand<")) imports.add('import type { Brand } from "effect"')
   if (type.includes("DateTime.")) imports.add('import type { DateTime } from "effect"')
+  if (type.includes("Duration.")) imports.add('import type { Duration } from "effect"')
   if (type.includes("Schema.")) imports.add('import type { Schema } from "effect"')
   return type
 }
@@ -642,7 +643,8 @@ function renderEffectFiles(groups: ReadonlyArray<Group>): Output["files"] {
     { path: "client.ts", content: renderClient(groups) },
     {
       path: "index.ts",
-      content: 'export { ClientError } from "./client-error.js"\nexport * as OpenCode from "./client.js"\n',
+      content:
+        'export { ClientError } from "./client-error.js"\nexport * as OpenCode from "./client.js"\nexport * as Orchestra from "./client.js"\n',
     },
   ]
 }
@@ -772,7 +774,8 @@ function renderImportedEffectFiles(
     { path: "client.ts", content: client },
     {
       path: "index.ts",
-      content: 'export { ClientError } from "./client-error.js"\nexport * as OpenCode from "./client.js"\n',
+      content:
+        'export { ClientError } from "./client-error.js"\nexport * as OpenCode from "./client.js"\nexport * as Orchestra from "./client.js"\n',
     },
   ]
 }

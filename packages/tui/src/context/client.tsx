@@ -1,4 +1,4 @@
-import type { OpenCodeClient, OpenCodeEvent } from "@orchestra/client"
+import type { OrchestraClient, OpenCodeEvent } from "@orchestra/client"
 import { createClientConnection, createPersistentPtyClient } from "@orchestra/client/solid"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { onCleanup } from "solid-js"
@@ -6,7 +6,7 @@ import { createSimpleContext } from "./helper"
 import { useLog } from "./log"
 
 type ManagedService = {
-  reconnect: (signal: AbortSignal) => Promise<{ api: OpenCodeClient; url?: string }>
+  reconnect: (signal: AbortSignal) => Promise<{ api: OrchestraClient; url?: string }>
   restart: () => Promise<void>
   openToNetwork?: () => Promise<void>
 }
@@ -15,7 +15,7 @@ type ClientEventMap = { [Type in OpenCodeEvent["type"]]: Extract<OpenCodeEvent, 
 
 export const { use: useClient, provider: ClientProvider } = createSimpleContext({
   name: "Client",
-  init: (props: { api: OpenCodeClient; url?: string; service?: ManagedService }) => {
+  init: (props: { api: OrchestraClient; url?: string; service?: ManagedService }) => {
     const log = useLog({ component: "client" })
     const service = props.service
     const events = createGlobalEmitter<ClientEventMap>()

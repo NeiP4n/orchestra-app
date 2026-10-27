@@ -2,7 +2,7 @@ import type {
   EventSubscribeOutput,
   JsonValue,
   LocationRef,
-  OpenCodeClient,
+  OrchestraClient,
   SessionMessageAssistantTool,
   SessionMessageInfo,
   ToolContent,
@@ -25,7 +25,7 @@ type File = {
 }
 
 type Input = {
-  client: OpenCodeClient
+  client: OrchestraClient
   sessionID: string
   location: LocationRef
   message: string
@@ -797,6 +797,7 @@ function formRequestOptions(location: LocationRef | undefined): [] | [{ headers:
   return [
     {
       headers: {
+        "x-orchestra-directory": encodeURIComponent(location.directory),
         "x-opencode-directory": encodeURIComponent(location.directory),
       },
     },

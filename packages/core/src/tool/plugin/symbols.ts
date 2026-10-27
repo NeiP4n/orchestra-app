@@ -80,7 +80,7 @@ export const description = [
 ].join("\n")
 
 export const Plugin = {
-  id: "opencode.tool.symbols",
+  id: "orchestra.tool.symbols",
   effect: Effect.fn("SymbolsTool.Plugin")(function* (ctx: Context) {
     const lsp = yield* Lsp.Service
     const ripgrep = yield* Ripgrep.Service

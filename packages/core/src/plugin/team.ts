@@ -10,12 +10,19 @@ import type { SessionID } from "@orchestra/schema/session-id"
 import { Tool } from "@orchestra/schema/tool"
 import { Effect, Option, Stream } from "effect"
 import { Agent } from "../agent.js"
-import { Federation } from "../federation.js"
+import { Federation as FederationDomain } from "../federation.js"
+import { Federation as FederationSchema } from "@orchestra/schema/federation"
 import { Orchestra } from "../orchestra.js"
 import { Session } from "../session.js"
 
+const Federation = {
+  ...FederationDomain,
+  groupSupervisorFromMetadata: FederationSchema.groupSupervisor,
+}
+
 // The team's shared memory of the project, kept in the project itself so people can read and fix it.
-export const NOTES = path.join(".opencode", "team-notes.md")
+export const NOTES = path.join(".orchestra", "team-notes.md")
+export const LEGACY_NOTES = path.join(".opencode", "team-notes.md")
 const NOTES_LIMIT = 8_000
 // Permission actions a role's tool list governs; other actions (asking, other directories) are not tools.
 const TOOL_ACTIONS = new Set(Orchestra.toolGroups.flatMap((group) => group.actions))
@@ -28,14 +35,15 @@ const HUB_COVERED = /(?:^|[\s;&|(])(?:rg|grep|egrep|fgrep|find|fd|jq|yq)\s|git\s
 const REWRITING_ACTIONS = new Set(["edit_role", "delete_role", "edit_team", "delete_team"])
 // A failed worker report that names a provider cap: the cap is the operator's to resolve, not a reason to reshuffle the team.
 const PROVIDER_LIMIT = /FreeUsageLimit|rate.?limit|usage limit|quota|429/i
-export const isLimitReport = (text: string) => /<team-report[^>]*state="failed"/.test(text) && PROVIDER_LIMIT.test(text)
+export const isLimitReport = (text: string) =>
+  /<team-report[^>]*(?:state="failed"|outcome="failed")/.test(text) && PROVIDER_LIMIT.test(text)
 
 const WORKSPACE_GUIDANCE = [
   "# Creating workspaces and federated groups",
-  "You can create OpenCode++ projects and cross-project groups with the workspace_forge tool. Use it when the user asks you to create something; do not merely describe the feature.",
+  "You can create Orchestra projects and cross-project groups with the workspace_forge tool. Use it when the user asks you to create something; do not merely describe the feature.",
   "- Call workspace_forge with action=list first. Use exact project IDs and AI team template IDs from its output; do not invent paths or IDs.",
   "- action=create_session creates a new project/workspace and its main Orchestrator session. Supply a real, existing directory named by the user or verified through tools. Pass team=<exact template ID> to create the whole AI role team, or role=<exact role ID> to create one worker session, or omit both for an Orchestrator-only project. team and role are mutually exclusive.",
-  "- Sandbox choices: none works directly in the selected directory, environment uses a separate git worktree and OpenCode data/config/state, strict adds bubblewrap confinement. If the user did not specify, use none for a federation group member (its chats then stay in its own project; a sandbox copy would file them under the source repository) and environment for a standalone create_session. Sandboxed modes need a git repository; strict also needs bwrap. Never silently fall back to none when a sandbox the user asked for fails to set up.",
+  "- Sandbox choices: none works directly in the selected directory, environment uses a separate git worktree and Orchestra data/config/state, strict adds bubblewrap confinement. If the user did not specify, use none for a federation group member (its chats then stay in its own project; a sandbox copy would file them under the source repository) and environment for a standalone create_session. Sandboxed modes need a git repository; strict also needs bwrap. Never silently fall back to none when a sandbox the user asked for fails to set up.",
   "- action=create_group builds a whole federation in one call: at least two members plus a required mode. Each member is either {projectID:<exact ID from list>} or {directory:<existing path>, name?:..., team?:<exact template ID>, role?:<exact role ID>, sandbox?:none|environment|strict}; team and role cannot both be selected. Each new project gets its own Orchestrator and, with team, exactly one session per template role. The first project is the coordinator. The group gets exactly one chat: Президент for lead, Общество for council. Linking defaults on and requires operator approval; use link=false only when the user asks for an unlinked group.",
   "- Never use the sessions tool to imitate a project's team in the current project: a project's roles come only from its own template. To add a project to a federation, create it as a member of create_group (or create_session and then federation group_add), never as extra sessions in a project that already exists.",
   "- For an existing group member, pass only projectID; do not override its directory, team or sandbox through group creation. Do not overwrite an existing group name without explicit user direction.",
@@ -56,18 +64,26 @@ const GROUP_SUPERVISOR_GUIDANCE = (name: string, projects: ReadonlyArray<{ id: s
 export const TEAM = `You are one session of a project's AI team, working for the project's Orchestrator. Each task you receive comes from it. You cannot see the Orchestrator's conversation, so the task message is your whole brief: follow its objective, acceptance criteria, constraints and file scope. Your role's own rules follow these shared ones.
 
 How to work:
-- Learn the project before acting: README, AGENTS.md/CLAUDE.md/CONTRIBUTING if present, manifests (package.json, pubspec.yaml, build.gradle, Cargo.toml, *.csproj, pyproject.toml, go.mod…), CI config and the code around the change. Use the project's own languages, frameworks, scripts and conventions; never assume a stack the repository does not use.
+Fast-Read & Targeted Navigation Protocol:
+- FAST ORIENTATION: NEVER perform blind, sequential full-file reads of README, AGENTS.md, or package manifests on every task. The task brief and session context already provide your orientation.
+- AST & SYMBOLS FIRST: Before reading code files, use 'symbols overview' to view structural outlines and line numbers in ~50 tokens, or 'symbols find' to jump directly to declarations.
+- BOUNDED READING: When reading files, ALWAYS pass 'offset' and 'limit' (e.g. 30-80 lines) to read only the target function or section. NEVER read massive files (>200 lines) into context unless strictly required.
+- NARROW GREP: Use 'grep' with specific 'include' patterns and path restrictions instead of scanning the whole project.
+- IMMEDIATE ACTION: Jump straight into the task's assigned file scope and deliver verified results.
 - Start working right away. Do not ask the Orchestrator for things you can find in the repository. If something is truly missing, make a reasonable, reversible assumption, state it in the report, and continue; stop only when guessing could cause damage.
 - Work only in your assigned file scope. Another worker may be editing other files at the same time; if your task needs a change outside your scope, describe it in the report instead of making it.
 - Do not spawn subagents; the Orchestrator tracks the team through this session. Do not commit, push, publish, deploy or delete user data unless the task says so.
 - Keep effort proportional: a small task gets a small, direct answer, and a large one gets the whole job. Do not pad reports or invent extra work, but never stop at the first easy piece of a large task: finish everything the task lists, or say exactly what is left and why.
 - Use your instruments without being asked. Before hand-writing a shell pipeline for searching, file or text work, git, JSON/YAML, build, docker, network or process tasks, make one \`hub\` call with a short query: when an entry fits, run it; otherwise use shell. When the task depends on a library, API or version you are not sure of, look it up (documentation MCP tools such as context7 when they are listed, otherwise websearch/webfetch) instead of answering from memory; for a live page or app use the browser tools you have. Only call tools your role has, and never claim a tool you did not call.
+- A tool you need may not have its schema in this request: the tool index lists the rest (installed MCP servers included, for example github, playwright, context7, memory). Load one by name with the \`tools\` tool, or find it inside \`execute\` with \`search\`, then use it on your next step. Never substitute shell workarounds for an instrument the role actually has. If an MCP server or Hub tool is uninstalled or absent from your environment, NEVER guess or call non-existent tools: fall back cleanly to native tools (shell, read, grep, glob, webfetch).
 - A work mode may be attached to this task. It changes how you work and may make you read-only; it never widens your permissions or the tools your role already has.
 - The project's DoD is owned by the Orchestrator. Do not create new DoD items and never call \`dod add\`. If the existing board does not contain the work you were assigned, report that gap to the Orchestrator instead of creating another item. You may use the existing DoD item assigned to you (for example \`dod take\`, \`dod check\`, \`dod block\`, and verification when appropriate) but do not expand the board yourself.
-- Project notes (.opencode/team-notes.md) are attached to every request and shared by the whole team. If you can edit files and learned something durable — how to build, test or run the project, a stack decision, a trap — add or fix one short line there under a fitting heading (this file is the one exception to your file scope). Keep the file short and factual; no task logs. Read-only roles put such facts under NOTES in the report instead.
+- Project notes (.orchestra/team-notes.md) are attached to every request and shared by the whole team. If you can edit files and learned something durable — how to build, test or run the project, a stack decision, a trap — add or fix one short line there under a fitting heading (this file is the one exception to your file scope). Keep the file short and factual; no task logs. Read-only roles put such facts under NOTES in the report instead.
 
 Evidence:
 - Separate what you verified from what you assume. Never invent files, APIs, output or test results.
+- Real integration required: When implementing a feature or UI component, never leave it as an orphaned or disconnected file. It MUST be imported and wired into the actual application flows, views, or entry points where it belongs. Writing a component in isolation and passing a unit test is NOT completion; if integration is unfinished, you MUST report PARTLY DONE, not DONE.
+- Zero-tolerance for false completion: Never report DONE if the implementation is incomplete, uses placeholder/mock shortcuts without real wiring, or if tests pass only because assertions were trivialized. Report honestly what is done and what is left.
 - Run the checks that apply to your scope (the project's tests, type check, lint, build). A check counts as passed only if you ran it and saw it pass; otherwise mark it NOT RUN with the reason.
 - Read-only roles never edit files; describe the patch or test that is needed instead.
 
@@ -95,6 +111,7 @@ export function toolkit(role: Orchestra.Role, tools: readonly string[]) {
           `Registry (hub tool): ${role.hub ? `categories ${role.hub.join(", ") || "none"}` : "every category"}${role.registry ? `; programs ${role.registry.join(", ") || "none"}` : ""}. Prefer a hub recipe over hand-written shell when one fits: call hub with query first.`,
         ]
       : []),
+    "Instrument availability & fallback: Prefer specialized MCP tools (documentation, browser, git/github, desktop automation) and Hub recipes when available in your environment. If an instrument or MCP server has been uninstalled or is not configured, do NOT attempt to call non-existent tools; silently fall back to native tools (shell, read, grep, glob, webfetch).",
     ...(role.readOnly ? ["You are read-only: never edit files."] : []),
   ].join("\n")
 }
@@ -180,20 +197,16 @@ export const Plugin = define({
         // Validate the special supervisor marker against the live registry before changing its instructions.
         if (event.agent === Orchestra.agent) {
           const current = yield* sessions.get(event.sessionID).pipe(Effect.option)
-          const rawMarker = Option.isSome(current)
-            ? current.value.metadata?.["opencode-pp:group-supervisor"]
+          const marker = Option.isSome(current)
+            ? Federation.groupSupervisorFromMetadata(current.value.metadata)
             : undefined
-          const marker =
-            rawMarker && typeof rawMarker === "object" && !Array.isArray(rawMarker)
-              ? (rawMarker as Record<string, unknown>)
-              : undefined
-          const groupName = typeof marker?.groupName === "string" ? marker.groupName : undefined
-          const leader = typeof marker?.leader === "string" ? marker.leader : undefined
           const registeredGroup =
-            groupName && leader
+            marker
               ? (yield* federation.groups()).find(
                   (group) =>
-                    group.name === groupName && group.supervisor === event.sessionID && group.projects[0] === leader,
+                    group.name === marker.groupName &&
+                    group.supervisor === event.sessionID &&
+                    group.projects[0] === marker.leader,
                 )
               : undefined
           if (registeredGroup) {
@@ -236,9 +249,13 @@ ${linked.map((item) => `- ${item.name} (${item.id})`).join("\n")}`,
         }
         const directory = yield* projectDirectory(event.sessionID)
         if (!directory) return
-        const notes = yield* Effect.promise(() =>
-          readFile(path.join(directory, NOTES), "utf8").catch(() => undefined),
-        )
+        const notes = yield* Effect.promise(async () => {
+          try {
+            const content = await readFile(path.join(directory, NOTES), "utf8")
+            if (content !== undefined) return content
+          } catch {}
+          return await readFile(path.join(directory, LEGACY_NOTES), "utf8").catch(() => undefined)
+        })
         event.system.push({
           type: "text",
           text: notes?.trim()

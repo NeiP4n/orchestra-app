@@ -109,7 +109,7 @@ function ManagerDialog(props: {
     <box width="100%" gap={1} paddingLeft={1} paddingRight={1}>
       <box flexDirection="row" justifyContent="space-between" gap={1}>
         <text fg={theme().text.base}><b>Proxy Manager</b></text>
-        <text fg={props.pool().scanning ? theme().text.feedback.info.base : theme().text.muted} wrapMode="none">{props.pool().loading ? label("Downloading sources…", "Загрузка источников…") : props.pool().scanning ? label("Checking OpenCode live", "Проверка OpenCode в фоне") : label("OpenCode-compatible pool", "Пул для OpenCode")}</text>
+        <text fg={props.pool().scanning ? theme().text.feedback.info.base : theme().text.muted} wrapMode="none">{props.pool().loading ? label("Downloading sources…", "Загрузка источников…") : props.pool().scanning ? label("Checking Orchestra live", "Проверка Orchestra в фоне") : label("Orchestra-compatible pool", "Пул для Orchestra")}</text>
       </box>
       <text fg={theme().text.muted} wrapMode="word">
         {label(
@@ -130,7 +130,7 @@ function ManagerDialog(props: {
       >
         <Show when={props.entries().length === 0}>
           <text fg={theme().text.muted} wrapMode="word">
-            {label("No OpenCode-ready proxies yet. The live scan will add results here as soon as endpoints pass.", "Пока нет прокси для OpenCode. Проверенные адреса появятся здесь сразу по мере завершения фонового сканирования.")}
+            {label("No Orchestra-ready proxies yet. The live scan will add results here as soon as endpoints pass.", "Пока нет прокси для Orchestra. Проверенные адреса появятся здесь сразу по мере завершения фонового сканирования.")}
           </text>
         </Show>
         <For each={props.entries()}>
@@ -411,7 +411,7 @@ export default Plugin.define({
         const accepted = uniqueHealthy().length
         const limited = pool.entries.filter((entry) => entry.status === "limited").length
         context.ui.toast.show({
-          title: text(context, "OpenCode proxy scan finished", "Проверка прокси для OpenCode завершена"),
+          title: text(context, "Orchestra proxy scan finished", "Проверка прокси для Orchestra завершена"),
           message: text(context, accepted +" unique exit IPs verified; " + limited + " report a Zen IP limit.", "Проверено уникальных внешних IP: " + accepted + "; IP с лимитом Zen: " + limited + "."),
           variant: accepted > 0 ? "success" : "warning",
         })
@@ -434,7 +434,7 @@ export default Plugin.define({
     async function useProxy(entry: ProxyEntry, automatic: false | "zen-cap" | "failover" = false): Promise<boolean> {
       if (entry.status !== "healthy") return false
       const url = proxyUrl(entry)
-      // Free proxies die within minutes; a stale "healthy" mark must not be what OpenCode is pointed at.
+      // Free proxies die within minutes; a stale "healthy" mark must not be what Orchestra is pointed at.
       if (!entry.checkedAt || Date.now() - entry.checkedAt > RECHECK_MS) {
         const fresh = await probeHttpProxy(entry)
         updatePool((draft) => {
@@ -447,7 +447,7 @@ export default Plugin.define({
       }
       const current = await readConfiguredProxy(context)
       if (current === undefined) {
-        context.ui.toast.show({ title: text(context, "Could not read proxy configuration", "Не удалось прочитать настройки прокси"), message: text(context, "The OpenCode server did not return its config.", "Сервер OpenCode не вернул конфигурацию."), variant: "error" })
+        context.ui.toast.show({ title: text(context, "Could not read proxy configuration", "Не удалось прочитать настройки прокси"), message: text(context, "The Orchestra server did not return its config.", "Сервер Orchestra не вернул конфигурацию."), variant: "error" })
         return false
       }
       const owned = route.enabled && matches(current, route.activeUrl ?? "")
@@ -468,8 +468,8 @@ export default Plugin.define({
       if (!automatic && !owned && current && (current.http || current.https)) {
         const accepted = await context.ui.dialog.confirm({
           title: text(context, "Replace the current proxy?", "Заменить текущий прокси?"),
-          message: text(context, "OpenCode already has a proxy configured (possibly WARP). It will be saved and restored when the pool is disabled.",
-            "В OpenCode уже настроен прокси (возможно, WARP). Он будет сохранён и восстановлен при отключении пула."),
+          message: text(context, "Orchestra already has a proxy configured (possibly WARP). It will be saved and restored when the pool is disabled.",
+            "В Orchestra уже настроен прокси (возможно, WARP). Он будет сохранён и восстановлен при отключении пула."),
           label: { confirm: text(context, "Replace", "Заменить"), cancel: text(context, "Cancel", "Отмена") },
         })
         if (!accepted) return false
@@ -483,7 +483,7 @@ export default Plugin.define({
           title: automatic ? text(context, "Auto IP switched proxy", "Авто-IP сменил прокси") : text(context, "Proxy activated", "Прокси включён"),
           message: automatic
             ? text(context, "Zen's daily IP cap was detected. Retry the failed request manually; it is not replayed automatically.", "Обнаружен дневной IP-лимит Zen. Повтори неудачный запрос вручную: автоматического повтора нет.")
-            : text(context, "OpenCode now uses " + entry.host + ":" + entry.port + ".", "OpenCode теперь использует " + entry.host + ":" + entry.port + "."),
+            : text(context, "Orchestra now uses " + entry.host + ":" + entry.port + ".", "Orchestra теперь использует " + entry.host + ":" + entry.port + "."),
           variant: "success",
         })
         return true
@@ -497,7 +497,7 @@ export default Plugin.define({
       if (!route.enabled || !route.activeUrl) return false
       const current = await readConfiguredProxy(context)
       if (current === undefined) {
-        context.ui.toast.show({ title: text(context, "Could not read proxy configuration", "Не удалось прочитать настройки прокси"), message: text(context, "The OpenCode server did not return its config.", "Сервер OpenCode не вернул конфигурацию."), variant: "error" })
+        context.ui.toast.show({ title: text(context, "Could not read proxy configuration", "Не удалось прочитать настройки прокси"), message: text(context, "The Orchestra server did not return its config.", "Сервер Orchestra не вернул конфигурацию."), variant: "error" })
         return false
       }
       if (!matches(current, route.activeUrl)) {
@@ -570,7 +570,7 @@ export default Plugin.define({
           commands: [{
             id: "opencode.proxy-manager.open",
             title: text(context, "Public Proxy Manager", "Менеджер публичных прокси"),
-            description: text(context, "Browse verified public HTTP proxies for OpenCode", "Выбор проверенных публичных HTTP-прокси для OpenCode"),
+            description: text(context, "Browse verified public HTTP proxies for Orchestra", "Выбор проверенных публичных HTTP-прокси для Orchestra"),
             group: "Network",
             slash: { name: "proxy-manager" },
             palette: true,
@@ -600,17 +600,17 @@ export default Plugin.define({
 
       // A failing public proxy must not remain configured for every later chat request. Move to the
       // next stable proxy, or restore the previous WARP/direct/Clash route when none is left, so
-      // OpenCode's scheduled retry goes out through a working route.
+      // Orchestra's scheduled retry goes out through a working route.
       if (!isProxyTransportFailure(error)) return
       lastRotation = Date.now()
-      markDead(route.activeUrl, "OpenCode request failed through this proxy")
+      markDead(route.activeUrl, "Orchestra request failed through this proxy")
       void (async () => {
         const switched = await nextProxy("failover")
         if (!switched && !(await disableProxy(true))) return
         context.ui.toast.show({
           title: text(context, "Failing proxy replaced", "Сбойный прокси заменён"),
           message: switched
-            ? text(context, "OpenCode failed through this proxy, so the next stable one was selected; the retry goes through it.", "Запрос OpenCode не прошёл через этот прокси, поэтому выбран следующий стабильный — повтор пойдёт через него.")
+            ? text(context, "Orchestra failed through this proxy, so the next stable one was selected; the retry goes through it.", "Запрос Orchestra не прошёл через этот прокси, поэтому выбран следующий стабильный — повтор пойдёт через него.")
             : text(context, "No other verified proxy was left, so the previous route was restored; the current retry may recover, otherwise resend the prompt.", "Других проверенных прокси не осталось, поэтому восстановлен прежний маршрут; текущий повтор может сработать, иначе отправь запрос ещё раз."),
           variant: "warning",
         })

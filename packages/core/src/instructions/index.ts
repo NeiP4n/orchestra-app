@@ -191,7 +191,31 @@ export function renderUpdate(
   )
 }
 
-export function hash(value: Schema.Json) {
+const MAX_STRING_HASH_CACHE = 1000
+const stringHashCache = new Map<string, Hash>()
+const objectHashCache = new WeakMap<object, Hash>()
+
+export function hash(value: Schema.Json): Hash {
+  if (typeof value === "string") {
+    const cached = stringHashCache.get(value)
+    if (cached !== undefined) return cached
+    const computed = Hash.make(createHash("sha256").update(JSON.stringify(value)).digest("hex"))
+    if (stringHashCache.size >= MAX_STRING_HASH_CACHE) {
+      const firstKey = stringHashCache.keys().next().value
+      if (firstKey !== undefined) stringHashCache.delete(firstKey)
+    }
+    stringHashCache.set(value, computed)
+    return computed
+  }
+
+  if (value !== null && typeof value === "object") {
+    const cached = objectHashCache.get(value)
+    if (cached !== undefined) return cached
+    const computed = Hash.make(createHash("sha256").update(canonical(value)).digest("hex"))
+    objectHashCache.set(value, computed)
+    return computed
+  }
+
   return Hash.make(createHash("sha256").update(canonical(value)).digest("hex"))
 }
 

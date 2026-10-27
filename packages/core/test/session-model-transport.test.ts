@@ -1092,7 +1092,7 @@ describe("SessionModelTransport", () => {
         yield* collect(executor, exchange("third", { headers: { authorization: "secret-two" } }))
 
         const snapshots = yield* Metric.snapshot
-        const lifecycle = snapshots.filter((item) => item.id === "opencode_session_websocket_events_total")
+        const lifecycle = snapshots.filter((item) => item.id === "orchestra_session_websocket_events_total")
         const names = new Set(lifecycle.map((item) => item.attributes?.event))
         expect(Array.from(names)).toEqual(
           expect.arrayContaining(["connect", "reuse", "rotation", "reconnect", "send", "terminal"]),

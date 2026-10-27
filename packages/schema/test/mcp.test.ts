@@ -34,4 +34,48 @@ describe("Mcp resources", () => {
       ],
     })
   })
+
+  test("supports streamable-http MCP server transport with streaming parameters", () => {
+    const streamable = Schema.decodeUnknownSync(Mcp.ServerConfig)({
+      type: "streamable-http",
+      url: "https://mcp.example.com/stream",
+      heartbeatInterval: 15_000,
+      streamTimeout: 60_000,
+      headers: { "x-custom-mcp": "true" },
+    })
+
+    expect(streamable.type).toBe("streamable-http")
+    if (streamable.type === "streamable-http") {
+      expect(streamable.url).toBe("https://mcp.example.com/stream")
+      expect(streamable.heartbeatInterval).toBe(15_000)
+      expect(streamable.streamTimeout).toBe(60_000)
+      expect(streamable.headers).toEqual({ "x-custom-mcp": "true" })
+    }
+
+    const encoded = Schema.encodeSync(Mcp.ServerConfig)(streamable)
+    expect(encoded).toEqual({
+      type: "streamable-http",
+      url: "https://mcp.example.com/stream",
+      heartbeatInterval: 15_000,
+      streamTimeout: 60_000,
+      headers: { "x-custom-mcp": "true" },
+    })
+  })
+
+  test("supports bidirectional stream parameters on remote MCP transport", () => {
+    const remote = Schema.decodeUnknownSync(Mcp.ServerConfig)({
+      type: "remote",
+      url: "https://mcp.example.com/sse",
+      heartbeatInterval: 10_000,
+      streamTimeout: 30_000,
+    })
+
+    expect(remote.type).toBe("remote")
+    if (remote.type === "remote") {
+      expect(remote.heartbeatInterval).toBe(10_000)
+      expect(remote.streamTimeout).toBe(30_000)
+    }
+  })
 })
+
+

@@ -39,6 +39,7 @@ import type { Vcs } from "@orchestra/schema/vcs"
 import type { Note } from "@orchestra/schema/note"
 import type { WebSearch } from "@orchestra/schema/websearch"
 import type { Config } from "@orchestra/schema/config"
+import type { Duration } from "effect"
 import type { Room } from "@orchestra/schema/room"
 import type { Orchestra } from "@orchestra/schema/orchestra"
 
@@ -1728,7 +1729,7 @@ export type McpListOperation<E = never> = (input?: McpListInput) => Effect.Effec
 export type McpAddInput = {
   readonly server: string
   readonly location?: { readonly directory?: string | undefined } | undefined
-  readonly config: Mcp.LocalConfig | Mcp.RemoteConfig
+  readonly config: Mcp.LocalConfig | Mcp.RemoteConfig | Mcp.StreamableHttpConfig
 }
 export type McpAddOutput = void
 export type McpAddOperation<E = never> = (input: McpAddInput) => Effect.Effect<McpAddOutput, E>
@@ -1998,6 +1999,7 @@ export type PtyRemoveOperation<E = never> = (input: PtyRemoveInput) => Effect.Ef
 export type PtyConnectTokenInput = {
   readonly ptyID: Pty.ID
   readonly location?: { readonly directory?: string | undefined } | undefined
+  readonly "x-orchestra-ticket"?: string | undefined
   readonly "x-opencode-ticket"?: string | undefined
 }
 export type PtyConnectTokenOutput = { readonly location: Location.PublicRef; readonly data: PtyTicket.ConnectToken }
@@ -2170,6 +2172,7 @@ export type ExperimentalPersistentPtyRemoveOperation<E = never> = (
 
 export type ExperimentalPersistentPtyConnectTokenInput = {
   readonly ptyID: Pty.ID
+  readonly "x-orchestra-ticket"?: string | undefined
   readonly "x-opencode-ticket"?: string | undefined
 }
 export type ExperimentalPersistentPtyConnectTokenOutput = PtyTicket.ConnectToken
@@ -2492,13 +2495,137 @@ export type ConfigShellsOperation<E = never> = () => Effect.Effect<ConfigShellsO
 export type ConfigUpdateInput = {
   readonly shell?: string | null
   readonly model?: string | null
-  readonly mcpServers?: { readonly [x: string]: Mcp.LocalConfig | Mcp.RemoteConfig | null }
+  readonly mcpServers?: { readonly [x: string]: Mcp.LocalConfig | Mcp.RemoteConfig | Mcp.StreamableHttpConfig | null }
   readonly proxy?: {
     readonly http?: string | undefined
     readonly https?: string | undefined
     readonly no_proxy?: ReadonlyArray<string> | undefined
   } | null
   readonly compatibilityEnabled?: boolean | null
+  readonly compaction?: {
+    readonly auto?: boolean | undefined
+    readonly keep?: { readonly tokens?: number | undefined } | undefined
+    readonly buffer?: number | undefined
+    readonly threshold?: number | undefined
+    readonly threshold_percent?: number | undefined
+    readonly keep_free_percent?: number | undefined
+  } | null
+  readonly agent?:
+    | string
+    | {
+        readonly [x: string]: {
+          readonly model?:
+            | {
+                readonly providerID: Provider.ID
+                readonly model: Model.ID
+                readonly variant?: Model.VariantID | undefined
+              }
+            | undefined
+          readonly request?:
+            | {
+                readonly headers?: { readonly [x: string]: string } | undefined
+                readonly body?: { readonly [x: string]: Schema.Json } | undefined
+              }
+            | undefined
+          readonly system?: string | undefined
+          readonly description?: string | undefined
+          readonly mode?: "subagent" | "primary" | "all" | undefined
+          readonly hidden?: boolean | undefined
+          readonly color?: string | undefined
+          readonly steps?: number | undefined
+          readonly disabled?: boolean | undefined
+          readonly permissions?: Permission.Ruleset | undefined
+        } | null
+      }
+    | null
+  readonly default_agent?: string | null
+  readonly agents?: {
+    readonly [x: string]: {
+      readonly model?:
+        | { readonly providerID: Provider.ID; readonly model: Model.ID; readonly variant?: Model.VariantID | undefined }
+        | undefined
+      readonly request?:
+        | {
+            readonly headers?: { readonly [x: string]: string } | undefined
+            readonly body?: { readonly [x: string]: Schema.Json } | undefined
+          }
+        | undefined
+      readonly system?: string | undefined
+      readonly description?: string | undefined
+      readonly mode?: "subagent" | "primary" | "all" | undefined
+      readonly hidden?: boolean | undefined
+      readonly color?: string | undefined
+      readonly steps?: number | undefined
+      readonly disabled?: boolean | undefined
+      readonly permissions?: Permission.Ruleset | undefined
+    } | null
+  }
+  readonly skills?: ReadonlyArray<string> | null
+  readonly instructions?: ReadonlyArray<string> | null
+  readonly permissions?: Permission.Ruleset | null
+  readonly plugins?: ReadonlyArray<
+    string | { readonly package: string; readonly options?: { readonly [x: string]: unknown } | undefined }
+  > | null
+  readonly tool_output?: { readonly max_lines?: number | undefined; readonly max_bytes?: number | undefined } | null
+  readonly commands?: {
+    readonly [x: string]: {
+      readonly template: string
+      readonly description?: string | undefined
+      readonly agent?: string | undefined
+      readonly model?:
+        | { readonly providerID: Provider.ID; readonly model: Model.ID; readonly variant?: Model.VariantID | undefined }
+        | undefined
+      readonly subagent?: boolean | undefined
+      readonly subtask?: boolean | undefined
+    } | null
+  } | null
+  readonly warming?:
+    | boolean
+    | {
+        readonly prompt?: string | undefined
+        readonly interval?: Duration.Duration | undefined
+        readonly duration?: Duration.Duration | undefined
+      }
+    | null
+  readonly mode?:
+    | string
+    | {
+        readonly [x: string]: {
+          readonly model?:
+            | {
+                readonly providerID: Provider.ID
+                readonly model: Model.ID
+                readonly variant?: Model.VariantID | undefined
+              }
+            | undefined
+          readonly request?:
+            | {
+                readonly headers?: { readonly [x: string]: string } | undefined
+                readonly body?: { readonly [x: string]: Schema.Json } | undefined
+              }
+            | undefined
+          readonly system?: string | undefined
+          readonly description?: string | undefined
+          readonly mode?: "subagent" | "primary" | "all" | undefined
+          readonly hidden?: boolean | undefined
+          readonly color?: string | undefined
+          readonly steps?: number | undefined
+          readonly disabled?: boolean | undefined
+          readonly permissions?: Permission.Ruleset | undefined
+        } | null
+      }
+    | null
+  readonly update?: "disable" | "notify" | "auto" | null
+  readonly media?: {
+    readonly image?:
+      | {
+          readonly auto_resize?: boolean | undefined
+          readonly max_width?: number | undefined
+          readonly max_height?: number | undefined
+          readonly max_base64_bytes?: number | undefined
+        }
+      | undefined
+  } | null
 }
 export type ConfigUpdateOutput = void
 export type ConfigUpdateOperation<E = never> = (input?: ConfigUpdateInput) => Effect.Effect<ConfigUpdateOutput, E>
@@ -4648,6 +4775,28 @@ export interface OrchestraApi<E = never> {
   readonly link: { readonly set: OrchestraLinkSetOperation<E>; readonly list: OrchestraLinkListOperation<E> }
 }
 
+export type QuotaCheckInput = {
+  readonly modelID: string
+  readonly contextWindowLimit: number
+  readonly spentTokens: number
+  readonly warningThreshold?: number | undefined
+}
+export type QuotaCheckOutput = {
+  readonly modelID: string
+  readonly contextWindowLimit: number
+  readonly spentTokens: number
+  readonly remainingTokens: number
+  readonly warningThreshold: number
+  readonly status: "ok" | "approaching_limit" | "exceeded"
+  readonly utilization: number
+  readonly message?: string | undefined
+}
+export type QuotaCheckOperation<E = never> = (input: QuotaCheckInput) => Effect.Effect<QuotaCheckOutput, E>
+
+export interface QuotaApi<E = never> {
+  readonly check: QuotaCheckOperation<E>
+}
+
 export interface AppApi<E = never> {
   readonly server: ServerApi<E>
   readonly location: LocationApi<E>
@@ -4682,4 +4831,5 @@ export interface AppApi<E = never> {
   readonly config: ConfigApi<E>
   readonly room: RoomApi<E>
   readonly orchestra: OrchestraApi<E>
+  readonly quota: QuotaApi<E>
 }

@@ -1,11 +1,12 @@
 export * as Dod from "./dod.js"
 
 import { randomUUID } from "node:crypto"
-import { chmod, link, mkdir, open, rename, stat, unlink, writeFile } from "node:fs/promises"
+import { chmod, copyFile, link, mkdir, open, rename, stat, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { Effect, Option, Schema } from "effect"
 import type { Room } from "@orchestra/schema/room"
 import { Instructions } from "./instructions/index.js"
+import { ProjectDirs } from "./project-dirs.js"
 
 export class DodError extends Schema.TaggedError<DodError>()("Dod.Error", {
   message: Schema.String,
@@ -15,7 +16,8 @@ export class DodError extends Schema.TaggedError<DodError>()("Dod.Error", {
 // when the project is shared, by room members. The file belongs to people and AIs: the CLI
 // board, lead AI and text editor can write it. Mutations edit only an item's own lines so
 // comments, order, and every other field stay exactly as their authors wrote them.
-export const FILE = path.join(".opencode", "dod.yaml")
+export const FILE = ProjectDirs.primary("dod.yaml")
+export const LEGACY_FILE = ProjectDirs.legacy("dod.yaml")
 
 // A new project gets a real, parseable board immediately. It starts empty on purpose:
 // a placeholder task must never be mistaken for the user's actual work.
@@ -32,17 +34,18 @@ const STARTER = [
 // Idempotent and non-destructive: concurrent project resolution must never overwrite a
 // board that the user or another session has already created.
 export const initialize = Effect.fn("Dod.initialize")(function* (directory: string) {
-  const file = path.join(directory, FILE)
+  const readPath = ProjectDirs.resolveRead(directory, "dod.yaml")
+  const writePath = ProjectDirs.resolveWrite(directory, "dod.yaml")
   return yield* Effect.tryPromise({
     try: async () => {
       try {
-        const current = await stat(file)
-        if (!current.isFile()) throw new Error(`Project DoD path is not a file: ${file}`)
+        const current = await stat(readPath)
+        if (!current.isFile()) throw new Error(`Project DoD path is not a file: ${readPath}`)
         return "existing" as const
       } catch (cause) {
         if (!(typeof cause === "object" && cause !== null && "code" in cause && cause.code === "ENOENT")) throw cause
       }
-      const parent = path.dirname(file)
+      const parent = path.dirname(writePath)
       await mkdir(parent, { recursive: true })
       const temporary = path.join(parent, `.dod-${randomUUID()}.tmp`)
       try {
@@ -50,7 +53,7 @@ export const initialize = Effect.fn("Dod.initialize")(function* (directory: stri
         // fails with EEXIST instead of replacing a board created by another session.
         await writeFile(temporary, STARTER, { flag: "wx", mode: 0o644 })
         try {
-          await link(temporary, file)
+          await link(temporary, writePath)
           return "created" as const
         } catch (cause) {
           if (typeof cause === "object" && cause !== null && "code" in cause) {
@@ -58,7 +61,7 @@ export const initialize = Effect.fn("Dod.initialize")(function* (directory: stri
             // Some network and FAT-like filesystems do not support hard links. Fall back
             // to an exclusive create there; it still cannot replace an existing board.
             if (["EPERM", "ENOTSUP", "EOPNOTSUPP", "EXDEV", "EMLINK"].includes(String(cause.code))) {
-              const destination = await open(file, "wx", 0o644).catch((fallbackCause: unknown) => {
+              const destination = await open(writePath, "wx", 0o644).catch((fallbackCause: unknown) => {
                 if (
                   typeof fallbackCause === "object" &&
                   fallbackCause !== null &&
@@ -85,7 +88,7 @@ export const initialize = Effect.fn("Dod.initialize")(function* (directory: stri
     },
     catch: (cause) =>
       new DodError({
-        message: `Could not initialize project DoD at ${file}: ${cause instanceof Error ? cause.message : String(cause)}`,
+        message: `Could not initialize project DoD at ${writePath}: ${cause instanceof Error ? cause.message : String(cause)}`,
       }),
   })
 })
@@ -187,7 +190,7 @@ function renderStatus(board: Status) {
     return [
       "Project DoD status: DISABLED",
       `Project root: ${JSON.stringify(board.directory)}`,
-      `Reason: ${FILE} does not exist.`,
+      `Reason: ${FILE} does not exist (.opencode/dod.yaml does not exist).`,
       "No work is implicitly considered complete because the board is absent.",
       "When the user gives multi-step work, start the board with `dod add`; from then on you are responsible for keeping it current.",
     ].join("\n")
@@ -362,7 +365,7 @@ export const accept = Effect.fn("Dod.accept")(function* (input: {
 // One item with its step lines as written, for whoever works on it.
 export const detail = Effect.fn("Dod.detail")(function* (directory: string, id: string) {
   const text = yield* load(directory)
-  if (text === undefined) return yield* new DodError({ message: "This project has no DoD (.opencode/dod.yaml)" })
+  if (text === undefined) return yield* new DodError({ message: `This project has no DoD (${FILE})` })
   const list = yield* leaves(text)
   const item = toItems(list).find((entry) => entry.id === id)
   if (!item) return yield* new DodError({ message: `The DoD has no item ${id}` })
@@ -426,7 +429,8 @@ export const add = Effect.fn("Dod.add")(function* (input: {
   const what = input.what.trim()
   if (!what) return yield* new DodError({ message: "Name what the item delivers" })
   yield* initialize(input.directory)
-  const file = path.join(input.directory, FILE)
+  const file = ProjectDirs.resolveWrite(input.directory, "dod.yaml")
+  const sourceFile = ProjectDirs.resolveRead(input.directory, "dod.yaml")
   const attempt = (left: number): Effect.Effect<{ id: string; dod: Room.Dod }, DodError> =>
     Effect.gen(function* () {
       const before = (yield* load(input.directory)) ?? ""
@@ -451,7 +455,7 @@ export const add = Effect.fn("Dod.add")(function* (input: {
       const dod = { items: yield* items(after), status: "ready" } satisfies Room.Dod
       if (!dod.items.some((item) => item.id === id))
         return yield* new DodError({ message: `Could not add ${id}: the edited dod.yaml would not list it` })
-      if (yield* Effect.promise(() => commit(file, before, after))) return { id, dod }
+      if (yield* Effect.promise(() => commit(file, before, after, sourceFile))) return { id, dod }
       if (left <= 1) return yield* new DodError({ message: "dod.yaml keeps changing; try again" })
       return yield* attempt(left - 1)
     })
@@ -487,7 +491,7 @@ function finishedWord(item: Room.DodItem) {
 }
 
 function load(directory: string) {
-  const filePath = path.join(directory, FILE)
+  const filePath = ProjectDirs.resolveRead(directory, "dod.yaml")
   const file = Bun.file(filePath)
   return Effect.tryPromise({
     try: async () => ((await file.exists()) ? await file.text() : undefined),
@@ -551,11 +555,12 @@ function change(
   decide: (item: Room.DodItem) => string | Record<string, string | undefined>,
   more: (text: string) => string | undefined = (text) => text,
 ): Effect.Effect<Room.Dod, DodError> {
-  const file = path.join(directory, FILE)
+  const file = ProjectDirs.resolveWrite(directory, "dod.yaml")
+  const sourceFile = ProjectDirs.resolveRead(directory, "dod.yaml")
   const attempt = (left: number): Effect.Effect<Room.Dod, DodError> =>
     Effect.gen(function* () {
       const before = yield* load(directory)
-      if (before === undefined) return yield* new DodError({ message: "This project has no DoD (.opencode/dod.yaml)" })
+      if (before === undefined) return yield* new DodError({ message: `This project has no DoD (${FILE})` })
       const list = yield* items(before, live)
       const item = list.find((entry) => entry.id === id)
       if (!item) return yield* new DodError({ message: `The DoD has no item ${id}` })
@@ -565,7 +570,7 @@ function change(
       const after = edited === undefined ? undefined : more(edited)
       if (after === undefined)
         return yield* new DodError({ message: `Could not find item ${id} in dod.yaml to edit it` })
-      const saved = yield* Effect.promise(() => commit(file, before, after))
+      const saved = yield* Effect.promise(() => commit(file, before, after, sourceFile))
       if (saved) return { items: yield* items(after), status: "ready" } satisfies Room.Dod
       if (left <= 1) return yield* new DodError({ message: "dod.yaml keeps changing; try again" })
       return yield* attempt(left - 1)
@@ -574,13 +579,50 @@ function change(
 }
 
 // Replaces the file atomically, and only if it still reads as before.
-function commit(file: string, before: string, after: string) {
+function commit(file: string, before: string, after: string, sourceFile?: string) {
   return exclusive(file, async () => {
-    if ((await Bun.file(file).text()) !== before) return false
-    const temporary = path.join(path.dirname(file), ".dod.yaml.room.tmp")
+    const fileExists = await Bun.file(file).exists()
+    const current = fileExists
+      ? await Bun.file(file).text()
+      : sourceFile && (await Bun.file(sourceFile).exists())
+        ? await Bun.file(sourceFile).text()
+        : ""
+    if (current !== before) return false
+    const parent = path.dirname(file)
+    await mkdir(parent, { recursive: true })
+    const temporary = path.join(parent, `.dod.yaml.room.${randomUUID()}.tmp`)
     await Bun.write(temporary, after)
-    await chmod(temporary, (await stat(file)).mode & 0o777)
-    await rename(temporary, file)
+    try {
+      const modeSource = fileExists ? file : sourceFile && (await Bun.file(sourceFile).exists()) ? sourceFile : undefined
+      if (modeSource) await chmod(temporary, (await stat(modeSource)).mode & 0o777)
+    } catch {
+      // Ignore mode retrieval/setting failures on environments where chmod is restricted
+    }
+    try {
+      await rename(temporary, file)
+    } catch (error: any) {
+      if (
+        error?.code === "EPERM" ||
+        error?.code === "EEXIST" ||
+        error?.code === "EBUSY" ||
+        process.platform === "win32"
+      ) {
+        try {
+          await copyFile(temporary, file)
+          await unlink(temporary).catch(() => {})
+        } catch {
+          try {
+            await unlink(file)
+            await rename(temporary, file)
+          } catch {
+            await copyFile(temporary, file)
+            await unlink(temporary).catch(() => {})
+          }
+        }
+      } else {
+        throw error
+      }
+    }
     return true
   })
 }

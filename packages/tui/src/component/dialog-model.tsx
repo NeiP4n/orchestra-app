@@ -274,9 +274,11 @@ export function sortModelOptions<
   },
 >(options: T[], grouped = true) {
   return options.toSorted((a, b) => {
+    const isGo = (id?: string) => id === "orchestra-go" || id === "opencode-go"
+    const isPrimary = (id?: string) => id === "orchestra" || id === "opencode"
     const provider = grouped
-      ? Number(b.providerID === "opencode-go") - Number(a.providerID === "opencode-go") ||
-        Number(b.providerID === "opencode") - Number(a.providerID === "opencode")
+      ? Number(isGo(b.providerID)) - Number(isGo(a.providerID)) ||
+        Number(isPrimary(b.providerID)) - Number(isPrimary(a.providerID))
       : 0
     if (provider !== 0) return provider
 

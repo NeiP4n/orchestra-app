@@ -15,12 +15,9 @@ const rootDir = path.resolve(packageDir, "../..")
 
 const signScript = path.join(rootDir, "script", "sign-windows.ps1")
 
-// The Electron 42 packaging update briefly installed Linux launchers/icons under
-// "opencode-desktop". Keep that hidden desktop entry around so existing GNOME/KDE
-// pins still resolve after the canonical app id changes back to ai.opencode.desktop.
-const legacyDesktopEntry = path.join(packageDir, "resources", "linux", "opencode-desktop.desktop")
+const orchestraDesktopEntry = path.join(packageDir, "resources", "linux", "orchestra-desktop.desktop")
 
-const legacyDesktopEntryFpm = `${legacyDesktopEntry}=/usr/share/applications/opencode-desktop.desktop`
+const orchestraDesktopEntryFpm = `${orchestraDesktopEntry}=/usr/share/applications/orchestra-desktop.desktop`
 
 const metainfoFpm = (appId: string) =>
   `${path.join(packageDir, "resources", `${appId}.metainfo.xml`)}=/usr/share/metainfo/${appId}.metainfo.xml`
@@ -43,7 +40,7 @@ function macSignOptions(options: CustomMacSignOptions): CustomMacSignOptions {
     optionsForFile: (file) => {
       const defaults = options.optionsForFile?.(file)
 
-      if (file !== path.join(options.app, "Contents/Resources/opencode-cli")) return defaults ?? {}
+      if (file !== path.join(options.app, "Contents/Resources/orchestra-cli")) return defaults ?? {}
 
       // The Bun CLI loads bun-pty's native library; Electron and its helpers do not need this exception.
       return { ...defaults, entitlements: path.join(packageDir, "resources/entitlements.cli.plist") }
@@ -62,20 +59,20 @@ const channel = (() => {
 })()
 
 const APP_IDS = {
-  dev: "ai.opencode.desktop.dev",
-  beta: "ai.opencode.desktop.beta",
-  prod: "ai.opencode.desktop",
+  dev: "com.nei4pn.orchestra.dev",
+  beta: "com.nei4pn.orchestra.beta",
+  prod: "com.nei4pn.orchestra",
 } as const
 
 const getBase = (appId: string): Configuration => ({
-  artifactName: "opencode-desktop-${os}-${arch}.${ext}",
+  artifactName: "orchestra-desktop-${os}-${arch}.${ext}",
   directories: {
     output: "dist",
     buildResources: "resources",
   },
   // Linux launchers are .desktop files, so this is the desktop file name,
-  // not just the app id. For prod, app id "ai.opencode.desktop" becomes
-  // "ai.opencode.desktop.desktop".
+  // not just the app id. For prod, app id "com.nei4pn.orchestra" becomes
+  // "com.nei4pn.orchestra.desktop".
   // https://developer.gnome.org/documentation/guidelines/maintainer/integrating.html
   // https://www.electron.build/docs/linux/
   extraMetadata: {
@@ -84,7 +81,7 @@ const getBase = (appId: string): Configuration => ({
   files: [
     "out/**/*",
     "resources/**/*",
-    "!resources/opencode-cli*",
+    "!resources/orchestra-cli*",
     // Log export imports Zip.js as ESM. Keep index.js and lib, including its inline worker.
     "!**/node_modules/@zip.js/zip.js/dist{,/**/*}",
     "!**/node_modules/@zip.js/zip.js/{index.cjs,index.min.js,index-fflate.js,deno.json,eslint.config.mjs}",
@@ -104,19 +101,19 @@ const getBase = (appId: string): Configuration => ({
     {
       from: "resources/",
       to: "",
-      filter: ["opencode-cli", "opencode-cli.exe", "opencode-cli.version"],
+      filter: ["orchestra-cli", "orchestra-cli.exe", "orchestra-cli.version"],
     },
   ],
   afterPack: async (context) => {
     const cli = path.join(
       context.packager.getResourcesDir(context.appOutDir),
-      context.electronPlatformName === "win32" ? "opencode-cli.exe" : "opencode-cli",
+      context.electronPlatformName === "win32" ? "orchestra-cli.exe" : "orchestra-cli",
     )
 
     const file = await stat(cli)
 
     if (!file.isFile() || file.size === 0) throw new Error(`Bundled CLI must be a non-empty file: ${cli}`)
-    const version = path.join(path.dirname(cli), "opencode-cli.version")
+    const version = path.join(path.dirname(cli), "orchestra-cli.version")
 
     if ((await stat(version)).size === 0) throw new Error(`Bundled CLI version must be a non-empty file: ${version}`)
   },
@@ -138,8 +135,8 @@ const getBase = (appId: string): Configuration => ({
     target: ["dmg", "zip"],
   },
   protocols: {
-    name: "OpenCode",
-    schemes: ["opencode"],
+    name: "Orchestra",
+    schemes: ["orchestra"],
   },
   win: {
     icon: `resources/icons/icon.ico`,
@@ -190,9 +187,9 @@ function getConfig() {
       return {
         ...base,
         appId,
-        productName: "OpenCode Dev",
+        productName: "Orchestra Dev",
         deb: { fpm: [metainfoFpm(appId)] },
-        rpm: { packageName: "opencode-dev", fpm: [metainfoFpm(appId)] },
+        rpm: { packageName: "orchestra-dev", fpm: [metainfoFpm(appId)] },
       }
     }
 
@@ -200,11 +197,11 @@ function getConfig() {
       return {
         ...base,
         appId,
-        productName: "OpenCode Beta",
-        protocols: { name: "OpenCode Beta", schemes: ["opencode"] },
+        productName: "Orchestra Beta",
+        protocols: { name: "Orchestra Beta", schemes: ["orchestra"] },
         publish,
         deb: { fpm: [metainfoFpm(appId)] },
-        rpm: { packageName: "opencode-beta", fpm: [metainfoFpm(appId)] },
+        rpm: { packageName: "orchestra-beta", fpm: [metainfoFpm(appId)] },
       }
     }
 
@@ -212,11 +209,11 @@ function getConfig() {
       return {
         ...base,
         appId,
-        productName: "OpenCode",
-        protocols: { name: "OpenCode", schemes: ["opencode"] },
+        productName: "Orchestra",
+        protocols: { name: "Orchestra", schemes: ["orchestra"] },
         publish,
-        deb: { fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
-        rpm: { packageName: "opencode", fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
+        deb: { fpm: [metainfoFpm(appId), orchestraDesktopEntryFpm] },
+        rpm: { packageName: "orchestra", fpm: [metainfoFpm(appId), orchestraDesktopEntryFpm] },
       }
     }
   }

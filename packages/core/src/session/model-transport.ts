@@ -25,7 +25,7 @@ const CONNECT_TIMEOUT = "15 seconds"
 const IDLE_TIMEOUT = "30 minutes"
 /** Consecutive exchanges lost to the socket before the Session stays on HTTP. */
 const MAX_STREAM_FAILURES = 5
-const events = Metric.counter("opencode_session_websocket_events_total", {
+const events = Metric.counter("orchestra_session_websocket_events_total", {
   description: "Session WebSocket lifecycle events",
   incremental: true,
 })
@@ -41,6 +41,7 @@ interface Channel {
   readonly affinity: string
   readonly connection: WebSocketConnection
   readonly openedAt: number
+  lastActivityAt: number
   active?: Active
   closing: boolean
   checkpoint?: ChannelCheckpoint
@@ -228,16 +229,19 @@ export const makeLayer = (connector: WebSocketConnector) =>
                 delivery: "not-sent",
               })
             }
+            const now = yield* Clock.currentTimeMillis
             const channel: Channel = {
               affinity: key,
               connection,
-              openedAt: yield* Clock.currentTimeMillis,
+              openedAt: now,
+              lastActivityAt: now,
               closing: false,
             }
             owner.channel = channel
             channel.reader = yield* connection.messages.pipe(
               Stream.runForEach((message) =>
                 Effect.gen(function* () {
+                  channel.lastActivityAt = yield* Clock.currentTimeMillis
                   const active = channel.active
                   if (!active)
                     return yield* transportError("WebSocket data arrived without an active exchange", {
@@ -340,6 +344,17 @@ export const makeLayer = (connector: WebSocketConnector) =>
             phase: "connect",
           })
         if (owner.channel) yield* metric("reuse")
+        if (!owner.channel && owner.streamFailures > 0) {
+          const backoffMs = Math.min(1000, 25 * Math.pow(2, owner.streamFailures - 1))
+          yield* Effect.logDebug("session websocket reconnect backoff", {
+            sessionTransport: "websocket",
+            phase: "connect",
+            failures: owner.streamFailures,
+            backoffMs,
+          })
+          yield* Effect.sleep(Duration.millis(backoffMs))
+          yield* metric("reconnect")
+        }
         const channel = owner.channel
           ? owner.channel
           : yield* open(owner, exchange, key).pipe(
@@ -385,6 +400,7 @@ export const makeLayer = (connector: WebSocketConnector) =>
           delivery: "send-attempted",
         }
         channel.active = active
+        channel.lastActivityAt = yield* Clock.currentTimeMillis
         const sent = yield* channel.connection.sendText(message).pipe(
           Effect.withSpan("SessionModelTransport.send"),
           Effect.onInterrupt(() => closeChannel(owner, channel)),

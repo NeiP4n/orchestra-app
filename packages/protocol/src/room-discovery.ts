@@ -1,5 +1,5 @@
 // Finding rooms on the local network. A guest broadcasts QUERY over UDP to PORT;
-// every opencode server that listens beyond loopback answers with its machine
+// every Orchestra server that listens beyond loopback answers with its machine
 // name and HTTP port. The guest then reads the room names from /api/room/public
 // on each answering address. Joining still needs the code the host hands out.
 
@@ -9,7 +9,7 @@ export const PORT = 41499
 // Guests listen for answers on this fixed port so a firewall rule can let them in;
 // Windows drops answers to a random port when the app has a block rule.
 export const REPLY_PORT = 41500
-export const QUERY = "opencode-rooms?"
+export const QUERY = "orchestra-rooms?"
 
 const ReplySchema = Schema.Struct({ name: Schema.String, port: Schema.Int })
 export type Reply = typeof ReplySchema.Type

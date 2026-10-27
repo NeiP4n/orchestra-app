@@ -141,7 +141,7 @@ function providerError(type: string, reason: AIError["reason"]): SessionError.Er
   // Zen does not say what the free limit is keyed on or when it resets (one limit outlasted days
   // and many addresses), so show its own words instead of asserting a per-IP daily cap.
   const message = GEO_BLOCKED.test(raw)
-    ? "Google refused this network's location. Requests leave through a VPN or proxy exit that Google does not serve for this model; switch the exit to another country or route OpenCode through WARP, then retry."
+    ? "Google refused this network's location. Requests leave through a VPN or proxy exit that Google does not serve for this model; switch the exit to another country or route Orchestra through WARP, then retry."
     : raw.includes(ORCHESTRA_FREE_TIER_ERROR)
     ? "Zen rejected this request. The provider refused the selected model/access. Retrying the identical request will not change that decision. Check the provider connection or select another currently available model."
     : raw.toLowerCase().includes(FREE_TIER_LIMIT_ERROR)

@@ -18,7 +18,7 @@ import {
   type SessionNotification,
 } from "@agentclientprotocol/sdk"
 import { OpenCode } from "@orchestra/client/effect"
-import type { OpenCodeEventEncoded } from "@orchestra/protocol/groups/event"
+import type { OrchestraEventEncoded } from "@orchestra/protocol/groups/event"
 import type { Agent } from "@orchestra/schema/agent"
 import type { Command } from "@orchestra/schema/command"
 import { Form } from "@orchestra/schema/form"
@@ -36,7 +36,7 @@ import { ACP } from "../../src/acp/agent"
 import { ACPTurn } from "../../src/acp/turn"
 
 // The fake server sends and stores the wire form of each value.
-type OpenCodeEvent = OpenCodeEventEncoded
+type OrchestraEvent = OrchestraEventEncoded
 type AgentInfo = typeof Agent.Info.Encoded
 type CommandInfo = typeof Command.Info.Encoded
 type LocationRef = typeof Location.PublicRef.Encoded
@@ -46,12 +46,12 @@ type PluginInfo = typeof Plugin.Info.Encoded
 type SessionInfo = typeof Session.Info.Encoded
 type SessionMessageInfo = typeof SessionMessage.Info.Encoded
 type TokenUsageInfo = typeof TokenUsage.Info.Encoded
-type DurableEvent = Extract<OpenCodeEvent, { durable: unknown }>
-type EphemeralEvent = Exclude<OpenCodeEvent, DurableEvent>
-type EventData<Type extends OpenCodeEvent["type"]> = Extract<OpenCodeEvent, { type: Type }>["data"]
+type DurableEvent = Extract<OrchestraEvent, { durable: unknown }>
+type EphemeralEvent = Exclude<OrchestraEvent, DurableEvent>
+type EventData<Type extends OrchestraEvent["type"]> = Extract<OrchestraEvent, { type: Type }>["data"]
 type AssistantMessage = Extract<SessionMessageInfo, { type: "assistant" }>
 
-type Events = ReadonlyArray<OpenCodeEvent> | void
+type Events = ReadonlyArray<OrchestraEvent> | void
 type Hook<Input> = (input: Input) => Events | Promise<Events>
 
 type ServerRequest = {
@@ -295,7 +295,7 @@ export const interrupted = (sessionID: string) =>
 export const failed = (sessionID: string, error: EventData<"session.execution.failed">["error"]) =>
   durableEvent("session.execution.failed", { sessionID, error })
 
-export function turn(sessionID: string, inboxID: string, ...events: OpenCodeEvent[]): OpenCodeEvent[] {
+export function turn(sessionID: string, inboxID: string, ...events: OrchestraEvent[]): OrchestraEvent[] {
   return [delivered(sessionID, inboxID), ...events, succeeded(sessionID)]
 }
 
@@ -604,7 +604,7 @@ function startServer(options: WireOptions, changed: () => void) {
     cancelledForms,
     repliedForms,
     mcp,
-    send(...events: ReadonlyArray<OpenCodeEvent>) {
+    send(...events: ReadonlyArray<OrchestraEvent>) {
       events.forEach((event) => {
         const seq = ++counter.events
         const stamped = {

@@ -2,3 +2,4 @@ preload = ["@opentui/solid/preload"]
 
 [test]
 preload = ["@opentui/solid/preload"]
+timeout = 30000

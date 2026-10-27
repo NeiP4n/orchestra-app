@@ -69,20 +69,20 @@ function describe(context: Plugin.Context, cause: unknown) {
       case "cli-missing":
         return text(context, "Cloudflare WARP CLI was not found. Install WARP first.", tr("Cloudflare WARP CLI not found. Install WARP first."))
       case "daemon-down":
-        return text(context, "The WARP background service is not running. Press \"Route only OpenCode through WARP\" to start it (Windows may ask for confirmation).", tr("The WARP background service is not running. Press “Only OpenCode through WARP…” to start it (Windows may ask to confirm)."))
+        return text(context, "The WARP background service is not running. Press \"Route only Orchestra through WARP\" to start it (Windows may ask for confirmation).", tr("The WARP background service is not running. Press “Only Orchestra through WARP…” to start it (Windows may ask to confirm)."))
       case "not-proxy-mode":
-        return text(context, "WARP is not in Local Proxy mode, so it would affect the whole device. Use \"Route only OpenCode through WARP\" first.", tr("WARP is not in Local Proxy mode and would affect the whole device. Press “Only OpenCode through WARP” first."))
+        return text(context, "WARP is not in Local Proxy mode, so it would affect the whole device. Use \"Route only Orchestra through WARP\" first.", tr("WARP is not in Local Proxy mode and would affect the whole device. Press “Only Orchestra through WARP” first."))
       case "device-in-use":
-        return text(context, "WARP is connected for the whole device. OpenCode will not switch it to Local Proxy because other applications would lose their tunnel. Disconnect WARP and retry.", tr("WARP is connected for every app. OpenCode will not switch it to Local Proxy, or the other apps would lose the tunnel. Disconnect WARP and try again."))
+        return text(context, "WARP is connected for the whole device. Orchestra will not switch it to Local Proxy because other applications would lose their tunnel. Disconnect WARP and retry.", tr("WARP is connected for every app. Orchestra will not switch it to Local Proxy, or the other apps would lose the tunnel. Disconnect WARP and try again."))
       case "socks-only":
-        return text(context, "This WARP version's local proxy speaks SOCKS5 only; OpenCode needs HTTP. Update Cloudflare WARP.", tr("This WARP version's local proxy speaks only SOCKS5, and OpenCode needs HTTP. Update Cloudflare WARP."))
+        return text(context, "This WARP version's local proxy speaks SOCKS5 only; Orchestra needs HTTP. Update Cloudflare WARP.", tr("This WARP version's local proxy speaks only SOCKS5, and Orchestra needs HTTP. Update Cloudflare WARP."))
       case "managed-registration":
         return text(context, "This WARP client is managed by an organization (Zero Trust); its registration cannot be reset here.", tr("This WARP is managed by an organization (Zero Trust); its registration cannot be reset from here."))
       case "no-traffic":
         return text(
           context,
           cause.message,
-          "Через WARP не идёт трафик даже через релей OpenCode (он пробовал локальные SOCKS5-порты VPN: 10808, 7897, 7890, 2080, 12334… и прямое соединение), поэтому IP не меняется. Включите в своём VPN (Clash Verge, Happ, v2rayN…) SOCKS5-порт с UDP или укажите его: ORCHESTRA_WARP_UPSTREAM=socks5://127.0.0.1:<порт>.",
+          "Через WARP не идёт трафик даже через релей Orchestra (он пробовал локальные SOCKS5-порты VPN: 10808, 7897, 7890, 2080, 12334… и прямое соединение), поэтому IP не меняется. Включите в своём VPN (Clash Verge, Happ, v2rayN…) SOCKS5-порт с UDP или укажите его: ORCHESTRA_WARP_UPSTREAM=socks5://127.0.0.1:<порт>.",
         )
       default:
         return cause.message
@@ -210,7 +210,7 @@ async function installWarp(context: Plugin.Context): Promise<boolean> {
   if (Warp.resolveCli()) {
     context.ui.toast.show({
       title: text(context, "WARP is already installed", tr("WARP is already installed")),
-      message: text(context, "Use \"Route only OpenCode through WARP\" to set it up.", tr("Press “Only OpenCode through WARP…” to set it up.")),
+      message: text(context, "Use \"Route only Orchestra through WARP\" to set it up.", tr("Press “Only Orchestra through WARP…” to set it up.")),
       variant: "info",
     })
     return false
@@ -225,7 +225,7 @@ async function installWarp(context: Plugin.Context): Promise<boolean> {
   if (termux || process.platform === "android") {
     await context.ui.dialog.alert({
       title: text(context, "WARP on Android / Termux", tr("WARP on Android / Termux")),
-      message: text(context, "Cloudflare's Android VPN app is separate from the Termux CLI. Android does not support WARP Local Proxy mode for routing only OpenCode traffic, so installing the mobile app would not meet the per-app routing requirement.", tr("Cloudflare's Android app is a separate VPN client, not a CLI for Termux. WARP Local Proxy for routing only OpenCode is not supported on Android, so the mobile app cannot isolate the traffic.")),
+      message: text(context, "Cloudflare's Android VPN app is separate from the Termux CLI. Android does not support WARP Local Proxy mode for routing only Orchestra traffic, so installing the mobile app would not meet the per-app routing requirement.", tr("Cloudflare's Android app is a separate VPN client, not a CLI for Termux. WARP Local Proxy for routing only Orchestra is not supported on Android, so the mobile app cannot isolate the traffic.")),
     })
     await openExternal("https://one.one.one.one/")
     return false
@@ -336,7 +336,7 @@ async function installWarp(context: Plugin.Context): Promise<boolean> {
   if (isAUR) {
     context.ui.toast.show({
       title: text(context, "WARP installed", tr("WARP installed")),
-      message: text(context, "WARP is installed but left disconnected. Use \"Route only OpenCode through WARP…\" when you actually want it.", tr("WARP is installed but left off. Press “Only OpenCode through WARP…” when you actually want it on.")),
+      message: text(context, "WARP is installed but left disconnected. Use \"Route only Orchestra through WARP…\" when you actually want it.", tr("WARP is installed but left off. Press “Only Orchestra through WARP…” when you actually want it on.")),
       variant: "success",
     })
   }
@@ -353,7 +353,7 @@ async function describeProxyEntries(context: Plugin.Context) {
   }
 }
 
-async function readOpenCodeProxyPort(context: Plugin.Context): Promise<number | null | undefined> {
+async function readOrchestraProxyPort(context: Plugin.Context): Promise<number | null | undefined> {
   try {
     const entries = await context.client.config.get()
     const found = entries.findLast((entry) => entry.type === "document" && entry.info.proxy !== undefined)
@@ -366,17 +366,17 @@ async function readOpenCodeProxyPort(context: Plugin.Context): Promise<number | 
   }
 }
 
-async function readOpenCodeProxyEnabled(context: Plugin.Context): Promise<boolean | undefined> {
-  const port = await readOpenCodeProxyPort(context)
+async function readOrchestraProxyEnabled(context: Plugin.Context): Promise<boolean | undefined> {
+  const port = await readOrchestraProxyPort(context)
   return port === undefined ? undefined : port !== null
 }
 
-async function setOpenCodeProxy(context: Plugin.Context, enabled: boolean, port = Warp.DEFAULT_PORT) {
+async function setOrchestraProxy(context: Plugin.Context, enabled: boolean, port = Warp.DEFAULT_PORT) {
   await context.client.config.update({ proxy: enabled ? Warp.proxyConfig(port) : null })
 }
 
 async function setupLocalProxy(context: Plugin.Context): Promise<WarpStatus> {
-  if (process.platform === "android" || process.env.PREFIX?.includes("/com.termux/")) throw new Error(text(context, "WARP Local Proxy is available on desktop clients only. Android/Termux cannot isolate WARP traffic to OpenCode this way.", tr("WARP Local Proxy exists only in the desktop client. On Android/Termux OpenCode's traffic alone cannot be routed through WARP this way.")))
+  if (process.platform === "android" || process.env.PREFIX?.includes("/com.termux/")) throw new Error(text(context, "WARP Local Proxy is available on desktop clients only. Android/Termux cannot isolate WARP traffic to Orchestra this way.", tr("WARP Local Proxy exists only in the desktop client. On Android/Termux Orchestra's traffic alone cannot be routed through WARP this way.")))
   let next: WarpStatus
   try {
     next = await Warp.ensureProxy()
@@ -384,15 +384,15 @@ async function setupLocalProxy(context: Plugin.Context): Promise<WarpStatus> {
     if (!(cause instanceof Warp.WarpError && cause.code === "device-in-use")) throw cause
     const accepted = await context.ui.dialog.confirm({
       title: text(context, "WARP is routing the whole device", tr("WARP currently covers the whole device")),
-      message: text(context, "WARP is connected for every application. Switch it to Local Proxy so that only OpenCode uses WARP? Other apps will go back to your normal connection.", tr("WARP is connected for every app. Switch it to Local Proxy so only OpenCode uses WARP? Other apps return to the normal connection.")),
-      label: { confirm: text(context, "Only OpenCode", tr("Only OpenCode")), cancel: text(context, "Cancel", tr("Cancel")) },
+      message: text(context, "WARP is connected for every application. Switch it to Local Proxy so that only Orchestra uses WARP? Other apps will go back to your normal connection.", tr("WARP is connected for every app. Switch it to Local Proxy so only Orchestra uses WARP? Other apps return to the normal connection.")),
+      label: { confirm: text(context, "Only Orchestra", tr("Only Orchestra")), cancel: text(context, "Cancel", tr("Cancel")) },
     })
     if (!accepted) throw cause
     next = await Warp.ensureProxy(Warp.DEFAULT_PORT, { takeOverDevice: true })
   }
   // WARP normally serves HTTP on 40000. Only use the bridge on 40001 for SOCKS5-only clients.
   const proxyPort = (await Warp.isSocksOnly(Warp.DEFAULT_PORT)) ? Warp.HTTP_BRIDGE_PORT : Warp.DEFAULT_PORT
-  await setOpenCodeProxy(context, true, proxyPort)
+  await setOrchestraProxy(context, true, proxyPort)
   return next
 }
 
@@ -451,7 +451,7 @@ export function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus
         {row(ru() ? tr("Your IP") : "Your IP", props.directIp || "…", theme().text.muted)}
         {props.proxyEnabled &&
           row(
-            ru() ? "IP OpenCode" : "OpenCode IP",
+            ru() ? "IP Orchestra" : "Orchestra IP",
             // The route row above already says the traffic goes through WARP, so the
             // "· WARP" tag on the address only repeats it.
             (props.exitIp || "…").replace(" · WARP", ""),
@@ -475,8 +475,8 @@ export function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus
         context={props.context}
         id="warp.sidebar.proxy"
         label={props.proxyEnabled
-          ? (ru() ? tr("✓ Turn off WARP for OpenCode") : "✓ Disable WARP for OpenCode")
-          : (ru() ? tr("↗ Only OpenCode through WARP") : "↗ Route only OpenCode via WARP")}
+          ? (ru() ? tr("✓ Turn off WARP for Orchestra") : "✓ Disable WARP for Orchestra")
+          : (ru() ? tr("↗ Only Orchestra through WARP") : "↗ Route only Orchestra via WARP")}
         run={props.toggleProxy}
         disabled={props.busy.action !== null || props.status.state === "unavailable"}
         emphasized
@@ -506,8 +506,8 @@ function WarpPage(props: { context: Plugin.Context; status: WarpStatus; busy: Sh
       case "reconnect": return ru() ? tr("Reconnecting…") : "Reconnecting…"
       case "reset": return ru() ? tr("Resetting registration…") : "Resetting registration…"
       case "install": return ru() ? tr("Installing WARP…") : "Installing WARP…"
-      case "proxy": return ru() ? tr("Setting up the OpenCode proxy…") : "Configuring OpenCode-only proxy…"
-      case "disableProxy": return ru() ? tr("Removing the OpenCode proxy…") : "Disabling OpenCode proxy…"
+      case "proxy": return ru() ? tr("Setting up the Orchestra proxy…") : "Configuring Orchestra-only proxy…"
+      case "disableProxy": return ru() ? tr("Removing the Orchestra proxy…") : "Disabling Orchestra proxy…"
       case "changeIp": return ru() ? tr("Changing IP…") : "Changing IP…"
       default: return ""
     }
@@ -529,7 +529,7 @@ function WarpPage(props: { context: Plugin.Context; status: WarpStatus; busy: Sh
       <box flexDirection="row" justifyContent="space-between" alignItems="flex-start" gap={1}>
         <box flexGrow={1} minWidth={0}>
           <text fg={theme().text.base}><b>Cloudflare WARP</b></text>
-          <text fg={theme().text.muted} wrapMode="word">{ru() ? tr("Only OpenCode's traffic goes through WARP; other apps connect directly.") : "Only OpenCode traffic goes through WARP; other apps connect directly."}</text>
+          <text fg={theme().text.muted} wrapMode="word">{ru() ? tr("Only Orchestra's traffic goes through WARP; other apps connect directly.") : "Only Orchestra traffic goes through WARP; other apps connect directly."}</text>
         </box>
         <ActionButton context={props.context} id="warp.close" label="Esc" run={props.onClose} />
       </box>
@@ -541,7 +541,7 @@ function WarpPage(props: { context: Plugin.Context; status: WarpStatus; busy: Sh
         </box>
         <text fg={theme().text.muted} wrapMode="word">{props.status.state === "unavailable" ? (ru() ? tr("Cloudflare WARP is not installed. Press “Install WARP…”.") : "Cloudflare WARP is not installed. Press “Install WARP…”.") : props.status.details}</text>
         <text fg={theme().text.muted} wrapMode="none">{(ru() ? tr("Your IP: ") : "Your IP: ") + (props.directIp || "…")}</text>
-        <text fg={props.exitIp ? theme().text.feedback.success.base : theme().text.muted} wrapMode="none">{(ru() ? "IP OpenCode: " : "OpenCode IP: ") + (props.exitIp || (props.proxyEnabled ? "…" : ru() ? tr("the same (WARP off)") : "same (WARP off)"))}</text>
+        <text fg={props.exitIp ? theme().text.feedback.success.base : theme().text.muted} wrapMode="none">{(ru() ? "IP Orchestra: " : "Orchestra IP: ") + (props.exitIp || (props.proxyEnabled ? "…" : ru() ? tr("the same (WARP off)") : "same (WARP off)"))}</text>
       </box>
       <box flexDirection="row" gap={1} flexWrap="wrap">
         {props.status.state === "unavailable" && <ActionButton context={props.context} id="warp.install" label={ru() ? tr("Install WARP…") : "Install WARP…"} run={() => props.run("install")} disabled={pending()} emphasized />}
@@ -549,7 +549,7 @@ function WarpPage(props: { context: Plugin.Context; status: WarpStatus; busy: Sh
         {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.connect" label={ru() ? tr("Connect") : "Connect"} run={() => props.run("connect")} disabled={pending() || props.status.state === "connected"} />}
         {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.disconnect" label={ru() ? tr("Disconnect") : "Disconnect"} run={() => props.run("disconnect")} disabled={props.busy.action === "disconnect" || props.status.state === "disconnected"} />}
         {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.reconnect" label={ru() ? tr("Reconnect") : "Reconnect"} run={() => props.run("reconnect")} disabled={pending()} />}
-        {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.proxy" label={props.proxyEnabled ? (ru() ? tr("Remove the OpenCode proxy") : "Disable OpenCode proxy") : (ru() ? tr("Only OpenCode through WARP…") : "Route only OpenCode through WARP…")} run={() => props.run(props.proxyEnabled ? "disableProxy" : "proxy")} disabled={pending()} emphasized={!props.proxyEnabled} />}
+        {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.proxy" label={props.proxyEnabled ? (ru() ? tr("Remove the Orchestra proxy") : "Disable Orchestra proxy") : (ru() ? tr("Only Orchestra through WARP…") : "Route only Orchestra through WARP…")} run={() => props.run(props.proxyEnabled ? "disableProxy" : "proxy")} disabled={pending()} emphasized={!props.proxyEnabled} />}
         {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.changeIp" label={ru() ? tr("Change IP") : "Change IP"} run={() => props.run("changeIp")} disabled={pending() || !props.proxyEnabled} emphasized={props.proxyEnabled} />}
         {props.status.state !== "unavailable" && <ActionButton context={props.context} id="warp.reset" label={ru() ? tr("Reset registration…") : "Reset registration…"} run={() => void reset()} disabled={pending()} />}
       </box>
@@ -579,7 +579,7 @@ export default Plugin.define({
     const refreshExitIp = async (options: { readonly force?: boolean } = {}) => {
       if (!options.force && Date.now() - lastExitIpRefresh < EXIT_IP_REFRESH_MS) return
       lastExitIpRefresh = Date.now()
-      const proxyPort = proxy.enabled ? await readOpenCodeProxyPort(context) : null
+      const proxyPort = proxy.enabled ? await readOrchestraProxyPort(context) : null
       const [direct, viaWarp] = await Promise.all([
         Warp.exitIp(),
         proxy.enabled && typeof proxyPort === "number" ? Warp.exitIp(proxyPort) : Promise.resolve(undefined),
@@ -606,7 +606,7 @@ export default Plugin.define({
     process.once("SIGTERM", onTerm)
 
     const refreshProxy = async () => {
-      const enabled = await readOpenCodeProxyEnabled(context)
+      const enabled = await readOrchestraProxyEnabled(context)
       // A read that fails because the server is restarting is not a state change; logging it on
       // every tick buried the diagnostic trail in identical lines.
       const read = String(enabled)
@@ -623,16 +623,16 @@ export default Plugin.define({
         Warp.markInUse()
         // Heal configurations that point at the 40001 bridge while WARP serves HTTP itself on 40000:
         // saved by older builds, or by a build that judged a dead tunnel to be SOCKS5-only. Nothing
-        // else listens on 40001 then, so every OpenCode request fails. Retried on each refresh until
+        // else listens on 40001 then, so every Orchestra request fails. Retried on each refresh until
         // decided, because right after start WARP may still be connecting and 40000 not open yet.
         if (!healedRoute) {
-          const configuredPort = await readOpenCodeProxyPort(context)
+          const configuredPort = await readOrchestraProxyPort(context)
           if (configuredPort !== Warp.HTTP_BRIDGE_PORT) healedRoute = true
           if (configuredPort === Warp.HTTP_BRIDGE_PORT && await Warp.portOpen(Warp.DEFAULT_PORT)) {
             healedRoute = true
             if (!(await Warp.isSocksOnly(Warp.DEFAULT_PORT))) {
-              await setOpenCodeProxy(context, true, Warp.DEFAULT_PORT)
-              Warp.log(`repaired stale OpenCode WARP proxy port ${configuredPort} -> ${Warp.DEFAULT_PORT}`)
+              await setOrchestraProxy(context, true, Warp.DEFAULT_PORT)
+              Warp.log(`repaired stale Orchestra WARP proxy port ${configuredPort} -> ${Warp.DEFAULT_PORT}`)
               await refreshExitIp({ force: true })
             }
           }
@@ -642,7 +642,7 @@ export default Plugin.define({
 
     const refresh = async () => {
       if (busy.action !== null) return
-      // Another OpenCode may have run WARP's relay and exited; this one takes it over.
+      // Another Orchestra may have run WARP's relay and exited; this one takes it over.
       await Warp.keepRelay()
       const read = await readWarpStatus()
       setSharedStatus(updateStatus, read)
@@ -736,10 +736,10 @@ export default Plugin.define({
       try {
         // Verify the actual config rather than relying only on cached panel state. Repair the route
         // first so a stale 40001 setting cannot make every MCP/provider request fail with ECONNREFUSED.
-        const proxyReady = (await readOpenCodeProxyEnabled(context)) === true
+        const proxyReady = (await readOrchestraProxyEnabled(context)) === true
         if (!proxyReady || !autoRotate.enabled) {
           Warp.log(`automatic IP rotation skipped: proxy=${proxyReady} autoRotate=${autoRotate.enabled}`)
-          // Without the OpenCode proxy there is nothing to rotate, but the chat still deserves its
+          // Without the Orchestra proxy there is nothing to rotate, but the chat still deserves its
           // automatic continuation once the provider limit clears.
           await resumeRateLimitedChats({ fallback: "warp-unavailable" })
           if (continuations.due({ addressChanged: true }).length > 0) scheduleContinuationRetry()
@@ -755,7 +755,7 @@ export default Plugin.define({
         setAutoRotation({ phase: "rotating", at: Date.now() })
         context.ui.toast.show({
           title: text(context, "Provider/network error detected", tr("Network error detected")),
-          message: text(context, "Repairing the WARP route and changing the OpenCode exit IP…", tr("Fixing the WARP route and changing OpenCode's exit IP…")),
+          message: text(context, "Repairing the WARP route and changing the Orchestra exit IP…", tr("Fixing the WARP route and changing Orchestra's exit IP…")),
           variant: "info",
         })
         const rotation = await Warp.rotate()
@@ -773,7 +773,7 @@ export default Plugin.define({
         context.ui.toast.show({
           title: text(context, "Automatic IP change finished", tr("Automatic IP change finished")),
           message: rotation.changed
-            ? text(context, "OpenCode now uses a different WARP exit IP.", tr("OpenCode now uses a different WARP exit IP."))
+            ? text(context, "Orchestra now uses a different WARP exit IP.", tr("Orchestra now uses a different WARP exit IP."))
             : text(context, "WARP reconnected, but a new IP could not be confirmed. The provider may still apply the same limit.", tr("WARP reconnected, but the new IP could not be confirmed. The provider may keep applying the same limit.")),
           variant: rotation.changed ? "success" : "info",
         })
@@ -923,7 +923,7 @@ export default Plugin.define({
     }
 
     /**
-     * The per-address cap is the case Auto IP exists for, so it switches OpenCode-only WARP routing and
+     * The per-address cap is the case Auto IP exists for, so it switches Orchestra-only WARP routing and
      * Auto IP on by itself unless the user turned Auto IP off. A device-wide tunnel is never taken
      * over silently, and anything that stops WARP here sends the chat to another free model instead.
      */
@@ -946,7 +946,7 @@ export default Plugin.define({
         const proxyPort = (await Warp.isSocksOnly(Warp.DEFAULT_PORT)) ? Warp.HTTP_BRIDGE_PORT : Warp.DEFAULT_PORT
         offReads = 0
         trustUntil = Date.now() + 30_000
-        await setOpenCodeProxy(context, true, proxyPort)
+        await setOrchestraProxy(context, true, proxyPort)
         setSharedStatus(updateStatus, ready)
         updateProxy((draft) => { draft.enabled = true })
         await updateAutoRotate((draft) => { draft.enabled = true })
@@ -955,7 +955,7 @@ export default Plugin.define({
         Warp.log(`automatic WARP switch-on for the free-tier cap: direct=${before?.ip ?? "?"} warp=${after?.ip ?? "?"}`)
         context.ui.toast.show({
           title: text(context, "Free-tier IP limit: WARP switched on", tr("Free plan IP limit: WARP turned on")),
-          message: text(context, "Only OpenCode now goes through WARP, and Auto IP is on. Other apps are unchanged.", tr("Only OpenCode goes through WARP now, Auto IP is on. Other apps are not affected.")),
+          message: text(context, "Only Orchestra now goes through WARP, and Auto IP is on. Other apps are unchanged.", tr("Only Orchestra goes through WARP now, Auto IP is on. Other apps are not affected.")),
           variant: "info",
         })
         const changed = Boolean(before && after && before.ip !== after.ip)
@@ -987,10 +987,10 @@ export default Plugin.define({
     }
 
     const onAddressCap = async (error: unknown) => {
-      // Routing OpenCode through WARP is how the user keeps their own address out of its requests, so
-      // a limit reached through WARP never moves OpenCode back to the direct route; it only moves the
+      // Routing Orchestra through WARP is how the user keeps their own address out of its requests, so
+      // a limit reached through WARP never moves Orchestra back to the direct route; it only moves the
       // chat to another free model.
-      if ((await readOpenCodeProxyEnabled(context)) === true) return resumeRateLimitedChats({ fallback: "warp-unavailable" })
+      if ((await readOrchestraProxyEnabled(context)) === true) return resumeRateLimitedChats({ fallback: "warp-unavailable" })
       if (!autoRotate.enabled) return enableAutoRouteForCap()
       queueAutoRotation(error)
     }
@@ -1040,17 +1040,17 @@ export default Plugin.define({
           const installed = await installWarp(context)
           infoOnly = !installed
           next = await readWarpStatus()
-          actionMessage = installed ? text(context, "Installer finished. WARP remains disconnected until you explicitly enable OpenCode-only routing.", tr("The installer finished. WARP stays off until you explicitly turn on routing for OpenCode only.")) : text(context, "Opened installation guidance. WARP is not confirmed installed yet.", tr("The installation guide is open. WARP installation is not confirmed yet."))
+          actionMessage = installed ? text(context, "Installer finished. WARP remains disconnected until you explicitly enable Orchestra-only routing.", tr("The installer finished. WARP stays off until you explicitly turn on routing for Orchestra only.")) : text(context, "Opened installation guidance. WARP is not confirmed installed yet.", tr("The installation guide is open. WARP installation is not confirmed yet."))
         } else if (action === "proxy") {
           next = await setupLocalProxy(context)
           updateProxy((draft) => { draft.enabled = true })
-          actionMessage = text(context, "Only OpenCode is configured to use WARP. Other apps are unchanged.", tr("Only OpenCode is set to use WARP. Other apps' settings are unchanged."))
+          actionMessage = text(context, "Only Orchestra is configured to use WARP. Other apps are unchanged.", tr("Only Orchestra is set to use WARP. Other apps' settings are unchanged."))
         } else if (action === "disableProxy") {
-          await setOpenCodeProxy(context, false)
+          await setOrchestraProxy(context, false)
           updateProxy((draft) => { draft.enabled = false })
           Warp.releaseSync({ disconnect: false })
           next = await readWarpStatus()
-          actionMessage = text(context, "OpenCode now connects directly. Other apps were not changed.", tr("OpenCode now connects directly. Other apps' settings are unchanged."))
+          actionMessage = text(context, "Orchestra now connects directly. Other apps were not changed.", tr("Orchestra now connects directly. Other apps' settings are unchanged."))
         } else if (action === "changeIp") {
           gate.started()
           const rotation = await Warp.rotate()
@@ -1058,7 +1058,7 @@ export default Plugin.define({
           if (rotation.changed) setAutoRotation({ phase: "changed", at: Date.now(), from: rotation.before?.ip, to: rotation.after?.ip })
           next = rotation.status
           actionMessage = rotation.changed
-            ? text(context, "OpenCode now uses a different WARP exit IP.", tr("OpenCode now uses a different WARP exit IP."))
+            ? text(context, "Orchestra now uses a different WARP exit IP.", tr("Orchestra now uses a different WARP exit IP."))
             : text(context, "WARP reconnected, but a new IP could not be confirmed.", tr("WARP reconnected, but the new IP could not be confirmed."))
           await refreshProxy()
           await refreshExitIp({ force: true })
@@ -1117,8 +1117,8 @@ export default Plugin.define({
         context.ui.toast.show({
           title: enabled ? text(context, "Auto Fallback enabled", tr("Auto model fallback on")) : text(context, "Auto Fallback disabled", tr("Auto model fallback off")),
           message: enabled
-            ? text(context, "OpenCode will automatically switch to another free model when rate limits are hit.", tr("OpenCode will switch to another free model on rate limits."))
-            : text(context, "OpenCode will keep the current model on rate limits without switching.", tr("OpenCode keeps the current model on rate limits without switching.")),
+            ? text(context, "Orchestra will automatically switch to another free model when rate limits are hit.", tr("Orchestra will switch to another free model on rate limits."))
+            : text(context, "Orchestra will keep the current model on rate limits without switching.", tr("Orchestra keeps the current model on rate limits without switching.")),
           variant: "info",
         })
       } catch (cause) {
@@ -1142,31 +1142,31 @@ export default Plugin.define({
     void refresh()
     void refreshProxy()
     // The stored proxy setting is the user's standing intent: after a reboot or a warp-svc
-    // restart the tunnel is down while OpenCode still routes through 127.0.0.1:40000, so every
+    // restart the tunnel is down while Orchestra still routes through 127.0.0.1:40000, so every
     // request fails with ECONNREFUSED until someone presses the button. Bring it back once per
     // session. Never touches a device-wide tunnel (ensureProxy refuses that) and never starts
     // the background service itself, so no surprise UAC prompt appears.
     //
     // The tunnel can also drop mid-session (a VPN that reconnects takes warp-svc's tunnel with it).
-    // OpenCode stays pinned to the WARP port meanwhile, so requests fail rather than leave from the
+    // Orchestra stays pinned to the WARP port meanwhile, so requests fail rather than leave from the
     // user's own address, and the periodic refresh and network failures bring the tunnel back here.
     let healFailedAt = 0
     const healSavedRoute = async () => {
       if (busy.action !== null || Date.now() - healFailedAt < HEAL_RETRY_MS) return
-      if ((await readOpenCodeProxyEnabled(context)) !== true) return
+      if ((await readOrchestraProxyEnabled(context)) !== true) return
       if (!Warp.resolveCli()) return
       const wasDown = status.state !== "connected"
       setSharedBusy(updateBusy, "proxy")
       try {
         await Warp.ensureProxy(Warp.DEFAULT_PORT)
         const proxyPort = (await Warp.isSocksOnly(Warp.DEFAULT_PORT)) ? Warp.HTTP_BRIDGE_PORT : Warp.DEFAULT_PORT
-        await setOpenCodeProxy(context, true, proxyPort)
+        await setOrchestraProxy(context, true, proxyPort)
         setSharedStatus(updateStatus, await Warp.status())
         updateProxy((draft) => { draft.enabled = true })
         await refreshExitIp({ force: true })
         if (wasDown) context.ui.toast.show({
           title: text(context, "WARP route restored", tr("WARP route restored")),
-          message: text(context, "OpenCode is routed through WARP again. Other apps are unchanged.", tr("OpenCode goes through WARP again. Other apps' settings are unchanged.")),
+          message: text(context, "Orchestra is routed through WARP again. Other apps are unchanged.", tr("Orchestra goes through WARP again. Other apps' settings are unchanged.")),
           variant: "success",
         })
       } catch (cause) {

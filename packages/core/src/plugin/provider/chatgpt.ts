@@ -19,7 +19,7 @@ import type { PluginInternal } from "../internal.js"
 
 // First-time sign-in registers a user-owned client; OpenAI returns its issued client ID on the callback.
 const registrationClientID = "dynamic_agent_client"
-const agentName = "OpenCode++"
+const agentName = "Orchestra"
 const issuer = "https://auth.openai.com"
 const tokenURL = `${issuer}/api/accounts/oauth/token`
 const resource = "https://api.openai.com/v1"
@@ -279,7 +279,7 @@ function listen(server: Server) {
 }
 
 export const ChatGPTPlugin = define({
-  id: "opencode.provider.chatgpt",
+  id: "orchestra.provider.chatgpt",
   effect: Effect.fn(function* (ctx) {
     const bus = yield* Bus.Service
     const credentials = yield* Credential.Service

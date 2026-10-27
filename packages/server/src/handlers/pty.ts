@@ -11,6 +11,7 @@ import { Api } from "../api"
 import { CorsConfig, isAllowedRequestOrigin } from "../cors"
 import { ForbiddenError, PtyNotFoundError } from "@orchestra/protocol/errors"
 import {
+  LEGACY_PTY_CONNECT_TOKEN_HEADER,
   PTY_CONNECT_TICKET_QUERY,
   PTY_CONNECT_TOKEN_HEADER,
   PTY_CONNECT_TOKEN_HEADER_VALUE,
@@ -122,8 +123,10 @@ export const PtyHandler = HttpApiBuilder.group(Api, "server.pty", (handlers) =>
           const request = yield* HttpServerRequest.HttpServerRequest
           // The custom header forces a CORS preflight, so cross-origin browser pages cannot
           // mint tickets without passing the server's origin policy.
+          const ticketHeader =
+            request.headers[PTY_CONNECT_TOKEN_HEADER] ?? request.headers[LEGACY_PTY_CONNECT_TOKEN_HEADER]
           if (
-            request.headers[PTY_CONNECT_TOKEN_HEADER] !== PTY_CONNECT_TOKEN_HEADER_VALUE ||
+            ticketHeader !== PTY_CONNECT_TOKEN_HEADER_VALUE ||
             !isAllowedRequestOrigin(request.headers.origin, request.headers.host, cors)
           )
             return yield* new ForbiddenError({ message: "Invalid PTY connect token request" })
@@ -161,76 +164,88 @@ export const PtyHandler = HttpApiBuilder.group(Api, "server.pty", (handlers) =>
           )
             return HttpServerResponse.empty({ status: 403 })
 
-          return yield* Effect.gen(function* () {
-            const pty = yield* Pty.Service
-            const exists = yield* pty.get(ctx.params.ptyID).pipe(
-              Effect.as(true),
-              Effect.catchTag("Pty.NotFoundError", () => Effect.succeed(false)),
-            )
-            if (!exists) return HttpServerResponse.empty({ status: 404 })
-            const parsedCursor = url.searchParams.get("cursor")
-            const cursorNumber = parsedCursor === null ? undefined : Number(parsedCursor)
-            const cursor =
-              cursorNumber !== undefined && Number.isSafeInteger(cursorNumber) && cursorNumber >= -1
-                ? cursorNumber
-                : undefined
-
-            const socket = yield* Effect.orDie(ctx.request.upgrade)
-            const write = yield* socket.writer
-            const closeAccepted = (event: Socket.CloseEvent) =>
-              socket
-                .runRaw(() => Effect.void, { onOpen: write(event).pipe(Effect.catch(() => Effect.void)) })
-                .pipe(
-                  Effect.timeout("1 second"),
-                  Effect.catchReason("SocketError", "SocketCloseError", () => Effect.void),
-                  Effect.catch(() => Effect.void),
-                )
-
-            // Outbound frames flow through one queue drained by a single writer so replay, live
-            // output, and the close frame keep their order.
-            // TODO: Integrate graceful-shutdown socket tracking before clients migrate to this route.
-            const outbox = yield* Queue.unbounded<string | Uint8Array | Socket.CloseEvent>()
-            const attachment = yield* pty
-              .attach(ctx.params.ptyID, {
-                cursor,
-                onData: (chunk) => Queue.offerUnsafe(outbox, chunk),
-                onEnd: () => Queue.offerUnsafe(outbox, new Socket.CloseEvent(1000)),
-              })
-              .pipe(
-                Effect.catchTags({
-                  "Pty.NotFoundError": () =>
-                    closeAccepted(new Socket.CloseEvent(4404, "session not found")).pipe(Effect.as(undefined)),
-                  "Pty.ExitedError": () =>
-                    closeAccepted(new Socket.CloseEvent(4404, "session exited")).pipe(Effect.as(undefined)),
-                }),
+          return yield* Effect.scoped(
+            Effect.gen(function* () {
+              const pty = yield* Pty.Service
+              const exists = yield* pty.get(ctx.params.ptyID).pipe(
+                Effect.as(true),
+                Effect.catchTag("Pty.NotFoundError", () => Effect.succeed(false)),
               )
-            if (!attachment) return HttpServerResponse.empty()
+              if (!exists) return HttpServerResponse.empty({ status: 404 })
+              const parsedCursor = url.searchParams.get("cursor")
+              const cursorNumber = parsedCursor === null ? undefined : Number(parsedCursor)
+              const cursor =
+                cursorNumber !== undefined && Number.isSafeInteger(cursorNumber) && cursorNumber >= -1
+                  ? cursorNumber
+                  : undefined
 
-            for (const chunk of PtyProtocol.chunks(attachment.replay)) Queue.offerUnsafe(outbox, chunk)
-            Queue.offerUnsafe(outbox, PtyProtocol.metaFrame(attachment.cursor))
-            attachment.activate()
+              const socket = yield* Effect.orDie(ctx.request.upgrade)
+              const write = yield* socket.writer
+              const closeAccepted = (event: Socket.CloseEvent) =>
+                socket
+                  .runRaw(() => Effect.void, { onOpen: write(event).pipe(Effect.catch(() => Effect.void)) })
+                  .pipe(
+                    Effect.timeout("1 second"),
+                    Effect.catchReason("SocketError", "SocketCloseError", () => Effect.void),
+                    Effect.catch(() => Effect.void),
+                  )
 
-            const drain = Effect.gen(function* () {
-              while (true) {
-                const item = yield* Queue.take(outbox)
-                yield* write(item)
-                if (item instanceof Socket.CloseEvent) return
+              // Outbound frames flow through one queue drained by a single writer so replay, live
+              // output, and the close frame keep their order.
+              // TODO: Integrate graceful-shutdown socket tracking before clients migrate to this route.
+              const outbox = yield* Queue.unbounded<string | Uint8Array | Socket.CloseEvent>()
+              yield* Effect.addFinalizer(() => Queue.shutdown(outbox))
+
+              const attachment = yield* pty
+                .attach(ctx.params.ptyID, {
+                  cursor,
+                  onData: (chunk) => Queue.offerUnsafe(outbox, chunk),
+                  onEnd: () => Queue.offerUnsafe(outbox, new Socket.CloseEvent(1000)),
+                })
+                .pipe(
+                  Effect.catchTags({
+                    "Pty.NotFoundError": () =>
+                      closeAccepted(new Socket.CloseEvent(4404, "session not found")).pipe(Effect.as(undefined)),
+                    "Pty.ExitedError": () =>
+                      closeAccepted(new Socket.CloseEvent(4404, "session exited")).pipe(Effect.as(undefined)),
+                  }),
+                )
+              if (!attachment) return HttpServerResponse.empty()
+
+              let detached = false
+              const detach = () => {
+                if (detached) return
+                detached = true
+                attachment.detach()
               }
-            })
+              yield* Effect.addFinalizer(() => Effect.sync(detach))
 
-            yield* runPtySocket(
-              drain,
-              socket.runRaw((message) => {
-                const decoded = PtyProtocol.decodeInput(message)
-                if (decoded !== undefined) attachment.write(decoded)
-              }),
-              attachment.detach,
-            ).pipe(
-              Effect.catchReason("SocketError", "SocketCloseError", () => Effect.void),
-              Effect.orDie,
-            )
-            return HttpServerResponse.empty()
-          }).pipe(Effect.provide(locations.get(ref)), locationErrors)
+              for (const chunk of PtyProtocol.chunks(attachment.replay)) Queue.offerUnsafe(outbox, chunk)
+              Queue.offerUnsafe(outbox, PtyProtocol.metaFrame(attachment.cursor))
+              attachment.activate()
+
+              const drain = Effect.gen(function* () {
+                while (true) {
+                  const item = yield* Queue.take(outbox)
+                  yield* write(item)
+                  if (item instanceof Socket.CloseEvent) return
+                }
+              })
+
+              yield* runPtySocket(
+                drain,
+                socket.runRaw((message) => {
+                  const decoded = PtyProtocol.decodeInput(message)
+                  if (decoded !== undefined) attachment.write(decoded)
+                }),
+                detach,
+              ).pipe(
+                Effect.catchReason("SocketError", "SocketCloseError", () => Effect.void),
+                Effect.orDie,
+              )
+              return HttpServerResponse.empty()
+            }),
+          ).pipe(Effect.provide(locations.get(ref)), locationErrors)
         }),
       )
   }),

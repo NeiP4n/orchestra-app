@@ -379,13 +379,45 @@ function normalizeCompaction(
   const buffer = prefer(legacyBuffer, nativeBuffer, ["compaction", "buffer"], diagnostics)
   if (buffer !== undefined) result.buffer = buffer
   if (own(input.compaction, "threshold")) {
+    const raw = input.compaction.threshold
+    const parsed =
+      typeof raw === "string"
+        ? (() => {
+            const trimmed = raw.trim().toLowerCase()
+            const cleaned = trimmed.replace(/[,_\s]/g, "")
+            const m = cleaned.match(/^([0-9]+(?:\.[0-9]+)?)([kmb]?)$/i)
+            if (!m) return Math.max(0, Math.floor(parseFloat(cleaned) || 0))
+            const num = parseFloat(m[1])
+            const unit = m[2].toLowerCase()
+            const mul = unit === "m" ? 1_000_000 : unit === "b" ? 1_000_000_000 : unit === "k" ? 1_000 : 1
+            return Math.floor(num * mul)
+          })()
+        : raw
     const threshold = decodeEncoded(
       ConfigCompaction.Info.fields.threshold,
-      input.compaction.threshold,
+      parsed,
       ["compaction", "threshold"],
       diagnostics,
     )
     if (threshold !== undefined) result.threshold = threshold
+  }
+  if (own(input.compaction, "threshold_percent")) {
+    const percent = decodeEncoded(
+      ConfigCompaction.Info.fields.threshold_percent,
+      input.compaction.threshold_percent,
+      ["compaction", "threshold_percent"],
+      diagnostics,
+    )
+    if (percent !== undefined) result.threshold_percent = percent
+  }
+  if (own(input.compaction, "keep_free_percent")) {
+    const percent = decodeEncoded(
+      ConfigCompaction.Info.fields.keep_free_percent,
+      input.compaction.keep_free_percent,
+      ["compaction", "keep_free_percent"],
+      diagnostics,
+    )
+    if (percent !== undefined) result.keep_free_percent = percent
   }
   if (Object.keys(result).length || !Object.keys(input.compaction).length) encoded.compaction = result
 }

@@ -24,7 +24,7 @@ windows("retain hard-links the running image for the scope and sweeps only links
       Effect.gen(function* () {
         const link = yield* RetainedImage.retain(directory, "upgrade")
         if (!link) return yield* Effect.die("Expected a link")
-        expect(path.basename(link)).toMatch(new RegExp(`^opencode-upgrade-${process.pid}-[0-9a-f]{8}\\.exe$`))
+        expect(path.basename(link)).toMatch(new RegExp(`^(?:orchestra|opencode)-upgrade-${process.pid}-[0-9a-f]{8}\\.exe$`))
         expect(statSync(link).ino).toBe(image.ino)
         expect(statSync(link).nlink).toBe(image.nlink + 1)
         expect((yield* fs.readDirectory(directory)).sort()).toEqual([...kept, path.basename(link)].sort())

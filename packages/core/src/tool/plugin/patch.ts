@@ -66,7 +66,7 @@ type Prepared =
     })
 
 export const Plugin = {
-  id: "opencode.tool.patch",
+  id: "orchestra.tool.patch",
   effect: Effect.fn("PatchTool.Plugin")(function* (ctx: Context) {
     const environment = yield* Environment.Service
     const access = yield* FileAccess.Service
@@ -290,9 +290,11 @@ export const Plugin = {
                 content: toModelContent(output),
                 metadata: { files: output.files },
               })),
-              Effect.mapError((error) =>
-                error instanceof ToolFailure ? error : new ToolFailure({ message: "Unable to apply patch", error }),
-              ),
+              Effect.mapError((error) => {
+                if (error instanceof ToolFailure) return error
+                const cause = error instanceof Error ? `: ${error.message}` : error ? `: ${String(error)}` : ""
+                return new ToolFailure({ message: `Unable to apply patch${cause}`, error })
+              }),
             )
           },
         }),

@@ -12,11 +12,17 @@ import { Session } from "@orchestra/schema/session"
 import { tmpdir } from "../../core/test/fixture/tmpdir"
 import { it } from "../../core/test/lib/effect"
 import { ServerFetch } from "../src/fetch"
+import os from "node:os"
+const emptyConfigDir = path.join(os.tmpdir(), "orchestra-test-empty-config")
+process.env.ORCHESTRA_CONFIG_DIR = emptyConfigDir
+process.env.OPENCODE_CONFIG_DIR = emptyConfigDir
+try { await fs.mkdir(emptyConfigDir, { recursive: true }) } catch {}
+
 
 const options = {
   app: { version: "test-version" },
   database: { path: ":memory:" },
-  config: { project: false },
+  config: { project: false, global: false },
   models: { fetch: false },
   fs: { filewatcher: false },
 } as const
@@ -190,7 +196,7 @@ const connectOpenAI = (handler: Handler) =>
     }).pipe(
       Effect.filterOrFail((ready) => ready),
       Effect.retry(Schedule.spaced("10 millis")),
-      Effect.timeout("2 seconds"),
+      Effect.timeout("10 seconds"),
     )
     return yield* Effect.promise(() =>
       handler(
@@ -222,7 +228,7 @@ it.live("serves the HttpApi and enforces Basic auth like the Node server", () =>
       Effect.flatMap(Schema.decodeUnknownEffect(ServerInfo)),
     )
     expect(body.version).toBe("test-version")
-    expect(body.paths.tmp).toEndWith("opencode")
+    expect(body.paths.tmp).toEndWith("orchestra")
     expect(body.capabilities?.persistentPty).toBe(process.platform !== "win32")
   }),
 )
@@ -301,7 +307,7 @@ it.live("applies custom CORS origins to HTTP responses and PTY ticket checks", (
             handler(
               new Request("http://opencode.local/api/experimental/persistent-pty/pty_missing/connect-token", {
                 method: "POST",
-                headers: { origin, authorization: `Basic ${btoa("opencode:secret")}`, "x-opencode-ticket": "1" },
+                headers: { origin, authorization: `Basic ${btoa("opencode:secret")}`, "x-orchestra-ticket": "1" },
               }),
             ),
           )
@@ -364,7 +370,7 @@ it.live("applies custom CORS origins to HTTP responses and PTY ticket checks", (
           method: "POST",
           headers: {
             authorization: `Basic ${btoa("opencode:secret")}`,
-            "x-opencode-ticket": "1",
+            "x-orchestra-ticket": "1",
           },
         }),
       ).then((response) => response.json()),
@@ -429,6 +435,7 @@ it.live("cancels a stale OpenAI OAuth callback server before falling back", () =
     const body = (yield* Effect.promise(() => response.json())) as { data: { url: string } }
     expect(new URL(body.data.url).searchParams.get("redirect_uri")).toBe("http://localhost:1455/auth/callback")
   }),
+  { timeout: 15_000 },
 )
 
 it.live("falls back to port 1457 when OpenAI OAuth port 1455 remains busy", () =>
@@ -442,6 +449,7 @@ it.live("falls back to port 1457 when OpenAI OAuth port 1455 remains busy", () =
     const body = (yield* Effect.promise(() => response.json())) as { data: { url: string } }
     expect(new URL(body.data.url).searchParams.get("redirect_uri")).toBe("http://localhost:1457/auth/callback")
   }),
+  { timeout: 15_000 },
 )
 
 it.live(

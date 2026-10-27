@@ -240,6 +240,17 @@ it.live("stops a discovered inherited daemon when adoption fails", () =>
   }),
 )
 
+it.live("detects premature daemon process exit and cleans up without lingering zombies", () =>
+  Effect.gen(function* () {
+    const { root } = yield* temporaryRuntime()
+    const daemon = yield* makeDaemonTransport(root, "crashed", () => Promise.resolve(process.execPath))
+    const error = yield* Effect.flip(daemon.request({ op: "create" }, true))
+
+    expect(error.kind).toBe("spawn")
+    expect(error.message).toContain("exited prematurely")
+  }),
+)
+
 function temporaryRuntime() {
   return Effect.gen(function* () {
     const root = yield* temporaryDirectory()

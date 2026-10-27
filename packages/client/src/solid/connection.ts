@@ -1,6 +1,7 @@
 import { batch, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
-import type { OpenCodeClient, OpenCodeEvent } from "../promise"
+import type { OrchestraClient, OpenCodeEvent } from "../promise"
+import { computeBackoff } from "../event-source"
 
 export type ClientConnectionStatus = "connected" | "connecting" | "reconnecting"
 export type ClientConnectionEvent = {
@@ -14,7 +15,7 @@ export type ClientConnectionEvent = {
 }
 
 export type ClientConnectionOptions = {
-  readonly reconnect?: (signal: AbortSignal) => Promise<OpenCodeClient>
+  readonly reconnect?: (signal: AbortSignal) => Promise<OrchestraClient>
   readonly onEvent: (event: OpenCodeEvent) => void
   readonly flushInterval?: number
   readonly pageLifecycle?: boolean
@@ -37,7 +38,7 @@ export const defaultIdleTimeout = 45_000
 // returns to the foreground is probably half-open after the device slept.
 export const foregroundIdleThreshold = 20_000
 
-export function createClientConnection(initialApi: OpenCodeClient, options: ClientConnectionOptions) {
+export function createClientConnection(initialApi: OrchestraClient, options: ClientConnectionOptions) {
   const abort = new AbortController()
   const history: ClientConnectionEvent[] = []
   const idleTimeout = options.idleTimeout ?? defaultIdleTimeout
@@ -56,6 +57,7 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
   let generation = 0
   let lastActivity = 0
   let forced = false
+  let lastEventID: string | undefined
 
   function record(status: ClientConnectionEvent["data"]["status"], attempt: number, error?: string) {
     history.push({ type: "client.connection", created: Date.now(), data: { status, attempt, error } })
@@ -93,8 +95,8 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
 
     try {
       record(attempt === 0 ? "connecting" : "reconnecting", attempt)
-      options.log?.info?.("event stream connecting", { attempt })
-      const iterator = api.event.subscribe({ signal: request.signal, onActivity: touch })[Symbol.asyncIterator]()
+      options.log?.info?.("event stream connecting", { attempt, lastEventID })
+      const iterator = api.event.subscribe({ signal: request.signal, onActivity: touch, lastEventID })[Symbol.asyncIterator]()
       const first = await iterator.next()
       if (signal.aborted) return { error: undefined, connectedAt }
       if (first.done)
@@ -124,6 +126,9 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
             connectedAt,
           }
         touch()
+        if (event.value && typeof event.value === "object" && "id" in event.value && typeof (event.value as any).id === "string") {
+          lastEventID = (event.value as any).id
+        }
         if ("durable" in event.value && event.value.durable)
           options.log?.debug?.("event", {
             type: event.value.type,
@@ -178,7 +183,8 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
         forced = false
         continue
       }
-      await wait(reconnectDelay, controller.signal)
+      const delay = computeBackoff(attempt - 1)
+      await wait(delay, controller.signal)
     }
   }
 

@@ -5,9 +5,11 @@ import { Context, DateTime, Effect, Layer, Schema } from "effect"
 import { Global } from "@orchestra/util/global"
 import { Location } from "../location.js"
 import { Instructions } from "./index.js"
+import { ToolGuidance } from "./guidance.js"
+import { ActionSnippets } from "./snippets.js"
 
 export interface Interface {
-  readonly load: () => Effect.Effect<Instructions.List>
+  readonly load: (availableTools?: ReadonlySet<string> | ReadonlyArray<string>) => Effect.Effect<Instructions.List>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@orchestra/InstructionBuiltIns") {}
@@ -18,7 +20,7 @@ const layer = Layer.effect(
     const global = yield* Global.Service
     const location = yield* Location.Service
     return Service.of({
-      load: () =>
+      load: (availableTools) =>
         Effect.succeed(
           Instructions.combine([
             Instructions.make({
@@ -36,7 +38,8 @@ const layer = Layer.effect(
               read: Effect.succeed(
                 [
                   "<notes>",
-                  "  Notes are markdown files in .opencode/notes/, one file per note; the file name is the note id.",
+                  "  Notes are markdown files in .orchestra/notes/, one file per note; the file name is the note id.",
+                  "  Existing notes in .opencode/notes/ are read as a fallback; new and updated notes are saved in .orchestra/notes/.",
                   "  Write a note when a plan, decision, spec or summary has to outlive this chat.",
                   "  Do not write a note that only restates the chat or answers a trivial question.",
                   "  Every note has its own dedicated chat, opened from the Notes panel; requests in that chat are edits to the note.",
@@ -89,6 +92,8 @@ const layer = Layer.effect(
                   ["The environment you are running in is now:", environment].join("\n"),
               },
             }),
+            ToolGuidance.make(ToolGuidance.defaultRules, availableTools),
+            ActionSnippets.make(ActionSnippets.defaultSnippets, availableTools),
           ]),
         ),
     })

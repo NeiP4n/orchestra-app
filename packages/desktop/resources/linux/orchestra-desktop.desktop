@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Orchestra
+Exec=/opt/Orchestra/orchestra %U
+Terminal=false
+Type=Application
+Icon=com.nei4pn.orchestra
+StartupWMClass=com.nei4pn.orchestra
+Comment=AI-powered development tool
+Categories=Development;

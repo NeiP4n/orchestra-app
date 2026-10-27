@@ -75,6 +75,7 @@ const builtins = new Map<string, () => Promise<unknown>>([
   ["@orchestra/ai/providers/fireworks", () => import("@orchestra/ai/providers/fireworks")],
   ["@orchestra/ai/providers/google", () => import("@orchestra/ai/providers/google")],
   ["@orchestra/ai/providers/google/interactions", () => import("@orchestra/ai/providers/google/interactions")],
+  ["@orchestra/ai/providers/google-antigravity", () => import("@orchestra/ai/providers/google-antigravity")],
   ["@orchestra/ai/providers/google-vertex", () => import("@orchestra/ai/providers/google-vertex")],
   ["@orchestra/ai/providers/google-vertex/gemini", () => import("@orchestra/ai/providers/google-vertex/gemini")],
   ["@orchestra/ai/providers/google-vertex/chat", () => import("@orchestra/ai/providers/google-vertex/chat")],
@@ -138,7 +139,7 @@ export const loadPackage = Effect.fn("Provider.loadPackage")(function* (input: s
   return yield* importPackage(specifier, entrypoint)
 })
 
-/** opencode settings consumed in Core; native packages never receive them. */
+/** orchestra settings consumed in Core; native packages never receive them. */
 const CORE_KEYS = ["chunkTimeout", "compaction", "fetch", "headerTimeout", "timeout", "transport"] as const
 const PROVIDER_ONLY_KEYS = ["chunkTimeout", "headerTimeout", "timeout", "transport"] as const
 

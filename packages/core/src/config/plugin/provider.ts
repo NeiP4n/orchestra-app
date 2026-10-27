@@ -12,7 +12,7 @@ import { Variant } from "../../variant.js"
 import { ConfigEntryObserver } from "./entry-observer.js"
 
 export const Plugin = define({
-  id: "opencode.config.provider",
+  id: "orchestra.config.provider",
   effect: Effect.fn(function* (ctx) {
     const config = yield* Config.Service
     const loaded = yield* ConfigEntryObserver.observe(

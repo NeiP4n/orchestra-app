@@ -1,11 +1,11 @@
 import type { KeymapCommand } from "@orchestra/plugin/tui/context"
-import type { OpenCodeClient } from "@orchestra/client"
+import type { OrchestraClient } from "@orchestra/client"
 import path from "path"
 import { displaySlice, promptOffsetWidth } from "./display"
 import { parseSlashHead } from "./parse"
 
 export async function directoryAutocomplete(
-  file: Pick<OpenCodeClient["file"], "list">,
+  file: Pick<OrchestraClient["file"], "list">,
   location: { directory: string },
   query: string,
   home: string,

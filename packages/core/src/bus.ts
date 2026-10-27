@@ -159,7 +159,10 @@ export interface Interface {
     readonly follow?: boolean
   }) => Stream.Stream<LogItem>
   /** @deprecated Use `subscribe()` and consume the returned stream. */
-  readonly listen: (listener: Subscriber) => Effect.Effect<Unsubscribe>
+  readonly listen: (
+    listener: Subscriber,
+    options?: { readonly types?: readonly (string | Event.Definition)[] },
+  ) => Effect.Effect<Unsubscribe>
   readonly project: <D extends Event.Definition>(definition: D, projector: Subscriber<D>) => Effect.Effect<void>
   readonly replay: (
     event: SerializedEvent,
@@ -197,17 +200,30 @@ export function configured(options?: Options) {
         }
         const projectors = new Map<string, Subscriber[]>()
         const listeners = new Array<Subscriber>()
+        const typedListeners = new Map<string, Subscriber[]>()
         const durableLocks = KeyedMutex.makeUnsafe<string>()
         const { db } = yield* Database.Service
         const logReadPageSize = options?.logReadPageSize ?? 512
         const persist = options?.persist ?? false
         const sessions = new Map<SessionID, Location.Ref>()
+        const sessionRouteCache = new Map<SessionID, readonly Location.Ref[]>()
         // Keep routing separate from the public event, and retain its snapshot
         // while a slow subscriber drains events queued before a move or deletion.
         const routes = new WeakMap<Event.Payload, readonly Location.Ref[]>()
 
+        const sessionEventCases = SessionEvent.All.cases as Record<string, unknown>
         const isSessionEvent = (event: Event.Payload): event is SessionEvent.Event =>
-          Object.hasOwn(SessionEvent.All.cases, event.type)
+          sessionEventCases[event.type] !== undefined
+
+        const setSessionRoute = (id: SessionID, ref: Location.Ref | undefined) => {
+          if (ref) {
+            sessions.set(id, ref)
+            sessionRouteCache.set(id, [ref])
+          } else {
+            sessions.delete(id)
+            sessionRouteCache.delete(id)
+          }
+        }
 
         const prepareRoutes = Effect.fnUntraced(function* (events: readonly Event.Payload[]) {
           const updates = new Map<SessionID, Location.Ref | undefined>()
@@ -246,15 +262,21 @@ export function configured(options?: Options) {
               continue
             }
             if (event.type === "session.forked") updates.set(id, ref)
-            resolved.set(event, event.location ? [event.location] : ref ? [ref] : [])
+            if (event.location) {
+              resolved.set(event, [event.location])
+            } else if (ref) {
+              const cached = sessionRouteCache.get(owner)
+              resolved.set(event, cached && cached[0] === ref ? cached : [ref])
+            } else {
+              resolved.set(event, [])
+            }
             if (event.type === "session.deleted") updates.set(id, undefined)
           }
           // Apply only after the projection transaction commits. A failed move
           // must not redirect events away from the Session's actual location.
           return () => {
             for (const [id, ref] of updates) {
-              if (ref) sessions.set(id, ref)
-              else sessions.delete(id)
+              setSessionRoute(id, ref)
             }
             for (const [event, ref] of resolved) routes.set(event, ref)
           }
@@ -476,6 +498,32 @@ export function configured(options?: Options) {
                 }),
               )
             }
+            if (isSessionEvent(event as Event.Payload)) {
+              const sessionPayload = event as Event.Payload
+              const id = (sessionPayload.data as { readonly sessionID: SessionID }).sessionID
+              const type = sessionPayload.type
+              // Fast path for non-structural transient session events (deltas, streaming chunks, status)
+              if (
+                type !== "session.created" &&
+                type !== "session.moved" &&
+                type !== "session.forked" &&
+                type !== "session.deleted"
+              ) {
+                if (sessionPayload.location) {
+                  routes.set(sessionPayload, [sessionPayload.location])
+                } else {
+                  const cached = sessionRouteCache.get(id)
+                  if (cached) {
+                    routes.set(sessionPayload, cached)
+                  } else {
+                    const route = yield* prepareRoutes([sessionPayload])
+                    route()
+                  }
+                }
+                yield* notify(event as Event.Payload, false)
+                return event
+              }
+            }
             const route = yield* prepareRoutes([event as Event.Payload])
             route()
             yield* notify(event as Event.Payload, false)
@@ -493,11 +541,29 @@ export function configured(options?: Options) {
 
         function notify(event: Event.Payload, isolateListeners: boolean) {
           return Effect.gen(function* () {
-            yield* Effect.forEach(
-              listeners,
-              (listener) => (isolateListeners ? observe(event, listener) : listener(event)),
-              { discard: true },
-            )
+            if (listeners.length > 0) {
+              if (listeners.length === 1) {
+                yield* isolateListeners ? observe(event, listeners[0]) : listeners[0](event)
+              } else {
+                yield* Effect.forEach(
+                  listeners,
+                  (listener) => (isolateListeners ? observe(event, listener) : listener(event)),
+                  { discard: true },
+                )
+              }
+            }
+            const typedList = typedListeners.get(event.type)
+            if (typedList && typedList.length > 0) {
+              if (typedList.length === 1) {
+                yield* isolateListeners ? observe(event, typedList[0]) : typedList[0](event)
+              } else {
+                yield* Effect.forEach(
+                  typedList,
+                  (listener) => (isolateListeners ? observe(event, listener) : listener(event)),
+                  { discard: true },
+                )
+              }
+            }
             const typed = pubsub.typed.get(event.type)
             if (typed) yield* PubSub.publish(typed, event)
             yield* PubSub.publish(pubsub.live, event)
@@ -709,7 +775,12 @@ export function configured(options?: Options) {
               }),
             )
             .pipe(
-              Effect.tap(() => Effect.sync(() => sessions.delete(aggregateID as SessionID))),
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  sessions.delete(aggregateID as SessionID)
+                  sessionRouteCache.delete(aggregateID as SessionID)
+                }),
+              ),
               Effect.orDie,
             )
         }
@@ -753,10 +824,52 @@ export function configured(options?: Options) {
         function subscribe(input?: Event.Definition | readonly Event.Definition[]): Stream.Stream<Event.Payload> {
           if (input === undefined) return streamLive()
           if (isDefinition(input)) {
-            return local(Stream.unwrap(getOrCreate(input).pipe(Effect.map((pubsub) => Stream.fromPubSub(pubsub)))))
+            return local(
+              Stream.unwrap(
+                Effect.gen(function* () {
+                  const ps = yield* getOrCreate(input)
+                  const sub = yield* PubSub.subscribe(ps)
+                  return Stream.fromSubscription(sub)
+                }),
+              ),
+            )
           }
-          const types = new Set(input.map((definition) => definition.type))
-          return streamLive().pipe(Stream.filter((event) => types.has(event.type)))
+          if (input.length === 0) return Stream.empty
+          if (input.length === 1) {
+            return local(
+              Stream.unwrap(
+                Effect.gen(function* () {
+                  const ps = yield* getOrCreate(input[0])
+                  const sub = yield* PubSub.subscribe(ps)
+                  return Stream.fromSubscription(sub)
+                }),
+              ),
+            )
+          }
+          const unique = new Map<string, Event.Definition>()
+          for (const def of input) unique.set(def.type, def)
+          const defs = Array.from(unique.values())
+          if (defs.length === 1) {
+            return local(
+              Stream.unwrap(
+                Effect.gen(function* () {
+                  const ps = yield* getOrCreate(defs[0])
+                  const sub = yield* PubSub.subscribe(ps)
+                  return Stream.fromSubscription(sub)
+                }),
+              ),
+            )
+          }
+          return local(
+            Stream.unwrap(
+              Effect.gen(function* () {
+                const pubsubs = yield* Effect.forEach(defs, (def) => getOrCreate(def))
+                const subs = yield* Effect.forEach(pubsubs, (ps) => PubSub.subscribe(ps))
+                const streams = subs.map((sub) => Stream.fromSubscription(sub))
+                return streams.reduce((acc, s) => Stream.merge(acc, s))
+              }),
+            ),
+          )
         }
 
         const streamLive = (): Stream.Stream<Event.Payload> => local(Stream.fromPubSub(pubsub.live))
@@ -870,8 +983,28 @@ export function configured(options?: Options) {
             }),
           )
 
-        const listen = (listener: Subscriber): Effect.Effect<Unsubscribe> =>
+        const listen = (
+          listener: Subscriber,
+          options?: { readonly types?: readonly (string | Event.Definition)[] },
+        ): Effect.Effect<Unsubscribe> =>
           Effect.sync(() => {
+            if (options?.types && options.types.length > 0) {
+              const types = options.types.map((t) => (typeof t === "string" ? t : t.type))
+              for (const type of types) {
+                const list = typedListeners.get(type) ?? []
+                list.push(listener)
+                typedListeners.set(type, list)
+              }
+              return Effect.sync(() => {
+                for (const type of types) {
+                  const list = typedListeners.get(type)
+                  if (!list) continue
+                  const index = list.indexOf(listener)
+                  if (index >= 0) list.splice(index, 1)
+                  if (list.length === 0) typedListeners.delete(type)
+                }
+              })
+            }
             listeners.push(listener)
             return Effect.sync(() => {
               const index = listeners.indexOf(listener)

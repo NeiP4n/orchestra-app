@@ -5,6 +5,162 @@ import type { ServerConfig } from "@orchestra/schema/mcp"
 import { Effect } from "effect"
 import { Config } from "../config.js"
 
+export type HealthStatus = "healthy" | "degraded" | "unhealthy"
+
+export interface ServerHealthState {
+  readonly server: string
+  readonly status: HealthStatus
+  readonly consecutiveFailures: number
+  readonly consecutiveSuccesses: number
+  readonly lastCheckAt: number
+  readonly lastError?: string
+  readonly latencyMs?: number
+  readonly trippedAt?: number
+}
+
+export interface HealthCheckOptions {
+  readonly timeoutMs?: number
+  readonly failureThreshold?: number
+  readonly recoveryThreshold?: number
+  readonly cooldownMs?: number
+}
+
+export const DEFAULT_HEALTH_TIMEOUT_MS = 3_000
+export const DEFAULT_FAILURE_THRESHOLD = 3
+export const DEFAULT_RECOVERY_THRESHOLD = 2
+export const DEFAULT_COOLDOWN_MS = 30_000
+
+export class McpCircuitBreaker {
+  private states = new Map<string, ServerHealthState>()
+
+  constructor(private readonly defaultOptions: HealthCheckOptions = {}) {}
+
+  getState(server: string): ServerHealthState {
+    const existing = this.states.get(server)
+    if (existing) return existing
+    const initial: ServerHealthState = {
+      server,
+      status: "healthy",
+      consecutiveFailures: 0,
+      consecutiveSuccesses: 0,
+      lastCheckAt: 0,
+    }
+    this.states.set(server, initial)
+    return initial
+  }
+
+  getAll(): ReadonlyMap<string, ServerHealthState> {
+    return this.states
+  }
+
+  isAvailable(server: string, options?: HealthCheckOptions): boolean {
+    const state = this.getState(server)
+    if (state.status === "healthy") return true
+    if (state.status === "degraded") return true
+
+    const cooldown = options?.cooldownMs ?? this.defaultOptions.cooldownMs ?? DEFAULT_COOLDOWN_MS
+    if (state.trippedAt && Date.now() - state.trippedAt >= cooldown) {
+      return true
+    }
+    return false
+  }
+
+  recordSuccess(server: string, latencyMs?: number): ServerHealthState {
+    const current = this.getState(server)
+    const successes = current.consecutiveSuccesses + 1
+    const next: ServerHealthState = {
+      server,
+      status: "healthy",
+      consecutiveFailures: 0,
+      consecutiveSuccesses: successes,
+      lastCheckAt: Date.now(),
+      latencyMs,
+    }
+    this.states.set(server, next)
+    return next
+  }
+
+  recordFailure(server: string, error?: string, options?: HealthCheckOptions): ServerHealthState {
+    const current = this.getState(server)
+    const failures = current.consecutiveFailures + 1
+    const threshold = options?.failureThreshold ?? this.defaultOptions.failureThreshold ?? DEFAULT_FAILURE_THRESHOLD
+
+    const status: HealthStatus = failures >= threshold ? "unhealthy" : "degraded"
+    const trippedAt = status === "unhealthy" ? (current.trippedAt ?? Date.now()) : undefined
+
+    const next: ServerHealthState = {
+      server,
+      status,
+      consecutiveFailures: failures,
+      consecutiveSuccesses: 0,
+      lastCheckAt: Date.now(),
+      lastError: error,
+      trippedAt,
+    }
+    this.states.set(server, next)
+    return next
+  }
+
+  reset(server?: string): void {
+    if (server) {
+      this.states.delete(server)
+    } else {
+      this.states.clear()
+    }
+  }
+
+  check(
+    server: string,
+    probe: Effect.Effect<unknown, unknown>,
+    options?: HealthCheckOptions,
+  ): Effect.Effect<ServerHealthState> {
+    const self = this
+    const timeout = options?.timeoutMs ?? this.defaultOptions.timeoutMs ?? DEFAULT_HEALTH_TIMEOUT_MS
+    const startTime = Date.now()
+
+    return Effect.gen(function* () {
+      const probeOutcome = yield* probe.pipe(
+        Effect.timeoutOrElse({
+          duration: `${timeout} millis`,
+          orElse: () => Effect.succeed("timeout" as const),
+        }),
+        Effect.map((res) => (res === "timeout" ? ("timeout" as const) : (true as const))),
+        Effect.catch((err) =>
+          Effect.succeed({
+            failed: true as const,
+            error: err instanceof Error ? err.message : typeof err === "string" ? err : "Healthcheck probe failed",
+          }),
+        ),
+      )
+
+      const elapsed = Date.now() - startTime
+
+      if (probeOutcome === true) {
+        return self.recordSuccess(server, elapsed)
+      }
+
+      const errorMessage =
+        probeOutcome === "timeout"
+          ? `Healthcheck timed out after ${timeout}ms`
+          : typeof probeOutcome === "object" && probeOutcome.failed
+            ? probeOutcome.error
+            : "Healthcheck failed"
+      return self.recordFailure(server, errorMessage, options)
+    })
+  }
+}
+
+export const circuitBreaker = new McpCircuitBreaker()
+
+export const healthcheckServer = (
+  server: string,
+  probe: Effect.Effect<unknown, unknown>,
+  options?: HealthCheckOptions,
+): Effect.Effect<ServerHealthState> => circuitBreaker.check(server, probe, options)
+
+export const isServerAvailable = (server: string, options?: HealthCheckOptions): boolean =>
+  circuitBreaker.isAvailable(server, options)
+
 // AI tools the Registry offers to install: MCP servers that give the model new abilities.
 // Installing one writes it under mcp.servers in the global config; its tools then reach every
 // session (narrowed per role by the team editor's tool list, as `<id>_*`).
@@ -220,6 +376,12 @@ export const Plugin = {
             .filter((server) => server.status.status !== "connected" && server.status.status !== "pending")
             .map((server) => server.name),
         )
+        // Isolate servers tripped by circuit breaker (unhealthy)
+        for (const [name, state] of circuitBreaker.getAll()) {
+          if (state.status === "unhealthy" && !circuitBreaker.isAvailable(name)) {
+            down.add(name)
+          }
+        }
         // A server's tools are direct tools named <server>_<tool> when its Code Mode is off, and run
         // through the `execute` tool otherwise. Only servers this session can reach are listed, so a
         // role whose tool list leaves a server out is not told about it.

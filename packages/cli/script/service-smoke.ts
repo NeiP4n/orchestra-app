@@ -13,16 +13,16 @@ const target = `cli${nodeBuild ? "-node" : ""}-${process.platform === "win32" ? 
 const directory = path.join(import.meta.dir, "..", "dist", ...(nodeBuild ? ["node"] : []), target, "bin")
 const binary = path.join(
   directory,
-  `${nodeBuild ? "opencode2-node" : "opencode"}${process.platform === "win32" ? ".exe" : ""}`,
+  `${nodeBuild ? "orchestra2-node" : "orchestra"}${process.platform === "win32" ? ".exe" : ""}`,
 )
 if (!(await Bun.file(binary).exists())) throw new Error(`Missing compiled CLI in ${directory}`)
 
-const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-smoke-")))
+const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "orchestra-service-smoke-")))
 const env = {
   ...process.env,
   HOME: root,
   USERPROFILE: root,
-  ORCHESTRA_DB: path.join(root, "opencode.db"),
+  ORCHESTRA_DB: path.join(root, "orchestra.db"),
   ORCHESTRA_TEST_HOME: root,
   XDG_CACHE_HOME: path.join(root, "cache"),
   XDG_CONFIG_HOME: path.join(root, "config"),
@@ -33,13 +33,13 @@ const processes: Array<ReturnType<typeof Bun.spawn>> = []
 const errors: Array<Promise<string>> = []
 let failure: unknown
 try {
-  await fs.mkdir(path.join(root, ".opencode", "plugins"), { recursive: true })
+  await fs.mkdir(path.join(root, ".orchestra", "plugins"), { recursive: true })
   spawnService()
   spawnService()
   const registration = await waitForRegistration()
   const info = await Schema.decodeUnknownPromise(Service.Info)(await Bun.file(registration).json())
   if (info.id === undefined || info.password === undefined) throw new Error("Registration is missing service identity")
-  const credential = btoa(`opencode:${info.password}`)
+  const credential = btoa(`orchestra:${info.password}`)
   const headers = { authorization: "Basic " + credential }
   const token = encodeURIComponent(credential)
   const serverInfo = await waitForReady(info.url, headers)
@@ -90,7 +90,7 @@ try {
   processes.forEach((process) => process.kill())
   await Promise.all(processes.map((process) => process.exited))
   if (failure)
-    errors.push(fs.readFile(path.join(root, "data", "opencode", "log", "opencode.log"), "utf8").catch(() => ""))
+    errors.push(fs.readFile(path.join(root, "data", "orchestra", "log", "orchestra.log"), "utf8").catch(() => ""))
 }
 
 const output = await Promise.all(errors)
@@ -112,7 +112,7 @@ function spawnService() {
 }
 
 async function waitForRegistration() {
-  const directory = path.join(root, "state", "opencode")
+  const directory = path.join(root, "state", "orchestra")
   for (let attempt = 0; attempt < 400; attempt++) {
     const files = await fs.readdir(directory).catch(() => [])
     const file = files.find(

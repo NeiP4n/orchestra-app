@@ -491,16 +491,17 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         return programs
       }
 
-      // Commands outside blockCommands retain per-command confirmation, but can never
-      // create a project-wide saved permission when the request comes from a room member.
+      // Commands outside blockCommands retain per-command confirmation, but DoD verification
+      // checks remember "always allow" so automated or handover verification does not stall.
       yield* Permission.Service.use((permission) =>
         permission.confirm({
           action: input.fallbackAction,
           resources: [input.command],
           metadata: { ...input.metadata, guest: input.guestName, command: input.command },
           sessionID: input.session.id,
-          force: true,
-          scoped: true,
+          save: input.fallbackAction === "room.check" ? [input.command] : undefined,
+          force: input.fallbackAction !== "room.check",
+          scoped: input.fallbackAction !== "room.check",
         }),
       ).pipe(
         instances.provide(input.session),
@@ -809,11 +810,13 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               // cannot leak through replay merely because they are durable. Rebuild the public
               // envelope as the live path does, omitting host-only location and metadata fields.
               // Decode once per event; this runs for every record in the guest replay.
-              // Replay markers carry no event envelope and are not guest-visible events.
-              Stream.filter((event) => event.type !== "log.synced"),
-              Stream.map((event) => ({ decoded: decodeGuestRoomEvent(event) })),
-              Stream.filter((item) => Option.isSome(item.decoded)),
-              Stream.map((item) => Option.getOrUndefined(item.decoded)!),
+              // Replay marker (log.synced) passes through directly to demarcate replay completion.
+              Stream.map((event) => {
+                if (event.type === "log.synced") return Option.some(event)
+                return decodeGuestRoomEvent(event)
+              }),
+              Stream.filter((item) => Option.isSome(item)),
+              Stream.map((item) => Option.getOrUndefined(item)!),
             )
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
           // Re-read the room rules for every item: the room stays connected while the host changes
@@ -879,14 +882,34 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const messages = yield* sessions
             .messages({ sessionID: session.id, limit: CHAT_LIMIT, order: "desc" })
             .pipe(Effect.catchTag("Session.NotFoundError", missingSession), Effect.orDie)
+          const inboxItems = yield* sessions.inbox(session.id).pipe(
+            Effect.catchTag("Session.NotFoundError", () => Effect.succeed([])),
+            Effect.orDie,
+          )
           const note = yield* boundNote(session.id)
           const running = (yield* sessions.active).has(session.id)
           // Resolve rules immediately before redacting the response, after all reads above.
           const rules = yield* effectiveRules(joined.room, session.location.directory)
-          const data = messages.toReversed().flatMap((message) => chatMessage(message, joined.room.hostName?.trim() || hostname()))
+          const hostName = joined.room.hostName?.trim() || hostname()
+          const data = messages.toReversed().flatMap((message) => chatMessage(message, hostName))
+          const pendingData = inboxItems.flatMap((item) => {
+            if (item.type !== "user") return []
+            const room = item.payload.metadata?.room
+            const author = Predicate.isObject(room) && Predicate.isObject(room.guest) ? (room.guest as { name?: string }).name : undefined
+            return [
+              {
+                id: item.id,
+                role: "user" as const,
+                author: typeof author === "string" ? author : hostName,
+                text: item.payload.text,
+                created: DateTime.toEpochMillis(item.time.created),
+              },
+            ]
+          })
+          const allData = [...data, ...pendingData]
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
           const visibleNote = note && { name: note.name, title: note.frontmatter.title || note.name }
-          const pathSafeData = rules?.hidePaths ? redactRoomValue(data, directories) : data
+          const pathSafeData = rules?.hidePaths ? redactRoomValue(allData, directories) : allData
           const pathSafeNote = rules?.hidePaths ? redactRoomValue(visibleNote, directories) : visibleNote
           const visibleData = RoomRules.sanitizeScreenshots(pathSafeData, !!rules?.hideScreenshots)
           const visibleNoteData = RoomRules.sanitizeScreenshots(pathSafeNote, !!rules?.hideScreenshots)
@@ -1044,8 +1067,6 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           if (!command) return yield* new InvalidRequestError({ message: "Command is empty", field: "command" })
           let rules = yield* effectiveRules(joined.room, session.location.directory)
           let directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
-          if (RoomRules.commandLeaksCredentials(command))
-            return yield* new ForbiddenError({ message: "Commands that print the host's environment or credentials are not allowed" })
           if (rules?.denyGuestCommands)
             return yield* new ForbiddenError({ message: "This room does not allow guest command execution" })
           // noOutbound is fail-closed: arbitrary shell commands can exfiltrate data even when
@@ -1056,6 +1077,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const protectedFile = RoomRules.protectedFileInCommand(rules, command)
           if (protectedFile)
             return yield* new ForbiddenError({ message: "This room keeps that file off limits" })
+          if (RoomRules.commandLeaksCredentials(command))
+            return yield* new ForbiddenError({ message: "Commands that print the host's environment or credentials are not allowed" })
           const authorizedPrograms = yield* confirmRoomCommand({
             room: joined.room,
             member: joined.member,
@@ -1076,10 +1099,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             return yield* new ForbiddenError({ message: "This room does not allow guest command execution" })
           if (rules?.noOutbound)
             return yield* new ForbiddenError({ message: "This room does not allow commands that could send data out" })
-          if (RoomRules.commandLeaksCredentials(command))
-            return yield* new ForbiddenError({ message: "Commands that print the host's environment or credentials are not allowed" })
           if (RoomRules.protectedFileInCommand(rules, command))
             return yield* new ForbiddenError({ message: "This room keeps that file off limits" })
+          if (RoomRules.commandLeaksCredentials(command))
+            return yield* new ForbiddenError({ message: "Commands that print the host's environment or credentials are not allowed" })
           const currentBlock = RoomRules.blockedCommand(rules, command)
           if (currentBlock && currentJoin.member.role !== "trusted") {
             const currentPrograms = RoomRules.programsRequiringApproval(rules, command)

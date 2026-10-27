@@ -1,6 +1,6 @@
 import { RGBA, SyntaxStyle, type CliRenderer, type ColorInput, type TerminalColors } from "@opentui/core"
 import { generateSyntax, resolveThemeDocument, themeModes, type ResolvedTheme } from "@orchestra/theme/tui"
-import { allThemes, getOpenCodeTheme, isThemeSource, parseTheme, type ThemeDocumentSource } from "../theme"
+import { allThemes, getOrchestraTheme, isThemeSource, parseTheme, type ThemeDocumentSource } from "../theme"
 import { ansiToRgba } from "../theme/color"
 import { discoverThemes } from "../theme/discovery"
 import { generateSystem, terminalMode } from "../theme/system"
@@ -192,11 +192,11 @@ function map(
 }
 
 export const RUN_THEME_FALLBACK = map(
-  resolveThemeDocument(parseTheme(getOpenCodeTheme()), "dark"),
+  resolveThemeDocument(parseTheme(getOrchestraTheme()), "dark"),
   ansiPalette,
 )
 export const RUN_THEME_FALLBACK_LIGHT = map(
-  resolveThemeDocument(parseTheme(getOpenCodeTheme()), "light"),
+  resolveThemeDocument(parseTheme(getOrchestraTheme()), "light"),
   ansiPalette,
 )
 
@@ -280,7 +280,7 @@ export async function resolveRunTheme(
     renderer.themeMode ??
     (colors && terminalMode(colors)) ??
     (config?.mode === "light" ? "light" : "dark")
-  const name = config?.name ?? "opencode"
+  const name = config?.name ?? "orchestra"
   if (name === "system" && !colors) {
     return mode === "light" ? RUN_THEME_FALLBACK_LIGHT : RUN_THEME_FALLBACK
   }
@@ -292,7 +292,7 @@ export async function resolveRunTheme(
       if (themeModes(document).includes(mode)) return resolveThemeDocument(document, mode)
     })
     .catch(() => undefined)
-  const theme = resolved ?? resolveThemeDocument(parseTheme(getOpenCodeTheme()), mode)
+  const theme = resolved ?? resolveThemeDocument(parseTheme(getOrchestraTheme()), mode)
   const indexed = colors
     ? ansiPalette.map((color, index) => (colors.palette[index] ? RGBA.fromIndex(index, colors.palette[index]!) : color))
     : ansiPalette
@@ -312,6 +312,6 @@ async function themeSource(
   const custom = await discoverThemes(
     configDirectories(process.env.ORCHESTRA_CONFIG_DIR ?? Global.Path.config, process.cwd()),
   )
-  const source = custom[name] ?? allThemes()[name] ?? getOpenCodeTheme()
-  return isThemeSource(source) ? source : getOpenCodeTheme()
+  const source = custom[name] ?? allThemes()[name] ?? getOrchestraTheme()
+  return isThemeSource(source) ? source : getOrchestraTheme()
 }

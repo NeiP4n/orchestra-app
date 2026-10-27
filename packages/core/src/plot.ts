@@ -10,9 +10,10 @@ import { SessionID } from "@orchestra/schema/session-id"
 import { Orchestra } from "./orchestra.js"
 import { Session } from "./session.js"
 import { SessionSchema } from "./session/schema.js"
+import { ProjectDirs } from "./project-dirs.js"
 
 // A plot (участок) is a part of a project an AI team took for its work, kept as a
-// temporary file in the project's .opencode/plots folder so every team on the project,
+// temporary file in the project's plot folder so every team on the project,
 // and AIs reaching it from other computers through rooms, sees it. Edits inside another
 // team's plot are refused, so two teams never rewrite the same code at once. A plot
 // lasts a while and stretches while its team keeps working in it; one left behind by a
@@ -56,7 +57,8 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@orchestra/Plot") {}
 
-export const FOLDER = path.join(".opencode", "plots")
+export const FOLDER = ProjectDirs.primary("plots")
+export const LEGACY_FOLDER = ProjectDirs.legacy("plots")
 // Long enough to finish a task, short enough that an abandoned plot frees itself soon.
 const TTL = Duration.minutes(30)
 const decode = Schema.decodeUnknownOption(Schema.fromJsonString(Info))
@@ -107,7 +109,10 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
     // Plot folders that can hold plots over these paths: each path's own folder and every
     // folder above it, so a plot taken at the project root covers a file deep inside.
     const folders = (paths: ReadonlyArray<string>, directory: string) =>
-      [...new Set(paths.flatMap((item) => ancestors(item, directory)))].map((folder) => path.join(folder, FOLDER))
+      [...new Set(paths.flatMap((item) => ancestors(item, directory)))].flatMap((folder) => [
+        path.join(folder, FOLDER),
+        path.join(folder, LEGACY_FOLDER),
+      ])
 
     const read = (folder: string) =>
       Effect.promise(async () => {
@@ -217,20 +222,24 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
       }),
       release: Effect.fn("Plot.release")(function* (input) {
         const directory = path.resolve(input.directory)
-        const folder = path.join(directory, FOLDER)
-        const safeStorage = yield* Effect.tryPromise({
-          try: () => pathsInside(directory, [folder]),
-          catch: () => new Error("Unable to verify plot storage path."),
-        }).pipe(Effect.catch(() => Effect.succeed(false)))
-        if (!safeStorage) return 0
-        const plots = (yield* read(folder)).map((entry) => entry.plot)
-        const mine = yield* Effect.filter(plots, (plot) =>
-          holds(plot, input.sessionID).pipe(Effect.map((held) => held && (!input.id || plot.id === input.id))),
-        )
-        yield* Effect.forEach(mine, (plot) =>
-          Effect.promise(() => rm(path.join(folder, `${plot.id}.json`), { force: true })),
-        )
-        return mine.length
+        const targetFolders = [path.join(directory, FOLDER), path.join(directory, LEGACY_FOLDER)]
+        let released = 0
+        for (const folder of targetFolders) {
+          const safeStorage = yield* Effect.tryPromise({
+            try: () => pathsInside(directory, [folder]),
+            catch: () => new Error("Unable to verify plot storage path."),
+          }).pipe(Effect.catch(() => Effect.succeed(false)))
+          if (!safeStorage) continue
+          const plots = (yield* read(folder)).map((entry) => entry.plot)
+          const mine = yield* Effect.filter(plots, (plot) =>
+            holds(plot, input.sessionID).pipe(Effect.map((held) => held && (!input.id || plot.id === input.id))),
+          )
+          yield* Effect.forEach(mine, (plot) =>
+            Effect.promise(() => rm(path.join(folder, `${plot.id}.json`), { force: true })),
+          )
+          released += mine.length
+        }
+        return released
       }),
       list: (directory) =>
         Effect.gen(function* () {
@@ -313,15 +322,15 @@ function ancestors(target: string, boundary: string): string[] {
 // Plot folders under a directory, found without walking the whole tree: a project keeps
 // its plots at its root or in a few subprojects, never deep inside dependencies.
 async function plotFolders(directory: string) {
-  const own = path.join(directory, FOLDER)
+  const own = [path.join(directory, FOLDER), path.join(directory, LEGACY_FOLDER)]
   const children = await readdir(directory, { withFileTypes: true }).catch(() => [])
   const candidates = [
-    own,
+    ...own,
     ...children
       .filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules")
-      .map((entry) => path.join(directory, entry.name, FOLDER)),
+      .flatMap((entry) => [path.join(directory, entry.name, FOLDER), path.join(directory, entry.name, LEGACY_FOLDER)]),
   ]
-  // The .opencode directory or its plots folder can itself be a symlink.
+  // The plot directory can itself be a symlink.
   // Never inspect or clean plot files outside the requested project tree.
   const safe: string[] = []
   for (const folder of candidates) {

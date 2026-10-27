@@ -433,6 +433,8 @@ import type {
   OrchestraLinkSetOutput,
   OrchestraLinkListInput,
   OrchestraLinkListOutput,
+  QuotaCheckInput,
+  QuotaCheckOutput,
 } from "../api/api.js"
 import { ClientError } from "./client-error.js"
 
@@ -1455,7 +1457,7 @@ const EndpointPtyConnectToken = (raw: RawClient["server.pty"]) => (input: PtyCon
     raw["pty.connectToken"]({
       params: { ptyID: input["ptyID"] },
       query: { location: input["location"] },
-      headers: { "x-opencode-ticket": input["x-opencode-ticket"] },
+      headers: { "x-orchestra-ticket": input["x-orchestra-ticket"], "x-opencode-ticket": input["x-opencode-ticket"] },
     }).pipe(Effect.mapError(mapClientError)),
   )
 
@@ -1556,7 +1558,7 @@ const EndpointExperimentalPersistentPtyConnectToken =
     preserveEffect<ExperimentalPersistentPtyConnectTokenOutput>()(
       raw["persistentPty.connectToken"]({
         params: { ptyID: input["ptyID"] },
-        headers: { "x-opencode-ticket": input["x-opencode-ticket"] },
+        headers: { "x-orchestra-ticket": input["x-orchestra-ticket"], "x-opencode-ticket": input["x-opencode-ticket"] },
       }).pipe(
         Effect.mapError(mapClientError),
         Effect.map((value) => value.data),
@@ -1856,6 +1858,20 @@ const EndpointConfigUpdate = (raw: RawClient["server.config"]) => (input?: Confi
         mcpServers: input?.["mcpServers"],
         proxy: input?.["proxy"],
         compatibilityEnabled: input?.["compatibilityEnabled"],
+        compaction: input?.["compaction"],
+        agent: input?.["agent"],
+        default_agent: input?.["default_agent"],
+        agents: input?.["agents"],
+        skills: input?.["skills"],
+        instructions: input?.["instructions"],
+        permissions: input?.["permissions"],
+        plugins: input?.["plugins"],
+        tool_output: input?.["tool_output"],
+        commands: input?.["commands"],
+        warming: input?.["warming"],
+        mode: input?.["mode"],
+        update: input?.["update"],
+        media: input?.["media"],
       },
     }).pipe(Effect.mapError(mapClientError)),
   )
@@ -2590,6 +2606,20 @@ const adaptGroupOrchestra = (raw: RawClient["server.orchestra"]) => ({
   link: { set: EndpointOrchestraLinkSet(raw), list: EndpointOrchestraLinkList(raw) },
 })
 
+const EndpointQuotaCheck = (raw: RawClient["quota"]) => (input: QuotaCheckInput) =>
+  preserveEffect<QuotaCheckOutput>()(
+    raw["quota.check"]({
+      payload: {
+        modelID: input["modelID"],
+        contextWindowLimit: input["contextWindowLimit"],
+        spentTokens: input["spentTokens"],
+        warningThreshold: input["warningThreshold"],
+      },
+    }).pipe(Effect.mapError(mapClientError)),
+  )
+
+const adaptGroupQuota = (raw: RawClient["quota"]) => ({ check: EndpointQuotaCheck(raw) })
+
 const adaptClient = (raw: RawClient) => ({
   server: adaptGroupServer(raw["server.server"]),
   location: adaptGroupLocation(raw["server.location"]),
@@ -2624,6 +2654,7 @@ const adaptClient = (raw: RawClient) => ({
   config: adaptGroupConfig(raw["server.config"]),
   room: adaptGroupRoom(raw["server.room"]),
   orchestra: adaptGroupOrchestra(raw["server.orchestra"]),
+  quota: adaptGroupQuota(raw["quota"]),
 })
 
 export const make = (options?: { readonly baseUrl?: URL | string }) =>

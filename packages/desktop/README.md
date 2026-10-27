@@ -1,6 +1,6 @@
-# OpenCode Desktop
+# Orchestra Desktop
 
-The OpenCode Desktop app, built with Electron.
+The Orchestra Desktop app, built with Electron.
 
 ## Development
 
@@ -48,14 +48,14 @@ renderer going idle, so dev-server and bundling costs are not part of the number
 ```bash
 ORCHESTRA_CHANNEL=dev bun run build && bunx electron-builder --win --dir --config electron-builder.config.ts
 bun run bench:startup -- --runs 5                                  # warm service (started once, reused by every launch)
-bun run bench:startup -- --runs 5 --compare dist/other/OpenCode\ Dev.exe   # A/B: alternate launches of two builds
+bun run bench:startup -- --runs 5 --compare dist/other/Orchestra\ Dev.exe   # A/B: alternate launches of two builds
 bun run bench:startup -- --service cold                            # each launch spawns the service
 bun run bench:startup -- --fresh                                   # first launch after an install (profile wiped each time)
 bun run bench:startup -- --profile-main --profile-renderer --trace # CPU profiles and a Chromium startup trace
-bun run bench:startup -- --seed "%APPDATA%\ai.opencode.desktop.dev"   # restore tabs and drafts from an existing profile
+bun run bench:startup -- --seed "%APPDATA%\com.nei4pn.orchestra.dev"   # restore tabs and drafts from an existing profile
 ```
 
-The app runs in an isolated home (`%TEMP%\opencode-bench-startup`): its own `%APPDATA%`, XDG directories, OpenCode
+The app runs in an isolated home (`%TEMP%\orchestra-bench-startup`): its own `%APPDATA%`, XDG directories, Orchestra
 database, config and service registration, with the developer's `ORCHESTRA_*` and `OTEL_*` environment stripped
 (an inherited OTLP endpoint alone adds a network round trip to every CLI exit). It never attaches to or restarts the
 developer's live service, and only ever kills the process tree it spawned. `--service cold` stops the service before
@@ -72,6 +72,6 @@ log line. Renderer idle is the start of the first 500 ms window with under 10 % 
 for `--settle-ms`; `rendererTaskMs` is the renderer's total main-thread task time until then. Raw samples are
 written to `dist/bench-startup`.
 
-A packaged beta or prod build registers itself as the `opencode://` handler when it starts, even from the bench; the
+A packaged beta or prod build registers itself as the `orchestra://` handler when it starts, even from the bench; the
 installed app takes the registration back on its next launch. Those channels run with `HTTPS_PROXY` pointed at a
 closed port (`--offline` forces it for dev) so the updater's first check fails fast instead of reaching GitHub.

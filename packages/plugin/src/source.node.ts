@@ -11,12 +11,15 @@ export async function prepareSource(entrypoint: string, track: (file: string, di
   const version = String(++generation)
   const fresh = (specifier: string) => {
     const url = new URL(specifier)
+    url.searchParams.set("__orchestra_reload", version)
     url.searchParams.set("__opencode_reload", version)
     return url.href
   }
   const hook = registerHooks({
     resolve(specifier, context, nextResolve) {
-      if (!context.parentURL || new URL(context.parentURL).searchParams.get("__opencode_reload") !== version)
+      if (!context.parentURL) return nextResolve(specifier, context)
+      const parentParams = new URL(context.parentURL).searchParams
+      if (parentParams.get("__orchestra_reload") !== version && parentParams.get("__opencode_reload") !== version)
         return nextResolve(specifier, context)
       const local =
         specifier.startsWith("./") || specifier.startsWith("../")

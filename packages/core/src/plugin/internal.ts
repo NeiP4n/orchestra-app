@@ -80,6 +80,7 @@ import { OrchestraTool } from "../tool/plugin/orchestra.js"
 import { WorkspaceForgeTool } from "../tool/plugin/workspace-forge.js"
 import { TeamForgeTool } from "../tool/plugin/team-forge.js"
 import { CommandForgeTool } from "../tool/plugin/command-forge.js"
+import { McpForgeTool } from "../tool/plugin/mcp-forge.js"
 import { DesktopTool } from "../tool/plugin/desktop.js"
 import { McpCatalog } from "../mcp/catalog.js"
 import { Orchestra } from "../orchestra.js"
@@ -111,6 +112,7 @@ import { Tool } from "../tool.js"
 import { ToolOutput } from "../tool-output.js"
 import { WebFetchTool } from "../tool/plugin/webfetch.js"
 import { WebSearchTool } from "../tool/plugin/websearch.js"
+import { ResearchTool } from "../tool/plugin/research.js"
 import { IdeaBankTool } from "../tool/plugin/idea-bank.js"
 import { WellKnown } from "../wellknown.js"
 import { WriteTool } from "../tool/plugin/write.js"
@@ -300,6 +302,7 @@ const pre = [
   WorkspaceForgeTool.Plugin,
   TeamForgeTool.Plugin,
   CommandForgeTool.Plugin,
+  McpForgeTool.Plugin,
   DesktopTool.Plugin,
   PlaytestTool.Plugin,
   McpCatalog.Plugin,
@@ -316,6 +319,7 @@ const pre = [
   SubagentTool.Plugin,
   WebFetchTool.Plugin,
   WebSearchTool.Plugin,
+  ResearchTool.Plugin,
   IdeaBankTool.Plugin,
   WriteTool.Plugin,
   WarmingPlugin.Plugin,
@@ -344,7 +348,12 @@ const post = [
 
 // Repository config must not switch off policy enforcement or the Console connection that delivers
 // organization statements, so plugin remove operations skip these IDs.
-export const guarded: ReadonlySet<string> = new Set([OpencodePlugin.id, ConfigPolicyPlugin.Plugin.id])
+export const guarded: ReadonlySet<string> = new Set([
+  OpencodePlugin.id,
+  "opencode.provider.opencode",
+  ConfigPolicyPlugin.Plugin.id,
+  "opencode.config.policy",
+])
 
 export const list = Effect.fn("PluginInternal.list")(function* () {
   // Capture only services; activation supplies the child Scope and batching context.

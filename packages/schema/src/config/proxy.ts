@@ -3,7 +3,7 @@ export * as ConfigProxy from "./proxy.js"
 import { Schema } from "effect"
 import { optional } from "../schema.js"
 
-/** Proxy settings applied only inside the OpenCode process. */
+/** Proxy settings applied only inside the Orchestra process. */
 export const Info = Schema.Struct({
   http: Schema.String.pipe(optional),
   https: Schema.String.pipe(optional),

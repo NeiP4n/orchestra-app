@@ -35,7 +35,7 @@ import type {
   SkillInfo,
   VcsInfo,
   OpenCodeEvent,
-  OpenCodeClient,
+  OrchestraClient,
   WebSearchProvider,
 } from "../promise"
 import { Worktree } from "@orchestra/schema/worktree"
@@ -55,7 +55,7 @@ export type DataSessionStatus = "idle" | "running"
 type OpenCodeEventMap = { [Type in OpenCodeEvent["type"]]: Extract<OpenCodeEvent, { type: Type }> }
 
 export type CreateDataInput = {
-  readonly api: () => OpenCodeClient
+  readonly api: () => OrchestraClient
   readonly directory: string
   /** Raw-message window used for an initial transcript read. Older pages retain their normal size. */
   readonly initialMessageLimit?: () => number
@@ -138,6 +138,7 @@ function formRequestOptions(sessionID: string, ref?: LocationRef) {
   if (sessionID !== "global" || !ref) return undefined
   return {
     headers: {
+      "x-orchestra-directory": encodeURIComponent(ref.directory),
       "x-opencode-directory": encodeURIComponent(ref.directory),
     },
   }

@@ -55,6 +55,7 @@ import { formLocationLayer } from "./middleware/form-location"
 import { sessionLocationLayer } from "./middleware/session-location"
 import { ServerInfo } from "./server-info"
 import type { ServerOptions } from "./options"
+import { legacyRouteAlias } from "./alias"
 
 const applicationServiceNodes = [
   Global.node,
@@ -187,6 +188,18 @@ function makeRoutes<AuthError, AuthServices>(
         ),
         ServerInfo.layer(serviceURLs, Context.get(context, Global.Service).tmp, options.app),
       )
+      const aliasedHttpRouterLayer = Layer.effect(
+        HttpRouter.HttpRouter,
+        Effect.gen(function* () {
+          const router = yield* HttpRouter.HttpRouter
+          return {
+            ...router,
+            asHttpEffect() {
+              return legacyRouteAlias(router.asHttpEffect())
+            },
+          }
+        }),
+      ).pipe(Layer.provide(HttpRouter.layer))
       const api = HttpApiBuilder.layer(Api, { openapiPath: "/openapi.json" }).pipe(
         Layer.provide(handlers.pipe(Layer.provide(services), Layer.provide(Layer.succeed(CorsConfig, options)))),
         Layer.provide(formLocationLayer),
@@ -197,7 +210,7 @@ function makeRoutes<AuthError, AuthServices>(
         Layer.provide(auth),
         HttpRouter.provideRequest(requestServices),
         Layer.provideMerge(services),
-        Layer.provideMerge(HttpRouter.layer),
+        Layer.provideMerge(aliasedHttpRouterLayer),
       )
       return Layer.merge(api, V1Migration.layer.pipe(Layer.provide(services)))
     }),

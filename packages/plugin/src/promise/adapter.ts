@@ -218,7 +218,7 @@ export function fromPromise(plugin: Plugin) {
     id: plugin.id,
     effect: (host) =>
       Effect.gen(function* () {
-        const [{ ClientApi }, { OpenCodeEvent }] = yield* Effect.promise(() =>
+        const [{ ClientApi }, { OrchestraEvent }] = yield* Effect.promise(() =>
           Promise.all([import("@orchestra/protocol/client"), import("@orchestra/protocol/groups/event")]),
         )
         const AgentEndpoints = ClientApi.groups["server.agent"].endpoints
@@ -325,7 +325,7 @@ export function fromPromise(plugin: Plugin) {
             subscribe: (options) =>
               streams(
                 host.event.subscribe().pipe(
-                  Stream.mapEffect((event) => Schema.encodeUnknownEffect(OpenCodeEvent)(event)),
+                  Stream.mapEffect((event) => Schema.encodeUnknownEffect(OrchestraEvent)(event)),
                   Stream.map((event) => event as unknown as PromiseEvent),
                 ),
                 options,

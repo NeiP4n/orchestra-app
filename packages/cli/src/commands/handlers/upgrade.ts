@@ -23,7 +23,8 @@ export default Runtime.handler(
           outro("Already up to date")
           return
         }
-        if (status.type === "unavailable") return yield* Effect.fail(new Error(status.message))
+        if (status.type === "unavailable" || status.type === "offline")
+          return yield* Effect.fail(new Error(status.message ?? "Update check unavailable"))
         const target = status.version
         log.info(`From ${ORCHESTRA_VERSION} → ${target}`)
         const progress = spinner()

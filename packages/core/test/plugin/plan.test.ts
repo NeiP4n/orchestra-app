@@ -24,7 +24,8 @@ const sessionID = Session.ID.make("ses_plan_test")
 const plan = Agent.ID.make("plan")
 const build = Agent.ID.make("build")
 const home = "/home/plan-test"
-const planDirectory = path.join(home, ".opencode", "plan")
+const planDirectory = path.join(home, ".config", "orchestra", "plan")
+const legacyPlanDirectory = path.join(home, ".opencode", "plan")
 
 const agentSelected = (agent: Agent.ID, previous: Agent.ID): SessionEvent.AgentSelected => ({
   id: Event.ID.create(),
@@ -101,7 +102,10 @@ const run = Effect.fnUntraced(function* (events: ReadonlyArray<SessionEvent.Agen
       },
     }),
   ).pipe(
-    Effect.provideService(Global.Service, Global.Service.of({ ...Global.make(), home })),
+    Effect.provideService(
+      Global.Service,
+      Global.Service.of({ ...Global.make(), home, config: path.join(home, ".config", "orchestra") }),
+    ),
     Effect.provideService(
       Environment.Service,
       Environment.Service.of({ files: Environment.makeFiles(driver), spawner: driver.spawner }),
@@ -162,6 +166,8 @@ describe("plan plugin reminders", () => {
       expect(persisted[0]).toContain("You are in Plan mode")
       expect(persisted[0]).toContain("Do not create or update plan files unless the user explicitly asks you to")
       expect(persisted[0]).toContain(planDirectory)
+      expect(persisted[0]).toContain(`Existing plans in ${legacyPlanDirectory} remain available to read`)
+      expect(persisted[0]).toContain(`create new plans only in ${planDirectory}`)
       expect(persisted[0]).toContain("Do not modify any other files")
       expect(persisted[1]).toContain("NO LONGER in Plan mode")
     }),
@@ -254,6 +260,9 @@ describe("plan plugin mutations", () => {
       )
       expect(Permission.evaluate("edit", "/workspace/source.ts", planAgent.permissions).effect).toBe("deny")
       expect(Permission.evaluate("edit", "source.ts", planAgent.permissions).effect).toBe("deny")
+      expect(Permission.evaluate("edit", path.join(legacyPlanDirectory, "old-plan.md"), planAgent.permissions).effect).toBe(
+        "deny",
+      )
     }),
   )
 
@@ -262,6 +271,9 @@ describe("plan plugin mutations", () => {
       const { planAgent } = yield* run()
       expect(
         Permission.evaluate("external_directory", path.join(planDirectory, "*"), planAgent.permissions).effect,
+      ).toBe("allow")
+      expect(
+        Permission.evaluate("external_directory", path.join(legacyPlanDirectory, "*"), planAgent.permissions).effect,
       ).toBe("allow")
       expect(Permission.evaluate("external_directory", "/outside/*", planAgent.permissions).effect).toBe("allow")
     }),

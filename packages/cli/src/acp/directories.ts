@@ -1,6 +1,6 @@
 import { isAbsolute, join, resolve } from "node:path"
 import { isDeepStrictEqual } from "node:util"
-import type { OpenCodeClient } from "@orchestra/client/effect"
+import type { OrchestraClient } from "@orchestra/client/effect"
 import type { Permission } from "@orchestra/schema/permission"
 import { AbsolutePath } from "@orchestra/schema/schema"
 import type { Session } from "@orchestra/schema/session"
@@ -39,7 +39,7 @@ export function list(session: Pick<Session.Info, "metadata">) {
 }
 
 export const activate = Effect.fnUntraced(function* (
-  client: OpenCodeClient,
+  client: OrchestraClient,
   session: Session.Info,
   directories: readonly string[],
 ) {

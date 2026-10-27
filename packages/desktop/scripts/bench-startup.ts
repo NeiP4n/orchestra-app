@@ -5,7 +5,7 @@
 //                            [--fresh] [--offline] [--seed <userData dir>] [--profile-main] [--profile-renderer]
 //                            [--trace] [--out <dir>] [--home <dir>] [--window-at x,y]
 //
-// The app runs in an isolated home directory (its own %APPDATA%, XDG dirs, OpenCode DB, config and
+// The app runs in an isolated home directory (its own %APPDATA%, XDG dirs, Orchestra DB, config and
 // service registration) with the developer's ORCHESTRA_* / OTEL_* environment stripped, so it never
 // attaches to, restarts or reads the developer's live service or state and does not inherit their
 // telemetry configuration. `warm` starts one service from the bundled CLI before the runs and lets
@@ -77,7 +77,7 @@ const settleMs = Number(args.values["settle-ms"])
 
 const outDir = resolve(args.values.out ?? join(packageDir, "dist", "bench-startup"))
 
-const home = resolve(args.values.home ?? join(tmpdir(), "opencode-bench-startup"))
+const home = resolve(args.values.home ?? join(tmpdir(), "orchestra-bench-startup"))
 
 for (const build of builds) {
   if (!existsSync(build.exe))
@@ -126,7 +126,7 @@ const env = {
   ORCHESTRA_DB: paths.db,
   ORCHESTRA_CONFIG_DIR: paths.config,
   // Beta and prod builds check for updates on start; a closed proxy port fails that fast and offline.
-  ...(args.values.offline || appId !== "ai.opencode.desktop.dev" ? { HTTPS_PROXY: "http://127.0.0.1:9" } : {}),
+  ...(args.values.offline || appId !== "com.nei4pn.orchestra.dev" ? { HTTPS_PROXY: "http://127.0.0.1:9" } : {}),
 }
 
 const cdpPort = await freePort()
@@ -382,7 +382,7 @@ async function launch(build: { label: string; exe: string }, run: number): Promi
   if (profile) mainProfile = profileMain(spawnAt)
 
   const page = await waitFor(
-    () => targets(cdpPort).then((list) => list.find((t) => t.type === "page" && t.url.startsWith("oc://"))),
+    () => targets(cdpPort).then((list) => list.find((t) => t.type === "page" && t.url.startsWith("orchestra://"))),
     60_000,
   )
 
@@ -563,20 +563,20 @@ async function mainBootTiming() {
 function defaultExe() {
   const unpacked = join(packageDir, "dist", process.platform === "win32" ? "win-unpacked" : process.platform === "darwin" ? "mac" : "linux-unpacked")
 
-  if (!existsSync(unpacked)) return join(unpacked, "OpenCode Dev.exe")
+  if (!existsSync(unpacked)) return join(unpacked, "Orchestra Dev.exe")
   const candidate = readdirSync(unpacked).find((f) => (process.platform === "win32" ? f.endsWith(".exe") : f.endsWith(".app") || !f.includes(".")))
 
-  return join(unpacked, candidate ?? "OpenCode Dev.exe")
+  return join(unpacked, candidate ?? "Orchestra Dev.exe")
 }
 
 function appIdFor(executable: string) {
   const name = basename(executable, ".exe")
 
-  if (/beta/i.test(name)) return "ai.opencode.desktop.beta"
+  if (/beta/i.test(name)) return "com.nei4pn.orchestra.beta"
 
-  if (/dev/i.test(name)) return "ai.opencode.desktop.dev"
+  if (/dev/i.test(name)) return "com.nei4pn.orchestra.dev"
 
-  return "ai.opencode.desktop"
+  return "com.nei4pn.orchestra"
 }
 
 function prepareHome() {
@@ -883,7 +883,7 @@ function summarize(list: Sample[]) {
 function bundledCli(exe: string) {
   const resources = process.platform === "darwin" ? join(dirname(exe), "..", "Resources") : join(dirname(exe), "resources")
 
-  return join(resources, process.platform === "win32" ? "opencode-cli.exe" : "opencode-cli")
+  return join(resources, process.platform === "win32" ? "orchestra-cli.exe" : "orchestra-cli")
 }
 
 async function warmService() {
@@ -891,7 +891,7 @@ async function warmService() {
   const clis = builds.map((build) => bundledCli(build.exe))
 
   const identity = (cli: string) => {
-    const version = join(dirname(cli), "opencode-cli.version")
+    const version = join(dirname(cli), "orchestra-cli.version")
 
     return existsSync(version) ? readFileSync(version, "utf8").trim() : String(statSync(cli).size)
   }

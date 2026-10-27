@@ -1,8 +1,17 @@
 export * as LspClient from "./client.js"
 
 import { Option, Schema } from "effect"
-import { pathToFileURL } from "url"
+import { fileURLToPath, pathToFileURL } from "url"
 import path from "path"
+
+function normalizeUriKey(uri: string): string {
+  try {
+    const file = uri.startsWith("file://") ? fileURLToPath(uri) : uri
+    return process.platform === "win32" ? file.toLowerCase() : file
+  } catch {
+    return process.platform === "win32" ? uri.toLowerCase() : uri
+  }
+}
 
 /**
  * A minimal Language Server Protocol client over stdio: Content-Length framed JSON-RPC,
@@ -128,7 +137,11 @@ export async function start(input: StartInput): Promise<Client> {
       return answer(message.id, message.method, message.params)
     if (message.method === "textDocument/publishDiagnostics") {
       const params = message.params as Published
-      published.set(params.uri, { version: params.version, seq: ++seq, items: params.diagnostics ?? [] })
+      published.set(normalizeUriKey(params.uri), {
+        version: params.version,
+        seq: ++seq,
+        items: params.diagnostics ?? [],
+      })
       waiting.forEach((wake) => wake())
       return
     }
@@ -203,20 +216,22 @@ export async function start(input: StartInput): Promise<Client> {
     notify,
     sync: (file, language, text) => {
       const uri = pathToFileURL(file).href
-      const current = documents.get(uri)
+      const key = normalizeUriKey(uri)
+      const current = documents.get(key)
       if (!current) {
-        documents.set(uri, { version: 1, text, seq })
+        documents.set(key, { version: 1, text, seq })
         notify("textDocument/didOpen", { textDocument: { uri, languageId: language, version: 1, text } })
         return 1
       }
       if (current.text === text) return current.version
       const version = current.version + 1
-      documents.set(uri, { version, text, seq })
+      documents.set(key, { version, text, seq })
       notify("textDocument/didChange", { textDocument: { uri, version }, contentChanges: [{ text }] })
       return version
     },
     diagnostics: (file, version, timeout) => {
       const uri = pathToFileURL(file).href
+      const key = normalizeUriKey(uri)
       // Servers that offer pull diagnostics answer for the current text directly.
       if (initialized.capabilities?.diagnosticProvider)
         return request<{ items?: ReadonlyArray<Diagnostic> }>(
@@ -224,13 +239,13 @@ export async function start(input: StartInput): Promise<Client> {
           { textDocument: { uri } },
           timeout,
         ).then((report) => report.items ?? [])
-      const synced = documents.get(uri)?.seq ?? 0
+      const synced = documents.get(key)?.seq ?? 0
       const fresh = () => {
-        const entry = published.get(uri)
+        const entry = published.get(key)
         if (!entry) return false
         return entry.version !== undefined ? entry.version >= version : entry.seq > synced
       }
-      if (fresh() || closed) return Promise.resolve(published.get(uri)?.items ?? [])
+      if (fresh() || closed) return Promise.resolve(published.get(key)?.items ?? [])
       // Servers often publish syntax errors first and type errors a moment later, so after the
       // first fresh publish keep listening until they go quiet for SETTLE.
       return new Promise((resolve) => {
@@ -239,7 +254,7 @@ export async function start(input: StartInput): Promise<Client> {
           waiting.delete(wake)
           clearTimeout(limit)
           clearTimeout(settle)
-          resolve(published.get(uri)?.items ?? [])
+          resolve(published.get(key)?.items ?? [])
         }
         const wake = () => {
           if (closed) return finish()

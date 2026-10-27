@@ -1,6 +1,6 @@
 import type { ElectronAPI } from "../api-types"
 
-const deepLinkEvent = "opencode:deep-link"
+const deepLinkEvent = "orchestra:deep-link"
 
 export function startDeepLinks(api: ElectronAPI) {
   void api.consumeInitialDeepLinks().then(emitDeepLinks)
@@ -12,4 +12,5 @@ function emitDeepLinks(urls: string[]) {
   window.__ORCHESTRA__ ??= {}
   window.__ORCHESTRA__.deepLinks = [...(window.__ORCHESTRA__.deepLinks ?? []), ...urls]
   window.dispatchEvent(new CustomEvent(deepLinkEvent, { detail: { urls } }))
+  window.dispatchEvent(new CustomEvent("opencode:deep-link", { detail: { urls } }))
 }

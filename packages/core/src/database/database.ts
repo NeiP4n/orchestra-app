@@ -1,7 +1,7 @@
 export * as Database from "./database.js"
 
 import { EffectDrizzleSqlite } from "./drizzle.js"
-import { sqliteLayer, supportsForeignKeyToggle, supportsTuningPragmas } from "#sqlite"
+import { checkpointWal, sqliteLayer, supportsForeignKeyToggle, supportsTuningPragmas } from "#sqlite"
 import { Context, Effect, Layer, Schema, Semaphore } from "effect"
 import type { SqlClient } from "effect/unstable/sql"
 import { Global } from "@orchestra/util/global"
@@ -13,6 +13,7 @@ import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 
 export const DEFAULT_DATABASE_FILE = "orchestra-local.db"
 export const LEGACY_DATABASE_FILE = "opencode-local.db"
+export { checkpointWal } from "#sqlite"
 
 const makeDatabase = EffectDrizzleSqlite.makeWithDefaults()
 type DatabaseShape = Effect.Success<typeof makeDatabase>
@@ -89,6 +90,7 @@ export function layer(options: Options = { path: ":memory:" }) {
         const existingLegacy = legacyCandidates.find((candidate) => existsSync(candidate))
         if (existingLegacy) {
           try {
+            checkpointWal(existingLegacy)
             copyFileSync(existingLegacy, file)
             if (existsSync(`${existingLegacy}-wal`)) copyFileSync(`${existingLegacy}-wal`, `${file}-wal`)
             if (existsSync(`${existingLegacy}-shm`)) copyFileSync(`${existingLegacy}-shm`, `${file}-shm`)

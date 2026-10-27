@@ -112,7 +112,7 @@ const oauth = {
 } satisfies IntegrationOAuthMethodRegistration
 
 export const DigitalOceanPlugin = define({
-  id: "opencode.provider.digitalocean",
+  id: "orchestra.provider.digitalocean",
   effect: Effect.fn(function* (ctx) {
     const bus = yield* Bus.Service
     const http = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)

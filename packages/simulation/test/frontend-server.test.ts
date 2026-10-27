@@ -64,7 +64,7 @@ test("scopes the frontend control server and reports malformed JSON", async () =
         expect(yield* Queue.take(messages)).toEqual({
           jsonrpc: "2.0",
           id: 3,
-          result: { format: "opencode-ui-snapshot-v1", nodes: [] },
+          result: { format: "orchestra-ui-snapshot-v1", nodes: [] },
         })
 
         socket.send("{")

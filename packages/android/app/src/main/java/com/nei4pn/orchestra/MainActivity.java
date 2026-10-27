@@ -1,4 +1,4 @@
-package com.nei4pn.opencodepp;
+package com.nei4pn.orchestra;
 
 import android.Manifest;
 import android.app.Activity;
@@ -71,7 +71,7 @@ public final class MainActivity extends Activity {
     // The bundle arrives through the interceptor, so the WebView never needs the file or content bridges.
     settings.setAllowFileAccess(false);
     settings.setAllowContentAccess(false);
-    // The page itself is an https document while the user's own `opencode serve` is usually plain http on the LAN.
+    // The page itself is an https document while the user's own `orchestra serve` is usually plain http on the LAN.
     // Without this every request to that server is refused as mixed content and the app cannot connect at all.
     settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
@@ -99,8 +99,8 @@ public final class MainActivity extends Activity {
 
   @Override
   protected void onPause() {
-    web.onPause();
     super.onPause();
+    web.onPause();
   }
 
   @Override

@@ -178,7 +178,7 @@ function oauth(http: HttpClient.HttpClient) {
 }
 
 export const OpencodePlugin = define<HttpClient.HttpClient | Bus.Service | ManagedPolicy.Service | Scope.Scope>({
-  id: "opencode.provider.opencode",
+  id: "orchestra.provider.opencode",
   effect: Effect.fn(function* (ctx) {
     const bus = yield* Bus.Service
     const client = yield* HttpClient.HttpClient

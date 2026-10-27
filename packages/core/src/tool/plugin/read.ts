@@ -51,7 +51,7 @@ const Output = Schema.Union([
 ])
 
 export const Plugin = {
-  id: "opencode.tool.read",
+  id: "orchestra.tool.read",
   effect: Effect.fn("ReadTool.Plugin")(function* (ctx: Context) {
     const reader = yield* ReadToolFileSystem.Service
     const access = yield* FileAccess.Service
@@ -264,6 +264,7 @@ export const Plugin = {
               })),
               Effect.mapError((error) => {
                 if (error instanceof ToolFailure) return error
+                const cause = error instanceof Error ? `: ${error.message}` : error ? `: ${String(error)}` : ""
                 const message =
                   error instanceof ReadToolFileSystem.BinaryFileError ||
                   error instanceof ReadToolFileSystem.MediaIngestLimitError ||
@@ -274,7 +275,7 @@ export const Plugin = {
                         input.path ??
                         input.files?.map((file) => (typeof file === "string" ? file : file.path)).join(", ") ??
                         "path"
-                      }`
+                      }${cause}`
                 return new ToolFailure({ message, error })
               }),
             )

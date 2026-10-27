@@ -3,6 +3,7 @@ import { createMemo, Match, Show, Switch } from "solid-js"
 import { useTerminalDimensions } from "@opentui/solid"
 import { usePlugin } from "../../plugin/context"
 import { Slot } from "../../plugin/render"
+import { AgiStatusIndicator } from "../../component/dialog-agi-control"
 
 export function homeFooterVisibility(width: number) {
   return {
@@ -92,6 +93,7 @@ function View(props: { context: Plugin.Context }) {
       >
         <Mcp context={props.context} />
         <Plugins context={props.context} />
+        <AgiStatusIndicator context={props.context} />
         <Slot path="home.footer.status" />
         <box flexGrow={1} />
         <Show when={visibility().version}>

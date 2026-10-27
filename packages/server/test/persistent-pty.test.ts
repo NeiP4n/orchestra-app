@@ -5,11 +5,70 @@ import path from "node:path"
 import { expect } from "bun:test"
 import { PersistentPty } from "@orchestra/schema/persistent-pty"
 import { Session } from "@orchestra/schema/session"
-import { Effect, Exit, Schema, Scope } from "effect"
+import { Effect, Exit, Queue, Schema, Scope } from "effect"
 import { HttpServer } from "effect/unstable/http"
 import { OpenCode } from "../../client/src/promise/index"
 import { it } from "../../core/test/lib/effect"
 import { ServerProcess } from "../src/process"
+
+it.live(
+  "guarantees Effect.addFinalizer execution and resource cleanup on abrupt socket disconnection",
+  () =>
+    Effect.gen(function* () {
+      let finalized = false
+      let detached = false
+      const outbox = yield* Queue.unbounded<string | Uint8Array>()
+
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          yield* Effect.addFinalizer(() =>
+            Effect.sync(() => {
+              finalized = true
+            }),
+          )
+          yield* Effect.addFinalizer(() => Queue.shutdown(outbox))
+          yield* Effect.addFinalizer(() =>
+            Effect.sync(() => {
+              detached = true
+            }),
+          )
+
+          yield* Queue.offer(outbox, "chunk-1")
+          yield* Queue.offer(outbox, "chunk-2")
+          yield* Effect.fail(new Error("abrupt websocket disconnect"))
+        }),
+      ).pipe(Effect.ignore)
+
+      expect(finalized).toBeTrue()
+      expect(detached).toBeTrue()
+    }),
+)
+
+it.live(
+  "closes channels and releases PTY buffers when socket fails during active streaming",
+  () =>
+    Effect.gen(function* () {
+      const outbox = yield* Queue.unbounded<string | Uint8Array>()
+      let detached = false
+      const detach = () => {
+        detached = true
+      }
+
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          yield* Effect.addFinalizer(() => Queue.shutdown(outbox))
+          yield* Effect.addFinalizer(() => Effect.sync(detach))
+
+          yield* Queue.offer(outbox, "pending-buffer")
+          expect(yield* Queue.size(outbox)).toBe(1)
+        }),
+      )
+
+      expect(detached).toBeTrue()
+      yield* Queue.poll(outbox).pipe(Effect.ignore, Effect.asVoid)
+      expect(detached).toBeTrue()
+    }),
+)
 
 const binary = process.env.ORCHESTRA_PTY_BIN ?? "/root/projects/opencode-pty/target/debug/opencode-pty"
 const smoke = existsSync(binary) ? it.live : it.live.skip
@@ -243,7 +302,7 @@ smoke(
         `/api/experimental/persistent-pty/${first.id}/connect-token`,
         undefined,
         {
-          "x-opencode-ticket": "1",
+          "x-orchestra-ticket": "1",
         },
       )
       if (!isRecord(ticket.data) || typeof ticket.data.ticket !== "string") throw new Error("Invalid connect ticket")
@@ -591,7 +650,7 @@ function attachAndExit(base: string, ptyID: string) {
     try: async () => {
       const response = await Effect.runPromise(
         request(base, "POST", `/api/experimental/persistent-pty/${ptyID}/connect-token`, undefined, {
-          "x-opencode-ticket": "1",
+          "x-orchestra-ticket": "1",
         }),
       )
       if (!isRecord(response.data) || typeof response.data.ticket !== "string")
@@ -664,7 +723,7 @@ async function openTerminalSocket(
 ) {
   const response = await Effect.runPromise(
     request(base, "POST", `/api/experimental/persistent-pty/${ptyID}/connect-token`, undefined, {
-      "x-opencode-ticket": "1",
+      "x-orchestra-ticket": "1",
     }),
   )
   if (!isRecord(response.data) || typeof response.data.ticket !== "string")

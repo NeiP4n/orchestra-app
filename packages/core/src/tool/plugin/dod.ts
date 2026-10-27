@@ -70,7 +70,7 @@ export const description = [
 ].join("\n")
 
 export const Plugin = {
-  id: "opencode.tool.dod",
+  id: "orchestra.tool.dod",
   effect: Effect.fn("DodTool.Plugin")(function* (ctx: Context) {
     const location = yield* Location.Service
     const orchestra = yield* Orchestra.Service

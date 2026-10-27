@@ -1,4 +1,5 @@
 export * as OpenCode from "./client.js"
+export * as Orchestra from "./client.js"
 
 import { SharedEvents } from "../shared-events.js"
 import { OpenCode } from "./generated/index.js"

@@ -357,9 +357,9 @@ it.live("без ORCHESTRA_UPDATE_URL сеть не вызывается", () =>
 
 // Links are named opencode-upgrade-<pid>-<random>.exe; read them from inside the installer run.
 const links = (directory: string) =>
-  existsSync(directory) ? readdirSync(directory).filter((name) => name.startsWith("opencode-")) : []
+  existsSync(directory) ? readdirSync(directory).filter((name) => name.startsWith("opencode-") || name.startsWith("orchestra-")) : []
 const upgradeLinks = (directory: string) =>
-  links(directory).filter((name) => name.startsWith(`opencode-upgrade-${process.pid}-`))
+  links(directory).filter((name) => name.startsWith(`orchestra-upgrade-${process.pid}-`) || name.startsWith(`opencode-upgrade-${process.pid}-`))
 
 windows("windows keeps a second link to the running binary in the cache while the installer runs", () =>
   Effect.gen(function* () {

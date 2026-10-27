@@ -100,7 +100,7 @@ const require = __cjs_mod__.createRequire(import.meta.url);
     },
     plugins: [
       {
-        name: "opencode:node-pty-narrower",
+        name: "orchestra:node-pty-narrower",
         enforce: "pre",
         resolveId(s) {
           if (s === "@lydell/node-pty") return nodePtyPkg

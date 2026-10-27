@@ -1,5 +1,6 @@
-import { Context } from "effect"
+import { Context, Schema } from "effect"
 import { HttpApi, HttpApiGroup, HttpApiMiddleware, OpenApi } from "effect/unstable/httpapi"
+import { Mcp } from "@orchestra/schema/mcp"
 import { SchemaErrorMiddleware } from "./middleware/schema-error.js"
 import { GenerateGroup } from "./groups/generate.js"
 import { MessageGroup } from "./groups/message.js"
@@ -36,6 +37,7 @@ import { MigrationGroup } from "./groups/migration.js"
 import { ConfigGroup } from "./groups/config.js"
 import { RoomGroup } from "./groups/room.js"
 import { OrchestraGroup } from "./groups/orchestra.js"
+import { QuotaGroup } from "./quota.js"
 
 type LocationGroups<LocationId extends HttpApiMiddleware.AnyId> =
   | HttpApiGroup.AddMiddleware<typeof AgentGroup, LocationId>
@@ -196,9 +198,10 @@ const makeApiFromGroup = <
     .add(ConfigGroup.middleware(locationMiddleware))
     .add(RoomGroup)
     .add(OrchestraGroup)
+    .add(QuotaGroup)
     .annotateMerge(
       OpenApi.annotations({
-        title: "opencode HttpApi",
+        title: "Orchestra HttpApi",
         version: "0.0.1",
         description: "Experimental HttpApi surface for selected instance routes.",
       }),
@@ -261,3 +264,78 @@ export const makeDefaultApi = <
     options.formLocationMiddleware,
     options.sessionLocationMiddleware,
   )
+
+export class InvalidStreamableHttpEndpointError extends Schema.TaggedError<InvalidStreamableHttpEndpointError>()(
+  "InvalidStreamableHttpEndpointError",
+  {
+    message: Schema.String,
+    url: Schema.optional(Schema.String),
+    reason: Schema.optional(Schema.String),
+  },
+  { httpApiStatus: 400 },
+) {}
+
+export interface StreamableHttpEndpointValidation {
+  readonly valid: boolean
+  readonly url?: string
+  readonly error?: string
+}
+
+export function validateStreamableHttpEndpoint(
+  config: Mcp.StreamableHttpConfig | { readonly url: string; readonly heartbeatInterval?: number; readonly streamTimeout?: number } | unknown,
+): StreamableHttpEndpointValidation {
+  if (!config || typeof config !== "object") {
+    return { valid: false, error: "Streamable HTTP config must be an object" }
+  }
+  const candidate = config as Record<string, unknown>
+  if (candidate.type !== "streamable-http" && candidate.type !== undefined) {
+    return { valid: false, error: `Invalid transport type: expected streamable-http, got ${String(candidate.type)}` }
+  }
+  if (typeof candidate.url !== "string" || candidate.url.trim().length === 0) {
+    return { valid: false, error: "Streamable HTTP endpoint URL is required and must not be empty" }
+  }
+  const url = candidate.url.trim()
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return { valid: false, url, error: `Invalid URL protocol: ${parsed.protocol} (must be http: or https:)` }
+    }
+  } catch {
+    return { valid: false, url, error: `Invalid URL format: ${url}` }
+  }
+
+  if (candidate.heartbeatInterval !== undefined) {
+    if (
+      typeof candidate.heartbeatInterval !== "number" ||
+      !Number.isFinite(candidate.heartbeatInterval) ||
+      candidate.heartbeatInterval <= 0
+    ) {
+      return { valid: false, url, error: "heartbeatInterval must be a positive number in milliseconds" }
+    }
+  }
+
+  if (candidate.streamTimeout !== undefined) {
+    if (
+      typeof candidate.streamTimeout !== "number" ||
+      !Number.isFinite(candidate.streamTimeout) ||
+      candidate.streamTimeout <= 0
+    ) {
+      return { valid: false, url, error: "streamTimeout must be a positive number in milliseconds" }
+    }
+  }
+
+  if (
+    typeof candidate.heartbeatInterval === "number" &&
+    typeof candidate.streamTimeout === "number" &&
+    candidate.heartbeatInterval >= candidate.streamTimeout
+  ) {
+    return {
+      valid: false,
+      url,
+      error: `heartbeatInterval (${candidate.heartbeatInterval}ms) must be strictly less than streamTimeout (${candidate.streamTimeout}ms)`,
+    }
+  }
+
+  return { valid: true, url }
+}
+

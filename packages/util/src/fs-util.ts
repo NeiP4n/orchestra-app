@@ -279,6 +279,13 @@ export namespace FSUtil {
 
   export function contains(parent: string, child: string) {
     const result = relative(parent, child)
-    return result === "" || (!isAbsolute(result) && result !== ".." && !result.startsWith(`..${sep}`))
+    return (
+      result === "" ||
+      (!isAbsolute(result) &&
+        result !== ".." &&
+        !result.startsWith(`..${sep}`) &&
+        !result.startsWith("../") &&
+        !result.startsWith("..\\"))
+    )
   }
 }

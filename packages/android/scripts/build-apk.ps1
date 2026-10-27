@@ -8,7 +8,7 @@
 
     1. Build the web bundle from packages/app with VITE_ORCHESTRA_SERVER_MODE=none. That mode
        ships no initial server, so the app opens on its own full-screen connection form and
-       the user adds a server by address/password, by an `opencode pair` link or by QR code
+       the user adds a server by address/password, by an `orchestra pair` link or by QR code
        (packages/app/README.md, "VITE_ORCHESTRA_SERVER_MODE").
     2. Copy packages/app/dist into packages/android/app/src/main/assets/app/, replacing
        whatever was there so stale hashed assets never survive a rebuild.

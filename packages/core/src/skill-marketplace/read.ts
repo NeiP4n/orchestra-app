@@ -2,6 +2,7 @@ export * as SkillMarketplaceRead from "./read.js"
 
 import { Duration, Effect, Schema } from "effect"
 import { SkillMarketplaceStore } from "./store.js"
+import { ProjectDirs } from "../project-dirs.js"
 
 /** `raw.githubusercontent.com` serves the same file the tree URL shows, without the HTML around it. */
 export const RAW_ORIGIN = "https://raw.githubusercontent.com"
@@ -12,7 +13,8 @@ export const MAX_CHARACTERS = 20_000
 export const TIMEOUT = Duration.seconds(30)
 
 /** Where an applied skill lands inside a project; the existing loader already scans this. */
-export const PROJECT_DIRECTORY = ".opencode/skills"
+export const PROJECT_DIRECTORY = ProjectDirs.primary("skills")
+export const LEGACY_PROJECT_DIRECTORY = ProjectDirs.legacy("skills")
 
 export interface Text {
   readonly url: string

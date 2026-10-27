@@ -94,7 +94,7 @@ export const Output = Schema.Struct({
 })
 
 export const Plugin = {
-  id: "opencode.tool.orchestra",
+  id: "orchestra.tool.orchestra",
   effect: Effect.fn("OrchestraTool.Plugin")(function* (ctx: Context) {
     const sessions = yield* Session.Service
     const orchestra = yield* Orchestra.Service
@@ -186,9 +186,14 @@ export const Plugin = {
       if (rows.length === 0) return "No team sessions in this project yet. Create one with action create."
       const active = yield* sessions.active
       const pending = yield* Effect.forEach(rows, (row) => orchestra.pending(row.session.id))
+      const outcomes = yield* orchestra.outcomes(project.id)
       const now = Date.now()
       return grouped(
-        rows.map((row, index) => ({ ...row, sent: pending[index] })),
+        rows.map((row, index) => ({
+          ...row,
+          sent: pending[index],
+          outcome: outcomes[row.session.id]?.outcome,
+        })),
         (row) =>
           [
             `${row.session.title ?? "(untitled)"} ${row.session.id}`,
@@ -196,6 +201,7 @@ export const Plugin = {
             ...(row.mode ? [`mode ${row.mode}`] : []),
             active.has(row.session.id) ? "running" : "idle",
             `access ${row.access}`,
+            ...(row.outcome ? [`last report ${row.outcome}`] : []),
             ...(row.sent === undefined
               ? []
               : [`task outstanding (sent ${Math.round((now - row.sent) / 60_000)} min ago)`]),
@@ -217,15 +223,32 @@ export const Plugin = {
               if (!project)
                 return yield* new ToolFailure({ message: "Only a project's main session can manage sessions" })
 
+        // Clean up sessionID if passed with quotes, backticks or formatting
+        if (input.sessionID) {
+          const cleaned = input.sessionID.trim().replace(/^[`*"]+|[`*"]+$/g, "")
+          if (cleaned !== input.sessionID) {
+            ;(input as any).sessionID = cleaned as SessionSchema.ID
+          }
+        }
+
         // A common slip: the model puts the target session ID in `text` and a
-        // placeholder in `sessionID`. Recover by using `text` as the ID when it
-        // names a real session and `sessionID` does not.
-        if (input.sessionID && input.text?.startsWith("ses_")) {
-          const current = yield* sessions.get(input.sessionID).pipe(Effect.option)
-          if (current._tag === "None") {
-            const fallback = yield* sessions.get(input.text as SessionSchema.ID).pipe(Effect.option)
+        // placeholder or nothing in `sessionID`. Recover by using `text` as the ID when it
+        // names a real session.
+        if (input.text?.trim().startsWith("ses_")) {
+          const candidate = input.text.trim().replace(/^[`*"]+|[`*"]+$/g, "") as SessionSchema.ID
+          if (input.sessionID) {
+            const current = yield* sessions.get(input.sessionID).pipe(Effect.option)
+            if (current._tag === "None") {
+              const fallback = yield* sessions.get(candidate).pipe(Effect.option)
+              if (fallback._tag === "Some") {
+                ;(input as any).sessionID = candidate
+                ;(input as any).text = undefined
+              }
+            }
+          } else if (input.action !== "create" && input.action !== "send") {
+            const fallback = yield* sessions.get(candidate).pipe(Effect.option)
             if (fallback._tag === "Some") {
-              ;(input as any).sessionID = input.text as SessionSchema.ID
+              ;(input as any).sessionID = candidate
               ;(input as any).text = undefined
             }
           }
@@ -310,11 +333,15 @@ export const Plugin = {
                   return { output: yield* list(project) }
                 case "read": {
                   const session = yield* target(project, input.sessionID, "read")
+                  const isPending = (yield* orchestra.pending(session.id)) !== undefined
                   const messages = yield* sessions
                     .messages({ sessionID: session.id, limit: input.limit ?? 10, order: "desc" })
                     .pipe(Effect.mapError((error) => new ToolFailure({ message: "Could not read the session", error })))
-                  const text = messages.toReversed().flatMap(render).join("\n\n")
-                  return { sessionID: session.id, output: text || "The session has no messages yet." }
+                  let text = messages.toReversed().flatMap(render).join("\n\n") || "The session has no messages yet."
+                  if (isPending) {
+                    text += "\n\n[NOTICE: This worker is currently actively executing a task. Do NOT poll this session with repeated read or list calls. Its <team-report> will be delivered to you automatically upon completion. End your turn now and wait.]"
+                  }
+                  return { sessionID: session.id, output: text }
                 }
                 case "send": {
                   const session = yield* target(project, input.sessionID, "write")
@@ -327,7 +354,7 @@ export const Plugin = {
                   yield* dispatch(session.id, input.text)
                   return {
                     sessionID: session.id,
-                    output: `Sent to ${session.title ?? session.id}. Its report will arrive here when it finishes.`,
+                    output: `Sent to ${session.title ?? session.id}. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.`,
                   }
                 }
                 case "create": {
@@ -360,7 +387,7 @@ export const Plugin = {
                         return {
                           sessionID: existing.id,
                           output: input.text?.trim()
-                            ? `Reused existing ${role.name} session ${existing.title ?? existing.id}; task queued. Its report will arrive here when it finishes.`
+                            ? `Reused existing ${role.name} session ${existing.title ?? existing.id}; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.`
                             : `Reused existing ${role.name} session ${existing.title ?? existing.id}. No new session was created; use action send to assign work.`,
                         }
                       }
@@ -400,7 +427,7 @@ export const Plugin = {
                   if (input.text?.trim()) yield* dispatch(created.id, input.text)
                   return {
                     sessionID: created.id,
-                    output: `Created ${created.id}${input.text?.trim() ? "; its report will arrive here when it finishes" : ""}.`,
+                    output: `Created ${created.id}${input.text?.trim() ? "; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list." : ""}.`,
                   }
                 }
                 case "answer": {
@@ -419,13 +446,26 @@ export const Plugin = {
                     return yield* new ToolFailure({
                       message: `The question has ${form.fields.length} part(s); pass exactly that many answers, in order.`,
                     })
+                  const formatAnswer = (field: Form.Field, values: ReadonlyArray<string> | undefined) => {
+                    const list = values ?? []
+                    if (field.type === "multiselect") return [...list]
+                    if (field.type === "boolean") {
+                      const raw = (list[0] ?? "").trim().toLowerCase()
+                      return raw === "true" || raw === "yes" || raw === "1" || raw === "y"
+                    }
+                    if (field.type === "number" || field.type === "integer") {
+                      const num = Number(list[0])
+                      return Number.isFinite(num) ? num : (list[0] ?? "")
+                    }
+                    return list.join(", ")
+                  }
                   yield* forms
                     .reply({
                       id: form.id,
                       answer: Object.fromEntries(
                         form.fields.map((field, index) => [
                           field.key,
-                          field.type === "multiselect" ? answers[index] : answers[index].join(", "),
+                          formatAnswer(field, answers[index]),
                         ]),
                       ),
                     })

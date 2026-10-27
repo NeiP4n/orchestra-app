@@ -134,9 +134,18 @@ export default Runtime.handler(Commands, (input) =>
         check: (signal, notify) => {
           if (installing) notify(installing)
           installListeners.add(notify)
-          return runPromise(checking.withPermits(1)(updater.check()), { signal }).finally(() =>
-            installListeners.delete(notify),
-          )
+          return runPromise(
+            checking
+              .withPermits(1)(updater.check())
+              .pipe(
+                Effect.map((res) =>
+                  res?.type === "offline"
+                    ? { type: "unavailable" as const, message: res.message ?? "Offline: update check unavailable" }
+                    : res,
+                ),
+              ),
+            { signal },
+          ).finally(() => installListeners.delete(notify))
         },
         apply: (version) => runPromise(checking.withPermits(1)(updater.apply(version))),
         relaunch: () => {

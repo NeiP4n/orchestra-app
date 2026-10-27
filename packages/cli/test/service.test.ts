@@ -14,6 +14,8 @@ import { isolatedEnv, transpilerCache } from "./fixture/environment"
 import { testEffect } from "../../core/test/lib/effect"
 
 const it = testEffect(NodeFileSystem.layer)
+// Real port-race service processes are not reliable on Windows; service-lifecycle.test.ts skips the same class.
+const processTest = process.platform === "win32" ? test.skip : test
 
 test("managed service ports are stable per installation channel", () => {
   expect(ServiceConfig.defaultPort("latest")).toBe(0xc0de)
@@ -229,7 +231,7 @@ test("clean managed service shutdown removes its registration", async () => {
   }
 }, 30_000)
 
-test("concurrent service processes elect one server", async () => {
+processTest("concurrent service processes elect one server", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-election-"))
   const env = serviceEnv(root)
   const command = [process.execPath, path.join(import.meta.dir, "../src/index.ts"), "serve", "--service"]
@@ -366,7 +368,7 @@ test.each([
   30_000,
 )
 
-test("the original managed service contender binds when the occupied port is released", async () => {
+processTest("the original managed service contender binds when the occupied port is released", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-bind-retry-"))
   const recognizing = Promise.withResolvers<void>()
   const requests: string[] = []
@@ -437,7 +439,7 @@ test("the original managed service contender binds when the occupied port is rel
   }
 }, 45_000)
 
-test("unresponsive managed port occupancy reports a bounded conflict", async () => {
+processTest("unresponsive managed port occupancy reports a bounded conflict", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-unresponsive-conflict-"))
   const recognizing = Promise.withResolvers<void>()
   const requests = { count: 0 }
@@ -485,7 +487,7 @@ test("unresponsive managed port occupancy reports a bounded conflict", async () 
   }
 }, 45_000)
 
-test("port contender recognizes an incumbent registered during the bind race", async () => {
+processTest("port contender recognizes an incumbent registered during the bind race", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-bind-race-"))
   const recognizing = Promise.withResolvers<void>()
   const requests = { count: 0 }
@@ -670,7 +672,7 @@ const registered = Effect.fnUntraced(function* () {
 })
 
 function serviceEnv(root: string) {
-  return {
+  const env: Record<string, string | undefined> = {
     ...process.env,
     BUN_RUNTIME_TRANSPILER_CACHE_PATH: transpilerCache,
     HOME: root,
@@ -681,6 +683,9 @@ function serviceEnv(root: string) {
     XDG_DATA_HOME: path.join(root, "data"),
     XDG_STATE_HOME: path.join(root, "state"),
   }
+  delete env.ORCHESTRA_CONFIG_DIR
+  delete env.OPENCODE_CONFIG_DIR
+  return env as Record<string, string>
 }
 
 async function startManagedService(prefix: string, failBoot = false) {

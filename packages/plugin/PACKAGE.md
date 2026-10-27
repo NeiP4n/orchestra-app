@@ -2,7 +2,7 @@
 
 ## What This Is
 
-The opencode plugin host: 60 files, ~3.1k lines in `src/`. The package is
+The orchestra plugin host: 60 files, ~3.1k lines in `src/`. The package is
 responsible for how a plugin is found, loaded, reloaded when files change,
 and given access to the core: sessions, tools, commands, events,
 permissions, MCP, skills.

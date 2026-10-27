@@ -36,7 +36,7 @@ const Output = Schema.Struct({ output: Schema.String })
 const failure = (message: string, error?: unknown) => Effect.fail(new ToolError({ message, error }))
 
 export const Plugin = {
-  id: "opencode.tool.idea-bank",
+  id: "orchestra.tool.idea-bank",
   effect: Effect.fn("IdeaBankTool.Plugin")(function* (ctx: Context) {
     const permission = yield* Permission.Service
     yield* ctx.tool.transform((editor) =>

@@ -12,6 +12,7 @@ import { Effect, Schema, Stream } from "effect"
 import { Agent } from "../../agent.js"
 import { Bus } from "../../bus.js"
 import { Location } from "../../location.js"
+import { ProjectDirs } from "../../project-dirs.js"
 
 export const name = "command_forge"
 export const command = "forge-command"
@@ -188,7 +189,7 @@ const description = [
   "Design and save slash commands (custom /commands) of any kind. Only a session running the /forge-command command has this tool.",
   "Actions: kinds shows every kind of command with a complete example file (prompt, arguments, context with !`shell`, subagent, agent, model, workflow, generator, review, registry);",
   "list shows the commands and agents that exist; preview renders a draft with sample args and checks it without saving;",
-  "save writes the command file (scope project: .opencode/command in this project, global: every project). A name that exists is refused unless overwrite is true and the file is one this forge can write.",
+  "save writes the command file (scope project: .orchestra/command in this project, global: every project). A name that exists is refused unless overwrite is true and the file is one this forge can write.",
 ].join("\n")
 
 export const Input = Schema.Struct({
@@ -225,7 +226,7 @@ const RESERVED = new Set(["init", "review", "forge-teams", command])
 type Forge = { request: string; started: boolean }
 
 export const Plugin = {
-  id: "opencode.tool.command-forge",
+  id: "orchestra.tool.command-forge",
   effect: Effect.fn("CommandForgeTool.Plugin")(function* (ctx: Context) {
     const bus = yield* Bus.Service
     const location = yield* Location.Service
@@ -233,9 +234,10 @@ export const Plugin = {
     const forging = new Map<SessionID, Forge>()
 
     const roots = {
-      project: path.join(location.project.directory, ".opencode", "command"),
+      project: path.join(location.project.directory, ProjectDirs.primary("command")),
       global: path.join(process.env.ORCHESTRA_CONFIG_DIR ?? Path.config, "command"),
     }
+    const legacyProjectRoot = path.join(location.project.directory, ProjectDirs.legacy("command"))
     const commands = () =>
       ctx.command.list().pipe(
         Effect.map((result) => result.data),
@@ -300,7 +302,10 @@ export const Plugin = {
 
     const save = Effect.fnUntraced(function* (draft: Draft, scope: "project" | "global", overwrite: boolean) {
       const file = path.join(roots[scope], `${draft.name}.md`)
-      const exists = yield* Effect.promise(() => readFile(file, "utf8").then(() => true, () => false))
+      const legacyFile = scope === "project" ? path.join(legacyProjectRoot, `${draft.name}.md`) : undefined
+      const primaryExists = yield* Effect.promise(() => readFile(file, "utf8").then(() => true, () => false))
+      const legacyExists = legacyFile ? yield* Effect.promise(() => readFile(legacyFile, "utf8").then(() => true, () => false)) : false
+      const exists = primaryExists || legacyExists
       const taken = (yield* commands()).some((item) => item.name === draft.name)
       if (RESERVED.has(draft.name)) return yield* new ToolFailure({ message: `/${draft.name} is built in; choose another name.` })
       if ((taken || exists) && !(overwrite && exists))

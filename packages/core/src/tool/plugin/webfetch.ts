@@ -101,7 +101,7 @@ const convert = (content: string, contentType: string, format: Format) => {
 }
 
 export const Plugin = {
-  id: "opencode.tool.webfetch",
+  id: "orchestra.tool.webfetch",
   effect: Effect.fn("WebFetchTool.Plugin")(function* (ctx: Context) {
     const http = yield* HttpClient.HttpClient
     const permission = yield* Permission.Service

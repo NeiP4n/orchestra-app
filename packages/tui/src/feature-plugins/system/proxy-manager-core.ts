@@ -313,7 +313,7 @@ function requestHttpsThroughProxy(
 }
 
 /**
- * Test both the actual public egress IP and the OpenCode Zen endpoint. The Zen test is anonymous:
+ * Test both the actual public egress IP and the Orchestra Zen endpoint. The Zen test is anonymous:
  * 401 is expected and means the route works; only the real per-IP allowance error is "limited".
  */
 export async function probeHttpProxy(entry: ProxyEntry, timeoutMs = MAX_PROBE_TIME_MS): Promise<ProxyEntry> {
@@ -339,10 +339,10 @@ export async function probeHttpProxy(entry: ProxyEntry, timeoutMs = MAX_PROBE_TI
     const detail = status === "limited"
       ? "Zen daily IP allowance appears exhausted"
       : status === "healthy" && zen.statusCode === 401
-        ? "OpenCode reachable; authentication required; quota not tested"
+        ? "Orchestra reachable; authentication required; quota not tested"
         : status === "healthy"
-          ? "OpenCode reachable; egress IP verified"
-          : "OpenCode returned HTTP " + zen.statusCode
+          ? "Orchestra reachable; egress IP verified"
+          : "Orchestra returned HTTP " + zen.statusCode
     return {
       ...entry,
       status,

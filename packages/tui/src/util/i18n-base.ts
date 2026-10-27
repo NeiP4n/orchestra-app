@@ -316,9 +316,9 @@ const ru: Record<string, string> = {
   "On the other device open Connect and pick this room, or enter the address.":
     "На другом устройстве открой «Подключиться» и выбери эту комнату или введи адрес.",
   "Allow in Windows Firewall": "Разрешить в брандмауэре Windows",
-  "Windows Firewall blocks rooms until opencode is allowed on the local network; Windows asks for administrator rights once.":
-    "Брандмауэр Windows не пускает в комнаты, пока opencode не разрешён в локальной сети; Windows один раз спросит права администратора.",
-  "Windows Firewall lets opencode rooms through.": "Брандмауэр Windows пропускает комнаты opencode.",
+  "Windows Firewall blocks rooms until Orchestra is allowed on the local network; Windows asks for administrator rights once.":
+    "Брандмауэр Windows не пускает в комнаты, пока Orchestra не разрешён в локальной сети; Windows один раз спросит права администратора.",
+  "Windows Firewall lets Orchestra rooms through.": "Брандмауэр Windows пропускает комнаты Orchestra.",
   "Windows Firewall still lacks the rules; was the administrator prompt declined?":
     "В брандмауэре Windows так и нет правил; запрос прав администратора был отклонён?",
   "Windows Firewall rules added": "Правила брандмауэра Windows добавлены",
@@ -506,8 +506,8 @@ const ru: Record<string, string> = {
   You: "Ты",
   "Click again to leave": "Нажми ещё раз, чтобы выйти",
   Leave: "Выйти",
-  "Not found? Both computers must be on one network, and on Windows opencode must be allowed in the firewall.":
-    "Не находит? Оба компьютера должны быть в одной сети, а на Windows opencode должен быть разрешён в брандмауэре.",
+  "Not found? Both computers must be on one network, and on Windows Orchestra must be allowed in the firewall.":
+    "Не находит? Оба компьютера должны быть в одной сети, а на Windows Orchestra должен быть разрешён в брандмауэре.",
   // Projects and the team editor
   "Edit project": "Изменить проект",
   "New project": "Новый проект",
@@ -542,7 +542,7 @@ const ru: Record<string, string> = {
   "Reliability Engineer": "Инженер надёжности",
   "Dependency Auditor": "Аудитор зависимостей",
   "Counterexample Engineer": "Инженер контрпримеров",
-  "OpenCode++ Core": "Ядро OpenCode++",
+  "Orchestra Core": "Ядро Orchestra",
   Platform: "Платформа",
   Data: "Данные",
   Reliability: "Надёжность",
@@ -644,8 +644,8 @@ const ru: Record<string, string> = {
   Sandbox: "Песочница",
   "Strict sandbox": "Строгая песочница",
   "works in the directory itself": "работает прямо в этом каталоге",
-  "a new git worktree of the repository with its own opencode data; the live service is out of reach":
-    "новая копия репозитория (git worktree) со своими данными opencode; рабочий сервис недоступен",
+  "a new git worktree of the repository with its own Orchestra data; the live service is out of reach":
+    "новая копия репозитория (git worktree) со своими данными Orchestra; рабочий сервис недоступен",
   "also hides your home directory and allows writes only inside the sandbox; needs bwrap":
     "ещё скрывает домашний каталог и разрешает запись только внутри песочницы; нужен bwrap",
   "Strict sandbox needs bubblewrap (bwrap) on the server": "Строгой песочнице нужен bubblewrap (bwrap) на сервере",
@@ -813,6 +813,15 @@ const ru: Record<string, string> = {
   "Transcript images": "Картинки в чате",
   TPS: "Токенов/с",
   Scrollbar: "Полоса прокрутки",
+  "Auto-compact": "Авто-компрессия",
+  "Compress the conversation automatically when it nears the context limit":
+    "Автоматически сжимать диалог, когда он приближается к лимиту контекста",
+  "Auto-compact at": "Компрессия при заполнении",
+  "Share of the model's context window used before it compacts itself":
+    "Доля окна контекста модели, при которой она сжимается сама",
+  "Keep free": "Оставлять свободно",
+  "Share of the window left free after a compact for the reply and safety margin":
+    "Доля окна, которая останется свободной после компрессии — на ответ и запас",
   "Tab scope": "Область вкладок",
   "Tab layout": "Расположение вкладок",
   "Tab indicators": "Индикаторы вкладок",
@@ -1107,6 +1116,7 @@ const ru: Record<string, string> = {
   "Chat outline": "Содержание чата",
   "updating…": "обновляется…",
   "enter or space to go": "enter или пробел — перейти",
+  "pinned · click to close": "закреплено — клик, чтобы скрыть",
   "Go to the marked topic": "Перейти к отмеченной теме",
   "The model did not return a table of contents": "Модель не вернула содержание",
   // Freebuff footer strip

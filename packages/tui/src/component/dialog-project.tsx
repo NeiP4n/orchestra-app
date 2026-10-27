@@ -57,7 +57,7 @@ export function DialogProject(props: {
     { name: t("Regular"), detail: t("works in the directory itself"), isolation: undefined },
     {
       name: t("Sandbox"),
-      detail: t("a new git worktree of the repository with its own opencode data; the live service is out of reach"),
+      detail: t("a new git worktree of the repository with its own Orchestra data; the live service is out of reach"),
       isolation: "environment" as const,
     },
     {

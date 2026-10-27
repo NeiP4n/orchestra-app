@@ -33,7 +33,7 @@ const ecosystems: readonly ConfigCompatibilityFound[] = [
     skipped: [
       { source: `${root}/.claude/settings.json`, reason: "PreToolUse hook needs trust" },
       { source: `${root}/.mcp.json`, reason: "MCP server github needs trust" },
-      { source: `${root}/.claude/settings.json`, reason: "env has no OpenCode equivalent yet" },
+      { source: `${root}/.claude/settings.json`, reason: "env has no Orchestra equivalent yet" },
     ],
     awaitingTrust: 2,
   },

@@ -226,6 +226,7 @@ const resolveCatalogModel = Effect.fn("ModelResolver.resolveCatalogModel")(funct
     ...(credential ? Struct.omit(mapped, ["accessToken", "apiKey", "authToken"]) : mapped),
     ...(resolved.canonical === undefined ? {} : { provider: resolved.canonical }),
     ...nativeCredentialSettings(resolved, specifier, credential),
+    ...(typeof credential?.metadata?.projectId === "string" ? { projectId: credential.metadata.projectId } : {}),
     headers: resolved.headers,
     body: resolved.body,
   }
@@ -319,7 +320,8 @@ const tokenSettings = (specifier: string, token: string) => {
     return { authToken: token }
   if (
     specifier === "@orchestra/ai/providers/google-vertex" ||
-    specifier.startsWith("@orchestra/ai/providers/google-vertex/")
+    specifier.startsWith("@orchestra/ai/providers/google-vertex/") ||
+    specifier === "@orchestra/ai/providers/google-antigravity"
   )
     return { accessToken: token }
   return { apiKey: token }
@@ -377,6 +379,9 @@ export const layer = Layer.effect(
       const selectedVariant = yield* withVariant(selected, variant)
       const runtimeInfo: RuntimeInfo = {
         ...selectedVariant,
+        // A configured model inherits its provider's package; providers added by a plugin keep the
+        // package on the provider, so a bare model override must not become unresolvable.
+        package: selectedVariant.package ?? provider?.package,
         settings: Provider.mergeOverlay(provider?.settings, Provider.modelSettings(selectedVariant.settings)),
       }
       const model = yield* fromCatalogModel(runtimeInfo, credential, {

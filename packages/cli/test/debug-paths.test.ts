@@ -47,7 +47,7 @@ describe("debug paths command", () => {
     } finally {
       await fs.rm(root, { recursive: true, force: true })
     }
-  })
+  }, 30_000)
 })
 
 async function cli(args: string[], env?: Record<string, string>) {

@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test"
 import type { ServerConfig } from "@orchestra/schema/mcp"
-import { all, forPlatform, missing } from "../src/mcp/catalog"
+import { Effect } from "effect"
+import {
+  all,
+  circuitBreaker,
+  forPlatform,
+  healthcheckServer,
+  isServerAvailable,
+  McpCircuitBreaker,
+  missing,
+} from "../src/mcp/catalog"
 
 describe("MCP registry catalog", () => {
   test("includes the REA Anything launcher", () => {
@@ -37,5 +46,56 @@ describe("MCP registry catalog", () => {
     } finally {
       if (previous !== undefined) process.env.BRAVE_API_KEY = previous
     }
+  })
+
+  test("McpCircuitBreaker isolates timeouts and failures without crashing fibers", async () => {
+    const cb = new McpCircuitBreaker({ failureThreshold: 2, timeoutMs: 30 })
+
+    // 1. Initial healthy state
+    const initial = cb.getState("server-a")
+    expect(initial.status).toBe("healthy")
+    expect(cb.isAvailable("server-a")).toBe(true)
+
+    // 2. Probe failure triggers degraded state without throwing
+    const failProbe = Effect.fail(new Error("connection reset"))
+    const failState = await Effect.runPromise(cb.check("server-a", failProbe))
+    expect(failState.status).toBe("degraded")
+    expect(failState.consecutiveFailures).toBe(1)
+    expect(failState.lastError).toContain("connection reset")
+    expect(cb.isAvailable("server-a")).toBe(true) // degraded allows trial requests
+
+    // 3. Timeout triggers unhealthy state once threshold reached
+    const slowProbe = Effect.sleep("60 millis").pipe(Effect.as("done"))
+    const timeoutState = await Effect.runPromise(cb.check("server-a", slowProbe))
+    expect(timeoutState.status).toBe("unhealthy")
+    expect(timeoutState.consecutiveFailures).toBe(2)
+    expect(timeoutState.lastError).toContain("Healthcheck timed out")
+    expect(cb.isAvailable("server-a")).toBe(false) // circuit opened
+
+    // 4. Recovery restores healthy state and resets consecutive failures
+    const successProbe = Effect.succeed({ ping: "pong" })
+    const recoveredState = await Effect.runPromise(cb.check("server-a", successProbe))
+    expect(recoveredState.status).toBe("healthy")
+    expect(recoveredState.consecutiveFailures).toBe(0)
+    expect(recoveredState.consecutiveSuccesses).toBe(1)
+    expect(cb.isAvailable("server-a")).toBe(true)
+  })
+
+  test("circuitBreaker tracks global availability and isolate/restore transitions", async () => {
+    circuitBreaker.reset("test-server")
+
+    // Record failure threshold
+    circuitBreaker.recordFailure("test-server", "network error 1", { failureThreshold: 2 })
+    expect(isServerAvailable("test-server")).toBe(true)
+    expect(circuitBreaker.getState("test-server").status).toBe("degraded")
+
+    circuitBreaker.recordFailure("test-server", "network error 2", { failureThreshold: 2 })
+    expect(isServerAvailable("test-server")).toBe(false)
+    expect(circuitBreaker.getState("test-server").status).toBe("unhealthy")
+
+    // Healthcheck success restores it
+    const success = await Effect.runPromise(healthcheckServer("test-server", Effect.succeed("ok")))
+    expect(success.status).toBe("healthy")
+    expect(isServerAvailable("test-server")).toBe(true)
   })
 })

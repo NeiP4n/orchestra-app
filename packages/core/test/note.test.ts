@@ -84,7 +84,8 @@ const failingRename = (description: string) =>
     ),
   ).pipe(Layer.provide(LayerNode.compile(FSUtil.node)))
 
-const file = (directory: string, name: string) => path.join(directory, ".opencode", "notes", `${name}.md`)
+const file = (directory: string, name: string) => path.join(directory, ".orchestra", "notes", `${name}.md`)
+const legacyFile = (directory: string, name: string) => path.join(directory, ".opencode", "notes", `${name}.md`)
 const text = (target: string) => Effect.promise(() => fs.readFile(target, "utf8"))
 const write = (target: string, content: string) => Effect.promise(() => fs.writeFile(target, content))
 /** Forces an mtime a whole number of milliseconds away, so a guard can see the change. */
@@ -92,6 +93,32 @@ const retime = (target: string, mtime: number) =>
   Effect.promise(() => fs.utimes(target, new Date(mtime), new Date(mtime)))
 
 describe("NoteStore", () => {
+  it.live("reads existing legacy notes and writes their updates to the canonical folder without moving data", () =>
+    withTempDir(({ path: directory }) =>
+      Effect.gen(function* () {
+        yield* Effect.promise(() => fs.mkdir(path.dirname(legacyFile(directory, "legacy-note")), { recursive: true }))
+        yield* Effect.promise(() =>
+          fs.writeFile(
+            legacyFile(directory, "legacy-note"),
+            ["---", "title: Legacy note", "status: inbox", "tags: []", "created: 1", "updated: 1", "---", "", "Old body"].join("\n"),
+          ),
+        )
+        const notes = yield* NoteStore.Service
+        const legacy = yield* notes.get("legacy-note")
+        expect(legacy.body).toBe("Old body")
+
+        const updated = yield* notes.update({
+          name: legacy.name,
+          expectedMtime: legacy.mtime,
+          title: "Updated note",
+        })
+        expect(updated.frontmatter.title).toBe("Updated note")
+        expect(yield* text(file(directory, "legacy-note"))).toContain("Updated note")
+        expect(yield* text(legacyFile(directory, "legacy-note"))).toContain("Old body")
+      }).pipe(provide(directory)),
+    ),
+  )
+
   it.live("writes a created note to disk with an inbox status and service timestamps", () =>
     withTempDir(({ path: directory }) =>
       Effect.gen(function* () {

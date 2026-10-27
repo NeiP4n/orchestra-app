@@ -85,6 +85,7 @@ const Handlers = Runtime.handlers(Commands, {
   },
   gateway: () => import("./commands/handlers/gateway"),
   serve: () => import("./commands/handlers/serve"),
+  doctor: () => import("./commands/doctor"),
 })
 
 Effect.gen(function* () {

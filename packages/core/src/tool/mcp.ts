@@ -84,14 +84,21 @@ export const layer = Layer.effect(
                           "MCP.ToolCallError": (error) => new ToolFailure({ message: error.message }),
                         }),
                       )
-                    if (result.isError)
+                    if (result.isError) {
+                      const text = result.content
+                        .flatMap((part) => (part.type === "text" ? [part.text] : []))
+                        .join("\n")
+                        .trim()
+                      const structuredError =
+                        result.structured !== undefined
+                          ? typeof result.structured === "string"
+                            ? result.structured
+                            : JSON.stringify(result.structured)
+                          : undefined
                       return yield* new ToolFailure({
-                        message:
-                          result.content
-                            .flatMap((part) => (part.type === "text" ? [part.text] : []))
-                            .join("\n")
-                            .trim() || "MCP tool returned an error",
+                        message: text || structuredError || `MCP tool "${tool.name}" on server "${tool.server}" returned an error`,
                       })
+                    }
                     const content = result.content.map((part) =>
                       part.type === "text"
                         ? { type: "text" as const, text: part.text }
@@ -121,7 +128,7 @@ export const layer = Layer.effect(
                     Effect.mapError((error) =>
                       error instanceof ToolFailure
                         ? error
-                        : new ToolFailure({ message: `Unable to execute ${name(tool.server, tool.name)}` }),
+                        : new ToolFailure({ message: `Unable to execute ${name(tool.server, tool.name)}`, error }),
                     ),
                   ),
               })

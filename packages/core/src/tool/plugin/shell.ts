@@ -125,7 +125,7 @@ const backgroundResult = (shellID: string, file: string, shell: string) => ({
 })
 
 export const Plugin = {
-  id: "opencode.tool.shell",
+  id: "orchestra.tool.shell",
   effect: Effect.fn("ShellTool.Plugin")(function* (ctx: Context) {
     const sessions = yield* Session.Service
     const jobs = yield* Job.Service
@@ -250,6 +250,7 @@ export const Plugin = {
                 (invocation) =>
                   Effect.gen(function* () {
                     invocation.env.AGENT = "1"
+                    invocation.env.ORCHESTRA = "1"
                     invocation.env.OPENCODE = "1"
                     invocation.env.AI_AGENT ||= "opencode"
                     invocation.env.ORCHESTRA_SESSION_ID = context.sessionID
@@ -314,9 +315,11 @@ export const Plugin = {
               return yield* Deferred.await(settled)
             }).pipe(
               Effect.map(toolResult),
-              Effect.mapError(
-                (error) => new ToolFailure({ message: `Unable to execute command: ${input.command}`, error }),
-              ),
+              Effect.mapError((error) => {
+                if (error instanceof ToolFailure) return error
+                const cause = error instanceof Error ? `: ${error.message}` : error ? `: ${String(error)}` : ""
+                return new ToolFailure({ message: `Unable to execute command: ${input.command}${cause}`, error })
+              }),
             ),
         }),
       )

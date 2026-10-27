@@ -5,9 +5,19 @@ import { Session } from "@orchestra/schema/session"
 import { Schema } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { ForbiddenError, InvalidRequestError, PtyNotFoundError, ServiceUnavailableError } from "../errors.js"
-import { PTY_CONNECT_TICKET_QUERY, PTY_CONNECT_TOKEN_HEADER, PTY_CONNECT_TOKEN_HEADER_VALUE } from "./pty.js"
+import {
+  LEGACY_PTY_CONNECT_TOKEN_HEADER,
+  PTY_CONNECT_TICKET_QUERY,
+  PTY_CONNECT_TOKEN_HEADER,
+  PTY_CONNECT_TOKEN_HEADER_VALUE,
+} from "./pty.js"
 
-export { PTY_CONNECT_TICKET_QUERY, PTY_CONNECT_TOKEN_HEADER, PTY_CONNECT_TOKEN_HEADER_VALUE }
+export {
+  LEGACY_PTY_CONNECT_TOKEN_HEADER,
+  PTY_CONNECT_TICKET_QUERY,
+  PTY_CONNECT_TOKEN_HEADER,
+  PTY_CONNECT_TOKEN_HEADER_VALUE,
+}
 
 const CONNECT_PATH = /^\/api\/experimental\/persistent-pty\/[^/]+\/connect$/
 
@@ -94,7 +104,10 @@ export const PersistentPtyGroup = HttpApiGroup.make("server.experimental")
   .add(
     HttpApiEndpoint.post("persistentPty.connectToken", "/api/experimental/persistent-pty/:ptyID/connect-token", {
       params: { ptyID: Pty.ID },
-      headers: Schema.Struct({ [PTY_CONNECT_TOKEN_HEADER]: Schema.optional(Schema.String) }),
+      headers: Schema.Struct({
+        [PTY_CONNECT_TOKEN_HEADER]: Schema.optional(Schema.String),
+        [LEGACY_PTY_CONNECT_TOKEN_HEADER]: Schema.optional(Schema.String),
+      }),
       success: Schema.Struct({ data: PtyTicket.ConnectToken }),
       error: [ForbiddenError, PtyNotFoundError, ServiceUnavailableError],
     }),

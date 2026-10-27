@@ -4,7 +4,7 @@ import { Bus } from "@orchestra/core/bus"
 import { Credential } from "@orchestra/schema/credential"
 import { Event } from "@orchestra/schema/event"
 import { IntegrationID } from "@orchestra/schema/integration-id"
-import { Deferred, Effect, Exit, Fiber, Option, Schema, Stream } from "effect"
+import { Deferred, Duration, Effect, Exit, Fiber, Option, Schema, Stream } from "effect"
 import { it } from "../../core/test/lib/effect"
 import { EventFeed } from "../src/event-feed"
 
@@ -171,6 +171,75 @@ describe("EventFeed", () => {
       if (Exit.isSuccess(exit)) return
       expect(Option.getOrUndefined(Exit.findErrorOption(exit))).toBeInstanceOf(EventFeed.EncodingError)
       expect(Array.from(yield* Fiber.join(received))).toEqual(["evt_good"])
+    }),
+  )
+
+  test("formats frame with optional event id", () => {
+    const payload = event("wire")
+    expect(EventFeed.frame(payload, { id: true })).toBe(`id: ${payload.id}\ndata: ${JSON.stringify(payload)}\n\n`)
+  })
+
+  it.live("emits periodic heartbeat frames to keep connection alive", () =>
+    Effect.gen(function* () {
+      const source = makeSource()
+      const feed = yield* EventFeed.make(source.observe, {
+        heartbeatInterval: Duration.millis(15),
+        encode: (e) => e.id,
+      })
+      const stream = yield* feed.subscribe
+      const frames = yield* stream.pipe(Stream.take(2), Stream.runCollect)
+      expect(Array.from(frames)).toEqual([EventFeed.HeartbeatFrame, EventFeed.HeartbeatFrame])
+    }),
+  )
+
+  it.effect("replays missed events upon reconnection using Last-Event-ID", () =>
+    Effect.gen(function* () {
+      const source = makeSource()
+      const feed = yield* EventFeed.make(source.observe, {
+        replayCapacity: 10,
+        encode: (e) => e.id,
+      })
+
+      // Client 1 connected and receives event one
+      const stream1 = yield* feed.stream()
+      const client1Received = yield* stream1.pipe(Stream.take(1), Stream.runCollect, Effect.forkScoped)
+      yield* source.publish(event("one"))
+      expect(Array.from(yield* Fiber.join(client1Received))).toEqual(["evt_one"])
+
+      // Disconnection: events two and three are published while client 1 is disconnected
+      yield* source.publish(event("two"))
+      yield* source.publish(event("three"))
+
+      // Client 1 reconnects with Last-Event-ID "evt_one", receiving missed events and new event four
+      const stream2 = yield* feed.stream({ lastEventID: "evt_one" })
+      const client2Received = yield* stream2.pipe(Stream.take(3), Stream.runCollect, Effect.forkScoped)
+
+      yield* source.publish(event("four"))
+      expect(Array.from(yield* Fiber.join(client2Received))).toEqual(["evt_two", "evt_three", "evt_four"])
+    }),
+  )
+
+  it.effect("handles evicted events in ring buffer gracefully", () =>
+    Effect.gen(function* () {
+      const source = makeSource()
+      const feed = yield* EventFeed.make(source.observe, {
+        replayCapacity: 2,
+        encode: (e) => e.id,
+      })
+
+      yield* source.publish(event("one"))
+      yield* source.publish(event("two"))
+      yield* source.publish(event("three"))
+
+      // "evt_one" was evicted because capacity is 2 (retaining evt_two, evt_three)
+      expect(feed.replaySince("evt_one")).toBeUndefined()
+      expect(feed.replaySince("evt_two")).toEqual(["evt_three"])
+
+      // Reconnecting with evicted ID starts fresh with live events
+      const stream = yield* feed.stream({ lastEventID: "evt_one" })
+      const received = yield* stream.pipe(Stream.take(1), Stream.runCollect, Effect.forkScoped)
+      yield* source.publish(event("four"))
+      expect(Array.from(yield* Fiber.join(received))).toEqual(["evt_four"])
     }),
   )
 })

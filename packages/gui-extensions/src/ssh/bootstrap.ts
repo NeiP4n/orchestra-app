@@ -8,7 +8,7 @@ import { RemoteCli } from "./remote-cli"
 const registrationScript = `status=$("$cli" service status) || exit 0
 if [ "$status" = stopped ]; then exit 0; fi
 printf 'ORCHESTRA_SSH_STATUS=%s\\n' "$status"
-for file in "\${XDG_STATE_HOME:-$HOME/.local/state}"/opencode/service*.json; do
+for file in "\${XDG_STATE_HOME:-$HOME/.local/state}"/orchestra/service*.json "\${XDG_STATE_HOME:-$HOME/.local/state}"/opencode/service*.json; do
   if [ ! -f "$file" ]; then continue; fi
   printf 'ORCHESTRA_SSH_REGISTRATION_BEGIN\\n'
   cat "$file"
@@ -17,13 +17,13 @@ done
 `
 
 export const discoverScript = `set -eu
-${RemoteCli.discoverScript({ fromPath: true, cache: { directory: ".opencode/desktop-ssh", prefix: "0.0.0-beta-" } })}
+${RemoteCli.discoverScript({ fromPath: true, cache: { directory: ".orchestra/desktop-ssh", prefix: "0.0.0-beta-" } })}
 if [ -z "$cli" ]; then exit 0; fi
 ${registrationScript}`
 
-export function startScript(version: string, replace = false) {
+export function startScript(version: string, replace = false, binary = binaryPath(version)) {
   return `set -eu
-cli="${binaryPath(version)}"
+cli="${binary}"
 "$cli" service ${replace ? "restart" : "start"}
 ${registrationScript}`
 }
@@ -57,6 +57,10 @@ export function parseRegistration(output: string) {
 }
 
 export function binaryPath(version: string) {
+  return `$HOME/.orchestra/desktop-ssh/${RemoteCli.requireVersion(version)}/orchestra`
+}
+
+function legacyBinaryPath(version: string) {
   return `$HOME/.opencode/desktop-ssh/${RemoteCli.requireVersion(version)}/opencode`
 }
 
@@ -102,15 +106,19 @@ export const bootstrap = Effect.fn("Ssh.bootstrap")(function* (input: {
 
   if (registered && !input.replace) return yield* Effect.fail(new SshFailure("version", registered.version))
   const destination = yield* Effect.try({ try: () => binaryPath(input.version), catch: SshFailure.from })
-  const existing = yield* run(RemoteCli.versionScript(`"${destination}"`))
-  const staged = RemoteCli.parseVersion(existing) === input.version
+  const canonicalVersion = yield* run(RemoteCli.versionScript(`"${destination}"`))
+  const stagedCanonical = RemoteCli.parseVersion(canonicalVersion) === input.version
+  const legacyPath = legacyBinaryPath(input.version)
+  const stagedLegacy = !stagedCanonical &&
+    RemoteCli.parseVersion(yield* run(RemoteCli.versionScript(`"${legacyPath}"`))) === input.version
+  const staged = stagedCanonical || stagedLegacy
 
   // Source worktree versions are unpublished. Use the installer's beta channel
   // while retaining support for explicitly staged, matching development builds.
   const version =
     input.development && !staged ? yield* RemoteCli.latestBeta().pipe(Effect.mapError(SshFailure.from)) : input.version
 
-  const setup = { version, directory: `.opencode/desktop-ssh/${version}` }
+  const setup = { version, directory: `.orchestra/desktop-ssh/${version}` }
 
   if (!staged) {
     const output = yield* run(RemoteCli.probeScript).pipe(Effect.mapError(() => new SshFailure("platform")))
@@ -154,7 +162,9 @@ export const bootstrap = Effect.fn("Ssh.bootstrap")(function* (input: {
   }
 
   yield* input.stage("starting")
-  const registration = parseRegistration(yield* run(startScript(version, input.replace)))
+  const registration = parseRegistration(
+    yield* run(startScript(version, input.replace, stagedLegacy ? legacyBinaryPath(version) : binaryPath(version))),
+  )
 
   if (!registration) return yield* Effect.fail(new SshFailure("service"))
 

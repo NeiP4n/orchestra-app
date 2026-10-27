@@ -80,7 +80,7 @@ const MAX_NEW_ROLES_PER_TEAM = 2
 const MAX_CUSTOM_ROLES = 12
 
 export const Plugin = {
-  id: "opencode.tool.team-forge",
+  id: "orchestra.tool.team-forge",
   effect: Effect.fn("TeamForgeTool.Plugin")(function* (ctx: Context) {
     const orchestra = yield* Orchestra.Service
     const bus = yield* Bus.Service

@@ -52,12 +52,12 @@ import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { DialogSessionRename } from "./dialog-session-rename"
 import { Keymap } from "../context/keymap"
-import { registerOpencodeSpinner } from "./register-spinner"
+import { registerOrchestraSpinner } from "./register-spinner"
 import { SPINNER_FRAMES } from "./spinner-frames"
 import { SessionTabsRailControls, SessionTabHalfRow } from "./session-tabs-rail"
 import "./title-shimmer"
 
-registerOpencodeSpinner()
+registerOrchestraSpinner()
 
 // Project tags for session tabs (oc-hub projects registry). Read-only, cached by mtime.
 // Patch: local customization, see skill learned-opencode-core-hot-reload-cause.

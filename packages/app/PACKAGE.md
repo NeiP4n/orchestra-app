@@ -2,7 +2,7 @@
 
 ## What This Is
 
-The largest package: 515 files, ~121k lines in `src/`. The opencode web
+The largest package: 515 files, ~121k lines in `src/`. The orchestra web
 application: home screen, session creation, workspaces, settings, composer,
 server panels and the shell.
 

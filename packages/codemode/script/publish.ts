@@ -52,7 +52,7 @@ try {
   await Bun.write("package.json", JSON.stringify(pkg, null, 2) + "\n")
   await rm(tarball, { force: true })
   await $`bun pm pack`
-  const consumer = await mkdtemp(join(tmpdir(), "opencode-codemode-"))
+  const consumer = await mkdtemp(join(tmpdir(), "orchestra-codemode-"))
   try {
     await Bun.write(
       join(consumer, "package.json"),

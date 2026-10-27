@@ -51,7 +51,7 @@ const refreshing = new Map<string, { attempt: Deferred.Deferred<Credential.OAuth
 const refreshRetention = 60_000
 
 export const GitLabPlugin = define({
-  id: "opencode.provider.gitlab",
+  id: "orchestra.provider.gitlab",
   effect: Effect.fn(function* (ctx) {
     const providers = yield* Provider.Service
     const bus = yield* Bus.Service

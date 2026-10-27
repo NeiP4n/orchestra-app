@@ -2,7 +2,7 @@
 
 ## What This Is
 
-The opencode API contract: 36 files, ~4.2k lines in `src/`. The package
+The Orchestra API contract: 36 files, ~4.2k lines in `src/`. The package
 describes all server endpoints (methods, parameters, response and error
 types) on Effect `HttpApi`. There is neither handler implementation nor core
 logic here — only the declaration of what the server must be able to do.

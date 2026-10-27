@@ -101,7 +101,7 @@ export function DevToolsBar() {
   const close = () => {
     setPanel()
     setTimeout(() => {
-      if (panel() || !focus || focus.isDestroyed) return
+      if (panel() || dialog.stack.length > 0 || !focus || focus.isDestroyed) return
       focus.focus()
       focus = null
     }, 1)
@@ -196,7 +196,7 @@ export function DevToolsBar() {
     })
   })
 
-  // Everything a bug report or a shell next to opencode usually asks for, one click away.
+  // Everything a bug report or a shell next to Orchestra usually asks for, one click away.
   const copies = createMemo(() =>
     [
       { label: "Session ID", value: route.data.type === "session" ? route.data.sessionID : undefined },
@@ -262,7 +262,7 @@ export function DevToolsBar() {
           return events.slice(-100)
         })().catch(() => client.connection.internal.history())
       : Promise.resolve([]))
-    const file = path.join(tmpdir(), `opencode-debug-${crypto.randomUUID()}.json`)
+    const file = path.join(tmpdir(), `orchestra-debug-${crypto.randomUUID()}.json`)
     const output =
       JSON.stringify(
         {

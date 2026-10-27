@@ -1,4 +1,5 @@
 export * as OpenCode from "./client.js"
+export * as Orchestra from "./client.js"
 
 import { Cause, Context, Effect, Stream } from "effect"
 import { HttpClient, HttpClientRequest } from "effect/unstable/http"

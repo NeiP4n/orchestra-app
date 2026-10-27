@@ -1,5 +1,5 @@
 import { Service, type Endpoint } from "@orchestra/client/effect/service"
-import { ClientError, OpenCode, type OpenCodeClient } from "@orchestra/client/promise"
+import { ClientError, OpenCode, type OrchestraClient } from "@orchestra/client/promise"
 import type { MiniFrontendInput } from "@orchestra/tui/mini"
 import { setTimeout } from "node:timers/promises"
 import { readStdin } from "./util/io"
@@ -43,7 +43,7 @@ export async function runMini(input: MiniCommandInput) {
       const requested = parseModel(input.model)
       const model = requested ? { providerID: requested.providerID, modelID: requested.id } : undefined
       const prepare = prepareTarget(input.agent)
-      const resolveTarget = async (initial: OpenCodeClient, signal: AbortSignal) => {
+      const resolveTarget = async (initial: OrchestraClient, signal: AbortSignal) => {
         const resolved = await resolveMiniTarget({
           sdk: initial,
           reconnect: connection.reconnect,
@@ -79,7 +79,7 @@ export async function runMini(input: MiniCommandInput) {
         }
       }
       const create = (
-        client: OpenCodeClient,
+        client: OrchestraClient,
         next: {
           location: { directory: string }
           agent: string | undefined
@@ -155,10 +155,10 @@ export function createMiniConnection(input: MiniCommandInput["server"]) {
 
 /** @internal Exported for reconnect lifecycle tests. */
 export async function resolveMiniTarget<A>(input: {
-  sdk: OpenCodeClient
-  reconnect?: (signal: AbortSignal) => Promise<OpenCodeClient>
+  sdk: OrchestraClient
+  reconnect?: (signal: AbortSignal) => Promise<OrchestraClient>
   signal: AbortSignal
-  resolve: (sdk: OpenCodeClient) => Promise<A>
+  resolve: (sdk: OrchestraClient) => Promise<A>
 }) {
   let sdk = input.sdk
   while (true) {

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- The phone is a client: it talks to an opencode server over the network and nothing else. -->
+    <!-- The phone is a client: it talks to an orchestra server over the network and nothing else. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Only for the pair QR code. It is requested at the moment the web app asks for the camera. -->
     <uses-permission android:name="android.permission.CAMERA" />
@@ -23,7 +23,7 @@
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
-        android:label="OpenCode++"
+        android:label="Orchestra"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.DeviceDefault.DayNight"

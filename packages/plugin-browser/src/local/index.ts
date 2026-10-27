@@ -1,7 +1,7 @@
 export * as LocalBrowser from "./index.js"
 
 import { spawn } from "node:child_process"
-import { accessSync, constants } from "node:fs"
+import { accessSync, constants, existsSync } from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
 import type { Session } from "@orchestra/schema/session"
@@ -26,12 +26,15 @@ export type Options = {
 }
 
 export function options(env: Record<string, string | undefined> = process.env): Options {
+  const baseData = env.XDG_DATA_HOME || path.join(homedir(), ".local", "share")
+  const orchestraProfile = path.join(baseData, "orchestra", "browser-profile")
+  const legacyProfile = path.join(baseData, "opencode", "browser-profile")
   return {
     endpoint: env.ORCHESTRA_BROWSER_CDP_URL || DEFAULT_ENDPOINT,
     launcher: env.ORCHESTRA_BROWSER_LAUNCHER || undefined,
     profile:
       env.ORCHESTRA_BROWSER_PROFILE ||
-      path.join(env.XDG_DATA_HOME || path.join(homedir(), ".local", "share"), "opencode", "browser-profile"),
+      (existsSync(legacyProfile) && !existsSync(orchestraProfile) ? legacyProfile : orchestraProfile),
   }
 }
 

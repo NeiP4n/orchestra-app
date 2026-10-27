@@ -1502,6 +1502,10 @@ it.live("discovers and reads MCP resources through Code Mode", () =>
       })
       expect(server.state.resourceReads).toEqual([])
 
+      const orchestraListed = yield* run('return await tools.orchestra.list_mcp_resources({ server: "resources" })')
+      expect(JSON.parse(orchestraListed.output.output)).toEqual(JSON.parse(listed.output.output))
+      expect(server.state.resourceReads).toEqual([])
+
       // Omitting the server lists every server, so the model can find which one owns a URI.
       assertion = yield* Deferred.make<Permission.AssertInput>()
       const everywhere = yield* run("return await tools.opencode.list_mcp_resources({})")
@@ -1558,6 +1562,24 @@ it.live("discovers and reads MCP resources through Code Mode", () =>
         agent: toolIdentity.agent,
         source: { type: "tool", messageID: toolIdentity.messageID, id: "call_resource" },
       })
+
+      assertion = yield* Deferred.make<Permission.AssertInput>()
+      const orchestraRead = yield* run(
+        'const resource = await tools.orchestra.read_mcp_resource({ server: "resources", uri: "docs://readme" }); return resource.contents.filter(part => part.type === "text").map(part => part.text).join("\\n")',
+      )
+      expect(orchestraRead.content).toEqual([
+        { type: "text", text: "hello" },
+        { type: "file", uri: "data:image/png;base64,aGVsbG8=", mime: "image/png" },
+      ])
+      expect(orchestraRead.metadata?.toolCalls).toMatchObject([
+        {
+          tool: "orchestra.read_mcp_resource",
+          status: "completed",
+          input: { server: "resources", uri: "docs://readme" },
+        },
+      ])
+      expect(yield* Deferred.await(assertion)).toMatchObject({ action: "opencode_read_mcp_resource" })
+      expect(server.state.resourceReads).toEqual(["docs://readme", "docs://readme"])
 
       server.state.contents = [{ uri: "docs://readme", text: "line\n".repeat(20_000), mimeType: "text/plain" }]
       const large = yield* run(

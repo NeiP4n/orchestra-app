@@ -74,7 +74,7 @@ const device = (app: App.Info) =>
   }) satisfies IntegrationOAuthMethodRegistration
 
 export const XAIPlugin = define({
-  id: "opencode.provider.xai",
+  id: "orchestra.provider.xai",
   effect: Effect.fn(function* (ctx) {
     const credentials = yield* Credential.Service
     yield* Effect.forEach(

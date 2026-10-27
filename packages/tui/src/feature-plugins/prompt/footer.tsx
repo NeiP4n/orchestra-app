@@ -5,6 +5,7 @@ import { useTerminalDimensions } from "@opentui/solid"
 import { stringWidth } from "../../util/string-width"
 import { translate, useT } from "../../util/i18n"
 import { hoverBackground } from "../../ui/hover"
+import { AgiStatusIndicator } from "../../component/dialog-agi-control"
 
 const money = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -261,11 +262,14 @@ export function PromptFooter(props: {
             </text>
           </Match>
         </Switch>
-        <Show when={props.showDetails && layout().shortcuts}>
-          <text fg={props.context.theme.text.base} wrapMode="none" flexShrink={0}>
-            {shortcut("command.palette.show")} <span style={{ fg: props.context.theme.text.muted }}>{t("commands")}</span>
-          </text>
-        </Show>
+        <box flexDirection="row" gap={2} flexShrink={0}>
+          <AgiStatusIndicator context={props.context} />
+          <Show when={props.showDetails && layout().shortcuts}>
+            <text fg={props.context.theme.text.base} wrapMode="none" flexShrink={0}>
+              {shortcut("command.palette.show")} <span style={{ fg: props.context.theme.text.muted }}>{t("commands")}</span>
+            </text>
+          </Show>
+        </box>
         <Show when={freebuffStrip()}>
           {/* width 100% makes the strip land on its own wrapped line in the footer row. */}
           <box id="prompt.footer.freebuff" width="100%" flexDirection="row" flexShrink={1} minWidth={0}>

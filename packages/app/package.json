@@ -1,7 +1,11 @@
 {
   "name": "@orchestra/app",
   "version": "2.0.24",
-  "description": "",
+  "description": "Orchestra web and desktop shell UI",
+  "homepage": "https://github.com/NeiP4n/orchestra-app",
+  "author": {
+    "name": "Orchestra"
+  },
   "type": "module",
   "exports": {
     ".": "./src/index.ts",

@@ -52,7 +52,7 @@ through the editors (`transform`) of the services and the hooks (`hook`).
   after the selection of the available editing tools.
 - `post` — the config plugins (`config/plugin/*.ts`), they see the result
   of the built-ins.
-- `guarded` contains `opencode.provider.opencode` and the policy plugin: `remove`
+- `guarded` contains `orchestra.provider.opencode` and the policy plugin: `remove`
   operations skip them, otherwise a repository config could switch off
   the policy enforcement or the connection to Console.
 - `InstancePlugins` are added last in `pre`: a later activation

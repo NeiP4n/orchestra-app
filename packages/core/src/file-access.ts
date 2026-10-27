@@ -75,7 +75,17 @@ export class Service extends Context.Service<Service, Interface>()("@orchestra/F
 
 /** Expand a leading ~ and normalize Windows shell paths before lexical resolution. */
 export const resolvePath = (directory: string, input: string, home = Global.Path.home) => {
-  const normalized = FSUtil.windowsPath(input)
+  if (input.includes("\0")) {
+    throw new Error(`File access traversal detected: null-byte in '${input}'`)
+  }
+  let trimmed = input.trim()
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2)
+  ) {
+    trimmed = trimmed.slice(1, -1).trim()
+  }
+  const normalized = FSUtil.windowsPath(trimmed)
   return path.resolve(
     directory,
     normalized === "~"

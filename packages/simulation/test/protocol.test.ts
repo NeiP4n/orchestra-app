@@ -119,7 +119,7 @@ test("decodes semantic UI snapshots", () => {
   const decode = Schema.decodeUnknownSync(Frontend.SemanticSnapshot)
   expect(
     decode({
-      format: "opencode-ui-snapshot-v1",
+      format: "orchestra-ui-snapshot-v1",
       nodes: [
         {
           id: "session.permission",
@@ -133,7 +133,7 @@ test("decodes semantic UI snapshots", () => {
   ).toMatchObject({ nodes: [{ role: "dialog", expanded: false }] })
   expect(() =>
     decode({
-      format: "opencode-ui-snapshot-v1",
+      format: "orchestra-ui-snapshot-v1",
       nodes: [{ id: "", role: "dialog", element: 0 }],
     }),
   ).toThrow()
@@ -152,7 +152,7 @@ test("decodes semantic UI snapshots", () => {
       { id: "second", parent: "first", role: "option", element: 2 },
     ],
   ])
-    expect(() => decode({ format: "opencode-ui-snapshot-v1", nodes })).toThrow()
+    expect(() => decode({ format: "orchestra-ui-snapshot-v1", nodes })).toThrow()
 })
 
 test("decodes the simulated tool lifecycle", () => {

@@ -9,8 +9,8 @@ import { UpdateArtifact } from "../../../script/update-artifact"
 if (Script.channel !== "beta" && Script.channel !== "latest") {
   throw new Error("AUR publishing requires the beta or latest channel")
 }
-const name = "opencode-beta"
-const command = "opencode"
+const name = Script.channel === "beta" ? "orchestra-beta" : "orchestra"
+const command = "orchestra"
 const valid =
   Script.channel === "beta"
     ? /^\d+\.\d+\.\d+-beta[.-]\d+(?:\.\d+)?$/.test(Script.version)
@@ -24,7 +24,7 @@ const dryRun = process.argv.includes("--dry-run")
 const pkgver = Script.version.replaceAll("-", ".")
 const license = Bun.file(path.join(dir, "..", "..", "LICENSE"))
 const shim = `#!/bin/sh
-exec "$(dirname "$0")/opencode" "$@"
+exec "$(dirname "$0")/orchestra" "$@"
 `
 
 await rm(outdir, { recursive: true, force: true })
@@ -52,7 +52,7 @@ const sources = await Promise.all(
 )
 
 await Bun.write(path.join(outdir, "LICENSE"), license)
-await Bun.write(path.join(outdir, "opencode2"), shim)
+await Bun.write(path.join(outdir, "orchestra2"), shim)
 await Bun.write(
   path.join(outdir, "PKGBUILD"),
   [
@@ -60,22 +60,22 @@ await Bun.write(
     `pkgname=${name}`,
     `pkgver=${pkgver}`,
     "pkgrel=1",
-    "pkgdesc='OpenCode beta - the AI coding agent for the terminal'",
-    "url='https://github.com/anomalyco/opencode'",
+    "pkgdesc='Orchestra beta - the AI coding agent for the terminal'",
+    "url='https://github.com/NeiP4n/orchestra-app'",
     "arch=('x86_64' 'aarch64')",
     "license=('MIT')",
     "depends=('glibc' 'gcc-libs' 'ripgrep')",
-    `provides=('${command}' 'opencode2')`,
-    `conflicts=('${command}' 'opencode2')`,
+    `provides=('${command}' 'orchestra2')`,
+    `conflicts=('${command}' 'orchestra2')`,
     // Stripping a compiled Bun executable can damage its embedded application.
     "options=('!strip' '!debug')",
-    "source=('LICENSE' 'opencode2')",
+    "source=('LICENSE' 'orchestra2')",
     `sha256sums=('${new Bun.CryptoHasher("sha256").update(await license.arrayBuffer()).digest("hex")}' '${new Bun.CryptoHasher("sha256").update(shim).digest("hex")}')`,
     ...sources,
     "",
     "package() {",
-    `  install -Dm755 "$srcdir/package/bin/opencode" "$pkgdir/usr/bin/${command}"`,
-    '  install -Dm755 "$srcdir/opencode2" "$pkgdir/usr/bin/opencode2"',
+    `  install -Dm755 "$srcdir/package/bin/orchestra" "$pkgdir/usr/bin/${command}"`,
+    '  install -Dm755 "$srcdir/orchestra2" "$pkgdir/usr/bin/orchestra2"',
     '  install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"',
     "}",
     "",

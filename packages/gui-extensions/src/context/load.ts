@@ -1,4 +1,4 @@
-import type { OpenCodeClient } from "@orchestra/client/promise"
+import type { OrchestraClient } from "@orchestra/client/promise"
 import { groupOf, projectOf, total, type Entry, type ProjectRef } from "./scope"
 
 /** What the project or group scope shows: the rows to list, or why there are none. */
@@ -7,7 +7,7 @@ export type Loaded =
   | { state: "no-group"; project: string }
   | { state: "ready"; title: string; entries: Entry[] }
 
-type Client = Pick<OpenCodeClient, "orchestra" | "session">
+type Client = Pick<OrchestraClient, "orchestra" | "session">
 
 /**
  * Loads the sessions of the routed session's project, or the projects of its group.

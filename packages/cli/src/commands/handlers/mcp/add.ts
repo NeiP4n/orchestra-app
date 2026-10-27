@@ -40,6 +40,10 @@ export default Runtime.handler(
 
 export async function resolveConfigPath(directory: string) {
   const candidates = [
+    path.join(directory, "orchestra.json"),
+    path.join(directory, "orchestra.jsonc"),
+    path.join(directory, ".orchestra", "orchestra.json"),
+    path.join(directory, ".orchestra", "orchestra.jsonc"),
     path.join(directory, "opencode.json"),
     path.join(directory, "opencode.jsonc"),
     path.join(directory, ".opencode", "opencode.json"),
@@ -68,7 +72,7 @@ export async function writeConfig(configPath: string, name: string, server: unkn
   const document: unknown = parse(text, errors, { allowTrailingComma: true })
   if (errors.length || typeof document !== "object" || document === null || Array.isArray(document)) {
     const details = errors.length ? ` (${errors.map((error) => printParseErrorCode(error.error)).join(", ")})` : ""
-    throw new Error(`Invalid OpenCode configuration: ${configPath}${details}`)
+    throw new Error(`Invalid Orchestra configuration: ${configPath}${details}`)
   }
   const mcp = "mcp" in document ? document.mcp : undefined
   if (mcp !== undefined && (typeof mcp !== "object" || mcp === null || Array.isArray(mcp))) {

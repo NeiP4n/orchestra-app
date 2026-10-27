@@ -33,11 +33,13 @@ import { MigrationHandler } from "./handlers/migration"
 import { ConfigHandler } from "./handlers/config"
 import { RoomHandler } from "./handlers/room"
 import { OrchestraHandler } from "./handlers/orchestra"
+import { QuotaHandler } from "./handlers/quota"
 
 export const handlers = Layer.mergeAll(
   ServerHandler,
   RoomHandler,
   OrchestraHandler,
+  QuotaHandler,
   DebugHandler,
   MigrationHandler,
   LocationHandler,

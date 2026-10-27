@@ -108,7 +108,11 @@ export const make = Effect.fnUntraced(function* (options: Options) {
         ? Promise.reject(new Error("Not connected"))
         : Effect.runPromise(
             Queue.offer(outgoing, serializeMessage(message)).pipe(
-              Effect.flatMap((offered) => (offered ? Effect.void : Effect.fail(new Error("Not connected")))),
+              Effect.flatMap((offered) =>
+                offered
+                  ? Effect.void
+                  : Effect.fail(new Error(state.phase === "open" ? "MCP stdio outgoing queue full" : "Not connected")),
+              ),
             ),
           ),
     close,

@@ -186,6 +186,8 @@ describe("shared team prompt", () => {
       "Do not commit, push, publish, deploy or delete user data",
       "Keep effort proportional",
       "Separate what you verified from what you assume",
+      "Real integration required",
+      "Zero-tolerance for false completion",
       "A check counts as passed only if you ran it and saw it pass",
       "never resend an identical failed call",
     ])
@@ -290,6 +292,17 @@ describe("worker report outcome", () => {
     expect(outcomeOf("Не выполнено: нет доступа")).toBe("incomplete")
     expect(outcomeOf("Частично готово")).toBe("partial")
     expect(outcomeOf("I looked at the code.\n\nSTATUS: DONE")).toBe("complete")
+    expect(outcomeOf("OUTCOME: complete")).toBe("complete")
+    expect(outcomeOf("OUTCOME: partial")).toBe("partial")
+    expect(outcomeOf("OUTCOME: incomplete")).toBe("incomplete")
+    expect(outcomeOf("OUTCOME: failed")).toBe("failed")
+    expect(outcomeOf("FAILED\nTests did not pass")).toBe("failed")
+    expect(outcomeOf("COMPLETE")).toBe("complete")
+    expect(outcomeOf("ИТОГ: выполнено")).toBe("complete")
+    expect(outcomeOf("ИТОГ: завершено")).toBe("complete")
+    expect(outcomeOf("СТАТУС: частично")).toBe("partial")
+    expect(outcomeOf("ИТОГ: провалено")).toBe("failed")
+    expect(outcomeOf("СТАТУС: ошибка")).toBe("failed")
   })
 
   test("counts only checks that were actually run", () => {
@@ -307,6 +320,16 @@ describe("worker report outcome", () => {
     expect(checksOf("DONE\nCHECKS: NOT RUN, no test runner")).toEqual({ executed: 0, failed: 0, notRun: 1 })
     expect(checksOf("DONE\n**CHECKS**\n- npm test: FAIL (2 failed)")).toMatchObject({ executed: 1, failed: 1 })
     expect(checksOf("DONE, everything works")).toEqual({ executed: 0, failed: 0, notRun: 0 })
+    expect(checksOf("DONE\nCHECKS:\n- bun test: НЕ ПРОШЕЛ\n- bun typecheck: ПРОЙДЕН")).toEqual({
+      executed: 2,
+      failed: 1,
+      notRun: 0,
+    })
+    expect(checksOf("DONE\nCHECKS:\n- lint: ПРОПУЩЕНО\n- test: УСПЕШНО")).toEqual({
+      executed: 1,
+      failed: 0,
+      notRun: 1,
+    })
   })
 
   test("does not guess a status the report never states", () => {

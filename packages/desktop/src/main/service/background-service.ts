@@ -13,7 +13,7 @@ export interface Interface {
   readonly reconnect: Effect.Effect<SidecarCredentials.Data>
 }
 
-export class Service extends Context.Service<Service, Interface>()("opencode/desktop/BackgroundService") {}
+export class Service extends Context.Service<Service, Interface>()("orchestra/desktop/BackgroundService") {}
 
 export const layer = Layer.effect(
   Service,
@@ -45,7 +45,7 @@ const connect = Effect.fn("BackgroundService.connect")(function* (mode: "initial
     client.Service.ensure({
       file:
         isolated && process.env.ORCHESTRA_DESKTOP_SERVER_CHANNEL === "local"
-          ? path.join(app.getPath("userData"), "opencode", "service-local.json")
+          ? path.join(app.getPath("userData"), "orchestra", "service-local.json")
           : undefined,
       version,
       // A fixed port makes a second contender fail to bind and back off; port 0 never collides, so two

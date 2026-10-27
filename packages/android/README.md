@@ -1,8 +1,8 @@
 # Android app
 
-The Android build of OpenCode++. It is a native WebView wrapper around the web client that already lives in
+The Android build of Orchestra. It is a native WebView wrapper around the web client that already lives in
 `packages/app`: the production bundle is embedded in the APK and shown under an https origin, and the phone is a
-client for an `opencode` server the user connects to by hand.
+client for an `orchestra` server the user connects to by hand.
 
 Nothing about the UI is written here. With `VITE_ORCHESTRA_SERVER_MODE=none` the bundle opens on its own full-screen
 connection form, where the user enters an address and password, pastes a pair link, or scans the QR code.
@@ -24,7 +24,7 @@ interceptor is installed for the service worker (`ServiceWorkerClient`), because
 `/sw.js` and the worker fetches its precache itself.
 
 `usesCleartextTraffic` and `MIXED_CONTENT_ALWAYS_ALLOW` are deliberate: a user connects to their own
-`opencode serve --hostname 0.0.0.0` over plain http on the LAN, while the page itself is an https document.
+`orchestra serve --hostname 0.0.0.0` over plain http on the LAN, while the page itself is an https document.
 
 ## Build
 

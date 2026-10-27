@@ -16,6 +16,7 @@
     "dist"
   ],
   "exports": {
+    ".": "./src/index.ts",
     "./simulation": "./src/simulation.ts",
     "./*": "./src/*.ts"
   },

@@ -43,4 +43,24 @@ describe("settings store", () => {
     store.set("firstLaunchOnboardingComplete", true)
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ firstLaunchOnboardingComplete: true })
   })
+
+  test("falls back to legacy settings store when modern store does not exist", () => {
+    const d = dir()
+    const legacyFile = path.join(d, "opencode.settings")
+    const modernFile = path.join(d, "orchestra.settings")
+    writeFileSync(legacyFile, JSON.stringify({ windowIds: ["win-legacy"], backgroundColor: "#000000" }, null, "\t"))
+
+    const store = createSettingsStore(modernFile, legacyFile)
+    expect(store.get("windowIds")).toEqual(["win-legacy"])
+    expect(store.get("backgroundColor")).toBe("#000000")
+
+    // Writing persists to modernFile, leaving legacy intact
+    store.set("backgroundColor", "#111111")
+    expect(existsSync(modernFile)).toBe(true)
+    expect(JSON.parse(readFileSync(modernFile, "utf8"))).toEqual({
+      windowIds: ["win-legacy"],
+      backgroundColor: "#111111",
+    })
+    expect(JSON.parse(readFileSync(legacyFile, "utf8")).backgroundColor).toBe("#000000")
+  })
 })

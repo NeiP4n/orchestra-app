@@ -624,6 +624,15 @@ const Root = Spec.make(typeof ORCHESTRA_CLI_NAME === "string" ? ORCHESTRA_CLI_NA
         stdio: Flag.boolean("stdio").pipe(Flag.withDefault(false)),
       },
     }),
+    Spec.make("doctor", {
+      description: "Perform system diagnostics and health checks",
+      params: {
+        json: Flag.boolean("json").pipe(
+          Flag.withDescription("Output report as JSON"),
+          Flag.withDefault(false),
+        ),
+      },
+    }),
   ],
 })
 

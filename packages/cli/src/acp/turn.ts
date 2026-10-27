@@ -1,5 +1,5 @@
 import type { CancelNotification, PromptRequest, PromptResponse, RequestError } from "@agentclientprotocol/sdk"
-import type { OpenCodeClient, OpenCodeEvent } from "@orchestra/client/effect"
+import type { OrchestraClient, OpenCodeEvent } from "@orchestra/client/effect"
 import { TokenUsage } from "@orchestra/schema/token-usage"
 import {
   Cause,
@@ -57,7 +57,7 @@ type Turn = {
 }
 
 export const make = Effect.fnUntraced(function* (input: {
-  readonly client: OpenCodeClient
+  readonly client: OrchestraClient
   readonly connection: ACPConnection.Interface
   readonly sessions: ACPSessions.Interface
   readonly catalog: ACPCatalog.Interface

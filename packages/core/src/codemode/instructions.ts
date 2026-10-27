@@ -14,7 +14,7 @@ ${hasMoreTools ? `The catalog is partial. Inside \`execute\`, use \`search(...)\
 
 - ${searchSignature}
 
-A namespace listed below with tools \`none shown\` still has them. When one could plausibly serve the task, \`search\` it first; do not conclude that no tool exists, or fall back to web search or fetch, before you have.` : "The catalog is complete. Do not guess tool names."}
+A namespace listed below with tools \`none shown\` still has them. When one could plausibly serve the task, \`search\` it first; do not conclude that no tool exists, or fall back to web search or fetch, before you have. A namespace named after an MCP server the operator installed (github, playwright, context7, memory, desktop-commander, ...) is an instrument this project works with: \`search\` it before you reach for shell or a hand-written HTTP call.` : "The catalog is complete. Do not guess tool names."}
 
 ## Available tools`
 

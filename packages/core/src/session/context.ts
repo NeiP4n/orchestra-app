@@ -155,10 +155,19 @@ const layer = Layer.effect(
             })
         },
       })
+      const toolsSnapshot = yield* registry.snapshot(permissions)
+      // Names reachable this request, not just the advertised schemas: on-demand tools and every
+      // Code Mode tool (MCP servers, browser, docs) count as available. Guidance filtered against
+      // the advertised list alone would drop exactly the routes it exists to teach.
+      const availableToolNames = [
+        ...toolsSnapshot.definitions.map((tool) => tool.name),
+        ...(toolsSnapshot.codeModeDefinitions ?? []).map((tool) => tool.name),
+        ...(toolsSnapshot.lazy === undefined ? [] : Array.from(toolsSnapshot.lazy.keys())),
+      ]
       const loaded = yield* Effect.all(
         {
-          tools: registry.snapshot(permissions),
-          builtins: builtins.load(),
+          tools: Effect.succeed(toolsSnapshot),
+          builtins: builtins.load(availableToolNames),
           discovery: discovery.load(route),
           skills: skillInstructions.load(permissions),
           references: referenceInstructions.load(),

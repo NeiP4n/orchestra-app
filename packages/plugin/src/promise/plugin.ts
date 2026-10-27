@@ -1,4 +1,4 @@
-import type { OpenCodeClient } from "@orchestra/client"
+import type { OrchestraClient } from "@orchestra/client"
 import type { GenerateApi, PluginApi } from "@orchestra/client/promise/api"
 import type { Location } from "@orchestra/schema/location"
 import type { PluginOptions } from "../options.js"
@@ -32,7 +32,7 @@ export interface Context {
   readonly command: CommandDomain
   readonly event: EventDomain
   readonly experimental: {
-    readonly terminal: Pick<OpenCodeClient["experimental"]["persistentPty"], "read">
+    readonly terminal: Pick<OrchestraClient["experimental"]["persistentPty"], "read">
   }
   readonly integration: IntegrationDomain
   readonly mcp: MCPDomain

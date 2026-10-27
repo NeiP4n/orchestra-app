@@ -61,9 +61,36 @@ export class RemoteConfig extends Schema.Class<RemoteConfig>("Mcp.RemoteConfig")
   }),
   timeout: TimeoutConfig.pipe(optional),
   protocol: Protocol.pipe(optional),
+  heartbeatInterval: PositiveInt.pipe(optional).annotate({
+    description: "Heartbeat interval in milliseconds for bidirectional stream liveness.",
+  }),
+  streamTimeout: PositiveInt.pipe(optional).annotate({
+    description: "Maximum timeout in milliseconds for streaming operations.",
+  }),
 }) {}
 
-export const ServerConfig = Schema.Union([LocalConfig, RemoteConfig]).pipe(Schema.toTaggedUnion("type"))
+export class StreamableHttpConfig extends Schema.Class<StreamableHttpConfig>("Mcp.StreamableHttpConfig")({
+  type: Schema.Literal("streamable-http"),
+  url: Schema.String,
+  headers: Schema.Record(Schema.String, Schema.String).pipe(optional),
+  oauth: Schema.Union([OAuthConfig, Schema.Literal(false)]).pipe(optional),
+  disabled: Schema.Boolean.pipe(optional),
+  codemode: Schema.Boolean.pipe(optional).annotate({
+    description: "Expose this server's tools through Code Mode. Defaults to true.",
+  }),
+  timeout: TimeoutConfig.pipe(optional),
+  protocol: Protocol.pipe(optional),
+  heartbeatInterval: PositiveInt.pipe(optional).annotate({
+    description: "Heartbeat interval in milliseconds for bidirectional stream liveness.",
+  }),
+  streamTimeout: PositiveInt.pipe(optional).annotate({
+    description: "Maximum timeout in milliseconds for streaming operations.",
+  }),
+}) {}
+
+export const ServerConfig = Schema.Union([LocalConfig, RemoteConfig, StreamableHttpConfig]).pipe(
+  Schema.toTaggedUnion("type"),
+)
 export type ServerConfig = typeof ServerConfig.Type
 
 const Connected = Schema.Struct({ status: Schema.Literal("connected") }).annotate({

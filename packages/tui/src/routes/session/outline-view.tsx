@@ -31,6 +31,8 @@ export function OutlineRail(props: {
   const theme = useTheme()
   const t = useT()
   const [open, setOpen] = createSignal(false)
+  // Pinned keeps the list open while the transcript scrolls and the pointer wanders off.
+  const [pinned, setPinned] = createSignal(false)
   const [hovered, setHovered] = createSignal<string>()
   const lines = createMemo(() =>
     props.categories.flatMap((category, index): Line[] => [
@@ -66,8 +68,9 @@ export function OutlineRail(props: {
     const start = Math.min(Math.max(0, current - Math.floor(height / 2)), categories.length - height)
     return categories.slice(start, start + height)
   })
-  // The list shows as many lines as fit under the header and scrolls the rest.
-  const visibleRows = () => Math.max(1, Math.min(lines().length, props.height - 1))
+  // The list shows as many lines as fit under the header and scrolls the rest. When pinned it
+  // uses the full rail height so the whole table of contents stays reachable.
+  const visibleRows = () => Math.max(1, Math.min(lines().length, (pinned() ? props.height - 2 : props.height) - 1))
   const width = () => Math.max(16, Math.min(props.maxWidth, 48))
   // Moving between rows sends "out" before the next "over", so closing waits a moment
   // instead of unmounting the list under the pointer.
@@ -83,15 +86,40 @@ export function OutlineRail(props: {
     closing = undefined
     setOpen(true)
   }
+  const togglePin = () => {
+    clearTimeout(closing)
+    closing = undefined
+    setPinned((value) => !value)
+    setOpen(true)
+  }
+  const pin = () => {
+    clearTimeout(closing)
+    closing = undefined
+    setPinned(true)
+    setOpen(true)
+  }
   onCleanup(() => clearTimeout(closing))
   const jump = (line: Line) => {
     props.onJump(line.ref)
     close()
   }
+  // Escape puts a pinned list back to the rail.
+  Keymap.createLayer(() => ({
+    priority: 20,
+    enabled: () => pinned(),
+    commands: [
+      {
+        bind: "escape",
+        title: "Close the chat outline",
+        group: "Session",
+        run: () => setPinned(false),
+      },
+    ],
+  }))
   // Takes Enter and Space from the prompt only while a title is marked.
   Keymap.createLayer(() => ({
     priority: 20,
-    enabled: () => open() && hovered() !== undefined,
+    enabled: () => (open() || pinned()) && hovered() !== undefined,
     commands: [
       {
         bind: "return,space",
@@ -109,6 +137,7 @@ export function OutlineRail(props: {
     if (isActive(line)) return theme.text.action.primary.base
     return line.level === 0 ? theme.text.base : theme.text.muted
   }
+  const expanded = () => open() || pinned()
 
   return (
     <box
@@ -121,12 +150,16 @@ export function OutlineRail(props: {
       onMouseOver={show}
       onMouseOut={() => {
         clearTimeout(closing)
-        closing = setTimeout(close, 250)
+        closing = setTimeout(() => {
+          if (pinned()) return
+          close()
+        }, 250)
       }}
-      onMouseDown={show}
+      // Clicking the rail pins the list open; clicking it again returns it to the rail.
+      onMouseDown={() => (pinned() ? togglePin() : pin())}
     >
       <Show
-        when={open()}
+        when={expanded()}
         fallback={
           <box flexDirection="column" width={2} alignItems="flex-end">
             <For each={rail()}>
@@ -150,7 +183,11 @@ export function OutlineRail(props: {
           paddingRight={1}
         >
           <text fg={theme.text.muted} wrapMode="none" truncate flexShrink={0}>
-            {[t("Chat outline"), props.status ?? (hovered() ? t("enter or space to go") : "")]
+            {[
+              t("Chat outline"),
+              pinned() ? t("pinned · click to close") : undefined,
+              props.status ?? (hovered() ? t("enter or space to go") : undefined),
+            ]
               .filter(Boolean)
               .join(" · ")}
           </text>
@@ -170,7 +207,9 @@ export function OutlineRail(props: {
                   onMouseOver={() => setHovered(line.key)}
                   onMouseDown={(event) => {
                     event.stopPropagation()
-                    jump(line)
+                    // A pinned list stays open after a jump, so the next topic is one click away.
+                    if (pinned()) props.onJump(line.ref)
+                    else jump(line)
                   }}
                 >
                   <text fg={theme.text.action.primary.hovered} wrapMode="none" flexShrink={0}>

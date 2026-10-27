@@ -11,9 +11,11 @@ import { Permission } from "../permission.js"
 
 const plan = Agent.ID.make("plan")
 
-const enter = (directory: string) => `<system-reminder>
+const enter = (directory: string, legacyDirectory: string) => `<system-reminder>
 You are in Plan mode. Discuss the plan with the user directly in the conversation. Do not create or update plan files unless the user explicitly asks you to; when they do, write them only in:
 ${directory}
+
+Existing plans in ${legacyDirectory} remain available to read; create new plans only in ${directory}.
 
 Do not modify any other files or ask a subagent to do so.
 
@@ -28,8 +30,9 @@ export const Plugin = define({
   id: "opencode.plan",
   effect: Effect.fn(function* (ctx) {
     const global = yield* Global.Service
-    const directory = path.join(global.home, ".opencode", "plan")
-    const enterReminder = enter(directory)
+    const directory = path.join(global.config, "plan")
+    const legacyDirectory = path.join(global.home, ".opencode", "plan")
+    const enterReminder = enter(directory, legacyDirectory)
     yield* ctx.agent.transform((editor) => {
       editor.update(plan, (item) => {
         item.name = Agent.Name.make("Plan")
@@ -38,6 +41,7 @@ export const Plugin = define({
         item.permissions.push({ action: "question", resource: "*", effect: "allow" })
         item.permissions.push({ action: "edit", resource: "*", effect: "deny" })
         item.permissions.push({ action: "edit", resource: path.join(directory, "*"), effect: "allow" })
+        item.permissions.push({ action: "external_directory", resource: path.join(legacyDirectory, "*"), effect: "allow" })
       })
     })
 

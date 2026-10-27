@@ -4,7 +4,7 @@ import { Npm } from "@orchestra/util/npm"
 import { loadSDKFactory } from "./sdk-factory.js"
 
 export const DynamicProviderPlugin = define({
-  id: "opencode.provider.dynamic",
+  id: "orchestra.provider.dynamic",
   effect: Effect.fn(function* (ctx) {
     const npm = yield* Npm.Service
     yield* ctx.aisdk.hook(

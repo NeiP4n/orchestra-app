@@ -261,13 +261,22 @@ export const makeDaemonTransport = Effect.fn("PersistentPty.makeDaemonTransport"
         }
         yield* Effect.sleep(50)
       }
+      if (child.exitCode !== null || child.signalCode !== null) {
+        return yield* Effect.fail(
+          new DaemonError({
+            kind: "spawn",
+            message: `opencode-pty process exited prematurely (exitCode: ${child.exitCode}, signal: ${child.signalCode})`,
+            pid: child.pid,
+          }),
+        )
+      }
       return yield* Effect.fail(
         last ?? new DaemonError({ kind: "connect", message: "opencode-pty did not become ready" }),
       )
     }).pipe(
       Effect.onError(() =>
         Effect.sync(() => {
-          child.kill("SIGTERM")
+          terminateChild(child)
         }),
       ),
     )
@@ -339,6 +348,7 @@ export const makeDaemonTransport = Effect.fn("PersistentPty.makeDaemonTransport"
     )
 
   const shutdown = Effect.gen(function* () {
+    const currentReg = registration
     const response = yield* requestIfRunning({ op: "shutdown" })
     registration = undefined
     if (!response) return undefined
@@ -351,7 +361,10 @@ export const makeDaemonTransport = Effect.fn("PersistentPty.makeDaemonTransport"
       if (!running) return response
       yield* Effect.sleep(50)
     }
-    return yield* Effect.fail(new DaemonError({ kind: "connect", message: "opencode-pty did not stop" }))
+    if (currentReg?.pid && Number.isSafeInteger(currentReg.pid) && currentReg.pid > 0) {
+      killProcessTree(currentReg.pid)
+    }
+    return yield* Effect.fail(new DaemonError({ kind: "connect", message: "opencode-pty did not stop", pid: currentReg?.pid }))
   })
 
   const handoff = startup.withPermit(
@@ -678,6 +691,11 @@ async function* decoder(socket: net.Socket) {
       yield pending.subarray(4, length + 4)
       pending = pending.subarray(length + 4)
     }
+    if (pending.length === 0) {
+      pending = Buffer.alloc(0)
+    } else if (pending.byteOffset > 64 * 1024) {
+      pending = Buffer.from(pending)
+    }
   }
   if (pending.length !== 0) throw new Error("opencode-pty truncated frame")
 }
@@ -688,4 +706,38 @@ function decode(payload: Uint8Array) {
 
 function failure(kind: DaemonError["kind"], cause: unknown) {
   return new DaemonError({ kind, message: cause instanceof Error ? cause.message : String(cause) })
+}
+
+function terminateChild(child: ReturnType<typeof spawn>) {
+  try {
+    child.kill("SIGTERM")
+  } catch {}
+  const pid = child.pid
+  if (pid && Number.isSafeInteger(pid) && pid > 0) {
+    killProcessTree(pid)
+  }
+}
+
+function killProcessTree(pid: number) {
+  if (process.platform === "win32") {
+    try {
+      spawn("taskkill", ["/F", "/T", "/PID", String(pid)], { windowsHide: true, stdio: "ignore" }).unref()
+    } catch {}
+  } else {
+    try {
+      process.kill(-pid, "SIGTERM")
+    } catch {}
+    try {
+      process.kill(pid, "SIGTERM")
+    } catch {}
+    const timer = setTimeout(() => {
+      try {
+        process.kill(-pid, "SIGKILL")
+      } catch {}
+      try {
+        process.kill(pid, "SIGKILL")
+      } catch {}
+    }, 250)
+    timer.unref?.()
+  }
 }

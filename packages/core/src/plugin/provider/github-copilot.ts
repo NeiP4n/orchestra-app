@@ -157,7 +157,7 @@ const oauth = (app: App.Info) =>
   }) satisfies IntegrationOAuthMethodRegistration
 
 export const GithubCopilotPlugin = define({
-  id: "opencode.provider.github.copilot",
+  id: "orchestra.provider.github.copilot",
   effect: Effect.fn(function* (ctx) {
     const providers = yield* Provider.Service
     const bus = yield* Bus.Service

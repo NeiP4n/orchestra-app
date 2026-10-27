@@ -1,11 +1,10 @@
-import { createSignal, type JSX } from "solid-js"
+import { createSignal, type ParentProps } from "solid-js"
 import { useTheme } from "../context/theme"
 import { hoverBackground } from "../ui/hover"
 
-type Props = {
+type Props = ParentProps<{
   id?: string
-  onClick: () => void
-  children: JSX.Element
+  onClick?: () => void
   disabled?: boolean
   flexShrink?: number
   flexGrow?: number
@@ -20,7 +19,7 @@ type Props = {
   justifyContent?: "flex-start" | "flex-end" | "center" | "space-between" | "space-around"
   onMouseEnter?: () => void
   onMouseLeave?: () => void
-}
+}>
 
 // A clickable action gets a background highlight across its entire hit area, not just
 // brighter text. Stop pointer events from reaching parent rows so buttons never trigger
@@ -52,9 +51,12 @@ export function HoverAction(props: Props) {
         setHovered(false)
         props.onMouseLeave?.()
       }}
-      onMouseDown={(event) => {
+      onMouseDown={(event: { stopPropagation(): void }) => {
         event.stopPropagation()
-        if (!props.disabled) props.onClick()
+      }}
+      onMouseUp={(event: { stopPropagation(): void }) => {
+        event.stopPropagation()
+        if (!props.disabled) props.onClick?.()
       }}
     >
       {props.children}

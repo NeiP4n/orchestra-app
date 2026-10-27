@@ -52,6 +52,7 @@ test("protected files match by name or folder, with either slash", () => {
   expect(RoomRules.protectedFile(rules, "/work/app/src/index.ts")).toBeUndefined()
   expect(RoomRules.protectedFile(undefined, "/home/alice/.ssh/id_ed25519")).toContain(".ssh")
   expect(RoomRules.protectedFile(undefined, "/home/alice/.config/opencode/auth.json")).toContain("opencode")
+  expect(RoomRules.protectedFile(undefined, "/home/alice/.config/orchestra/auth.json")).toBe("**/.config/orchestra/**")
   expect(RoomRules.protectedFile(undefined, "/work/app/.env.local")).toBe(".env*")
 })
 
@@ -60,6 +61,10 @@ test("built-in credential globs protect root-level and nested credential files",
   expect(RoomRules.protectedFile(undefined, "/home/user/.ssh/id_ed25519")).toBe("**/.ssh/**")
   expect(RoomRules.protectedFile(undefined, "auth.json")).toBe("**/auth.json")
   expect(RoomRules.protectedFile(undefined, "/project/.config/opencode/auth.json")).toBe("**/.config/opencode/**")
+  expect(RoomRules.protectedFile(undefined, "/project/.config/orchestra/auth.json")).toBe("**/.config/orchestra/**")
+  expect(RoomRules.protectedFile(undefined, "/project/.local/share/orchestra/auth.json")).toBe(
+    "**/.local/share/orchestra/auth.json",
+  )
   expect(RoomRules.protectedFile(undefined, "src/auth.json")).toBe("**/auth.json")
 })
 

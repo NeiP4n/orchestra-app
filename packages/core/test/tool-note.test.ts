@@ -79,7 +79,7 @@ const run = (tools: Tool.Interface, id: string, input: Record<string, unknown>) 
 /** The model-facing refusal text, unescaped so a test can read it the way the model does. */
 const refusal = (result: { readonly error?: { readonly message?: string } }) => result.error?.message ?? ""
 
-const onDisk = (directory: string, name: string) => path.join(directory, ".opencode", "notes", `${name}.md`)
+const onDisk = (directory: string, name: string) => path.join(directory, ".orchestra", "notes", `${name}.md`)
 const read = (target: string) => Effect.promise(() => fs.readFile(target, "utf8"))
 /** Moves mtime a whole second, so a guard sees the difference even on a coarse clock. */
 const retime = (target: string, mtime: number) =>
@@ -120,7 +120,7 @@ describe("NoteTool", () => {
         const result = yield* run(tools, "call-list-empty", { action: "list" })
 
         expect(result).toMatchObject({ status: "completed" })
-        expect(JSON.stringify(result.output)).toContain("No notes yet in .opencode/notes.")
+        expect(JSON.stringify(result.output)).toContain("No notes yet in .orchestra/notes.")
         expect(asked).toEqual([])
       }).pipe(Effect.provide(harness(directory, asked)))
     }),
@@ -141,7 +141,7 @@ describe("NoteTool", () => {
         })
 
         expect(result).toMatchObject({ status: "completed" })
-        expect(asked).toEqual(["note:.opencode/notes"])
+        expect(asked).toEqual(["note:.orchestra/notes"])
         expect(yield* read(onDisk(directory, "room-plan"))).toContain("Первый шаг.")
         expect(JSON.stringify(result.output)).toContain("План по комнатам")
       }).pipe(Effect.provide(harness(directory, asked)))
@@ -351,6 +351,9 @@ describe("NoteTool", () => {
         expect(promised).not.toBe("")
         expect(promised).toMatch(/\btags\b/)
         expect(promised).toMatch(/\bmtime\b/)
+        expect(NoteTool.description).toContain(".orchestra/notes/")
+        expect(NoteTool.description).toContain(".opencode/notes/")
+        expect(NoteTool.description).toContain("read as a fallback")
       }).pipe(Effect.provide(harness(directory))),
     ),
   )

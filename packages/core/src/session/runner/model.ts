@@ -119,11 +119,30 @@ export const layer = Layer.effect(
             )
           }
         }
-        if (!selected)
+        if (!selected) {
+          // A provider that disappeared with its plugin (a removed third-party provider, say) leaves
+          // resumable sessions pointing at a model that no longer exists. Those continue on the
+          // configured default model instead of dying on a stale reference; a model missing from a
+          // provider that still exists stays an explicit error.
+          const providerExists = catalog.some((model) => model.providerID === requested.providerID)
+          if (!providerExists) {
+            const fallback = yield* resolver.resolve()
+            if (fallback) {
+              yield* Effect.logInfo("session model provider is gone; continuing on the default model", {
+                sessionID: session.id,
+                providerID: requested.providerID,
+                modelID: requested.id,
+                fallbackProviderID: fallback.ref.providerID,
+                fallbackModelID: fallback.ref.id,
+              })
+              return fallback
+            }
+          }
           return yield* new ModelUnavailableError({
             providerID: requested.providerID,
             modelID: requested.id,
           })
+        }
 
         return yield* resolver.resolveModel(selected, requested.variant)
       }),

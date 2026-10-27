@@ -3,7 +3,7 @@ import { Model } from "../../model.js"
 import { define } from "@orchestra/plugin/effect/plugin"
 
 export const OpenRouterPlugin = define({
-  id: "opencode.provider.openrouter",
+  id: "orchestra.provider.openrouter",
   effect: Effect.fn(function* (ctx) {
     yield* ctx.provider.transform((evt) => {
       for (const item of evt.list()) {

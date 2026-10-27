@@ -7,6 +7,11 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/un
 import { InvalidRequestError, NoteConflictError, NoteNotFoundError, ServiceUnavailableError } from "../errors.js"
 import { LocationQuery, locationQueryOpenApi } from "./location.js"
 
+export const TICKET_HEADER = "x-orchestra-ticket"
+export const LEGACY_TICKET_HEADER = "x-opencode-ticket"
+export const PTY_CONNECT_TOKEN_HEADER = "x-orchestra-ticket"
+export const LEGACY_PTY_CONNECT_TOKEN_HEADER = "x-opencode-ticket"
+
 const NameParams = {
   name: Schema.String.annotate({
     description: "Note file name without .md: 2 to 60 lowercase latin letters, digits and hyphens",

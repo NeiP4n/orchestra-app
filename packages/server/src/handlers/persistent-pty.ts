@@ -2,6 +2,7 @@ import { PersistentPty } from "@orchestra/core/persistent-pty"
 import { PtyTicket } from "@orchestra/core/pty/ticket"
 import { ForbiddenError, PtyNotFoundError, ServiceUnavailableError } from "@orchestra/protocol/errors"
 import {
+  LEGACY_PTY_CONNECT_TOKEN_HEADER,
   PTY_CONNECT_TICKET_QUERY,
   PTY_CONNECT_TOKEN_HEADER,
   PTY_CONNECT_TOKEN_HEADER_VALUE,
@@ -96,8 +97,10 @@ export const PersistentPtyHandler = HttpApiBuilder.group(Api, "server.experiment
         "persistentPty.connectToken",
         Effect.fn(function* (ctx) {
           const request = yield* HttpServerRequest.HttpServerRequest
+          const ticketHeader =
+            request.headers[PTY_CONNECT_TOKEN_HEADER] ?? request.headers[LEGACY_PTY_CONNECT_TOKEN_HEADER]
           if (
-            request.headers[PTY_CONNECT_TOKEN_HEADER] !== PTY_CONNECT_TOKEN_HEADER_VALUE ||
+            ticketHeader !== PTY_CONNECT_TOKEN_HEADER_VALUE ||
             !isAllowedRequestOrigin(request.headers.origin, request.headers.host, cors)
           )
             return yield* new ForbiddenError({ message: "Invalid persistent PTY connect token request" })

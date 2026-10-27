@@ -76,7 +76,7 @@ export function policy(rules: Rules | undefined, input: PolicyInput): PolicyDeci
   const deny = (message: string): PolicyDecision => ({ effect: "deny", message })
   if (
     rules.noOutbound !== false &&
-    (outbound.includes(input.action) || input.metadata?.transport === "mcp" || !LOCAL_ONLY_ACTIONS.has(input.action))
+    (isOutboundAction(input.action) || input.metadata?.transport === "mcp" || !LOCAL_ONLY_ACTIONS.has(input.action))
   ) {
     return deny("This room blocks outbound, connected-account and unrecognized tools by default")
   }
@@ -114,7 +114,13 @@ export const outbound: readonly string[] = [
   "playtest",
   "opencode_list_mcp_resources",
   "opencode_read_mcp_resource",
+  "orchestra_list_mcp_resources",
+  "orchestra_read_mcp_resource",
 ]
+
+export function isOutboundAction(action: string) {
+  return outbound.includes(action) || action.startsWith("orchestra_") || action.startsWith("opencode_")
+}
 
 // A glob where `*` is any text and `?` one character, case-insensitive.
 function glob(pattern: string, before: string, after = "") {
@@ -255,7 +261,19 @@ export const SECRET_FILE_PATTERNS: readonly string[] = [
   "**/.config/gcloud/**",
   "**/.config/gh/**",
   "**/.config/opencode/**",
+  "**/.config/opencode",
   "**/.local/share/opencode/auth.json",
+  "**/.local/share/opencode/**",
+  "**/.local/share/opencode",
+  "**/share/opencode/**",
+  "**/share/opencode",
+  "**/.config/orchestra/**",
+  "**/.config/orchestra",
+  "**/.local/share/orchestra/auth.json",
+  "**/.local/share/orchestra/**",
+  "**/.local/share/orchestra",
+  "**/share/orchestra/**",
+  "**/share/orchestra",
   "**/.claude/.credentials.json",
   "**/.claude.json",
   "**/.codex/auth.json",
@@ -308,7 +326,7 @@ export function commandLeaksCredentials(command: string) {
   // Normalize basic shell escapes and line continuations before matching credential dumps.
   const normalized = command.replace(/\\\r?\n/g, "").replace(/\\(.)/gs, "$1")
   return (
-    /\b(env|printenv)\b/i.test(normalized) ||
+    /(?:^|[;&|()`'\s]|\/(?:usr\/)?(?:bin\/)?)(env|printenv)(?![\w.-])/i.test(normalized) ||
     /(?:^|[;&|()\s])set(?:\s|$)/i.test(normalized) ||
     /\b(?:get-childitem|gci)\s+env:/i.test(normalized) ||
     /\bpython(?:3)?\b.*(?:os\.environb?|os\.getenv|environ\s*\[|printenv)/is.test(normalized) ||
@@ -361,8 +379,13 @@ export function sanitizeScreenshots<T>(value: T, enabled: boolean): T {
   const visit = (item: unknown, key?: string): unknown => {
     if (key && /(image|screenshot|base64)/i.test(key)) return undefined
     if (typeof item === "string") {
-      if (/^data:image\//i.test(item)) return undefined
       if (key && /^(?:url|uri|path|filename|name)$/i.test(key) && imageExtension.test(item)) return undefined
+      if (/^data:image\//i.test(item)) {
+        if (key && /^(?:output|text|detail|command|content)$/i.test(key)) {
+          return "[image hidden by room rules]"
+        }
+        return undefined
+      }
       // A data URI may be embedded in otherwise ordinary text/tool output; strip its payload only.
       return item.replace(/data:image\/[^;,\s]+;base64,[A-Za-z0-9+/=]+/gi, "[image hidden by room rules]")
     }
@@ -425,7 +448,7 @@ export function violation(
   input: { action: string; resources: readonly string[]; metadata?: Readonly<Record<string, unknown>> },
 ) {
   if (!rules) return undefined
-  if (rules.noOutbound && (outbound.includes(input.action) || input.metadata?.transport === "mcp"))
+  if (rules.noOutbound && (isOutboundAction(input.action) || input.metadata?.transport === "mcp"))
     return "This room does not let the AI send anything out"
   const blocked = blockedCommandForAction(rules, input.action, input.resources)
   if (blocked) return `This room forbids commands like "${blocked}"`

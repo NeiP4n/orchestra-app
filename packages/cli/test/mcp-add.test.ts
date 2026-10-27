@@ -40,7 +40,41 @@ test("uses root JSON config when it is the existing project config", async () =>
 test("chooses conventional root config path when no config exists", async () => {
   const directory = await temporary()
   try {
+    expect(await resolveConfigPath(directory.path)).toBe(path.join(directory.path, "orchestra.json"))
+  } finally {
+    await directory.dispose()
+  }
+})
+
+test("prefers orchestra.json over opencode.json when both exist", async () => {
+  const directory = await temporary()
+  try {
+    await Bun.write(path.join(directory.path, "opencode.json"), "{}")
+    await Bun.write(path.join(directory.path, "orchestra.json"), "{}")
+    expect(await resolveConfigPath(directory.path)).toBe(path.join(directory.path, "orchestra.json"))
+  } finally {
+    await directory.dispose()
+  }
+})
+
+test("falls back to opencode.json when orchestra.json is absent", async () => {
+  const directory = await temporary()
+  try {
+    await Bun.write(path.join(directory.path, "opencode.json"), "{}")
     expect(await resolveConfigPath(directory.path)).toBe(path.join(directory.path, "opencode.json"))
+  } finally {
+    await directory.dispose()
+  }
+})
+
+test("prefers .orchestra config over .opencode config", async () => {
+  const directory = await temporary()
+  try {
+    await mkdir(path.join(directory.path, ".orchestra"))
+    await mkdir(path.join(directory.path, ".opencode"))
+    await Bun.write(path.join(directory.path, ".opencode", "opencode.json"), "{}")
+    await Bun.write(path.join(directory.path, ".orchestra", "orchestra.json"), "{}")
+    expect(await resolveConfigPath(directory.path)).toBe(path.join(directory.path, ".orchestra", "orchestra.json"))
   } finally {
     await directory.dispose()
   }
@@ -76,7 +110,7 @@ test("MCP config writes reject malformed JSON without replacing the file", async
     const original = "{ definitely not JSON"
     await Bun.write(file, original)
     await expect(writeConfig(file, "example", { type: "local", command: ["node"] })).rejects.toThrow(
-      "Invalid OpenCode configuration",
+      "Invalid Orchestra configuration",
     )
     expect(await readFile(file, "utf8")).toBe(original)
   } finally {

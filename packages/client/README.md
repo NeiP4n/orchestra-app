@@ -1,11 +1,12 @@
 # @orchestra/client
 
-Private generation target for clients derived directly from OpenCode's authoritative Effect `HttpApi`.
+Private generation target for clients derived directly from Orchestra's authoritative Effect `HttpApi`.
 
 ## Entrypoints
 
 - `@orchestra/client`: zero-Effect Promise client using `fetch`.
 - `@orchestra/client/effect`: rich Effect network client using an environment-provided `HttpClient`.
+- `@orchestra/client/solid`: reactive data access primitives for SolidJS.
 
 The generated surface includes every standard HTTP group from Server's concrete API. The build compiler reads `@orchestra/server/api`; the generated Effect runtime imports a client-local projection built from Protocol, with a generation-equivalence test preventing transport drift. Custom transports such as the PTY WebSocket connection remain outside the generic HTTP client. Run `bun run generate` after changing the contract and `bun run check:generated` to detect committed-output drift.
 

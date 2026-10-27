@@ -683,4 +683,83 @@ describe("SessionRunCoordinator", () => {
       expect(runs).toBe(limit)
     }),
   )
+
+  it.effect("a settlement-window run starts a fresh execution", () =>
+    Effect.gen(function* () {
+      const settling = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      let drains = 0
+      const coordinator = yield* SessionRunCoordinator.make({
+        drain: () => Effect.sync(() => void drains++),
+        settled: () => Deferred.succeed(settling, undefined).pipe(Effect.andThen(Deferred.await(release))),
+      })
+
+      yield* coordinator.wake("session")
+      yield* Deferred.await(settling)
+      expect(yield* coordinator.isActive("session")).toBe(true)
+      const run = yield* coordinator.run("session").pipe(Effect.forkChild)
+      yield* Deferred.succeed(release, undefined)
+      yield* Fiber.join(run)
+      yield* coordinator.awaitIdle("session")
+
+      expect(drains).toBe(2)
+      expect(yield* coordinator.active).toEqual(new Set())
+    }),
+  )
+
+  it.effect("escalates scope to input when run joins an active steer drain", () =>
+    Effect.gen(function* () {
+      const firstStarted = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      const scopes: SessionInbox.Promotable[] = []
+      const coordinator = yield* SessionRunCoordinator.make({
+        drain: (_key, _force, scope) =>
+          Effect.gen(function* () {
+            scopes.push(scope)
+            if (scopes.length === 1) {
+              yield* Deferred.succeed(firstStarted, undefined)
+              yield* Deferred.await(release)
+            }
+          }),
+      })
+
+      yield* coordinator.wake("session", "steer")
+      yield* Deferred.await(firstStarted)
+      const run = yield* coordinator.run("session").pipe(Effect.forkChild)
+      yield* Deferred.succeed(release, undefined)
+      yield* Fiber.join(run)
+      yield* coordinator.awaitIdle("session")
+
+      expect(scopes).toEqual(["steer", "input"])
+    }),
+  )
+
+  it.effect("runs multiple independent sessions in parallel without mutual blocking", () =>
+    Effect.gen(function* () {
+      const count = 8
+      const gate = yield* Deferred.make<void>()
+      let running = 0
+      const allStarted = yield* Deferred.make<void>()
+      const coordinator = yield* SessionRunCoordinator.make<string, never>({
+        drain: () =>
+          Effect.gen(function* () {
+            running++
+            if (running === count) {
+              yield* Deferred.succeed(allStarted, undefined)
+            }
+            yield* Deferred.await(gate)
+          }),
+      })
+
+      const fibers = yield* Effect.all(
+        Array.from({ length: count }, (_, i) => coordinator.run(`session-${i}`).pipe(Effect.forkChild)),
+      )
+      yield* Deferred.await(allStarted)
+      const active = yield* coordinator.active
+      expect(active.size).toBe(count)
+      yield* Deferred.succeed(gate, undefined)
+      yield* Effect.all(fibers.map(Fiber.join))
+      expect((yield* coordinator.active).size).toBe(0)
+    }),
+  )
 })

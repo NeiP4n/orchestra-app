@@ -13,6 +13,7 @@ function requireVersion(version: string) {
 
 export function discoverScript() {
   return `cli=""
+if [ -z "$cli" ] && [ -x "$HOME/.orchestra/bin/orchestra" ]; then cli="$HOME/.orchestra/bin/orchestra"; fi
 if [ -z "$cli" ] && [ -x "$HOME/.opencode/bin/opencode" ]; then cli="$HOME/.opencode/bin/opencode"; fi
 if [ -n "$cli" ]; then printf '%s\\n' "$cli"; fi
 `
@@ -48,6 +49,8 @@ export function installScript(input: { version: string; binary?: string; url?: s
 
   return `set -eu
 curl -fsSL ${quote(installerUrl)} | bash -s -- ${input.binary ? `--binary ${input.binary}` : `--version ${quote(version)}`}
-test "$("$HOME/.opencode/bin/opencode" --version | awk '{print $NF}' | sed 's/^v//')" = ${quote(version)}
+cli_bin="$HOME/.orchestra/bin/orchestra"
+if [ ! -x "$cli_bin" ] && [ -x "$HOME/.opencode/bin/opencode" ]; then cli_bin="$HOME/.opencode/bin/opencode"; fi
+test "$("$cli_bin" --version | awk '{print $NF}' | sed 's/^v//')" = ${quote(version)}
 `
 }

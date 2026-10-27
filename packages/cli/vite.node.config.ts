@@ -195,7 +195,7 @@ __cjs_mod__.registerHooks({
   },
 })
 const __ocUid = typeof process.getuid === "function" ? process.getuid() : undefined
-const __ocCacheRoot = __ocPath.join(__ocTmpdir(), \`opencode-node-\${__ocUid ?? "user"}\`)
+const __ocCacheRoot = __ocPath.join(__ocTmpdir(), \`orchestra-node-\${__ocUid ?? "user"}\`)
 if (__ocIsSea()) {
   try {
     __ocMkdir(__ocCacheRoot, { mode: 0o700 })
@@ -290,7 +290,7 @@ export function mainConfig(input: NodeBuildInput): UserConfig {
       emptyOutDir: false,
       minify: true,
       rollupOptions: {
-        output: output("opencode.mjs", nodePrelude(input)),
+        output: output("orchestra.mjs", nodePrelude(input)),
       },
     },
   })

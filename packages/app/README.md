@@ -1,37 +1,29 @@
+# @orchestra/app
+
+Web and desktop user interface for Orchestra.
+
+## Overview
+
+`@orchestra/app` provides the browser-based and desktop graphical interface for Orchestra. Built with SolidJS, Vite, and Tailwind CSS, it offers session management, interactive diff review, file tree exploration, terminal emulation, and multi-server connectivity.
+
 ## Usage
 
-Dependencies for these templates are managed with [pnpm](https://pnpm.io) using `pnpm up -Lri`.
-
-This is the reason you see a `pnpm-lock.yaml`. That said, any package manager will work. This file can safely be removed once you clone a template.
+Dependencies are managed with Bun / npm:
 
 ```bash
-$ npm install # or pnpm install or yarn install
+bun install
+bun run dev
 ```
 
-### Learn more on the [Solid Website](https://solidjs.com) and come chat with us on our [Discord](https://discord.com/invite/solidjs)
+### Available Scripts
 
-## Available Scripts
-
-In the project directory, you can run:
-
-### `npm run dev` or `npm start`
-
-Runs the app in the development mode.<br>
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
-
-The page will reload if you make edits.<br>
-
-### `npm run build`
-
-Builds the app for production to the `dist` folder.<br>
-It correctly bundles Solid in production mode and optimizes the build for the best performance.
-
-The build is minified and the filenames include the hashes.<br>
-Your app is ready to be deployed!
+- `bun run dev`: Runs the app in development mode on port 3000 (or `bun dev -- --port 4444`).
+- `bun run build`: Bundles the app for production into the `dist/` folder.
+- `bun run test:e2e`: Runs Playwright end-to-end integration tests.
 
 ## E2E Testing
 
-Locally, Playwright starts the Vite dev server automatically via `webServer`, or reuses one already running at the configured address. The browser suite uses isolated API fixtures rather than a live opencode backend.
+Locally, Playwright starts the Vite dev server automatically via `webServer`, or reuses one already running at the configured address. The browser suite uses isolated API fixtures rather than a live Orchestra backend.
 
 ```bash
 bunx playwright install chromium
@@ -88,14 +80,14 @@ and Sentry environment to `beta` without deploying the API, console, database, o
 | Mode               | Initial server                                                                       |
 | ------------------ | ------------------------------------------------------------------------------------ |
 | `none`             | No initial server. The beta deployment uses this mode.                               |
-| `origin` (default) | The current page's origin. CLI builds explicitly use this mode for `opencode serve`. |
+| `origin` (default) | The current page's origin. CLI builds explicitly use this mode for `orchestra serve`. |
 
 In Vite development mode, `origin` uses `VITE_ORCHESTRA_SERVER_HOST` / `VITE_ORCHESTRA_SERVER_PORT`
 (default: `http://localhost:4096`) instead of the frontend origin. Both modes restore user-added servers
 from storage. Desktop provides the local server it discovers or starts through native initialization.
 
 With no configured servers, or when the only server rejects the saved credentials, the app shows a full-screen
-connection form. Enter a server address and password, paste a link from `opencode pair`, or choose
+connection form. Enter a server address and password, paste a link from `orchestra pair`, or choose
 **Scan QR code** to read its QR code. Pairing links are single-use; the app exchanges them for a session token
 and immediately attempts to connect. Failed connections leave the details available
 to edit and retry with **Connect**. Credentials are checked before saving the server. Camera access requires
@@ -104,11 +96,11 @@ HTTPS (or localhost) and browser permission. Saved offline servers continue to u
 When the service is exposed through an HTTPS reverse proxy, advertise its external address at runtime:
 
 ```bash
-opencode pair --url https://opencode.example.com
+orchestra pair --url https://orchestra.example.com
 ```
 
 This replaces the addresses in the printed links and QR code.
-The proxy URL must reach the OpenCode API, not just the frontend. For separate frontend and API processes,
+The proxy URL must reach the Orchestra API, not just the frontend. For separate frontend and API processes,
 route `/api` to the service while preserving the `/api` prefix. No machine-specific app or CLI build is required.
 
 When an HTTPS page fails to connect to a non-loopback HTTP server, the connection forms show a specific

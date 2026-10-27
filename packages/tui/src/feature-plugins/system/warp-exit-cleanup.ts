@@ -11,21 +11,24 @@ type Snapshot = {
   path: string | undefined
 }
 
-const USERS_DIR = () => path.join(tmpdir(), "opencode-warp-users")
+const USERS_DIR = () => path.join(tmpdir(), "orchestra-warp-users")
+const LEGACY_USERS_DIR = () => path.join(tmpdir(), "opencode-warp-users")
 
-function hasOtherLiveOpenCodeUsers() {
-  try {
-    for (const name of readdirSync(USERS_DIR())) {
-      const pid = Number(name)
-      if (!Number.isInteger(pid) || pid === process.pid) continue
-      try {
-        process.kill(pid, 0)
-        return true
-      } catch (cause) {
-        if ((cause as NodeJS.ErrnoException).code !== "ESRCH") return true
+function hasOtherLiveOrchestraUsers() {
+  for (const dir of [USERS_DIR(), LEGACY_USERS_DIR()]) {
+    try {
+      for (const name of readdirSync(dir)) {
+        const pid = Number(name)
+        if (!Number.isInteger(pid) || pid === process.pid) continue
+        try {
+          process.kill(pid, 0)
+          return true
+        } catch (cause) {
+          if ((cause as NodeJS.ErrnoException).code !== "ESRCH") return true
+        }
       }
-    }
-  } catch {}
+    } catch {}
+  }
   return false
 }
 
@@ -216,7 +219,7 @@ export default Plugin.define({
     }
 
     const restore = () => {
-      if (!warpOwned || hasOtherLiveOpenCodeUsers() || !targetPath) return
+      if (!warpOwned || hasOtherLiveOrchestraUsers() || !targetPath) return
       restoreSync(targetPath, snapshot.proxy)
     }
 

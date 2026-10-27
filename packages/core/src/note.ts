@@ -18,8 +18,10 @@ import { Bus } from "./bus.js"
 import { FileAccess } from "./file-access.js"
 import { FileSystem } from "./filesystem.js"
 import { Location } from "./location.js"
+import { ProjectDirs } from "./project-dirs.js"
 
-const DIRECTORY = ".opencode/notes"
+const DIRECTORY = ProjectDirs.primary("notes")
+const LEGACY_DIRECTORY = ProjectDirs.legacy("notes")
 const EXTENSION = ".md"
 
 export class NotFoundError extends Schema.TaggedError<NotFoundError>()("NoteStore.NotFoundError", {
@@ -138,14 +140,21 @@ const layer = Layer.effect(
       bus.publish(Note.Event.Updated, removed ? { name, removed } : { name }, { location: ref })
 
     // The slug is validated before it gets here and resolve() refuses targets outside
-    // the location, so a note can never leave `.opencode/notes`.
+    // the location, so a note can never leave the notes folder.
     const target = (name: Note.Slug) =>
       access
         .resolve({ path: path.join(DIRECTORY, name + EXTENSION) })
         .pipe(Effect.catch(storage(DIRECTORY)))
 
+    const targetLegacy = (name: Note.Slug) =>
+      access
+        .resolve({ path: path.join(LEGACY_DIRECTORY, name + EXTENSION) })
+        .pipe(Effect.catch(storage(LEGACY_DIRECTORY)))
+
     const read = Effect.fn("NoteStore.read")(function* (name: Note.Slug) {
-      const resolved = yield* target(name)
+      const primaryResolved = yield* target(name)
+      const primaryExists = yield* fs.existsSafe(primaryResolved.absolute).pipe(Effect.catch(storage(primaryResolved.absolute)))
+      const resolved = primaryExists ? primaryResolved : yield* targetLegacy(name)
       const content = yield* fs.readFileStringSafe(resolved.absolute).pipe(Effect.catch(storage(resolved.absolute)))
       if (content === undefined) return yield* new NotFoundError({ name })
       const stamp = yield* filesystem
@@ -180,15 +189,20 @@ const layer = Layer.effect(
     })
 
     const names = Effect.fn("NoteStore.names")(function* () {
-      const resolved = yield* access.resolve({ path: DIRECTORY }).pipe(Effect.catch(storage(DIRECTORY)))
-      const present = yield* fs.existsSafe(resolved.absolute).pipe(Effect.catch(storage(resolved.absolute)))
-      if (!present) return new Set<Note.Slug>()
-      const entries = yield* fs.readDirectoryEntries(resolved.absolute).pipe(Effect.catch(storage(resolved.absolute)))
-      const slugs = entries
-        .filter((entry) => entry.type === "file" && entry.name.endsWith(EXTENSION))
-        .map((entry) => entry.name.slice(0, -EXTENSION.length))
-        .filter(isSlug)
-      return new Set(slugs)
+      const slugs = new Set<Note.Slug>()
+      for (const dir of [DIRECTORY, LEGACY_DIRECTORY]) {
+        const resolved = yield* access.resolve({ path: dir }).pipe(Effect.catch(storage(dir)))
+        const present = yield* fs.existsSafe(resolved.absolute).pipe(Effect.catch(storage(resolved.absolute)))
+        if (!present) continue
+        const entries = yield* fs.readDirectoryEntries(resolved.absolute).pipe(Effect.catch(storage(resolved.absolute)))
+        for (const entry of entries) {
+          if (entry.type === "file" && entry.name.endsWith(EXTENSION)) {
+            const candidate = entry.name.slice(0, -EXTENSION.length)
+            if (isSlug(candidate)) slugs.add(candidate)
+          }
+        }
+      }
+      return slugs
     })
 
     const guard = Effect.fn("NoteStore.guard")(function* (name: Note.Slug, expected: number, current: number) {
@@ -269,8 +283,10 @@ const layer = Layer.effect(
       const name = yield* slug(input.name)
       const current = yield* read(name)
       yield* guard(name, input.expectedMtime, current.mtime)
-      const resolved = yield* target(name)
-      yield* fs.remove(resolved.absolute).pipe(Effect.catch(storage(resolved.absolute)))
+      const primaryResolved = yield* target(name)
+      const legacyResolved = yield* targetLegacy(name)
+      yield* fs.remove(primaryResolved.absolute, { force: true }).pipe(Effect.ignore)
+      yield* fs.remove(legacyResolved.absolute, { force: true }).pipe(Effect.ignore)
       yield* announce(name, true)
     })
 

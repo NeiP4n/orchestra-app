@@ -1123,9 +1123,10 @@ export function RunModelSelectBody(props: {
           .map(([modelID, model]) => {
             const title = model.name ?? modelID
             const current = props.current()?.providerID === provider.id && props.current()?.modelID === modelID
+            const isPrimary = provider.id === "orchestra" || provider.id === "opencode"
             const footer = current
               ? "current"
-              : model.cost?.input === 0 && provider.id === "opencode"
+              : model.cost?.input === 0 && isPrimary
                 ? "Free"
                 : title !== modelID
                   ? modelID
@@ -1144,7 +1145,8 @@ export function RunModelSelectBody(props: {
           }),
       )
       .sort((a, b) => {
-        const provider = Number(a.providerID !== "opencode") - Number(b.providerID !== "opencode")
+        const isPrimary = (id: string) => id === "orchestra" || id === "opencode"
+        const provider = Number(!isPrimary(a.providerID)) - Number(!isPrimary(b.providerID))
         if (provider !== 0) {
           return provider
         }

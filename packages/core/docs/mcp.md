@@ -2,10 +2,12 @@
 
 ## What's In This Folder
 
-Four files: `index.ts` — the MCP service with the lifecycle of servers,
+Six files: `index.ts` — the MCP service with the lifecycle of servers,
 `client.ts` — the connection of one server through the SDK, `stdio.ts` — our own
 transport on top of the location's processes, `oauth.ts` — login and credential
-storage. Plus `instructions.ts` — the instruction for the model about servers. The meaning:
+storage, `forge.ts` — the generator behind `mcp_forge`, building a self-contained
+stdio server module from tools the model designed, an OpenAPI document or a command
+line program, and `instructions.ts` — the instruction for the model about servers. The meaning:
 local and remote MCP servers are connected as to the core, their tools
 become ordinary tools, and their instructions get into the prompt.
 
@@ -24,6 +26,10 @@ become ordinary tools, and their instructions get into the prompt.
   `configuredDiscovery`, `authorize`, `connectProvider`, `memoryStore`,
   the credential conversion `toCredential` and `toTokens`; `instructions.ts` —
   the service `McpInstructions` with the instruction key `core/mcp-guidance`.
+- `packages/core/src/mcp/forge.ts` — `validate`, `fromOpenApi`, `fromCli` and
+  `render`: turns a `ServerSpec` into one self-contained ES module that speaks
+  MCP over stdio and needs only Node 18+ or Bun. Its header values read
+  `${ENV_NAME}` from the server's environment, so no secret goes into the file.
 
 ## Important Details
 

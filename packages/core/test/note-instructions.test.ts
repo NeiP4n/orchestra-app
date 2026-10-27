@@ -68,7 +68,8 @@ describe("NoteInstructions", () => {
         const text = Instructions.renderInitial(observed.list, { "core/canvas": json(observed.value) })
 
         expect(text).toContain("<canvas>")
-        expect(text).toContain('the note "Room plan" (.opencode/notes/room-plan.md)')
+        expect(text).toContain('the note "Room plan" (.orchestra/notes/room-plan.md)')
+        expect(text).toContain("Existing notes under .opencode/notes/ are read as a fallback")
         expect(text).toContain("note edit")
         expect(text).toContain("Length: brief and useful, only what matters and no filler.")
         expect(text).not.toContain("shared in a room")
@@ -149,7 +150,7 @@ describe("NoteInstructions", () => {
         expect(lengthText).toContain("The canvas settings changed")
         expect(lengthText).toContain("Length: detailed and useful")
         expect(movedText).toContain("now bound to a different note")
-        expect(movedText).toContain('the note "Spec" (.opencode/notes/spec-note.md)')
+        expect(movedText).toContain('the note "Spec" (.orchestra/notes/spec-note.md)')
         expect(gone.value).toBe(Instructions.removed)
         expect(goneText).toBe(
           'The note "Spec" is no longer bound to this chat. Stop treating requests as edits to it and answer in chat as usual.',

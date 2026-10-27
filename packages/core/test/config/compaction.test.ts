@@ -139,6 +139,151 @@ describe("ConfigCompactionPlugin.Plugin", () => {
       yield* Effect.die(new Error("Timed out waiting for compaction config reload"))
     }),
   )
+
+  it.live("compacts at the configured share of the window and keeps its free share", () =>
+    Effect.gen(function* () {
+      const compaction = yield* SessionCompaction.Service
+      const config = yield* Config.Test
+      const bus = yield* Bus.Service
+      const due = (input: typeof nearInput) =>
+        compaction
+          .compact({ reason: "auto", context: input.context })
+          .pipe(Effect.map((outcome) => outcome.status !== "skipped"))
+      // 90% of the 100k window is the trigger; only 5% stays free after the compact.
+      yield* config.setEntries([
+        new Document({
+          type: "document",
+          info: new Info({
+            compaction: new ConfigCompaction.Info({ auto: true, threshold_percent: 90, keep_free_percent: 5 }),
+          }),
+        }),
+      ])
+      yield* ConfigCompactionPlugin.Plugin.effect(host({ event: { subscribe: () => bus.subscribe(Event.Updated) } }))
+
+      expect(yield* due(bufferedInput)).toBe(false)
+      expect(yield* due(nearInput)).toBe(true)
+
+      // Lowering the threshold to 80% makes a compacted-at-85k context due on the next reload.
+      yield* config.setEntries([
+        new Document({
+          type: "document",
+          info: new Info({
+            compaction: new ConfigCompaction.Info({ auto: true, threshold_percent: 80, keep_free_percent: 5 }),
+          }),
+        }),
+      ])
+      yield* bus.publish(Event.Updated, {})
+      for (let attempt = 0; attempt < 200; attempt++) {
+        if (yield* due(bufferedInput)) return
+        yield* Effect.sleep("10 millis")
+      }
+      yield* Effect.die(new Error("Timed out waiting for the percent threshold to reload"))
+    }),
+  )
+
+  it.live("applies config.compaction.threshold as the default threshold for all new chats", () =>
+    Effect.gen(function* () {
+      const compaction = yield* SessionCompaction.Service
+      const config = yield* Config.Test
+      const bus = yield* Bus.Service
+      const due = (input: typeof nearInput) =>
+        compaction
+          .compact({ reason: "auto", context: input.context })
+          .pipe(Effect.map((outcome) => outcome.status !== "skipped"))
+
+      // Set config.compaction.threshold to 80_000 tokens
+      yield* config.setEntries([
+        new Document({
+          type: "document",
+          info: new Info({
+            compaction: new ConfigCompaction.Info({ auto: true, threshold: 80_000 }),
+          }),
+        }),
+      ])
+      yield* ConfigCompactionPlugin.Plugin.effect(host({ event: { subscribe: () => bus.subscribe(Event.Updated) } }))
+
+      // Verify settings threshold updated
+      expect(compaction.getSettings().threshold).toBe(80_000)
+
+      // 85k tokens exceeds the 80k default threshold -> due for auto-compaction
+      expect(yield* due(bufferedInput)).toBe(true)
+
+      // Test session metadata custom override: a session with threshold 100k does not trigger at 85k
+      const sessionWithHigherThreshold = {
+        ...bufferedInput.context,
+        session: Session.Info.make({
+          ...session,
+          id: Session.ID.make("ses_custom_thresh"),
+          metadata: { compaction_threshold: 100_000 },
+        }),
+      }
+      expect(
+        yield* compaction
+          .compact({ reason: "auto", context: sessionWithHigherThreshold })
+          .pipe(Effect.map((outcome) => outcome.status !== "skipped")),
+      ).toBe(false)
+
+      // A session with string threshold "70k" triggers auto compaction at 85k
+      const sessionWithLowerStringThreshold = {
+        ...bufferedInput.context,
+        session: Session.Info.make({
+          ...session,
+          id: Session.ID.make("ses_custom_thresh_str"),
+          metadata: { compaction_threshold: "70k" },
+        }),
+      }
+      expect(
+        yield* compaction
+          .compact({ reason: "auto", context: sessionWithLowerStringThreshold })
+          .pipe(Effect.map((outcome) => outcome.status !== "skipped")),
+      ).toBe(true)
+
+      // A session with threshold 0 ("без лимита") disables auto-compaction completely: returns skipped
+      const sessionWithZeroThreshold = {
+        ...bufferedInput.context,
+        session: Session.Info.make({
+          ...session,
+          id: Session.ID.make("ses_custom_thresh_zero"),
+          metadata: { compaction_threshold: 0 },
+        }),
+      }
+      expect(
+        yield* compaction
+          .compact({ reason: "auto", context: sessionWithZeroThreshold })
+          .pipe(Effect.map((outcome) => outcome.status !== "skipped")),
+      ).toBe(false)
+
+      const sessionWithNoLimitStringThreshold = {
+        ...bufferedInput.context,
+        session: Session.Info.make({
+          ...session,
+          id: Session.ID.make("ses_custom_thresh_nolimit"),
+          metadata: { compaction_threshold: "без лимита" },
+        }),
+      }
+      expect(
+        yield* compaction
+          .compact({ reason: "auto", context: sessionWithNoLimitStringThreshold })
+          .pipe(Effect.map((outcome) => outcome.status !== "skipped")),
+      ).toBe(false)
+    }),
+  )
+
+  it.live("provides parseCompactionThreshold and formatCompactionThreshold utilities", () =>
+    Effect.sync(() => {
+      expect(SessionCompaction.parseCompactionThreshold("400k")).toBe(400_000)
+      expect(SessionCompaction.parseCompactionThreshold("1.5m")).toBe(1_500_000)
+      expect(SessionCompaction.parseCompactionThreshold("200000")).toBe(200_000)
+      expect(SessionCompaction.parseCompactionThreshold(0)).toBe(0)
+      expect(SessionCompaction.parseCompactionThreshold("Без сжатия")).toBe(0)
+      expect(SessionCompaction.parseCompactionThreshold("Full window")).toBe(0)
+
+      expect(SessionCompaction.formatCompactionThreshold(400_000)).toBe("400k")
+      expect(SessionCompaction.formatCompactionThreshold(1_500_000)).toBe("1.5m")
+      expect(SessionCompaction.formatCompactionThreshold(0)).toBe("Без сжатия")
+      expect(SessionCompaction.formatCompactionThreshold(0, "Full window")).toBe("Full window")
+    }),
+  )
 })
 
 const session = Session.Info.make({

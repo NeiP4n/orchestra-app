@@ -41,7 +41,7 @@ describe("createPtyClient", () => {
       "https://server.example/api/pty/pty_1/connect-token?location%5Bdirectory%5D=%2Frepo%2Fworktree",
     )
     expect(request?.headers.get("authorization")).toBe("Basic credential")
-    expect(request?.headers.get("x-opencode-ticket")).toBe("1")
+    expect(request?.headers.get("x-orchestra-ticket")).toBe("1")
     expect(socketURL?.toString()).toBe(
       "wss://server.example/api/pty/pty_1/connect?location%5Bdirectory%5D=%2Frepo%2Fworktree&cursor=42&ticket=ticket-1",
     )
@@ -117,7 +117,7 @@ describe("createPersistentPtyClient", () => {
     expect(request?.method).toBe("POST")
     expect(request?.url).toBe("https://server.example/api/experimental/persistent-pty/pty_1/connect-token")
     expect(request?.headers.get("authorization")).toBe("Basic credential")
-    expect(request?.headers.get("x-opencode-ticket")).toBe("1")
+    expect(request?.headers.get("x-orchestra-ticket")).toBe("1")
     expect(socketURL?.toString()).toBe(
       "wss://server.example/api/experimental/persistent-pty/pty_1/connect?ticket=persistent-ticket&cursor=42&attachment_id=attachment_1&takeover=true&input_protocol=1",
     )

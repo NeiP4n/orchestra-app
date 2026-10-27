@@ -95,7 +95,7 @@ export const Input = Schema.Struct({
 export const Output = Schema.Struct({ output: Schema.String })
 
 export const Plugin = {
-  id: "opencode.tool.peer",
+  id: "orchestra.tool.peer",
   effect: Effect.fn("PeerTool.Plugin")(function* (ctx: Context) {
     const peers = yield* Peer.Service
     const permission = yield* Permission.Service

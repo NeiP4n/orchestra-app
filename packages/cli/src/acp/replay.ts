@@ -1,5 +1,5 @@
 import type { SessionUpdate } from "@agentclientprotocol/sdk"
-import type { OpenCodeClient } from "@orchestra/client/effect"
+import type { OrchestraClient } from "@orchestra/client/effect"
 import type { SessionMessage } from "@orchestra/schema/session-message"
 import { Effect, Option, Stream } from "effect"
 import type { Capabilities } from "./capabilities"
@@ -13,7 +13,7 @@ import { ACPTranslate } from "./translate"
 import { completedToolUpdate, errorToolUpdate, pendingToolCall, runningToolUpdate } from "./tool"
 
 export function history(
-  client: OpenCodeClient,
+  client: OrchestraClient,
   connection: ACPConnection.Interface,
   attached: Attached,
   capabilities: Capabilities,

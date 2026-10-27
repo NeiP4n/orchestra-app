@@ -269,7 +269,7 @@ export const failed = (error: unknown) => {
 }
 
 export const Plugin = {
-  id: "opencode.tool.skill_catalog",
+  id: "orchestra.tool.skill_catalog",
   effect: Effect.fn("SkillCatalogTool.Plugin")(function* (ctx: Context) {
     const catalog = yield* SkillMarketplace.Service
     const permission = yield* Permission.Service

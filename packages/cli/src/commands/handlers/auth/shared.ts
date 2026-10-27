@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { OpenCode, type IntegrationInfo, type IntegrationMethod, type OpenCodeClient } from "@orchestra/client"
+import { OpenCode, type IntegrationInfo, type IntegrationMethod, type OrchestraClient } from "@orchestra/client"
 import { Service } from "@orchestra/client/effect/service"
 import { ServerConnection } from "../../../services/server-connection"
 
@@ -14,7 +14,7 @@ export function request<A>(run: (signal: AbortSignal) => Promise<A>) {
   return Effect.tryPromise({ try: run, catch: (cause) => cause })
 }
 
-export const loadIntegrations = Effect.fn("cli.auth.integrations")(function* (client: OpenCodeClient) {
+export const loadIntegrations = Effect.fn("cli.auth.integrations")(function* (client: OrchestraClient) {
   // The model endpoint is the existing public readiness boundary for the initial plugin generation.
   yield* request((signal) => client.model.default({ location }, { signal }))
   return yield* request((signal) => client.integration.list({ location }, { signal })).pipe(

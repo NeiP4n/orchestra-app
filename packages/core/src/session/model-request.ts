@@ -465,16 +465,36 @@ export const layer = Layer.effect(
       // The call is not run here: the tool skipped this request's context hooks, which may narrow
       // or remove it. The call itself loads the tool, so the next request offers it through them.
       const unloaded = (name: string) => tools.lazy?.has(name) === true && !picked.has(name)
+
+      const guidedInStep = new Set<string>()
+
+      const isToolCalled = (name: string) => {
+        if (guidedInStep.has(name)) return true
+        return input.messages.some((message) => {
+          if (message.content.some((part) => part.type === "tool-call" && part.name === name)) return true
+          if (message.role === "user") {
+            return message.content.some(
+              (part) =>
+                part.type === "text" &&
+                (part.text.includes("<conversation-checkpoint>") || part.text.includes("<summary>")) &&
+                (part.text.includes(`[Assistant tool call]: ${name}(`) ||
+                  part.text.includes(`tool call]: ${name}(`) ||
+                  part.text.includes(`"${name}"`)),
+            )
+          }
+          return false
+        })
+      }
+
       // A tool's guide arrives as the answer to the session's first call of it, before that call
       // can act. Every later call finds the first one in history and runs.
       const unguided = (name: string) => {
         const guide = tools.guides?.get(name)
         // A tool a context hook removed stays unreachable; execute refuses it as before.
         if (!guide || !hooked.has(name)) return undefined
-        const called = input.messages.some((message) =>
-          message.content.some((part) => part.type === "tool-call" && part.name === name),
-        )
-        return called ? undefined : guide
+        if (isToolCalled(name)) return undefined
+        guidedInStep.add(name)
+        return guide
       }
       return {
         event: shaped,
@@ -484,19 +504,20 @@ export const layer = Layer.effect(
           hooks.trigger("session", "retry", event).pipe(Effect.asVoid),
         // Permission.assert and the question tool throw declines as defects so tools cannot
         // catch them and turn a "no" into model-visible output. Recover them here as failures.
-        executeTool: (call: Parameters<Prepared["executeTool"]>[0]) =>
-          (unloaded(call.call.name)
+        executeTool: (call: Parameters<Prepared["executeTool"]>[0]) => {
+          const guide = unguided(call.call.name)
+          return (unloaded(call.call.name)
             ? Effect.fail(
                 new Tool.Error({
                   message: `${call.call.name} was not loaded for this step. It is loaded now: call it again.`,
                 }),
               )
-            : unguided(call.call.name) !== undefined
+            : guide !== undefined
               ? Effect.succeed<Tool.NormalizedResult>({
                   content: [
                     {
                       type: "text" as const,
-                      text: `${unguided(call.call.name)}\n\nThis is how ${call.call.name} works; the call did not run. Call it again with what you need.`,
+                      text: `${guide}\n\nThis is how ${call.call.name} works; the call did not run. Call it again with what you need.`,
                     },
                   ],
                 })
@@ -514,7 +535,8 @@ export const layer = Layer.effect(
               },
               (decline) => Effect.fail(decline),
             ),
-          ),
+          )
+        },
       }
     })
 

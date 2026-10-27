@@ -23,7 +23,7 @@ function required<T>(value: T | undefined): T {
 
 describe("ZenmuxPlugin", () => {
   test("is registered so legacy referer headers can be applied", () => {
-    expect(ProviderPlugins.map((item) => item.id)).toContain("opencode.provider.zenmux")
+    expect(ProviderPlugins.map((item) => item.id)).toContain("orchestra.provider.zenmux")
   })
 
   it.effect("applies the exact legacy Zenmux headers", () =>

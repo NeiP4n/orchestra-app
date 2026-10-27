@@ -61,8 +61,19 @@ export const makeEventGroup = <const Definitions extends ReadonlyArray<Definitio
 
 const event = make(EventManifest.ServerDefinitions)
 export const EventGroup = event.group
-export const OpenCodeEvent = event.schema
-export type OpenCodeEvent = typeof OpenCodeEvent.Type
-export type OpenCodeEventEncoded = typeof OpenCodeEvent.Encoded
-export const isOpenCodeEvent = (event: { readonly type: string }): event is OpenCodeEvent =>
+export const OrchestraEvent = event.schema
+export type OrchestraEvent = typeof OrchestraEvent.Type
+export type OrchestraEventEncoded = typeof OrchestraEvent.Encoded
+export const isOrchestraEvent = (event: { readonly type: string }): event is OrchestraEvent =>
   event.type === "server.connected" || EventManifest.isServer(event) || event.type.startsWith("rpc.")
+
+// Compatibility aliases for the public event surface. The rename to OrchestraEvent
+// is not yet propagated to every client consumer; remove these once it is.
+/** @deprecated use OrchestraEvent */
+export const OpenCodeEvent = OrchestraEvent
+/** @deprecated use OrchestraEvent */
+export type OpenCodeEvent = OrchestraEvent
+/** @deprecated use OrchestraEventEncoded */
+export type OpenCodeEventEncoded = OrchestraEventEncoded
+/** @deprecated use isOrchestraEvent */
+export const isOpenCodeEvent = isOrchestraEvent

@@ -50,7 +50,7 @@ function selectOptions(): DevOptions {
 
 async function prepareServer(source: ServerSource) {
   if (source.type === "download")
-    return downloadCliToResources(source.version, windowsify("resources/opencode-cli-dev"))
+    return downloadCliToResources(source.version, windowsify("resources/orchestra-cli-dev"))
   await $`bun run --cwd ${join(import.meta.dirname, "../../app")} build`.env({
     ...process.env,
     VITE_ORCHESTRA_SERVER_MODE: "origin",
@@ -60,7 +60,7 @@ async function prepareServer(source: ServerSource) {
 
   if (process.platform !== "win32") return
   process.env.ORCHESTRA_DESKTOP_WSL_CLI_BUILD = join(import.meta.dirname, "../../cli/script/build.ts")
-  process.env.ORCHESTRA_DESKTOP_WSL_CLI_OUTPUT = join(import.meta.dirname, "../resources/opencode-cli-wsl")
+  process.env.ORCHESTRA_DESKTOP_WSL_CLI_OUTPUT = join(import.meta.dirname, "../resources/orchestra-cli-wsl")
 }
 
 async function startDesktop(args: string[]) {

@@ -192,7 +192,7 @@ it.live("a team template opens the orchestra and its role sessions, and the orch
 
     // The dedicated core template creates its specialized sessions through the same project workflow.
     const coreProject = (yield* call("/api/orchestra/project", "POST", {
-      name: "OpenCode++ Core",
+      name: "Orchestra Core",
       directory: coreDirectory,
       template: "opencode-core",
     })).body

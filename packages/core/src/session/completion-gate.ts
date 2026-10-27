@@ -43,6 +43,10 @@ export function check(messages: ReadonlyArray<SessionMessage.Info>, board: Dod.S
   // Asking the operator is a legitimate place to stop.
   if (tools(last).some((tool) => tool.name === "question") || /[?？]\s*$/.test(text)) return undefined
 
+  // If the session has dispatched work to a team worker and is waiting for <team-report>,
+  // do not nudge. The worker's completion report will wake the session reactively.
+  if (hasOutstandingTasks(messages)) return undefined
+
   const open = openItems(messages, board)
   if (open.length > 0)
     return reminder([
@@ -89,4 +93,31 @@ function tools(message: SessionMessage.Assistant) {
 
 function reminder(lines: ReadonlyArray<string>) {
   return `<system-reminder>\n${lines.join("\n")}\n</system-reminder>`
+}
+
+function hasOutstandingTasks(messages: ReadonlyArray<SessionMessage.Info>): boolean {
+  let dispatched = 0
+  let reported = 0
+  for (const message of messages) {
+    if (message.type === "assistant") {
+      for (const part of message.content) {
+        if (part.type === "tool" && part.name === "sessions") {
+          const input = typeof part.state.input === "object" && part.state.input !== null ? part.state.input : {}
+          if ((input as any).action === "send" || ((input as any).action === "create" && (input as any).text)) {
+            if (part.state.status === "completed") {
+              dispatched++
+            }
+          }
+        }
+      }
+    } else if (message.type === "synthetic") {
+      if (
+        message.text.includes("<team-report") ||
+        (message.metadata as any)?.source === "team"
+      ) {
+        reported++
+      }
+    }
+  }
+  return dispatched > reported
 }

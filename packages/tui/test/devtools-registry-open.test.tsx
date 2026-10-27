@@ -30,7 +30,13 @@ test("the registry panel opened from the bar stays open and takes clicks", async
   }
 
   await setup.mockMouse.click(find(" Registry ").x + 2, find(" Registry ").y)
-  await setup.waitForFrame((frame) => frame.includes("Search"))
+  await setup.waitForFrame((frame) => frame.includes("Registry") && (frame.includes("AI tools") || frame.includes("Programs")))
+
+  // Switch to the Programs tab where Search and tools list are displayed
+  if (!setup.captureCharFrame().includes("Search")) {
+    await setup.mockMouse.click(find("Programs").x + 2, find("Programs").y)
+    await setup.waitForFrame((frame) => frame.includes("Search"))
+  }
   expect(setup.captureCharFrame()).toContain("Search")
 
   // A click on the panel's own row must be eaten by it: the backdrop dismisses on the same event.

@@ -2,7 +2,7 @@ import { Effect } from "effect"
 import { define } from "@orchestra/plugin/effect/plugin"
 
 export const KiloPlugin = define({
-  id: "opencode.provider.kilo",
+  id: "orchestra.provider.kilo",
   effect: Effect.fn(function* (ctx) {
     yield* ctx.provider.transform((evt) => {
       for (const item of evt.list()) {

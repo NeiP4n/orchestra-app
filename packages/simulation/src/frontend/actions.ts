@@ -140,7 +140,7 @@ export function snapshot(harness: Harness): SimulationProtocol.Frontend.Semantic
     return [...node, ...children(renderable).flatMap((child) => visit(child, ancestor))]
   }
   return Schema.decodeUnknownSync(SimulationProtocol.Frontend.SemanticSnapshot)({
-    format: "opencode-ui-snapshot-v1",
+    format: "orchestra-ui-snapshot-v1",
     nodes: visit(harness.renderer.root),
   })
 }

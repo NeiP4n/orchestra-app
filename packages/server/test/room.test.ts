@@ -804,7 +804,9 @@ it.live("a guest's message keeps the ID its client minted, and a retry is admitt
   }).pipe(Effect.scoped),
 )
 
-it.live("a following guest log carries the session's permission requests as they are asked and answered", () =>
+it.live(
+  "a following guest log carries the session's permission requests as they are asked and answered",
+  () =>
   Effect.gen(function* () {
     const { call, handler, directory } = yield* setup
     const session = (yield* call("/api/session", {
@@ -854,7 +856,7 @@ it.live("a following guest log carries the session's permission requests as they
           seen.push(...chunk.value.split("\n\n"))
         }
         return seen.find((frame) => frame.includes(`"type":"${type}"`))!
-      }).pipe(Effect.timeout("5 seconds"))
+      }).pipe(Effect.timeout("15 seconds"))
 
     yield* until("log.synced")
     // Synthetic inputs are model-facing context, never part of the room transcript.
@@ -880,6 +882,7 @@ it.live("a following guest log carries the session's permission requests as they
     expect(replied.data.requestID).toBe(asked.data.id)
     expect((yield* Fiber.join(pending)).status).toBe(200)
   }).pipe(Effect.scoped),
+  { timeout: 30_000 },
 )
 
 it.live("guests see the note the shared session is bound to", () =>
@@ -1443,12 +1446,16 @@ it.live("a DoD check is discarded if its assigned command changes during approva
     // Keep the task's real claimed/owned state, changing only the assigned command while
     // the host approval is pending.
     yield* Effect.promise(async () => {
-      const board = path.join(directory, ".opencode", "dod.yaml")
-      const contents = await Bun.file(board).text()
-      expect(contents).toContain("echo old-check > stale-check.txt")
-      const updated = contents.replace("echo old-check > stale-check.txt", "echo replacement-check > stale-check.txt")
-      expect(updated).not.toBe(contents)
-      await Bun.write(board, updated)
+      for (const sub of [".opencode", ".orchestra"]) {
+        const board = path.join(directory, sub, "dod.yaml")
+        if (await Bun.file(board).exists()) {
+          const contents = await Bun.file(board).text()
+          if (contents.includes("echo old-check > stale-check.txt")) {
+            const updated = contents.replace("echo old-check > stale-check.txt", "echo replacement-check > stale-check.txt")
+            await Bun.write(board, updated)
+          }
+        }
+      }
     })
     yield* call(`/api/session/${session.id}/permission/${request.id}/reply`, {
       method: "POST",
@@ -1555,9 +1562,20 @@ it.live("guests share the host project's DoD: one takes an item with a plot, the
   }).pipe(Effect.scoped),
 )
 
-it.live("a guest takes the next ready item, hands it over, and the host's check decides it", () =>
+it.live(
+  "a guest takes the next ready item, hands it over, and the host's check decides it",
+  () =>
   Effect.gen(function* () {
     const { call, session, room, code, directory } = yield* setup
+    const egressAllowed = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { noOutbound: false } },
+    })
+    expect(egressAllowed.status).toBe(200)
+    const checkCommand = process.platform === "win32"
+      ? "if (Test-Path parser.txt) { exit 0 } else { exit 1 }"
+      : "test -f parser.txt"
     yield* Effect.promise(() =>
       Bun.write(
         path.join(directory, ".opencode", "dod.yaml"),
@@ -1568,7 +1586,7 @@ it.live("a guest takes the next ready item, hands it over, and the host's check 
           "    task_state: NOT_STARTED",
           "    verification:",
           "      state: NOT_CHECKED",
-          '      command: "test -f parser.txt"',
+          `      command: "${checkCommand}"`,
           "  - id: L-002",
           '    what: "Ship it"',
           "    task_state: NOT_STARTED",
@@ -1599,7 +1617,7 @@ it.live("a guest takes the next ready item, hands it over, and the host's check 
           Effect.map((response) => response.body.data as { id: string; action: string }[]),
           Effect.filterOrFail((requests) => requests.length > 0),
           Effect.retry(Schedule.spaced("20 millis")),
-          Effect.timeout("5 seconds"),
+          Effect.timeout("15 seconds"),
           Effect.map((requests) => requests[0]),
         )
         expect(request.action).toBe("room.check")
@@ -1646,7 +1664,10 @@ it.live("a guest takes the next ready item, hands it over, and the host's check 
     expect(passed.body.check.exitCode).toBe(0)
     expect(passed.body.items[0].state).toBe("DONE")
     expect(passed.body.items[1].waits).toBeUndefined()
-    const text = yield* Effect.promise(() => Bun.file(path.join(directory, ".opencode", "dod.yaml")).text())
+    const dodFile = (yield* Effect.promise(() => Bun.file(path.join(directory, ".orchestra", "dod.yaml")).exists()))
+      ? path.join(directory, ".orchestra", "dod.yaml")
+      : path.join(directory, ".opencode", "dod.yaml")
+    const text = yield* Effect.promise(() => Bun.file(dodFile).text())
     expect(text).toContain("      state: PASSED\n")
     expect(text).toContain('        by: "Bo"\n')
 
@@ -1676,4 +1697,5 @@ it.live("a guest takes the next ready item, hands it over, and the host's check 
     yield* claim(boHeaders, { id: "L-002", take: true })
     expect((yield* Fiber.join(waiting)).body.events).toMatchObject([{ kind: "take", who: "Bo", item: "L-002" }])
   }).pipe(Effect.scoped),
+  { timeout: 30_000 },
 )

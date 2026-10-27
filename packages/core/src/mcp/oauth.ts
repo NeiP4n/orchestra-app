@@ -437,6 +437,16 @@ export const authorize = (input: {
       ...fields,
       registration: oauth?.client_id ? "static" : cimd ? "cimd" : "dcr",
     })
+    // The SDK's own failure for this case is "Incompatible auth server", which does not tell the
+    // operator what to do. Name the missing capability and the credential that works instead.
+    if (!oauth?.client_id && !cimd && discovery.authorizationServerMetadata?.registration_endpoint === undefined)
+      return yield* Effect.fail(
+        new Error(
+          input.name === "github"
+            ? `GitHub MCP does not support dynamic client registration. Sign in with the GitHub CLI (gh auth login) so Orchestra can reuse its token, then reconnect.`
+            : `MCP server "${input.name}" does not support dynamic client registration. Set oauth.client_id and oauth.client_secret in its MCP config, then reconnect.`,
+        ),
+      )
 
     let authorizationUrl: URL | undefined
     const oauthProvider = provider({

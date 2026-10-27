@@ -125,9 +125,14 @@ export const make = <Key, E, Reason = never>(options: {
       Effect.suspend(() => {
         const execution = executions.get(key)
         if (execution !== undefined) {
-          // A stopping execution refuses joiners: wait out its cleanup, then run fresh.
-          if (execution.stopping)
+          // A stopping execution or an execution in terminal settlement refuses joiners: wait out its cleanup, then run fresh.
+          if (execution.stopping || execution.owner === undefined)
             return Deferred.await(execution.done).pipe(Effect.ignoreCause, Effect.andThen(run(key)))
+          // If the active execution is running with a narrower scope (e.g. steer),
+          // coalesce so input is drained before settling without creating a duplicate execution.
+          if (execution.scope !== "input") {
+            execution.pendingWake = "input"
+          }
           return Deferred.await(execution.done)
         }
         return Deferred.await(start(key, true, "input").done)

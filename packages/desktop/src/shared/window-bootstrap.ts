@@ -7,14 +7,16 @@ export type WindowBootstrap = {
   packaged?: boolean
 }
 
-const prefix = "--opencode-window="
+const prefix = "--orchestra-window="
+const legacyPrefix = "--opencode-window="
 
 export function windowBootstrapArgument(bootstrap: WindowBootstrap) {
   return prefix + encodeURIComponent(JSON.stringify(bootstrap))
 }
 
 export function windowBootstrapFromArguments(args: readonly string[]): WindowBootstrap {
-  const value = args.find((arg) => arg.startsWith(prefix))?.slice(prefix.length)
+  const arg = args.find((item) => item.startsWith(prefix) || item.startsWith(legacyPrefix))
+  const value = arg?.startsWith(prefix) ? arg.slice(prefix.length) : arg?.slice(legacyPrefix.length)
 
   if (!value) throw new Error("Window bootstrap argument not found")
 

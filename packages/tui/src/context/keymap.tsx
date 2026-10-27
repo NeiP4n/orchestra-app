@@ -29,6 +29,7 @@ import { resolveInteractivity, useInteractivity } from "./interactivity"
 
 declare module "@opentui/keymap" {
   interface Command {
+    orchestra?: KeymapCommand
     opencode?: KeymapCommand
     slash?: {
       name: string
@@ -170,7 +171,7 @@ export type { KeymapCommand, KeymapLayer } from "@orchestra/plugin/tui/context"
 export interface Keymap {
   /** Dispatches a reachable command by ID. */
   dispatch(id: string, input?: string): void
-  /** Controls mutually exclusive OpenCode input modes. */
+  /** Controls mutually exclusive Orchestra input modes. */
   readonly mode: {
     /** Returns the active mode. */
     current(): string
@@ -217,6 +218,7 @@ function createLayer(input: () => KeymapLayer) {
         return {
           ...definition,
           name: id,
+          orchestra: command,
           opencode: command,
           run: (context: CommandContext<Renderable, KeyEvent>) => run(value.input(id), context.event),
           ...(description === undefined ? {} : { desc: description }),
@@ -326,7 +328,7 @@ function useCommands(): Accessor<readonly KeymapCommand[]> {
         visibility: "reachable",
       })
       .map((entry) => {
-        const command = entry.command.opencode ?? {
+        const command = entry.command.orchestra ?? entry.command.opencode ?? {
           id: entry.command.name,
           title: typeof entry.command.title === "string" ? entry.command.title : undefined,
           description: typeof entry.command.desc === "string" ? entry.command.desc : undefined,

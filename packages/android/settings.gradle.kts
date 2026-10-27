@@ -13,6 +13,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "opencode-plus-plus"
+rootProject.name = "orchestra-app"
 
 include(":app")

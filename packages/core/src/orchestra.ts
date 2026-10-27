@@ -1420,7 +1420,7 @@ const layer: Layer.Layer<
               sessionID: main,
               description: `${title}: question`,
               text: [
-                `<team-question session="${workerID}" form="${form.id}" title="${title}" role="${worker?.agent ?? "unknown"}">`,
+                `<team-question session="${workerID}" task="${task.messageID ?? "legacy"}" form="${form.id}" title="${title}" role="${worker?.agent ?? "unknown"}">`,
                 ...form.fields.map((field, index) =>
                   [
                     `${index + 1}. ${field.title ? `[${field.title}] ` : ""}${field.description ?? ""}${field.type === "multiselect" ? " (several may be chosen)" : ""}`,
@@ -1431,7 +1431,12 @@ const layer: Layer.Layer<
                 ),
                 "</team-question>",
               ].join("\n"),
-              metadata: { source: "team", sessionID: workerID, form: form.id },
+              metadata: {
+                source: "team",
+                sessionID: workerID,
+                form: form.id,
+                ...(task.messageID ? { taskID: task.messageID } : {}),
+              },
             })
             .pipe(Effect.ignore)
         }),
@@ -2277,7 +2282,9 @@ function requireTemplate(input: TemplateSpec, roles: ReadonlyArray<Role>) {
 // Models often decorate it ("**DONE**", "Status: DONE", "✅ DONE") or answer in Russian, so
 // markup, a status label and emoji are ignored, and a labelled status line further down counts.
 // Anything else is "unknown", which the Orchestrator judges from the report text itself.
-export function outcomeOf(answer: string): "complete" | "partial" | "incomplete" | "unknown" {
+export function outcomeOf(
+  answer: string,
+): "complete" | "partial" | "incomplete" | "unknown" | "failed" {
   const lines = answer
     .split(/\r?\n/)
     .map((line) =>
@@ -2289,16 +2296,31 @@ export function outcomeOf(answer: string): "complete" | "partial" | "incomplete"
     )
     .filter(Boolean)
   const labelled = lines.flatMap((line) => {
-    const match = /^(?:STATUS|OUTCOME|СТАТУС|ИТОГ)\s*:?\s*(.*)$/.exec(line)
+    const match = /^(?:STATUS|OUTCOME|STATE|СТАТУС|ИТОГ|СОСТОЯНИЕ)\s*:?\s*(.*)$/.exec(line)
     return match?.[1] ? [match[1]] : []
   })
   return (
-    [lines[0] ?? "", ...labelled].map((line) => line.replace(/^(?:STATUS|OUTCOME|СТАТУС|ИТОГ)\s*:?\s*/, "")).flatMap((line) => {
-      if (/^(?:PARTLY|PARTIALLY) DONE\b|^ЧАСТИЧНО(?=[\s:]|$)/.test(line)) return ["partial" as const]
-      if (/^NOT DONE\b|^НЕ (?:ГОТОВО|ВЫПОЛНЕНО|СДЕЛАНО)(?=[\s:]|$)/.test(line)) return ["incomplete" as const]
-      if (/^DONE\b|^(?:ГОТОВО|ВЫПОЛНЕНО|СДЕЛАНО)(?=[\s:]|$)/.test(line)) return ["complete" as const]
-      return []
-    })[0] ?? "unknown"
+    [lines[0] ?? "", ...labelled]
+      .map((line) => line.replace(/^(?:STATUS|OUTCOME|STATE|СТАТУС|ИТОГ|СОСТОЯНИЕ)\s*:?\s*/, "").trim())
+      .flatMap((line) => {
+        if (/^(?:FAILED|FAILURE)\b|^(?:ПРОВАЛЕНО|ОШИБКА|НЕУДАЧА)(?=[\s:]|$)/.test(line))
+          return ["failed" as const]
+        if (/^(?:PARTLY|PARTIALLY)(?: DONE| COMPLETE)?\b|^PARTIAL\b|^(?:ЧАСТИЧНО|НЕ ПОЛНОСТЬЮ)(?=[\s:]|$)/.test(line))
+          return ["partial" as const]
+        if (
+          /^(?:NOT DONE|INCOMPLETE|NOT COMPLETED|UNFINISHED|BLOCKED|CANCELLED|ABORTED)\b|^(?:НЕ (?:ГОТОВО|ВЫПОЛНЕНО|СДЕЛАНО|ЗАВЕРШЕНО)|НЕЗАВЕРШЕНО|ОТКЛОНЕНО|ЗАБЛОКИРОВАНО)(?=[\s:]|$)/.test(
+            line,
+          )
+        )
+          return ["incomplete" as const]
+        if (
+          /^(?:DONE|COMPLETE|COMPLETED|SUCCESS|SUCCESSFUL|FINISHED)\b|^(?:ГОТОВО|ВЫПОЛНЕНО|СДЕЛАНО|ЗАВЕРШЕНО|УСПЕШНО)(?=[\s:]|$)/.test(
+            line,
+          )
+        )
+          return ["complete" as const]
+        return []
+      })[0] ?? "unknown"
   )
 }
 
@@ -2338,16 +2360,27 @@ export function checksOf(answer: string) {
   const start = lines.findIndex((line) => /^(?:CHECKS|ПРОВЕРКИ)\b/.test(plain(line)))
   if (start < 0) return { executed: 0, failed: 0, notRun: 0 }
   const end = lines.findIndex(
-    (line, index) => index > start && /^(?:RISKS|NEXT|RESULT|РИСКИ|ДАЛЕЕ|РЕЗУЛЬТАТ)\b/.test(plain(line)),
+    (line, index) =>
+      index > start &&
+      /^(?:RISKS|NEXT|RESULT|TOOLS|NOTES|РИСКИ|ДАЛЕЕ|РЕЗУЛЬТАТ|ИНСТРУМЕНТЫ|ЗАМЕТКИ)\b/.test(plain(line)),
   )
   const section = lines.slice(start, end < 0 ? undefined : end).map(plain)
-  const notRun = section.filter((line) => /NOT RUN|НЕ ЗАПУСКАЛ/.test(line)).length
+  const isNotRun = (line: string) =>
+    /NOT RUN|SKIPPED|НЕ ЗАПУСКАЛ(?:ОСЬ)?|НЕ ЗАПУЩЕН(?:О)?|НЕ ВЫПОЛНЯЛ(?:ОСЬ)?|ПРОПУЩЕН(?:О)?/.test(line)
+  const notRun = section.filter(isNotRun).length
   const run = section.filter(
     (line) =>
-      !/NOT RUN|НЕ ЗАПУСКАЛ/.test(line) &&
-      /\b(?:PASS(?:ED)?|FAIL(?:ED|S)?|OK)\b|✓|✔|✗|✘|❌|EXIT(?: CODE)? ?\d|ПРОШ(?:ЁЛ|ЕЛ|ЛИ)|УПАЛ/.test(line),
+      !isNotRun(line) &&
+      (/\b(?:PASS(?:ED)?|FAIL(?:ED|S)?|OK|SUCCESS(?:FUL)?)\b|✓|✔|✗|✘|❌|EXIT(?: CODE)? ?\d|ПРОШ(?:ЁЛ|ЕЛ|ЛИ)|ПРОЙДЕН(?:О)?|УСПЕШНО|УСПЕХ|УПАЛ|НЕ ПРОШ(?:ЁЛ|ЕЛ|ЛИ)|ПРОВАЛ(?:ЕН)?|СБОЙ/.test(
+        line,
+      )),
   )
-  const failed = run.filter((line) => /(?<!\b0 )\bFAIL(?:ED|S)?\b|✗|✘|❌|УПАЛ|EXIT(?: CODE)? ?[1-9]/.test(line)).length
+  const failed = run.filter(
+    (line) =>
+      /(?<!\b0 )\bFAIL(?:ED|S)?\b|✗|✘|❌|УПАЛ|НЕ ПРОШ(?:ЁЛ|ЕЛ|ЛИ)|НЕ ПРОЙДЕН(?:О)?|ПРОВАЛ(?:ЕН)?|СБОЙ|НЕУДАЧА|EXIT(?: CODE)? ?[1-9]/.test(
+        line,
+      ),
+  ).length
   return { executed: run.length, failed, notRun }
 }
 

@@ -1,5 +1,6 @@
 export * as Pty from "./pty.js"
 
+import child_process from "node:child_process"
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import type { Disp, Proc } from "#pty"
 import { Context, Effect, Layer, Schema, Types } from "effect"
@@ -15,6 +16,137 @@ const BUFFER_LIMIT = 1024 * 1024 * 2
 const EXITED_LIMIT = 25
 const pty = lazy(() => import("#pty"))
 
+export class AnsiRingBuffer {
+  private chunks: string[] = []
+  private chunkLengths: number[] = []
+  private totalLength = 0
+  private headCursor = 0
+  readonly limit: number
+
+  constructor(limit = BUFFER_LIMIT) {
+    this.limit = limit
+  }
+
+  get startCursor(): number {
+    return this.headCursor
+  }
+
+  get length(): number {
+    return this.totalLength
+  }
+
+  push(chunk: string): void {
+    if (!chunk) return
+    this.chunks.push(chunk)
+    this.chunkLengths.push(chunk.length)
+    this.totalLength += chunk.length
+
+    while (this.chunks.length > 0 && this.totalLength > this.limit) {
+      const firstLen = this.chunkLengths[0]!
+      if (this.totalLength - firstLen >= this.limit) {
+        this.chunks.shift()
+        this.chunkLengths.shift()
+        this.totalLength -= firstLen
+        this.headCursor += firstLen
+      } else {
+        const excess = this.totalLength - this.limit
+        let trim = excess
+        const first = this.chunks[0]!
+        if (trim < first.length) {
+          const code = first.charCodeAt(trim - 1)
+          if (code >= 0xd800 && code <= 0xdbff) {
+            trim++
+          }
+        }
+        const remaining = first.slice(trim)
+        this.chunks[0] = remaining
+        this.chunkLengths[0] = remaining.length
+        this.totalLength -= trim
+        this.headCursor += trim
+        break
+      }
+    }
+  }
+
+  replay(fromCursor: number, endCursor: number): string {
+    if (this.chunks.length === 0 || fromCursor >= endCursor) return ""
+    const offset = Math.max(0, fromCursor - this.headCursor)
+    if (offset >= this.totalLength) return ""
+
+    if (offset === 0) {
+      return this.chunks.join("")
+    }
+
+    let current = 0
+    let startIdx = 0
+    let innerOffset = 0
+    for (let i = 0; i < this.chunks.length; i++) {
+      const len = this.chunkLengths[i]!
+      if (current + len > offset) {
+        startIdx = i
+        innerOffset = offset - current
+        break
+      }
+      current += len
+    }
+
+    const firstChunk = this.chunks[startIdx]!
+    let sliceStart = innerOffset
+    if (sliceStart > 0 && sliceStart < firstChunk.length) {
+      const code = firstChunk.charCodeAt(sliceStart - 1)
+      if (code >= 0xd800 && code <= 0xdbff) {
+        sliceStart++
+      }
+    }
+
+    const pieces: string[] = [firstChunk.slice(sliceStart)]
+    for (let i = startIdx + 1; i < this.chunks.length; i++) {
+      pieces.push(this.chunks[i]!)
+    }
+    return pieces.join("")
+  }
+
+  clear(): void {
+    this.chunks.length = 0
+    this.chunkLengths.length = 0
+    this.totalLength = 0
+  }
+}
+
+function terminatePtyProcess(proc: Proc) {
+  try {
+    proc.kill()
+  } catch {}
+  const pid = proc.pid
+  if (pid && Number.isSafeInteger(pid) && pid > 0) {
+    killProcessTree(pid)
+  }
+}
+
+function killProcessTree(pid: number) {
+  if (process.platform === "win32") {
+    try {
+      child_process.spawn("taskkill", ["/F", "/T", "/PID", String(pid)], { windowsHide: true, stdio: "ignore" }).unref()
+    } catch {}
+  } else {
+    try {
+      process.kill(-pid, "SIGTERM")
+    } catch {}
+    try {
+      process.kill(pid, "SIGTERM")
+    } catch {}
+    const timer = setTimeout(() => {
+      try {
+        process.kill(-pid, "SIGKILL")
+      } catch {}
+      try {
+        process.kill(pid, "SIGKILL")
+      } catch {}
+    }, 250)
+    timer.unref?.()
+  }
+}
+
 type Subscriber = {
   readonly onData: (chunk: string) => void
   readonly onEnd: (event: { exitCode?: number }) => void
@@ -27,8 +159,7 @@ type Subscriber = {
 type Active = {
   info: Info
   process: Proc
-  buffer: string
-  bufferCursor: number
+  buffer: AnsiRingBuffer
   cursor: number
   subscribers: Map<object, Subscriber>
   listeners: Disp[]
@@ -118,9 +249,8 @@ const layer = Layer.effect(
       for (const listener of session.listeners) listener.dispose()
       session.listeners.length = 0
       if (session.info.status === "running") {
-        try {
-          session.process.kill()
-        } catch {}
+        session.info.status = "exited"
+        terminatePtyProcess(session.process)
       }
       notifyEnd(session, {})
     }
@@ -194,8 +324,7 @@ const layer = Layer.effect(
       const session: Active = {
         info,
         process: proc,
-        buffer: "",
-        bufferCursor: 0,
+        buffer: new AnsiRingBuffer(BUFFER_LIMIT),
         cursor: 0,
         subscribers: new Map(),
         listeners: [],
@@ -215,16 +344,15 @@ const layer = Layer.effect(
               session.subscribers.delete(token)
             }
           }
-          session.buffer += chunk
-          if (session.buffer.length <= BUFFER_LIMIT) return
-          const excess = session.buffer.length - BUFFER_LIMIT
-          session.buffer = session.buffer.slice(excess)
-          session.bufferCursor += excess
+          session.buffer.push(chunk)
         }),
         proc.onExit(({ exitCode }) => {
           if (session.info.status === "exited") return
           session.info.status = "exited"
           session.info.exitCode = exitCode
+          if (proc.pid && Number.isSafeInteger(proc.pid) && proc.pid > 0) {
+            killProcessTree(proc.pid)
+          }
           notifyEnd(session, { exitCode })
           exitOrder.push(id)
           runFork(
@@ -270,7 +398,6 @@ const layer = Layer.effect(
         pending: [],
       }
       session.subscribers.set(token, subscriber)
-      const start = session.bufferCursor
       const end = session.cursor
       const from =
         input.cursor === -1
@@ -278,12 +405,7 @@ const layer = Layer.effect(
           : typeof input.cursor === "number" && Number.isSafeInteger(input.cursor)
             ? Math.max(0, input.cursor)
             : 0
-      const replay = (() => {
-        if (!session.buffer || from >= end) return ""
-        const offset = Math.max(0, from - start)
-        if (offset >= session.buffer.length) return ""
-        return session.buffer.slice(offset)
-      })()
+      const replay = session.buffer.replay(from, end)
       return {
         replay,
         cursor: end,

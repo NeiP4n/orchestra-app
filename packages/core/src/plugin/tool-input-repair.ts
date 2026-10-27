@@ -21,7 +21,7 @@ const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unkno
 const maxDepth = 6
 
 export const Plugin = define({
-  id: "opencode.tool.input.repair",
+  id: "orchestra.tool.input.repair",
   effect: (ctx) =>
     ctx.tool.hook("execute.before", (event) =>
       Effect.gen(function* () {

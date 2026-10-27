@@ -45,7 +45,7 @@ export const toModelContent = (output: Output) =>
 // TODO: Add LSP notification and diagnostics after LSP runtime exists.
 
 export const Plugin = {
-  id: "opencode.tool.write",
+  id: "orchestra.tool.write",
   effect: Effect.fn("WriteTool.Plugin")(function* (ctx: Context) {
     const access = yield* FileAccess.Service
     const fileMutation = yield* FileMutation.Service
@@ -98,11 +98,11 @@ export const Plugin = {
               return result
             }).pipe(
               Effect.map((output) => ({ output, content: toModelContent(output) })),
-              Effect.mapError((error) =>
-                error instanceof ToolFailure
-                  ? error
-                  : new ToolFailure({ message: `Unable to write ${input.path}`, error }),
-              ),
+              Effect.mapError((error) => {
+                if (error instanceof ToolFailure) return error
+                const cause = error instanceof Error ? `: ${error.message}` : error ? `: ${String(error)}` : ""
+                return new ToolFailure({ message: `Unable to write ${input.path}${cause}`, error })
+              }),
             ),
         }),
       )

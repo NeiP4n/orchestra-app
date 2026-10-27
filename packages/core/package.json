@@ -28,6 +28,8 @@
   },
   "exports": {
     "./warp": "./src/warp-recovery.ts",
+    "./agi": "./src/agi/index.ts",
+    "./agi/*": "./src/agi/*.ts",
     "./*": "./src/*.ts"
   },
   "imports": {

@@ -149,9 +149,11 @@ function variantsFor(providers: RunProvider[], model: RunInput["model"]) {
 
 function formRequestOptions(location: LocationRef | undefined) {
   if (!location) return
+  const encoded = encodeURIComponent(location.directory)
   return {
     headers: {
-      "x-opencode-directory": encodeURIComponent(location.directory),
+      "x-orchestra-directory": encoded,
+      "x-opencode-directory": encoded,
     },
   }
 }

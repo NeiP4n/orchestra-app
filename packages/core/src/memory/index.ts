@@ -29,6 +29,7 @@ import { Location } from "../location.js"
 import type { SessionSchema } from "../session/schema.js"
 import { SessionMessageTable, SessionTable } from "../session/sql.js"
 import { MemoryRank } from "./rank.js"
+import { ProjectDirs } from "../project-dirs.js"
 
 export const Scope = Schema.Literals(["user", "project"])
 export type Scope = typeof Scope.Type
@@ -132,8 +133,9 @@ const layer = Layer.effect(
     const db = (yield* Database.Service).db
     const roots: Record<Scope, string> = {
       user: path.join(global.data, "memory"),
-      project: path.join(location.project.directory, ".opencode", "memory"),
+      project: path.join(location.project.directory, ProjectDirs.primary("memory")),
     }
+    const legacyProjectRoot = path.join(location.project.directory, ProjectDirs.legacy("memory"))
 
     const fail = (message: string) => new MemoryError({ message })
     const io = <A, E>(effect: Effect.Effect<A, E>) =>
@@ -157,20 +159,36 @@ const layer = Layer.effect(
     }
 
     const blockFile = (scope: Scope, label: string) => path.join(roots[scope], "blocks", `${label}.md`)
+    const legacyBlockFile = (scope: Scope, label: string) =>
+      scope === "project" ? path.join(legacyProjectRoot, "blocks", `${label}.md`) : undefined
 
     const readScope = Effect.fn("Memory.readScope")(function* (scope: Scope) {
-      const directory = path.join(roots[scope], "blocks")
-      if (!(yield* fs.existsSafe(directory))) return []
-      const entries = yield* io(fs.readDirectoryEntries(directory))
-      const labels = entries
-        .filter((entry) => entry.type === "file" && entry.name.endsWith(".md"))
-        .map((entry) => entry.name.slice(0, -3))
-        .filter((label) => LABEL.test(label))
-        .toSorted()
+      const directories = [path.join(roots[scope], "blocks")]
+      if (scope === "project") directories.push(path.join(legacyProjectRoot, "blocks"))
+      const allLabels = new Set<string>()
+      for (const directory of directories) {
+        if (!(yield* fs.existsSafe(directory))) continue
+        const entries = yield* io(fs.readDirectoryEntries(directory))
+        for (const entry of entries) {
+          if (entry.type === "file" && entry.name.endsWith(".md")) {
+            const label = entry.name.slice(0, -3)
+            if (LABEL.test(label)) allLabels.add(label)
+          }
+        }
+      }
+      const labels = [...allLabels].toSorted()
       return yield* Effect.forEach(labels, (label) =>
-        io(fs.readFileStringSafe(blockFile(scope, label))).pipe(
-          Effect.map((content) => (content === undefined ? [] : [parseBlock(scope, label, content)])),
-        ),
+        Effect.gen(function* () {
+          const primaryFile = blockFile(scope, label)
+          const primaryContent = yield* io(fs.readFileStringSafe(primaryFile))
+          if (primaryContent !== undefined) return [parseBlock(scope, label, primaryContent)]
+          const legacyFile = legacyBlockFile(scope, label)
+          if (legacyFile) {
+            const legacyContent = yield* io(fs.readFileStringSafe(legacyFile))
+            if (legacyContent !== undefined) return [parseBlock(scope, label, legacyContent)]
+          }
+          return []
+        }),
       ).pipe(Effect.map((found) => found.flat()))
     })
 
@@ -294,7 +312,11 @@ const layer = Layer.effect(
         input.scope,
         Effect.gen(function* () {
           const block = yield* existing(input.label, input.scope)
-          if (block.updated > 0) yield* io(fs.remove(blockFile(block.scope, block.label), { force: true }))
+          if (block.updated > 0) {
+            yield* io(fs.remove(blockFile(block.scope, block.label), { force: true }))
+            const legacyFile = legacyBlockFile(block.scope, block.label)
+            if (legacyFile) yield* io(fs.remove(legacyFile, { force: true }))
+          }
           cached = undefined
           return block
         }),
@@ -303,7 +325,10 @@ const layer = Layer.effect(
     const archiveFile = (scope: Scope) => path.join(roots[scope], "archive.jsonl")
 
     const readArchive = Effect.fn("Memory.readArchive")(function* (scope: Scope) {
-      const content = yield* io(fs.readFileStringSafe(archiveFile(scope)))
+      let content = yield* io(fs.readFileStringSafe(archiveFile(scope)))
+      if (content === undefined && scope === "project") {
+        content = yield* io(fs.readFileStringSafe(path.join(legacyProjectRoot, "archive.jsonl")))
+      }
       if (content === undefined) return []
       return content
         .split("\n")

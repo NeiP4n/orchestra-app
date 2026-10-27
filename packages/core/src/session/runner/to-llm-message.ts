@@ -151,6 +151,16 @@ const toolCall = (tool: SessionMessage.AssistantTool, providerMetadata: Provider
     providerMetadata,
   })
 
+const MAX_LIVE_TOOL_RESULT_CHARS = 100_000
+
+function truncateLiveToolText(text: string): string {
+  if (text.length <= MAX_LIVE_TOOL_RESULT_CHARS) return text
+  const headChars = 60_000
+  const tailChars = 20_000
+  const omitted = text.length - headChars - tailChars
+  return `${text.slice(0, headChars)}\n\n[... truncated: ${omitted} characters omitted to preserve model context ...]\n\n${text.slice(-tailChars)}`
+}
+
 const toolResult = (tool: SessionMessage.AssistantTool, providerMetadata: ProviderMetadata | undefined) => {
   if (tool.state.status === "completed") {
     // TODO: Materialize remote and managed URIs before provider-history lowering.
@@ -161,8 +171,13 @@ const toolResult = (tool: SessionMessage.AssistantTool, providerMetadata: Provid
       name: tool.name,
       result:
         single?.type === "text"
-          ? { type: "text" as const, value: single.text }
-          : { type: "content" as const, value: content },
+          ? { type: "text" as const, value: truncateLiveToolText(single.text) }
+          : {
+              type: "content" as const,
+              value: content.map((item) =>
+                item.type === "text" ? { ...item, text: truncateLiveToolText(item.text) } : item,
+              ),
+            },
       providerExecuted: tool.executed,
       providerMetadata,
     })

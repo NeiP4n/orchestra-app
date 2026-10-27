@@ -73,6 +73,8 @@ export const WslOpencodeCheck = Schema.Struct({
 })
 
 export type WslOpencodeCheck = typeof WslOpencodeCheck.Type
+export const WslOrchestraCheck = WslOpencodeCheck
+export type WslOrchestraCheck = WslOpencodeCheck
 
 export const WslServerItem = Schema.Struct({ config: WslServerConfig, runtime: WslServerRuntime })
 

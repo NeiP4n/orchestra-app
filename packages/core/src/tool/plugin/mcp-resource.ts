@@ -2,33 +2,39 @@ export * as McpResourceTools from "./mcp-resource.js"
 
 import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
+import { Tool } from "@orchestra/schema/tool"
 import { Effect, Schema } from "effect"
 import { Mcp } from "../../mcp/index.js"
 import { Permission } from "../../permission.js"
 
+const ListInput = Schema.Struct({
+  server: Schema.optionalKey(
+    Schema.String.annotate({ description: "MCP server name as configured. Omit to list every server." }),
+  ),
+})
+const ReadInput = Schema.Struct({
+  server: Schema.String.annotate({ description: "The server field of the discovered resource." }),
+  uri: Schema.String.annotate({ description: "Exact resource URI from discovery, an expanded uriTemplate, or the user." }),
+})
+
 export const Plugin = {
-  id: "opencode.tools.mcp-resources",
+  id: "orchestra.tools.mcp-resources",
   effect: Effect.fn("McpResourceTools.Plugin")(function* (ctx: Context) {
     const mcp = yield* Mcp.Service
     const permission = yield* Permission.Service
 
     yield* ctx.tool
       .transform((editor) => {
-        editor.add({
+        const list = {
           name: "list_mcp_resources",
-          options: { namespace: "opencode", codemode: true },
           description:
             "List documents, records, and other data exposed by MCP servers. Use this when the user refers to something that is not a local file, such as a URI with a custom scheme, then load a match with read_mcp_resource. Each entry names the server to read it from. Templates are resources addressed by a parameter such as a record ID; fill in the uriTemplate placeholders before reading.",
-          input: Schema.Struct({
-            server: Schema.optionalKey(
-              Schema.String.annotate({ description: "MCP server name as configured. Omit to list every server." }),
-            ),
-          }),
+          input: ListInput,
           output: Schema.Struct({
             resources: Schema.Array(Mcp.Resource),
             templates: Schema.Array(Mcp.ResourceTemplate),
           }),
-          execute: (input, context) =>
+          execute: (input: typeof ListInput.Type, context: Tool.Context) =>
             Effect.gen(function* () {
               // Listing every server checks each server name so per-server rules still apply.
               const servers =
@@ -45,22 +51,14 @@ export const Plugin = {
               if (input.server === undefined) return { output: yield* mcp.resourceCatalog() }
               return { output: yield* mcp.resources({ server: input.server }) }
             }).pipe(Effect.mapError((error) => new ToolFailure({ message: error.message, error }))),
-        })
-        editor.add({
+        }
+        const read = {
           name: "read_mcp_resource",
-          options: { namespace: "opencode", codemode: true },
           description:
             "Read one MCP resource by server and URI. Not for local files. Always return the full contents rather than slicing or filtering them; oversized output is truncated automatically and the full content is saved to a file you can read. Images and PDFs are shown to you directly.",
-          input: Schema.Struct({
-            server: Schema.String.annotate({
-              description: "The server field of the discovered resource.",
-            }),
-            uri: Schema.String.annotate({
-              description: "Exact resource URI from discovery, an expanded uriTemplate, or the user.",
-            }),
-          }),
+          input: ReadInput,
           output: Mcp.ResourceContent,
-          execute: (input, context) =>
+          execute: (input: typeof ReadInput.Type, context: Tool.Context) =>
             Effect.gen(function* () {
               yield* permission.assert({
                 action: "opencode_read_mcp_resource",
@@ -94,7 +92,11 @@ export const Plugin = {
                     }),
               ),
             ),
-        })
+        }
+        for (const namespace of ["orchestra", "opencode"] as const) {
+          editor.add({ ...list, options: { namespace, codemode: true } })
+          editor.add({ ...read, options: { namespace, codemode: true } })
+        }
       })
       .pipe(Effect.orDie)
   }),

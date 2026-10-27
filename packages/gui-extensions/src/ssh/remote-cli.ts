@@ -24,12 +24,18 @@ export function requireVersion(version: string) {
 }
 
 export function discoverScript(options: { fromPath?: boolean; cache?: { directory: string; prefix: string } } = {}) {
-  return `cli=${options.fromPath ? "$(command -v opencode || true)" : '""'}
+  return `cli=${options.fromPath ? "$(command -v orchestra || command -v opencode || true)" : '""'}
+if [ -z "$cli" ] && [ -x "$HOME/.orchestra/bin/orchestra" ]; then cli="$HOME/.orchestra/bin/orchestra"; fi
 if [ -z "$cli" ] && [ -x "$HOME/.opencode/bin/opencode" ]; then cli="$HOME/.opencode/bin/opencode"; fi
 ${
   options.cache
     ? `if [ -z "$cli" ]; then
-  for binary in "$HOME"/${quote(options.cache.directory)}/${quote(options.cache.prefix)}*/opencode; do
+  for binary in "$HOME"/${quote(options.cache.directory)}/*/orchestra; do
+    if [ -x "$binary" ]; then cli="$binary"; fi
+  done
+fi
+if [ -z "$cli" ]; then
+  for binary in "$HOME"/.opencode/desktop-ssh/*/opencode; do
     if [ -x "$binary" ]; then cli="$binary"; fi
   done
 fi
@@ -97,20 +103,22 @@ export function installScript(input: { version: string; directory?: string; sour
 
     return `set -eu
 curl -fsSL ${quote(installerUrl)} | bash -s -- ${input.source.binary ? `--binary ${input.source.binary}` : `--version ${quote(version)}`}
-${verifyScript('"$HOME/.opencode/bin/opencode"', version)}
+cli="$HOME/.orchestra/bin/orchestra"
+if [ ! -x "$cli" ] && [ -x "$HOME/.opencode/bin/opencode" ]; then cli="$HOME/.opencode/bin/opencode"; fi
+${verifyScript('"$cli"', version)}
 `
   }
 
   return `set -eu
 umask 077
-destination="$HOME"/${quote(`${input.directory ?? ".opencode/bin"}/opencode`)}
+destination="$HOME"/${quote(`${input.directory ?? ".orchestra/bin"}/orchestra`)}
 mkdir -p "$(dirname "$destination")"
 stage=$(mktemp -d "$(dirname "$destination")/.install-XXXXXX")
 trap 'rm -rf "$stage"' EXIT
 ${stageBinary(input.source)}
-chmod 755 "$stage/package/bin/opencode"
-${verifyScript('"$stage/package/bin/opencode"', version)}
-mv "$stage/package/bin/opencode" "$destination"
+chmod 755 "$stage/package/bin/orchestra"
+${verifyScript('"$stage/package/bin/orchestra"', version)}
+mv "$stage/package/bin/orchestra" "$destination"
 `
 }
 
@@ -135,11 +143,11 @@ const Beta = Schema.Struct({ version: Schema.String.check(Schema.isPattern(/^0\.
 export const latestBeta = Effect.fn("RemoteCli.latestBeta")(function* () {
   const http = yield* HttpClient.HttpClient
 
-  const metadata = yield* http.get("https://registry.npmjs.org/@opencode%2fcli/beta").pipe(
+  const metadata = yield* http.get("https://registry.npmjs.org/@orchestra%2fcli/beta").pipe(
     Effect.flatMap(HttpClientResponse.filterStatusOk),
     Effect.flatMap(HttpClientResponse.schemaBodyJson(Beta)),
     Effect.timeout("30 seconds"),
-    Effect.mapError(() => new Failure({ code: "install", detail: "https://registry.npmjs.org/@opencode%2fcli/beta" })),
+    Effect.mapError(() => new Failure({ code: "install", detail: "https://registry.npmjs.org/@orchestra%2fcli/beta" })),
   )
 
   return metadata.version

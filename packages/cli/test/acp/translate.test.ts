@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { OpenCodeEvent, type OpenCodeEventEncoded } from "@orchestra/protocol/groups/event"
+import { OrchestraEvent, type OrchestraEventEncoded } from "@orchestra/protocol/groups/event"
 import { Session } from "@orchestra/schema/session"
 import { SessionMessage } from "@orchestra/schema/session-message"
 import { Schema } from "effect"
@@ -32,10 +32,10 @@ const ctx: ACPTranslate.TurnContext = {
   childUpdates: false,
   compaction: false,
 }
-const decodeEvent = Schema.decodeUnknownSync(OpenCodeEvent)
+const decodeEvent = Schema.decodeUnknownSync(OrchestraEvent)
 const decodeMessage = Schema.decodeUnknownSync(SessionMessage.Info)
 
-const live = (...events: OpenCodeEventEncoded[]) => [delivered(root, "msg_input"), ...events]
+const live = (...events: OrchestraEventEncoded[]) => [delivered(root, "msg_input"), ...events]
 const usage = (input: number, output: number, reasoning = 0, read = 0, write = 0) => ({
   input,
   output,
@@ -70,7 +70,7 @@ const compactionMessage = (input: Record<string, unknown>) => ({
 type Row = {
   readonly name: string
   readonly ctx?: Partial<ACPTranslate.TurnContext>
-  readonly events?: OpenCodeEventEncoded[]
+  readonly events?: OrchestraEventEncoded[]
   readonly messages?: unknown[]
   readonly expected: object
 }
@@ -627,7 +627,7 @@ function translate(row: Row) {
   }
 }
 
-function run(events: ReadonlyArray<OpenCodeEventEncoded>, context = ctx) {
+function run(events: ReadonlyArray<OrchestraEventEncoded>, context = ctx) {
   return events.reduce<{
     state: ACPTranslate.TurnState
     outputs: ACPTranslate.Output[]

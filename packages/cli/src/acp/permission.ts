@@ -1,5 +1,5 @@
 import type { PermissionOption, SessionUpdate } from "@agentclientprotocol/sdk"
-import type { OpenCodeClient, OpenCodeEvent } from "@orchestra/client/effect"
+import type { OrchestraClient, OpenCodeEvent } from "@orchestra/client/effect"
 import { FileDiff } from "@orchestra/schema/file-diff"
 import type { Permission } from "@orchestra/schema/permission"
 import type { Session } from "@orchestra/schema/session"
@@ -26,7 +26,7 @@ type Tool = { readonly id: string; readonly name: string; readonly input: ToolIn
 type Preview = ReturnType<typeof diff>
 
 type Input = {
-  readonly client: OpenCodeClient
+  readonly client: OrchestraClient
   readonly connection: ACPConnection.Interface
   readonly event: PermissionEvent
   readonly sessionID: Session.ID

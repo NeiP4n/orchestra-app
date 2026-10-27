@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { createWslRuntime, wslArgs } from "./runtime"
-import { installScript } from "./remote-cli"
+import { discoverScript, installScript } from "./remote-cli"
 
 test("requires an explicit installer URL for WSL remote CLI installation", () => {
   const previous = process.env.ORCHESTRA_INSTALLER_URL
@@ -30,6 +30,14 @@ test("requires an explicit installer URL for WSL remote CLI installation", () =>
 
     if (previous !== undefined) process.env.ORCHESTRA_INSTALLER_URL = previous
   }
+})
+
+test("WSL CLI discovery prefers Orchestra and falls back to the legacy OpenCode installation", () => {
+  const script = discoverScript()
+  expect(script.indexOf("$HOME/.orchestra/bin/orchestra")).toBeLessThan(
+    script.indexOf("$HOME/.opencode/bin/opencode"),
+  )
+  expect(script).toContain('$HOME/.opencode/bin/opencode')
 })
 
 test("wslArgs bypasses the distro default shell", () => {

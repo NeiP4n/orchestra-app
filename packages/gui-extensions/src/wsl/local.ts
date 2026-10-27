@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process"
+import { existsSync } from "node:fs"
 import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
@@ -8,7 +9,7 @@ const execFileAsync = promisify(execFile)
 
 /** Development only: builds the Linux CLI from this checkout so WSL runs the same source. */
 export async function buildLocalWslCli(input: { version: string; script: string; output: string }) {
-  const directory = await mkdtemp(join(tmpdir(), "opencode-wsl-cli-"))
+  const directory = await mkdtemp(join(tmpdir(), "orchestra-wsl-cli-"))
   const root = join(dirname(input.script), "../../..")
 
   const build = async () => {
@@ -27,14 +28,17 @@ export async function buildLocalWslCli(input: { version: string; script: string;
       [
         packageManager,
         input.script,
-        `--target=opencode-${target}`,
+        `--target=orchestra-${target}`,
         "--skip-install",
         "--skip-web-ui",
         `--outdir=${directory}`,
       ],
       { cwd: root, env: { ...process.env, ORCHESTRA_VERSION: input.version }, windowsHide: true },
     )
-    await copyFile(join(directory, `cli-${target}`, "bin", "opencode"), input.output)
+    const binPath = existsSync(join(directory, `cli-${target}`, "bin", "orchestra"))
+      ? join(directory, `cli-${target}`, "bin", "orchestra")
+      : join(directory, `cli-${target}`, "bin", "opencode")
+    await copyFile(binPath, input.output)
 
     return input.output
   }

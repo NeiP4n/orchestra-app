@@ -93,7 +93,7 @@ const GUIDE = [
 ].join("\n")
 
 export const Plugin = {
-  id: "opencode.tool.desktop",
+  id: "orchestra.tool.desktop",
   effect: Effect.fn("DesktopTool.Plugin")(function* (ctx: Context) {
     const permission = yield* Permission.Service
     // The scale of each session's latest screenshot, so clicks land where the model saw them.

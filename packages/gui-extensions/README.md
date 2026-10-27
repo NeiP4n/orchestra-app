@@ -254,7 +254,7 @@ SDK icon fields use `IconName` from `@orchestra/ui/icons/catalog`, a dependency-
 | `ctx.serverEndpoints` (main) | `ServerEndpoints`                                              | URL and credentials of a server the windows use                   |
 | `ctx.windows` (main)         | `Windows`                                                      | The app's main windows                                            |
 | `ctx.embeds` (main)          | `Embeds`                                                       | `create(view, window)` places a web page                          |
-| `ctx.cli` (main)             | `Cli`                                                          | The opencode CLI the app runs                                     |
+| `ctx.cli` (main)             | `Cli`                                                          | The orchestra CLI the app runs                                    |
 
 ## Ipc: main ↔ window
 

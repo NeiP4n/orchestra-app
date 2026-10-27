@@ -1,7 +1,7 @@
-import type { OpenCode } from "./client.js"
+import type { Orchestra } from "./client.js"
 
 export * from "./generated/index.js"
-export { OpenCode } from "./client.js"
+export { OpenCode, Orchestra } from "./client.js"
 export type {
   AgentApi,
   CommandApi,
@@ -20,5 +20,7 @@ export type {
   SessionApi,
   SkillApi,
 } from "./api.js"
-export type { EventSubscribeOutput as OpenCodeEvent } from "./generated/types.js"
-export type OpenCodeClient = ReturnType<typeof OpenCode.make>
+export type { EventSubscribeOutput as OpenCodeEvent, EventSubscribeOutput as OrchestraEvent } from "./generated/types.js"
+export type OrchestraClient = ReturnType<typeof Orchestra.make>
+export type OpenCodeClient = OrchestraClient
+export * from "../event-source.js"

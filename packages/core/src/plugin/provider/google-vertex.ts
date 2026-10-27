@@ -39,7 +39,7 @@ function replaceVertexVars(value: string, project: string | undefined, location:
 }
 
 export const GoogleVertexPlugin = define({
-  id: "opencode.provider.google.vertex",
+  id: "orchestra.provider.google.vertex",
   effect: Effect.fn(function* (ctx) {
     yield* ctx.provider.transform((evt) => {
       for (const item of evt.list()) {

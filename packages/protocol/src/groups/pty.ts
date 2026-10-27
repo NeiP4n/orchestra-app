@@ -7,7 +7,8 @@ import { ForbiddenError, LocationNotFoundError, PtyNotFoundError } from "../erro
 import { LocationQuery, locationQueryOpenApi } from "./location.js"
 
 export const PTY_CONNECT_TICKET_QUERY = "ticket"
-export const PTY_CONNECT_TOKEN_HEADER = "x-opencode-ticket"
+export const PTY_CONNECT_TOKEN_HEADER = "x-orchestra-ticket"
+export const LEGACY_PTY_CONNECT_TOKEN_HEADER = "x-opencode-ticket"
 export const PTY_CONNECT_TOKEN_HEADER_VALUE = "1"
 
 const PTY_CONNECT_PATH = /^\/api\/pty\/[^/]+\/connect$/
@@ -104,7 +105,10 @@ export const makePtyGroup = <LocationId extends HttpApiMiddleware.AnyId, Locatio
       HttpApiEndpoint.post("pty.connectToken", "/api/pty/:ptyID/connect-token", {
         params: { ptyID: Pty.ID },
         query: LocationQuery,
-        headers: Schema.Struct({ [PTY_CONNECT_TOKEN_HEADER]: Schema.optional(Schema.String) }),
+        headers: Schema.Struct({
+          [PTY_CONNECT_TOKEN_HEADER]: Schema.optional(Schema.String),
+          [LEGACY_PTY_CONNECT_TOKEN_HEADER]: Schema.optional(Schema.String),
+        }),
         success: Location.response(PtyTicket.ConnectToken),
         error: [ForbiddenError, PtyNotFoundError],
       })

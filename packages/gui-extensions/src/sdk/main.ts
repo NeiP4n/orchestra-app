@@ -144,7 +144,7 @@ export interface ServerEndpoint {
   readonly password?: string
 }
 
-/** The opencode CLI the desktop app runs. */
+/** The orchestra CLI the desktop app runs. */
 export interface Cli {
   /** The CLI's version. */
   readonly version: string
@@ -328,7 +328,7 @@ export interface MainContext<D = never> extends BaseContext {
    */
   readonly embeds: Embeds
   /**
-   * The opencode CLI the app runs.
+   * The orchestra CLI the app runs.
    *
    * @example
    * ```ts

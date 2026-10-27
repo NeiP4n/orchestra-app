@@ -97,7 +97,7 @@ export function sessionModels(metadata?: SessionMetadata) {
 }
 
 // How strictly a sandbox project's shell commands are confined. "environment" gives them their
-// own opencode data, config, state and cache; "strict" also runs them under bubblewrap, which
+// own data, config, state and cache; "strict" also runs them under bubblewrap, which
 // hides the home directory and allows writes only inside the sandbox.
 export const SandboxIsolation = Schema.Literals(["environment", "strict"]).annotate({
   identifier: "Orchestra.SandboxIsolation",
@@ -105,8 +105,8 @@ export const SandboxIsolation = Schema.Literals(["environment", "strict"]).annot
 export type SandboxIsolation = typeof SandboxIsolation.Type
 
 // A sandbox project works in a detached git worktree of `source`, so experiments never touch
-// the original checkout or the live opencode service. `home` holds the worktree and the
-// sandbox's own opencode directories.
+// the original checkout or the live Orchestra service. `home` holds the worktree and the
+// sandbox's own directories.
 export const Sandbox = Schema.Struct({
   source: Schema.String,
   home: Schema.String,
@@ -131,9 +131,26 @@ export interface Project extends Schema.Schema.Type<typeof Project> {}
 // Whether a session directory belongs to a project directory.
 export function contains(project: string, directory: string) {
   if (directory === project) return true
-  const root =
-    project.endsWith("/") || project.endsWith("\\") ? project : project + (project.includes("\\") ? "\\" : "/")
-  return directory.startsWith(root)
+  const normProject = normalizeDirectory(project)
+  const normDir = normalizeDirectory(directory)
+  if (normDir === normProject) return true
+  const root = normProject.endsWith("/") ? normProject : normProject + "/"
+  return normDir.startsWith(root)
+}
+
+function normalizeDirectory(value: string) {
+  const parts = value.replaceAll("\\", "/").split("/")
+  const segments: string[] = []
+  for (const part of parts) {
+    if (part === "" || part === ".") continue
+    if (part === "..") {
+      segments.pop()
+    } else {
+      segments.push(part)
+    }
+  }
+  const prefix = value.startsWith("/") ? "/" : ""
+  return prefix + segments.join("/")
 }
 
 // The project a session belongs to. A session a project opened stays with it, so
@@ -153,7 +170,7 @@ export function ownerOf<T extends Pick<Project, "directory" | "created"> & { id:
   )
 }
 
-// Where a role or team comes from. "builtin" ships with opencode, "edited" is
+// Where a role or team comes from. "builtin" ships with Orchestra, "edited" is
 // a built-in the operator changed (removing it restores the default) and
 // "custom" is one the operator created (removing it deletes it).
 export const Origin = Schema.Literals(["builtin", "edited", "custom"]).annotate({ identifier: "Orchestra.Origin" })
@@ -193,15 +210,18 @@ export interface RoleSpec extends Schema.Schema.Type<typeof RoleSpec> {}
 // The tool groups the team editor offers for a role's `tools`, each with the permission
 // actions it stands for. Anything else (an MCP server's tools, say) is added as a pattern.
 export const toolGroups: readonly { id: string; name: string; actions: readonly string[] }[] = [
-  { id: "read", name: "Read files", actions: ["read", "glob", "grep"] },
-  { id: "edit", name: "Edit files", actions: ["edit"] },
+  { id: "read", name: "Read files", actions: ["read", "glob", "grep", "symbols", "file-diff"] },
+  { id: "edit", name: "Edit files", actions: ["edit", "patch", "write"] },
   { id: "shell", name: "Terminal", actions: ["shell"] },
   { id: "hub", name: "Registry", actions: ["hub"] },
-  { id: "web", name: "Web", actions: ["webfetch", "websearch"] },
+  { id: "web", name: "Web", actions: ["webfetch", "websearch", "research"] },
   { id: "browser", name: "Browser", actions: ["browser"] },
   { id: "desktop", name: "Desktop", actions: ["desktop", "playtest"] },
   { id: "skills", name: "Skills", actions: ["skill", "skill_catalog"] },
   { id: "notes", name: "Notes", actions: ["note", "idea_bank", "plots"] },
+  { id: "reverse", name: "Reverse engineering", actions: ["rea-anything_*"] },
+  { id: "reasoning", name: "Reasoning", actions: ["sequential-thinking_*"] },
+  { id: "vcs", name: "Version control", actions: ["git_*", "github_*"] },
 ]
 
 // Tools added to a group after roles were saved with it: a saved role that has the first
@@ -209,9 +229,14 @@ export const toolGroups: readonly { id: string; name: string; actions: readonly 
 // MCP servers follow the built-in tool that does the same kind of work: documentation lookups come with web
 // access, browser automation with the browser. Without this a role limited to a tool list can never call them.
 export const impliedTools: Readonly<Record<string, readonly string[]>> = {
-  desktop: ["playtest"],
-  webfetch: ["context7_*", "deepwiki_*"],
+  read: ["symbols", "file-diff", "filesystem_*"],
+  edit: ["patch", "write"],
+  desktop: ["playtest", "windows_*"],
+  webfetch: ["context7_*", "deepwiki_*", "fetch_*", "mcp-docs_*"],
+  websearch: ["brave-search_*"],
   browser: ["playwright_*", "chrome-devtools_*"],
+  note: ["memory_*", "idea_bank", "plots"],
+  shell: ["desktop-commander_*", "sentry_*", "time_*"],
 }
 
 export function withImplied(tools: ReadonlyArray<string>) {
@@ -256,10 +281,10 @@ export const Template = Schema.Struct({
 }).annotate({ identifier: "Orchestra.Template" })
 export interface Template extends Schema.Schema.Type<typeof Template> {}
 
-// The roles opencode ships with. Planning roles come before building, quality after it.
+// The roles Orchestra ships with. Planning roles come before building, quality after it.
 // General roles work in any project: they learn its stack and conventions from the
 // repository instead of assuming one. The Orchestra specialists at the end know this
-// monorepo's own rules and are meant for the OpenCode++ Core team.
+// monorepo's own rules and are meant for the Orchestra Core team.
 // Each role also gets its own toolkit (see `toolkits` below).
 const baseRoles: readonly (RoleSpec & { id: string })[] = [
   {
@@ -303,6 +328,22 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
       "Trace concrete symbols and call paths, not filenames alone. For a library choice, compare maintenance, license, platform support, size and fit with the existing stack.",
       "Label statements as verified, inferred or unknown. Support facts with paths, symbols or links; never invent an API, benchmark or result.",
       "Return a concise evidence map the implementer can act on without repeating the research, plus what you searched but could not establish.",
+    ].join("\n"),
+    readOnly: true,
+  },
+  {
+    id: "deep-researcher",
+    name: "Deep Researcher",
+    category: "Planning",
+    description:
+      "Runs wide, evidence-first research across the repository, documentation, the web and live pages, then returns a source-labelled brief with confidence and gaps.",
+    rules: [
+      "Mission: answer a research question completely, with sources, not from memory. You are read-only and must not alter project files.",
+      "Turn the request into 3-6 concrete questions before collecting anything. Say which are load-bearing and which are nice to know; stop collecting once each load-bearing question has evidence.",
+      "Run the research tool first for outside knowledge: it searches and reads several pages in one call. Then go deeper where it matters: context7/deepwiki for library and repository docs, playwright or browser tools for JavaScript-heavy pages and live apps, git/github for history and issues, and the repository itself for local behavior.",
+      "Prefer primary sources over summaries: official docs, source code, changelogs, the actual page or API response. Date every version-sensitive fact and say which version it applies to.",
+      "Label each statement verified, inferred or unknown. When sources disagree, say which is stronger and why instead of averaging them.",
+      "Report: the direct answer first; then an evidence map (claim, source link or path, confidence); then contradictions and gaps; then what you searched and could not establish. Name concrete files, symbols, versions and URLs.",
     ].join("\n"),
     readOnly: true,
   },
@@ -640,14 +681,21 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
 ]
 
 // Tool sets, by the permission actions of `toolGroups`.
-const READ = ["read", "glob", "grep"]
-const EDIT = ["edit"]
+const READ = ["read", "glob", "grep", "symbols", "file-diff"]
+const EDIT = ["edit", "patch", "write"]
 const SHELL = ["shell", "hub"]
-const WEB = ["webfetch", "websearch"]
+const WEB = ["webfetch", "websearch", "research"]
 const SCREEN = ["browser", "desktop", "playtest"]
 const SKILLS = ["skill", "skill_catalog"]
 const NOTES = ["note", "idea_bank", "plots"]
+const REVERSE = ["rea-anything_*"]
+const REASONING = ["sequential-thinking_*"]
+const VCS = ["git_*", "github_*"]
 const kit = (...groups: readonly string[][]) => [...new Set(groups.flat())]
+// Read-only roles still run commands and use the Registry to gather evidence (git history,
+// running tests, reproductions, log and dependency inspection); what they must not do is
+// edit project files, and the shared "read-only" rule in the role body enforces that.
+const PROBE = ["shell", "hub"]
 
 // Registry categories, by what a role does with the computer.
 const CODE = ["search", "files", "text", "json", "git", "build"]
@@ -657,52 +705,59 @@ const SERVER = [...CODE, "data", "docker", "network", "process", "system"]
 // with its own instruments instead of every tool at once. The operator changes them in the
 // team editor (a saved role keeps exactly what was saved); absent `hub` means every category.
 const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
-  "product-analyst": { tools: kit(READ, WEB, SKILLS, NOTES), hub: ["search", "files", "text", "json", "data"] },
-  architect: { tools: kit(READ, SHELL, WEB, SKILLS, NOTES), hub: [...CODE, "github", "data"] },
-  researcher: { tools: kit(READ, SHELL, WEB, SKILLS, NOTES), hub: [...CODE, "github", "data", "network"] },
-  designer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES), hub: CODE },
-  developer: { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES) },
+  "product-analyst": { tools: kit(READ, WEB, SKILLS, NOTES, REASONING, VCS), hub: ["search", "files", "text", "json", "data"] },
+  architect: { tools: kit(READ, PROBE, WEB, REASONING, VCS, REVERSE, SKILLS, NOTES), hub: [...CODE, "github", "data"] },
+  researcher: { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, REASONING, VCS), hub: [...CODE, "github", "data", "network"] },
+  "deep-researcher": {
+    tools: kit(READ, WEB, SCREEN, REASONING, VCS, SKILLS, NOTES),
+    hub: [...SERVER, "github", "security"],
+  },
+  designer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING), hub: CODE },
+  developer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING) },
   "frontend-developer": {
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING),
     hub: [...CODE, "network", "process"],
   },
-  "backend-developer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES), hub: SERVER },
+  "backend-developer": { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING), hub: SERVER },
   "mobile-developer": {
-    tools: kit(READ, EDIT, SHELL, WEB, ["desktop"], SKILLS, NOTES),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING),
     hub: [...CODE, "mobile", "process"],
   },
   "desktop-developer": {
-    tools: kit(READ, EDIT, SHELL, WEB, ["desktop"], SKILLS, NOTES),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING),
     hub: [...CODE, "process", "system", "windows"],
   },
-  "database-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES), hub: [...CODE, "data", "docker"] },
-  writer: { tools: kit(READ, EDIT, ["hub"], WEB, SKILLS, NOTES), hub: ["search", "files", "text", "json", "git"] },
-  devops: { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES) },
-  debugger: { tools: kit(READ, SHELL, WEB, SCREEN, SKILLS, NOTES), hub: [...SERVER, "mobile"] },
+  "database-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, REASONING), hub: SERVER },
+  writer: { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS), hub: ["search", "files", "text", "json", "git"] },
+  devops: { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], VCS, SKILLS, NOTES, REASONING), hub: [...SERVER, "github", "windows", "mobile"] },
+  debugger: {
+    tools: kit(READ, PROBE, WEB, SCREEN, REASONING, REVERSE, VCS, SKILLS, NOTES),
+    hub: [...SERVER, "mobile"],
+  },
   tester: {
-    // The tester drives apps through playtest and the browser; the desktop tool would use the operator's screen.
-    tools: kit(READ, EDIT, SHELL, WEB, ["browser", "playtest"], SKILLS, NOTES),
+    // The tester drives apps through playtest, browser, and desktop automation; git for checking diffs.
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING),
     hub: [...CODE, "data", "network", "process", "mobile"],
   },
-  reviewer: { tools: kit(READ, SHELL, WEB, SKILLS, NOTES), hub: [...CODE, "github"] },
-  "counterexample-engineer": { tools: kit(READ, SHELL, SKILLS, NOTES), hub: [...CODE, "data", "process"] },
+  reviewer: { tools: kit(READ, PROBE, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING), hub: [...CODE, "github"] },
+  "counterexample-engineer": { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, REASONING, VCS), hub: [...CODE, "data", "process"] },
   "security-auditor": {
-    tools: kit(READ, SHELL, WEB, SKILLS, NOTES),
+    tools: kit(READ, PROBE, WEB, REVERSE, REASONING, VCS, SKILLS, NOTES),
     hub: [...SERVER, "github", "security"],
   },
-  "accessibility-auditor": { tools: kit(READ, SHELL, WEB, SCREEN, SKILLS, NOTES), hub: CODE },
-  "performance-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES), hub: SERVER },
-  "dependency-auditor": { tools: kit(READ, SHELL, WEB, SKILLS, NOTES), hub: [...CODE, "github", "security"] },
-  "compatibility-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES) },
-  "data-migration-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES), hub: [...CODE, "data", "docker"] },
-  "reliability-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES), hub: [...SERVER, "systemd"] },
-  "core-maintainer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES) },
+  "accessibility-auditor": { tools: kit(READ, PROBE, WEB, SCREEN, SKILLS, NOTES, REASONING, VCS), hub: CODE },
+  "performance-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING), hub: SERVER },
+  "dependency-auditor": { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, VCS, REASONING), hub: [...CODE, "github", "security"] },
+  "compatibility-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING) },
+  "data-migration-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, REASONING), hub: SERVER },
+  "reliability-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, REASONING), hub: [...SERVER, "systemd"] },
+  "core-maintainer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE) },
   "integration-engineer": {
-    tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING),
     hub: [...CODE, "github", "network", "docker"],
   },
-  "api-contract-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES), hub: [...CODE, "network"] },
-}
+  "api-contract-engineer": { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING), hub: [...CODE, "network"] },
+};
 
 export const roles: readonly (RoleSpec & { id: string })[] = baseRoles.map((role) => ({ ...role, ...toolkits[role.id] }))
 
@@ -712,7 +767,7 @@ const member = (name: string, title: string): Member => ({
   category: roles.find((item) => item.id === name)?.category ?? "Team",
 })
 
-// The teams opencode ships with. Each playbook is what the Orchestrator follows for that team.
+// The teams Orchestra ships with. Each playbook is what the Orchestrator follows for that team.
 export const templates: readonly (TemplateSpec & { id: string })[] = [
   {
     id: "quick",
@@ -760,6 +815,27 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
       "2. Build in parallel: send Developer 1 and Developer 2 their streams in the same turn. If the streams share a contract, have Developer 1 land it first and tell Developer 2 its exact shape.",
       "3. Integrate: once both report DONE, have one developer run the full build and test suite on the combined result.",
       "4. Verify: tester checks the acceptance criteria and reviewer reviews the whole diff, in parallel. Route fixes to the stream owner.",
+    ].join("\n"),
+  },
+  {
+    id: "factory",
+    name: "Software Factory",
+    description: "Multi-agent software engineering factory: scout/researcher, lead architect, core and integration developers, QA test engineer, and security code reviewer",
+    members: [
+      member("deep-researcher", "Scout and Researcher"),
+      member("architect", "Lead Architect"),
+      member("developer", "Core Developer"),
+      member("developer", "Integration Developer"),
+      member("tester", "QA and Test Engineer"),
+      member("reviewer", "Security Reviewer"),
+    ],
+    playbook: [
+      "Software Factory Pipeline Protocol:",
+      "1. Phase 1 -- Scout and Research: Send Scout and Researcher to find existing open-source libraries, reference GitHub repositories, CLI tools, and official documentation. NEVER reinvent the wheel or write from scratch when high-quality existing packages exist.",
+      "2. Phase 2 -- Architecture and Contracts: Architect reviews researcher's evidence, defines schemas, contracts, interface boundaries, and 5-stage DoD (.orchestra/dod.yaml).",
+      "3. Phase 3 -- Parallel Construction: Core Developer and Integration Developer build disjoint modules in parallel, integrating the discovered libraries rather than handwriting boilerplate.",
+      "4. Phase 4 -- Independent QA Testing: QA and Test Engineer writes unit and integration tests, tests edge cases, runs test suites, and verifies deterministic exit-0 passes.",
+      "5. Phase 5 -- Security and Release Audit: Reviewer validates security, error handling, performance, and completes the DoD.",
     ].join("\n"),
   },
   {
@@ -858,11 +934,12 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
     id: "research",
     name: "Research",
     description: "Study a question and write up the findings",
-    members: [member("researcher", "Researcher"), member("writer", "Writer")],
+    members: [member("deep-researcher", "Deep Researcher"), member("researcher", "Researcher"), member("writer", "Writer")],
     playbook: [
-      "1. Send researcher the question, what the answer will be used for and the depth needed.",
-      "2. If the operator wants a document, send writer the evidence map and the target file; otherwise summarize the findings yourself.",
-      "No code changes in this team unless the operator asks.",
+      "1. Send deep-researcher the question, what the answer will be used for, the depth needed and the questions you already suspect matter. It runs wide parallel research and returns a source-labelled brief.",
+      "2. Send researcher a focused follow-up only for the gaps deep-researcher names, or for the repository-side trace the brief could not settle. Do not repeat the whole question.",
+      "3. If the operator wants a document, send writer the evidence map, the target file and the audience; otherwise summarize the findings yourself and keep every source link.",
+      "Done when each load-bearing question has a verified source or is named as an open gap. No code changes in this team unless the operator asks.",
     ].join("\n"),
   },
   {
@@ -921,8 +998,9 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
     ].join("\n"),
   },
   {
+    // Legacy template id retained for persisted projects; the display name is Orchestra Core.
     id: "opencode-core",
-    name: "OpenCode++ Core",
+    name: "Orchestra Core",
     description: "Evolve the entire Orchestra monorepo: architecture, core implementation, cross-package contracts, platform parity, security, tests and independent review",
     members: [
       member("architect", "Architect"),

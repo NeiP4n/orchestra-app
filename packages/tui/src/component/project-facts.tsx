@@ -23,8 +23,12 @@ type FactsState = {
 // Bump when the prompt's output format changes so facts saved in the old format are collected again.
 const FORMAT = 3
 // Facts live with the project, so every window and every restart shows them without asking a model again.
-const FACTS_FILE = ".opencode/facts.md"
+const FACTS_FILE = ".orchestra/facts.md"
+const LEGACY_FACTS_FILE = ".opencode/facts.md"
 const header = (language: string) => `<!-- opencode-facts language=${language} format=${FORMAT} -->`
+const isHeader = (line: string, language: string) =>
+  line === `<!-- orchestra-facts language=${language} format=${FORMAT} -->` ||
+  line === `<!-- opencode-facts language=${language} format=${FORMAT} -->`
 
 export function useProjectFacts() {
   return useStorage().store<FactsState>("project-facts", { initial: { open: false, projects: {} } })
@@ -38,7 +42,9 @@ const SOURCES = [
   "README",
   "AGENTS.md",
   "CLAUDE.md",
+  ".orchestra/dod.yaml",
   ".opencode/dod.yaml",
+  ".orchestra/plan.md",
   ".opencode/plan.md",
   "package.json",
   "pyproject.toml",
@@ -181,11 +187,17 @@ function FactsWindow() {
     // Loading holds the effect until the read settles, so a saved file never races a model request.
     setLoading(true)
     setChecked((folders) => new Set([...folders, dir]))
-    void client.api.file
-      .read({ path: FACTS_FILE, location: { directory: dir } })
+    const readFacts = async () => {
+      try {
+        return await client.api.file.read({ path: FACTS_FILE, location: { directory: dir } })
+      } catch {
+        return await client.api.file.read({ path: LEGACY_FACTS_FILE, location: { directory: dir } })
+      }
+    }
+    void readFacts()
       .then((bytes) => {
         const [first, ...rest] = new TextDecoder().decode(bytes).split("\n")
-        if (first !== header(lang)) return
+        if (!isHeader(first, lang)) return
         return update((draft) => {
           draft.projects[dir] = { text: rest.join("\n").trim(), language: lang, time: Date.now(), format: FORMAT }
         })

@@ -42,6 +42,18 @@ type AcpProcess = {
   readonly [Symbol.asyncDispose]: () => Promise<void>
 }
 
+async function remove(dir: string) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.rm(dir, { recursive: true, force: true })
+      return
+    } catch (error) {
+      if (attempt === 19) throw error
+      await Bun.sleep(250)
+    }
+  }
+}
+
 export async function createAcpFixture(
   options: {
     readonly respond?: (request: unknown) => string | Response | Promise<string | Response>
@@ -86,6 +98,7 @@ export async function createAcpFixture(
           ORCHESTRA_CONFIG_CONTENT: undefined,
           ORCHESTRA_DISABLE_AUTOUPDATE: "true",
           ORCHESTRA_MODELS_PATH: models,
+          ORCHESTRA_PRINT_LOGS: "1",
         }),
       })
       processes.add(acp)
@@ -96,9 +109,7 @@ export async function createAcpFixture(
         [...processes].map((process) => process.close().catch(() => process[Symbol.asyncDispose]())),
       )
       const serverResults = await Promise.allSettled([llm.stop(true)])
-      const directoryResults = await Promise.allSettled([
-        fs.rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }),
-      ])
+      const directoryResults = await Promise.allSettled([remove(root)])
       const failure = [...processResults, ...serverResults, ...directoryResults].find(
         (result): result is PromiseRejectedResult => result.status === "rejected",
       )

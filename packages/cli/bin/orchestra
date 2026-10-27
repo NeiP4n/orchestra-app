@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLI_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENTRY="$CLI_DIR/src/index.ts"
+PRELOAD="$CLI_DIR/node_modules/@opentui/solid/scripts/preload.js"
+
+if [ -n "$ORCHESTRA_BIN_PATH" ] && [ -x "$ORCHESTRA_BIN_PATH" ]; then
+  exec "$ORCHESTRA_BIN_PATH" "$@"
+fi
+
+if [ -x "$SCRIPT_DIR/orchestra.exe" ]; then
+  exec "$SCRIPT_DIR/orchestra.exe" "$@"
+fi
+
+if [ -x "$SCRIPT_DIR/orchestra-bin" ]; then
+  exec "$SCRIPT_DIR/orchestra-bin" "$@"
+fi
+
+BUN_BIN="$(command -v bun 2>/dev/null || true)"
+if [ -z "$BUN_BIN" ] && [ -x "$HOME/.bun/bin/bun" ]; then
+  BUN_BIN="$HOME/.bun/bin/bun"
+fi
+
+if [ -n "$BUN_BIN" ] && [ -f "$ENTRY" ]; then
+  if [ -f "$PRELOAD" ]; then
+    exec "$BUN_BIN" --preload="$PRELOAD" "$ENTRY" "$@"
+  else
+    exec "$BUN_BIN" "$ENTRY" "$@"
+  fi
+fi
+
+if [ -f "$SCRIPT_DIR/orchestra.cjs" ] && command -v node >/dev/null 2>&1; then
+  exec node "$SCRIPT_DIR/orchestra.cjs" "$@"
+fi
+
+echo "orchestra: entrypoint not found" >&2
+exit 1

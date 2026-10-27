@@ -2,7 +2,9 @@ export function getLastActiveUrl(windowID: string) {
   if (typeof localStorage !== "object") return "/"
 
   try {
-    return acceptedLastActiveUrl(localStorage.getItem(windowLastActiveUrlKey(windowID)))
+    const key = windowLastActiveUrlKey(windowID)
+    const legacyKey = `opencode.desktop.window.${windowID}.last-active-url`
+    return acceptedLastActiveUrl(localStorage.getItem(key) ?? localStorage.getItem(legacyKey))
   } catch {
     return "/"
   }
@@ -30,5 +32,5 @@ export function acceptedLastActiveUrl(value: string | null | undefined) {
 }
 
 function windowLastActiveUrlKey(windowID: string) {
-  return `opencode.desktop.window.${windowID}.last-active-url`
+  return `orchestra.desktop.window.${windowID}.last-active-url`
 }

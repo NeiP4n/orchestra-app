@@ -6,6 +6,7 @@ import { useT } from "../util/i18n"
 import { useConfig } from "../config"
 import { listedCommand } from "../util/developer"
 import { DialogConfig, settingID, settings } from "./dialog-config"
+import { DialogAgiControl } from "./dialog-agi-control"
 
 function isSuggestedPaletteCommand(command: KeymapCommand) {
   const suggested = command.suggested
@@ -52,9 +53,34 @@ export function CommandPaletteDialog() {
     },
   }))
 
+  const agiControlCommand = {
+    id: "agi-control",
+    title: t("Управление роем агентов (Swarm Control)"),
+    description: t("Визуальная панель управления автономным роем"),
+    category: t("Swarm Engine"),
+    searchText: [
+      "agi-control",
+      "Управление роем агентов (Swarm Control)",
+      "Swarm Control",
+      "agi",
+      "swarm",
+      "рой",
+    ].join(" "),
+    searchFooter: `${t("Swarm Engine")} · ${t("Control")}`,
+    value: "agi-control",
+    suggested: true,
+    onSelect: (dialog: DialogContext & { show?: (render: () => any) => void }) => {
+      if (typeof dialog.show === "function") {
+        dialog.show(() => <DialogAgiControl />)
+      } else {
+        dialog.replace(() => <DialogAgiControl />)
+      }
+    },
+  }
+
   let ref: DialogSelectRef<string>
   const list = () => {
-    if (ref?.filter) return [...options(), ...settingOptions]
+    if (ref?.filter) return [...options(), agiControlCommand, ...settingOptions]
     return [
       ...options()
         .filter((option) => option.suggested)
@@ -63,7 +89,13 @@ export function CommandPaletteDialog() {
           value: `suggested:${option.value}`,
           category: t("Suggested"),
         })),
+      {
+        ...agiControlCommand,
+        value: `suggested:${agiControlCommand.value}`,
+        category: t("Suggested"),
+      },
       ...options(),
+      agiControlCommand,
     ]
   }
 

@@ -47,7 +47,7 @@ export const toModelContent = (entries: EncodedOutput, truncated = false) => {
 
 /** Glob leaf that defaults its filesystem root to the active Location. */
 export const Plugin = {
-  id: "opencode.tool.glob",
+  id: "orchestra.tool.glob",
   effect: Effect.fn("GlobTool.Plugin")(function* (ctx: Context) {
     const environment = yield* Environment.Service
     const ripgrep = yield* Ripgrep.Service
@@ -158,11 +158,11 @@ export const Plugin = {
                 ),
                 metadata: { count: result.entries.length, truncated: result.truncated },
               })),
-              Effect.mapError((error) =>
-                error instanceof ToolFailure
-                  ? error
-                  : new ToolFailure({ message: `Unable to find files matching ${input.pattern}`, error }),
-              ),
+              Effect.mapError((error) => {
+                if (error instanceof ToolFailure) return error
+                const cause = error instanceof Error ? `: ${error.message}` : error ? `: ${String(error)}` : ""
+                return new ToolFailure({ message: `Unable to find files matching ${input.pattern}${cause}`, error })
+              }),
             ),
         }),
       )

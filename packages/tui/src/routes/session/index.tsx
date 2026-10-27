@@ -20,6 +20,7 @@ import { useNeuralActivity } from "../../component/neural-activity"
 import { createStore } from "solid-js/store"
 import { useData } from "../../context/data"
 import { FlowRule } from "../../component/flow-rule"
+import { SessionHeader } from "./header"
 import { ErrorCard, FoldedText } from "./fold"
 import { SplitBorder } from "../../ui/border"
 import { NeuralAxon, neuralPalette } from "../../component/neural"
@@ -1524,6 +1525,7 @@ export function Session(props: {
           paddingRight={dimensions().width < 44 ? 1 : 2}
         >
           <Show when={session()}>
+            <SessionHeader sessionID={route.sessionID} />
             <box flexGrow={1} minHeight={0} position="relative">
               <scrollbox
                 ref={(r) => {
@@ -4011,3 +4013,5 @@ export function parseDiagnostics(value: unknown, filePath: string) {
     })
     .slice(0, 3)
 }
+
+export { SessionHeader, calculateAudioBands } from "./header"

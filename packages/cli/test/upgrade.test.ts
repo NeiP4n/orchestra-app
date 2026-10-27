@@ -87,7 +87,15 @@ async function cli(args: string[], env: Record<string, string> = {}, entry = "fi
   const root = await mkdtemp(path.join(os.tmpdir(), "opencode-upgrade-"))
   try {
     const child = Bun.spawn(
-      [process.execPath, "--define", 'ORCHESTRA_VERSION="0.0.0-beta-old"', path.join(import.meta.dir, entry), ...args],
+      [
+        process.execPath,
+        "--define",
+        'ORCHESTRA_VERSION="0.0.0-beta-old"',
+        "--define",
+        'ORCHESTRA_CHANNEL="latest"',
+        path.join(import.meta.dir, entry),
+        ...args,
+      ],
       {
         cwd: path.join(import.meta.dir, ".."),
         env: {
@@ -98,6 +106,7 @@ async function cli(args: string[], env: Record<string, string> = {}, entry = "fi
           XDG_CACHE_HOME: path.join(root, "cache"),
           XDG_STATE_HOME: path.join(root, "state"),
           ORCHESTRA_DISABLE_AUTOUPDATE: "1",
+          ORCHESTRA_UPDATE_URL: "https://example.invalid",
           ...env,
         },
         stdout: "pipe",
@@ -113,7 +122,7 @@ async function cli(args: string[], env: Record<string, string> = {}, entry = "fi
       .split("\n")
       .filter((line) => line.startsWith("EVENT "))
       .map((line) => JSON.parse(line.slice(6)))
-    expect(await Bun.file(path.join(root, "state", "opencode", "service-local.json")).exists()).toBe(false)
+    expect(await Bun.file(path.join(root, "state", "orchestra", "service-local.json")).exists()).toBe(false)
     return { stdout, stderr, exitCode, events }
   } finally {
     await rm(root, { recursive: true, force: true })

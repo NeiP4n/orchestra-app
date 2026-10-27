@@ -414,7 +414,7 @@ const checkHealth = Effect.fn("Ssh.checkHealth")(function* (http: SshHttp) {
 
   return yield* client
     .get(`${http.url}/api/info`, {
-      headers: { authorization: `Basic ${Buffer.from(`opencode:${http.password}`).toString("base64")}` },
+      headers: { authorization: `Basic ${Buffer.from(`orchestra:${http.password}`).toString("base64")}` },
     })
     .pipe(
       Effect.timeout(2000),

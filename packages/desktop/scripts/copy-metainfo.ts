@@ -4,17 +4,17 @@ const arg = process.argv[2]
 
 const channel = arg === "dev" || arg === "beta" || arg === "prod" ? arg : resolveChannel()
 
-const appId = channel === "prod" ? "ai.opencode.desktop" : `ai.opencode.desktop.${channel}`
+const appId = channel === "prod" ? "com.nei4pn.orchestra" : `com.nei4pn.orchestra.${channel}`
 
-const productName = channel === "prod" ? "OpenCode" : `OpenCode ${channel.charAt(0).toUpperCase() + channel.slice(1)}`
+const productName = channel === "prod" ? "Orchestra" : `Orchestra ${channel.charAt(0).toUpperCase() + channel.slice(1)}`
 
 const summary = `Open source AI coding agent${channel !== "prod" ? ` (${channel})` : ""}`
 
-const bugtrackerUrl = process.env.ORCHESTRA_BUGTRACKER_URL ?? "https://github.com/orchestra-app/orchestra/issues"
+const bugtrackerUrl = process.env.ORCHESTRA_BUGTRACKER_URL ?? "https://github.com/NeiP4n/orchestra-app/issues"
 
-const homepageUrl = process.env.ORCHESTRA_HOMEPAGE_URL ?? "https://github.com/orchestra-app"
+const homepageUrl = process.env.ORCHESTRA_HOMEPAGE_URL ?? "https://github.com/NeiP4n/orchestra-app"
 
-const vcsBrowserUrl = process.env.ORCHESTRA_VCS_URL ?? "https://github.com/orchestra-app/orchestra"
+const vcsBrowserUrl = process.env.ORCHESTRA_VCS_URL ?? "https://github.com/NeiP4n/orchestra-app"
 
 const screenshotUrl = process.env.ORCHESTRA_SCREENSHOT_URL
 

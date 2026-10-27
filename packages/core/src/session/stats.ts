@@ -8,10 +8,12 @@ import { Project } from "@orchestra/schema/project"
 import { Provider } from "@orchestra/schema/provider"
 import { Event } from "@orchestra/schema/event"
 import { SessionEvent } from "@orchestra/schema/session-event"
+import { SessionMessage } from "@orchestra/schema/session-message"
 import { ToolMode } from "@orchestra/schema/session-stats"
 import { TokenUsage } from "@orchestra/schema/token-usage"
 import { Database } from "../database/database.js"
 import { EventTable } from "../event/sql.js"
+import { Token } from "../util/token.js"
 import { SessionMessageTable, SessionTable } from "./sql.js"
 
 type Input = {
@@ -76,6 +78,71 @@ type ToolAggregate = {
 
 const decodeUsage = Schema.decodeUnknownOption(SessionEvent.UsageRecorded.data)
 const Window = 31 * 24 * 60 * 60 * 1_000
+
+export interface SessionBudgetReport {
+  readonly sessionTokens: {
+    readonly input: number
+    readonly output: number
+    readonly reasoning: number
+    readonly cache: { readonly read: number; readonly write: number }
+    readonly total: number
+  }
+  readonly stepCount: number
+  readonly budget?: Token.ContextBudget
+}
+
+export function sessionBudget(
+  messages: ReadonlyArray<SessionMessage.Info>,
+  modelLimit?: { readonly context: number; readonly input?: number; readonly output?: number },
+  options?: { readonly reserveOutput?: number; readonly warningThreshold?: number; readonly criticalThreshold?: number },
+): SessionBudgetReport {
+  let input = 0
+  let output = 0
+  let reasoning = 0
+  let cacheRead = 0
+  let cacheWrite = 0
+  let stepCount = 0
+
+  for (const message of messages) {
+    if (message.type === "assistant") {
+      stepCount++
+      if (message.tokens) {
+        input += Math.max(0, message.tokens.input)
+        output += Math.max(0, message.tokens.output)
+        reasoning += Math.max(0, message.tokens.reasoning)
+        cacheRead += Math.max(0, message.tokens.cache.read)
+        cacheWrite += Math.max(0, message.tokens.cache.write)
+      }
+    }
+  }
+
+  const total = input + output + reasoning + cacheRead + cacheWrite
+  const sessionTokens = {
+    input,
+    output,
+    reasoning,
+    cache: { read: cacheRead, write: cacheWrite },
+    total,
+  }
+
+  const contextWindow = modelLimit ? (modelLimit.input && modelLimit.input > 0 ? modelLimit.input : modelLimit.context) : 0
+  const budget =
+    contextWindow > 0
+      ? Token.calculateBudget({
+          contextLimit: contextWindow,
+          usedTokens: total,
+          reserveOutput: options?.reserveOutput,
+          warningThreshold: options?.warningThreshold,
+          criticalThreshold: options?.criticalThreshold,
+        })
+      : undefined
+
+  return {
+    sessionTokens,
+    stepCount,
+    budget,
+  }
+}
 
 export class InvalidRangeError extends Schema.TaggedError<InvalidRangeError>()("SessionStats.InvalidRangeError", {
   from: Schema.Finite,
@@ -364,10 +431,10 @@ function batches(ids: string[]) {
 
 function rowTokens(row: MessageRow): Tokens {
   return {
-    input: row.input ?? 0,
-    output: row.output ?? 0,
-    reasoning: row.reasoning ?? 0,
-    cache: { read: row.cacheRead ?? 0, write: row.cacheWrite ?? 0 },
+    input: Math.max(0, row.input ?? 0),
+    output: Math.max(0, row.output ?? 0),
+    reasoning: Math.max(0, row.reasoning ?? 0),
+    cache: { read: Math.max(0, row.cacheRead ?? 0), write: Math.max(0, row.cacheWrite ?? 0) },
   }
 }
 

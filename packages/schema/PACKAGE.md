@@ -1,9 +1,9 @@
-# @orchestra/schema — the data types of all of opencode
+# @orchestra/schema — the data types of all of Orchestra
 
 ## What This Is
 
 The widest-reaching core package: 102 files, ~5.8k lines in `src/`.
-All the data that flows between the parts of opencode is declared here, on
+All the data that flows between the parts of Orchestra is declared here, on
 Effect Schema. No logic, no network, no files: only types, their validation and
 serialization.
 

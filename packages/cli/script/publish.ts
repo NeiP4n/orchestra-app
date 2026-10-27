@@ -68,11 +68,11 @@ async function publishDistribution(input: {
           [input.command]: `./bin/${input.command}.exe`,
           ...(input.legacyCommand ? { [input.legacyCommand]: `./bin/${input.command}.exe` } : {}),
         },
-        ...(input.command !== input.binary ? { opencodeSourceBinary: input.binary } : {}),
+        ...(input.command !== input.binary ? { orchestraSourceBinary: input.binary, opencodeSourceBinary: input.binary } : {}),
         scripts: { postinstall: "node ./postinstall.mjs" },
         version,
         license: pkg.license,
-        repository: { type: "git", url: "git+https://github.com/anomalyco/opencode.git" },
+        repository: { type: "git", url: "git+https://github.com/NeiP4n/orchestra-app.git" },
         os: ["darwin", "linux", "win32"],
         cpu: ["arm64", "x64"],
         optionalDependencies: binaries,
@@ -105,7 +105,7 @@ async function publishDistribution(input: {
   const artifact = {
     channel: Script.channel,
     name: input.artifact,
-    distribution: "opencode",
+    distribution: "orchestra",
     version,
     metadata: { files },
   }
@@ -126,9 +126,9 @@ async function publishDistribution(input: {
 await publishDistribution({
   root,
   name: pkg.name,
-  command: "opencode",
-  legacyCommand: "opencode2",
-  binary: "opencode",
+  command: "orchestra",
+  legacyCommand: "orchestra2",
+  binary: "orchestra",
   packagePrefix: "@orchestra/cli-",
   artifact: "cli",
 })
@@ -136,8 +136,8 @@ if (Script.channel !== "latest" && existsSync(path.join(root, "node"))) {
   await publishDistribution({
     root: path.join(root, "node"),
     name: "@orchestra/cli-node",
-    command: "opencode2-node",
-    binary: "opencode2-node",
+    command: "orchestra2-node",
+    binary: "orchestra2-node",
     packagePrefix: "@orchestra/cli-node-",
     artifact: "cli-node",
   })

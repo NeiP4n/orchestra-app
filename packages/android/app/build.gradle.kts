@@ -44,12 +44,12 @@ val syncWebBundle by tasks.registering(Sync::class) {
 }
 
 android {
-    namespace = "com.nei4pn.opencodepp"
+    namespace = "com.nei4pn.orchestra"
     compileSdk = 36
     buildToolsVersion = "36.0.0"
 
     defaultConfig {
-        applicationId = "com.nei4pn.opencodepp"
+        applicationId = "com.nei4pn.orchestra"
         minSdk = 26
         targetSdk = 36
         // 2.0.24 -> 20024, monotonic and readable. -PversionCode=N rebuilds one release without bumping the name.

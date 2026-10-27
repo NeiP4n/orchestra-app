@@ -46,6 +46,10 @@ export type Settings = {
   keep: number
   /** Most tokens a request carries before automatic compaction, below the window's own ceiling; 0 uses the window. */
   threshold: number
+  /** Share (0-100) of the model's context window in use before automatic compaction runs; set from the Settings dialog. */
+  thresholdPercent?: number
+  /** Share (0-100) of the window left free after a compact, for the reply and a safety margin. */
+  keepFreePercent?: number
 }
 
 export type Editor = {
@@ -66,9 +70,92 @@ export type Outcome =
 
 export interface Interface extends State.Transformable<Editor> {
   readonly compact: (trigger: Trigger) => Effect.Effect<Outcome>
+  readonly settings: Effect.Effect<Settings>
+  readonly getSettings: () => Settings
 }
 
 export class Service extends Context.Service<Service, Interface>()("@orchestra/SessionCompaction") {}
+
+/**
+ * Parses user input or configuration string/number into token count.
+ * Handles "400k", "400K", "1.5m", "200000", "0", "Без сжатия", "Full window", etc.
+ */
+export function parseCompactionThreshold(input: string | number | undefined | null): number {
+  if (input === undefined || input === null) return 0
+  if (typeof input === "number") {
+    return Number.isFinite(input) && input > 0 ? Math.floor(input) : 0
+  }
+  if (typeof input !== "string") return 0
+
+  const trimmed = input.trim().toLowerCase()
+  if (
+    !trimmed ||
+    trimmed === "0" ||
+    trimmed === "без сжатия" ||
+    trimmed === "без лимита" ||
+    trimmed === "весь лимит" ||
+    trimmed === "весь" ||
+    trimmed === "full window" ||
+    trimmed === "full" ||
+    trimmed === "all" ||
+    trimmed === "max" ||
+    trimmed === "none" ||
+    trimmed === "off" ||
+    trimmed === "disabled" ||
+    trimmed === "no limit" ||
+    trimmed === "unlimited"
+  ) {
+    return 0
+  }
+
+  const cleaned = trimmed.replace(/[,_\s]/g, "")
+  const match = cleaned.match(/^([0-9]+(?:\.[0-9]+)?)([kmb]?)$/i)
+  if (!match) {
+    const fallback = parseFloat(cleaned)
+    return Number.isFinite(fallback) && fallback > 0 ? Math.floor(fallback) : 0
+  }
+
+  const num = parseFloat(match[1])
+  if (!Number.isFinite(num) || num <= 0) return 0
+
+  const unit = match[2].toLowerCase()
+  let multiplier = 1
+  if (unit === "k") multiplier = 1_000
+  else if (unit === "m") multiplier = 1_000_000
+  else if (unit === "b") multiplier = 1_000_000_000
+
+  return Math.floor(num * multiplier)
+}
+
+/**
+ * Formats a token threshold into human-readable representation.
+ * 400000 -> "400k", 1500000 -> "1.5m", 0 -> "Без сжатия" (or "Full window").
+ */
+export function formatCompactionThreshold(
+  tokens: number | undefined | null,
+  options?: { fallback?: string; locale?: string } | string,
+): string {
+  const fallback =
+    typeof options === "string"
+      ? options
+      : (options?.fallback ?? (options?.locale === "en" ? "Full window" : "Без сжатия"))
+
+  if (tokens === undefined || tokens === null || !Number.isFinite(tokens) || tokens <= 0) {
+    return fallback
+  }
+
+  if (tokens >= 1_000_000) {
+    const val = tokens / 1_000_000
+    return `${Number(val.toFixed(2))}m`
+  }
+
+  if (tokens >= 1_000) {
+    const val = tokens / 1_000
+    return `${Number(val.toFixed(2))}k`
+  }
+
+  return `${Math.floor(tokens)}`
+}
 
 /** A summary fills `text` and `recent`; a native compaction fills `providerContext`. */
 type Result = {
@@ -98,7 +185,7 @@ const SHRINK_STEPS = [0.7, 0.5, 0.35]
 // The least of the window kept free for the last reply before compaction and for the summary itself.
 const RESERVE_MIN = 16_000
 /** A common window size, assumed for the compaction request when the model's window is unknown. */
-const UNKNOWN_WINDOW = 200_000
+const UNKNOWN_WINDOW = 1_000_000
 const TOOL_OUTPUT_MAX_CHARS = 1_250
 const IMAGE_TOKEN_ESTIMATE = 1_500
 const PDF_TOKEN_ESTIMATE = 2_000
@@ -180,6 +267,76 @@ export const buildPrompt = (update: boolean, legacy = false) => {
 const NUDGE =
   "The previous response did not fill in the required summary template. Do not call tools. Return the summary as text using the exact section headings from the template."
 
+const SUMMARY_HEADINGS = [
+  "## Objective",
+  "## Requirements",
+  "## Decisions",
+  "## Work State",
+  "## Next Move",
+  "## Relevant Files",
+  "## Important Context",
+] as const
+
+/**
+ * Fast summary structure validation with zero allocations and early exit.
+ * Checks for heading prefixes without allocating regexes or closures.
+ */
+export const isSummaryFilled = (text: string): boolean => {
+  if (!text || text.indexOf("## ") === -1) return false
+  for (let i = 0; i < SUMMARY_HEADINGS.length; i++) {
+    if (text.indexOf(SUMMARY_HEADINGS[i]!) !== -1) return true
+  }
+  return false
+}
+
+export type CheckpointData = {
+  readonly summary: string
+  readonly recent?: string
+}
+
+/**
+ * Fast, allocation-conscious semantic checkpoint parser.
+ * Extracts <conversation-checkpoint>, <summary>, and <recent-context> tags
+ * without regex or redundant string allocations.
+ */
+export function parseCheckpoint(text: string): CheckpointData | undefined {
+  const startTag = "<conversation-checkpoint>"
+  const startIndex = text.indexOf(startTag)
+  if (startIndex === -1) return undefined
+
+  const contentStart = startIndex + startTag.length
+  const endTag = "</conversation-checkpoint>"
+  const endIndex = text.indexOf(endTag, contentStart)
+  const inner = endIndex === -1 ? text.slice(contentStart) : text.slice(contentStart, endIndex)
+
+  const summaryOpen = "<summary>"
+  const summaryClose = "</summary>"
+  const summaryStart = inner.indexOf(summaryOpen)
+  let summary = ""
+  let recent: string | undefined
+
+  if (summaryStart !== -1) {
+    const afterSummary = summaryStart + summaryOpen.length
+    const summaryEnd = inner.indexOf(summaryClose, afterSummary)
+    summary = (summaryEnd === -1 ? inner.slice(afterSummary) : inner.slice(afterSummary, summaryEnd)).trim()
+  } else {
+    const recentOpen = "<recent-context>"
+    const recentStartIdx = inner.indexOf(recentOpen)
+    summary = (recentStartIdx === -1 ? inner : inner.slice(0, recentStartIdx)).trim()
+  }
+
+  const recentOpen = "<recent-context>"
+  const recentClose = "</recent-context>"
+  const recentStart = inner.indexOf(recentOpen)
+  if (recentStart !== -1) {
+    const afterRecent = recentStart + recentOpen.length
+    const recentEnd = inner.indexOf(recentClose, afterRecent)
+    recent = (recentEnd === -1 ? inner.slice(afterRecent) : inner.slice(afterRecent, recentEnd)).trim()
+  }
+
+  return { summary, recent }
+}
+
 /** Summaries written with the previous template carry this catch-all heading. */
 const LEGACY_HEADING = "## Additional Context"
 
@@ -196,9 +353,9 @@ export const layer = Layer.effect(
 
     const state = State.create<Settings, Editor>({
       name: "session-compaction",
-      // A 1M window used to grow every step to hundreds of thousands of cached tokens before the
-      // first compaction; each step re-reads all of it, which is where long sessions spent their tokens.
-      initial: () => ({ auto: true, keep: 15_000, threshold: 200_000 }),
+      // Default threshold: 0 means use the model's full context window (with safety buffer).
+      // auto: true enables automatic compaction before the context window overflows.
+      initial: () => ({ auto: true, keep: 15_000, threshold: 0 }),
       editor: (settings) => ({
         configure: (update) => {
           Object.assign(settings, update)
@@ -210,18 +367,38 @@ export const layer = Layer.effect(
       const settings = state.get()
       const context = trigger.context
 
-      // Only the user compacts when automatic compaction is off, overflow included.
-      if (trigger.reason !== "manual" && !settings.auto) return { status: "skipped" }
-      if (
-        trigger.reason === "auto" &&
-        !due(
-          context,
-          Math.min(
-            calculateCeiling(context.model.limit, settings.buffer),
-            settings.threshold || Number.POSITIVE_INFINITY,
-          ),
-        )
-      )
+      // Only the user compacts when automatic compaction is off, except on overflow rejections where compaction recovers.
+      if (trigger.reason === "auto" && !settings.auto) return { status: "skipped" }
+
+      const sessionThreshold =
+        context.session.metadata?.compaction_threshold !== undefined
+          ? parseCompactionThreshold(context.session.metadata.compaction_threshold as any)
+          : undefined
+
+      const contextCeiling = calculateCeiling(context.model.limit, settings.buffer, settings.keepFreePercent)
+
+      const thresholdLimit =
+        sessionThreshold === 0
+          ? Number.POSITIVE_INFINITY
+          : sessionThreshold !== undefined
+            ? sessionThreshold
+            : settings.threshold > 0
+              ? Math.min(
+                  contextCeiling,
+                  settings.thresholdPercent !== undefined
+                    ? percentCeiling(context.model.limit, settings.thresholdPercent)
+                    : settings.threshold,
+                )
+              : settings.thresholdPercent !== undefined
+                ? Math.min(contextCeiling, percentCeiling(context.model.limit, settings.thresholdPercent))
+                : contextCeiling
+
+      // An unknown window never triggers auto compaction
+      if (trigger.reason === "auto" && !context.model.limit.context && !context.model.limit.input) {
+        return { status: "skipped" }
+      }
+
+      if (trigger.reason === "auto" && !due(context, thresholdLimit))
         return { status: "skipped" }
       const native = context.model.compaction?.type === "native"
       const agent = native ? undefined : yield* agents.get(Agent.ID.make("compaction"))
@@ -231,11 +408,11 @@ export const layer = Layer.effect(
             .resolve({ ...context.session, model: agent.model }, catalog.available)
             .pipe(Effect.orElseSucceed(() => undefined)))) ??
         context.model
-      const ceiling = calculateCeiling(model.limit, settings.buffer)
+      const ceiling = calculateCeiling(model.limit, settings.buffer, settings.keepFreePercent)
       // An unknown window never triggers auto compaction, but the compaction request still needs a size to aim for.
       const cap = Number.isFinite(ceiling)
         ? ceiling
-        : calculateCeiling({ ...model.limit, context: UNKNOWN_WINDOW }, settings.buffer)
+        : calculateCeiling({ ...model.limit, context: UNKNOWN_WINDOW }, settings.buffer, settings.keepFreePercent)
       // The provider just rejected this context, so the estimate ran low; the first attempt already aims below it.
       const budget =
         trigger.reason === "overflow" ? Math.min(cap, Math.floor(estimateContext(context) * SHRINK_STEPS[0])) : cap
@@ -293,8 +470,6 @@ export const layer = Layer.effect(
 
       const previous = previousCompaction(context.messages)
       const prompt = buildPrompt(previous !== undefined, previous?.summary.includes(LEGACY_HEADING) ?? false)
-      const headings = SUMMARY_TEMPLATE.split("\n").filter((line) => line.startsWith("##"))
-      const filled = (text: string) => text.split("\n").some((line) => headings.includes(line.trim()))
       const prepared = yield* prepare(context, split.older, budget)
 
       // Hooks saw the request without the summary prompt, so it is appended here. A reply that ignores the
@@ -303,15 +478,21 @@ export const layer = Layer.effect(
         Effect.gen(function* () {
           const prompted = LLMRequest.update(request, { messages: [...request.messages, Message.user(prompt)] })
           const reply = yield* stream(context, prompted, prepared.options)
-          if (filled(reply.text)) return { ...reply, recent: split.recent }
+          const parsed = parseCheckpoint(reply.text)
+          const text = parsed?.summary ? parsed.summary : reply.text
+          const recent = parsed?.recent ? parsed.recent : split.recent
+          if (isSummaryFilled(text)) return { ...reply, text, recent }
 
           const nudged = LLMRequest.update(prompted, { messages: [...prompted.messages, Message.user(NUDGE)] })
           const retry = yield* stream(context, nudged, prepared.options)
-          if (filled(retry.text)) return { ...retry, recent: split.recent }
+          const parsedRetry = parseCheckpoint(retry.text)
+          const retryText = parsedRetry?.summary ? parsedRetry.summary : retry.text
+          const retryRecent = parsedRetry?.recent ? parsedRetry.recent : split.recent
+          if (isSummaryFilled(retryText)) return { ...retry, text: retryText, recent: retryRecent }
           return yield* Effect.fail<Failure>({
             error: {
               type: "compaction.failed",
-              message: retry.text.trim()
+              message: retryText.trim()
                 ? "Compaction summary did not match the required template"
                 : "Compaction produced no summary",
             },
@@ -412,16 +593,17 @@ export const layer = Layer.effect(
       let rejections = 0
       let rejected: number | undefined
       let asText = false
+      let flattener: ReturnType<typeof createFlattener> | undefined
 
       while (true) {
         const fits = !asText && estimateRequest(prepared.request) <= target
         const request = fits
           ? prepared.request
-          : (flattenAndDropOldest(prepared.request, context, target) ??
+          : ((flattener ??= createFlattener(prepared.request, context)).dropOldest(target) ??
             (rejections > 0
               ? undefined
               : asText
-                ? flattenAndDropOldest(prepared.request, context, Number.POSITIVE_INFINITY)
+                ? flattener.dropOldest(Number.POSITIVE_INFINITY)
                 : prepared.request))
         if (!request) {
           return yield* Effect.fail<Failure>({
@@ -468,15 +650,10 @@ export const layer = Layer.effect(
       }
     })
 
-    /**
-     * History that has to change is sent as text rather than as edited messages: `[previous compaction][transcript]`,
-     * the conversation since that compaction as one text message. A previous summary always stays in front, while
-     * its verbatim recent part becomes the oldest transcript entry; a previous native window stays exactly as the
-     * provider made it. The transcript leaves out reasoning, media, and instruction updates, and cuts long tool
-     * outputs. Only if it still does not fit are whole exchanges dropped, oldest first. Undefined when even the
-     * newest exchange does not fit.
-     */
-    const flattenAndDropOldest = (request: LLMRequest, context: SessionContext.Loaded, target: number) => {
+    const note = (omitted: number) =>
+      omitted ? `[${omitted} older ${omitted === 1 ? "exchange" : "exchanges"} omitted]\n\n` : ""
+
+    const createFlattener = (request: LLMRequest, context: SessionContext.Loaded) => {
       const previous = previousCompaction(context.messages)
       const end =
         request.messages.findLastIndex(
@@ -492,30 +669,34 @@ export const layer = Layer.effect(
         : request.messages.slice(0, end)
 
       // A user message and everything after it, up to the next one, is one exchange: kept or dropped whole.
-      const exchanges = request.messages.slice(end).reduce<string[]>(
-        (groups, message) => {
-          const text = flattenMessage(message)
-          if (!text) return groups
-          if (message.role === "user" || groups.length === 0) groups.push(text)
-          else groups[groups.length - 1] += `\n${text}`
-          return groups
-        },
-        summary?.recent ? [summary.recent] : [],
-      )
+      const exchanges: string[] = summary?.recent ? [summary.recent] : []
+      for (let i = end; i < request.messages.length; i++) {
+        const message = request.messages[i]
+        const text = flattenMessage(message)
+        if (!text) continue
+        if (message.role === "user" || exchanges.length === 0) exchanges.push(text)
+        else exchanges[exchanges.length - 1] += `\n${text}`
+      }
 
-      const note = (omitted: number) =>
-        omitted ? `[${omitted} older ${omitted === 1 ? "exchange" : "exchanges"} omitted]\n\n` : ""
-      // Room for the longest possible note is set aside before choosing what to keep.
-      const room =
-        target -
-        estimateRequest({ system: request.system, tools: request.tools, messages: lead }) -
-        Token.estimate(note(exchanges.length))
-      const kept = exchanges.slice(oldestToDrop(exchanges, (text) => Token.estimate(text) + 1, room))
-      if (kept.length === 0) return undefined
-      return LLMRequest.update(request, {
-        messages: [...lead, Message.user(note(exchanges.length - kept.length) + kept.join("\n\n"))],
-      })
+      const exchangeSizes = exchanges.map((text) => Token.estimate(text) + 1)
+      const leadTokens = estimateRequest({ system: request.system, tools: request.tools, messages: lead })
+      const noteTemplateTokens = Token.estimate(note(exchanges.length))
+
+      const dropOldest = (target: number) => {
+        const room = target - leadTokens - noteTemplateTokens
+        const start = oldestToDropPrecomputed(exchangeSizes, room)
+        const kept = exchanges.slice(start)
+        if (kept.length === 0) return undefined
+        const omitted = exchanges.length - kept.length
+        return LLMRequest.update(request, {
+          messages: [...lead, Message.user(note(omitted) + kept.join("\n\n"))],
+        })
+      }
+
+      return { dropOldest }
     }
+
+    // Flattening and exchange dropping logic is encapsulated in createFlattener
 
     const stream = (context: SessionContext.Loaded, request: LLMRequest, options: StreamOptions) => {
       const sessionID = context.session.id
@@ -674,6 +855,8 @@ export const layer = Layer.effect(
     return Service.of({
       transform: state.transform,
       reload: state.reload,
+      settings: Effect.sync(() => state.get()),
+      getSettings: () => state.get(),
       // A manual compaction settles through its `/compact` inbox item, which the runner owns.
       compact: (trigger) =>
         compact(trigger).pipe(
@@ -714,10 +897,12 @@ const transcript = (context: SessionContext.Loaded, messages: ReadonlyArray<Sess
  * the summary. Undefined when there is nothing to compact.
  */
 const splitConversation = (messages: ReadonlyArray<SessionMessage.Info>, keep: number) => {
-  const entries = messages.flatMap((message, index) => {
+  const entries: Array<{ readonly message: SessionMessage.Info; readonly text: string; readonly index: number }> = []
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index]
     const text = messageToText(message)
-    return text ? [{ message, text, index }] : []
-  })
+    if (text) entries.push({ message, text, index })
+  }
   if (entries.length === 0) return undefined
 
   const recent = entries.slice(recentStart(entries, keep, previousCompaction(messages)))
@@ -763,8 +948,30 @@ const oldestToDrop = <T>(items: ReadonlyArray<T>, size: (item: T) => number, bud
   return start
 }
 
+function oldestToDropPrecomputed(sizes: ReadonlyArray<number>, budget: number) {
+  let total = 0
+  let start = sizes.length
+  while (start > 0) {
+    const next = total + sizes[start - 1]
+    if (next > budget) break
+    total = next
+    start--
+  }
+  return start
+}
+
+const messageTextCache = new WeakMap<SessionMessage.Info, string>()
+
 /** One message as the recent, verbatim part of a summary shows it. Empty for messages that part leaves out. */
 const messageToText = (message: SessionMessage.Info): string => {
+  const cached = messageTextCache.get(message)
+  if (cached !== undefined) return cached
+  const result = formatMessageToText(message)
+  messageTextCache.set(message, result)
+  return result
+}
+
+const formatMessageToText = (message: SessionMessage.Info): string => {
   switch (message.type) {
     // Earlier summaries and instruction updates are handled outside the recent part.
     case "compaction":
@@ -796,7 +1003,10 @@ const messageToText = (message: SessionMessage.Info): string => {
           const input = typeof part.state.input === "string" ? part.state.input : JSON.stringify(part.state.input)
           const call = `[Assistant tool call]: ${part.name}(${input})`
           if (part.state.status === "completed") {
-            return [call, `[Tool result]: ${truncateToolOutput(serializeToolContent(part.state.content))}`]
+            return [
+              call,
+              `[Tool result]: ${truncateToolOutput(serializeToolContent(part.state.content, TOOL_OUTPUT_MAX_CHARS))}`,
+            ]
           }
           if (part.state.status === "error") return [call, `[Tool error]: ${part.state.error.message}`]
           return [call]
@@ -833,9 +1043,19 @@ const truncateToolOutput = (value: string) => {
   return `${value.slice(0, end)}\n[truncated]`
 }
 
+const flattenedMessageCache = new WeakMap<Message, string>()
+
 /** One request message as a flattened transcript line. Empty for what the transcript leaves out. */
-const flattenMessage = (message: Message) => {
+const flattenMessage = (message: Message): string => {
   if (message.role === "system") return ""
+  const cached = flattenedMessageCache.get(message)
+  if (cached !== undefined) return cached
+  const result = formatFlattenMessage(message)
+  flattenedMessageCache.set(message, result)
+  return result
+}
+
+const formatFlattenMessage = (message: Message) => {
   return message.content
     .flatMap((part) => {
       if (part.type === "text")
@@ -846,9 +1066,9 @@ const flattenMessage = (message: Message) => {
       const result = part.result
       const output =
         result.type === "content"
-          ? serializeToolContent(result.value)
+          ? serializeToolContent(result.value, TOOL_OUTPUT_MAX_CHARS)
           : typeof result.value === "string"
-            ? result.value
+            ? (result.value.length > TOOL_OUTPUT_MAX_CHARS * 2 ? result.value.slice(0, TOOL_OUTPUT_MAX_CHARS * 2) : result.value)
             : (JSON.stringify(result.value) ?? "")
       const label = result.type === "error" ? "Tool error" : "Tool result"
       return [`[${label}]: ${truncateToolOutput(output)}`]
@@ -856,13 +1076,29 @@ const flattenMessage = (message: Message) => {
     .join("\n")
 }
 
-const serializeToolContent = (content: ReadonlyArray<SessionMessage.ToolStateCompleted["content"][number]>) =>
-  content
-    .map((item) => {
-      if (item.type === "text") return item.text
-      return `[Attached ${item.mime}${item.name === undefined ? "" : `: ${item.name}`}]`
-    })
-    .join("\n")
+const serializeToolContent = (
+  content: ReadonlyArray<SessionMessage.ToolStateCompleted["content"][number]>,
+  maxChars?: number,
+) => {
+  const parts: string[] = []
+  let accumulated = 0
+  for (let i = 0; i < content.length; i++) {
+    const item = content[i]
+    let piece: string
+    if (item.type === "text") {
+      piece =
+        maxChars !== undefined && item.text.length > maxChars * 2
+          ? item.text.slice(0, maxChars * 2)
+          : item.text
+    } else {
+      piece = `[Attached ${item.mime}${item.name === undefined ? "" : `: ${item.name}`}]`
+    }
+    parts.push(piece)
+    accumulated += piece.length
+    if (maxChars !== undefined && accumulated >= maxChars * 2) break
+  }
+  return parts.join("\n")
+}
 
 /** The newest whole, real user messages within `keep` tokens: no synthetic guidance, no half of an attachment. */
 export const recentUserMessages = (
@@ -916,12 +1152,24 @@ export const estimatePrompt = (context: SessionContext.Loaded) => {
  * is more. The summary request is capped at the same size, so its output limit is whatever the reserve leaves. A window
  * too small to give up `RESERVE_MIN` keeps 10%.
  */
-const calculateCeiling = (limit: SessionContext.Loaded["model"]["limit"], buffer: number | undefined) => {
+/** The point in the window (tokens) where a share of it is reached; Infinity when the window is unknown. */
+const percentCeiling = (limit: SessionContext.Loaded["model"]["limit"], percent: number) => {
+  const window = limit.input || limit.context
+  if (window <= 0) return Number.POSITIVE_INFINITY
+  return Math.floor(window * (percent / 100))
+}
+
+const calculateCeiling = (
+  limit: SessionContext.Loaded["model"]["limit"],
+  buffer: number | undefined,
+  keepFreePercent?: number,
+) => {
   // Unknown limits are reported as 0. An unknown input limit falls back to the context window; with no window at
   // all, only a provider rejection can limit the request.
   const window = limit.input || limit.context
   if (window <= 0) return Number.POSITIVE_INFINITY
   if (buffer !== undefined) return window - buffer
+  if (keepFreePercent !== undefined) return window - Math.floor(window * (keepFreePercent / 100))
   return window - Math.max(Math.floor(window * 0.1), window >= 2 * RESERVE_MIN ? RESERVE_MIN : 0)
 }
 
@@ -941,16 +1189,33 @@ const estimateRequest = (request: Pick<LLMRequest, "system" | "tools" | "message
   request.tools.reduce((sum, tool) => sum + estimateTool(tool), 0) +
   request.messages.reduce((sum, message) => sum + estimateMessage(message), 0)
 
+const toolTokenCache = new WeakMap<ToolEntry, number>()
+
 /** Only what providers receive; `metadata` and `native` stay local. */
 const estimateTool = (tool: ToolEntry): number => {
-  if (tool.type === "tool") return Token.estimate(tool.name + tool.description + JSON.stringify(tool.inputSchema))
-  return (
-    Token.estimate(tool.name + (tool.description ?? "")) +
-    tool.tools.reduce((sum, entry) => sum + estimateTool(entry), 0)
-  )
+  const cached = toolTokenCache.get(tool)
+  if (cached !== undefined) return cached
+  let total = 0
+  if (tool.type === "tool") {
+    const schemaStr = JSON.stringify(tool.inputSchema) ?? ""
+    total = Token.estimateChars(tool.name.length + (tool.description?.length ?? 0) + schemaStr.length)
+  } else {
+    const header = Token.estimateChars(tool.name.length + (tool.description?.length ?? 0))
+    total = header + tool.tools.reduce((sum, entry) => sum + estimateTool(entry), 0)
+  }
+  toolTokenCache.set(tool, total)
+  return total
 }
 
-const estimateMessage = (message: Message) => message.content.reduce((sum, part) => sum + estimatePart(part), 0)
+const messageTokenCache = new WeakMap<Message, number>()
+
+const estimateMessage = (message: Message) => {
+  const cached = messageTokenCache.get(message)
+  if (cached !== undefined) return cached
+  const total = message.content.reduce((sum, part) => sum + estimatePart(part), 0)
+  messageTokenCache.set(message, total)
+  return total
+}
 
 const estimatePart = (part: ContentPart): number => {
   // An encrypted native compaction has no locally measurable size.
@@ -958,7 +1223,10 @@ const estimatePart = (part: ContentPart): number => {
   if (part.type === "effort") return 0
   if (part.type === "text" || part.type === "reasoning") return Token.estimate(part.text)
   if (part.type === "media") return estimateMedia(part.media.mediaType)
-  if (part.type === "tool-call") return Token.estimate(part.name + (JSON.stringify(part.input) ?? ""))
+  if (part.type === "tool-call") {
+    const inputStr = typeof part.input === "string" ? part.input : (JSON.stringify(part.input) ?? "")
+    return Token.estimateChars(part.name.length + inputStr.length)
+  }
 
   if (part.result.type === "content")
     return part.result.value.reduce(
@@ -966,7 +1234,9 @@ const estimatePart = (part: ContentPart): number => {
       0,
     )
   const value = part.result.value
-  return Token.estimate(typeof value === "string" ? value : (JSON.stringify(value) ?? ""))
+  if (typeof value === "string") return Token.estimate(value)
+  const json = JSON.stringify(value) ?? ""
+  return Token.estimateChars(json.length)
 }
 
 const estimateMedia = (mime: string) => {

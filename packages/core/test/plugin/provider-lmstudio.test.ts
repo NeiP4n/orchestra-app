@@ -38,8 +38,8 @@ function eventually<A>(
 
 describe("LMStudioPlugin", () => {
   test("is registered as a built-in provider plugin", () => {
-    expect(LMStudioPlugin.id).toBe("opencode.provider.lmstudio")
-    expect(ProviderPlugins.map((item) => item.id)).toContain("opencode.provider.lmstudio")
+    expect(LMStudioPlugin.id).toBe("orchestra.provider.lmstudio")
+    expect(ProviderPlugins.map((item) => item.id)).toContain("orchestra.provider.lmstudio")
   })
 
   it.live("discovers local language models with their capabilities and effective context", () =>

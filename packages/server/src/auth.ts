@@ -13,11 +13,15 @@ export type Info = {
   readonly username: string
 }
 
+export const PRIMARY_USERNAME = "orchestra"
+export const LEGACY_USERNAME = "opencode"
+export const ACCEPTED_USERNAMES = [PRIMARY_USERNAME, LEGACY_USERNAME] as const
+
 export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60
 
 export class Config extends Context.Service<Config, Info>()("@orchestra/ServerAuthConfig") {
   static configLayer(input: Pick<Info, "password">) {
-    return Layer.succeed(this, this.of({ ...input, username: "opencode" }))
+    return Layer.succeed(this, this.of({ ...input, username: PRIMARY_USERNAME }))
   }
 
   static get layer() {
@@ -29,9 +33,17 @@ export function required(config: Info) {
   return Option.isSome(config.password) && config.password.value !== ""
 }
 
+export function isAcceptedUsername(username: string, configuredUsername?: string) {
+  return (
+    username === PRIMARY_USERNAME ||
+    username === LEGACY_USERNAME ||
+    (configuredUsername !== undefined && username === configuredUsername)
+  )
+}
+
 // Session tokens issued by pairing links are accepted anywhere the password is.
 export function authorized(credentials: DecodedCredentials, config: Info) {
-  if (Option.isNone(config.password) || credentials.username !== config.username) return false
+  if (Option.isNone(config.password) || !isAcceptedUsername(credentials.username, config.username)) return false
   const password = Redacted.value(credentials.password)
   return equal(password, config.password.value) || verifySession(password, config)
 }

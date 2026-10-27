@@ -1,4 +1,4 @@
-export * as ConfigDiscovery from "./discovery.js"
+﻿export * as ConfigDiscovery from "./discovery.js"
 
 import path from "path"
 import os from "os"

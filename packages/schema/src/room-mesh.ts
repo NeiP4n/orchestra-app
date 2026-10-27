@@ -7,7 +7,7 @@ export const Node = Schema.Struct({
   url: Schema.String,
   name: Schema.String,
   joined: Schema.Number,
-  // The project root this device has opened in OpenCode++; used as the default remote-worker workspace.
+  // The project root this device has opened in Orchestra; used as the default remote-worker workspace.
   directory: Schema.String.pipe(Schema.optional),
 }).annotate({ identifier: "RoomMesh.Node" })
 export interface Node extends Schema.Schema.Type<typeof Node> {}

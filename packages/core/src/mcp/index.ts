@@ -448,12 +448,24 @@ export const layer = (options?: Options) =>
           entry.scope = scope
           const authProvider = yield* connectProvider(entry)
           const { McpClient } = yield* Effect.promise(() => import("./client.js"))
+          const { McpGitHubAuth } = yield* Effect.promise(() => import("./github-auth.js"))
           const { McpPool } = yield* Effect.promise(() => import("./pool.js"))
+          // A remote GitHub server cannot finish OAuth without dynamic client registration. When the
+          // operator already signed in with the GitHub CLI, its token is the credential they expect
+          // Orchestra to reuse instead of reporting needs_auth again.
+          const storedOAuth = entry.integrationID
+            ? (yield* credentials.list(entry.integrationID)).some((credential) => credential.value.type === "oauth")
+            : false
+          const prepared =
+            entry.config.type === "remote" && !storedOAuth ? yield* McpGitHubAuth.prepare(entry.config) : undefined
+          if (prepared?.token)
+            yield* Effect.logInfo("using GitHub CLI token for MCP server", { server: name, directory: location.directory })
+          const connectConfig = prepared?.config ?? entry.config
           // List tools as part of connect so a failure here marks the server failed rather than
           // leaving it connected with a silently empty tool list and no path to recover.
           const load = McpPool.connect(
             name,
-            entry.config,
+            connectConfig,
             location.directory,
             authProvider,
             elicitation,

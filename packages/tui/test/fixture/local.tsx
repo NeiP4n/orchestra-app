@@ -123,7 +123,7 @@ export function model(id: string, variants: string[] = []): ModelInfo {
     status: "active",
     enabled: true,
     capabilities: { input: ["text"], output: ["text"], tools: true },
-    cost: [],
+    cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
     limit: { context: 10000, output: 1000 },
     time: { released: 0 },
     variants: variants.map((id) => ({ id })),

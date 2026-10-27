@@ -4,7 +4,7 @@ import { addRendererHeaders, documentPolicyHeader, jsCallStacksDocumentPolicy } 
 describe("renderer response headers", () => {
   test("keeps the server's exact allow-headers list so Chromium can reuse the cached preflight", () => {
     const headers = {
-      "access-control-allow-origin": ["oc://renderer"],
+      "access-control-allow-origin": ["orchestra://renderer"],
       "access-control-allow-headers": ["authorization"],
       "access-control-max-age": ["86400"],
     }

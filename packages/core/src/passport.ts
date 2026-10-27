@@ -87,7 +87,7 @@ async function readTail(stream: ReadableStream<Uint8Array>, limit: number) {
   let cut = false
   let hasContent = false
   const append = (chunk: string) => {
-    if (/\\S/.test(chunk)) hasContent = true
+    if (/\S/.test(chunk)) hasContent = true
     text += chunk
     if (text.length > limit) {
       text = text.slice(-limit)

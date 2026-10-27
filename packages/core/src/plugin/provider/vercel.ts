@@ -3,7 +3,7 @@ import { define } from "@orchestra/plugin/effect/plugin"
 import { Provider } from "../../provider.js"
 
 export const VercelPlugin = define({
-  id: "opencode.provider.vercel",
+  id: "orchestra.provider.vercel",
   effect: Effect.fn(function* (ctx) {
     yield* ctx.provider.transform((evt) => {
       for (const item of evt.list()) {

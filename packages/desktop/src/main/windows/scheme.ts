@@ -1,7 +1,7 @@
 import { protocol } from "electron"
 import type { BrowserWindow } from "electron"
 
-export const rendererProtocol = "oc"
+export const rendererProtocol = "orchestra"
 
 export const rendererHost = "renderer"
 

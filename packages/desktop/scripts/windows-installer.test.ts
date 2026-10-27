@@ -9,7 +9,7 @@ test.skipIf(process.platform !== "win32")(
     const { getMakeNsisPath } = await import("app-builder-lib/out/toolsets/windows")
     const config = (await import("../electron-builder.config")).default
     const compiler = await getMakeNsisPath(config.toolsets?.nsis, config.nsis?.customNsisBinary)
-    const dir = await mkdtemp(path.join(os.tmpdir(), "opencode-installer-"))
+    const dir = await mkdtemp(path.join(os.tmpdir(), "orchestra-installer-"))
 
     const run = async (cmd: string[]) => {
       const result = Bun.spawn(cmd, {
@@ -29,9 +29,10 @@ test.skipIf(process.platform !== "win32")(
       return stdout.trim()
     }
 
+    const pwsh = process.platform === "win32" ? (Bun.which("pwsh") ?? "powershell") : "pwsh"
     const acl = (file: string) =>
       run([
-        "pwsh",
+        pwsh,
         "-NoProfile",
         "-NonInteractive",
         "-Command",

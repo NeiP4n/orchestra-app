@@ -1,8 +1,8 @@
-import type { OpenCodeClient } from "@orchestra/client/promise"
+import type { OrchestraClient } from "@orchestra/client/promise"
 
 export async function fetchSessionExport(input: {
   sessionID: string
-  api: Pick<OpenCodeClient, "session" | "message">
+  api: Pick<OrchestraClient, "session" | "message">
 }) {
   const [info, first] = await Promise.all([
     input.api.session.get({ sessionID: input.sessionID }),

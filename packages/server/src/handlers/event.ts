@@ -8,28 +8,27 @@ import { EventFeed } from "../event-feed"
 export const EventHandler = HttpApiBuilder.group(Api, "server.event", (handlers) =>
   Effect.gen(function* () {
     const feed = yield* EventFeed.Service
-    return handlers.handleRaw("event.subscribe", () =>
+    return handlers.handleRaw("event.subscribe", (ctx) =>
       Effect.gen(function* () {
+        const lastEventID =
+          ctx.request.headers["last-event-id"] ??
+          new URL(ctx.request.url, "http://localhost").searchParams.get("lastEventID") ??
+          undefined
         const connected = {
           id: Event.ID.create(),
           type: "server.connected",
           data: {},
         } as const
-        const output = Stream.unwrap(
-          feed.subscribe.pipe(Effect.map((live) => Stream.make(EventFeed.frame(connected)).pipe(Stream.concat(live)))),
-        )
-        const heartbeat = Stream.tick("15 seconds").pipe(Stream.map(() => ": heartbeat\n\n"))
-        return HttpServerResponse.stream(
-          output.pipe(Stream.merge(heartbeat, { haltStrategy: "left" }), Stream.encodeText),
-          {
-            contentType: "text/event-stream",
-            headers: {
-              "Cache-Control": "no-cache, no-transform",
-              "X-Accel-Buffering": "no",
-              "X-Content-Type-Options": "nosniff",
-            },
+        const stream = yield* feed.stream({ lastEventID })
+        const output = Stream.make(EventFeed.frame(connected)).pipe(Stream.concat(stream))
+        return HttpServerResponse.stream(output.pipe(Stream.encodeText), {
+          contentType: "text/event-stream",
+          headers: {
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "X-Content-Type-Options": "nosniff",
           },
-        )
+        })
       }),
     )
   }),

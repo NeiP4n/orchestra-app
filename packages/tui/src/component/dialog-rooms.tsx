@@ -571,7 +571,7 @@ export function DialogHost(props: { onClose?: () => void }) {
                   <text fg={theme.text.feedback.warning.base} wrapMode="word">
                     {t(
                       "This server only listens on this machine, so other devices cannot connect yet. Run `{command} service set hostname 0.0.0.0` and `{command} service restart`.",
-                      { command: process.env.ORCHESTRA_COMMAND || "opencode" },
+                      { command: process.env.ORCHESTRA_COMMAND || "orchestra" },
                     )}
                   </text>
                 }
@@ -1163,7 +1163,7 @@ export function DialogConnect(props: { onClose?: () => void }) {
         <Show when={!found.loading && !found()?.length}>
           <text fg={theme.text.muted} wrapMode="word">
             {t(
-              "Not found? Both computers must be on one network, and on Windows opencode must be allowed in the firewall.",
+              "Not found? Both computers must be on one network, and on Windows Orchestra must be allowed in the firewall.",
             )}
           </text>
         </Show>
@@ -1464,7 +1464,7 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
         </Setting>
         <Setting
           label={t("Off-limits files")}
-          help={t("Comma-separated file/folder patterns. .env, SSH/cloud auth, OpenCode/Claude/Codex tokens, API credentials and private keys are protected automatically too.")}
+          help={t("Comma-separated file/folder patterns. .env, SSH/cloud auth, Orchestra/Claude/Codex tokens, API credentials and private keys are protected automatically too.")}
         >
           {field("protectedFiles", ".env*, secrets/*")}
         </Setting>
@@ -1507,12 +1507,12 @@ function FirewallHelp(props: { ports: readonly number[] }) {
     <Show when={process.platform === "win32" && state.state !== "pending" && state.state !== "unresolved"}>
       <Show
         when={!allowed()}
-        fallback={<text fg={theme.text.muted}>{t("Windows Firewall lets opencode rooms through.")}</text>}
+        fallback={<text fg={theme.text.muted}>{t("Windows Firewall lets Orchestra rooms through.")}</text>}
       >
         <box>
           <text fg={theme.text.muted} wrapMode="word">
             {t(
-              "Windows Firewall blocks rooms until opencode is allowed on the local network; Windows asks for administrator rights once.",
+              "Windows Firewall blocks rooms until Orchestra is allowed on the local network; Windows asks for administrator rights once.",
             )}
           </text>
           <box flexDirection="row">
@@ -1526,7 +1526,7 @@ function FirewallHelp(props: { ports: readonly number[] }) {
   )
 }
 
-const RULE = "opencode rooms"
+const RULE = "orchestra rooms"
 
 // One rule per purpose, so allowing from Connect never drops the server port Host allowed.
 export function firewallRules(ports: readonly number[]) {

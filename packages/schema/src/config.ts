@@ -42,7 +42,7 @@ export class Info extends Schema.Class<Info>("Config.Info")({
     description: "AI team behavior: which models worker sessions run",
   }),
   proxy: ConfigProxy.Info.pipe(optional).annotate({
-    description: "HTTP/HTTPS proxy for OpenCode network requests only; local endpoints must be bypassed",
+    description: "HTTP/HTTPS proxy for Orchestra network requests only; local endpoints must be bypassed",
   }),
   update: Schema.Literals(["disable", "notify", "auto"]).pipe(optional).annotate({
     description: "Disable updates, notify when one is available, or install updates automatically",
@@ -133,6 +133,54 @@ export const Patch = Schema.Struct({
   proxy: Schema.optionalKey(Schema.NullOr(ConfigProxy.Info)),
   compatibilityEnabled: Schema.optionalKey(Schema.NullOr(Schema.Boolean)).annotate({
     description: "Turn reading other agent tools' folders on or off everywhere (compatibility.enabled); null clears it",
+  }),
+  compaction: Schema.optionalKey(Schema.NullOr(ConfigCompaction.Info)).annotate({
+    description: "Compaction settings, including default threshold for new sessions; null clears it",
+  }),
+  agent: Schema.optionalKey(
+    Schema.NullOr(Schema.Union([Schema.String, Schema.Record(Schema.String, Schema.NullOr(ConfigAgent.Info))])),
+  ).annotate({
+    description: "Default agent name or named agent overrides; null clears it",
+  }),
+  default_agent: Schema.optionalKey(Schema.NullOr(Schema.String)).annotate({
+    description: "Default primary agent to use when no session agent is selected; null clears it",
+  }),
+  agents: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(ConfigAgent.Info))).annotate({
+    description: "Named agent definitions to add or update; null removes one",
+  }),
+  skills: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.String))).annotate({
+    description: "Additional paths or URLs to discover skills from; null clears it",
+  }),
+  instructions: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.String))).annotate({
+    description: "Additional paths or URLs supplying ambient instructions; null clears it",
+  }),
+  permissions: Schema.optionalKey(Schema.NullOr(Permission.Ruleset)).annotate({
+    description: "Ordered tool permission rules applied to agent tool use; null clears it",
+  }),
+  plugins: Schema.optionalKey(Schema.NullOr(ConfigPlugin.Plugins)).annotate({
+    description: "Ordered plugin enablement directives and external package declarations; null clears it",
+  }),
+  tool_output: Schema.optionalKey(Schema.NullOr(ConfigToolOutput.Info)).annotate({
+    description: "Tool output truncation thresholds; null clears it",
+  }),
+  commands: Schema.optionalKey(
+    Schema.NullOr(Schema.Record(Schema.String, Schema.NullOr(ConfigCommand.Info))),
+  ).annotate({
+    description: "Named slash command definitions to add or update; null removes command or whole section",
+  }),
+  warming: Schema.optionalKey(Schema.NullOr(ConfigWarming.Warming)).annotate({
+    description: "Keep recently active sessions warm with transient model requests; null clears it",
+  }),
+  mode: Schema.optionalKey(
+    Schema.NullOr(Schema.Union([Schema.String, Schema.Record(Schema.String, Schema.NullOr(ConfigAgent.Info))])),
+  ).annotate({
+    description: "Session mode override or legacy mode definitions; null clears it",
+  }),
+  update: Schema.optionalKey(Schema.NullOr(Schema.Literals(["disable", "notify", "auto"]))).annotate({
+    description: "Disable updates, notify when one is available, or install updates automatically; null clears it",
+  }),
+  media: Schema.optionalKey(Schema.NullOr(ConfigMedia.Info)).annotate({
+    description: "Media processing configuration; null clears it",
   }),
 }).annotate({ identifier: "Config.Patch" })
 export interface Patch extends Schema.Schema.Type<typeof Patch> {}

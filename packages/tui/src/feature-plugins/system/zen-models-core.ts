@@ -6,13 +6,14 @@ export type ZenModelCheck =
   | { readonly state: "limit" | "error"; readonly detail: string }
 
 export const ZEN_PROVIDER_ID = "opencode"
+export const isZenProvider = (id: string) => id === ZEN_PROVIDER_ID || id === "orchestra"
 
 /** Zen's free models: every price is zero. Newest release first, the order the model picker uses. */
 export function freeZenModels(models: readonly ModelInfo[]) {
   return models
     .filter(
       (model) =>
-        model.providerID === ZEN_PROVIDER_ID &&
+        isZenProvider(model.providerID) &&
         model.enabled &&
         model.status !== "deprecated" &&
         model.cost.length > 0 &&
