@@ -42,7 +42,7 @@ describe("Gemini Cloud Code (Google Antigravity) Protocol", () => {
       expect(prepared.route).toBe("gemini-cloudcode")
       expect(prepared.body).toMatchObject({
         project: "test-project-456",
-        model: "gemini-3.8-flash",
+        model: "gemini-3.8-flash-high",
         request: {
           contents: [
             {
@@ -85,7 +85,7 @@ describe("Gemini Cloud Code (Google Antigravity) Protocol", () => {
 
       expect(prepared.body).toMatchObject({
         project: "test-project-456",
-        model: "gemini-3.8-flash",
+        model: "gemini-3.8-flash-high",
         request: {
           tools: [
             {
@@ -177,7 +177,7 @@ describe("Gemini Cloud Code (Google Antigravity) Protocol", () => {
       expect(call.method).toBe("POST")
       expect(call.url).toBe("https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse")
       expect(call.headers.get("authorization")).toBe("Bearer test-token-123")
-      expect(call.headers.get("user-agent")).toBe("antigravity/1.20.4 windows/amd64")
+      expect(call.headers.get("user-agent")).toBe(GeminiCloudCode.ANTIGRAVITY_HUB_USER_AGENT)
       expect(call.headers.get("x-goog-api-client")).toBe("google-cloud-sdk vscode_cloudshelleditor/0.1")
       expect(call.headers.get("client-metadata")).toBe(
         '{"ideType":"ANTIGRAVITY","platform":"WINDOWS","pluginType":"GEMINI"}',
@@ -185,7 +185,7 @@ describe("Gemini Cloud Code (Google Antigravity) Protocol", () => {
 
       const parsedBody = JSON.parse(call.body)
       expect(parsedBody.project).toBe("test-project-456")
-      expect(parsedBody.model).toBe("gemini-3.8-flash")
+      expect(parsedBody.model).toBe("gemini-3.8-flash-high")
       expect(parsedBody.request).toBeDefined()
       expect(parsedBody.request.contents[0].parts[0].text).toBe("Say hello")
 
@@ -391,7 +391,7 @@ describe("Gemini Cloud Code (Google Antigravity) Protocol", () => {
       const prepared = yield* compileRequest(request)
       expect(prepared.body).toMatchObject({
         project: "direct-project",
-        model: "gemini-3.8-flash",
+        model: "gemini-3.8-flash-high",
         request: {
           generationConfig: {
             thinkingConfig: {
@@ -420,7 +420,7 @@ describe("Gemini Cloud Code (Google Antigravity) Protocol", () => {
         const prepared = yield* compileRequest(request)
         expect(prepared.body).toMatchObject({
           project: "env-project-789",
-          model: "gemini-3.8-flash",
+          model: "gemini-3.8-flash-high",
         })
       } finally {
         if (prev === undefined) {
@@ -747,17 +747,18 @@ describe("Gemini Cloud Code (Google Antigravity) Protocol", () => {
 
     it.effect("soft-stops: refuses to compile/send request when quota for project is cached as exhausted", () =>
       Effect.gen(function* () {
+        const futureResetTime = new Date(Date.now() + 3600_000).toISOString()
         GeminiCloudCode.clearQuotaCache("proj-exhausted")
         GeminiCloudCode.recordQuotaReport("proj-exhausted", {
           groups: [],
           isExhausted: true,
-          resetTime: "2026-10-27T19:00:00Z",
+          resetTime: futureResetTime,
           exhaustedBucket: {
             bucketId: "gemini-5h",
             window: "18000s",
             windowKind: "5h",
             remainingFraction: 0,
-            resetTime: "2026-10-27T19:00:00Z",
+            resetTime: futureResetTime,
           },
           source: "retrieveUserQuotaSummary",
         })
@@ -776,7 +777,7 @@ describe("Gemini Cloud Code (Google Antigravity) Protocol", () => {
         expect(error._tag).toBe("AI.Error")
         expect(error.reason._tag).toBe("QuotaExceeded")
         expect(error.message).toContain("Google Antigravity quota is exhausted (5-hour window)")
-        expect(error.message).toContain("2026-10-27T19:00:00Z")
+        expect(error.message).toContain(futureResetTime)
         expect(error.message).toContain("Requests paused until quota resets")
       }),
     )

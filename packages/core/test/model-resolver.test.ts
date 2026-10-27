@@ -1631,7 +1631,7 @@ describe("ModelResolver", () => {
 
       expect(prepared.body).toMatchObject({
         project: "test-cloud-project-789",
-        model: "gemini-3.8-flash",
+        model: "gemini-3.8-flash-high",
         request: {
           contents: [
             {

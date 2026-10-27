@@ -61,8 +61,8 @@ export const jsonRequestParts = <Body>(input: JsonRequestInput<Body>) =>
       url,
       body: body.bodyText,
       headers: Headers.fromInput({
-        ...input.headers?.({ request: input.request }),
         ...input.request.http?.headers,
+        ...input.headers?.({ request: input.request }),
       }),
     })
     return { url, jsonBody: body.jsonBody, bodyText: body.bodyText, headers }

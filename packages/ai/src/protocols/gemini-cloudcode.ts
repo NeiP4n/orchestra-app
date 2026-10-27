@@ -18,8 +18,11 @@ export const STREAM_PATH = "/v1internal:streamGenerateContent?alt=sse"
 export const RETRIEVE_USER_QUOTA_SUMMARY_PATH = "/v1internal:retrieveUserQuotaSummary"
 export const FETCH_AVAILABLE_MODELS_PATH = "/v1internal:fetchAvailableModels"
 
+export const ANTIGRAVITY_HUB_USER_AGENT =
+  "antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=arm64; cl=1000335682)"
+
 export const DEFAULT_HEADERS = {
-  "User-Agent": "antigravity/1.20.4 windows/amd64",
+  "User-Agent": ANTIGRAVITY_HUB_USER_AGENT,
   "X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
   "Client-Metadata": '{"ideType":"ANTIGRAVITY","platform":"WINDOWS","pluginType":"GEMINI"}',
 } as const
@@ -112,6 +115,14 @@ const resolveProjectId = (request: LLMRequest) => {
   )
 }
 
+export function resolveCloudCodeModel(modelId: string): string {
+  const id = modelId.toLowerCase().trim()
+  if (id === "gemini-3.8-flash") return "gemini-3.8-flash-high"
+  if (id === "gemini-3.1-pro") return "gemini-3.1-pro-high"
+  if (id === "gemini-3-pro") return "gemini-3-pro-high"
+  return modelId
+}
+
 const fromRequest = Effect.fn("GeminiCloudCode.fromRequest")(function* (request: LLMRequest) {
   const projectId = resolveProjectId(request)
   if (!projectId) {
@@ -137,7 +148,7 @@ const fromRequest = Effect.fn("GeminiCloudCode.fromRequest")(function* (request:
   const geminiBody = yield* Gemini.protocol.body.from(request)
   return {
     project: projectId,
-    model: String(request.model.id),
+    model: resolveCloudCodeModel(String(request.model.id)),
     request: geminiBody,
   }
 })

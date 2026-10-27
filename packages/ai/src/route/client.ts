@@ -416,6 +416,7 @@ function makeFromTransport<Body, Prepared, Frame, Event, State>(
           request,
           endpoint: routeInput.endpoint,
           auth: routeInput.auth ?? Auth.none,
+          headers: routeInput.headers,
           encodeBody: ProviderShared.encodeJson,
           middleware: options?.http,
           webSocket: options?.webSocket,
@@ -568,7 +569,7 @@ const prepareRequest = (request: LLMRequest) => {
   const headers = resolved.model.route.headers?.({ request: resolved })
   return headers === undefined
     ? resolved
-    : LLMRequest.update(resolved, { http: mergeHttpOptions(new HttpOptions({ headers }), resolved.http) })
+    : LLMRequest.update(resolved, { http: mergeHttpOptions(resolved.http, new HttpOptions({ headers })) })
 }
 
 const compile = Effect.fn("LLM.compile")(function* (request: LLMRequest, options?: StreamOptions) {

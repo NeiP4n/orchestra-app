@@ -53,6 +53,48 @@ const LoadCodeAssistResponse = Schema.Struct({
 
 export const models: ReadonlyArray<Model.Info> = [
   {
+    ...Model.Info.default(providerID, Model.ID.make("gemini-3.8-flash")),
+    name: "Gemini 3.8 Flash",
+    package: "@orchestra/ai/providers/google-antigravity",
+    capabilities: { tools: true, input: ["text", "image", "pdf"], output: ["text"] },
+    limit: { context: 1_048_576, output: 65_536 },
+  },
+  {
+    ...Model.Info.default(providerID, Model.ID.make("gemini-3.8-flash-high")),
+    name: "Gemini 3.8 Flash (High)",
+    package: "@orchestra/ai/providers/google-antigravity",
+    capabilities: { tools: true, input: ["text", "image", "pdf"], output: ["text"] },
+    limit: { context: 1_048_576, output: 65_536 },
+  },
+  {
+    ...Model.Info.default(providerID, Model.ID.make("gemini-3.8-flash-medium")),
+    name: "Gemini 3.8 Flash (Medium)",
+    package: "@orchestra/ai/providers/google-antigravity",
+    capabilities: { tools: true, input: ["text", "image", "pdf"], output: ["text"] },
+    limit: { context: 1_048_576, output: 65_536 },
+  },
+  {
+    ...Model.Info.default(providerID, Model.ID.make("gemini-3.8-flash-low")),
+    name: "Gemini 3.8 Flash (Low)",
+    package: "@orchestra/ai/providers/google-antigravity",
+    capabilities: { tools: true, input: ["text", "image", "pdf"], output: ["text"] },
+    limit: { context: 1_048_576, output: 65_536 },
+  },
+  {
+    ...Model.Info.default(providerID, Model.ID.make("gemini-3.1-pro")),
+    name: "Gemini 3.1 Pro",
+    package: "@orchestra/ai/providers/google-antigravity",
+    capabilities: { tools: true, input: ["text", "image", "pdf"], output: ["text"] },
+    limit: { context: 1_048_576, output: 65_536 },
+  },
+  {
+    ...Model.Info.default(providerID, Model.ID.make("gemini-3-pro")),
+    name: "Gemini 3 Pro",
+    package: "@orchestra/ai/providers/google-antigravity",
+    capabilities: { tools: true, input: ["text", "image", "pdf"], output: ["text"] },
+    limit: { context: 1_048_576, output: 65_536 },
+  },
+  {
     ...Model.Info.default(providerID, Model.ID.make("gemini-3.1-pro-high")),
     name: "Gemini 3.1 Pro (High)",
     package: "@orchestra/ai/providers/google-antigravity",
@@ -147,7 +189,7 @@ function fetchProjectId(http: HttpClient.HttpClient, accessToken: string) {
           HttpClientRequest.setHeaders({
             Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
-            "User-Agent": "antigravity/1.20.4 windows/amd64",
+            "User-Agent": GeminiCloudCode.ANTIGRAVITY_HUB_USER_AGENT,
             "X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
             "Client-Metadata": JSON.stringify({
               ideType: "ANTIGRAVITY",
