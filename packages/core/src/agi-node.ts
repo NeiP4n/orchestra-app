@@ -3,8 +3,8 @@ export * as AgiService from "./agi-node.js"
 import { Context, Effect, Layer } from "effect"
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import { Location } from "./location.js"
-import { AgiNetworkRuntime, type AgiRuntimeStatus, type ComplexityAssessment } from "./agi/runtime.js"
-import type { CognitiveMode } from "./agi/cognitive-mode.js"
+import { AgiNetworkRuntime, type AgiRuntimeStatus } from "./agi/runtime.js"
+import type { CognitiveMode, ComplexityAssessment } from "./agi/cognitive-mode.js"
 
 export interface Interface {
   readonly runtime: AgiNetworkRuntime
@@ -24,8 +24,8 @@ export const layer = Layer.effect(
     })
 
     const assess = (task: string) => runtime.cognitiveMode.assessComplexity(task)
-    const status = () => runtime.status()
-    const mode = () => runtime.status().mode
+    const status = () => runtime.getStatus()
+    const mode = () => runtime.getStatus().mode
 
     return Service.of({
       runtime,
@@ -41,4 +41,3 @@ export const node = makeLocationNode({
   layer,
   deps: [Location.node],
 })
-
