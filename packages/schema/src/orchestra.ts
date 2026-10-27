@@ -765,7 +765,11 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   "api-contract-engineer": { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING, REVERSE), hub: [...CODE, "network"] },
 };
 
-export const roles: readonly (RoleSpec & { id: string })[] = baseRoles.map((role) => ({ ...role, ...toolkits[role.id] }))
+export const roles: readonly (RoleSpec & { id: string })[] = baseRoles.map((role) => ({
+  ...role,
+  autoTools: true,
+  ...toolkits[role.id],
+}))
 
 const member = (name: string, title: string): Member => ({
   agent: role(name),
