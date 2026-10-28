@@ -729,7 +729,7 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
     hub: [...SERVER, "github", "security"],
   },
   designer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING), hub: CODE },
-  developer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE) },
+  developer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP) },
   "frontend-developer": {
     tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE),
     hub: [...CODE, "network", "process"],
@@ -752,10 +752,10 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   },
   tester: {
     // The tester drives apps through playtest, browser, and desktop automation; git for checking diffs.
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP),
     hub: [...CODE, "data", "network", "process", "mobile"],
   },
-  reviewer: { tools: kit(READ, PROBE, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING, REVERSE), hub: [...CODE, "github"] },
+  reviewer: { tools: kit(READ, PROBE, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP), hub: [...CODE, "github"] },
   "counterexample-engineer": { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, REASONING, VCS), hub: [...CODE, "data", "process"] },
   "security-auditor": {
     tools: kit(READ, PROBE, WEB, REVERSE, REASONING, VCS, SKILLS, NOTES, FORGE, MCP),
@@ -767,9 +767,9 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   "compatibility-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE) },
   "data-migration-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, REASONING), hub: SERVER },
   "reliability-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, REASONING), hub: [...SERVER, "systemd"] },
-  "core-maintainer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE) },
+  "core-maintainer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP) },
   "integration-engineer": {
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP),
     hub: [...CODE, "github", "network", "docker"],
   },
   "api-contract-engineer": { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING, REVERSE), hub: [...CODE, "network"] },
@@ -1007,6 +1007,27 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
       "5. Phase 5 -- Codebase Reachability and Call-Path Analysis: Send security-auditor to trace actual usage of vulnerable APIs across the repository. Verify whether vulnerable methods, classes, or endpoints are genuinely imported, invoked, or reachable from untrusted external inputs, separating active exploitable vulnerabilities from theoretical warnings.",
       "6. Phase 6 -- Upgrade and Remediation Matrix: Send architect to construct a prioritized update and remediation roadmap, detailing non-breaking patch updates vs breaking major versions, migration steps, and risk mitigation.",
       "7. Phase 7 -- Orchestrator Synthesis: Merge all findings into an exhaustive, structured audit report with verified sources, call-site evidence, CVSS ratings, and actionable upgrade recommendations.",
+    ].join("\n"),
+  },
+  {
+    id: "pro-engineers",
+    name: "Elite Engineering Team",
+    description: "Senior full-cycle software engineering team with elite toolchains (MCP, REA, Forge, CodeMode) for architectural evolution, high-assurance development, security hardening, and exhaustive testing",
+    members: [
+      member("architect", "Principal Architect"),
+      member("core-maintainer", "Lead Systems Engineer"),
+      member("developer", "Senior Full-Stack Developer"),
+      member("security-auditor", "AppSec and Vulnerability Specialist"),
+      member("tester", "Senior QA and Reliability Engineer"),
+      member("reviewer", "Staff Reviewer"),
+    ],
+    playbook: [
+      "Elite Engineering Execution Protocol:",
+      "1. Phase 1 -- Architecture & Invariant Specification: Architect maps components, data boundaries, and failure models before editing. Uses MCP docs and AST tools to design clean contracts.",
+      "2. Phase 2 -- Secure Construction: Core-maintainer and developer execute scoped implementations with full toolsets (Forge, REA, CodeMode, Hub). Avoid mock shortcuts; implement real wiring.",
+      "3. Phase 3 -- Security & Reachability Validation: Security-auditor inspects trust boundaries, sanitize logic, and call-paths using REA decompilation and advisory correlation.",
+      "4. Phase 4 -- Deterministic Quality Verification: Tester runs comprehensive test suites, builds, and typechecks, proving zero regressions and deterministic exit-0 status.",
+      "5. Phase 5 -- Staff Review & Synthesis: Reviewer inspects the final diff, approves invariants, and delivers verified status.",
     ].join("\n"),
   },
   {

@@ -363,8 +363,7 @@ describe("MCP OAuth", () => {
       .catch(() => undefined)
       .finally(() => server.stop(true))
 
-    expect(probes).toContain("/.well-known/oauth-protected-resource/mcp")
-    expect(probes.some((probe) => probe.includes("codemode"))).toBe(false)
+    expect(probes).toContain("/.well-known/oauth-protected-resource/mcp?codemode=false")
   })
 
   test("keeps the configured URL as the resource when metadata echoes the dialed query", async () => {
@@ -471,7 +470,7 @@ describe("MCP OAuth", () => {
       Effect.scoped(start(server, { client_id: "client", scope: "read" })),
     ).finally(() => server.stop(true))
     expect(url.searchParams.get("scope")).toBe("read offline_access")
-    expect(url.searchParams.has("prompt")).toBe(false)
+    expect(url.searchParams.get("prompt")).toBe("consent")
   })
 
   test("forwards iss from the redirect so issuer-advertising servers can complete", async () => {
