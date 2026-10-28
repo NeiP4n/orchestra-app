@@ -48,6 +48,7 @@ import { useT } from "../util/i18n"
 import { stringWidth } from "../util/string-width"
 import { NeuronDot, neuralPalette, useNeuralEnergy } from "./neural"
 import { SculkResonanceMonitor } from "./sculk-effects"
+import { SculkSprite } from "./sculk-sprite-view"
 
 const graphWidth = 23
 const sampleIntervalMilliseconds = 2_000
@@ -735,6 +736,11 @@ export function DevToolsBar() {
             <box flexDirection="row" justifyContent="space-between" marginTop={1}>
               <text fg={theme.text.muted}>{t("Sculk")}</text>
               <SculkResonanceMonitor energy={energy()} />
+            </box>
+            <box flexDirection="row" justifyContent="space-between" marginTop={1} marginBottom={1}>
+              <SculkSprite kind="sensor" state="vibrating" label="Sensor" />
+              <SculkSprite kind="shrieker" state="vibrating" label="Shrieker" />
+              <SculkSprite kind="catalyst" state="vibrating" label="Catalyst" />
             </box>
             <Action onClick={() => renderer.toggleDebugOverlay()} hoverBackground>
               {debugOverlay() ? "[x]" : "[ ]"} {t("Debug overlay")}
