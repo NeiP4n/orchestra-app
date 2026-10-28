@@ -39,8 +39,6 @@ import { openProjectDialog } from "./dialog-project"
 import { openTeamEditor } from "./dialog-teams"
 import { openGroupsDialog } from "./dialog-groups"
 import { useProjects } from "../context/projects"
-import { DialogExperiments } from "./dialog-experiments"
-import { DialogIdeaBank } from "./dialog-idea-bank"
 import { ProjectFacts, useProjectFacts } from "./project-facts"
 import { explainSelection, QuickHelp, quickMode, setQuickMode, type QuickMode } from "./quick-help"
 import { usePromptRef } from "../context/prompt"
@@ -216,11 +214,7 @@ export function DevToolsBar() {
     close()
     dialog.replace(view)
   }
-  const openIdeaBank = () => {
-    close()
-    dialog.replace(() => <DialogIdeaBank prompt={promptRef} />, undefined, { size: "xlarge" })
-    dialog.setCentered(true)
-  }
+
   const reload = () => {
     close()
     toast.show({ variant: "info", message: t("Reloading configuration…"), duration: 30000 })
@@ -322,11 +316,9 @@ export function DevToolsBar() {
       teams: ["◈", t("Teams")],
       council: ["❖", t("Council")],
       registry: ["▤", t("Registry")],
-      experiments: ["△", t("Experiments")],
       chat: ["◌", t("Chat")],
       explain: ["⌕", t("Explain")],
       essence: ["◎", t("Essence")],
-      ideas: ["✦", t("Ideas")],
       facts: ["✧", t("Facts")],
       theme: ["◐", t("Theme")],
       tools: ["◇", t("Tools")],
@@ -344,12 +336,10 @@ export function DevToolsBar() {
     const iconized = new Set<string>()
     let total = fixed + Object.keys(items).reduce((sum, id) => sum + full(id), 0)
     // On narrow terminals (<=75 columns), reserve space so secondary items fold into ⋯ and Server stays labeled
-    const maxBudget = dimensions().width <= 75 ? Math.max(30, dimensions().width - 10) : dimensions().width
+    const maxBudget = dimensions().width <= 75 ? Math.max(25, Math.floor(dimensions().width * 0.6)) : dimensions().width
 
     for (const id of [
-      "experiments",
       "facts",
-      "ideas",
       "essence",
       "explain",
       "theme",
@@ -365,7 +355,7 @@ export function DevToolsBar() {
       total -= full(id) - icon(id)
     }
     const ids = new Set<string>()
-    for (const id of ["experiments", "facts", "ideas", "registry", "theme", "tools", "ui", "council", "teams"]) {
+    for (const id of ["facts", "registry", "theme", "tools", "ui", "council", "teams"]) {
       if (total <= maxBudget) break
       ids.add(id)
       total -= iconized.has(id) ? icon(id) : full(id)
@@ -439,16 +429,7 @@ export function DevToolsBar() {
       >
         <text fg={theme.text.muted}><Label id="registry" icon="▤" text={t("Registry")} /></text>
       </BarItem>
-      <BarItem
-        hidden={hidden().has("experiments")}
-        active={false}
-        onClick={() => {
-          close()
-          dialog.replace(() => <DialogExperiments />)
-        }}
-      >
-        <text fg={theme.text.muted}><Label id="experiments" icon="△" text={t("Experiments")} /></text>
-      </BarItem>
+
       <box flexDirection="row">
         <Show when={projects.loaded() && projects.list().length === 0}>
           <BarItem
@@ -492,12 +473,7 @@ export function DevToolsBar() {
           <Label id="essence" icon="◎" text={t("Essence")} />
         </text>
       </BarItem>
-      <BarItem hidden={hidden().has("ideas")} active={false} onClick={openIdeaBank}>
-        <text fg={theme.text.muted}>
-          <span style={{ fg: palette().spark }}>✦</span>
-          <Label id="ideas" text={t("Ideas")} />
-        </text>
-      </BarItem>
+
       <BarItem
         hidden={hidden().has("facts")}
         active={facts.open}
@@ -513,9 +489,7 @@ export function DevToolsBar() {
         </text>
       </BarItem>
 
-      <box flexGrow={1} minWidth={0}>
-        <TimeToFirstDraw visible={timing()} width="100%" fg={theme.text.muted} label="Time to first draw" />
-      </box>
+      <box flexGrow={1} minWidth={0} />
       <Divider />
 
       {/* Zone 3: Environment, Controls & System Telemetry */}
