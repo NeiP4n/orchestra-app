@@ -771,6 +771,10 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
     tools: kit(READ, PROBE, WEB, SCREEN, REASONING, REVERSE, VCS, SKILLS, NOTES),
     hub: [...SERVER, "mobile"],
   },
+  "adaptive-ui-tester": {
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP),
+    hub: [...CODE, "data", "network", "process", "mobile", "windows"],
+  },
   tester: {
     // The tester drives apps through playtest, browser, and desktop automation; git for checking diffs.
     tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP),
