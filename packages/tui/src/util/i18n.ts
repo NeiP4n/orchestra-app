@@ -8,6 +8,9 @@ export type Language = "en" | "ru"
 // LAN Rooms and federation were added after the original locale table. Keep these
 // additions isolated so the upstream translation table can be replaced independently.
 const ruExtra: Record<string, string> = {
+  Council: "Совет",
+  Groups: "Группы",
+  Tree: "Дерево",
   ...ruContext,
   // Mesh
   Mesh: "Mesh",

@@ -37,6 +37,7 @@ import { PanelBox, PanelTitle, Row } from "./devtools-panel"
 import { RegistryPanel } from "./devtools-registry"
 import { openProjectDialog } from "./dialog-project"
 import { openTeamEditor } from "./dialog-teams"
+import { openGroupsDialog } from "./dialog-groups"
 import { useProjects } from "../context/projects"
 import { DialogExperiments } from "./dialog-experiments"
 import { DialogIdeaBank } from "./dialog-idea-bank"
@@ -318,38 +319,54 @@ export function DevToolsBar() {
   // even that is not enough do the ones with their own commands (/themes, /teams…) fold into ⋯.
   const fold = createMemo(() => {
     const items: Record<string, [string, string]> = {
-      server: ["✓", t("Server")],
-      ui: ["○", t("UI")],
-      ideas: ["✦", t("Ideas")],
-      theme: ["◐", t("Theme")],
-      tools: ["◇", t("Tools")],
-      registry: ["▤", t("Registry")],
       teams: ["◈", t("Teams")],
+      council: ["❖", t("Council")],
+      registry: ["▤", t("Registry")],
       experiments: ["△", t("Experiments")],
+      chat: ["◌", t("Chat")],
       explain: ["⌕", t("Explain")],
       essence: ["◎", t("Essence")],
-      chat: ["◌", t("Chat")],
+      ideas: ["✦", t("Ideas")],
       facts: ["✧", t("Facts")],
+      theme: ["◐", t("Theme")],
+      tools: ["◇", t("Tools")],
+      server: ["✓", t("Server")],
+      ui: ["○", t("UI")],
     }
     const full = (id: string) => stringWidth(`${items[id]![0]} ${items[id]![1]}`) + 2
     const icon = (id: string) => stringWidth(items[id]![0]) + 2
-    // Two group dividers, the language switch and the first-project button keep their full width.
+    // Dividers, language switch and the first-project button keep their full width.
     const fixed =
-      3 +
       4 +
       stringWidth(`${t("Language")} EN`) +
       2 +
       (projects.loaded() && projects.list().length === 0 ? stringWidth(t("+ Project")) + 2 : 0)
     const iconized = new Set<string>()
     let total = fixed + Object.keys(items).reduce((sum, id) => sum + full(id), 0)
-    for (const id of ["experiments", "theme", "ui", "registry", "ideas", "facts", "essence", "chat", "explain", "tools", "teams", "server"]) {
-      if (total <= dimensions().width) break
+    // On narrow terminals (<=75 columns), reserve space so secondary items fold into ⋯ and Server stays labeled
+    const maxBudget = dimensions().width <= 75 ? Math.max(30, dimensions().width - 10) : dimensions().width
+
+    for (const id of [
+      "experiments",
+      "facts",
+      "ideas",
+      "essence",
+      "explain",
+      "theme",
+      "tools",
+      "ui",
+      "registry",
+      "council",
+      "teams",
+      "chat",
+    ]) {
+      if (total <= maxBudget) break
       iconized.add(id)
       total -= full(id) - icon(id)
     }
     const ids = new Set<string>()
-    for (const id of ["experiments", "theme", "ui", "teams", "tools", "registry"]) {
-      if (total <= dimensions().width) break
+    for (const id of ["experiments", "facts", "ideas", "registry", "theme", "tools", "ui", "council", "teams"]) {
+      if (total <= maxBudget) break
       ids.add(id)
       total -= iconized.has(id) ? icon(id) : full(id)
     }
@@ -372,115 +389,153 @@ export function DevToolsBar() {
           onMouseUp={close}
         />
       </Show>
-      <BarItem active={panel() === "server"} onClick={() => toggle("server")}>
-        {/* While connected the server is a living neuron; any other state shows its plain mark. */}
-        <Show
-          when={serverIndicator().state === "connected" && panel() !== "server"}
-          fallback={
-            <text
-              fg={
-                panel() === "server"
-                  ? theme.text.action.primary.focused
-                  : serverIndicator().state === "disconnected"
-                    ? theme.text.feedback.error.base
-                    : theme.text.base
-              }
-            >
-              {serverIndicator().icon}
-            </text>
-          }
-        >
-          <NeuronDot energy={energy()} />
-        </Show>
-        <text
-          fg={
-            panel() === "server"
-              ? theme.text.action.primary.focused
-              : serverIndicator().state === "disconnected"
-                ? theme.text.feedback.error.base
-                : theme.text.muted
-          }
-        >
-          <Label id="server" text={t("Server")} />
-        </text>
-        <Show when={panel() === "server"}>
-          <PanelBox>
-            <PanelTitle>{t("Server")}</PanelTitle>
-            <Row label={t("Status")} value={connected() ? t("Connected") : client.connection.status()} />
-            <Show when={client.connection.attempt() > 0}>
-              <Row label={t("Reconnect")} value={String(client.connection.attempt())} />
-            </Show>
-            <Show when={client.connection.error()}>{(error) => <Row label={t("Last error")} value={error()} />}</Show>
-            <Show when={server()}>
-              {(value) => (
-                <>
-                  <Row label={t("Version")} value={value().health.version} />
-                  <Row label="PID" value={String(value().health.pid)} />
-                  <Row label={t("Address")} value={value().address} />
-                </>
-              )}
-            </Show>
-            <Show when={server.error}>
-              <text fg={elevatedTheme.text.feedback.error.base}>{t("Server details unavailable")}</text>
-            </Show>
-          </PanelBox>
-        </Show>
+
+      {/* Zone 1: Navigation & Federation (Direct children to preserve stacking context) */}
+      <BarItem
+        hidden={hidden().has("teams")}
+        active={false}
+        onClick={() => {
+          close()
+          openTeamEditor(dialog)
+        }}
+      >
+        <text fg={theme.text.muted}><Label id="teams" icon="◈" text={t("Teams")} /></text>
       </BarItem>
-      <BarItem hidden={hidden().has("ui")} active={panel() === "ui"} onClick={() => toggle("ui")}>
-        <text
-          fg={
-            panel() === "ui"
-              ? theme.text.action.primary.focused
-              : runtime() === "high"
-                ? theme.text.feedback.error.base
-                : theme.text.muted
-          }
-        >
-          {statusIcon(runtime())}
-        </text>
-        <text
-          fg={
-            panel() === "ui"
-              ? theme.text.action.primary.focused
-              : runtime() === "high"
-                ? theme.text.feedback.error.base
-                : theme.text.muted
-          }
-        >
-          <Label id="ui" text={t("UI")} />
-        </text>
-        <Show when={panel() === "ui"}>
-          <PanelBox>
-            <PanelTitle>{t("UI")}</PanelTitle>
-            <Row label={t("Status")} value={runtime()} />
-            <ProcessStat
-              label={t("Loop")}
-              values={frontendSamples().map((sample) => sample.delay)}
-              unit=" ms"
-              decimals={1}
-            />
-            <ProcessStat label="CPU" values={frontendSamples().map((sample) => sample.cpu)} unit="%" />
-            <ProcessStat
-              label={t("Memory")}
-              values={frontendSamples().map((sample) => sample.memory / 1024 / 1024)}
-              unit=" MB"
-              decimals={0}
-            />
-            <Action onClick={() => renderer.toggleDebugOverlay()} hoverBackground>
-              {debugOverlay() ? "[x]" : "[ ]"} {t("Debug overlay")}
-            </Action>
-          </PanelBox>
-        </Show>
+      <BarItem
+        hidden={hidden().has("council")}
+        active={false}
+        onClick={() => {
+          close()
+          openGroupsDialog(dialog)
+        }}
+      >
+        <text fg={theme.text.action.primary.base}><Label id="council" icon="❖" text={t("Council")} /></text>
       </BarItem>
+      <BarItem
+        hidden={hidden().has("registry")}
+        active={false}
+        onClick={() => {
+          close()
+          dialog.replace(
+            () => (
+              <RegistryPanel
+                onClose={() => dialog.clear()}
+                onShell={(shell) => void client.api.config.update({ shell }).catch(toast.error)}
+                aiTools={{
+                  installed: () =>
+                    (data.location.mcp.server.list(location.ref ?? data.location.default()) ?? []).map(
+                      (server) => server.name,
+                    ),
+                  set: (id, config) => client.api.config.update({ mcpServers: { [id]: config } }),
+                }}
+                plugins={plugins}
+              />
+            ),
+            undefined,
+            { size: "large" },
+          )
+          dialog.setCentered(true)
+        }}
+      >
+        <text fg={theme.text.muted}><Label id="registry" icon="▤" text={t("Registry")} /></text>
+      </BarItem>
+      <BarItem
+        hidden={hidden().has("experiments")}
+        active={false}
+        onClick={() => {
+          close()
+          dialog.replace(() => <DialogExperiments />)
+        }}
+      >
+        <text fg={theme.text.muted}><Label id="experiments" icon="△" text={t("Experiments")} /></text>
+      </BarItem>
+      <box flexDirection="row">
+        <Show when={projects.loaded() && projects.list().length === 0}>
+          <BarItem
+            active={false}
+            onClick={() => {
+              close()
+              openProjectDialog(dialog, projects.refetch)
+            }}
+          >
+            <text fg={theme.text.action.primary.base}>{t("+ Project")}</text>
+          </BarItem>
+        </Show>
+      </box>
+      <BarItem
+        hidden={hidden().size === 0}
+        active={false}
+        onClick={() => {
+          close()
+          openDialog(() => <CommandPaletteDialog />)
+        }}
+      >
+        <text fg={theme.text.action.primary.base}>⋯</text>
+      </BarItem>
+
       <Divider />
-      <BarItem active={false} onClick={openIdeaBank}>
+      <box flexGrow={1} minWidth={0} />
+
+      {/* Zone 2: AI Modes & Intelligence (Centered) */}
+      <BarItem active={quickMode() === "chat"} onClick={() => toggleQuick("chat")}>
+        <text fg={quickMode() === "chat" ? theme.text.action.primary.focused : theme.text.muted}>
+          <Label id="chat" icon="◌" text={t("Chat")} />
+        </text>
+      </BarItem>
+      <BarItem active={quickMode() === "explain"} onClick={() => toggleQuick("explain")} selecting>
+        <text fg={quickMode() === "explain" ? theme.text.action.primary.focused : theme.text.muted}>
+          <Label id="explain" icon="⌕" text={t("Explain")} />
+        </text>
+      </BarItem>
+      <BarItem active={quickMode() === "essence"} onClick={() => toggleQuick("essence")}>
+        <text fg={quickMode() === "essence" ? theme.text.action.primary.focused : theme.text.muted}>
+          <Label id="essence" icon="◎" text={t("Essence")} />
+        </text>
+      </BarItem>
+      <BarItem hidden={hidden().has("ideas")} active={false} onClick={openIdeaBank}>
         <text fg={theme.text.muted}>
           <span style={{ fg: palette().spark }}>✦</span>
           <Label id="ideas" text={t("Ideas")} />
         </text>
       </BarItem>
+      <BarItem
+        hidden={hidden().has("facts")}
+        active={facts.open}
+        onClick={() => {
+          if (!facts.open) setQuickMode()
+          void updateFacts((draft) => {
+            draft.open = !draft.open
+          }).catch(toast.error)
+        }}
+      >
+        <text fg={facts.open ? theme.text.action.primary.focused : theme.text.muted}>
+          <Label id="facts" icon="✧" text={t("Facts")} />
+        </text>
+      </BarItem>
+
+      <box flexGrow={1} minWidth={0}>
+        <TimeToFirstDraw visible={timing()} width="100%" fg={theme.text.muted} label="Time to first draw" />
+      </box>
+      <Divider />
+
+      {/* Zone 3: Environment, Controls & System Telemetry */}
+      <BarItem
+        active={false}
+        onClick={() =>
+          void config
+            .update((draft) => {
+              draft.language = config.data.language === "ru" ? "en" : "ru"
+            })
+            .catch(toast.error)
+        }
+      >
+        <text fg={theme.text.muted}>{t("Language")}</text>
+        <text fg={theme.text.action.primary.base}>{" " + (config.data.language === "ru" ? "RU" : "EN")}</text>
+      </BarItem>
       <BarItem hidden={hidden().has("theme")} active={panel() === "theme"} onClick={() => toggle("theme")}>
-        <text fg={panel() === "theme" ? theme.text.action.primary.focused : theme.text.muted}><Label id="theme" icon="◐" text={t("Theme")} /></text>
+        <text fg={panel() === "theme" ? theme.text.action.primary.focused : theme.text.muted}>
+          <Label id="theme" icon="◐" text={t("Theme")} />
+        </text>
         <Show when={panel() === "theme"}>
           <PanelBox>
             <PanelTitle>{t("Theme")}</PanelTitle>
@@ -496,7 +551,9 @@ export function DevToolsBar() {
         </Show>
       </BarItem>
       <BarItem hidden={hidden().has("tools")} active={panel() === "tools"} onClick={() => toggle("tools")}>
-        <text fg={panel() === "tools" ? theme.text.action.primary.focused : theme.text.muted}><Label id="tools" icon="◇" text={t("Tools")} /></text>
+        <text fg={panel() === "tools" ? theme.text.action.primary.focused : theme.text.muted}>
+          <Label id="tools" icon="◇" text={t("Tools")} />
+        </text>
         <Show when={panel() === "tools"}>
           <PanelBox>
             <PanelTitle>{t("Tools")}</PanelTitle>
@@ -603,125 +660,117 @@ export function DevToolsBar() {
           </PanelBox>
         </Show>
       </BarItem>
-      <BarItem
-        hidden={hidden().has("registry")}
-        active={false}
-        onClick={() => {
-          close()
-          dialog.replace(
-            () => (
-              <RegistryPanel
-                onClose={() => dialog.clear()}
-                onShell={(shell) => void client.api.config.update({ shell }).catch(toast.error)}
-                aiTools={{
-                  installed: () =>
-                    (data.location.mcp.server.list(location.ref ?? data.location.default()) ?? []).map(
-                      (server) => server.name,
-                    ),
-                  set: (id, config) => client.api.config.update({ mcpServers: { [id]: config } }),
-                }}
-                plugins={plugins}
-              />
-            ),
-            undefined,
-            { size: "large" },
-          )
-          dialog.setCentered(true)
-        }}
-      >
-        <text fg={theme.text.muted}><Label id="registry" icon="▤" text={t("Registry")} /></text>
-      </BarItem>
-      <BarItem
-        hidden={hidden().has("teams")}
-        active={false}
-        onClick={() => {
-          close()
-          openTeamEditor(dialog)
-        }}
-      >
-        <text fg={theme.text.muted}><Label id="teams" icon="◈" text={t("Teams")} /></text>
-      </BarItem>
-      {/* A hidden Show leaves a Solid slot node without a zIndex among the bar's children, and opentui's
-          zIndex sort then let the backdrop land above the open panel and take its clicks. The wrapper keeps
-          that slot node out of the bar. */}
-      <box flexDirection="row">
-        <Show when={projects.loaded() && projects.list().length === 0}>
-          <BarItem
-            active={false}
-            onClick={() => {
-              close()
-              openProjectDialog(dialog, projects.refetch)
-            }}
-          >
-            <text fg={theme.text.action.primary.base}>{t("+ Project")}</text>
-          </BarItem>
-        </Show>
-      </box>
-      <BarItem
-        hidden={hidden().has("experiments")}
-        active={false}
-        onClick={() => {
-          close()
-          dialog.replace(() => <DialogExperiments />)
-        }}
-      >
-        <text fg={theme.text.muted}><Label id="experiments" icon="△" text={t("Experiments")} /></text>
-      </BarItem>
-      {/* Items that no longer fit are not lost: this mark opens the command palette, where each has its command. */}
-      <BarItem
-        hidden={hidden().size === 0}
-        active={false}
-        onClick={() => {
-          close()
-          openDialog(() => <CommandPaletteDialog />)
-        }}
-      >
-        <text fg={theme.text.action.primary.base}>⋯</text>
-      </BarItem>
-      <box flexGrow={1} minWidth={0}>
-        <TimeToFirstDraw visible={timing()} width="100%" fg={theme.text.muted} label="Time to first draw" />
-      </box>
+
       <Divider />
-      <BarItem active={quickMode() === "explain"} onClick={() => toggleQuick("explain")} selecting>
-        <text fg={quickMode() === "explain" ? theme.text.action.primary.focused : theme.text.muted}><Label id="explain" icon="⌕" text={t("Explain")} /></text>
+
+      <BarItem active={panel() === "server"} onClick={() => toggle("server")}>
+        <Show
+          when={serverIndicator().state === "connected" && panel() !== "server"}
+          fallback={
+            <text
+              fg={
+                panel() === "server"
+                  ? theme.text.action.primary.focused
+                  : serverIndicator().state === "disconnected"
+                    ? theme.text.feedback.error.base
+                    : theme.text.base
+              }
+            >
+              {serverIndicator().icon}
+            </text>
+          }
+        >
+          <NeuronDot energy={energy()} />
+        </Show>
+        <text
+          fg={
+            panel() === "server"
+              ? theme.text.action.primary.focused
+              : serverIndicator().state === "disconnected"
+                ? theme.text.feedback.error.base
+                : theme.text.muted
+          }
+        >
+          <Label id="server" text={t("Server")} />
+        </text>
+        <Show when={panel() === "server"}>
+          <PanelBox>
+            <PanelTitle>{t("Server")}</PanelTitle>
+            <Row label={t("Status")} value={connected() ? t("Connected") : client.connection.status()} />
+            <Show when={client.connection.attempt() > 0}>
+              <Row label={t("Reconnect")} value={String(client.connection.attempt())} />
+            </Show>
+            <Show when={client.connection.error()}>{(error) => <Row label={t("Last error")} value={error()} />}</Show>
+            <Show when={server()}>
+              {(value) => (
+                <>
+                  <Row label={t("Version")} value={value().health.version} />
+                  <Row label="PID" value={String(value().health.pid)} />
+                  <Row label={t("Address")} value={value().address} />
+                </>
+              )}
+            </Show>
+            <Show when={server.error}>
+              <text fg={elevatedTheme.text.feedback.error.base}>{t("Server details unavailable")}</text>
+            </Show>
+          </PanelBox>
+        </Show>
       </BarItem>
-      <BarItem active={quickMode() === "essence"} onClick={() => toggleQuick("essence")}>
-        <text fg={quickMode() === "essence" ? theme.text.action.primary.focused : theme.text.muted}><Label id="essence" icon="◎" text={t("Essence")} /></text>
+
+      <BarItem hidden={hidden().has("ui")} active={panel() === "ui"} onClick={() => toggle("ui")}>
+        <text
+          fg={
+            panel() === "ui"
+              ? theme.text.action.primary.focused
+              : runtime() === "high"
+                ? theme.text.feedback.error.base
+                : theme.text.muted
+          }
+        >
+          {statusIcon(runtime())}
+        </text>
+        <text
+          fg={
+            panel() === "ui"
+              ? theme.text.action.primary.focused
+              : runtime() === "high"
+                ? theme.text.feedback.error.base
+                : theme.text.muted
+          }
+        >
+          <Label id="ui" text={t("UI")} />
+        </text>
+        <Show when={panel() === "ui"}>
+          <PanelBox>
+            <PanelTitle>{t("UI")}</PanelTitle>
+            <Row label={t("Status")} value={runtime()} />
+            <ProcessStat
+              label={t("Loop")}
+              values={frontendSamples().map((sample) => sample.delay)}
+              unit=" ms"
+              decimals={1}
+            />
+            <ProcessStat label="CPU" values={frontendSamples().map((sample) => sample.cpu)} unit="%" />
+            <ProcessStat
+              label={t("Memory")}
+              values={frontendSamples().map((sample) => sample.memory / 1024 / 1024)}
+              unit=" MB"
+              decimals={0}
+            />
+            <Action onClick={() => renderer.toggleDebugOverlay()} hoverBackground>
+              {debugOverlay() ? "[x]" : "[ ]"} {t("Debug overlay")}
+            </Action>
+          </PanelBox>
+        </Show>
       </BarItem>
-      <BarItem active={quickMode() === "chat"} onClick={() => toggleQuick("chat")}>
-        <text fg={quickMode() === "chat" ? theme.text.action.primary.focused : theme.text.muted}><Label id="chat" icon="◌" text={t("Chat")} /></text>
-      </BarItem>
-      <BarItem
-        active={facts.open}
-        onClick={() => {
-          if (!facts.open) setQuickMode()
-          void updateFacts((draft) => {
-            draft.open = !draft.open
-          }).catch(toast.error)
-        }}
-      >
-        <text fg={facts.open ? theme.text.action.primary.focused : theme.text.muted}><Label id="facts" icon="✧" text={t("Facts")} /></text>
-      </BarItem>
-      <BarItem
-        active={false}
-        onClick={() =>
-          void config
-            .update((draft) => {
-              draft.language = config.data.language === "ru" ? "en" : "ru"
-            })
-            .catch(toast.error)
-        }
-      >
-        <text fg={theme.text.muted}>{t("Language")}</text>
-        <text fg={theme.text.action.primary.base}>{" " + (config.data.language === "ru" ? "RU" : "EN")}</text>
-      </BarItem>
-      {/* Like the slot wrapper above: a stable node keeps the window out of the bar's zIndex re-sort. */}
+
+      {/* Popups & Dialogs Portals */}
       <box flexDirection="row">
         <ProjectFacts />
         <QuickHelp />
       </box>
     </box>
-    </BarDense.Provider>
+  </BarDense.Provider>
   )
 }
 

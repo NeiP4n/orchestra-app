@@ -6,6 +6,7 @@ import { useClient } from "../context/client"
 import { useProjects } from "../context/projects"
 import { useRoute } from "../context/route"
 import { useTheme } from "../context/theme"
+import type { DialogContext } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { errorMessage } from "../util/error"
 import { useGroupT } from "../util/i18n-groups"
@@ -202,4 +203,19 @@ export function DialogGroups(props: { onClose?: () => void }) {
       </Show>
     </box>
   )
+}
+export function openGroupsDialog(dialog: DialogContext, options?: { onClose?: () => void }) {
+  dialog.replace(
+    () => (
+      <DialogGroups
+        onClose={() => {
+          dialog.clear()
+          options?.onClose?.()
+        }}
+      />
+    ),
+    undefined,
+    { size: "large" },
+  )
+  dialog.setCentered(true)
 }
