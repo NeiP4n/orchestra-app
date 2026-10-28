@@ -847,7 +847,7 @@ export function Session(props: {
   /** The request and step at the top of the viewport; the latest ones while following the bottom. */
   const outlineActive = createMemo(() => {
     const top = awayFromBottom() ? outlineTop() : undefined
-    const category = top ? outline().find((item) => item.messageIDs.includes(top.messageID)) : outline().at(-1)
+    const category = (top ? outline().find((item) => item.messageIDs.includes(top.messageID)) : undefined) ?? outline().at(-1)
     if (!category) return {}
     const index = top ? category.messageIDs.indexOf(top.messageID) : Infinity
     const entry = category.entries.findLast((entry) => category.messageIDs.indexOf(entry.ref.messageID) <= index)

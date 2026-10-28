@@ -19,6 +19,9 @@ export function PaneResizeHandle(props: {
       onMouseOver={props.resize.onMouseOver}
       onMouseOut={props.resize.onMouseOut}
       onMouseDown={props.resize.onMouseDown}
+      onMouseDrag={props.resize.onMouseDrag}
+      onMouseDragEnd={props.resize.onMouseDragEnd}
+      onMouseUp={props.resize.onMouseUp}
     >
       <box
         width={1}

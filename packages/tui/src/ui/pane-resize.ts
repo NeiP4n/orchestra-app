@@ -42,6 +42,9 @@ export function createPaneResize(options: {
   return {
     preferredSize,
     size,
+    commit,
+    step: (delta: number) => commit(size() + delta),
+    reset: () => commit(options.defaultValue()),
     hovered,
     resizing,
     onMouseOver: () => setHovered(true),

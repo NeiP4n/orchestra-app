@@ -156,12 +156,17 @@ export function OutlineRail(props: {
         }, 250)
       }}
       // Clicking the rail pins the list open; clicking it again returns it to the rail.
-      onMouseDown={() => (pinned() ? togglePin() : pin())}
+      onMouseDown={(event) => event.stopPropagation()}
+      onMouseUp={(event) => {
+        event.stopPropagation()
+        if (pinned()) togglePin()
+        else pin()
+      }}
     >
       <Show
         when={expanded()}
         fallback={
-          <box flexDirection="column" width={2} alignItems="flex-end">
+          <box flexDirection="column" width={2} alignItems="flex-end" onMouseDown={(event) => event.stopPropagation()} onMouseUp={(event) => { event.stopPropagation(); if (pinned()) togglePin(); else pin(); }}>
             <For each={rail()}>
               {(line) => (
                 <text fg={color(line)} wrapMode="none">
@@ -181,6 +186,8 @@ export function OutlineRail(props: {
           borderColor={theme.border.base}
           paddingLeft={1}
           paddingRight={1}
+          onMouseDown={(event) => event.stopPropagation()}
+          onMouseUp={(event) => event.stopPropagation()}
         >
           <text fg={theme.text.muted} wrapMode="none" truncate flexShrink={0}>
             {[
@@ -196,6 +203,8 @@ export function OutlineRail(props: {
             flexShrink={0}
             verticalScrollbarOptions={{ visible: lines().length > visibleRows() }}
             horizontalScrollbarOptions={{ visible: false }}
+            onMouseDown={(event) => event.stopPropagation()}
+            onMouseUp={(event) => event.stopPropagation()}
           >
             <For each={lines()}>
               {(line) => (
@@ -206,6 +215,9 @@ export function OutlineRail(props: {
                   backgroundColor={hovered() === line.key ? theme.background.action.primary.hovered : undefined}
                   onMouseOver={() => setHovered(line.key)}
                   onMouseDown={(event) => {
+                    event.stopPropagation()
+                  }}
+                  onMouseUp={(event) => {
                     event.stopPropagation()
                     // A pinned list stays open after a jump, so the next topic is one click away.
                     if (pinned()) props.onJump(line.ref)

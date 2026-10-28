@@ -58,7 +58,7 @@ export function HomeProjectPanel(props: {
   const energy = useNeuralEnergy()
   const dimensions = useTerminalDimensions()
   // The network window grows on tall screens and disappears on short ones.
-  const fieldHeight = () => (dimensions().height >= 56 ? 12 : dimensions().height >= 44 ? 8 : dimensions().height >= 32 ? 5 : 0)
+  const fieldHeight = () => (dimensions().height >= 56 ? 12 : dimensions().height >= 44 ? 8 : dimensions().height >= 28 ? 4 : 0)
   const sessions = createMemo(() => data.session.list().filter((session) => !session.parentID))
   const thinking = createMemo(() => sessions().filter((session) => data.session.status(session.id) === "running").length)
   const energyLabel = () => `${"▮".repeat(Math.round(energy() * 5))}${"▯".repeat(5 - Math.round(energy() * 5))}`
@@ -142,7 +142,7 @@ export function HomeProjectPanel(props: {
             {/* A small window onto the network: it fires faster as more agents work. */}
             {/* Cards drop from the bottom as the window gets shorter; the overview always stays. */}
             <Show when={dimensions().height >= 26}>
-            <NeuralCard title={t("Network")} footer={energyLabel()}>
+            <NeuralCard title={t("Network")} footer={energyLabel()} flexGrow={1}>
               <Show when={fieldHeight() > 0}>
                 <NeuronField
                   width="100%"

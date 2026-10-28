@@ -330,6 +330,38 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
           dialog.clear()
         },
       },
+      {
+        id: "session.pane.wider",
+        title: "Expand right panel",
+        bind: "alt+],ctrl+alt+right",
+        group: "Session",
+        palette: true,
+        enabled: () => !rightPaneHidden() && rightPane() !== undefined,
+        run: () => {
+          rightPaneResize().step(4)
+        },
+      },
+      {
+        id: "session.pane.narrower",
+        title: "Shrink right panel",
+        bind: "alt+[,ctrl+alt+left",
+        group: "Session",
+        palette: true,
+        enabled: () => !rightPaneHidden() && rightPane() !== undefined,
+        run: () => {
+          rightPaneResize().step(-4)
+        },
+      },
+      {
+        id: "session.pane.reset",
+        title: "Reset right panel width",
+        group: "Session",
+        palette: true,
+        enabled: () => !rightPaneHidden() && rightPane() !== undefined,
+        run: () => {
+          rightPaneResize().reset()
+        },
+      },
       ...(sessions.available()
         ? [
             {
@@ -577,7 +609,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
                 </Show>
               }
             >
-              <Sidebar sessionID={props.sessionID} onHide={hideRightPane} />
+              <Sidebar sessionID={props.sessionID} borderLeft onHide={hideRightPane} />
             </Show>
           </box>
         </box>

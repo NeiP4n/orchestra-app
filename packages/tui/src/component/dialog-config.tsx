@@ -1,4 +1,6 @@
-import { createMemo, createSignal } from "solid-js"
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
+import { TextAttributes } from "@opentui/core"
+import { useDialog } from "../ui/dialog"
 import { useConfig } from "../config"
 import { useTheme, useThemes } from "../context/theme"
 import { DialogSelect } from "../ui/dialog-select"
@@ -460,7 +462,30 @@ export function DialogConfig(props: { current?: string }) {
   const toast = useToast()
   const themes = useThemes()
   const theme = useTheme().surface("dialog")
+  const dialog = useDialog()
   const t = useT()
+
+  // Enlarge settings dialog to large for a spacious, professional next-gen layout
+  onMount(() => {
+    dialog.setSize("large")
+  })
+  onCleanup(() => {
+    dialog.setSize("medium")
+  })
+
+  const categories = createMemo(() => [
+    "All",
+    ...Array.from(new Set(settings.map((s) => s.category))),
+  ])
+  const [selectedCategory, setSelectedCategory] = createSignal("All")
+
+  function cycleCategory(direction: number) {
+    const cats = categories()
+    const idx = cats.indexOf(selectedCategory())
+    const next = cats[(idx + direction + cats.length) % cats.length]
+    setSelectedCategory(next)
+  }
+
   const current = Math.max(
     0,
     settings.findIndex((setting) => settingID(setting) === props.current),
@@ -488,16 +513,25 @@ export function DialogConfig(props: { current?: string }) {
     return t(index === undefined || index < 0 ? String(current) : (setting.labels?.[index] ?? String(current)))
   }
   const changed = (setting: Setting) => stored(setting) !== undefined && value(setting) !== setting.default
+
+  const filteredSettings = createMemo(() => {
+    const cat = selectedCategory()
+    return cat === "All" ? settings : settings.filter((s) => s.category === cat)
+  })
+
   const options = createMemo(() =>
-    settings.map((setting, index) => ({
-      title: t(setting.title),
-      category: t(setting.category),
-      // English words stay searchable when the dialog reads in another language.
-      searchText: [setting.title, setting.category, t(setting.description), ...(setting.keywords ?? [])].join(" "),
-      footer: (changed(setting) ? "● " : "") + display(setting),
-      footerColor: changed(setting) ? theme.text.formfield.selected : undefined,
-      value: index,
-    })),
+    filteredSettings().map((setting) => {
+      const globalIndex = settings.indexOf(setting)
+      return {
+        title: t(setting.title),
+        category: selectedCategory() === "All" ? t(setting.category) : undefined,
+        // English words stay searchable when the dialog reads in another language.
+        searchText: [setting.title, setting.category, t(setting.description), ...(setting.keywords ?? [])].join(" "),
+        footer: (changed(setting) ? "● " : "") + display(setting),
+        footerColor: changed(setting) ? theme.text.formfield.selected : undefined,
+        value: globalIndex,
+      }
+    }),
   )
 
   async function write(next: unknown, index: number) {
@@ -519,6 +553,7 @@ export function DialogConfig(props: { current?: string }) {
   function change(direction: number, index = selected()) {
     if (saving()) return
     const setting = settings[index]
+    if (!setting) return
     const current = value(setting)
     const choices = values(setting)
     const next = choices
@@ -538,17 +573,84 @@ export function DialogConfig(props: { current?: string }) {
   return (
     <DialogSelect
       title={t("Settings")}
+      titleView={
+        <box flexDirection="column" gap={1}>
+          <box flexDirection="row" justifyContent="space-between" alignItems="center">
+            <box flexDirection="row" gap={1} alignItems="center">
+              <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
+                {t("Settings")}
+              </text>
+              <text fg={theme.text.muted}>
+                {`· ${filteredSettings().length} ${t("options")}`}
+              </text>
+            </box>
+          </box>
+          <box flexDirection="row" gap={1} flexWrap="wrap">
+            <For each={categories()}>
+              {(cat) => {
+                const active = () => selectedCategory() === cat
+                return (
+                  <box
+                    paddingLeft={1}
+                    paddingRight={1}
+                    backgroundColor={active() ? theme.background.action.primary.focused : theme.background.raised.base}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onMouseUp={(e) => {
+                      e.stopPropagation()
+                      setSelectedCategory(cat)
+                    }}
+                  >
+                    <text
+                      fg={active() ? theme.text.action.primary.focused : theme.text.muted}
+                      attributes={active() ? TextAttributes.BOLD : undefined}
+                    >
+                      {t(cat)}
+                    </text>
+                  </box>
+                )
+              }}
+            </For>
+          </box>
+        </box>
+      }
       options={options()}
       focusTarget={current}
       filterThreshold={0.7}
+      sectionNavigation={true}
       onMove={(option) => setSelected(option.value)}
       onSelect={(option) => void change(1, option.value)}
       footer={
-        <box>
-          <text fg={theme.text.muted} wrapMode="word">
-            {t(settings[selected()]?.description ?? "")}
-          </text>
-          <text fg={theme.text.muted}>{`←/→ ${t("change")} · ctrl+r ${t("reset")}`}</text>
+        <box flexDirection="column" gap={0} paddingTop={1} border={["top"]} borderColor={theme.border.base} width="100%">
+          <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="flex-start">
+            <box flexGrow={1} minWidth={0} paddingRight={2}>
+              <text fg={theme.text.base} wrapMode="word">
+                {t(settings[selected()]?.description ?? "")}
+              </text>
+              <box flexDirection="row" gap={2} paddingTop={0}>
+                <text fg={theme.text.muted}>
+                  path: <span style={{ fg: theme.text.base }}>{settings[selected()] ? settingID(settings[selected()]) : ""}</span>
+                </text>
+                <Show when={settings[selected()]?.default !== undefined}>
+                  <text fg={theme.text.muted}>
+                    default: <span style={{ fg: theme.text.base }}>{String(settings[selected()]?.default)}</span>
+                  </text>
+                </Show>
+                <Show when={settings[selected()] && changed(settings[selected()])}>
+                  <text fg={theme.text.action.primary.base} attributes={TextAttributes.BOLD}>
+                    ● {t("modified")}
+                  </text>
+                </Show>
+              </box>
+            </box>
+            <box flexDirection="column" flexShrink={0} alignItems="flex-end">
+              <text fg={theme.text.muted}>
+                {`←/→ ${t("change")} · tab ${t("category")}`}
+              </text>
+              <text fg={theme.text.muted}>
+                {`alt+↑/↓ ${t("section")} · ctrl+r ${t("reset")}`}
+              </text>
+            </box>
+          </box>
         </box>
       }
       bindings={[
@@ -563,6 +665,18 @@ export function DialogConfig(props: { current?: string }) {
           title: "Next value",
           group: "Settings",
           run: () => void change(1),
+        },
+        {
+          bind: "tab",
+          title: "Next category",
+          group: "Settings",
+          run: () => cycleCategory(1),
+        },
+        {
+          bind: "shift+tab",
+          title: "Previous category",
+          group: "Settings",
+          run: () => cycleCategory(-1),
         },
         {
           bind: "ctrl+r",
