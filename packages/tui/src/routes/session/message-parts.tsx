@@ -8,6 +8,7 @@ import type {
   SessionMessageAssistantText,
 } from "@orchestra/client"
 import { Spinner } from "../../component/spinner"
+import { SculkResonanceSpinner, SculkPixelStreamTail } from "../../component/sculk-effects"
 import { createSyntaxStyleMemo, useTheme, useThemes } from "../../context/theme"
 import { reasoningSummary } from "../../context/thinking"
 import { usePlugin } from "../../plugin/context"
@@ -147,7 +148,7 @@ function ReasoningHeader(props: {
     <Switch>
       <Match when={!props.done}>
         <box flexDirection="row">
-          <Spinner color={fg()}>{props.title ? "Thinking: " + props.title : "Thinking"}</Spinner>
+          <SculkResonanceSpinner color={fg()}>{props.title ? "Thinking: " + props.title : "Thinking"}</SculkResonanceSpinner>
         </box>
       </Match>
       <Match when={true}>
@@ -223,6 +224,9 @@ export function TextPart(props: {
                     fg={theme.markdown.text}
                     bg={theme.background.base}
                   />
+                  <Show when={props.message.time.completed === undefined}>
+                    <SculkPixelStreamTail active={true} />
+                  </Show>
                 </box>
               </Show>
             }
