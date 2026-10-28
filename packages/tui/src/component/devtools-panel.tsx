@@ -6,15 +6,17 @@ import { useTheme } from "../context/theme"
 // Shared chrome of the devtools popovers: the floating box, its title and the
 // label/value line. Lives outside devtools-bar so panels split into their own
 // modules can render it without importing the bar back (a cycle).
-export function PanelBox(props: ParentProps) {
+export function PanelBox(props: ParentProps<{ align?: "left" | "right" }>) {
   const theme = useTheme()
   const renderer = useRenderer()
+  const align = props.align ?? "left"
   return (
     <box
       position="absolute"
       zIndex={2600}
       bottom={1}
-      left={-1}
+      left={align === "left" ? -1 : undefined}
+      right={align === "right" ? -1 : undefined}
       width={42}
       paddingLeft={2}
       paddingRight={2}

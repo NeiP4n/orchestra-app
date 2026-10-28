@@ -169,18 +169,21 @@ function QuickWindow(props: { mode: QuickMode }) {
     />
   )
 
+    const modalWidth = () => Math.max(30, Math.min(76, dimensions().width - 4))
+  const modalLeft = () => Math.max(0, Math.floor((dimensions().width - modalWidth()) / 2))
+
   return (
     <box
       id="quick-help"
       position="absolute"
       zIndex={2300}
-      right={0}
+      left={modalLeft()}
       bottom={1}
-      width={Math.max(24, Math.min(64, dimensions().width - 2))}
-      maxHeight={Math.max(8, Math.floor(dimensions().height * 0.6))}
+      width={modalWidth()}
+      maxHeight={Math.max(8, Math.floor(dimensions().height * 0.65))}
       flexDirection="column"
       backgroundColor={theme.background.raised.base}
-      border={["left"]}
+      border={["top", "bottom", "left", "right"]}
       borderColor={theme.background.action.primary.focused}
       customBorderChars={SplitBorder.customBorderChars}
     >

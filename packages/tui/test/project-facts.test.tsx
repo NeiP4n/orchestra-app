@@ -149,6 +149,7 @@ test("facts saved in the project are shown without asking a model, and new facts
         return json({ _tag: "ServiceUnavailableError", message: "rooms are off" }, { status: 503 })
       if (url.pathname === "/api/fs/list")
         return json({ location: { directory: "/demo" }, data: [{ path: "README.md", type: "file" }] })
+      if (url.pathname === "/api/fs/read/.orchestra/facts.md") return new Response(null, { status: 404 })
       if (url.pathname === "/api/fs/read/.opencode/facts.md") return new Response(saved.current)
       if (url.pathname.startsWith("/api/fs/read/")) return new Response("# Demo\nA demo project.")
       if (url.pathname === "/api/experimental/fs/write")

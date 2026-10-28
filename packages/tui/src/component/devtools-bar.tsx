@@ -537,7 +537,7 @@ export function DevToolsBar() {
           <Label id="theme" icon="◐" text={t("Theme")} />
         </text>
         <Show when={panel() === "theme"}>
-          <PanelBox>
+          <PanelBox align="right">
             <PanelTitle>{t("Theme")}</PanelTitle>
             <Row label={t("Name")} value={themes.selected} />
             <Row label={t("Mode")} value={mode()} />
@@ -555,7 +555,7 @@ export function DevToolsBar() {
           <Label id="tools" icon="◇" text={t("Tools")} />
         </text>
         <Show when={panel() === "tools"}>
-          <PanelBox>
+          <PanelBox align="right">
             <PanelTitle>{t("Tools")}</PanelTitle>
             <Action onClick={() => void dump()} disabled={dumping()} hoverBackground>
               {dumping() ? t("Writing debug snapshot…") : t("Write debug snapshot")}
@@ -694,7 +694,7 @@ export function DevToolsBar() {
           <Label id="server" text={t("Server")} />
         </text>
         <Show when={panel() === "server"}>
-          <PanelBox>
+          <PanelBox align="right">
             <PanelTitle>{t("Server")}</PanelTitle>
             <Row label={t("Status")} value={connected() ? t("Connected") : client.connection.status()} />
             <Show when={client.connection.attempt() > 0}>
@@ -741,7 +741,7 @@ export function DevToolsBar() {
           <Label id="ui" text={t("UI")} />
         </text>
         <Show when={panel() === "ui"}>
-          <PanelBox>
+          <PanelBox align="right">
             <PanelTitle>{t("UI")}</PanelTitle>
             <Row label={t("Status")} value={runtime()} />
             <ProcessStat
@@ -765,7 +765,7 @@ export function DevToolsBar() {
       </BarItem>
 
       {/* Popups & Dialogs Portals */}
-      <box flexDirection="row">
+      <box position="absolute" left={0} bottom={0} width={dimensions().width}>
         <ProjectFacts />
         <QuickHelp />
       </box>

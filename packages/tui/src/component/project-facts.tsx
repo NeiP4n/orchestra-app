@@ -17,7 +17,7 @@ import { Spinner } from "./spinner"
 
 type FactsState = {
   open: boolean
-  projects: Record<string, { text: string; language: string; time: number; format?: number }>
+  projects: Record<string, { text: string; language: string; time: number; format?: number; file?: string }>
 }
 
 // Bump when the prompt's output format changes so facts saved in the old format are collected again.
@@ -160,15 +160,16 @@ function FactsWindow() {
         if (result === undefined) return
         const text = result.text.trim()
         // Saving into the project is best effort: the window still shows the facts if the folder is read-only.
+        const targetFile = entry()?.file ?? FACTS_FILE
         void client.api.file
           .write({
             location: { directory: dir },
-            path: FACTS_FILE,
+            path: targetFile,
             payload: new TextEncoder().encode(`${header(lang)}\n${text}\n`),
           })
           .catch(() => undefined)
         return update((draft) => {
-          draft.projects[dir] = { text, language: lang, time: Date.now(), format: FORMAT }
+          draft.projects[dir] = { text, language: lang, time: Date.now(), format: FORMAT, file: targetFile }
         })
       })
       .catch((cause: unknown) => setError(modelErrorText(cause, t)))
@@ -187,11 +188,16 @@ function FactsWindow() {
     // Loading holds the effect until the read settles, so a saved file never races a model request.
     setLoading(true)
     setChecked((folders) => new Set([...folders, dir]))
+    let foundFile = FACTS_FILE
     const readFacts = async () => {
       try {
-        return await client.api.file.read({ path: FACTS_FILE, location: { directory: dir } })
+        const res = await client.api.file.read({ path: FACTS_FILE, location: { directory: dir } })
+        foundFile = FACTS_FILE
+        return res
       } catch {
-        return await client.api.file.read({ path: LEGACY_FACTS_FILE, location: { directory: dir } })
+        const res = await client.api.file.read({ path: LEGACY_FACTS_FILE, location: { directory: dir } })
+        foundFile = LEGACY_FACTS_FILE
+        return res
       }
     }
     void readFacts()
@@ -199,25 +205,28 @@ function FactsWindow() {
         const [first, ...rest] = new TextDecoder().decode(bytes).split("\n")
         if (!isHeader(first, lang)) return
         return update((draft) => {
-          draft.projects[dir] = { text: rest.join("\n").trim(), language: lang, time: Date.now(), format: FORMAT }
+          draft.projects[dir] = { text: rest.join("\n").trim(), language: lang, time: Date.now(), format: FORMAT, file: foundFile }
         })
       })
       .catch(() => undefined)
       .finally(() => setLoading(false))
   })
 
+    const modalWidth = () => Math.max(30, Math.min(76, dimensions().width - 4))
+  const modalLeft = () => Math.max(0, Math.floor((dimensions().width - modalWidth()) / 2))
+
   return (
     <box
       id="project-facts"
       position="absolute"
       zIndex={2300}
-      right={0}
+      left={modalLeft()}
       bottom={1}
-      width={Math.max(24, Math.min(64, dimensions().width - 2))}
-      maxHeight={Math.max(6, Math.floor(dimensions().height * 0.5))}
+      width={modalWidth()}
+      maxHeight={Math.max(6, Math.floor(dimensions().height * 0.55))}
       flexDirection="column"
       backgroundColor={theme.background.raised.base}
-      border={["left"]}
+      border={["top", "bottom", "left", "right"]}
       borderColor={theme.background.action.primary.focused}
       customBorderChars={SplitBorder.customBorderChars}
     >
