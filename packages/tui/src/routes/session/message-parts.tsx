@@ -212,9 +212,10 @@ export function TextPart(props: {
             fallback={
               <Show when={segment.type === "text" && segment.text.trim()}>
                 {/* The conversation's nerve runs in the left gutter beside the answer (see TranscriptAxon). */}
-                <box paddingLeft={3} flexShrink={0}>
+                <box paddingLeft={3} flexShrink={1} minWidth={0} width="100%">
                   {/* Configure custom nodes before parsing; apply content before streaming so completion keeps the final tokens. */}
                   <markdown
+                    width="100%"
                     syntaxStyle={syntax()}
                     renderNode={plugins.markdown()}
                     content={segment.type === "text" ? segment.text.trim() : ""}
@@ -236,7 +237,7 @@ export function TextPart(props: {
               <WidgetBlock
                 id={`${props.message.id}:${props.part.text.slice(0, 24)}:${index()}`}
                 widget={changed()[index()] ?? found().widget}
-                width={Math.max(24, dimensions().width - 8)}
+                width={Math.max(24, Math.min(ctx.width - 4, dimensions().width - 8))}
                 live={latest()}
                 onChange={(next) => setChanged((all) => ({ ...all, [index()]: next }))}
               />

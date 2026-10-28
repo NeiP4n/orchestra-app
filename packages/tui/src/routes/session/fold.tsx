@@ -11,7 +11,7 @@ export function FoldedText(props: { text: string; width: number; maxRows: number
   const folded = createMemo(() => foldRows(props.text, props.width, props.maxRows))
   return (
     <box flexDirection="column" flexShrink={0}>
-      <text fg={props.color ?? theme.text.base}>{open() || folded().hidden === 0 ? props.text : folded().head}</text>
+      <text fg={props.color ?? theme.text.base} wrapMode="word">{open() || folded().hidden === 0 ? props.text : folded().head}</text>
       <Show when={folded().hidden > 0}>
         <box onMouseUp={() => setOpen((value) => !value)}>
           <text fg={theme.hue.accent[200]} wrapMode="none" selectable={false}>
@@ -50,7 +50,7 @@ export function ErrorCard(props: { message: string; width: number }) {
         </box>
         <Show when={open()}>
           <box paddingLeft={2} paddingTop={1}>
-            <text fg={theme.text.muted}>{props.message}</text>
+            <text fg={theme.text.muted} wrapMode="word">{props.message}</text>
           </box>
         </Show>
       </box>

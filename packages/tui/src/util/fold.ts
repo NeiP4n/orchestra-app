@@ -3,7 +3,7 @@ import { stringWidth } from "./string-width"
 // Long text in the chat is shown folded: the first rows stay, the rest opens on a click. A wall of
 // text is not information; the first lines usually are.
 
-function rowsOf(line: string, width: number) {
+export function rowsOf(line: string, width: number) {
   return Math.max(1, Math.ceil(stringWidth(line) / Math.max(1, width)))
 }
 

@@ -1516,9 +1516,10 @@ export function Session(props: {
         pendingDelivery: (inboxID) => pendingDeliveries().get(inboxID),
       }}
     >
-      <box flexDirection="row" flexGrow={1} minHeight={0}>
+      <box flexDirection="row" flexGrow={1} minWidth={0} minHeight={0} width={props.width ?? "100%"}>
         <box
           flexGrow={1}
+          minWidth={0}
           minHeight={0}
           paddingBottom={1}
           paddingLeft={dimensions().width < 44 ? 1 : 2}
@@ -1526,8 +1527,9 @@ export function Session(props: {
         >
           <Show when={session()}>
             <SessionHeader sessionID={route.sessionID} />
-            <box flexGrow={1} minHeight={0} position="relative">
+            <box flexGrow={1} minWidth={0} minHeight={0} position="relative">
               <scrollbox
+                minWidth={0}
                 ref={(r) => {
                   scroll = r
                   props.scrollRef?.(r)
@@ -1815,7 +1817,7 @@ function SessionRowView(props: SessionRowViewProps) {
     node: target,
   })
   return (
-    <box ref={setTarget} id={sessionRowID(props.row, props.boundaryID)} marginTop={1} flexShrink={0}>
+    <box ref={setTarget} id={sessionRowID(props.row, props.boundaryID)} marginTop={1} flexShrink={0} minWidth={0} width="100%">
       <Switch>
         <Match when={props.row.type === "group" ? props.row : undefined}>
           {(row) => (
@@ -2190,7 +2192,7 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
     <>
       <Show when={props.message.error && !interrupted() && !retry()}>
         <box paddingLeft={3}>
-          <ErrorCard message={errorMessage(props.message.error)} width={Math.max(20, ctx.terminal.width - 8)} />
+          <ErrorCard message={errorMessage(props.message.error)} width={Math.max(20, ctx.width - 8)} />
         </box>
       </Show>
       <Show when={ctx.canResumeRateLimited !== false && rateLimitPending() && !retry()}>
@@ -2543,7 +2545,7 @@ function UserMessage(props: { message: SessionMessageUser }) {
 
   const t = useT()
   // The bubble is set in from the left; the gap is where the synapse from the nerve runs.
-  const gutter = () => Math.max(4, Math.min(16, Math.floor(ctx.terminal.width / 8)))
+  const gutter = () => Math.max(4, Math.min(12, Math.floor(ctx.width / 10)))
   const council = createMemo(() => Federation.parseCouncilResults(props.message.text))
   return (
     <Show when={council()} fallback={plain()}>
@@ -2557,7 +2559,7 @@ function UserMessage(props: { message: SessionMessageUser }) {
       {/* The person's words sit in a rounded bubble set in from the left, so the conversation
           reads as two voices: the bubble on one side, the assistant's dendrite on the other. */}
       {/* A synapse leaves the conversation's nerve in the gutter and ends at the bubble. */}
-      <box flexDirection="row">
+      <box flexDirection="row" minWidth={0} width="100%">
       <box width={gutter()} flexShrink={0} paddingTop={1}>
         <text fg={hover() ? neuralPalette(theme).signal : neuralPalette(theme).synapse} wrapMode="none" selectable={false}>
           {` ●${"─".repeat(Math.max(0, gutter() - 2))}`}
@@ -2617,7 +2619,7 @@ function UserMessage(props: { message: SessionMessageUser }) {
         >
           <FoldedText
             text={props.message.text}
-            width={Math.max(20, ctx.terminal.width - 10 - Math.min(16, Math.floor(ctx.terminal.width / 8)))}
+            width={Math.max(20, ctx.width - gutter() - 6)}
             maxRows={8}
           />
           <Show when={skills().length}>
