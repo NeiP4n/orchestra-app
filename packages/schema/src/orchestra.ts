@@ -355,6 +355,23 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     readOnly: true,
   },
   {
+    id: "strategic-planner",
+    name: "Strategic Systems Planner",
+    category: "Planning",
+    description:
+      "Formulates high-assurance system architectures, formal state invariants, topological task DAGs, and risk-weighted strategic roadmaps.",
+    rules: [
+      "Mission: formulate mathematically sound, high-assurance system architectures and deterministic execution roadmaps. You are read-only; do not edit project files.",
+      "Deconstruct objectives into formal state machines, system invariants, preconditions, and postconditions. Identify hidden assumptions and unstated constraints before structuring tasks.",
+      "Model execution dependencies as a directed acyclic graph (DAG): identify the critical path, parallelizable task clusters, and topological ordering. Zero circular dependencies permitted.",
+      "Conduct multi-perspective trade-off analysis across system qualities: consistency vs availability, latency vs throughput, cognitive load vs expressiveness, and operational complexity vs extensibility.",
+      "Ground the strategy in empirical reality: query codebase structure, dependency manifests, and external technical specifications using MCP docs and shell introspection tools. Never plan based on hallucinations or untested assumptions.",
+      "For every milestone, specify concrete, automated verification commands (e.g. typecheck, deterministic test runs, schema validation) and reject tautological or existence-only checks.",
+      "Report: strategic architecture, formal state invariants, topological execution DAG, failure mode and effects analysis (FMEA), automated verification criteria, and contingency rollbacks.",
+    ].join("\n"),
+    readOnly: true,
+  },
+  {
     id: "designer",
     name: "Designer",
     category: "Planning",
@@ -728,6 +745,10 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
     tools: kit(READ, PROBE, WEB, SCREEN, REASONING, VCS, REVERSE, SKILLS, NOTES, FORGE, MCP),
     hub: [...SERVER, "github", "security"],
   },
+  "strategic-planner": {
+    tools: kit(READ, PROBE, WEB, SKILLS, NOTES, REASONING, VCS, REVERSE, FORGE, MCP),
+    hub: [...CODE, "github", "data", "security"],
+  },
   designer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING), hub: CODE },
   developer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP) },
   "frontend-developer": {
@@ -1028,6 +1049,29 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
       "3. Phase 3 -- Security & Reachability Validation: Security-auditor inspects trust boundaries, sanitize logic, and call-paths using REA decompilation and advisory correlation.",
       "4. Phase 4 -- Deterministic Quality Verification: Tester runs comprehensive test suites, builds, and typechecks, proving zero regressions and deterministic exit-0 status.",
       "5. Phase 5 -- Staff Review & Synthesis: Reviewer inspects the final diff, approves invariants, and delivers verified status.",
+    ].join("\n"),
+  },
+  {
+    id: "strategic-planning",
+    name: "Grand Strategic Planning and Systems Architecture",
+    description: "High-assurance strategic planning team combining formal systems modeling, adversarial falsification, empirical intelligence, threat boundary analysis, and rigorous dependency DAG decomposition",
+    members: [
+      member("strategic-planner", "Lead Strategic Systems Architect"),
+      member("architect", "Software and Systems Architect"),
+      member("counterexample-engineer", "Adversarial Falsification Specialist"),
+      member("deep-researcher", "Empirical Intelligence Scout"),
+      member("security-auditor", "Threat Surface Analyst"),
+      member("reviewer", "Methodology and DoD Verifier"),
+    ],
+    playbook: [
+      "Grand Strategic Systems Planning Protocol:",
+      "1. Phase 1 -- Empirical Knowledge Acquisition: Send deep-researcher to scour upstream RFCs, official specifications, academic references, and open-source prior art via MCP documentation and web research to establish proven best practices and avoid reinventing established solutions.",
+      "2. Phase 2 -- Codebase Topology and Invariant Extraction: Send architect to map the current repository architecture, AST symbol call-paths, and boundary contracts, identifying concrete files, modules, and data invariants directly affected by the goal.",
+      "3. Phase 3 -- Formal System Modeling and Topological DAG: Send strategic-planner to synthesize requirements and empirical findings into a formal system model with state machines, preconditions, postconditions, and a topologically sorted dependency DAG with explicit critical-path scheduling.",
+      "4. Phase 4 -- Adversarial Falsification and Stress Testing: Send counterexample-engineer to subject the proposed architecture to adversarial failure modeling, probing for race conditions, deadlock scenarios, distributed split-brain conditions, scale bottlenecks, and boundary edge cases.",
+      "5. Phase 5 -- Threat Surface and Trust Boundary Audit: Send security-auditor to inspect trust assumptions, privilege escalation vectors, data leakages, and cryptographic integrity constraints within the proposed architecture.",
+      "6. Phase 6 -- Methodology Verification and DoD Hardening: Send reviewer to verify that all milestones adhere to the Definition of Done (DoD), ensuring every deliverable possesses an automated, deterministic verification command (no trivial file existence checks).",
+      "7. Phase 7 -- Orchestrator Synthesis and Actionable Handoff: Merge all outputs into a master strategic blueprint ready for deterministic multi-agent execution.",
     ].join("\n"),
   },
   {
