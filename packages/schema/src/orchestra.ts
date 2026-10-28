@@ -979,6 +979,25 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
     ].join("\n"),
   },
   {
+    id: "deep-audit",
+    name: "Deep Research and Vulnerability Audit",
+    description: "Deep multi-source web and codebase vulnerability research, dependency audit, CVE cross-referencing, and upgrade planning",
+    members: [
+      member("deep-researcher", "Deep Web and Security Intelligence Researcher"),
+      member("dependency-auditor", "Dependency and Supply-Chain Auditor"),
+      member("security-auditor", "Codebase Threat and Call-Path Analyst"),
+      member("architect", "Upgrade and Remediation Architect"),
+    ],
+    playbook: [
+      "Deep Vulnerability and Dependency Research Protocol:",
+      "1. Phase 1 -- Dependency Mapping: Send dependency-auditor to catalog all direct, dev, and transitive dependencies across every package manifest (packages/*/package.json, Cargo.toml, bun.lock). Run package audits, detect outdated versions, license risks, and candidate components.",
+      "2. Phase 2 -- Multi-Source Vulnerability Intelligence: Send deep-researcher to scour multiple vulnerability databases (OSV.dev, GitHub Advisory Database, NVD, CVE, Snyk), upstream release notes, breaking change changelogs, and security advisories. Do not settle for high-level summaries -- extract exact CVE IDs, CVSS scores, affected version ranges, and fixed versions.",
+      "3. Phase 3 -- Codebase Reachability and Call-Path Analysis: Send security-auditor to trace actual usage of the identified dependencies in the codebase. Verify whether vulnerable methods/endpoints are actually imported, called, or reachable from untrusted inputs/attack surfaces, distinguishing real exploits from theoretical warnings.",
+      "4. Phase 4 -- Upgrade and Remediation Matrix: Send architect to construct a prioritized update and remediation roadmap, detailing non-breaking patch updates vs breaking major versions, migration steps, and risk mitigation.",
+      "5. Phase 5 -- Orchestrator Synthesis: Merge all findings into an exhaustive, structured audit report with verified sources, call-site evidence, CVSS ratings, and actionable upgrade recommendations.",
+    ].join("\n"),
+  },
+  {
     id: "release",
     name: "Release",
     description: "Build, CI and deployment",
