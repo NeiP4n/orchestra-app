@@ -39,7 +39,9 @@
     "check:cycles": "dependency-cruiser --config .dependency-cruiser.cjs packages",
     "check:size": "find packages -name \"*.ts\" -not -path \"*/node_modules/*\" -not -path \"*/dist/*\" -size +500k 2>&1 | grep -v \".d.ts\" | head -20",
     "audit:layers": "bun run script/audit-layers.ts",
-    "check:integrity": "bun run audit:layers && bun run check:decoupling"
+    "check:integrity": "bun run audit:layers && bun run check:decoupling",
+    "hud": "node script/council-hud.mjs --once",
+    "hud:live": "node script/council-hud.mjs"
   },
   "workspaces": {
     "packages": [
