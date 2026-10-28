@@ -12,6 +12,7 @@ node_modules
 playground
 tmp
 dist
+!packages/plugin-antigravity-auth/dist
 dist-node
 ts-dist
 .turbo

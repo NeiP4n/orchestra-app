@@ -222,6 +222,8 @@ export const toolGroups: readonly { id: string; name: string; actions: readonly 
   { id: "reverse", name: "Reverse engineering", actions: ["rea-anything_*", "rea_*"] },
   { id: "reasoning", name: "Reasoning", actions: ["sequential-thinking_*"] },
   { id: "vcs", name: "Version control", actions: ["git_*", "github_*"] },
+  { id: "forge", name: "Tool & MCP Forge", actions: ["mcp_forge", "command_forge", "plugin_forge"] },
+  { id: "mcp", name: "MCP Servers", actions: ["mcp_*", "context7_*", "deepwiki_*", "mcp-docs_*", "fetch_*"] },
 ]
 
 // Tools added to a group after roles were saved with it: a saved role that has the first
@@ -237,6 +239,7 @@ export const impliedTools: Readonly<Record<string, readonly string[]>> = {
   browser: ["playwright_*", "chrome-devtools_*"],
   note: ["memory_*", "idea_bank", "plots"],
   shell: ["desktop-commander_*", "sentry_*", "time_*"],
+  mcp_forge: ["mcp_*"],
 }
 
 export function withImplied(tools: ReadonlyArray<string>) {
@@ -342,7 +345,9 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     rules: [
       "Mission: answer a research question completely, with sources, not from memory. You are read-only and must not alter project files.",
       "Turn the request into 3-6 concrete questions before collecting anything. Say which are load-bearing and which are nice to know; stop collecting once each load-bearing question has evidence.",
-      "Run the research tool first for outside knowledge: it searches and reads several pages in one call. Then go deeper where it matters: context7/deepwiki for library and repository docs, playwright or browser tools for JavaScript-heavy pages and live apps, git/github for history and issues, and the repository itself for local behavior.",
+      "Leverage the full spectrum of MCP servers and tools (context7/deepwiki for repository and library docs, mcp-docs for API specifications, playwright or browser tools for dynamic web apps, git/github for issues and commits).",
+      "For binary analysis, native bindings, and compiled packages, employ REA decompilation and symbol inspection (rea-anything_*, rea_*) instead of guessing native signatures.",
+      "Dynamic Tool Synthesis: When required capabilities are missing (e.g. bulk CVE correlation, AST analysis, security feed aggregation), synthesize and register production-grade MCP servers using mcp_forge (action=save). Never fall back to naive one-liner scripts or shallow grep wrappers -- forged tools must have robust schemas and error handling.",
       "Prefer primary sources over summaries: official docs, source code, changelogs, the actual page or API response. Date every version-sensitive fact and say which version it applies to.",
       "Label each statement verified, inferred or unknown. When sources disagree, say which is stronger and why instead of averaging them.",
       "Report: the direct answer first; then an evidence map (claim, source link or path, confidence); then contradictions and gaps; then what you searched and could not establish. Name concrete files, symbols, versions and URLs.",
@@ -552,6 +557,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     rules: [
       "Mission: find exploitable weaknesses in the assigned change and its call path. You are read-only; do not modify files or run destructive tests.",
       "Model attackers, trust boundaries and assets. Check authentication and authorization, input validation, injection (SQL, shell, path, template), SSRF, XSS/CSRF for web, unsafe deserialization, secret storage and logging, and denial of service where relevant.",
+      "Use REA (rea-anything_*, rea_*) for reverse engineering precompiled binaries, native modules, WASM artifacts, or obfuscated assets to inspect symbols, call structures, and security checks directly.",
+      "When standard tooling lacks specialized reachability or taint-tracing capabilities, synthesize high-caliber analysis MCP servers via mcp_forge or composite recipes via command_forge.",
       "For mobile and desktop apps also check local storage of tokens, exported components/deep links, IPC or preload exposure, update channels and code signing.",
       "Verify enforcement where it happens: hiding a button is not authorization. Give file/symbol, prerequisites, impact, likelihood, severity and a proportionate fix.",
       "Separate demonstrated issues from theoretical concerns and list what you reviewed and did not.",
@@ -593,6 +600,7 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     rules: [
       "Mission: assess dependency risks without changing files.",
       "Read the manifests and lockfiles and confirm whether a package is direct, dev, peer or transitive.",
+      "Cross-examine dependencies across multiple intelligence feeds (OSV, GitHub Advisories, NVD, Snyk) via MCP tools and web sources. When bulk or deep dependency graph traversal tools are missing, synthesize an MCP analyzer using mcp_forge.",
       "Look for unused or duplicate packages, incompatible or unpinned versions, known advisories, abandoned projects, license conflicts, suspicious install scripts and unnecessary bundle or startup weight.",
       "Verify version and advisory claims from official registries or advisories; do not guess.",
       "Recommend the minimum justified change and the commands that validate it.",
@@ -697,6 +705,8 @@ const NOTES = ["note", "idea_bank", "plots"]
 const REVERSE = ["rea-anything_*", "rea_*"]
 const REASONING = ["sequential-thinking_*"]
 const VCS = ["git_*", "github_*"]
+const FORGE = ["mcp_forge", "command_forge", "plugin_forge"]
+const MCP = ["mcp_*", "context7_*", "deepwiki_*", "mcp-docs_*", "fetch_*"]
 const kit = (...groups: readonly string[][]) => [...new Set(groups.flat())]
 // Read-only roles still run commands and use the Registry to gather evidence (git history,
 // running tests, reproductions, log and dependency inspection); what they must not do is
@@ -712,10 +722,10 @@ const SERVER = [...CODE, "data", "docker", "network", "process", "system"]
 // team editor (a saved role keeps exactly what was saved); absent `hub` means every category.
 const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   "product-analyst": { tools: kit(READ, WEB, SKILLS, NOTES, REASONING, VCS), hub: ["search", "files", "text", "json", "data"] },
-  architect: { tools: kit(READ, PROBE, WEB, REASONING, VCS, REVERSE, SKILLS, NOTES), hub: [...CODE, "github", "data"] },
-  researcher: { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, REASONING, VCS, REVERSE), hub: [...CODE, "github", "data", "network"] },
+  architect: { tools: kit(READ, PROBE, WEB, REASONING, VCS, REVERSE, SKILLS, NOTES, FORGE, MCP), hub: [...CODE, "github", "data", "security"] },
+  researcher: { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, REASONING, VCS, REVERSE, FORGE, MCP), hub: [...CODE, "github", "data", "network", "security"] },
   "deep-researcher": {
-    tools: kit(READ, WEB, SCREEN, REASONING, VCS, REVERSE, SKILLS, NOTES),
+    tools: kit(READ, PROBE, WEB, SCREEN, REASONING, VCS, REVERSE, SKILLS, NOTES, FORGE, MCP),
     hub: [...SERVER, "github", "security"],
   },
   designer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING), hub: CODE },
@@ -748,12 +758,12 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   reviewer: { tools: kit(READ, PROBE, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING, REVERSE), hub: [...CODE, "github"] },
   "counterexample-engineer": { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, REASONING, VCS), hub: [...CODE, "data", "process"] },
   "security-auditor": {
-    tools: kit(READ, PROBE, WEB, REVERSE, REASONING, VCS, SKILLS, NOTES),
+    tools: kit(READ, PROBE, WEB, REVERSE, REASONING, VCS, SKILLS, NOTES, FORGE, MCP),
     hub: [...SERVER, "github", "security"],
   },
   "accessibility-auditor": { tools: kit(READ, PROBE, WEB, SCREEN, SKILLS, NOTES, REASONING, VCS), hub: CODE },
   "performance-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING), hub: SERVER },
-  "dependency-auditor": { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, VCS, REASONING, REVERSE), hub: [...CODE, "github", "security"] },
+  "dependency-auditor": { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP), hub: [...CODE, "github", "security"] },
   "compatibility-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE) },
   "data-migration-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, REASONING), hub: SERVER },
   "reliability-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, REASONING), hub: [...SERVER, "systemd"] },
@@ -981,7 +991,7 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
   {
     id: "deep-audit",
     name: "Deep Research and Vulnerability Audit",
-    description: "Deep multi-source web and codebase vulnerability research, dependency audit, CVE cross-referencing, and upgrade planning",
+    description: "Deep multi-source web and codebase vulnerability research, dependency audit, CVE cross-referencing, REA reverse-engineering, and MCP-powered upgrade planning",
     members: [
       member("deep-researcher", "Deep Web and Security Intelligence Researcher"),
       member("dependency-auditor", "Dependency and Supply-Chain Auditor"),
@@ -989,12 +999,14 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
       member("architect", "Upgrade and Remediation Architect"),
     ],
     playbook: [
-      "Deep Vulnerability and Dependency Research Protocol:",
-      "1. Phase 1 -- Dependency Mapping: Send dependency-auditor to catalog all direct, dev, and transitive dependencies across every package manifest (packages/*/package.json, Cargo.toml, bun.lock). Run package audits, detect outdated versions, license risks, and candidate components.",
-      "2. Phase 2 -- Multi-Source Vulnerability Intelligence: Send deep-researcher to scour multiple vulnerability databases (OSV.dev, GitHub Advisory Database, NVD, CVE, Snyk), upstream release notes, breaking change changelogs, and security advisories. Do not settle for high-level summaries -- extract exact CVE IDs, CVSS scores, affected version ranges, and fixed versions.",
-      "3. Phase 3 -- Codebase Reachability and Call-Path Analysis: Send security-auditor to trace actual usage of the identified dependencies in the codebase. Verify whether vulnerable methods/endpoints are actually imported, called, or reachable from untrusted inputs/attack surfaces, distinguishing real exploits from theoretical warnings.",
-      "4. Phase 4 -- Upgrade and Remediation Matrix: Send architect to construct a prioritized update and remediation roadmap, detailing non-breaking patch updates vs breaking major versions, migration steps, and risk mitigation.",
-      "5. Phase 5 -- Orchestrator Synthesis: Merge all findings into an exhaustive, structured audit report with verified sources, call-site evidence, CVSS ratings, and actionable upgrade recommendations.",
+      "Deep Vulnerability, Dependency Research, and Autonomous Tooling Protocol:",
+      "1. Phase 1 -- Supply-Chain & Manifest Cataloging: Send dependency-auditor to catalog all direct, dev, and transitive dependencies across every package manifest (packages/*/package.json, Cargo.toml, bun.lock, Cargo.lock). Run package audits, detect outdated versions, license risks, and candidate components.",
+      "2. Phase 2 -- Multi-Source Intelligence via MCP & Live Feeds: Send deep-researcher to scour multiple vulnerability databases (OSV.dev, GitHub Advisory Database, NVD, CVE, Snyk, upstream changelogs, and vendor security bulletins) using web search and MCP tools (mcp-docs_*, context7_*, fetch_*). Cross-reference exact CVE IDs, CVSS v3/v4 vectors, affected version ranges, and fixed versions across multiple sources -- never rely on superficial summaries.",
+      "3. Phase 3 -- Reverse Engineering & Binary Inspection via REA: For native binaries, prebuilt .node/.so/.dll modules, WASM bundles, or obfuscated assets, invoke REA tools (rea-anything_*, rea_*) to decompile, extract symbols, and inspect actual binaries. Verify native signatures and security boundaries directly rather than assuming behavior from metadata.",
+      "4. Phase 4 -- Autonomous Advanced Tool Synthesis via Forge: When existing off-the-shelf tools are insufficient for deep analysis (such as batch OSV queries, AST call-graph reachability, or transitive taint tracing), synthesize production-grade tools via mcp_forge (saving a self-contained, typed stdio MCP server) or command_forge. Trivial bash one-liners or shallow grep wrappers are strictly forbidden; forged tools must be structured, robust, and registered with clean schemas.",
+      "5. Phase 5 -- Codebase Reachability and Call-Path Analysis: Send security-auditor to trace actual usage of vulnerable APIs across the repository. Verify whether vulnerable methods, classes, or endpoints are genuinely imported, invoked, or reachable from untrusted external inputs, separating active exploitable vulnerabilities from theoretical warnings.",
+      "6. Phase 6 -- Upgrade and Remediation Matrix: Send architect to construct a prioritized update and remediation roadmap, detailing non-breaking patch updates vs breaking major versions, migration steps, and risk mitigation.",
+      "7. Phase 7 -- Orchestrator Synthesis: Merge all findings into an exhaustive, structured audit report with verified sources, call-site evidence, CVSS ratings, and actionable upgrade recommendations.",
     ].join("\n"),
   },
   {

@@ -13,13 +13,20 @@
   "publishConfig": {
     "access": "public"
   },
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./tui": "./src/tui.ts",
-    "./package.json": "./package.json",
-    "./*": "./src/*.ts"
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js",
+      "default": "./dist/src/index.js"
+    },
+    "./tui": {
+      "types": "./dist/src/tui.d.ts",
+      "import": "./dist/src/tui.js",
+      "default": "./dist/src/tui.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "index.js",
