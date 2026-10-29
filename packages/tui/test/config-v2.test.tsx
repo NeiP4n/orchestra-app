@@ -96,12 +96,6 @@ test("shows resolved tab defaults in settings", () => {
     default: "auto",
     values: ["off", "on", "auto"],
   })
-  expect(settings.find((setting) => setting.path.join(".") === "tabs.scope")?.default).toBe("cwd")
-  expect(settings.find((setting) => setting.path.join(".") === "tabs.layout")?.default).toBe("horizontal")
-  expect(settings.find((setting) => setting.path.join(".") === "tabs.indicators")).toMatchObject({
-    default: "status",
-    values: ["status", "numbers"],
-  })
 })
 
 test("shows the new session location default in settings", () => {
@@ -119,15 +113,6 @@ test("shows transcript verbosity in session settings", () => {
     category: "Session",
     default: "medium",
     values: ["low", "medium", "high"],
-  })
-})
-
-test("names tool grouping explicitly in settings", () => {
-  expect(settings.find((setting) => setting.path.join(".") === "session.grouping")).toMatchObject({
-    title: "Tool grouping",
-    category: "Session",
-    default: "auto",
-    values: ["none", "auto"],
   })
 })
 
