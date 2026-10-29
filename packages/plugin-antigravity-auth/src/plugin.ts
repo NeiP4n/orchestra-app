@@ -1248,7 +1248,8 @@ export const createAntigravityPlugin = (providerId: string) => async (
   initLogger(client);
   
   // Fetch latest Antigravity version from remote API (non-blocking, falls back to hardcoded)
-  await refreshAntigravityVersion();
+  // Never wait for it: the host fails a plugin whose setup runs past 30 seconds, and this call can take 10.
+  void refreshAntigravityVersion();
   const versionRefreshTimer = setInterval(() => { void refreshAntigravityVersion(); }, ANTIGRAVITY_VERSION_REFRESH_INTERVAL_MS);
   versionRefreshTimer.unref?.();
   
