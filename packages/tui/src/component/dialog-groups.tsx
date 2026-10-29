@@ -158,8 +158,9 @@ export function DialogGroups(props: { onClose?: () => void }) {
     <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
       <Header title={t("Project groups")} onClose={props.onClose} />
       <text fg={theme.text.base} attributes={TextAttributes.UNDERLINE}>{t("New Society")}</text>
+      <text fg={theme.text.base}>{t("Goal")}</text>
       <box flexDirection="row" gap={1}>
-        <input width={56} cursorStyle={config.cursor} ref={(element: InputRenderable) => { societyField = element }} onMouseDown={() => societyField?.focus()} placeholder={t("What should the Society do?")} placeholderColor={theme.text.muted} textColor={theme.text.formfield.base} focusedTextColor={theme.text.formfield.focused} cursorColor={theme.text.formfield.focused} backgroundColor={theme.background.formfield.base} onSubmit={() => void found()} />
+        <input width={56} focused cursorStyle={config.cursor} ref={(element: InputRenderable) => { societyField = element }} onMouseDown={() => societyField?.focus()} placeholder={t("e.g. release a mobile fishing game")} placeholderColor={theme.text.muted} textColor={theme.text.formfield.base} focusedTextColor={theme.text.formfield.focused} cursorColor={theme.text.formfield.focused} backgroundColor={theme.background.formfield.base} focusedBackgroundColor={theme.background.formfield.focused} onSubmit={() => void found()} />
         <Button variant="primary" disabled={founding()} onClick={() => void found()}>{founding() ? t("Creating...") : t("Start Society")}</Button>
       </box>
       <text fg={theme.text.muted} wrapMode="word">{t("Write the goal once. The Society creates itself, decides which projects it needs, creates them with their teams, links them through federation and starts them, all in one folder.")}</text>

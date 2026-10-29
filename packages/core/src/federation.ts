@@ -582,7 +582,13 @@ const layer: Layer.Layer<
       const mode = input.mode
       const title = mode === "council" ? "Общество" : "Президент"
       const agent = mode === "council" ? Orchestra.agent : Orchestra.president
-      const directory = groupChatDirectory(name, global.data)
+      // A Society keeps its chat in its own folder, beside its projects. The data directory is not a
+      // safe home for it: it may itself be inside a repository (a checkout kept there), and then every
+      // group chat would be refused.
+      const society = societyDirectory(name)
+      const leaderDirectory = known.find((item) => item.id === leader)?.directory
+      const inSociety = leaderDirectory !== undefined && !path.relative(society, leaderDirectory).startsWith("..") && !path.isAbsolute(path.relative(society, leaderDirectory))
+      const directory = inSociety ? society : groupChatDirectory(name, global.data)
 
       // The chat directory must not sit inside a repository: the chat would then belong to that
       // repository's owner instead of to the group, and its files would be the repository's.
@@ -956,7 +962,16 @@ const layer: Layer.Layer<
           ),
         )
         yield* setGroup({ name, projects: [project.id], mode: "council" })
-        const chat = yield* ensureGroupChat({ name, projects: [project.id], mode: "council" })
+        // A Society without its chat is unusable and would only be left behind, so a failure here
+        // takes the group and its planner project back out.
+        const chat = yield* ensureGroupChat({ name, projects: [project.id], mode: "council" }).pipe(
+          Effect.tapError(() =>
+            Effect.gen(function* () {
+              yield* kv.remove(GROUP + name)
+              yield* orchestra.remove(project.id).pipe(Effect.ignore)
+            }),
+          ),
+        )
         return { name, sessionID: chat.sessionID, directory: societyDirectory(name), project }
       }),
       societyFolder: ({ society, project }) => societyFolder(society, project),

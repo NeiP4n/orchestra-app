@@ -6,7 +6,8 @@ import { useT } from "./i18n"
 // them for Russian so the English locale is never accidentally changed.
 const ru: Record<string, string> = {
   "New Society": "Новое Общество",
-  "What should the Society do?": "Что должно сделать Общество?",
+  "Goal": "Цель",
+  "e.g. release a mobile fishing game": "например: выпустить мобильную игру про рыбалку",
   "Start Society": "Запустить общество",
   "Describe the goal.": "Опиши цель.",
   "Write the goal once. The Society creates itself, decides which projects it needs, creates them with their teams, links them through federation and starts them, all in one folder.": "Напиши цель один раз. Общество создаст себя само, решит, какие проекты нужны, создаст их с командами, свяжет через федерацию и запустит, всё в одной папке.",
