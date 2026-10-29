@@ -44,6 +44,66 @@ export function clip(text: string, width: number) {
   return out
 }
 
+// Breaks text into lines of at most `width` columns at spaces; a word longer than a line is split by
+// columns. Long prose reads better wrapped than clipped with an ellipsis.
+export function wrap(text: string, width: number) {
+  const size = Math.max(1, width)
+  if (cells(text) <= size) return [text]
+  const lines: string[] = []
+  let line = ""
+  for (const word of text.split(" ")) {
+    if (cells(word) > size) {
+      if (line) lines.push(line)
+      const parts = split(word, size)
+      line = parts.pop() ?? ""
+      lines.push(...parts)
+      continue
+    }
+    if (!line) line = word
+    else if (cells(line) + 1 + cells(word) <= size) line += ` ${word}`
+    else {
+      lines.push(line)
+      line = word
+    }
+  }
+  lines.push(line)
+  return lines
+}
+
+function split(word: string, width: number) {
+  const parts: string[] = []
+  let part = ""
+  let used = 0
+  for (const char of word) {
+    const w = wide(char.codePointAt(0) ?? 0) ? 2 : 1
+    if (used + w > width && part) {
+      parts.push(part)
+      part = ""
+      used = 0
+    }
+    part += char
+    used += w
+  }
+  parts.push(part)
+  return parts
+}
+
+// Shares `available` columns between table columns: short columns keep their natural width and the
+// long ones divide what is left, so a narrow label never wastes room a paragraph could use.
+function fit(natural: readonly number[], available: number) {
+  if (natural.reduce((sum, w) => sum + w, 0) <= available) return [...natural]
+  const widths = [...natural]
+  let remaining = Math.max(available, natural.length * 3)
+  natural
+    .map((_, n) => n)
+    .sort((a, b) => natural[a] - natural[b])
+    .forEach((n, done) => {
+      widths[n] = Math.min(natural[n], Math.max(3, Math.floor(remaining / (natural.length - done))))
+      remaining -= widths[n]
+    })
+  return widths
+}
+
 function pad(text: string, width: number) {
   return text + " ".repeat(Math.max(0, width - cells(text)))
 }
@@ -129,7 +189,7 @@ function bodyOf(widget: Widget, width: number, active: boolean): { body: Line[];
     case "confirm":
       return {
         body: [
-          ...widget.text.map((line) => [span(clip(line, width))]),
+          ...widget.text.flatMap((line) => wrap(line, width).map((part): Line => [span(part)])),
           [button(`[ ${widget.yes} ]`, widget.cursor === 0, 0), span("  "), button(`[ ${widget.no} ]`, widget.cursor === 1, 1)],
         ],
         footer: "←→ · y/n · Enter",
@@ -180,16 +240,20 @@ function bodyOf(widget: Widget, width: number, active: boolean): { body: Line[];
     case "table": {
       const count = Math.max(widget.cols.length, ...widget.rows.map((row) => row.length), 1)
       const widths = Array.from({ length: count }, (_, n) => Math.max(cells(widget.cols[n] ?? ""), ...widget.rows.map((row) => cells(row[n] ?? ""))))
-      const total = widths.reduce((sum, w) => sum + w, 0) + 3 * (count - 1)
-      if (total > width - 2) {
-        const cut = Math.ceil((total - (width - 2)) / count)
-        widths.forEach((w, n) => (widths[n] = Math.max(3, w - cut)))
+      const fitted = fit(widths, width - 2 - 3 * (count - 1))
+      // A row is as tall as its tallest wrapped cell; only its first line carries the marker.
+      const row = (cellsOf: readonly string[], tone: Tone, lead: Span, target?: number): Line[] => {
+        const parts = fitted.map((w, n) => wrap(cellsOf[n] ?? "", w))
+        return Array.from({ length: Math.max(...parts.map((part) => part.length)) }, (_, line): Line => [
+          line === 0 ? lead : span("  "),
+          ...fitted.flatMap((w, n): Span[] => [span(pad(parts[n][line] ?? "", w), tone, target), ...(n + 1 < count ? [span(" │ ", "dim")] : [])]),
+        ])
       }
-      const row = (cellsOf: readonly string[], tone: Tone, target?: number): Span[] =>
-        widths.flatMap((w, n): Span[] => [span(pad(clip(cellsOf[n] ?? "", w + 1), w), tone, target), ...(n + 1 < count ? [span(" │ ", "dim")] : [])])
       const body: Line[] = []
-      if (widget.cols.length) body.push([span("  "), ...row(widget.cols, "accentBold")])
-      widget.rows.forEach((cellsOf, n) => body.push([widget.select ? mark(n === widget.cursor) : span("  "), ...row(cellsOf, widget.select && n === widget.cursor ? "accentBold" : "normal", n)]))
+      if (widget.cols.length) body.push(...row(widget.cols, "accentBold", span("  ")))
+      widget.rows.forEach((cellsOf, n) =>
+        body.push(...row(cellsOf, widget.select && n === widget.cursor ? "accentBold" : "normal", widget.select ? mark(n === widget.cursor) : span("  "), n)),
+      )
       return { body, footer: widget.select ? tr("↑↓ · Enter picks a row") : "" }
     }
     case "progress": {
@@ -198,10 +262,13 @@ function bodyOf(widget: Widget, width: number, active: boolean): { body: Line[];
     }
     case "steps":
       return {
-        body: widget.items.map((item): Line => {
+        body: widget.items.flatMap((item): Line[] => {
           const [markText, tone]: [string, Tone] =
             item.state === "x" ? ["✓ ", "dim"] : item.state === "~" ? ["… ", "warnBold"] : item.state === "!" ? ["✗ ", "warn"] : ["○ ", "normal"]
-          return [span(markText, item.state === "x" ? "accent" : tone), span(clip(item.label, width - 2), tone)]
+          return wrap(item.label, width - 2).map((part, i): Line => [
+            i === 0 ? span(markText, item.state === "x" ? "accent" : tone) : span("  "),
+            span(part, tone),
+          ])
         }),
         footer: "",
       }
@@ -225,18 +292,33 @@ function bodyOf(widget: Widget, width: number, active: boolean): { body: Line[];
         footer: tr("c — copy"),
       }
     case "kv": {
-      const key = Math.max(...widget.pairs.map(([name]) => cells(name)))
-      return { body: widget.pairs.map(([name, value]) => [span(`${pad(name, key)}  `, "dim"), span(clip(value, width - key - 2))]), footer: "" }
+      const key = Math.min(Math.max(...widget.pairs.map(([name]) => cells(name))), Math.floor(width / 2))
+      return {
+        body: widget.pairs.flatMap(([name, value]) => {
+          const names = wrap(name, key)
+          const values = wrap(value, Math.max(4, width - key - 2))
+          return Array.from({ length: Math.max(names.length, values.length) }, (_, line): Line => [
+            span(`${pad(names[line] ?? "", key)}  `, "dim"),
+            span(values[line] ?? ""),
+          ])
+        }),
+        footer: "",
+      }
     }
     case "callout": {
       const [markText, tone]: [string, Tone] = ["warn", "warning", "error"].includes(widget.tone) ? ["! ", "warn"] : ["ok", "done"].includes(widget.tone) ? ["✓ ", "accent"] : ["i ", "accent"]
-      return { body: widget.lines.map((line, n) => [span(n === 0 ? markText : "  ", tone), span(clip(line, width - 2))]), footer: "" }
+      return {
+        body: widget.lines.flatMap((line, n) =>
+          wrap(line, width - 2).map((part, i): Line => [span(n === 0 && i === 0 ? markText : "  ", tone), span(part)]),
+        ),
+        footer: "",
+      }
     }
     case "tabs":
       return {
         body: [
           widget.pages.flatMap((page, n) => [span(n === widget.current ? `[${page.name}]` : ` ${page.name} `, n === widget.current ? "accentBold" : "dim", n), span(" ")]),
-          ...widget.pages[widget.current].lines.map((line) => [span(clip(line, width))]),
+          ...widget.pages[widget.current].lines.flatMap((line) => wrap(line, width).map((part): Line => [span(part)])),
         ],
         footer: tr("←→ pages"),
       }
@@ -254,7 +336,14 @@ function bodyOf(widget: Widget, width: number, active: boolean): { body: Line[];
     }
     case "timeline":
       return {
-        body: widget.events.map(([when, what], n) => [span(n + 1 === widget.events.length ? "└ " : "├ ", "dim"), span(`${when}  `, "accent"), span(clip(what, width - cells(when) - 5))]),
+        body: widget.events.flatMap(([when, what], n) => {
+          const last = n + 1 === widget.events.length
+          return wrap(what, Math.max(4, width - cells(when) - 5)).map((part, i): Line =>
+            i === 0
+              ? [span(last ? "└ " : "├ ", "dim"), span(`${when}  `, "accent"), span(part)]
+              : [span(last ? "  " : "│ ", "dim"), span(" ".repeat(cells(when) + 2)), span(part)],
+          )
+        }),
         footer: "",
       }
     case "tree":

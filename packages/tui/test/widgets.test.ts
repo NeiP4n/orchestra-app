@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { GUIDE, KINDS, parse, type Segment, type Widget } from "../src/widgets/parse"
 import { activate, browsable, needsAnswer, pending, press, reply, type Key, type Outcome } from "../src/widgets/press"
-import { clip, render, type Focus } from "../src/widgets/render"
+import { clip, render, wrap, type Focus } from "../src/widgets/render"
 import { afterAll, beforeAll } from "bun:test"
 import { setActiveLanguage } from "../src/util/i18n"
 
@@ -195,6 +195,34 @@ describe("rendering", () => {
   test("wide characters are clipped by columns, not by characters", () => {
     expect(clip("日本語日本語", 7)).toBe("日本語…")
     expect(clip("short", 20)).toBe("short")
+  })
+
+  test("long text wraps at spaces and splits words longer than a line", () => {
+    expect(wrap("short", 20)).toEqual(["short"])
+    expect(wrap("one two three four", 9)).toEqual(["one two", "three", "four"])
+    expect(wrap("abcdefghij", 4)).toEqual(["abcd", "efgh", "ij"])
+    expect(wrap("日本語日本語", 6)).toEqual(["日本語", "日本語"])
+  })
+
+  test("table cells wrap instead of being cut with an ellipsis", () => {
+    const status = "Реализован и верифицирован (>25k tok/s, Shannon H, Budget Control)"
+    const w = widget(`@ui table Статус\ncols: компонент | статус\n- DeepSeek Dual-Stream Harness | ${status}\n- Integration Matrix & HUD | 37/37 PASS\n@end`)
+    for (const width of [40, 60, 80]) {
+      const drawn = text(w, "idle", width)
+      expect(drawn).not.toContain("…")
+      // Every word of the long cell is still on screen, even when it moved to a later line.
+      for (const word of status.split(" ")) expect(drawn).toContain(word)
+      for (const line of render(w, width, "idle")) expect(line.map((span) => span.text).join("").length).toBeLessThanOrEqual(width)
+    }
+  })
+
+  test("summaries, notes and timelines wrap long values", () => {
+    const long = "очень длинное значение которое раньше обрезалось многоточием на узком экране"
+    for (const source of [`@ui kv\n- ключ: ${long}\n@end`, `@ui callout\n${long}\n@end`, `@ui timeline\n- 10:00 | ${long}\n@end`, `@ui steps\n- ${long}\n@end`]) {
+      const drawn = text(widget(source), "idle", 40)
+      expect(drawn).not.toContain("…")
+      expect(drawn).toContain("многоточием")
+    }
   })
 })
 
