@@ -38,11 +38,15 @@ export const president = Agent.ID.make("president")
 // The permission rules of a group-bound chat (President or Society). The chat belongs to the
 // group, not to a project, so it may not touch files, run commands or reach other sessions.
 // Federation stays behind the operator's approval, and asking the operator a question stays open.
+// A Society builds its projects (society_forge) and the teams they use (team_forge) by itself: the
+// operator's goal is the approval, so these two tools are open. society_forge refuses any other chat.
 export function groupSupervisorPermissions(): Permission.Ruleset {
   return [
     { action: "*", resource: "*", effect: "deny" },
     { action: "federation", resource: "*", effect: "ask" },
     { action: "question", resource: "*", effect: "allow" },
+    { action: "society_forge", resource: "*", effect: "allow" },
+    { action: "team_forge", resource: "*", effect: "allow" },
   ]
 }
 

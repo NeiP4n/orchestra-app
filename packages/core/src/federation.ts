@@ -1,5 +1,7 @@
 export * as Federation from "./federation.js"
 
+import { execFile } from "node:child_process"
+import os from "node:os"
 import path from "node:path"
 import { Context, Effect, Layer, Option, Schema, Stream } from "effect"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
@@ -52,7 +54,13 @@ export interface Interface {
     body: string
   }) => Effect.Effect<Ticket, FederationError>
   // Links two projects of this device: each knows the other and may ask it questions. The operator's choice, not a ticket.
-  readonly link: (a: Orchestra.ProjectID, b: Orchestra.ProjectID) => Effect.Effect<void, FederationError>
+  // `notify: false` links them without waking either Orchestrator: a Society that briefs them next
+  // names the peers there, and a notice of its own would cost every project a model turn for nothing.
+  readonly link: (
+    a: Orchestra.ProjectID,
+    b: Orchestra.ProjectID,
+    options?: { readonly notify?: boolean },
+  ) => Effect.Effect<void, FederationError>
   readonly unlink: (a: Orchestra.ProjectID, b: Orchestra.ProjectID) => Effect.Effect<void>
   readonly linked: (
     project: Orchestra.ProjectID,
@@ -99,6 +107,18 @@ export interface Interface {
     projects: readonly Orchestra.ProjectID[]
     mode: CoordinationMode
   }) => Effect.Effect<{ sessionID: SessionID; title: string; directory: string }, FederationError>
+  // Creates a whole Society in one step: a folder for it, a coordinator project inside it, the
+  // council group and its chat. Everything else is generated later, from the operator's goal.
+  readonly createSociety: (input: {
+    name: string
+  }) => Effect.Effect<
+    { name: string; sessionID: SessionID; directory: string; project: Orchestra.Project },
+    FederationError
+  >
+  // A new project folder inside the Society's folder: created, and made a git repository when git exists.
+  readonly societyFolder: (input: { society: string; project: string }) => Effect.Effect<string, FederationError>
+  // Hands a member project's Orchestrator its assignment from the Society. It runs without waiting for a ticket.
+  readonly brief: (input: { project: Orchestra.ProjectID; id: string; text: string }) => Effect.Effect<void>
   readonly removeGroup: (name: string) => Effect.Effect<void>
   readonly linkGroup: (name: string) => Effect.Effect<number, FederationError>
   readonly inbox: (project: Orchestra.ProjectID) => Effect.Effect<ReadonlyArray<Ticket>>
@@ -188,6 +208,35 @@ export function groupChatDirectory(name: string, data: string = Global.Path.data
   return path.join(data, "group", `${slug}-${fnv1a(trimmed)}`)
 }
 
+const slugOf = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}._-]+/gu, "-")
+    .replace(/^-+|-+$/g, "")
+
+// Every project of a Society lives in the Society's one folder, so the whole thing can be found,
+// moved or deleted as a unit. ORCHESTRA_SOCIETY_ROOT moves the parent of all Society folders.
+export function societyDirectory(
+  name: string,
+  root: string = process.env.ORCHESTRA_SOCIETY_ROOT ?? path.join(os.homedir(), "orchestra-society"),
+) {
+  return path.join(root, slugOf(name) || `society-${fnv1a(name.trim())}`)
+}
+
+export function societyProjectDirectory(society: string, project: string, root?: string) {
+  return path.join(societyDirectory(society, root), slugOf(project) || `project-${fnv1a(project.trim())}`)
+}
+
+// Best effort: a project works without git, but a repository lets snapshots and sandboxes work later.
+const initRepository = (directory: string) =>
+  Effect.promise(
+    () =>
+      new Promise<void>((resolve) => {
+        execFile("git", ["init", "-q"], { cwd: directory, windowsHide: true }, () => resolve())
+      }),
+  )
+
 // The message that sets a group chat up. It is context, not a task: the chat must not act on it,
 // and it never wakes the model on its own.
 const bootstrapText = (input: {
@@ -201,11 +250,13 @@ const bootstrapText = (input: {
   [
     "This message initializes the group-bound chat; it is not an operator task.",
     input.mode === "council"
-      ? `You are Society, the Orchestrator Council chat for group "${input.name}". Members: ${input.members.join(", ")}. Every member project already has its own Orchestrator session; consult_all reaches those existing sessions and never creates new ones.`
+      ? `You are Society, the Orchestrator Council chat for group "${input.name}". Members: ${input.members.join(", ")}. Every member project has its own Orchestrator session; consult_all reaches those existing sessions.`
       : `You are President, the group-bound chat for "${input.name}". The coordinator project is "${input.leaderName}" (${input.leader}); members: ${input.members.join(", ")}. Member Orchestrators already exist in their projects and reach you through report_president; you never create sessions inside a project.`,
-    "You are not a project session: you belong to the group, not to a project's team, and you create no sessions.",
     input.mode === "council"
-      ? "When the operator later asks a question or gives a task that needs the member projects' perspectives, call federation action=consult_all with a short subject and the full task. Wait for all proposals to arrive in this chat, then compare them and provide one synthesis."
+      ? "You are not a project session: you belong to the group. You do not edit files or run commands yourself; you build the Society through society_forge and the team registry through team_forge."
+      : "You are not a project session: you belong to the group, not to a project's team, and you create no sessions.",
+    input.mode === "council"
+      ? "When the operator gives a goal, build the Society for it without asking for details the goal already implies: call society_forge action=list for the team templates and roles, create any missing role or team with team_forge, then call society_forge action=generate once with every project the goal needs (a short name, a concrete brief, and the best team or role for it). Each generated project gets its own folder inside the Society's folder, its Orchestrator and team sessions, links to its peers, and starts on its brief immediately. Afterwards, for a question that needs the projects' perspectives, call federation action=consult_all with a short subject and the full task, wait for all proposals, then give one synthesis."
       : "Use federation action=group_status only when the operator asks for the group's status or a coordination recommendation. Summarize the sanitized status here; do not send tickets, messages, or work to any project.",
     ...(input.mode === "council"
       ? [
@@ -218,7 +269,7 @@ const bootstrapText = (input: {
         ]
       : []),
     Federation.replyOptionsHint,
-    "Do not contact or send anything to member projects in response to this initialization message or on your own. Never call federation action=send from this group-bound chat. The Council may use consult_all only after an explicit task or question from the operator.",
+    "Do not contact or send anything to member projects in response to this initialization message or on your own. Never call federation action=send from this group-bound chat. Generate projects or consult the members only after an explicit goal, task or question from the operator.",
     "Do not edit files, run shell commands, change project settings, or approve work on behalf of a member project. Each project keeps its own rules and approvals.",
     "Acknowledge the setup briefly and wait for the operator's next message. Do not call tools for this initialization.",
   ].join("\n")
@@ -240,6 +291,7 @@ const layer: Layer.Layer<
     const fs = yield* FSUtil.Service
     const global = yield* Global.Service
     const councilLocks = yield* KeyedMutex.make<string>()
+    const layerScope = yield* Effect.scope
 
     const policy = Effect.fn("Federation.policy")(function* (project: Orchestra.ProjectID) {
       return Option.getOrElse(decodePolicy(yield* kv.get(POLICY + project)), () => Federation.defaultPolicy(project))
@@ -316,7 +368,11 @@ const layer: Layer.Layer<
 
     const savePolicy = (next: Policy) => kv.set(POLICY + next.project, encodePolicy(next))
 
-    const link = Effect.fnUntraced(function* (a: Orchestra.ProjectID, b: Orchestra.ProjectID) {
+    const link = Effect.fnUntraced(function* (
+      a: Orchestra.ProjectID,
+      b: Orchestra.ProjectID,
+      options?: { readonly notify?: boolean },
+    ) {
       const first = yield* local(a)
       const second = yield* local(b)
       if (a === b) return yield* new FederationError({ message: "A project cannot be linked to itself" })
@@ -324,6 +380,7 @@ const layer: Layer.Layer<
       yield* savePolicy(Federation.linkPolicy(yield* policy(b), a))
       yield* kv.set(`${LINK}${a}/${b}`, { peer: b })
       yield* kv.set(`${LINK}${b}/${a}`, { peer: a })
+      if (options?.notify === false) return
       yield* tell(
         a,
         `federation-link-${a}-${b}`,
@@ -564,6 +621,19 @@ const layer: Layer.Layer<
         })
         .pipe(Effect.ignore)
       return { sessionID: created.id, title, directory }
+    })
+
+    // A folder that already belongs to a project is never shared: a taken name gets a numeric suffix.
+    const societyFolder = Effect.fnUntraced(function* (society: string, project: string) {
+      const base = societyProjectDirectory(society, project)
+      const taken = new Set((yield* orchestra.projects()).map((item) => item.directory))
+      let directory = base
+      for (let attempt = 2; taken.has(directory); attempt++) directory = `${base}-${attempt}`
+      yield* fs.ensureDir(directory).pipe(
+        Effect.mapError((error) => new FederationError({ message: `Could not create ${directory}: ${error.message}` })),
+      )
+      yield* initRepository(directory)
+      return directory
     })
 
     return Service.of({
@@ -815,6 +885,35 @@ const layer: Layer.Layer<
               () => new FederationError({ message: "Could not deliver the report to the group President" }),
             ),
           )
+      }),
+      createSociety: Effect.fn("Federation.createSociety")(function* (input) {
+        const name = input.name.trim()
+        if (!name) return yield* new FederationError({ message: "A Society needs a name" })
+        if ((yield* groups()).some((item) => item.name === name))
+          return yield* new FederationError({ message: `A group named "${name}" already exists. Choose another name.` })
+        const directory = yield* societyFolder(name, "coordinator")
+        const project = yield* orchestra.create({ name: `${name} · Coordinator`, directory }).pipe(
+          Effect.mapError(
+            (error) => new FederationError({ message: `Could not create the coordinator project: ${String(error)}` }),
+          ),
+        )
+        yield* setGroup({ name, projects: [project.id], mode: "council" })
+        const chat = yield* ensureGroupChat({ name, projects: [project.id], mode: "council" })
+        return { name, sessionID: chat.sessionID, directory: societyDirectory(name), project }
+      }),
+      societyFolder: ({ society, project }) => societyFolder(society, project),
+      brief: Effect.fn("Federation.brief")(function* ({ project, id, text }) {
+        yield* tell(project, id, text)
+        const main = yield* orchestra.main(project).pipe(Effect.option)
+        if (Option.isNone(main)) return
+        // A session created a moment ago can miss the advisory wake that its prompt schedules, and its
+        // queued messages then wait for some later event. An explicit resume starts the run for sure.
+        yield* sessions.resume(main.value.id).pipe(
+          Effect.ignore,
+          Effect.delay("1 second"),
+          Effect.forkIn(layerScope),
+          Effect.asVoid,
+        )
       }),
       linkGroup: Effect.fn("Federation.linkGroup")(function* (name) {
         const group = (yield* groups()).find((item) => item.name === name.trim())

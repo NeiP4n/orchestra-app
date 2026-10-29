@@ -431,15 +431,19 @@ export const add = Effect.fn("Dod.add")(function* (input: {
   yield* initialize(input.directory)
   const file = ProjectDirs.resolveWrite(input.directory, "dod.yaml")
   const sourceFile = ProjectDirs.resolveRead(input.directory, "dod.yaml")
-  const attempt = (left: number): Effect.Effect<{ id: string; dod: Room.Dod }, DodError> =>
+  // A model often adds a whole chain in one batch of parallel calls, so an item may name a
+  // dependency whose own add is still landing. `patience` waits for it before refusing.
+  const attempt = (left: number, patience = 8): Effect.Effect<{ id: string; dod: Room.Dod }, DodError> =>
     Effect.gen(function* () {
       const before = (yield* load(input.directory)) ?? ""
       const list = yield* items(before)
       const id = input.id?.trim() || nextID(list.map((item) => item.id))
       if (list.some((item) => item.id === id)) return yield* new DodError({ message: `The DoD already has ${id}` })
       const unknown = (input.dependsOn ?? []).filter((dep) => !list.some((item) => item.id === dep))
-      if (unknown.length > 0)
+      if (unknown.length > 0) {
+        if (patience > 0) return yield* Effect.sleep("150 millis").pipe(Effect.andThen(attempt(left, patience - 1)))
         return yield* new DodError({ message: `No such items to depend on: ${unknown.join(", ")}` })
+      }
       const after = append(before, {
         id,
         what,
@@ -457,7 +461,7 @@ export const add = Effect.fn("Dod.add")(function* (input: {
         return yield* new DodError({ message: `Could not add ${id}: the edited dod.yaml would not list it` })
       if (yield* Effect.promise(() => commit(file, before, after, sourceFile))) return { id, dod }
       if (left <= 1) return yield* new DodError({ message: "dod.yaml keeps changing; try again" })
-      return yield* attempt(left - 1)
+      return yield* attempt(left - 1, patience)
     })
   return yield* attempt(ATTEMPTS)
 })

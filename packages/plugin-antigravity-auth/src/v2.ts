@@ -665,7 +665,10 @@ export const AntigravityV2Plugin = Plugin.define({
         await ctx.provider.reload()
       }, runCredentialOperation))
       if (hasSavedAccounts && ctx.options.discoverModels !== false && (!validCache || Date.now() - (cached?.updatedAt ?? 0) > 3600_000)) {
-        try { await refreshModels() } catch (error) { log.warn("Model discovery unavailable; using cached or fallback models", { error: String(error) }) }
+        // Discovery asks Google once per account. Setup must not wait for it: the host fails a plugin
+        // whose setup runs past 30 seconds, and every model of the provider goes with it. The cached or
+        // fallback catalog serves until discovery finishes and reloads the provider.
+        void refreshModels().catch(error => log.warn("Model discovery unavailable; using cached or fallback models", { error: String(error) }))
       }
       return cleanup
     } catch (error) {

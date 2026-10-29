@@ -9,12 +9,14 @@ import { Orchestra } from "@orchestra/schema/orchestra"
 const decode = Schema.decodeUnknownSync(WorkspaceForgeTool.Input)
 
 describe("workspace forge input", () => {
-  test("Group Orchestrators can coordinate only through approval-checked federation", () => {
+  test("Group chats coordinate through approval-checked federation and build the Society with two open tools", () => {
     expect(Orchestra.groupSupervisorPermissions()).toEqual([
       { action: "*", resource: "*", effect: "deny" },
       { action: "federation", resource: "*", effect: "ask" },
       // The chat may ask its own operator a question; everything else still goes through federation approval.
       { action: "question", resource: "*", effect: "allow" },
+      { action: "society_forge", resource: "*", effect: "allow" },
+      { action: "team_forge", resource: "*", effect: "allow" },
     ])
   })
 

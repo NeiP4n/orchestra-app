@@ -79,6 +79,7 @@ import { HubTool } from "../tool/plugin/hub.js"
 import { OrchestraTool } from "../tool/plugin/orchestra.js"
 import { WorkspaceForgeTool } from "../tool/plugin/workspace-forge.js"
 import { TeamForgeTool } from "../tool/plugin/team-forge.js"
+import { SocietyForgeTool } from "../tool/plugin/society-forge.js"
 import { CommandForgeTool } from "../tool/plugin/command-forge.js"
 import { McpForgeTool } from "../tool/plugin/mcp-forge.js"
 import { PluginForgeTool } from "../tool/plugin/plugin-forge.js"
@@ -304,6 +305,7 @@ const pre = [
   OrchestraTool.Plugin,
   WorkspaceForgeTool.Plugin,
   TeamForgeTool.Plugin,
+  SocietyForgeTool.Plugin,
   CommandForgeTool.Plugin,
   McpForgeTool.Plugin,
   PluginForgeTool.Plugin,

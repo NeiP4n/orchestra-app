@@ -427,6 +427,8 @@ import type {
   OrchestraGroupLinkOutput,
   OrchestraGroupChatInput,
   OrchestraGroupChatOutput,
+  OrchestraSocietyCreateInput,
+  OrchestraSocietyCreateOutput,
   OrchestraLinkSetInput,
   OrchestraLinkSetOutput,
   OrchestraLinkListInput,
@@ -3560,6 +3562,20 @@ export function make(options: ClientOptions) {
               method: "POST",
               path: `/api/orchestra/group/${encodeURIComponent(input.name)}/chat`,
               body: { mode: input["mode"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+      },
+      society: {
+        create: (input: OrchestraSocietyCreateInput, requestOptions?: RequestOptions) =>
+          request<OrchestraSocietyCreateOutput>(
+            {
+              method: "POST",
+              path: `/api/orchestra/society`,
+              body: { name: input["name"] },
               successStatus: 200,
               declaredStatuses: [400, 401],
               empty: false,

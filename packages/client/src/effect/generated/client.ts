@@ -429,6 +429,8 @@ import type {
   OrchestraGroupLinkOutput,
   OrchestraGroupChatInput,
   OrchestraGroupChatOutput,
+  OrchestraSocietyCreateInput,
+  OrchestraSocietyCreateOutput,
   OrchestraLinkSetInput,
   OrchestraLinkSetOutput,
   OrchestraLinkListInput,
@@ -2560,6 +2562,11 @@ const EndpointOrchestraGroupChat = (raw: RawClient["server.orchestra"]) => (inpu
     ),
   )
 
+const EndpointOrchestraSocietyCreate = (raw: RawClient["server.orchestra"]) => (input: OrchestraSocietyCreateInput) =>
+  preserveEffect<OrchestraSocietyCreateOutput>()(
+    raw["orchestra.society.create"]({ payload: { name: input["name"] } }).pipe(Effect.mapError(mapClientError)),
+  )
+
 const EndpointOrchestraLinkSet = (raw: RawClient["server.orchestra"]) => (input: OrchestraLinkSetInput) =>
   preserveEffect<OrchestraLinkSetOutput>()(
     raw["orchestra.link.set"]({ payload: { a: input["a"], b: input["b"], linked: input["linked"] } }).pipe(
@@ -2603,6 +2610,7 @@ const adaptGroupOrchestra = (raw: RawClient["server.orchestra"]) => ({
     link: EndpointOrchestraGroupLink(raw),
     chat: EndpointOrchestraGroupChat(raw),
   },
+  society: { create: EndpointOrchestraSocietyCreate(raw) },
   link: { set: EndpointOrchestraLinkSet(raw), list: EndpointOrchestraLinkList(raw) },
 })
 

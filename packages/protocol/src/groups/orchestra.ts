@@ -325,6 +325,24 @@ export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
     ),
   )
   .add(
+    HttpApiEndpoint.post("orchestra.society.create", "/api/orchestra/society", {
+      payload: Schema.Struct({ name: Schema.String }),
+      success: Schema.Struct({
+        name: Schema.String,
+        sessionID: Session.ID,
+        directory: Schema.String,
+      }),
+      error: InvalidRequestError,
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "orchestra.society.create",
+        summary: "Create Society",
+        description:
+          "Create a Society: its own folder, a coordinator project inside it, the council group and its chat. The operator then states a goal in the chat and the Society generates the projects and their sessions.",
+      }),
+    ),
+  )
+  .add(
     HttpApiEndpoint.post("orchestra.link.set", "/api/orchestra/link", {
       payload: Schema.Struct({ a: Orchestra.ProjectID, b: Orchestra.ProjectID, linked: Schema.Boolean }),
       success: HttpApiSchema.NoContent,

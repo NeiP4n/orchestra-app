@@ -2355,6 +2355,19 @@ export const createAntigravityPlugin = (providerId: string) => async (
                     shouldSwitchAccount = true;
                     break;
                   }
+
+                  // A missing Gemini Code Assist license belongs to one account's project. Another
+                  // account of the pool may hold one, so move on instead of failing the whole turn.
+                  if (accountCount > 1 && /SUBSCRIPTION_REQUIRED|valid license of this product/i.test(errorBodyText)) {
+                    const cooldownMs = 10 * 60 * 1000;
+                    accountManager.markAccountCoolingDown(account, cooldownMs, "project-error");
+                    accountManager.markRateLimited(account, cooldownMs, family, headerStyle, model);
+                    getHealthTracker().recordFailure(account.index);
+                    pushDebug(`license-required: cooling down account ${account.index}`);
+                    lastFailure = createFailureContext(response);
+                    shouldSwitchAccount = true;
+                    break;
+                  }
                 }
 
                 const shouldRetryEndpoint = (

@@ -22,6 +22,8 @@ export function DialogGroups(props: { onClose?: () => void }) {
   const toast = useToast()
   const t = useGroupT()
   let nameField: InputRenderable | undefined
+  let societyField: InputRenderable | undefined
+  const [founding, setFounding] = createSignal(false)
   const [groups, { refetch }] = createResource(() => client.api.orchestra.group.list())
   const [picked, setPicked] = createSignal<readonly string[]>([])
   const [armed, setArmed] = createSignal<string>()
@@ -63,6 +65,25 @@ export function DialogGroups(props: { onClose?: () => void }) {
       toast.show({ message: errorMessage(error), variant: "error" })
     } finally {
       setOpening(undefined)
+    }
+  }
+
+  // One step: the server makes the Society's folder, its coordinator project, the group and the chat.
+  // The goal the operator types there is what generates the projects.
+  const found = async () => {
+    const name = societyField?.value.trim()
+    if (!name) return toast.show({ message: t("Enter a Society name."), variant: "error" })
+    if (founding()) return
+    setFounding(true)
+    try {
+      const society = await client.api.orchestra.society.create({ name })
+      if (societyField) societyField.value = ""
+      route.navigate({ type: "session", sessionID: society.sessionID })
+      props.onClose?.()
+    } catch (error) {
+      toast.show({ message: errorMessage(error), variant: "error" })
+    } finally {
+      setFounding(false)
     }
   }
 
@@ -122,6 +143,12 @@ export function DialogGroups(props: { onClose?: () => void }) {
   return (
     <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
       <Header title={t("Project groups")} onClose={props.onClose} />
+      <text fg={theme.text.base} attributes={TextAttributes.UNDERLINE}>{t("New Society")}</text>
+      <box flexDirection="row" gap={1}>
+        <input width={24} cursorStyle={config.cursor} ref={(element: InputRenderable) => { societyField = element }} onMouseDown={() => societyField?.focus()} placeholder={t("Society name")} placeholderColor={theme.text.muted} textColor={theme.text.formfield.base} focusedTextColor={theme.text.formfield.focused} cursorColor={theme.text.formfield.focused} backgroundColor={theme.background.formfield.base} onSubmit={() => void found()} />
+        <Button variant="primary" disabled={founding()} onClick={() => void found()}>{founding() ? t("Creating...") : t("Create Society")}</Button>
+      </box>
+      <text fg={theme.text.muted} wrapMode="word">{t("Name it and open its chat: state your goal there and the Society creates the projects and their sessions by itself, all in one folder.")}</text>
       <Show when={groups.error}>
         {(error) => <text fg={theme.text.feedback.error.base} wrapMode="word">{errorMessage(error())}</text>}
       </Show>

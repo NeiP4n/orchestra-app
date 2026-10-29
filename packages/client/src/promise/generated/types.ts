@@ -12432,6 +12432,10 @@ export type OrchestraGroupChatInput = {
 
 export type OrchestraGroupChatOutput = { sessionID: string; title: string; directory: string }
 
+export type OrchestraSocietyCreateInput = { readonly name: { readonly name: string }["name"] }
+
+export type OrchestraSocietyCreateOutput = { name: string; sessionID: string; directory: string }
+
 export type OrchestraLinkSetInput = {
   readonly a: { readonly a: string; readonly b: string; readonly linked: boolean }["a"]
   readonly b: { readonly a: string; readonly b: string; readonly linked: boolean }["b"]
