@@ -1,16 +1,23 @@
 import type { PluginInfo } from "@orchestra/client"
 import { Plugin } from "@orchestra/plugin/tui"
-import { categorizePlugin, comparePluginCategories, type PluginCategory } from "@orchestra/plugin/category"
+import {
+  categorizePlugin,
+  comparePluginCategories,
+  PLUGIN_CATEGORIES,
+  type PluginCategory,
+} from "@orchestra/plugin/category"
 import path from "path"
 import { createEffect, createMemo, createResource, createSignal, onCleanup, onMount, Show } from "solid-js"
 import { DialogErrorDetails } from "../../component/dialog-error-details"
 import { Spinner } from "../../component/spinner"
 import { usePlugin } from "../../plugin/context"
+import { CategoryRail } from "../../ui/category-rail"
 import { DialogSelect, type DialogSelectOption } from "../../ui/dialog-select"
 import { useDialog } from "../../ui/dialog"
 import { errorMessage } from "../../util/error"
 
 const id = "opencode.plugins"
+const ALL = "All"
 
 type Entry =
   | { readonly key: string; readonly runtime: "server"; readonly internal: boolean; readonly plugin: PluginInfo }
@@ -31,6 +38,7 @@ export function PluginsDialog(props: { context: Plugin.Context; plugins: ReturnT
   const [focused, setFocused] = createSignal<string>()
   const [detail, setDetail] = createSignal<Entry>()
   const [showInternal, setShowInternal] = createSignal(false)
+  const [category, setCategory] = createSignal<string>(ALL)
   const [pending, setPending] = createSignal<readonly string[]>([])
   const [server, { refetch, mutate }] = createResource(
     () => props.context.location ?? props.context.data.location.default(),
@@ -81,9 +89,28 @@ export function PluginsDialog(props: { context: Plugin.Context; plugins: ReturnT
       return label(a, props.context).localeCompare(label(b, props.context))
     })
   })
-  const visibleEntries = createMemo(() =>
+  const listedEntries = createMemo(() =>
     entries().filter((entry) => showInternal() || !entry.internal || status(entry) === "failed"),
   )
+  const categoryItems = createMemo(() => [
+    { id: ALL, label: ALL, count: listedEntries().length },
+    ...PLUGIN_CATEGORIES.map((id) => ({
+      id,
+      label: id,
+      count: listedEntries().filter((entry) => entryCategory(entry, props.context) === id).length,
+    })).filter((item) => item.count > 0),
+  ])
+  const visibleEntries = createMemo(() =>
+    listedEntries().filter((entry) => category() === ALL || entryCategory(entry, props.context) === category()),
+  )
+  // A category that empties out (a plugin was hidden or removed) falls back to the full list.
+  createEffect(() => {
+    if (!categoryItems().some((item) => item.id === category())) setCategory(ALL)
+  })
+  const cycleCategory = (direction: number) => {
+    const ids = categoryItems().map((item) => item.id)
+    setCategory(ids[(ids.indexOf(category()) + direction + ids.length) % ids.length])
+  }
   createEffect(() => {
     if (visibleEntries().some((entry) => entry.key === focused())) return
     const first = visibleEntries().find((entry) => entry.runtime === "tui") ?? visibleEntries()[0]
@@ -95,7 +122,7 @@ export function PluginsDialog(props: { context: Plugin.Context; plugins: ReturnT
       (entry): DialogSelectOption<string> => ({
         title: label(entry, props.context),
         value: entry.key,
-        category: entryCategory(entry, props.context),
+        category: category() === ALL ? entryCategory(entry, props.context) : undefined,
         searchText: entry.runtime === "tui" ? entry.target : source(entry.plugin, props.context),
         footer: updating(entry) ? "updating" : footer(entry),
         footerColor:
@@ -186,6 +213,8 @@ export function PluginsDialog(props: { context: Plugin.Context; plugins: ReturnT
       <Show
         when={detail()}
         fallback={
+          <box flexDirection="row" flexGrow={1}>
+          <CategoryRail items={categoryItems()} selected={category()} onSelect={setCategory} width={22} />
           <DialogSelect
             title="Plugins"
             options={options()}
@@ -201,10 +230,12 @@ export function PluginsDialog(props: { context: Plugin.Context; plugins: ReturnT
                   setShowInternal((value) => !value)
                 },
               },
+              { bind: "tab", title: "Next category", group: "Plugins", run: () => cycleCategory(1) },
+              { bind: "shift+tab", title: "Previous category", group: "Plugins", run: () => cycleCategory(-1) },
             ]}
             footerHints={[
               { title: "ctrl+a", label: `${showInternal() ? "hide" : "show"} internal` },
-              { title: "alt+↑/↓", label: "jump category" },
+              { title: "tab", label: "category" },
             ]}
             onMove={(option) => setFocused(option.value)}
             onSelect={(option) => {
@@ -263,6 +294,7 @@ export function PluginsDialog(props: { context: Plugin.Context; plugins: ReturnT
               </Show>
             }
           />
+          </box>
         }
       >
         {(entry) => (

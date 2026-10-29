@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
+import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js"
 import { TextAttributes } from "@opentui/core"
 import { useDialog } from "../ui/dialog"
 import { useConfig } from "../config"
@@ -6,7 +6,7 @@ import { useTheme, useThemes } from "../context/theme"
 import { DialogSelect } from "../ui/dialog-select"
 import { useToast } from "../ui/toast"
 import { useT } from "../util/i18n"
-import { NeuralChip } from "./neural"
+import { CategoryRail } from "../ui/category-rail"
 import { SculkSprite } from "./sculk-sprite-view"
 
 type Setting = {
@@ -59,7 +59,7 @@ export const settings: Setting[] = [
   },
   {
     title: "Layout",
-    category: "General",
+    category: "Appearance",
     description: "Compact narrows the project panel and docks the sidebar beside the chat; mobile fits a phone screen",
     path: ["layout"],
     default: "auto",
@@ -68,7 +68,7 @@ export const settings: Setting[] = [
   },
   {
     title: "Permissions",
-    category: "General",
+    category: "Agent",
     description: "Ask before the AI runs commands and edits files, or accept automatically",
     path: ["session", "permissions"],
     default: "prompt",
@@ -78,7 +78,7 @@ export const settings: Setting[] = [
   },
   {
     title: "New session location",
-    category: "General",
+    category: "Agent",
     description: "Start new sessions in the launch directory or in the active session's directory",
     path: ["session", "new_location"],
     default: "launch",
@@ -106,7 +106,7 @@ export const settings: Setting[] = [
   },
   {
     title: "Sidebar",
-    category: "Session",
+    category: "Appearance",
     description: "Session sidebar with context, todos and MCP; auto shows it when there is room",
     path: ["session", "sidebar"],
     default: "auto",
@@ -115,7 +115,7 @@ export const settings: Setting[] = [
   },
   {
     title: "Thinking",
-    category: "Session",
+    category: "Chat",
     description: "Show the model's reasoning in the transcript",
     path: ["session", "thinking"],
     default: "hide",
@@ -124,7 +124,7 @@ export const settings: Setting[] = [
   },
   {
     title: "Verbosity",
-    category: "Session",
+    category: "Chat",
     description: "Low summarizes each run of tools and thoughts, high expands every group",
     path: ["session", "verbosity"],
     default: "medium",
@@ -133,7 +133,7 @@ export const settings: Setting[] = [
   },
   {
     title: "TPS",
-    category: "Session",
+    category: "Chat",
     description: "Show average tokens per second of the model",
     path: ["session", "tps"],
     default: true,
@@ -142,7 +142,7 @@ export const settings: Setting[] = [
   },
   {
     title: "Auto-compact",
-    category: "Session",
+    category: "Agent",
     description: "Compress the conversation automatically when it nears the context limit",
     path: ["compaction", "auto"],
     default: true,
@@ -151,7 +151,7 @@ export const settings: Setting[] = [
   },
   {
     title: "Tabs",
-    category: "Session",
+    category: "Workspace",
     description: "Session tabs: always, never, or when the terminal supports them",
     path: ["tabs", "mode"],
     default: "auto",
@@ -159,7 +159,7 @@ export const settings: Setting[] = [
   },
   {
     title: "Diff source",
-    category: "Session",
+    category: "Workspace",
     description: "What /diff opens with: branch changes, working tree, commits or the last turn",
     path: ["diffs", "source"],
     default: "branch",
@@ -169,7 +169,7 @@ export const settings: Setting[] = [
   },
   {
     title: "Mouse",
-    category: "Advanced",
+    category: "Input",
     description: "Clicks and scrolling with the mouse; off leaves selection to the terminal",
     path: ["mouse"],
     default: true,
@@ -178,7 +178,7 @@ export const settings: Setting[] = [
   },
   {
     title: "Notifications",
-    category: "Alerts",
+    category: "Notifications",
     description: "System notification when the AI finishes or needs an answer",
     path: ["attention", "notifications"],
     default: false,
@@ -187,7 +187,7 @@ export const settings: Setting[] = [
   },
   {
     title: "Sounds",
-    category: "Alerts",
+    category: "Notifications",
     description: "Play a sound when the AI finishes or needs an answer",
     path: ["attention", "sound"],
     default: false,
@@ -196,7 +196,7 @@ export const settings: Setting[] = [
   },
   {
     title: "Copy behavior",
-    category: "Advanced",
+    category: "Input",
     description: "Copy as soon as text is selected, or only on request",
     path: ["terminal", "copy"],
     default: process.platform === "win32" ? "manual" : "select",
@@ -205,7 +205,7 @@ export const settings: Setting[] = [
   },
   {
     title: "Developer mode",
-    category: "Advanced",
+    category: "Developer",
     description: "List debugging and rarely used commands in the command palette and slash menu",
     path: ["developer"],
     default: false,
@@ -214,7 +214,7 @@ export const settings: Setting[] = [
   },
   {
     title: "Developer tools",
-    category: "Advanced",
+    category: "Developer",
     description: "Bottom bar with server, UI, Tools and Registry",
     path: ["debug", "devtools"],
     default: false,
@@ -348,32 +348,33 @@ export function DialogConfig(props: { current?: string }) {
     return write(undefined, index)
   }
 
+  const railItems = createMemo(() =>
+    categories().map((id) => ({
+      id,
+      label: t(id),
+      count: id === "All" ? settings.length : settings.filter((setting) => setting.category === id).length,
+    })),
+  )
+
   return (
-    <DialogSelect
+    <box flexDirection="row" flexGrow={1}>
+      <CategoryRail
+        items={railItems()}
+        selected={selectedCategory()}
+        onSelect={setSelectedCategory}
+        footer={
+          // The sensor shivers whenever a setting is saved, like a sculk sensor catching a step.
+          <SculkSprite kind="sensor" state={vibrating() ? "vibrating" : "idle"} backdrop={theme.background.base} />
+        }
+      />
+      <DialogSelect
       title={t("Settings")}
       titleView={
-        <box flexDirection="row" justifyContent="space-between" alignItems="flex-start" gap={2}>
-          <box flexDirection="column" gap={1} flexGrow={1} minWidth={0}>
-            <box flexDirection="row" gap={1} alignItems="center">
-              <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
-                {t("Settings")}
-              </text>
-              <text fg={theme.text.muted}>{`· ${filteredSettings().length} ${t("options")}`}</text>
-            </box>
-            <box flexDirection="row" flexWrap="wrap">
-              <For each={categories()}>
-                {(cat) => (
-                  <NeuralChip
-                    label={t(cat)}
-                    active={selectedCategory() === cat}
-                    onClick={() => setSelectedCategory(cat)}
-                  />
-                )}
-              </For>
-            </box>
-          </box>
-          {/* The sensor shivers whenever a setting is saved, like a sculk sensor catching a step. */}
-          <SculkSprite kind="sensor" state={vibrating() ? "vibrating" : "idle"} backdrop={theme.background.base} />
+        <box flexDirection="row" gap={1} alignItems="center">
+          <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
+            {selectedCategory() === "All" ? t("Settings") : t(selectedCategory())}
+          </text>
+          <text fg={theme.text.muted}>{`· ${filteredSettings().length} ${t("options")}`}</text>
         </box>
       }
       options={options()}
@@ -448,6 +449,7 @@ export function DialogConfig(props: { current?: string }) {
           run: () => void reset(),
         },
       ]}
-    />
+      />
+    </box>
   )
 }

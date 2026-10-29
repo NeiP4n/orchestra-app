@@ -102,15 +102,15 @@ test("shows the new session location default in settings", () => {
   expect(settings.find((setting) => setting.path.join(".") === "session.new_location")?.default).toBe("launch")
 })
 
-test("shows the TPS default in session settings", () => {
+test("shows the TPS default in chat settings", () => {
   const setting = settings.find((setting) => setting.path.join(".") === "session.tps")
-  expect(setting?.category).toBe("Session")
+  expect(setting?.category).toBe("Chat")
   expect(setting?.default).toBe(true)
 })
 
-test("shows transcript verbosity in session settings", () => {
+test("shows transcript verbosity in chat settings", () => {
   expect(settings.find((setting) => setting.path.join(".") === "session.verbosity")).toMatchObject({
-    category: "Session",
+    category: "Chat",
     default: "medium",
     values: ["low", "medium", "high"],
   })

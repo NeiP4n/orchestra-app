@@ -46,10 +46,8 @@ test("DialogConfig sets dialog size to large and renders categorized navigation 
 
   const frame = app.captureCharFrame()
   // Verify category tabs are rendered
-  expect(frame).toContain("All")
-  expect(frame).toContain("General")
-  expect(frame).toContain("Appearance")
-  expect(frame).toContain("Session")
+  for (const category of ["All", "General", "Appearance", "Chat", "Agent", "Workspace", "Notifications", "Input", "Developer"])
+    expect(frame).toContain(category)
 
   // Verify rich footer card metadata is rendered
   expect(frame).toContain("path:")
@@ -80,17 +78,18 @@ test("DialogConfig category tabs filter the visible options when clicked", async
   app.renderer.start()
   await app.waitForFrame((frame) => frame.includes("Settings") && frame.includes("General"))
 
-  // Find position of "Appearance" tab
+  // Find position of the "Appearance" entry in the category rail
   const lines = app.captureCharFrame().split("\n")
-  const catRow = lines.findIndex((l) => l.includes("All") && l.includes("Appearance"))
+  const catRow = lines.findIndex((l) => l.includes("Appearance"))
   expect(catRow).toBeGreaterThanOrEqual(0)
   const appCol = lines[catRow].indexOf("Appearance")
 
-  // Click on "Appearance" category tab
+  // Click on "Appearance" in the rail
   await app.mockMouse.click(appCol + 2, catRow)
   await app.waitForFrame((frame) => frame.includes("Animations") && frame.includes("Mascot"))
 
   const filteredFrame = app.captureCharFrame()
   expect(filteredFrame).toContain("Animations")
   expect(filteredFrame).toContain("Mascot")
+  expect(filteredFrame).not.toContain("AI language")
 })
