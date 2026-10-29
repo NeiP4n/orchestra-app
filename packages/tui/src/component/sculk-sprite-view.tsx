@@ -3,7 +3,6 @@ import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "so
 import { useConfig } from "../config"
 import { useTheme } from "../context/theme"
 import {
-  SCULK_SPRITE_CELL_HEIGHT,
   SCULK_SPRITE_WIDTH,
   sculkSpriteCells,
   type SculkSpriteKind,

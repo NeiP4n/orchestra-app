@@ -11,7 +11,6 @@ import { useT } from "../util/i18n"
 import { Sidebar } from "../routes/session/sidebar"
 import { HoverAction } from "./hover-action"
 import { NeuralCard, NeuronDot, NeuronField, neuralPalette, useNeuralEnergy } from "./neural"
-import { SculkSprite } from "./sculk-sprite-view"
 
 export function HomeProjectPanel(props: {
   width: number

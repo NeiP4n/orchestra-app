@@ -1,5 +1,5 @@
 import { CliRenderEvents, TextAttributes, type Renderable } from "@opentui/core"
-import { TimeToFirstDraw, useRenderer, useTerminalDimensions } from "@opentui/solid"
+import { useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { open } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -41,7 +41,6 @@ import { openGroupsDialog } from "./dialog-groups"
 import { useProjects } from "../context/projects"
 import { ProjectFacts, useProjectFacts } from "./project-facts"
 import { explainSelection, QuickHelp, quickMode, setQuickMode, type QuickMode } from "./quick-help"
-import { usePromptRef } from "../context/prompt"
 import { usePlugin } from "../plugin/context"
 import { errorMessage } from "../util/error"
 import { useT } from "../util/i18n"
@@ -62,7 +61,6 @@ export function DevToolsBar() {
   const client = useClient()
   const config = useConfig()
   const dialog = useDialog()
-  const promptRef = usePromptRef()
   const toast = useToast()
   const projects = useProjects()
   const data = useData()
@@ -121,7 +119,6 @@ export function DevToolsBar() {
   const timing = () => config.data.debug?.timing ?? false
   const turnTokens = () => config.data.debug?.turn_tokens ?? false
   const verboseTurnTokens = () => turnTokens() === "verbose"
-  const palette = () => neuralPalette(theme)
   const energy = useNeuralEnergy()
 
   const offEscape = keymap.intercept(

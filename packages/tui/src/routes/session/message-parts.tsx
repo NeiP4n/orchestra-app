@@ -9,7 +9,6 @@ import type {
 } from "@orchestra/client"
 import { Spinner } from "../../component/spinner"
 import { SculkResonanceSpinner, SculkPixelStreamTail } from "../../component/sculk-effects"
-import { SculkSprite } from "../../component/sculk-sprite-view"
 import { createSyntaxStyleMemo, useTheme, useThemes } from "../../context/theme"
 import { reasoningSummary } from "../../context/thinking"
 import { usePlugin } from "../../plugin/context"

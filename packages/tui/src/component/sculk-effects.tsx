@@ -1,11 +1,9 @@
 import { RGBA } from "@opentui/core"
 import { createEffect, createMemo, createSignal, onCleanup, Show, type JSX } from "solid-js"
-import { useTheme } from "../context/theme"
 import { useConfig } from "../config"
 import {
   bayerDitherRow,
   pixelStreamWave,
-  sculkSonicWave,
   SCULK_PIXEL_RAMP,
   SCULK_SONIC_RINGS,
 } from "../ui/dither"
@@ -38,7 +36,6 @@ export function SculkResonanceSpinner(props: {
   accent?: RGBA
   title?: string
 }) {
-  const theme = useTheme()
   const config = useConfig().data
   const [frame, setFrame] = createSignal(0)
 
