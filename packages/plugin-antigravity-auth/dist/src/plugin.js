@@ -982,6 +982,14 @@ function trackAccountFailure(accountIndex) {
 function resetAccountFailureState(accountIndex) {
     accountFailureState.delete(accountIndex);
 }
+// When the production Cloud Code host (the Gemini CLI quota route) stops answering, falling back to
+// it makes every request sit until the host's own timeout. After one such timeout the fallback stays
+// closed for a while, so a request fails over to the next account or reports the quota at once.
+const GEMINI_CLI_DOWN_MS = 10 * 60_000;
+let geminiCliDownUntil = 0;
+/** Thrown out of the request loop, which would otherwise retry any other error against the next account. */
+class GoogleUnreachableError extends Error {
+}
 /**
  * Sleep for a given number of milliseconds, respecting an abort signal.
  */
@@ -1309,7 +1317,13 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                         // The host shows nothing while this request waits (the plugin's toasts do not reach the TUI), so
                         // a request must not sit through one rate limit after another in silence: 20 minutes of empty
                         // "waiting for an answer". Past this budget it fails with the reason, which the person sees.
+                        const HEADER_TIMEOUT_MS = 60_000;
                         const WAIT_BUDGET_MS = 90_000;
+                        // The loop below retries across accounts for as long as requests fail. A host that cannot be
+                        // reached fails every attempt after ~20 s, so without a limit the person sees an empty,
+                        // endless wait (observed: 11 sessions, 20 minutes). A few failures in one request is enough.
+                        const MAX_NETWORK_FAILURES = 3;
+                        let networkFailures = 0;
                         let waitedMs = 0;
                         const wait = async (ms, signal) => {
                             waitedMs += ms;
@@ -1365,7 +1379,11 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                             // Check for abort at the start of each iteration
                             checkAborted();
                             const accountCount = accountManager.getEnabledAccounts().filter(eligible).length;
-                            const routingDecision = resolveHeaderRoutingDecision(urlString, family, config);
+                            const resolvedRouting = resolveHeaderRoutingDecision(urlString, family, config);
+                            const routingDecision = {
+                                ...resolvedRouting,
+                                allowQuotaFallback: resolvedRouting.allowQuotaFallback && Date.now() >= geminiCliDownUntil,
+                            };
                             const { cliFirst, preferredHeaderStyle, explicitQuota, allowQuotaFallback, } = routingDecision;
                             if (accountCount === 0) {
                                 throw new Error("No Antigravity accounts available. Run `opencode auth login`.");
@@ -1731,7 +1749,38 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                         if (config.account_selection_strategy === 'hybrid') {
                                             tokenConsumed = getTokenTracker().consume(account.index);
                                         }
-                                        const response = await sendFetch(prepared.request, prepared.init);
+                                        // Google answers headers at once when it is reachable; silence for this long means it is not.
+                                        // The host's own limit is five minutes per attempt, which the person sees as a frozen session.
+                                        const guard = new AbortController();
+                                        const guardTimer = setTimeout(() => guard.abort(new Error(`No response from Google within ${HEADER_TIMEOUT_MS / 1000}s (${headerStyle})`)), HEADER_TIMEOUT_MS);
+                                        let response;
+                                        try {
+                                            response = await sendFetch(prepared.request, {
+                                                ...prepared.init,
+                                                signal: prepared.init?.signal ? AbortSignal.any([prepared.init.signal, guard.signal]) : guard.signal,
+                                            });
+                                        }
+                                        catch (error) {
+                                            // Whatever stops the request from getting an answer (refused, reset, silent) is a
+                                            // transport failure; the person's own abort is not.
+                                            if (!abortSignal?.aborted) {
+                                                networkFailures++;
+                                                // The production host is the Gemini CLI quota route. Once it cannot be reached, stop
+                                                // falling back to it so the Antigravity quota is reported instead.
+                                                if (headerStyle === "gemini-cli") {
+                                                    geminiCliDownUntil = Date.now() + GEMINI_CLI_DOWN_MS;
+                                                    pushDebug("gemini-cli route unreachable: fallback closed for 10 minutes");
+                                                }
+                                                if (networkFailures >= MAX_NETWORK_FAILURES) {
+                                                    throw new GoogleUnreachableError(`Cannot reach Google's ${headerStyle === "gemini-cli" ? "Gemini CLI" : "Antigravity"} service from this machine ` +
+                                                        `(${error instanceof Error ? error.message : String(error)}). Check the network or VPN, or switch to another model.`);
+                                                }
+                                            }
+                                            throw error;
+                                        }
+                                        finally {
+                                            clearTimeout(guardTimer);
+                                        }
                                         pushDebug(`status=${response.status} ${response.statusText}`);
                                         // Handle 429 rate limit (or Service Overloaded) with improved logic
                                         if (response.status === 429 || response.status === 503 || response.status === 529) {
@@ -2017,6 +2066,8 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                         return transformedResponse;
                                     }
                                     catch (error) {
+                                        if (error instanceof GoogleUnreachableError)
+                                            throw error;
                                         // Refund token on network/API error (only if consumed)
                                         if (tokenConsumed) {
                                             getTokenTracker().refund(account.index);
