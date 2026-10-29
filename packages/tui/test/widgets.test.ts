@@ -50,6 +50,20 @@ describe("parsing", () => {
 })
 
 describe("interaction", () => {
+  test("a long choice description is wrapped under its option instead of clipped", () => {
+    const hint = "Визуальный интерфейс на OpenTUI для управления агентами, сессиями и задачами в одном окне"
+    const w = widget(`@ui choice Выберите направление
+- Интерактивный TUI-дашборд управления (Recommended) | ${hint}
+- Короткий | да
+@end`)
+    const text = render(w, 60, "active").map((line) => line.map((part) => part.text).join(""))
+    expect(text.some((line) => line.includes("…"))).toBe(false)
+    // Every word of the description is still on screen, only moved to following lines.
+    expect(text.join(" ").replace(/[│╭╰]/g, "").replace(/\s+/g, " ")).toContain(hint)
+    // A short hint keeps its place beside the label.
+    expect(text.some((line) => line.includes("Короткий") && line.includes("да"))).toBe(true)
+  })
+
   test("choice moves, wraps and answers by Enter or digit", () => {
     const w = widget("@ui choice Что?\n- один | первый\n- два\n- три\n@end")
     const result = keys(w, "up", "enter")

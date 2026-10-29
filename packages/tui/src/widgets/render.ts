@@ -166,22 +166,37 @@ function bodyOf(widget: Widget, width: number, active: boolean): { body: Line[];
   switch (widget.kind) {
     case "choice":
       return {
-        body: widget.items.map((item, n) => [
-          mark(n === widget.cursor),
-          span(`${n + 1} `, "dim"),
-          span(clip(item.label, width - 6), n === widget.cursor ? "accentBold" : "normal", n),
-          ...(item.hint ? [span(`  ${clip(item.hint, Math.max(4, width - cells(item.label) - 8))}`, "dim")] : []),
-        ]),
+        body: widget.items.flatMap((item, n) => {
+          const number = `${n + 1} `
+          const indent = 2 + cells(number)
+          const room = Math.max(4, width - indent)
+          const tone = n === widget.cursor ? "accentBold" : "normal"
+          const labels = wrap(item.label, room)
+          const hint = item.hint ?? ""
+          // A short hint stays beside its label. A long one goes under it, wrapped, because the person
+          // chooses by reading it and a clipped description cannot be read anywhere else.
+          const beside = labels.length === 1 && hint !== "" && cells(item.label) + 2 + cells(hint) <= room
+          const lines = labels.map((text, line): Line => [
+            ...(line === 0 ? [mark(n === widget.cursor), span(number, "dim")] : [span(" ".repeat(indent))]),
+            span(text, tone, n),
+            ...(line === 0 && beside ? [span(`  ${hint}`, "dim", n)] : []),
+          ])
+          if (hint !== "" && !beside) lines.push(...wrap(hint, room).map((text): Line => [span(" ".repeat(indent)), span(text, "dim", n)]))
+          return lines
+        }),
         footer: tr("↑↓ choose · 1-9 at once · Enter"),
       }
     case "multi":
       return {
         body: [
-          ...widget.items.map((item, n) => [
-            mark(n === widget.cursor),
-            span(widget.on[n] ? "[x] " : "[ ] ", widget.on[n] ? "accent" : "dim", n),
-            span(clip(item.label, width - 8), "normal", n),
-          ]),
+          ...widget.items.flatMap((item, n) =>
+            wrap(item.label, Math.max(4, width - 6)).map((text, line): Line => [
+              ...(line === 0
+                ? [mark(n === widget.cursor), span(widget.on[n] ? "[x] " : "[ ] ", widget.on[n] ? "accent" : "dim", n)]
+                : [span(" ".repeat(6))]),
+              span(text, "normal", n),
+            ]),
+          ),
           [span(tr("[ Done ]"), "accent", -1)],
         ],
         footer: tr("↑↓ · Space marks · a all · Enter"),
