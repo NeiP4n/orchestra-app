@@ -8,6 +8,9 @@ import { Spinner } from "./spinner"
 
 type Progress = { label: string; numerator?: number; denominator?: number }
 
+// The migration itself reported an error, as opposed to a failed attempt to ask how it is going.
+class MigrationFailed extends Error {}
+
 export function MigrationOverlay() {
   const client = useClient()
   const toast = useToast()
@@ -17,12 +20,28 @@ export function MigrationOverlay() {
 
   onMount(async () => {
     await Bun.sleep(1_000)
+    // A status poll can fail for reasons that have nothing to do with the migration: the server was just
+    // restarted or replaced, and the connection resets once. Only a run of failures, or the migration's
+    // own error, is worth a message.
+    const MAX_POLL_FAILURES = 5
     void (async () => {
+      let failures = 0
       while (true) {
-        const status = await client.api.migration.v1.status({ signal: abort.signal })
-        setProgress(status.status === "running" ? status.progress : undefined)
-        if (status.status === "completed") return
-        if (status.status === "error") throw new Error(status.error)
+        const status = await client.api.migration.v1.status({ signal: abort.signal }).then(
+          (value) => {
+            failures = 0
+            return value
+          },
+          (error: unknown) => {
+            if (abort.signal.aborted || ++failures >= MAX_POLL_FAILURES) throw error
+            return undefined
+          },
+        )
+        if (status) {
+          setProgress(status.status === "running" ? status.progress : undefined)
+          if (status.status === "completed") return
+          if (status.status === "error") throw new MigrationFailed(status.error)
+        }
         await Bun.sleep(1_000)
       }
     })().catch((error) => {
@@ -30,7 +49,7 @@ export function MigrationOverlay() {
       setProgress(undefined)
       toast.show({
         variant: "error",
-        title: "Data migration failed",
+        title: error instanceof MigrationFailed ? "Data migration failed" : "Could not read the data migration status",
         message: errorMessage(error),
         duration: 10_000,
       })
