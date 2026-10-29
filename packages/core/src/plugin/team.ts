@@ -243,6 +243,12 @@ export const Plugin = define({
               const project = knownProjects.find((item) => item.id === id)
               return project ? [{ id: project.id, name: project.name }] : []
             })
+            // The Society leads no project: the Orchestrator's rules for sessions, the DoD and workspaces
+            // (about 5k tokens on every request) only pull it away from its own job.
+            if (modeOf(registeredGroup) === "council") {
+              const base = event.system.findIndex((part) => part.text.startsWith("You are the Orchestrator"))
+              if (base >= 0) event.system.splice(base, 1)
+            }
             event.system.push({ type: "text", text: GROUP_SUPERVISOR_GUIDANCE(registeredGroup.name, members, modeOf(registeredGroup)) })
             return
           }

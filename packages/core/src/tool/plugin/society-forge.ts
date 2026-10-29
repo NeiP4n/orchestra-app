@@ -82,12 +82,12 @@ export const Plugin = {
                   ...(templates.length
                     ? templates.map(
                         (template) =>
-                          `- ${template.id}: ${template.name} — ${template.description}; roles: ${template.members.map((member) => roles.find((role) => role.agent === member.agent)?.id ?? member.agent).join(", ") || "none"}`,
+                          `- ${template.id}: ${short(template.description)}; roles: ${template.members.map((member) => roles.find((role) => role.agent === member.agent)?.id ?? member.agent).join(", ") || "none"}`,
                       )
                     : ["(none)"]),
                   "",
                   "Individual AI roles (use the exact ID as role):",
-                  ...roles.map((role) => `- ${role.id}: ${role.name} — ${role.description}`),
+                  ...roles.map((role) => `- ${role.id}: ${short(role.description)}`),
                 ].join("\n")
               }
 
@@ -263,5 +263,8 @@ function briefText(input: { society: string; project: string; goal: string; brie
     "</society-brief>",
   ].join("\n")
 }
+
+// The lists go into the model's history and are re-sent on every later request.
+const short = (text: string) => (text.length > 90 ? `${text.slice(0, 89)}…` : text)
 
 const escape = (text: string) => text.replaceAll("<", "&lt;").replaceAll(">", "&gt;")
