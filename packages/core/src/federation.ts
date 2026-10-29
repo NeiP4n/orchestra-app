@@ -708,6 +708,20 @@ const layer: Layer.Layer<
       return directory
     })
 
+    // Societies made before projects trusted each other were linked as strangers, and their
+    // Orchestrators would keep asking the operator about tickets from their own Society. Linking again
+    // upgrades the grants and wakes nobody; a pair that is already trusted is left alone.
+    const trustSocieties = Effect.gen(function* () {
+      for (const group of yield* groups()) {
+        if (Federation.modeOf(group) !== "council" || (yield* kv.get(SOCIETY + group.name)) === undefined) continue
+        for (const [a, b] of Federation.pairs(group.projects)) {
+          if (Federation.isTrusted(yield* policy(a), b) && Federation.isTrusted(yield* policy(b), a)) continue
+          yield* link(a, b, { notify: false, trusted: true }).pipe(Effect.ignore)
+        }
+      }
+    })
+    yield* trustSocieties.pipe(Effect.forkScoped)
+
     return Service.of({
       policy,
       link,
