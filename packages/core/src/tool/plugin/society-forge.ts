@@ -3,7 +3,7 @@ export * as SocietyForgeTool from "./society-forge.js"
 import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { Federation as FederationSchema } from "@orchestra/schema/federation"
-import { Effect, Option, Schema } from "effect"
+import { Effect, Option, Result, Schema } from "effect"
 import { Federation } from "../../federation.js"
 import { Orchestra } from "../../orchestra.js"
 import { Session } from "../../session.js"
@@ -32,7 +32,7 @@ export const Input = Schema.Struct({
     description: "For generate: the operator's goal in their own words. Every project's Orchestrator receives it.",
   }),
   projects: Schema.optionalKey(Schema.Array(Project)).annotate({
-    description: `For generate: the projects the goal needs, 1 to ${MAX_PROJECTS}.`,
+    description: `For generate: ADDITIONAL projects the goal needs beyond the base four, 0 to ${MAX_PROJECTS}. Never list the base projects (${Federation.baseProjects.map((item) => item.name).join(", ")}): they are always created.`,
   }),
 })
 export const Output = Schema.Struct({ output: Schema.String })
@@ -40,7 +40,8 @@ export const Output = Schema.Struct({ output: Schema.String })
 const guide = [
   "society_forge builds the Society's projects from the operator's goal. It exists only in a Society chat.",
   "Call action=list first for exact team-template and role IDs. When no template fits a project, create the missing role or team with team_forge first, then use its ID.",
-  `Then call action=generate once with goal and every project the goal needs (at most ${MAX_PROJECTS}). Decide the split yourself: do not ask the operator for names, folders or teams the goal already implies.`,
+  `generate always creates the base projects: ${Federation.baseProjects.map((item) => item.name).join(", ")}. They are separate projects, not sessions of one project, and you do not list them.`,
+  `Then call action=generate once with the goal and only the ADDITIONAL projects it needs (0 to ${MAX_PROJECTS}): research, design, marketing, security and so on. Decide yourself: do not ask the operator for names, folders or teams the goal already implies.`,
   "Each project gets its own folder inside the Society's folder, a main Orchestrator, the sessions of its team or role, links to every other project of the Society, and its brief delivered right away.",
 ].join("\n")
 
@@ -58,7 +59,7 @@ export const Plugin = {
           options: { codemode: false, guide, triggers: ["societ|общест", "goal|цель"] },
           description: [
             "Generate the projects of a Society from a goal. Available only in a Society (council group) chat. Actions: list, generate.",
-            "generate creates each project in the Society's folder with its Orchestrator and team, links the projects to each other and delivers every brief.",
+            "generate always creates the base projects (planner, architects, coders, testers) plus the additional ones you pass, each in the Society's folder with its Orchestrator and team, links them to each other and delivers every brief.",
           ].join("\n"),
           input: Input,
           output: Output,
@@ -94,8 +95,13 @@ export const Plugin = {
               const goal = input.goal?.trim()
               if (!goal) return yield* new ToolFailure({ message: "generate needs goal: the operator's goal." })
               const wanted = input.projects ?? []
-              if (wanted.length === 0 || wanted.length > MAX_PROJECTS)
-                return yield* new ToolFailure({ message: `generate needs between 1 and ${MAX_PROJECTS} projects.` })
+              if (wanted.length > MAX_PROJECTS)
+                return yield* new ToolFailure({ message: `generate takes at most ${MAX_PROJECTS} additional projects.` })
+              const existing = yield* orchestra.projects()
+              const known = new Map(
+                group.projects.flatMap((id) => existing.filter((item) => item.id === id).map((item) => [id, item] as const)),
+              )
+              const baseNames = new Set(Federation.baseProjects.map((item) => item.name.toLowerCase()))
 
               // Everything is checked before anything is created, so a typo in the last project's team
               // does not leave the first ones behind.
@@ -109,6 +115,10 @@ export const Plugin = {
                   return yield* new ToolFailure({ message: `${label}: both name and brief are required.` })
                 if (names.has(projectName.toLowerCase()))
                   return yield* new ToolFailure({ message: `${label}: "${projectName}" appears twice.` })
+                if (baseNames.has(projectName.toLowerCase()))
+                  return yield* new ToolFailure({
+                    message: `${label}: "${projectName}" is a base project and is created automatically. Pass only additional projects.`,
+                  })
                 names.add(projectName.toLowerCase())
                 const team = item.team?.trim()
                 const roleID = item.role?.trim()
@@ -124,10 +134,46 @@ export const Plugin = {
 
               const workerPolicy = yield* Orchestra.workerPolicy
               const created: Orchestra.Project[] = []
-              const failure = yield* Effect.forEach(
-                specs,
-                (spec) =>
-                  Effect.gen(function* () {
+              const briefs = new Map<Orchestra.ProjectID, string>()
+              const workerOf = (project: Orchestra.Project, role: Orchestra.Role) => {
+                const choice = Orchestra.workerModels(workerPolicy, role)
+                return orchestra.createMember({
+                  project,
+                  agent: role.agent,
+                  title: role.name,
+                  category: role.category,
+                  model: choice.model,
+                  models: choice.models,
+                })
+              }
+              // Typed failures become a value so what was created can still be registered; interruption
+              // and defects are not caught and travel on.
+              const outcome = yield* Effect.result(
+                Effect.gen(function* () {
+                  // The base four are separate projects. The planner is the Society's first project, which
+                  // already exists; the others are created unless an earlier generate already made them.
+                  const first = group.projects[0] ? known.get(group.projects[0]) : undefined
+                  for (const base of Federation.baseProjects) {
+                    const role = roles.find((candidate) => candidate.id === base.role)
+                    const present =
+                      base.key === "planner"
+                        ? first
+                        : [...known.values()].find((item) => item.name.toLowerCase() === base.name.toLowerCase())
+                    if (present) {
+                      // An existing planner project gets its role session once, on the first generate.
+                      if (base.key === "planner" && role && (yield* orchestra.sessions(present.id)).length === 0) {
+                        yield* workerOf(present, role)
+                        briefs.set(present.id, base.brief)
+                      }
+                      continue
+                    }
+                    const directory = yield* federation.societyFolder({ society: group.name, project: base.name })
+                    const project = yield* orchestra.create({ name: base.name, directory })
+                    created.push(project)
+                    briefs.set(project.id, base.brief)
+                    if (role) yield* workerOf(project, role)
+                  }
+                  for (const spec of specs) {
                     const directory = yield* federation.societyFolder({ society: group.name, project: spec.name })
                     const project = yield* orchestra.create({
                       name: spec.name,
@@ -141,41 +187,29 @@ export const Plugin = {
                         : {}),
                     })
                     created.push(project)
-                    if (!spec.role) return
-                    const choice = Orchestra.workerModels(workerPolicy, spec.role)
-                    yield* orchestra.createMember({
-                      project,
-                      agent: spec.role.agent,
-                      title: spec.role.name,
-                      category: spec.role.category,
-                      model: choice.model,
-                      models: choice.models,
-                    })
-                  }),
-                { concurrency: 1, discard: true },
-              ).pipe(
-                Effect.as(undefined),
-                Effect.catchCause((cause) => Effect.succeed(cause)),
+                    briefs.set(project.id, spec.brief)
+                    if (spec.role) yield* workerOf(project, spec.role)
+                  }
+                }),
               )
+              const failure = Result.isFailure(outcome) ? outcome.failure : undefined
 
               // Whatever was created joins the Society even if a later project failed, so no project is
               // left behind without a group.
-              if (created.length > 0) yield* register(group, created, goal, specs)
+              if (created.length > 0 || briefs.size > 0) yield* register(group, created, goal, briefs)
               if (failure)
                 return yield* new ToolFailure({
                   message: [
-                    `Stopped after ${created.length} of ${specs.length} projects: ${String(failure)}`,
-                    created.length ? `Already created and registered: ${created.map((project) => project.name).join(", ")}.` : "Nothing was created.",
+                    `Stopped after ${created.length} projects: ${String(failure)}`,
+                    created.length
+                      ? `Already created and registered: ${created.map((project) => project.name).join(", ")}.`
+                      : "Nothing was created.",
                   ].join("\n"),
                 })
 
               return [
                 `Generated ${created.length} project(s) in ${Federation.societyDirectory(group.name)}:`,
-                ...created.map((project, index) => {
-                  const spec = specs[index]
-                  const setup = spec?.team ? `team ${spec.team}` : spec?.role ? `role ${spec.role.id}` : "Orchestrator only"
-                  return `- ${project.name} (${project.id}) · ${project.directory} · ${setup}`
-                }),
+                ...created.map((project) => `- ${project.name} (${project.id}) · ${project.directory}`),
                 "Each project is linked to the others and has its brief. Use consult_all to hear from them.",
               ].join("\n")
             }).pipe(
@@ -216,7 +250,7 @@ export const Plugin = {
       group: Federation.Group,
       created: readonly Orchestra.Project[],
       goal: string,
-      specs: ReadonlyArray<{ readonly name: string; readonly brief: string }>,
+      briefs: ReadonlyMap<Orchestra.ProjectID, string>,
     ) {
       return Effect.gen(function* () {
         const members = [...group.projects, ...created.map((project) => project.id)]
@@ -231,18 +265,19 @@ export const Plugin = {
         )
         const known = yield* orchestra.projects()
         const names = new Map(known.map((project) => [project.id, project.name]))
+        // Every project that has a brief gets it, the existing planner included.
         yield* Effect.forEach(
-          created,
-          (project, index) =>
+          [...briefs],
+          ([id, brief]) =>
             federation.brief({
-              project: project.id,
-              id: `society-brief-${project.id}`,
+              project: id,
+              id: `society-brief-${id}`,
               text: briefText({
                 society: group.name,
-                project: project.name,
+                project: names.get(id) ?? id,
                 goal,
-                brief: specs[index]?.brief ?? "",
-                peers: members.filter((id) => id !== project.id).map((id) => names.get(id) ?? id),
+                brief,
+                peers: members.filter((other) => other !== id).map((other) => names.get(other) ?? other),
               }),
             }),
           { discard: true },

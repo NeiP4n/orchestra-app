@@ -29,3 +29,16 @@ describe("Society name from a goal", () => {
     expect(Federation.societyNameFromGoal("!!! ???")).toBe("")
   })
 })
+
+describe("Society base projects", () => {
+  test("are four separate projects, each on a built-in role", async () => {
+    const { Orchestra } = await import("@orchestra/schema/orchestra")
+    expect(Federation.baseProjects.map((item) => item.name)).toEqual(["Планировщик", "Архитекторы", "Кодеры", "Тестировщики"])
+    for (const base of Federation.baseProjects) {
+      expect(Orchestra.roles.some((role: { id: string }) => role.id === base.role)).toBe(true)
+      expect(base.brief.length).toBeGreaterThan(80)
+    }
+    // Four distinct folders: nothing may share a project directory.
+    expect(new Set(Federation.baseProjects.map((item) => Federation.societyProjectDirectory("x", item.name))).size).toBe(4)
+  })
+})

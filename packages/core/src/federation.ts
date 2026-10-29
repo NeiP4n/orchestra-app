@@ -230,6 +230,40 @@ export function societyProjectDirectory(society: string, project: string, root?:
   return path.join(societyDirectory(society, root), slugOf(project) || `project-${fnv1a(project.trim())}`)
 }
 
+// The minimum every Society has, as four separate projects (not sessions of one): each has its own
+// Orchestrator, folder and brief. The Society adds whatever else the goal needs. The planner is the
+// Society's first project, created together with it; the others are created on the first generate.
+export const baseProjects = [
+  {
+    key: "planner",
+    name: "Планировщик",
+    role: "strategic-planner",
+    brief:
+      "You are the Society's planner. Turn the goal into a plan: milestones, concrete tasks with an owner each (the Architects, Coders and Testers projects and the Society's other projects) and acceptance checks for every task. Keep the plan in your DoD board and keep it true as the work moves. Hand tasks to the other projects through federation, track their answers, remove blockers and re-plan when something changes. You write no product code yourself.",
+  },
+  {
+    key: "architects",
+    name: "Архитекторы",
+    role: "architect",
+    brief:
+      "You are the Society's architects. Design the solution for the goal: structure, interfaces and contracts, data and error handling, and the technology choices with reasons. Write the designs into your project folder where the others can read them, and answer the Coders' and Testers' questions about them. Check that what gets built still follows the design. You write no product code yourself.",
+  },
+  {
+    key: "coders",
+    name: "Кодеры",
+    role: "developer",
+    brief:
+      "You are the Society's coders. Build what the plan and the architects' contracts describe, in small steps that you run and check yourself. Take tasks from the planner, ask the architects when a contract is unclear and tell the testers what is ready to verify. Add more developers to your team when the work can be split.",
+  },
+  {
+    key: "testers",
+    name: "Тестировщики",
+    role: "tester",
+    brief:
+      "You are the Society's testers. Verify the work independently of the people who built it: derive tests from the plan's acceptance checks, run them against what the Coders deliver, and report every defect with how to reproduce it. A task is done only when your checks pass. You do not fix product code yourself.",
+  },
+] as const
+
 // A Society created from a goal is named after it: the first words, cut at a word boundary.
 export function societyNameFromGoal(goal: string, limit = 40) {
   const words = goal
@@ -272,7 +306,7 @@ const bootstrapText = (input: {
       ? "You are not a project session: you belong to the group. You do not edit files or run commands yourself; you build the Society through society_forge and the team registry through team_forge."
       : "You are not a project session: you belong to the group, not to a project's team, and you create no sessions.",
     input.mode === "council"
-      ? "When the operator gives a goal, build the Society for it without asking for details the goal already implies: call society_forge action=list for the team templates and roles, create any missing role or team with team_forge, then call society_forge action=generate once with every project the goal needs (a short name, a concrete brief, and the best team or role for it). Each generated project gets its own folder inside the Society's folder, its Orchestrator and team sessions, links to its peers, and starts on its brief immediately. Afterwards, for a question that needs the projects' perspectives, call federation action=consult_all with a short subject and the full task, wait for all proposals, then give one synthesis."
+      ? "When the operator gives a goal, build the Society for it without asking for details the goal already implies. society_forge action=generate always creates the base projects (planner, architects, coders, testers) as separate projects; you add only the additional projects the goal needs: call society_forge action=list for the team templates and roles, create any missing role or team with team_forge, then call generate once with the goal and those extra projects (a short name, a concrete brief, and the best team or role for each). Each project gets its own folder inside the Society's folder, its Orchestrator and team sessions, links to its peers, and starts on its brief immediately. Afterwards, for a question that needs the projects' perspectives, call federation action=consult_all with a short subject and the full task, wait for all proposals, then give one synthesis."
       : "Use federation action=group_status only when the operator asks for the group's status or a coordination recommendation. Summarize the sanitized status here; do not send tickets, messages, or work to any project.",
     ...(input.mode === "council"
       ? [
@@ -912,10 +946,13 @@ const layer: Layer.Layer<
         // A goal is not unique, so a taken name gets a number instead of an error.
         let name = base
         for (let attempt = 2; taken.has(name); attempt++) name = `${base} ${attempt}`
-        const directory = yield* societyFolder(name, "coordinator")
-        const project = yield* orchestra.create({ name: `${name} · Coordinator`, directory }).pipe(
+        // The first project of a Society is its planner: the group needs a leader from the start, and
+        // an empty coordinator would only cost model turns.
+        const planner = baseProjects[0]
+        const directory = yield* societyFolder(name, planner.name)
+        const project = yield* orchestra.create({ name: planner.name, directory }).pipe(
           Effect.mapError(
-            (error) => new FederationError({ message: `Could not create the coordinator project: ${String(error)}` }),
+            (error) => new FederationError({ message: `Could not create the planner project: ${String(error)}` }),
           ),
         )
         yield* setGroup({ name, projects: [project.id], mode: "council" })
