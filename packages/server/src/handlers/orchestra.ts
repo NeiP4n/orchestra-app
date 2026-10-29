@@ -92,7 +92,7 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
         }),
       )
       .handle("orchestra.society.create", (ctx) =>
-        federation.createSociety({ name: ctx.payload.name }).pipe(
+        federation.createSociety({ name: ctx.payload.name, goal: ctx.payload.goal }).pipe(
           Effect.map((society) => ({
             name: society.name,
             sessionID: society.sessionID,

@@ -12432,7 +12432,10 @@ export type OrchestraGroupChatInput = {
 
 export type OrchestraGroupChatOutput = { sessionID: string; title: string; directory: string }
 
-export type OrchestraSocietyCreateInput = { readonly name: { readonly name: string }["name"] }
+export type OrchestraSocietyCreateInput = {
+  readonly name?: { readonly name?: string | undefined; readonly goal?: string | undefined }["name"]
+  readonly goal?: { readonly name?: string | undefined; readonly goal?: string | undefined }["goal"]
+}
 
 export type OrchestraSocietyCreateOutput = { name: string; sessionID: string; directory: string }
 

@@ -16,3 +16,16 @@ describe("Society folders", () => {
     expect(path.dirname(Federation.societyDirectory("***", root))).toBe(root)
   })
 })
+
+describe("Society name from a goal", () => {
+  test("takes the first words and stops at a word boundary", () => {
+    expect(Federation.societyNameFromGoal("Сделайте мобильную игру про рыбалку: геймдизайн, пиксель-арт, звук и маркетинг")).toBe(
+      "Сделайте мобильную игру про рыбалку",
+    )
+    expect(Federation.societyNameFromGoal("a".repeat(80))).toHaveLength(40)
+  })
+
+  test("a goal without letters gives no name", () => {
+    expect(Federation.societyNameFromGoal("!!! ???")).toBe("")
+  })
+})

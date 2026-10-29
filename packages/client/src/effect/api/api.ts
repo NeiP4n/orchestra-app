@@ -4725,14 +4725,14 @@ export type OrchestraGroupChatOperation<E = never> = (
   input: OrchestraGroupChatInput,
 ) => Effect.Effect<OrchestraGroupChatOutput, E>
 
-export type OrchestraSocietyCreateInput = { readonly name: string }
+export type OrchestraSocietyCreateInput = { readonly name?: string | undefined; readonly goal?: string | undefined }
 export type OrchestraSocietyCreateOutput = {
   readonly name: string
   readonly sessionID: Session.ID
   readonly directory: string
 }
 export type OrchestraSocietyCreateOperation<E = never> = (
-  input: OrchestraSocietyCreateInput,
+  input?: OrchestraSocietyCreateInput,
 ) => Effect.Effect<OrchestraSocietyCreateOutput, E>
 
 export type OrchestraLinkSetInput = {

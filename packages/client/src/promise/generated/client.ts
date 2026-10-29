@@ -3570,12 +3570,12 @@ export function make(options: ClientOptions) {
           ),
       },
       society: {
-        create: (input: OrchestraSocietyCreateInput, requestOptions?: RequestOptions) =>
+        create: (input?: OrchestraSocietyCreateInput, requestOptions?: RequestOptions) =>
           request<OrchestraSocietyCreateOutput>(
             {
               method: "POST",
               path: `/api/orchestra/society`,
-              body: { name: input["name"] },
+              body: { name: input?.["name"], goal: input?.["goal"] },
               successStatus: 200,
               declaredStatuses: [400, 401],
               empty: false,

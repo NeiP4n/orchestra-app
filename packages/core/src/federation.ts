@@ -110,7 +110,9 @@ export interface Interface {
   // Creates a whole Society in one step: a folder for it, a coordinator project inside it, the
   // council group and its chat. Everything else is generated later, from the operator's goal.
   readonly createSociety: (input: {
-    name: string
+    // Without a name the Society is named after its goal.
+    name?: string
+    goal?: string
   }) => Effect.Effect<
     { name: string; sessionID: SessionID; directory: string; project: Orchestra.Project },
     FederationError
@@ -226,6 +228,20 @@ export function societyDirectory(
 
 export function societyProjectDirectory(society: string, project: string, root?: string) {
   return path.join(societyDirectory(society, root), slugOf(project) || `project-${fnv1a(project.trim())}`)
+}
+
+// A Society created from a goal is named after it: the first words, cut at a word boundary.
+export function societyNameFromGoal(goal: string, limit = 40) {
+  const words = goal
+    .replace(/[^\p{L}\p{N}\s._-]+/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+  let name = ""
+  for (const word of words) {
+    if (name && name.length + 1 + word.length > limit) break
+    name = name ? `${name} ${word}` : word.slice(0, limit)
+  }
+  return name
 }
 
 // Best effort: a project works without git, but a repository lets snapshots and sandboxes work later.
@@ -887,10 +903,15 @@ const layer: Layer.Layer<
           )
       }),
       createSociety: Effect.fn("Federation.createSociety")(function* (input) {
-        const name = input.name.trim()
-        if (!name) return yield* new FederationError({ message: "A Society needs a name" })
-        if ((yield* groups()).some((item) => item.name === name))
-          return yield* new FederationError({ message: `A group named "${name}" already exists. Choose another name.` })
+        const given = input.name?.trim()
+        const taken = new Set((yield* groups()).map((item) => item.name))
+        if (given && taken.has(given))
+          return yield* new FederationError({ message: `A group named "${given}" already exists. Choose another name.` })
+        const base = given || societyNameFromGoal(input.goal ?? "")
+        if (!base) return yield* new FederationError({ message: "A Society needs a name or a goal" })
+        // A goal is not unique, so a taken name gets a number instead of an error.
+        let name = base
+        for (let attempt = 2; taken.has(name); attempt++) name = `${base} ${attempt}`
         const directory = yield* societyFolder(name, "coordinator")
         const project = yield* orchestra.create({ name: `${name} · Coordinator`, directory }).pipe(
           Effect.mapError(

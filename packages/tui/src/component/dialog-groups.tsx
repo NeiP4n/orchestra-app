@@ -2,6 +2,8 @@ import { tr } from "../util/i18n"
 import { TextAttributes, type InputRenderable } from "@opentui/core"
 import { createResource, createSignal, For, Show } from "solid-js"
 import { useConfig } from "../config"
+import { useData } from "../context/data"
+import { useLocal } from "../context/local"
 import { useClient } from "../context/client"
 import { useProjects } from "../context/projects"
 import { useRoute } from "../context/route"
@@ -15,6 +17,8 @@ import { Header } from "./dialog-rooms"
 
 export function DialogGroups(props: { onClose?: () => void }) {
   const client = useClient()
+  const data = useData()
+  const local = useLocal()
   const config = useConfig().data
   const projects = useProjects()
   const route = useRoute()
@@ -68,16 +72,26 @@ export function DialogGroups(props: { onClose?: () => void }) {
     }
   }
 
-  // One step: the server makes the Society's folder, its coordinator project, the group and the chat.
-  // The goal the operator types there is what generates the projects.
+  // One step from the goal alone: the server names the Society after it and makes its folder,
+  // coordinator, group and chat, and the goal goes to that chat as the first message. The Society
+  // then decides what projects the goal needs and creates them.
   const found = async () => {
-    const name = societyField?.value.trim()
-    if (!name) return toast.show({ message: t("Enter a Society name."), variant: "error" })
+    const goal = societyField?.value.trim()
+    if (!goal) return toast.show({ message: t("Describe the goal."), variant: "error" })
     if (founding()) return
     setFounding(true)
     try {
-      const society = await client.api.orchestra.society.create({ name })
+      const society = await client.api.orchestra.society.create({ goal })
       if (societyField) societyField.value = ""
+      // The chat is a session of its own: it must run on the model the operator has chosen, not on
+      // whatever the server would pick for a session without one.
+      const selection = local.model.selection()
+      if (selection)
+        await client.api.session.switchModel({
+          sessionID: society.sessionID,
+          model: { providerID: selection.providerID, id: selection.modelID, variant: selection.variant },
+        })
+      void data.session.prompt({ sessionID: society.sessionID, text: goal })
       route.navigate({ type: "session", sessionID: society.sessionID })
       props.onClose?.()
     } catch (error) {
@@ -145,10 +159,10 @@ export function DialogGroups(props: { onClose?: () => void }) {
       <Header title={t("Project groups")} onClose={props.onClose} />
       <text fg={theme.text.base} attributes={TextAttributes.UNDERLINE}>{t("New Society")}</text>
       <box flexDirection="row" gap={1}>
-        <input width={24} cursorStyle={config.cursor} ref={(element: InputRenderable) => { societyField = element }} onMouseDown={() => societyField?.focus()} placeholder={t("Society name")} placeholderColor={theme.text.muted} textColor={theme.text.formfield.base} focusedTextColor={theme.text.formfield.focused} cursorColor={theme.text.formfield.focused} backgroundColor={theme.background.formfield.base} onSubmit={() => void found()} />
-        <Button variant="primary" disabled={founding()} onClick={() => void found()}>{founding() ? t("Creating...") : t("Create Society")}</Button>
+        <input width={56} cursorStyle={config.cursor} ref={(element: InputRenderable) => { societyField = element }} onMouseDown={() => societyField?.focus()} placeholder={t("What should the Society do?")} placeholderColor={theme.text.muted} textColor={theme.text.formfield.base} focusedTextColor={theme.text.formfield.focused} cursorColor={theme.text.formfield.focused} backgroundColor={theme.background.formfield.base} onSubmit={() => void found()} />
+        <Button variant="primary" disabled={founding()} onClick={() => void found()}>{founding() ? t("Creating...") : t("Start Society")}</Button>
       </box>
-      <text fg={theme.text.muted} wrapMode="word">{t("Name it and open its chat: state your goal there and the Society creates the projects and their sessions by itself, all in one folder.")}</text>
+      <text fg={theme.text.muted} wrapMode="word">{t("Write the goal once. The Society creates itself, decides which projects it needs, creates them with their teams, links them through federation and starts them, all in one folder.")}</text>
       <Show when={groups.error}>
         {(error) => <text fg={theme.text.feedback.error.base} wrapMode="word">{errorMessage(error())}</text>}
       </Show>
