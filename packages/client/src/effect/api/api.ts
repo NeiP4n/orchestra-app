@@ -4725,7 +4725,11 @@ export type OrchestraGroupChatOperation<E = never> = (
   input: OrchestraGroupChatInput,
 ) => Effect.Effect<OrchestraGroupChatOutput, E>
 
-export type OrchestraSocietyCreateInput = { readonly name?: string | undefined; readonly goal?: string | undefined }
+export type OrchestraSocietyCreateInput = {
+  readonly name?: string | undefined
+  readonly goal?: string | undefined
+  readonly directory?: string | undefined
+}
 export type OrchestraSocietyCreateOutput = {
   readonly name: string
   readonly sessionID: Session.ID

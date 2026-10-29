@@ -72,7 +72,7 @@ export const Plugin = {
               if (input.action === "list") {
                 const projects = yield* orchestra.projects()
                 return [
-                  `Society "${group.name}" · folder ${Federation.societyDirectory(group.name)}`,
+                  `Society "${group.name}" · folder ${yield* federation.societyRoot(group.name)}`,
                   "Projects:",
                   ...group.projects.map((id) => {
                     const project = projects.find((item) => item.id === id)
@@ -208,7 +208,7 @@ export const Plugin = {
                 })
 
               return [
-                `Generated ${created.length} project(s) in ${Federation.societyDirectory(group.name)}:`,
+                `Generated ${created.length} project(s) in ${yield* federation.societyRoot(group.name)}:`,
                 ...created.map((project) => `- ${project.name} (${project.id}) · ${project.directory}`),
                 "Each project is linked to the others and has its brief. Use consult_all to hear from them.",
               ].join("\n")

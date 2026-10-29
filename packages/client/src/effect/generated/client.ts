@@ -2564,9 +2564,9 @@ const EndpointOrchestraGroupChat = (raw: RawClient["server.orchestra"]) => (inpu
 
 const EndpointOrchestraSocietyCreate = (raw: RawClient["server.orchestra"]) => (input?: OrchestraSocietyCreateInput) =>
   preserveEffect<OrchestraSocietyCreateOutput>()(
-    raw["orchestra.society.create"]({ payload: { name: input?.["name"], goal: input?.["goal"] } }).pipe(
-      Effect.mapError(mapClientError),
-    ),
+    raw["orchestra.society.create"]({
+      payload: { name: input?.["name"], goal: input?.["goal"], directory: input?.["directory"] },
+    }).pipe(Effect.mapError(mapClientError)),
   )
 
 const EndpointOrchestraLinkSet = (raw: RawClient["server.orchestra"]) => (input: OrchestraLinkSetInput) =>

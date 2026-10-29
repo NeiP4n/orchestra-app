@@ -27,6 +27,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
   const t = useGroupT()
   let nameField: InputRenderable | undefined
   let societyField: InputRenderable | undefined
+  let folderField: InputRenderable | undefined
   const [founding, setFounding] = createSignal(false)
   const [groups, { refetch }] = createResource(() => client.api.orchestra.group.list())
   const [picked, setPicked] = createSignal<readonly string[]>([])
@@ -81,7 +82,8 @@ export function DialogGroups(props: { onClose?: () => void }) {
     if (founding()) return
     setFounding(true)
     try {
-      const society = await client.api.orchestra.society.create({ goal })
+      const directory = folderField?.value.trim()
+      const society = await client.api.orchestra.society.create({ goal, ...(directory ? { directory } : {}) })
       if (societyField) societyField.value = ""
       // The chat is a session of its own: it must run on the model the operator has chosen, not on
       // whatever the server would pick for a session without one.
@@ -163,6 +165,8 @@ export function DialogGroups(props: { onClose?: () => void }) {
         <input width={56} focused cursorStyle={config.cursor} ref={(element: InputRenderable) => { societyField = element }} onMouseDown={() => societyField?.focus()} placeholder={t("e.g. release a mobile fishing game")} placeholderColor={theme.text.muted} textColor={theme.text.formfield.base} focusedTextColor={theme.text.formfield.focused} cursorColor={theme.text.formfield.focused} backgroundColor={theme.background.formfield.base} focusedBackgroundColor={theme.background.formfield.focused} onSubmit={() => void found()} />
         <Button variant="primary" disabled={founding()} onClick={() => void found()}>{founding() ? t("Creating...") : t("Start Society")}</Button>
       </box>
+      <text fg={theme.text.base}>{t("Folder")}</text>
+      <input width={56} cursorStyle={config.cursor} ref={(element: InputRenderable) => { folderField = element }} onMouseDown={() => folderField?.focus()} placeholder={t("optional, default ~/orchestra-society")} placeholderColor={theme.text.muted} textColor={theme.text.formfield.base} focusedTextColor={theme.text.formfield.focused} cursorColor={theme.text.formfield.focused} backgroundColor={theme.background.formfield.base} focusedBackgroundColor={theme.background.formfield.focused} onSubmit={() => void found()} />
       <text fg={theme.text.muted} wrapMode="word">{t("Write the goal once. The Society creates itself, decides which projects it needs, creates them with their teams, links them through federation and starts them, all in one folder.")}</text>
       <Show when={groups.error}>
         {(error) => <text fg={theme.text.feedback.error.base} wrapMode="word">{errorMessage(error())}</text>}

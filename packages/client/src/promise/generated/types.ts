@@ -12433,8 +12433,21 @@ export type OrchestraGroupChatInput = {
 export type OrchestraGroupChatOutput = { sessionID: string; title: string; directory: string }
 
 export type OrchestraSocietyCreateInput = {
-  readonly name?: { readonly name?: string | undefined; readonly goal?: string | undefined }["name"]
-  readonly goal?: { readonly name?: string | undefined; readonly goal?: string | undefined }["goal"]
+  readonly name?: {
+    readonly name?: string | undefined
+    readonly goal?: string | undefined
+    readonly directory?: string | undefined
+  }["name"]
+  readonly goal?: {
+    readonly name?: string | undefined
+    readonly goal?: string | undefined
+    readonly directory?: string | undefined
+  }["goal"]
+  readonly directory?: {
+    readonly name?: string | undefined
+    readonly goal?: string | undefined
+    readonly directory?: string | undefined
+  }["directory"]
 }
 
 export type OrchestraSocietyCreateOutput = { name: string; sessionID: string; directory: string }

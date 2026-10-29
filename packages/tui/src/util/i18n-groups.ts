@@ -7,6 +7,8 @@ import { useT } from "./i18n"
 const ru: Record<string, string> = {
   "New Society": "Новое Общество",
   "Goal": "Цель",
+  "Folder": "Папка",
+  "optional, default ~/orchestra-society": "по желанию, по умолчанию ~/orchestra-society",
   "e.g. release a mobile fishing game": "например: выпустить мобильную игру про рыбалку",
   "Start Society": "Запустить общество",
   "Describe the goal.": "Опиши цель.",

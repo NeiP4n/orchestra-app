@@ -113,10 +113,14 @@ export interface Interface {
     // Without a name the Society is named after its goal.
     name?: string
     goal?: string
+    // The folder to create the Society's own folder in; ORCHESTRA_SOCIETY_ROOT or ~/orchestra-society without it.
+    directory?: string
   }) => Effect.Effect<
     { name: string; sessionID: SessionID; directory: string; project: Orchestra.Project },
     FederationError
   >
+  // The Society's folder: the one chosen when it was created, or the default.
+  readonly societyRoot: (name: string) => Effect.Effect<string>
   // A new project folder inside the Society's folder: created, and made a git repository when git exists.
   readonly societyFolder: (input: { society: string; project: string }) => Effect.Effect<string, FederationError>
   // Hands a member project's Orchestrator its assignment from the Society. It runs without waiting for a ticket.
@@ -146,6 +150,8 @@ const POLICY = "federation/policy/"
 const TICKET = "federation/ticket/"
 const LINK = "federation/link/"
 const GROUP = "federation/group/"
+// Where a Society lives, when its operator chose the folder; otherwise the default under the home directory.
+const SOCIETY = "federation/society/"
 const ACTIVITY = "federation/group/activity/"
 
 export const Activity = Schema.Struct({
@@ -457,6 +463,11 @@ const layer: Layer.Layer<
         .toSorted((x, y) => x.name.localeCompare(y.name))
     })
 
+    const societyRoot = Effect.fnUntraced(function* (name: string) {
+      const stored = yield* kv.get(SOCIETY + name)
+      return typeof stored === "string" ? stored : societyDirectory(name)
+    })
+
     const activityKey = (group: string, project: Orchestra.ProjectID, scope: Activity["scope"]) =>
       ACTIVITY + encodeURIComponent(group) + "/" + project + "/" + scope
 
@@ -585,7 +596,7 @@ const layer: Layer.Layer<
       // A Society keeps its chat in its own folder, beside its projects. The data directory is not a
       // safe home for it: it may itself be inside a repository (a checkout kept there), and then every
       // group chat would be refused.
-      const society = societyDirectory(name)
+      const society = yield* societyRoot(name)
       const leaderDirectory = known.find((item) => item.id === leader)?.directory
       const inSociety = leaderDirectory !== undefined && !path.relative(society, leaderDirectory).startsWith("..") && !path.isAbsolute(path.relative(society, leaderDirectory))
       const directory = inSociety ? society : groupChatDirectory(name, global.data)
@@ -681,7 +692,7 @@ const layer: Layer.Layer<
 
     // A folder that already belongs to a project is never shared: a taken name gets a numeric suffix.
     const societyFolder = Effect.fnUntraced(function* (society: string, project: string) {
-      const base = societyProjectDirectory(society, project)
+      const base = path.join(yield* societyRoot(society), slugOf(project) || `project-${fnv1a(project.trim())}`)
       const taken = new Set((yield* orchestra.projects()).map((item) => item.directory))
       let directory = base
       for (let attempt = 2; taken.has(directory); attempt++) directory = `${base}-${attempt}`
@@ -889,6 +900,7 @@ const layer: Layer.Layer<
       removeGroup: Effect.fn("Federation.removeGroup")(function* (name) {
         const normalized = name.trim()
         yield* kv.remove(GROUP + normalized)
+        yield* kv.remove(SOCIETY + normalized)
         const prefix = ACTIVITY + encodeURIComponent(normalized) + "/"
         const removeActivity = (after?: string): Effect.Effect<void> =>
           Effect.gen(function* () {
@@ -952,6 +964,13 @@ const layer: Layer.Layer<
         // A goal is not unique, so a taken name gets a number instead of an error.
         let name = base
         for (let attempt = 2; taken.has(name); attempt++) name = `${base} ${attempt}`
+        // The folder is the operator's choice, so it must be a full path they can find again.
+        const chosen = input.directory?.trim()
+        const parent = chosen ? chosen.replace(/^~(?=$|[\\/])/, os.homedir()) : undefined
+        if (parent && !path.isAbsolute(parent))
+          return yield* new FederationError({ message: `"${chosen}" is not a full path. Give the folder as C:\\... or ~/...` })
+        const home = societyDirectory(name, parent)
+        yield* kv.set(SOCIETY + name, home)
         // The first project of a Society is its planner: the group needs a leader from the start, and
         // an empty coordinator would only cost model turns.
         const planner = baseProjects[0]
@@ -968,13 +987,15 @@ const layer: Layer.Layer<
           Effect.tapError(() =>
             Effect.gen(function* () {
               yield* kv.remove(GROUP + name)
+              yield* kv.remove(SOCIETY + name)
               yield* orchestra.remove(project.id).pipe(Effect.ignore)
             }),
           ),
         )
-        return { name, sessionID: chat.sessionID, directory: societyDirectory(name), project }
+        return { name, sessionID: chat.sessionID, directory: home, project }
       }),
       societyFolder: ({ society, project }) => societyFolder(society, project),
+      societyRoot: (name) => societyRoot(name),
       brief: Effect.fn("Federation.brief")(function* ({ project, id, text }) {
         yield* tell(project, id, text)
         const main = yield* orchestra.main(project).pipe(Effect.option)

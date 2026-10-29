@@ -326,7 +326,11 @@ export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
   )
   .add(
     HttpApiEndpoint.post("orchestra.society.create", "/api/orchestra/society", {
-      payload: Schema.Struct({ name: Schema.String.pipe(Schema.optional), goal: Schema.String.pipe(Schema.optional) }),
+      payload: Schema.Struct({
+        name: Schema.String.pipe(Schema.optional),
+        goal: Schema.String.pipe(Schema.optional),
+        directory: Schema.String.pipe(Schema.optional),
+      }),
       success: Schema.Struct({
         name: Schema.String,
         sessionID: Session.ID,
