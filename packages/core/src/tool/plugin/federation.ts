@@ -532,7 +532,14 @@ export const Plugin = {
                 case "send": {
                   if (!input.to || !input.kind || !input.subject)
                     return yield* new ToolFailure({ message: "send needs to, kind and subject (and body)." })
-                  if (input.kind !== "question") yield* ask(`send:${input.kind}:${input.to}`)
+                  // A project of the same Society may be sent anything without asking: the operator already
+                  // let those projects work together.
+                  const trusted = FederationSchema.autoAnswers(
+                    yield* federation.policy(Orchestra.ProjectID.make(input.to)),
+                    owner.id,
+                    input.kind,
+                  )
+                  if (input.kind !== "question" && !trusted) yield* ask(`send:${input.kind}:${input.to}`)
                   const ticket = yield* federation
                     .send({
                       from: owner.id,

@@ -38,6 +38,10 @@ export const Grant = Schema.Struct({
   peer: ProjectID,
   allow: Schema.Array(Kind),
   autoAnswer: Schema.Boolean.pipe(Schema.optional),
+  // The peer belongs to the same operator, as the projects of one Society do: their tickets of any
+  // allowed kind are accepted without asking a person, because the operator already chose to
+  // let them work together.
+  trusted: Schema.Boolean.pipe(Schema.optional),
 }).annotate({ identifier: "Federation.Grant" })
 export interface Grant extends Schema.Schema.Type<typeof Grant> {}
 
@@ -122,6 +126,21 @@ export function linkPolicy(policy: Policy, peer: ProjectID): Policy {
   }
 }
 
+// Linking for projects of one Society: the same visibility as linkPolicy, but every kind of ticket
+// is allowed and accepted on arrival, so the projects can work with each other without a person
+// answering for each of them.
+export function trustedLinkPolicy(policy: Policy, peer: ProjectID): Policy {
+  const linked = linkPolicy(policy, peer)
+  return {
+    ...linked,
+    grants: linked.grants.map((grant) =>
+      grant.peer === peer
+        ? { ...grant, allow: ["question", "request", "contract"] as const, autoAnswer: true, trusted: true }
+        : grant,
+    ),
+  }
+}
+
 // Takes back everything linking gave and everything granted since: the peer is no longer known to this project.
 export function unlinkPolicy(policy: Policy, peer: ProjectID): Policy {
   return { ...policy, grants: policy.grants.filter((item) => item.peer !== peer) }
@@ -164,11 +183,13 @@ export function allows(policy: Policy, peer: ProjectID, kind: Kind) {
   return grantOf(policy, peer)?.allow.includes(kind) ?? false
 }
 
-// Whether the receiver may answer or act without asking its human first. Only questions
-// qualify, and only when the receiver granted it: a request or contract changes the
-// receiving project, so a person there always decides.
+// Whether the receiver may answer or act without asking its human first. Questions qualify when
+// the receiver granted it, and any kind qualifies from a trusted peer (a project of the same
+// Society); otherwise a request or contract changes the receiving project and a person decides.
 export function autoAnswers(policy: Policy, peer: ProjectID, kind: Kind) {
-  return kind === "question" && grantOf(policy, peer)?.autoAnswer === true && allows(policy, peer, kind)
+  const grant = grantOf(policy, peer)
+  if (!grant || !allows(policy, peer, kind)) return false
+  return grant.trusted === true || (kind === "question" && grant.autoAnswer === true)
 }
 
 export type Refusal = "no-grant" | "kind-not-allowed" | "too-many-open" | "loop" | "chain-too-long" | "self"

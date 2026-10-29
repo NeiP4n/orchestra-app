@@ -260,7 +260,7 @@ export const Plugin = {
           created.flatMap((project) =>
             members.slice(0, members.indexOf(project.id)).map((other) => [project.id, other] as const),
           ),
-          ([a, b]) => federation.link(a, b, { notify: false }),
+          ([a, b]) => federation.link(a, b, { notify: false, trusted: true }),
           { discard: true },
         )
         const known = yield* orchestra.projects()
