@@ -1306,6 +1306,18 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                         let lastFailure = null;
                         let lastError = null;
                         const abortSignal = init?.signal ?? undefined;
+                        // The host shows nothing while this request waits (the plugin's toasts do not reach the TUI), so
+                        // a request must not sit through one rate limit after another in silence: 20 minutes of empty
+                        // "waiting for an answer". Past this budget it fails with the reason, which the person sees.
+                        const WAIT_BUDGET_MS = 90_000;
+                        let waitedMs = 0;
+                        const wait = async (ms, signal) => {
+                            waitedMs += ms;
+                            if (waitedMs > WAIT_BUDGET_MS) {
+                                throw new Error(`Antigravity has no free account right now (rate limited or out of quota); the next one frees in about ${formatWaitTime(ms)}. Try again later, add an account, or switch to another model.`);
+                            }
+                            await sleep(ms, signal);
+                        };
                         // Helper to check if request was aborted
                         const checkAborted = () => {
                             if (abortSignal?.aborted) {
@@ -1385,7 +1397,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                         await showToast(`All ${accountCount} account(s) over ${threshold}% quota. Waiting ${formatWaitTime(softQuotaWaitMs)}...`, "warning");
                                         softQuotaToastShown = true;
                                     }
-                                    await sleep(softQuotaWaitMs, abortSignal);
+                                    await wait(softQuotaWaitMs, abortSignal);
                                     continue;
                                 }
                                 const strictWait = !allowQuotaFallback;
@@ -1417,7 +1429,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                     rateLimitToastShown = true;
                                 }
                                 // Wait for the rate-limit cooldown to expire, then retry
-                                await sleep(waitMs, abortSignal);
+                                await wait(waitMs, abortSignal);
                                 continue;
                             }
                             // Account is available - reset the toast flag
@@ -1711,7 +1723,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                         if (config.request_jitter_max_ms > 0) {
                                             const jitterMs = Math.floor(Math.random() * config.request_jitter_max_ms);
                                             if (jitterMs > 0) {
-                                                await sleep(jitterMs, abortSignal);
+                                                await wait(jitterMs, abortSignal);
                                             }
                                         }
                                         // Consume token for hybrid strategy
@@ -1750,7 +1762,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                 const waitSec = Math.round(waitMs / 1000);
                                                 pushDebug(`Server busy (${rateLimitReason}) on account ${account.index}, exponential backoff ${waitMs}ms (attempt ${capacityRetryCount + 1})`);
                                                 await showToast(`⏳ Server busy (${response.status}). Retrying in ${waitSec}s...`, "warning");
-                                                await sleep(waitMs, abortSignal);
+                                                await wait(waitMs, abortSignal);
                                                 // CRITICAL FIX: Decrement i so that the loop 'continue' retries the SAME endpoint index
                                                 // (i++ in the loop will bring it back to the current index)
                                                 // But limit retries to prevent infinite loops (Greptile feedback)
@@ -1794,7 +1806,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                             // Progressive retry for standard 429s: 1st 429 → 1s then switch (if enabled) or retry same
                                             if (attempt === 1 && rateLimitReason !== "QUOTA_EXHAUSTED") {
                                                 await showToast(`Rate limited. Quick retry in 1s...`, "warning");
-                                                await sleep(FIRST_RETRY_DELAY_MS, abortSignal);
+                                                await wait(FIRST_RETRY_DELAY_MS, abortSignal);
                                                 // CacheFirst mode: wait for same account if within threshold (preserves prompt cache)
                                                 if (config.scheduling_mode === 'cache_first') {
                                                     const maxCacheFirstWaitMs = config.max_cache_first_wait_seconds * 1000;
@@ -1803,7 +1815,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                         pushDebug(`cache_first: waiting ${effectiveDelayMs}ms for same account to recover`);
                                                         await showToast(`⏳ Waiting ${Math.ceil(effectiveDelayMs / 1000)}s for same account (prompt cache preserved)...`, "info");
                                                         accountManager.markRateLimitedWithReason(account, family, headerStyle, model, rateLimitReason, serverRetryMs);
-                                                        await sleep(effectiveDelayMs, abortSignal);
+                                                        await wait(effectiveDelayMs, abortSignal);
                                                         // Retry same endpoint after wait
                                                         i -= 1;
                                                         continue;
@@ -1829,7 +1841,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                     if (hasOtherAccountWithAntigravity(account)) {
                                                         pushDebug(`antigravity exhausted on account ${account.index}, but available on others. Switching account.`);
                                                         await showToast(`Rate limited again. Switching account in 5s...`, "warning");
-                                                        await sleep(SWITCH_ACCOUNT_DELAY_MS, abortSignal);
+                                                        await wait(SWITCH_ACCOUNT_DELAY_MS, abortSignal);
                                                         shouldSwitchAccount = true;
                                                         break;
                                                     }
@@ -1875,14 +1887,14 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                     ? ` (quota resets ${bodyInfo.quotaResetTime})`
                                                     : ``;
                                                 await showToast(`Rate limited again. Switching account in 5s...${quotaMsg}`, "warning");
-                                                await sleep(SWITCH_ACCOUNT_DELAY_MS, abortSignal);
+                                                await wait(SWITCH_ACCOUNT_DELAY_MS, abortSignal);
                                             }
                                             else {
                                                 // Single account: exponential backoff (1s, 2s, 4s, 8s... max 60s)
                                                 const expBackoffMs = Math.min(FIRST_RETRY_DELAY_MS * Math.pow(2, attempt - 1), 60000);
                                                 const expBackoffFormatted = expBackoffMs >= 1000 ? `${Math.round(expBackoffMs / 1000)}s` : `${expBackoffMs}ms`;
                                                 await showToast(`Rate limited. Retrying in ${expBackoffFormatted} (attempt ${attempt})...`, "warning");
-                                                await sleep(expBackoffMs, abortSignal);
+                                                await wait(expBackoffMs, abortSignal);
                                             }
                                             lastFailure = createFailureContext(response);
                                             shouldSwitchAccount = true;
@@ -1980,7 +1992,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                 pushDebug(`empty-response: attempt ${currentAttempts}/${maxAttempts}`);
                                                 if (currentAttempts < maxAttempts) {
                                                     await showToast(`Empty response received. Retrying (${currentAttempts}/${maxAttempts})...`, "warning");
-                                                    await sleep(retryDelayMs, abortSignal);
+                                                    await wait(retryDelayMs, abortSignal);
                                                     continue; // Retry the endpoint loop
                                                 }
                                                 // Clean up and throw after max attempts

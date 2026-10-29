@@ -96,3 +96,12 @@ describe("rate", () => {
     expect(rate.perSecond(1_000)).toBe(0)
   })
 })
+
+test("a view opened while the model is running counts from the newest message, not from now", async () => {
+  const { inheritedStart } = await import("../src/effects/flow")
+  expect(inheritedStart(false, 1_000, 5_000)).toBeUndefined()
+  expect(inheritedStart(true, 1_000, 5_000)).toBe(1_000)
+  expect(inheritedStart(true, undefined, 5_000)).toBe(5_000)
+  // A message from the future (clock skew) must not give a negative wait.
+  expect(inheritedStart(true, 9_000, 5_000)).toBe(5_000)
+})

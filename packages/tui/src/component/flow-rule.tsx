@@ -3,7 +3,7 @@ import { useTerminalDimensions } from "@opentui/solid"
 import { useConfig } from "../config"
 import { useData } from "../context/data"
 import { useTheme } from "../context/theme"
-import { createRate, flowLabel, flowMode, flowPattern, flowSpeed, type FlowMode, type FlowSample } from "../effects/flow"
+import { createRate, flowLabel, flowMode, flowPattern, flowSpeed, inheritedStart, type FlowMode, type FlowSample } from "../effects/flow"
 
 // One row above the prompt that says whether the model is alive: flashes on send, breathes while
 // waiting, flows as fast as text arrives, blinks amber when nothing has come for too long, and
@@ -25,7 +25,10 @@ export function FlowRule(props: { sessionID: string }) {
   const sent = createMemo(() => messages().filter((message) => message.type === "user").length)
 
   const [now, setNow] = createSignal(Date.now())
-  const [startedAt, setStartedAt] = createSignal<number>()
+  // Opened mid-run: count from the newest message instead of from now (see inheritedStart).
+  const [startedAt, setStartedAt] = createSignal<number | undefined>(
+    inheritedStart(busy(), messages().at(-1)?.time.created, Date.now()),
+  )
   const [sentAt, setSentAt] = createSignal<number>()
   const [lastGrowthAt, setLastGrowthAt] = createSignal<number>()
   const [finishedAt, setFinishedAt] = createSignal<number>()

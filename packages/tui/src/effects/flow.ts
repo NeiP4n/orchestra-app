@@ -40,6 +40,14 @@ export function flowMode(sample: FlowSample): FlowMode {
   return "idle"
 }
 
+// A view opened while the model is already running never saw the run begin, so counting from "now"
+// would show 0 s forever and never reach the stalled look. The newest message is the best evidence of
+// when the run last made progress.
+export function inheritedStart(busy: boolean, newestMessageAt: number | undefined, now: number) {
+  if (!busy) return undefined
+  return newestMessageAt !== undefined && newestMessageAt <= now ? newestMessageAt : now
+}
+
 const seconds = (ms: number) => Math.max(0, Math.round(ms / 1000))
 
 export function flowLabel(mode: FlowMode, sample: FlowSample, rate: number) {
