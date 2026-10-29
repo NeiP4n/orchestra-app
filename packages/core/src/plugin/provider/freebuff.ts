@@ -236,6 +236,8 @@ export const FreebuffPlugin = define({
           return {
             mode: "auto" as const,
             url: code.loginUrl,
+            // The attempt lives as long as the code does instead of core's default ten minutes.
+            expiresAt,
             instructions: "Complete authorization in your browser. This window will close automatically.",
             callback: poll(),
           }
@@ -311,12 +313,6 @@ export const FreebuffPlugin = define({
         http.execute,
       )
       const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""))
-      // TEMP-DEBUG
-      yield* Effect.logInfo("freebuff admission", {
-        status: response.status,
-        hasFetch: Boolean(fetchId),
-        body: text.slice(0, 300),
-      })
       if (response.status >= 200 && response.status < 300) {
         const admitted = Schema.decodeUnknownOption(Schema.fromJsonString(AdmissionResponse))(text).pipe(
           Option.getOrUndefined,
@@ -800,7 +796,7 @@ type LoginStatus =
   | { readonly kind: "pending" }
   | { readonly kind: "rejected"; readonly message: string }
 
-// 401 means the browser has not finished the sign-in yet. Any other 4xx means the
+// 401 means the browser has not finished the sign-in yet. Any other 4xx (bar throttling) means the
 // code itself is gone (expired or already used): the sign-in page shows its own
 // "Invalid auth code" error in that case, so waiting cannot help.
 function loginStatus(http: HttpClient.HttpClient, agent: string, url: string): Effect.Effect<LoginStatus> {
@@ -818,7 +814,8 @@ function loginStatus(http: HttpClient.HttpClient, agent: string, url: string): E
         }
         // Drain every response body so the connection is released while polling.
         const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""))
-        if (response.status >= 400 && response.status < 500 && response.status !== 401)
+        // Throttling and request timeouts say nothing about the code, so polling continues.
+        if (response.status >= 400 && response.status < 500 && ![401, 408, 425, 429].includes(response.status))
           return { kind: "rejected", message: errorMessage(text) ?? `HTTP ${response.status}` } as const
         return { kind: "pending" } as const
       }),

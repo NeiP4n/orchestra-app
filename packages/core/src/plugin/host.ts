@@ -156,6 +156,15 @@ export const make = Effect.fn("PluginHost.make")(function* (
     },
     aisdk: {
       hook: (name, callback, options) => {
+        if (name === "options") {
+          return aisdk.hook.options((event) => {
+            if (options?.providerID !== undefined && options.providerID !== event.model.providerID) return Effect.void
+            // oxlint-disable-next-line no-restricted-globals -- The generic hook callback remains a union after narrowing by hook name.
+            return Reflect.apply(callback, undefined, [
+              { model: mutable(event.model), package: event.package, options: event.options },
+            ])
+          })
+        }
         if (name === "sdk") {
           return aisdk.hook.sdk((event) => {
             if (options?.providerID !== undefined && options.providerID !== event.model.providerID) return Effect.void

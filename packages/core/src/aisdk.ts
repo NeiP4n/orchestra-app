@@ -54,6 +54,12 @@ export interface SDKEvent {
   sdk?: SDK
 }
 
+export interface OptionsEvent {
+  readonly model: RuntimeInfo
+  readonly package: string
+  readonly options: Record<string, any>
+}
+
 export interface LanguageEvent {
   readonly model: RuntimeInfo
   readonly sdk: SDK
@@ -118,15 +124,17 @@ function wrapSSE(res: Response, ms: number, ctl: AbortController) {
   })
 }
 
-function prepareOptions(model: RuntimeInfo, pkg: string) {
-  const projected = mapBodyToProviderOptions(model, pkg)
-  const options: Record<string, any> = {
+function baseOptions(model: RuntimeInfo, pkg: string): Record<string, any> {
+  return {
     name: model.canonical ?? model.providerID,
     ...(model.settings ?? {}),
     headers: model.headers,
-    body: projected.body,
+    body: mapBodyToProviderOptions(model, pkg).body,
   }
+}
 
+// Wraps the (possibly plugin-adjusted) base options with the timeout and body-overlay fetch.
+function finishOptions(model: RuntimeInfo, options: Record<string, any>) {
   const customFetch = options.fetch
   const timeouts = Provider.timeouts(options)
   delete options.headerTimeout
@@ -236,6 +244,9 @@ function initError(providerID: Provider.ID) {
 
 export interface Interface {
   readonly hook: {
+    readonly options: (
+      callback: (event: OptionsEvent) => Effect.Effect<void> | void,
+    ) => Effect.Effect<State.Registration, never, Scope.Scope>
     readonly sdk: (
       callback: (event: SDKEvent) => Effect.Effect<void> | void,
     ) => Effect.Effect<State.Registration, never, Scope.Scope>
@@ -243,6 +254,7 @@ export interface Interface {
       callback: (event: LanguageEvent) => Effect.Effect<void> | void,
     ) => Effect.Effect<State.Registration, never, Scope.Scope>
   }
+  readonly runOptions: (event: OptionsEvent) => Effect.Effect<OptionsEvent>
   readonly runSDK: (event: SDKEvent) => Effect.Effect<SDKEvent>
   readonly runLanguage: (event: LanguageEvent) => Effect.Effect<LanguageEvent>
   readonly language: (model: RuntimeInfo) => Effect.Effect<LanguageModelV3, InitError>
@@ -254,6 +266,7 @@ export class Service extends Context.Service<Service, Interface>()("@orchestra/A
 export const locationLayer = Layer.effect(
   Service,
   Effect.gen(function* () {
+    let optionsHooks: ((event: OptionsEvent) => Effect.Effect<void> | void)[] = []
     let sdkHooks: ((event: SDKEvent) => Effect.Effect<void> | void)[] = []
     let languageHooks: ((event: LanguageEvent) => Effect.Effect<void> | void)[] = []
     const languages = new Map<string, LanguageModelV3>()
@@ -300,6 +313,10 @@ export const locationLayer = Layer.effect(
 
     const service = Service.of({
       hook: {
+        options: register(
+          () => optionsHooks,
+          (next) => (optionsHooks = next),
+        ),
         sdk: register(
           () => sdkHooks,
           (next) => (sdkHooks = next),
@@ -309,6 +326,7 @@ export const locationLayer = Layer.effect(
           (next) => (languageHooks = next),
         ),
       },
+      runOptions: (event) => run(optionsHooks, event),
       runSDK: (event) => run(sdkHooks, event),
       runLanguage: (event) => run(languageHooks, event),
       language: Effect.fn("AISDK.language")(function* (model) {
@@ -332,7 +350,6 @@ export const locationLayer = Layer.effect(
           })
 
         const packageName = Provider.packageName(model.package)
-        const options = prepareOptions(model, packageName)
         const sdkKey = cacheKey({
           providerID: model.providerID,
           canonical: model.canonical,
@@ -341,6 +358,10 @@ export const locationLayer = Layer.effect(
           headers: model.headers,
           body: model.body,
         })
+        // Options hooks only matter when the SDK is built; a cached SDK already carries their result.
+        const adjusted = baseOptions(model, packageName)
+        if (!sdks.has(sdkKey)) yield* service.runOptions({ model, package: packageName, options: adjusted }).pipe(initError(model.providerID))
+        const options = finishOptions(model, adjusted)
         const sdk =
           sdks.get(sdkKey) ??
           (yield* service.runSDK({ model, package: packageName, options }).pipe(initError(model.providerID))).sdk

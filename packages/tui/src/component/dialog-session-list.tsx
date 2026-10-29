@@ -5,6 +5,8 @@ import { Project } from "@orchestra/schema/project"
 import { TextAttributes, type RGBA } from "@opentui/core"
 import { useDialog } from "../ui/dialog"
 import { DialogSelect } from "../ui/dialog-select"
+import { DialogConfirm } from "../ui/dialog-confirm"
+import { removeEverySession } from "../util/clear-sessions"
 import { useRoute } from "../context/route"
 import { useData } from "../context/data"
 import { Keymap } from "../context/keymap"
@@ -191,6 +193,35 @@ export function DialogSessionList() {
     return [...pinned.map((sessionID) => option(sessionMap.get(sessionID)!, "Pinned")), ...remaining]
   })
 
+  // Deletes exactly what the list shows, so a search or the project scope narrows what goes.
+  const deleteListed = () => {
+    const listed = sessions().filter((session) => !session.parentID)
+    if (!listed.length) {
+      toast.show({ message: "No sessions to delete", variant: "info" })
+      return
+    }
+    const query = filter().trim()
+    dialog.replace(() => (
+      <DialogConfirm
+        title="Delete listed sessions"
+        message={`Delete ${listed.length} ${listed.length === 1 ? "session" : "sessions"}${query ? ` matching "${query}"` : ""}? This cannot be undone.`}
+        label={{ confirm: "Delete all", cancel: "Cancel" }}
+        onConfirm={() => {
+          if (listed.some((session) => session.id === currentSessionID())) route.navigate({ type: "home" })
+          void removeEverySession(client.api.session, listed).then(({ removed, failures }) =>
+            toast.show({
+              message: failures.length
+                ? `Deleted ${removed} of ${listed.length} sessions; ${failures.length} could not be deleted.`
+                : `Deleted ${removed} ${removed === 1 ? "session" : "sessions"}.`,
+              variant: failures.length ? "warning" : "success",
+              duration: 6000,
+            }),
+          )
+        }}
+      />
+    ))
+  }
+
   onMount(() => dialog.setSize("large"))
 
   return (
@@ -214,6 +245,12 @@ export function DialogSessionList() {
         setSearch(query)
       }}
       bindings={[
+        {
+          bind: "ctrl+shift+d",
+          title: "Delete all listed sessions",
+          group: "Dialog",
+          run: deleteListed,
+        },
         {
           bind: "ctrl+a",
           title: allProjects() ? "Show current directory sessions" : "Show all project sessions",
@@ -262,6 +299,7 @@ export function DialogSessionList() {
             void client.api.session
               .remove({ sessionID: option.value })
               .then(() => {
+                setToDelete(undefined)
                 setSearchResults((result) =>
                   result
                     ? { ...result, sessions: result.sessions.filter((session) => session.id !== option.value) }
@@ -287,6 +325,7 @@ export function DialogSessionList() {
       ]}
       footerHints={[
         ...quickSwitchFooterHints(),
+        { title: "delete listed", label: "ctrl+shift+d", side: "right" },
         { title: allProjects() ? "current directory" : "all projects", label: "ctrl+a", side: "right" },
       ]}
     />

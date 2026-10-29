@@ -2,9 +2,10 @@ export * as PluginModule from "./module.js"
 
 import type { Plugin } from "@orchestra/plugin/effect/plugin"
 import { Host } from "@orchestra/plugin/host"
+import { OpenCode } from "@orchestra/plugin/opencode"
 import { createPluginSources } from "@orchestra/plugin/source"
 import { Npm } from "@orchestra/util/npm"
-import { Deferred, Effect, FiberSet, PubSub, Schema, Stream } from "effect"
+import { Deferred, Effect, FiberSet, Option, PubSub, Schema, Stream } from "effect"
 import path from "path"
 import { stat } from "node:fs/promises"
 import { fileURLToPath, pathToFileURL } from "url"
@@ -122,16 +123,20 @@ const load = Effect.fn("PluginModule.load")(function* (
       ? sources.read(entrypoint)
       : Host.load(entrypoint).then((module) => ({ module, version: installed?.revision })),
   )
-  const value = (yield* Schema.decodeUnknownEffect(Module)(loaded.module).pipe(
-    Effect.mapError(
-      (cause) =>
-        new LoadError({
-          message: "Plugin must export a default definition with an id and an effect or setup function.",
-          cause,
-        }),
-    ),
-  )).default
-  const plugin = "effect" in value ? value : PluginPromise.fromPromise(value)
+  // Orchestra plugins export a definition; anything else is tried as an OpenCode plugin so that
+  // plugins written for OpenCode load unmodified.
+  const native = Schema.decodeUnknownOption(Module)(loaded.module)
+  const opencode = Option.isSome(native) ? undefined : OpenCode.detect(loaded.module as Record<string, unknown>)
+  if (Option.isNone(native) && !opencode)
+    return yield* new LoadError({
+      message:
+        "Plugin must export a default definition with an id and an effect or setup function, or an OpenCode plugin function.",
+    })
+  const plugin = Option.isSome(native)
+    ? "effect" in native.value.default
+      ? native.value.default
+      : PluginPromise.fromPromise(native.value.default)
+    : PluginPromise.fromPromise(OpenCode.fromOpenCode({ id: pluginName(operation.target), plugins: opencode ?? [] }))
   return {
     id: plugin.id,
     features: {
@@ -149,3 +154,11 @@ const load = Effect.fn("PluginModule.load")(function* (
     effect: (host) => plugin.effect({ ...host, options: operation.options }),
   } satisfies Generation
 })
+
+// OpenCode plugins carry no id, so the install target names them: the package without its version, or the
+// directory or file name of a local plugin.
+function pluginName(target: string) {
+  if (path.isAbsolute(target)) return path.basename(target).replace(/\.[cm]?[jt]s$/, "")
+  const version = target.lastIndexOf("@")
+  return version <= 0 ? target : target.slice(0, version)
+}

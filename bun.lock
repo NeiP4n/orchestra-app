@@ -635,6 +635,7 @@
         "@orchestra/schema": "workspace:*",
         "@orchestra/util": "workspace:*",
         "effect": "catalog:",
+        "zod": "catalog:",
       },
       "devDependencies": {
         "@opentui/core": "catalog:",

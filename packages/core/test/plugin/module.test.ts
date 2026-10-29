@@ -138,3 +138,25 @@ for (const target of ["policy-fixture@1.2.3", "@scope/policy-fixture@1.2.3"]) {
     }),
   )
 }
+
+it.live("loads an OpenCode plugin that exports a bare function", () =>
+  Effect.gen(function* () {
+    const directory = yield* tmpdirScoped()
+    const entry = path.join(directory.path, "plugin/index.ts")
+    yield* Effect.promise(() => Bun.write(entry, "export default async () => ({})"))
+    const modules = yield* PluginModule.make()
+    const loaded = yield* modules.load({ type: "add" as const, target: path.dirname(entry), options: {} })
+    expect(loaded).toMatchObject({ id: "plugin" })
+  }),
+)
+
+it.live("rejects a module that is neither an Orchestra nor an OpenCode plugin", () =>
+  Effect.gen(function* () {
+    const directory = yield* tmpdirScoped()
+    const entry = path.join(directory.path, "plugin/index.ts")
+    yield* Effect.promise(() => Bun.write(entry, "export default { name: 'not a plugin' }"))
+    const modules = yield* PluginModule.make()
+    const exit = yield* modules.load({ type: "add" as const, target: path.dirname(entry), options: {} }).pipe(Effect.exit)
+    expect(Exit.isFailure(exit)).toBe(true)
+  }),
+)

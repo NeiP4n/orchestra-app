@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { createServer, type RequestListener, type Server } from "node:http";
 import { readFileSync, existsSync } from "node:fs";
 
 import { ANTIGRAVITY_REDIRECT_URI } from "../constants";
@@ -297,7 +297,7 @@ const successResponse = `<!DOCTYPE html>
   }, timeoutMs);
   timeoutHandle.unref?.();
 
-  const server = createServer((request, response) => {
+  const handler: RequestListener = (request, response) => {
     if (!request.url) {
       response.writeHead(400, { "Content-Type": "text/plain" });
       response.end("Invalid request");
@@ -305,7 +305,9 @@ const successResponse = `<!DOCTYPE html>
     }
 
     const url = new URL(request.url, origin);
-    if (url.pathname !== callbackPath) {
+    // Only a real redirect settles the flow. A stray request to the same path (a browser
+    // prefetch, a port scanner, a reload) must not consume the one callback this listener gets.
+    if (url.pathname !== callbackPath || !(url.searchParams.has("code") || url.searchParams.has("error"))) {
       response.writeHead(404, { "Content-Type": "text/plain" });
       response.end("Not found");
       return;
@@ -318,8 +320,13 @@ const successResponse = `<!DOCTYPE html>
 
     setImmediate(() => {
       server.close();
+      loopback6?.close();
     });
-  });
+  };
+  const server = createServer(handler);
+  // `localhost` resolves to ::1 first on many systems, so the redirect would miss a listener bound
+  // only to 127.0.0.1. Best effort: IPv6 loopback may be absent.
+  let loopback6: Server | undefined;
 
   const bindAddress = getBindAddress();
   
@@ -347,10 +354,22 @@ const successResponse = `<!DOCTYPE html>
     rejectCallback(error instanceof Error ? error : new Error(String(error)));
   });
 
+  if (bindAddress === "127.0.0.1") {
+    const candidate = createServer(handler);
+    await new Promise<void>((resolve) => {
+      candidate.once("error", () => resolve());
+      candidate.listen(port, "::1", () => {
+        loopback6 = candidate;
+        resolve();
+      });
+    });
+  }
+
   return {
     waitForCallback: () => callbackPromise,
     close: () =>
       new Promise<void>((resolve, reject) => {
+        loopback6?.close();
         server.close((error) => {
           if (error && (error as NodeJS.ErrnoException).code !== "ERR_SERVER_NOT_RUNNING") {
             reject(error);

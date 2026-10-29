@@ -57,6 +57,7 @@ const npm = Layer.mock(Npm.Service, {
 })
 const aisdk = Layer.mock(AISDK.Service, {
   hook: {
+    options: () => Effect.die("unused"),
     sdk: () => Effect.die("unused"),
     language: () => Effect.die("unused"),
   },
@@ -187,7 +188,7 @@ testEffect(Layer.empty).effect(
             integrations,
             npm,
             Layer.mock(AISDK.Service, {
-              hook: { sdk: () => Effect.die("unused"), language: () => Effect.die("unused") },
+              hook: { options: () => Effect.die("unused"), sdk: () => Effect.die("unused"), language: () => Effect.die("unused") },
               model: () =>
                 Effect.succeed(LanguageModel.make({ id: "free-model", provider: "opencode", route: OpenAIChat.route })),
             }),

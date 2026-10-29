@@ -396,6 +396,7 @@ describe("ModelResolver", () => {
     })
     const aisdk = Layer.mock(AISDK.Service, {
       hook: {
+        options: () => Effect.die("unused"),
         sdk: () => Effect.die("unused"),
         language: () => Effect.die("unused"),
       },

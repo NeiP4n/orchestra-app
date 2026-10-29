@@ -3,6 +3,12 @@ import type { Model } from "@orchestra/schema/model"
 import type { ModelHooks } from "./registration.js"
 
 export interface AISDKHooks {
+  /** Runs before the SDK is built, so a hook can change the options it will be built with. */
+  options: {
+    readonly model: Model.Info
+    readonly package: string
+    readonly options: Record<string, any>
+  }
   sdk: {
     readonly model: Model.Info
     readonly package: string

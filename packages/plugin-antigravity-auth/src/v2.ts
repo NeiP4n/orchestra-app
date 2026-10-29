@@ -429,7 +429,7 @@ export const AntigravityV2Plugin = Plugin.define({
             label: "Google OAuth (Antigravity)",
             form: [
               { key: "projectId", type: "string", title: "Google Cloud project ID (optional)" },
-              { key: "manual", type: "boolean", title: "Paste an authorization code or callback URL", default: true },
+              { key: "manual", type: "boolean", title: "Paste the authorization code manually instead of using the local callback", default: false },
             ],
           },
           async authorize(answer) {
@@ -446,6 +446,8 @@ export const AntigravityV2Plugin = Plugin.define({
                   if (callback.origin !== redirect.origin || callback.pathname !== redirect.pathname || callback.searchParams.get("state") !== state) {
                     throw new Error("Invalid Antigravity OAuth callback URL or state")
                   }
+                  const denied = callback.searchParams.get("error")
+                  if (denied) throw new Error(`Google did not authorize the sign-in: ${callback.searchParams.get("error_description") ?? denied}`)
                   code = callback.searchParams.get("code") ?? ""
                 }
                 if (!code) throw new Error("Missing Antigravity authorization code")
@@ -465,10 +467,24 @@ export const AntigravityV2Plugin = Plugin.define({
                 invalidateLoader()
                 return oauthCredential({ ...result, type: "oauth" }, { ...(result.email ? { email: result.email } : {}), ...(account?.id ? { antigravityAccountId: account.id } : {}) })
               })
-              if (answer.manual !== false) {
-                return { url: auth.url, instructions: "Open this URL, then paste the authorization code or full callback URL.", mode: "code", callback: complete }
+              const manual = {
+                url: auth.url,
+                instructions: "Open this URL, then paste the authorization code or full callback URL.",
+                mode: "code" as const,
+                callback: complete,
               }
-              const listener = await startOAuthListener()
+              if (answer.manual === true) return manual
+              // An earlier attempt that was cancelled still holds the callback port until it times out.
+              await Promise.allSettled([...listeners].map((previous) => previous.close()))
+              listeners.clear()
+              let listener: OAuthListener
+              try {
+                listener = await startOAuthListener()
+              } catch (error) {
+                // The local callback is unavailable (port taken, no loopback); pasting still works.
+                log.warn("Antigravity callback listener unavailable", { error: String(error) })
+                return { ...manual, instructions: `The local callback could not start (${error instanceof Error ? error.message : String(error)}). ${manual.instructions}` }
+              }
               listeners.add(listener)
               const callback = listener.waitForCallback()
                 .then((url) => complete(url.toString()))

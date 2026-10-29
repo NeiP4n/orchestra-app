@@ -63,6 +63,16 @@ live in `source.bun.ts` and `source.node.ts`, the shared one — `source.package
 `plugin.ts`, `context.ts`, `solid.ts` — what a plugin can change in the
 interface; export `./tui`.
 
+**OpenCode connector** — `packages/plugin/src/opencode.ts` (`OpenCode`):
+runs unmodified OpenCode (v1) plugins, `(input) => Promise<Hooks>`. The
+core module loader falls back to it when a module is not an Orchestra
+definition. Mapped hooks: `auth` (OAuth methods become integration
+methods; `loader` runs from the `aisdk` `options` hook, so a custom `fetch`
+and `apiKey` reach the provider; `client.auth.set` is kept as an overlay in
+plugin storage), `tool` (zod args become a JSON schema) and `event`.
+Unsupported hooks (`chat.*`, `permission.ask`, ...) are ignored, and
+`input.client` only answers `app.log`, `tui.showToast` and `auth.set`.
+
 ## Entry Points
 
 1. `packages/plugin/package.json` → `"."` — `Plugin.define(...)`, how a
