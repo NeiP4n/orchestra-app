@@ -1516,7 +1516,7 @@ export function Session(props: {
         pendingDelivery: (inboxID) => pendingDeliveries().get(inboxID),
       }}
     >
-      <box flexDirection="row" flexGrow={1} minWidth={0} minHeight={0} width={props.width ?? "100%"}>
+      <box flexDirection="row" flexGrow={1} minWidth={0} minHeight={0}>
         <box
           flexGrow={1}
           minWidth={0}
