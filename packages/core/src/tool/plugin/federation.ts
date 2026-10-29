@@ -533,11 +533,10 @@ export const Plugin = {
                   if (!input.to || !input.kind || !input.subject)
                     return yield* new ToolFailure({ message: "send needs to, kind and subject (and body)." })
                   // A project of the same Society may be sent anything without asking: the operator already
-                  // let those projects work together.
-                  const trusted = FederationSchema.autoAnswers(
+                  // let those projects work together, and the receiving Orchestrator decides.
+                  const trusted = FederationSchema.isTrusted(
                     yield* federation.policy(Orchestra.ProjectID.make(input.to)),
                     owner.id,
-                    input.kind,
                   )
                   if (input.kind !== "question" && !trusted) yield* ask(`send:${input.kind}:${input.to}`)
                   const ticket = yield* federation
@@ -808,7 +807,11 @@ export const Plugin = {
                 case "decide": {
                   if (!input.id || input.accept === undefined)
                     return yield* new ToolFailure({ message: "decide needs id and accept." })
-                  if (input.accept) yield* ask(`accept:${input.id}`)
+                  // Accepting a ticket from a project of its own Society is the Orchestrator's call.
+                  const waiting = (yield* federation.inbox(owner.id)).find((item) => item.id === input.id)
+                  const fromSociety =
+                    waiting !== undefined && FederationSchema.isTrusted(yield* federation.policy(owner.id), waiting.from)
+                  if (input.accept && !fromSociety) yield* ask(`accept:${input.id}`)
                   const ticket = yield* federation
                     .decide({ id: FederationSchema.TicketID.make(input.id), project: owner.id, accept: input.accept })
                     .pipe(Effect.mapError(failed))

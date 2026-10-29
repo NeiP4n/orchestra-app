@@ -1025,7 +1025,8 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
     // Initialize structured logger for TUI integration
     initLogger(client);
     // Fetch latest Antigravity version from remote API (non-blocking, falls back to hardcoded)
-    await refreshAntigravityVersion();
+    // Never wait for it: the host fails a plugin whose setup runs past 30 seconds, and this call can take 10.
+    void refreshAntigravityVersion();
     const versionRefreshTimer = setInterval(() => { void refreshAntigravityVersion(); }, ANTIGRAVITY_VERSION_REFRESH_INTERVAL_MS);
     versionRefreshTimer.unref?.();
     // Initialize health tracker for hybrid strategy
@@ -1907,6 +1908,18 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                 }
                                                 pushDebug(`verification-required: disabled account ${account.index}`);
                                                 getHealthTracker().recordFailure(account.index);
+                                                lastFailure = createFailureContext(response);
+                                                shouldSwitchAccount = true;
+                                                break;
+                                            }
+                                            // A missing Gemini Code Assist license belongs to one account's project. Another
+                                            // account of the pool may hold one, so move on instead of failing the whole turn.
+                                            if (accountCount > 1 && /SUBSCRIPTION_REQUIRED|valid license of this product/i.test(errorBodyText)) {
+                                                const cooldownMs = 10 * 60 * 1000;
+                                                accountManager.markAccountCoolingDown(account, cooldownMs, "project-error");
+                                                accountManager.markRateLimited(account, cooldownMs, family, headerStyle, model);
+                                                getHealthTracker().recordFailure(account.index);
+                                                pushDebug(`license-required: cooling down account ${account.index}`);
                                                 lastFailure = createFailureContext(response);
                                                 shouldSwitchAccount = true;
                                                 break;
