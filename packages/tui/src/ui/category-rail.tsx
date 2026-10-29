@@ -1,7 +1,17 @@
 import { TextAttributes } from "@opentui/core"
-import { createSignal, For, type JSX } from "solid-js"
+import { useTerminalDimensions } from "@opentui/solid"
+import { createSignal, For, Show, type JSX } from "solid-js"
 import { useTheme } from "../context/theme"
 import { hoverBackground } from "./hover"
+
+// Below this terminal width the rail would squeeze the list beside it, so dialogs hide it and keep
+// the keyboard category switch.
+const RAIL_MIN_TERMINAL_WIDTH = 100
+
+export function useCategoryRailVisible() {
+  const dimensions = useTerminalDimensions()
+  return () => dimensions().width >= RAIL_MIN_TERMINAL_WIDTH
+}
 
 export type CategoryRailItem = {
   id: string
@@ -21,8 +31,10 @@ export function CategoryRail(props: {
   footer?: JSX.Element
 }) {
   const theme = useTheme().surface("dialog")
+  const visible = useCategoryRailVisible()
   const [hovered, setHovered] = createSignal<string>()
   return (
+    <Show when={visible()}>
     <box
       flexDirection="column"
       flexShrink={0}
@@ -77,5 +89,6 @@ export function CategoryRail(props: {
       </box>
       {props.footer}
     </box>
+    </Show>
   )
 }

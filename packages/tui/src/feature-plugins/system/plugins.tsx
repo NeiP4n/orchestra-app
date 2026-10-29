@@ -11,13 +11,17 @@ import { createEffect, createMemo, createResource, createSignal, onCleanup, onMo
 import { DialogErrorDetails } from "../../component/dialog-error-details"
 import { Spinner } from "../../component/spinner"
 import { usePlugin } from "../../plugin/context"
-import { CategoryRail } from "../../ui/category-rail"
+import { CategoryRail, useCategoryRailVisible } from "../../ui/category-rail"
 import { DialogSelect, type DialogSelectOption } from "../../ui/dialog-select"
 import { useDialog } from "../../ui/dialog"
+import { useConfig } from "../../config"
 import { errorMessage } from "../../util/error"
 
 const id = "opencode.plugins"
 const ALL = "All"
+
+type Declaration = string | { readonly package: string }
+const specOf = (item: Declaration) => (typeof item === "string" ? item : item.package)
 
 type Entry =
   | { readonly key: string; readonly runtime: "server"; readonly internal: boolean; readonly plugin: PluginInfo }
@@ -33,12 +37,14 @@ type Entry =
 
 export function PluginsDialog(props: { context: Plugin.Context; plugins: ReturnType<typeof usePlugin> }) {
   const dialog = useDialog()
+  const config = useConfig()
   const [locked, setLocked] = createSignal(false)
   const [checking, setChecking] = createSignal(false)
   const [focused, setFocused] = createSignal<string>()
   const [detail, setDetail] = createSignal<Entry>()
   const [showInternal, setShowInternal] = createSignal(false)
   const [category, setCategory] = createSignal<string>(ALL)
+  const railVisible = useCategoryRailVisible()
   const [pending, setPending] = createSignal<readonly string[]>([])
   const [server, { refetch, mutate }] = createResource(
     () => props.context.location ?? props.context.data.location.default(),
@@ -122,7 +128,7 @@ export function PluginsDialog(props: { context: Plugin.Context; plugins: ReturnT
       (entry): DialogSelectOption<string> => ({
         title: label(entry, props.context),
         value: entry.key,
-        category: category() === ALL ? entryCategory(entry, props.context) : undefined,
+        category: category() === ALL || !railVisible() ? entryCategory(entry, props.context) : undefined,
         searchText: entry.runtime === "tui" ? entry.target : source(entry.plugin, props.context),
         footer: updating(entry) ? "updating" : footer(entry),
         footerColor:
@@ -208,6 +214,64 @@ export function PluginsDialog(props: { context: Plugin.Context; plugins: ReturnT
       .finally(() => setChecking(false))
   }
 
+  // Plugins are declared in the TUI config: a package entry installs one, a `-id` entry switches a
+  // built-in off for good, and the runtime reconciles either change while the TUI keeps running.
+  const configured = () => (config.data.plugins ?? []).map(specOf)
+  const excluded = (entry: Entry | undefined) =>
+    entry?.runtime === "tui" && entry.internal && configured().includes(`-${entry.id}`)
+  const removeTitle = createMemo(() => {
+    const entry = focusedEntry()
+    if (entry?.runtime === "tui" && entry.internal) return excluded(entry) ? "restore" : "disable for good"
+    return "remove"
+  })
+  const reopen = () => props.context.ui.dialog.show(() => <PluginsDialog context={props.context} plugins={props.plugins} />)
+  const edit = (change: (specs: readonly string[]) => readonly string[], message: string) =>
+    config
+      .update((draft: { plugins?: Declaration[] }) => {
+        const current = draft.plugins ?? []
+        // Entries that carry options are kept as they are; only the declarations that changed are rewritten.
+        draft.plugins = change(current.map(specOf)).map((spec) => current.find((item) => specOf(item) === spec) ?? spec)
+      })
+      .then(() => props.context.ui.toast.show({ variant: "success", message }))
+      .catch((cause) => props.context.ui.toast.show({ variant: "error", message: errorMessage(cause) }))
+  const remove = (entry: Entry | undefined) => {
+    if (!entry) return
+    if (entry.runtime === "server")
+      return props.context.ui.toast.show({
+        variant: "info",
+        message: `A server plugin is removed with: orchestra plugin remove ${source(entry.plugin, props.context)}`,
+      })
+    if (entry.internal) {
+      if (!entry.id) return
+      const exclusion = `-${entry.id}`
+      return excluded(entry)
+        ? edit((specs) => specs.filter((spec) => spec !== exclusion), `${entry.id} restored`)
+        : edit((specs) => [...specs, exclusion], `${entry.id} is off for good; restore it from this list`)
+    }
+    if (!configured().includes(entry.target))
+      return props.context.ui.toast.show({
+        variant: "info",
+        message: `${entry.target} is loaded from a plugin folder; delete it there to remove it`,
+      })
+    return edit((specs) => specs.filter((spec) => spec !== entry.target), `Removed ${entry.target}`)
+  }
+  const install = async () => {
+    const answer = await props.context.ui.dialog.prompt({
+      title: "Install plugin",
+      description: "An npm package, a GitHub repository (owner/repo) or a git URL",
+      placeholder: "owner/repo",
+    })
+    const value = answer?.trim()
+    if (value && /\s/.test(value))
+      props.context.ui.toast.show({ variant: "error", message: "A plugin name has no spaces" })
+    else if (value) {
+      const spec = /^[\w.-]+\/[\w.-]+$/.test(value) ? `github:${value}` : value
+      if (configured().includes(spec)) props.context.ui.toast.show({ variant: "info", message: `${spec} is already installed` })
+      else await edit((specs) => [...specs, spec], `Installing ${spec}…`)
+    }
+    reopen()
+  }
+
   return (
     <box>
       <Show
@@ -232,10 +296,14 @@ export function PluginsDialog(props: { context: Plugin.Context; plugins: ReturnT
               },
               { bind: "tab", title: "Next category", group: "Plugins", run: () => cycleCategory(1) },
               { bind: "shift+tab", title: "Previous category", group: "Plugins", run: () => cycleCategory(-1) },
+              { bind: "ctrl+n", title: "Install plugin", group: "Plugins", run: () => void install() },
+              { bind: "ctrl+d", title: removeTitle(), group: "Plugins", run: () => remove(focusedEntry()) },
             ]}
             footerHints={[
               { title: "ctrl+a", label: `${showInternal() ? "hide" : "show"} internal` },
               { title: "tab", label: "category" },
+              // A narrow footer has no room for a third hint; the keys still work there.
+              ...(railVisible() ? [{ title: "ctrl+n/d", label: "install/remove" }] : []),
             ]}
             onMove={(option) => setFocused(option.value)}
             onSelect={(option) => {
