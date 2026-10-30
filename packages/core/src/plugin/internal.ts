@@ -18,6 +18,7 @@ import { llmClient } from "../effect/app-node-platform.js"
 import { ConfigAgentPlugin } from "../config/plugin/agent.js"
 import { ConfigCommandPlugin } from "../config/plugin/command.js"
 import { ConfigCompactionPlugin } from "../config/plugin/compaction.js"
+import { ConfigContextGovernorPlugin } from "../config/plugin/context-governor.js"
 import { ConfigFormatterPlugin } from "../config/plugin/formatter.js"
 import { ConfigImagePlugin } from "../config/plugin/image.js"
 import { ConfigInstructionPlugin } from "../config/plugin/instruction.js"
@@ -91,6 +92,7 @@ import { DodTool } from "../tool/plugin/dod.js"
 import { PlaytestTool } from "../tool/plugin/playtest.js"
 import { Peer } from "../peer.js"
 import { PlotTool } from "../tool/plugin/plot.js"
+import { RulesTool } from "../tool/plugin/rules.js"
 import { Plot } from "../plot.js"
 import { Federation } from "../federation.js"
 import { Room } from "../room.js"
@@ -315,6 +317,7 @@ const pre = [
   PeerTool.Plugin,
   DodTool.Plugin,
   PlotTool.Plugin,
+  RulesTool.Plugin,
   FederationTool.Plugin,
   ShellTool.Plugin,
   SkillTool.Plugin,
@@ -338,6 +341,7 @@ const post = [
   BrowserPlugin,
   ConfigCommandPlugin.Plugin,
   ConfigCompactionPlugin.Plugin,
+  ConfigContextGovernorPlugin.Plugin,
   ConfigFormatterPlugin.Plugin,
   ConfigImagePlugin.Plugin,
   ConfigLocationWatcherPlugin.Plugin,

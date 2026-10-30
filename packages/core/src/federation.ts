@@ -16,6 +16,9 @@ import { KV } from "./kv.js"
 import { Bus } from "./bus.js"
 import { Orchestra } from "./orchestra.js"
 import { Session } from "./session.js"
+import { Dod } from "./dod.js"
+import { Rules } from "./rules.js"
+import { SessionHold } from "./session/hold.js"
 import { SessionMessage } from "./session/message.js"
 import { AbsolutePath } from "./schema.js"
 
@@ -127,6 +130,32 @@ export interface Interface {
   // Hands a member project's Orchestrator its assignment from the Society. It runs without waiting for a ticket.
   readonly brief: (input: { project: Orchestra.ProjectID; id: string; text: string }) => Effect.Effect<void>
   readonly removeGroup: (name: string) => Effect.Effect<void>
+  // Societies whose AIs are held: none of their sessions runs, whatever wakes it, until the hold is released.
+  readonly holds: () => Effect.Effect<ReadonlyArray<string>>
+  // A Society's progress, read from its projects' own files and sessions without a single model call: each
+  // project's DoD board counted by state, and whether its AIs are working now.
+  readonly societyStatus: (name: string) => Effect.Effect<{
+    readonly held: boolean
+    readonly projects: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly done: number
+      readonly total: number
+      readonly blocked: number
+      readonly running: boolean
+    }>
+  }>
+  // The rulebook: the operator's view of the standing rules of a scope (global, project:<id>, society:<name>).
+  readonly rules: {
+    readonly list: (scope: string) => Effect.Effect<ReadonlyArray<Rules.Rule>>
+    readonly add: (scope: string, text: string) => Effect.Effect<Rules.AddResult>
+    readonly remove: (scope: string, id: string) => Effect.Effect<boolean>
+  }
+  // Holds or releases a Society. Holding also stops whatever its sessions are doing right now.
+  readonly setHold: (name: string, held: boolean) => Effect.Effect<void>
+  // Run once at boot, before any session is resumed: installs the hold gate and holds every Society, so
+  // nothing starts by itself when the program starts. ORCHESTRA_SOCIETY_AUTOSTART=1 keeps the saved holds only.
+  readonly startupHold: () => Effect.Effect<void>
   readonly linkGroup: (name: string) => Effect.Effect<number, FederationError>
   readonly inbox: (project: Orchestra.ProjectID) => Effect.Effect<ReadonlyArray<Ticket>>
   readonly outbox: (project: Orchestra.ProjectID) => Effect.Effect<ReadonlyArray<Ticket>>
@@ -153,6 +182,7 @@ const LINK = "federation/link/"
 const GROUP = "federation/group/"
 // Where a Society lives, when its operator chose the folder; otherwise the default under the home directory.
 const SOCIETY = "federation/society/"
+const HOLD = "federation/hold/"
 const ACTIVITY = "federation/group/activity/"
 
 export const Activity = Schema.Struct({
@@ -722,6 +752,52 @@ const layer: Layer.Layer<
     })
     yield* trustSocieties.pipe(Effect.forkScoped)
 
+    const holds = Effect.fnUntraced(function* () {
+      const result = yield* kv.scan({ prefix: HOLD, limit: 1000 })
+      return result.entries.map((entry) => entry.key.slice(entry.key.indexOf(HOLD) + HOLD.length))
+    })
+
+    // The top-level session a session belongs to: a worker's subagents are held with the worker.
+    const rootOf = Effect.fnUntraced(function* (sessionID: SessionID) {
+      let current = sessionID
+      for (let depth = 0; depth < 8; depth++) {
+        const info = yield* sessions.get(current).pipe(Effect.option)
+        const parent = Option.isSome(info) ? info.value.parentID : undefined
+        if (!parent) return current
+        current = parent as SessionID
+      }
+      return current
+    })
+
+    // True when the session is a Society's own chat or belongs to one of its projects, and that Society is held.
+    const heldSession = Effect.fnUntraced(function* (sessionID: string) {
+      const names = new Set(yield* holds())
+      if (names.size === 0) return false
+      const held = (yield* groups()).filter((group) => names.has(group.name))
+      if (held.length === 0) return false
+      const root = yield* rootOf(sessionID as SessionID)
+      if (held.some((group) => group.supervisor === root)) return true
+      const main = yield* orchestra.mainOf(root).pipe(Effect.orElseSucceed(() => undefined))
+      const project = main?.id ?? (yield* orchestra.owners().pipe(Effect.orElseSucceed(() => ({}) as Record<string, string>)))[root]
+      return project !== undefined && held.some((group) => group.projects.includes(project as Orchestra.ProjectID))
+    })
+    SessionHold.install((sessionID) => heldSession(sessionID).pipe(Effect.orElseSucceed(() => false)))
+
+    // Every session of a Society, so a hold can stop what is running: its chat, each project's main
+    // session and the sessions its projects own.
+    const sessionsOfGroup = Effect.fnUntraced(function* (group: Group) {
+      const owners = yield* orchestra.owners()
+      const owned = Object.entries(owners)
+        .filter(([, project]) => group.projects.includes(project))
+        .map(([id]) => id)
+      const mains = yield* Effect.forEach(
+        group.projects,
+        (project) => orchestra.main(project).pipe(Effect.map((main) => main.id as string), Effect.option),
+        { concurrency: 4 },
+      )
+      return [...new Set([...(group.supervisor ? [group.supervisor as string] : []), ...owned, ...mains.flatMap((item) => Option.toArray(item))])]
+    })
+
     return Service.of({
       policy,
       link,
@@ -916,8 +992,60 @@ const layer: Layer.Layer<
       }),
       setGroup,
       ensureGroupChat,
+      holds,
+      societyStatus: Effect.fn("Federation.societyStatus")(function* (name) {
+        const group = (yield* groups()).find((item) => item.name === name.trim())
+        if (!group) return { held: false, projects: [] }
+        const active = yield* sessions.active
+        const all = yield* orchestra.projects()
+        const owners = yield* orchestra.owners()
+        const projects = yield* Effect.forEach(
+          group.projects.flatMap((id) => all.filter((project) => project.id === id)),
+          (project) =>
+            Effect.gen(function* () {
+              const board = yield* Dod.status(project.directory).pipe(Effect.orElseSucceed(() => undefined))
+              const items = board?.type === "ready" ? board.items.filter((item) => item.state !== "OUT_OF_SCOPE") : []
+              const mine = new Set([...(project.main ? [project.main as string] : []), ...Object.entries(owners).filter(([, id]) => id === project.id).map(([sid]) => sid)])
+              return {
+                id: project.id as string,
+                name: project.name,
+                done: items.filter((item) => item.state === "DONE").length,
+                total: items.length,
+                blocked: items.filter((item) => item.state === "BLOCKED" || item.state === "FAILED").length,
+                running: [...active].some((id) => mine.has(id as string)),
+              }
+            }),
+          { concurrency: 4 },
+        )
+        return { held: (yield* holds()).includes(group.name), projects }
+      }),
+      rules: {
+        list: (scope) => Rules.list(kv, scope),
+        add: (scope, text) => Rules.add(kv, scope, { text, by: "operator" }),
+        remove: (scope, id) => Rules.remove(kv, scope, id),
+      },
+      setHold: Effect.fn("Federation.setHold")(function* (name, held) {
+        const normalized = name.trim()
+        if (held) yield* kv.set(HOLD + normalized, true)
+        else yield* kv.remove(HOLD + normalized)
+        if (!held) return
+        // The hold is already in place, so nothing new starts; stop what is running.
+        const group = (yield* groups()).find((item) => item.name === normalized)
+        if (!group) return
+        yield* Effect.forEach(
+          yield* sessionsOfGroup(group),
+          (id) => sessions.interrupt(id as SessionID).pipe(Effect.ignore),
+          { concurrency: 8, discard: true },
+        )
+      }),
+      startupHold: Effect.fn("Federation.startupHold")(function* () {
+        if (process.env.ORCHESTRA_SOCIETY_AUTOSTART) return
+        const councils = (yield* groups()).filter((group) => Federation.modeOf(group) === "council")
+        yield* Effect.forEach(councils, (group) => kv.set(HOLD + group.name, true), { discard: true })
+      }),
       removeGroup: Effect.fn("Federation.removeGroup")(function* (name) {
         const normalized = name.trim()
+        yield* kv.remove(HOLD + normalized)
         yield* kv.remove(GROUP + normalized)
         yield* kv.remove(SOCIETY + normalized)
         const prefix = ACTIVITY + encodeURIComponent(normalized) + "/"

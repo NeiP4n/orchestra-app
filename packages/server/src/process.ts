@@ -3,6 +3,7 @@ export * as ServerProcess from "./process"
 import { NodeHttpServer } from "@effect/platform-node"
 import { Bus } from "@orchestra/core/bus"
 import { SessionRestart } from "@orchestra/core/session/execution/restart"
+import { Federation } from "@orchestra/core/federation"
 import { Orchestra } from "@orchestra/core/orchestra"
 import { InstallationEvent } from "@orchestra/schema/installation-event"
 import { hasPtyConnectTicketURL } from "@orchestra/protocol/groups/pty"
@@ -113,6 +114,7 @@ export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
       yield* installRestartContinuity(
         Context.get(context, SessionRestart.Service),
         Context.get(context, Orchestra.Service),
+        Context.get(context, Federation.Service),
       ).pipe(Effect.provideService(Scope.Scope, applicationScope))
     }
     yield* Ref.set(application, Option.some(Context.get(context, HttpRouter.HttpRouter).asHttpEffect()))
@@ -254,6 +256,7 @@ function unavailable(status: Status.State) {
 const installRestartContinuity = Effect.fnUntraced(function* (
   restart: SessionRestart.Interface,
   orchestra: Orchestra.Interface,
+  federation: Federation.Interface,
 ) {
   // This server owns the durable restart sweep; after registering resumed turns, also
   // reconcile idle task markers whose terminal event notification may have been missed.
@@ -263,9 +266,14 @@ const installRestartContinuity = Effect.fnUntraced(function* (
         Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logError(label, { cause }),
       ),
     )
-  const resumeAndRecover = reportStartupFailure(
-    "Failed to resume suspended sessions during server startup",
-    restart.resumeSuspendedSessions,
+  // Societies are held before anything is resumed: the AIs of a Society never start by themselves.
+  const resumeAndRecover = reportStartupFailure("Failed to hold Societies during server startup", federation.startupHold()).pipe(
+    Effect.andThen(
+      reportStartupFailure(
+        "Failed to resume suspended sessions during server startup",
+        restart.resumeSuspendedSessions,
+      ),
+    ),
   ).pipe(
     Effect.andThen(
       reportStartupFailure(

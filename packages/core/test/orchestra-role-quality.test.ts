@@ -5,8 +5,9 @@ import { Hub } from "@orchestra/core/hub/index"
 import { PROMPT_ORCHESTRATOR, PROMPT_PRESIDENT } from "@orchestra/core/plugin/agent"
 import { roomGuard } from "@orchestra/core/plugin/room-rules"
 import { TeamPlugin } from "@orchestra/core/plugin/team"
-import { checksOf, outcomeOf, toolAllowed, toolRules } from "@orchestra/core/orchestra"
+import { checksOf, evidenceOf, outcomeOf, toolAllowed, toolRules, transcriptNote } from "@orchestra/core/orchestra"
 import { Permission } from "@orchestra/core/permission"
+import { DateTime } from "effect"
 
 describe("role tool limits", () => {
   test("leave only the listed tools, patterns included", () => {
@@ -88,6 +89,17 @@ describe("built-in Orchestra role contracts", () => {
       expect(item.rules.trim().length).toBeGreaterThan(80)
       expect(item.rules).toContain("Mission:")
     }
+  })
+
+  test("ships one general role that owns a task end to end and lists first", () => {
+    const generalist = findRole("generalist")
+    expect(generalist?.category).toBe("General")
+    expect(roles[0]?.id).toBe("generalist")
+    expect(generalist?.readOnly).toBe(false)
+    expect(generalist?.tools).toEqual(expect.arrayContaining(["read", "edit", "shell", "webfetch"]))
+    expect(generalist?.rules).toContain("root cause")
+    expect(generalist?.rules).toContain("verified only if you ran the check")
+    expect(String(Mode.defaultForRole(generalist!)?.id)).toBe("coding")
   })
 
   test("keeps root-cause analysis, acceptance testing, review, and falsification distinct", () => {
@@ -336,5 +348,52 @@ describe("worker report outcome", () => {
     expect(outcomeOf("I changed two files and everything is done.")).toBe("unknown")
     expect(outcomeOf("")).toBe("unknown")
     expect(outcomeOf("DONEZO")).toBe("unknown")
+  })
+})
+
+describe("report evidence from the transcript", () => {
+  const assistant = (created: number, ...tools: string[]) =>
+    ({
+      type: "assistant",
+      time: { created: DateTime.makeUnsafe(created) },
+      content: tools.map((name) => ({ type: "tool", name, state: { status: "completed" } })),
+    }) as never
+
+  test("a worker that only looked has run no check", () => {
+    expect(evidenceOf([assistant(1, "read", "grep")])).toEqual({ ran: false, editedAfterRun: false })
+  })
+
+  test("a command counts as a run, whatever order the messages arrive in", () => {
+    expect(evidenceOf([assistant(2, "edit"), assistant(1, "shell")]).ran).toBe(true)
+  })
+
+  test("edits after the last command make its results stale", () => {
+    expect(evidenceOf([assistant(1, "shell"), assistant(2, "edit")])).toEqual({ ran: true, editedAfterRun: true })
+    expect(evidenceOf([assistant(1, "edit"), assistant(2, "shell")])).toEqual({ ran: true, editedAfterRun: false })
+  })
+
+  test("the shared prompts forbid presenting old output as current", () => {
+    expect(TeamPlugin.TEAM).toContain("is history, not a result")
+    expect(TeamPlugin.TEAM).toContain("do not reconstruct it")
+  })
+})
+
+describe("transcript evidence written by the system", () => {
+  const assistant = (created: number, ...tools: Array<[string, Record<string, unknown>?]>) =>
+    ({
+      type: "assistant",
+      time: { created: DateTime.makeUnsafe(created) },
+      content: tools.map(([name, input]) => ({ type: "tool", name, state: { status: "completed", input: input ?? {} } })),
+    }) as never
+
+  test("lists the commands a worker ran and counts its edits", () => {
+    const note = transcriptNote([assistant(1, ["edit"], ["shell", { command: "bun   test\n --bail" }], ["edit"], ["shell", { command: "bun typecheck" }])])
+    expect(note).toContain("2 command(s) ran")
+    expect(note).toContain("shell `bun test --bail`")
+    expect(note).toContain("2 file edit(s)")
+  })
+
+  test("says nothing when the worker only looked", () => {
+    expect(transcriptNote([assistant(1, ["read"], ["grep"])])).toBe("")
   })
 })

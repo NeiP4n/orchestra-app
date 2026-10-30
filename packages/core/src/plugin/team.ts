@@ -12,7 +12,9 @@ import { Effect, Option, Stream } from "effect"
 import { Agent } from "../agent.js"
 import { Federation as FederationDomain } from "../federation.js"
 import { Federation as FederationSchema } from "@orchestra/schema/federation"
+import { KV } from "../kv.js"
 import { Orchestra } from "../orchestra.js"
+import { Rules } from "../rules.js"
 import { Session } from "../session.js"
 
 const Federation = {
@@ -77,6 +79,7 @@ const SOCIETY_GUIDANCE = (name: string, projects: ReadonlyArray<{ id: string; na
     "2. Call society_forge action=list once for the exact team-template and role IDs. When none fits an additional project, create the missing role or team with team_forge first, then use its ID.",
     "3. Call society_forge action=generate once with the goal and the additional projects (it may be none). Each brief is self-contained and concrete: what to produce, how to check it is done, what it needs from or owes to the others. All projects start on their briefs immediately.",
     "4. Tell the operator in a few lines what you created and what each project does, then stop. Do not consult the projects right after generating.",
+    "The Society keeps its own DoD board (the dod tool, in the Society's folder): one milestone per project deliverable, so the operator sees the whole goal's progress in one place. For progress call society_forge action=status: it reads every project's board and whether it is working at no model cost, so prefer it to asking the projects. Standing rules for the whole Society go in the rulebook (the rules tool, scope society), where every project's AIs read them.",
     "Afterwards: use federation consult_all when the operator asks a question that needs the projects' views, and group_status only when they ask for status. Project Orchestrators already exist from creation; never create a President or Society inside a project.",
     projects.length ? "Existing projects: " + projects.map((project) => project.name + " (" + project.id + ")").join(", ") + ". The first one is the planner." : "",
   ]
@@ -105,6 +108,7 @@ Fast-Read & Targeted Navigation Protocol:
 
 Evidence & Anti-Simulation Invariants:
 - Separate what you verified from what you assume. Never invent files, APIs, output or test results.
+- Output you saw before your last change, in an earlier step, in another session or from memory is history, not a result. Do not paste it into a report or build on it as if it were current: run the check again after your last edit and report only what that run printed. Output elided from your context is gone; do not reconstruct it, run the tool again.
 - Real integration required: When implementing a feature or UI component, never leave it as an orphaned or disconnected file. It MUST be imported and wired into the actual application flows, views, or entry points where it belongs. Writing a component in isolation and passing a unit test is NOT completion; if integration is unfinished, you MUST report PARTLY DONE, not DONE.
 - STRICT PROHIBITION OF SIMULATION FALLBACKS: Never write mock shortcuts, simulation fallbacks, or catch-blocks that fake success when an external dependency, library, or system service is missing (e.g. catch (...) { return true; } or returning fake success objects). Missing dependencies must fail explicitly with clear errors; never fake success.
 - STRICT PROHIBITION OF FRAUDULENT TESTS: Tests must execute actual application code and verify observable functional behavior (network sockets, HTTP requests, process exit codes, parsed values). Never write tests that only check fs.readFileSync for strings or fs.existsSync. Fake tests that pass without executing the code will be rejected as fraudulent.
@@ -152,6 +156,7 @@ export const Plugin = define({
   effect: Effect.fn(function* (ctx) {
     const orchestra = yield* Orchestra.Service
     const federation = yield* Federation.Service
+    const kv = yield* KV.Service
     const sessions = yield* Session.Service
     const team ={ roles: yield* orchestra.roles() }
     // A session's stored mode wins; without one, the role's default applies. `auto` is an
@@ -201,6 +206,12 @@ export const Plugin = define({
     // so what one worker learned (how to build, test and run it, decisions made) reaches the next.
     yield* ctx.session.hook("context", (event) =>
       Effect.gen(function* () {
+        // The crew's standing rules ride on every request of its sessions, the Society's chat included.
+        const rules = yield* Rules.scopesOf({ sessionID: event.sessionID, sessions, orchestra, federation }).pipe(
+          Effect.flatMap((scopes) => Rules.block(kv, scopes)),
+          Effect.orElseSucceed(() => ""),
+        )
+        if (rules) event.system.push({ type: "text", text: rules })
         const role = team.roles.find((item) => item.agent === event.agent)
         if (!role) {
           // A mode the operator picked applies to every session, the Orchestrator included: the

@@ -427,6 +427,17 @@ import type {
   OrchestraGroupLinkOutput,
   OrchestraGroupChatInput,
   OrchestraGroupChatOutput,
+  OrchestraRulesListInput,
+  OrchestraRulesListOutput,
+  OrchestraRulesAddInput,
+  OrchestraRulesAddOutput,
+  OrchestraRulesRemoveInput,
+  OrchestraRulesRemoveOutput,
+  OrchestraGroupStatusInput,
+  OrchestraGroupStatusOutput,
+  OrchestraGroupHoldsOutput,
+  OrchestraGroupHoldInput,
+  OrchestraGroupHoldOutput,
   OrchestraSocietyCreateInput,
   OrchestraSocietyCreateOutput,
   OrchestraLinkSetInput,
@@ -2545,6 +2556,7 @@ export function make(options: ClientOptions) {
               mcpServers: input?.["mcpServers"],
               proxy: input?.["proxy"],
               compatibilityEnabled: input?.["compatibilityEnabled"],
+              contextGovernor: input?.["contextGovernor"],
               compaction: input?.["compaction"],
               agent: input?.["agent"],
               default_agent: input?.["default_agent"],
@@ -3565,6 +3577,76 @@ export function make(options: ClientOptions) {
               successStatus: 200,
               declaredStatuses: [400, 401],
               empty: false,
+            },
+            requestOptions,
+          ),
+        status: (input: OrchestraGroupStatusInput, requestOptions?: RequestOptions) =>
+          request<OrchestraGroupStatusOutput>(
+            {
+              method: "GET",
+              path: `/api/orchestra/group/${encodeURIComponent(input.name)}/status`,
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        holds: (requestOptions?: RequestOptions) =>
+          request<OrchestraGroupHoldsOutput>(
+            {
+              method: "GET",
+              path: `/api/orchestra/hold`,
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        hold: (input: OrchestraGroupHoldInput, requestOptions?: RequestOptions) =>
+          request<OrchestraGroupHoldOutput>(
+            {
+              method: "PUT",
+              path: `/api/orchestra/group/${encodeURIComponent(input.name)}/hold`,
+              body: { held: input["held"] },
+              successStatus: 204,
+              declaredStatuses: [400, 401],
+              empty: true,
+            },
+            requestOptions,
+          ),
+      },
+      rules: {
+        list: (input: OrchestraRulesListInput, requestOptions?: RequestOptions) =>
+          request<OrchestraRulesListOutput>(
+            {
+              method: "GET",
+              path: `/api/orchestra/rules/${encodeURIComponent(input.scope)}`,
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        add: (input: OrchestraRulesAddInput, requestOptions?: RequestOptions) =>
+          request<OrchestraRulesAddOutput>(
+            {
+              method: "POST",
+              path: `/api/orchestra/rules/${encodeURIComponent(input.scope)}`,
+              body: { text: input["text"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        remove: (input: OrchestraRulesRemoveInput, requestOptions?: RequestOptions) =>
+          request<OrchestraRulesRemoveOutput>(
+            {
+              method: "DELETE",
+              path: `/api/orchestra/rules/${encodeURIComponent(input.scope)}/${encodeURIComponent(input.id)}`,
+              successStatus: 204,
+              declaredStatuses: [400, 401],
+              empty: true,
             },
             requestOptions,
           ),

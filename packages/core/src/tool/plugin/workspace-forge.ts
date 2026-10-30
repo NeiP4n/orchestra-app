@@ -63,7 +63,7 @@ export const Input = Schema.Struct({
   }),
   mode: Schema.optionalKey(FederationSchema.CoordinationMode).annotate({
     description:
-      "For create_group: lead creates the group's Президент chat above the member Orchestrators; council creates its Общество chat. Ask the operator which one they want; there is no default.",
+      "For create_group: lead creates the group's Президент chat above the member Orchestrators; council creates its Общество chat. Ask the operator which one they want; there is no default. A request for a Society is not this: use society_forge action=found.",
   }),
 })
 export const Output = Schema.Struct({ output: Schema.String })
@@ -83,7 +83,7 @@ export function groupMemberCountError(members: ReadonlyArray<GroupMemberInput> |
 
 export function groupModeError(mode: string | undefined) {
   if (!mode)
-    return "create_group needs mode: lead creates the group's Президент chat, council creates its Общество chat. Ask the operator which one they want."
+    return "create_group needs mode: lead creates the group's Президент chat, council creates its Общество chat. Ask the operator which one they want. If they asked for a Society, call society_forge action=found with their goal instead."
 }
 
 // Relative paths are the model's guess at "next to this project"; resolving them against the service's
@@ -105,7 +105,7 @@ const projectLine = (project: Orchestra.Project) =>
 
 // Sent with the session's first call instead of on every request; see Tool.Options.guide.
 const guide = [
-  "Call action=list first for exact project IDs, team-template IDs and roles. An AI team is an Orchestra team template of role-based sessions. A federated group is a set of projects with one group-bound chat: Президент in lead mode or Общество in council mode.",
+  "Call action=list first for exact project IDs, team-template IDs and roles. An AI team is an Orchestra team template of role-based sessions. A federated group is a set of projects with one group-bound chat: Президент in lead mode or Общество in council mode. When the operator asks to create a Society (общество) for a goal, do not build it here: call society_forge action=found with their goal; it needs no members, name or folder and the Society plans its own projects.",
   "create_session creates a project/workspace and its main Orchestrator session. Choose one exact team-template ID to create every role session in that team, or one exact role ID to create a single worker session; team and role are mutually exclusive. Omit both for an Orchestrator-only project. directory must already exist.",
   "Sandbox modes: none uses the selected directory directly; environment (default) uses a separate git worktree and OpenCode data/config/state; strict adds bubblewrap confinement. Sandbox modes require a git repository; strict also requires bwrap.",
   "create_group creates a whole federation in one call: at least two ordered members, each an existing projectID or a new project (directory, optional name, one role or team, and sandbox). Each new member gets its own Orchestrator and, with team, exactly one session per template role. The first project coordinates the group. Then the group is registered and gets exactly one chat for the required mode. Linking defaults on and requires operator approval.",

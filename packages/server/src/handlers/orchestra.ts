@@ -51,6 +51,36 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
     return handlers
       .handle("orchestra.project.list", () => orchestra.projects())
       .handle("orchestra.group.list", () => federation.groups())
+      .handle("orchestra.group.holds", () => federation.holds())
+      .handle("orchestra.group.status", (ctx) =>
+        federation.societyStatus(ctx.params.name).pipe(
+          Effect.map((report) => ({ held: report.held, projects: report.projects.map((item) => ({ ...item })) })),
+        ),
+      )
+      .handle("orchestra.rules.list", (ctx) => federation.rules.list(ctx.params.scope).pipe(Effect.map((rules) => [...rules])))
+      .handle(
+        "orchestra.rules.add",
+        Effect.fn(function* (ctx) {
+          const added = yield* federation.rules.add(ctx.params.scope, ctx.payload.text)
+          if (!("rule" in added) || !added.rule)
+            return yield* new InvalidRequestError({ message: String("error" in added ? added.error : "Could not add the rule."), field: "text" })
+          return { ...added.rule }
+        }),
+      )
+      .handle(
+        "orchestra.rules.remove",
+        Effect.fn(function* (ctx) {
+          yield* federation.rules.remove(ctx.params.scope, ctx.params.id)
+          return HttpApiSchema.NoContent.make()
+        }),
+      )
+      .handle(
+        "orchestra.group.hold",
+        Effect.fn(function* (ctx) {
+          yield* federation.setHold(ctx.params.name, ctx.payload.held)
+          return HttpApiSchema.NoContent.make()
+        }),
+      )
       .handle("orchestra.group.save", (ctx) =>
         federation.setGroup(ctx.payload).pipe(
           Effect.as(HttpApiSchema.NoContent.make()),

@@ -4,6 +4,7 @@ import type { Context } from "@orchestra/plugin/effect/plugin"
 import { ToolFailure } from "@orchestra/ai"
 import { Effect, Schema } from "effect"
 import { Form } from "../../form.js"
+import { FormDecision } from "../../form-decision.js"
 import { Permission } from "../../permission.js"
 import { Question } from "@orchestra/schema/question"
 
@@ -103,10 +104,11 @@ export const Plugin = {
                       return [String(value)]
                     }),
                   }
+                  const decided = FormDecision.take(FormDecision.key(context.messageID, context.id))
                   return Effect.succeed({
                     output,
                     content: toModelContent(input.questions, output.answers),
-                    metadata: { answers: output.answers },
+                    metadata: { answers: output.answers, ...(decided ? { answeredBy: decided } : {}) },
                   })
                 }),
               ),

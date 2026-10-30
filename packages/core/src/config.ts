@@ -516,6 +516,12 @@ export const layer = (options?: Options) =>
               }
 
               // 3. Simple atomic/top-level fields
+              if ("contextGovernor" in patch) {
+                current = applyEdits(
+                  current,
+                  modify(current, ["experimental", "context_governor"], patch.contextGovernor ?? undefined, formatting),
+                )
+              }
               if ("shell" in patch) {
                 current = applyEdits(current, modify(current, ["shell"], patch.shell ?? undefined, formatting))
               }

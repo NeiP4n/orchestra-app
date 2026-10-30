@@ -3,6 +3,7 @@ export * as ServerFetch from "./fetch"
 import { Cause, Context, Effect, Layer } from "effect"
 import { HttpEffect, HttpMiddleware, HttpRouter, HttpServer } from "effect/unstable/http"
 import { SessionRestart } from "@orchestra/core/session/execution/restart"
+import { Federation } from "@orchestra/core/federation"
 import { Orchestra } from "@orchestra/core/orchestra"
 import type { LayerNode } from "@orchestra/util/effect/layer-node"
 import { isAllowedCorsOrigin } from "./cors"
@@ -47,15 +48,20 @@ export const make = Effect.fn("ServerFetch.make")(function* (options: ServerOpti
   // may have been lost. Suspended/active workers are skipped by the Orchestra recovery sweep.
   const restart = Context.get(context, SessionRestart.Service)
   const orchestra = Context.get(context, Orchestra.Service)
+  const federation = Context.get(context, Federation.Service)
   const reportStartupFailure = (label: string, effect: Effect.Effect<void>) =>
     effect.pipe(
       Effect.catchCause((cause) =>
         Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logError(label, { cause }),
       ),
     )
-  const resumeAndRecover = reportStartupFailure(
-    "Failed to resume suspended sessions during fetch startup",
-    restart.resumeSuspendedSessions,
+  const resumeAndRecover = reportStartupFailure("Failed to hold Societies during fetch startup", federation.startupHold()).pipe(
+    Effect.andThen(
+      reportStartupFailure(
+        "Failed to resume suspended sessions during fetch startup",
+        restart.resumeSuspendedSessions,
+      ),
+    ),
   ).pipe(
     Effect.andThen(
       reportStartupFailure(

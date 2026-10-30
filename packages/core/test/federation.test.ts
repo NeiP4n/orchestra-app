@@ -15,6 +15,7 @@ import { Orchestra } from "@orchestra/core/orchestra"
 import { Federation } from "@orchestra/core/federation"
 import { Session } from "@orchestra/core/session"
 import { SessionExecution } from "@orchestra/core/session/execution"
+import { SessionHold } from "@orchestra/core/session/hold"
 import { KV } from "@orchestra/core/kv"
 import { Location } from "@orchestra/core/location"
 import { AbsolutePath } from "@orchestra/core/schema"
@@ -516,6 +517,40 @@ describe("Federation", () => {
       expect(text).toContain("<president-report")
       expect(text).toContain("API status")
       expect(yield* federation.outbox(b.id)).toEqual([])
+    }),
+  )
+  it.live("a held Society's sessions never start, and a released one's do", () =>
+    Effect.gen(function* () {
+      const { a, b } = yield* setup
+      const outside = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-federation-c-")))
+      const other = yield* (yield* Orchestra.Service).create({ name: "Elsewhere", directory: outside.path })
+      const federation = yield* Federation.Service
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id] })
+
+      // Nothing is held yet.
+      expect(yield* SessionHold.held(a.main!)).toBe(false)
+      yield* federation.setHold("Shop", true)
+      expect(yield* federation.holds()).toEqual(["Shop"])
+      // Both member projects' sessions are held, however they are woken; a project outside the Society is not.
+      expect(yield* SessionHold.held(a.main!)).toBe(true)
+      expect(yield* SessionHold.held(b.main!)).toBe(true)
+      expect(yield* SessionHold.held(other.main!)).toBe(false)
+
+      yield* federation.setHold("Shop", false)
+      expect(yield* federation.holds()).toEqual([])
+      expect(yield* SessionHold.held(a.main!)).toBe(false)
+    }),
+  )
+
+  it.live("every Society is held when the server starts, unless autostart is chosen", () =>
+    Effect.gen(function* () {
+      const { a, b } = yield* setup
+      const federation = yield* Federation.Service
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id], mode: "council" })
+      yield* federation.setGroup({ name: "Lead", projects: [a.id, b.id], mode: "lead" })
+      yield* federation.startupHold()
+      // Only councils (Societies) are held; a lead group's President is not an autonomous crew.
+      expect(yield* federation.holds()).toEqual(["Shop"])
     }),
   )
 })

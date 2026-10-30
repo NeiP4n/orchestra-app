@@ -2607,6 +2607,7 @@ export type ConfigEntry =
         }
         experimental?: {
           portable_shell_scanner?: boolean
+          context_governor?: boolean
           subagent_depth?: number
           policies?: Array<{
             action: "provider.use" | "tool.use" | "integration.use"
@@ -7486,6 +7487,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -7664,6 +7666,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -7842,6 +7845,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -8020,6 +8024,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -8198,6 +8203,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -8311,6 +8317,185 @@ export type ConfigUpdateInput = {
       }
     } | null
   }["compatibilityEnabled"]
+  readonly contextGovernor?: {
+    readonly shell?: string | null
+    readonly model?: string | null
+    readonly mcpServers?: {
+      readonly [x: string]:
+        | {
+            readonly type: "local"
+            readonly command: ReadonlyArray<string>
+            readonly cwd?: string
+            readonly environment?: { readonly [x: string]: string }
+            readonly disabled?: boolean
+            readonly codemode?: boolean
+            readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
+            readonly protocol?: "legacy" | "auto" | "2026-07-28"
+          }
+        | {
+            readonly type: "remote"
+            readonly url: string
+            readonly headers?: { readonly [x: string]: string }
+            readonly oauth?:
+              | {
+                  readonly client_id?: string
+                  readonly client_secret?: string
+                  readonly scope?: string
+                  readonly callback_port?: number
+                  readonly redirect_uri?: string
+                  readonly auth_server_metadata_url?: string
+                }
+              | false
+            readonly disabled?: boolean
+            readonly codemode?: boolean
+            readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
+            readonly protocol?: "legacy" | "auto" | "2026-07-28"
+            readonly heartbeatInterval?: number
+            readonly streamTimeout?: number
+          }
+        | {
+            readonly type: "streamable-http"
+            readonly url: string
+            readonly headers?: { readonly [x: string]: string }
+            readonly oauth?:
+              | {
+                  readonly client_id?: string
+                  readonly client_secret?: string
+                  readonly scope?: string
+                  readonly callback_port?: number
+                  readonly redirect_uri?: string
+                  readonly auth_server_metadata_url?: string
+                }
+              | false
+            readonly disabled?: boolean
+            readonly codemode?: boolean
+            readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
+            readonly protocol?: "legacy" | "auto" | "2026-07-28"
+            readonly heartbeatInterval?: number
+            readonly streamTimeout?: number
+          }
+        | null
+    }
+    readonly proxy?: {
+      readonly http?: string
+      readonly https?: string
+      readonly no_proxy?: ReadonlyArray<string>
+    } | null
+    readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
+    readonly compaction?: {
+      readonly auto?: boolean
+      readonly keep?: { readonly tokens?: number }
+      readonly buffer?: number
+      readonly threshold?: number
+      readonly threshold_percent?: number | "Infinity" | "-Infinity" | "NaN"
+      readonly keep_free_percent?: number | "Infinity" | "-Infinity" | "NaN"
+    } | null
+    readonly agent?:
+      | string
+      | {
+          readonly [x: string]: {
+            readonly model?: string | { readonly providerID: string; readonly model: string; readonly variant?: string }
+            readonly request?: {
+              readonly headers?: { readonly [x: string]: string }
+              readonly body?: { readonly [x: string]: JsonValue }
+            }
+            readonly system?: string
+            readonly description?: string
+            readonly mode?: "subagent" | "primary" | "all"
+            readonly hidden?: boolean
+            readonly color?: string
+            readonly steps?: number
+            readonly disabled?: boolean
+            readonly permissions?: ReadonlyArray<{
+              readonly action: string
+              readonly resource: string
+              readonly effect: "allow" | "deny" | "ask"
+            }>
+          } | null
+        }
+      | null
+    readonly default_agent?: string | null
+    readonly agents?: {
+      readonly [x: string]: {
+        readonly model?: string | { readonly providerID: string; readonly model: string; readonly variant?: string }
+        readonly request?: {
+          readonly headers?: { readonly [x: string]: string }
+          readonly body?: { readonly [x: string]: JsonValue }
+        }
+        readonly system?: string
+        readonly description?: string
+        readonly mode?: "subagent" | "primary" | "all"
+        readonly hidden?: boolean
+        readonly color?: string
+        readonly steps?: number
+        readonly disabled?: boolean
+        readonly permissions?: ReadonlyArray<{
+          readonly action: string
+          readonly resource: string
+          readonly effect: "allow" | "deny" | "ask"
+        }>
+      } | null
+    }
+    readonly skills?: ReadonlyArray<string> | null
+    readonly instructions?: ReadonlyArray<string> | null
+    readonly permissions?: ReadonlyArray<{
+      readonly action: string
+      readonly resource: string
+      readonly effect: "allow" | "deny" | "ask"
+    }> | null
+    readonly plugins?: ReadonlyArray<
+      string | { readonly package: string; readonly options?: { readonly [x: string]: JsonValue } }
+    > | null
+    readonly tool_output?: { readonly max_lines?: number; readonly max_bytes?: number } | null
+    readonly commands?: {
+      readonly [x: string]: {
+        readonly template: string
+        readonly description?: string
+        readonly agent?: string
+        readonly model?: string | { readonly providerID: string; readonly model: string; readonly variant?: string }
+        readonly subagent?: boolean
+        readonly subtask?: boolean
+      } | null
+    } | null
+    readonly warming?:
+      | boolean
+      | { readonly prompt?: string; readonly interval?: string; readonly duration?: string }
+      | null
+    readonly mode?:
+      | string
+      | {
+          readonly [x: string]: {
+            readonly model?: string | { readonly providerID: string; readonly model: string; readonly variant?: string }
+            readonly request?: {
+              readonly headers?: { readonly [x: string]: string }
+              readonly body?: { readonly [x: string]: JsonValue }
+            }
+            readonly system?: string
+            readonly description?: string
+            readonly mode?: "subagent" | "primary" | "all"
+            readonly hidden?: boolean
+            readonly color?: string
+            readonly steps?: number
+            readonly disabled?: boolean
+            readonly permissions?: ReadonlyArray<{
+              readonly action: string
+              readonly resource: string
+              readonly effect: "allow" | "deny" | "ask"
+            }>
+          } | null
+        }
+      | null
+    readonly update?: "disable" | "notify" | "auto" | null
+    readonly media?: {
+      readonly image?: {
+        readonly auto_resize?: boolean
+        readonly max_width?: number
+        readonly max_height?: number
+        readonly max_base64_bytes?: number
+      }
+    } | null
+  }["contextGovernor"]
   readonly compaction?: {
     readonly shell?: string | null
     readonly model?: string | null
@@ -8376,6 +8561,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -8554,6 +8740,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -8732,6 +8919,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -8910,6 +9098,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -9088,6 +9277,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -9266,6 +9456,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -9444,6 +9635,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -9622,6 +9814,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -9800,6 +9993,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -9978,6 +10172,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -10156,6 +10351,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -10334,6 +10530,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -10512,6 +10709,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -10690,6 +10888,7 @@ export type ConfigUpdateInput = {
       readonly no_proxy?: ReadonlyArray<string>
     } | null
     readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
     readonly compaction?: {
       readonly auto?: boolean
       readonly keep?: { readonly tokens?: number }
@@ -12431,6 +12630,40 @@ export type OrchestraGroupChatInput = {
 }
 
 export type OrchestraGroupChatOutput = { sessionID: string; title: string; directory: string }
+
+export type OrchestraRulesListInput = { readonly scope: { readonly scope: string }["scope"] }
+
+export type OrchestraRulesListOutput = Array<{ id: string; text: string; by: string; at: number }>
+
+export type OrchestraRulesAddInput = {
+  readonly scope: { readonly scope: string }["scope"]
+  readonly text: { readonly text: string }["text"]
+}
+
+export type OrchestraRulesAddOutput = { id: string; text: string; by: string; at: number }
+
+export type OrchestraRulesRemoveInput = {
+  readonly scope: { readonly scope: string; readonly id: string }["scope"]
+  readonly id: { readonly scope: string; readonly id: string }["id"]
+}
+
+export type OrchestraRulesRemoveOutput = void
+
+export type OrchestraGroupStatusInput = { readonly name: { readonly name: string }["name"] }
+
+export type OrchestraGroupStatusOutput = {
+  held: boolean
+  projects: Array<{ id: string; name: string; done: number; total: number; blocked: number; running: boolean }>
+}
+
+export type OrchestraGroupHoldsOutput = Array<string>
+
+export type OrchestraGroupHoldInput = {
+  readonly name: { readonly name: string }["name"]
+  readonly held: { readonly held: boolean }["held"]
+}
+
+export type OrchestraGroupHoldOutput = void
 
 export type OrchestraSocietyCreateInput = {
   readonly name?: {

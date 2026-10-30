@@ -975,19 +975,28 @@ const layer: Layer.Layer<
           // none that failed; otherwise the task stays open as partial, whatever the worker says.
           const editor = (yield* roles()).some((role) => role.agent === session?.agent && !role.readOnly)
           const checks = checksOf(answer)
+          const evidence = evidenceOf(taskMessages)
           const unproven =
             stated === "complete" && editor
               ? checks.failed > 0
                 ? `Reported DONE but ${checks.failed} check(s) failed: treated as partial.`
                 : checks.executed === 0
                   ? "Reported DONE without any executed check in CHECKS: treated as partial until a check is run."
-                  : undefined
+                  : !workerRemoved && !evidence.ran
+                    ? "Reported executed checks, but this task ran no command: the CHECKS were copied from earlier work or never run. Treated as partial until a check is run."
+                    : !workerRemoved && evidence.editedAfterRun
+                      ? "Reported executed checks, but files were edited after the last command ran: the results describe older code. Treated as partial until the checks are run again."
+                      : undefined
               : undefined
           const outcome = unproven ? "partial" : stated
-          const body =
+          const cut =
             answer.length > REPORT_LIMIT
               ? `${answer.slice(0, REPORT_LIMIT)}\n… (cut; read the worker session for the rest)`
               : answer
+          // What the transcript shows the worker did, written by the system: the Orchestrator reads it next to
+          // the worker's own CHECKS, so a report needs no longer list commands and cannot misstate them.
+          const note = workerRemoved ? "" : transcriptNote(taskMessages)
+          const body = note ? `${cut}\n\n${note}` : cut
           const title = session?.title ?? `Deleted worker ${sessionID}`
           const reportID = task.value.reportID ?? SessionMessage.ID.create()
           const wasPrepared = task.value.reportPrepared === true
@@ -2382,6 +2391,66 @@ export function checksOf(answer: string) {
       ),
   ).length
   return { executed: run.length, failed, notRun }
+}
+
+// Tools that only look. Any other completed tool, the shell above all, may have run a check.
+const LOOKING = new Set([
+  "read",
+  "glob",
+  "grep",
+  "symbols",
+  "file-diff",
+  "skill",
+  "skill_catalog",
+  "tools",
+  "note",
+  "question",
+  "webfetch",
+  "websearch",
+  "research",
+  "dod",
+  "idea_bank",
+  "plots",
+  "memory",
+])
+const WRITING = new Set(["edit", "patch", "write"])
+
+// What a worker really did during a task, from its tool calls rather than from its report: whether it ran
+// anything that could be a check, and whether it changed files after the last such run. A report that lists
+// passed checks the transcript cannot back up is a copied or invented result.
+export function evidenceOf(messages: ReadonlyArray<SessionMessage.Info>) {
+  const calls = messages
+    .flatMap((message) => (message.type === "assistant" ? [message] : []))
+    .toSorted((left, right) => DateTime.toEpochMillis(left.time.created) - DateTime.toEpochMillis(right.time.created))
+    .flatMap((message) =>
+      message.content.flatMap((part) => (part.type === "tool" && part.state.status === "completed" ? [part.name] : [])),
+    )
+  const lastRun = calls.findLastIndex((name) => !LOOKING.has(name) && !WRITING.has(name))
+  return { ran: lastRun >= 0, editedAfterRun: lastRun >= 0 && calls.findLastIndex((name) => WRITING.has(name)) > lastRun }
+}
+
+// A line the system writes for a worker's report from the worker's own tool calls: the commands it ran, in order,
+// and how many files it changed. Empty when it did nothing that counts.
+export function transcriptNote(messages: ReadonlyArray<SessionMessage.Info>) {
+  const calls = messages
+    .flatMap((message) => (message.type === "assistant" ? [message] : []))
+    .toSorted((left, right) => DateTime.toEpochMillis(left.time.created) - DateTime.toEpochMillis(right.time.created))
+    .flatMap((message) =>
+      message.content.flatMap((part) =>
+        part.type === "tool" && part.state.status === "completed" && !LOOKING.has(part.name)
+          ? [{ name: part.name, command: part.state.status === "completed" ? part.state.input.command : undefined }]
+          : [],
+      ),
+    )
+  const edits = calls.filter((call) => WRITING.has(call.name)).length
+  const ran = calls.filter((call) => !WRITING.has(call.name))
+  if (ran.length === 0 && edits === 0) return ""
+  const label = (call: (typeof ran)[number]) => {
+    const text = typeof call.command === "string" ? call.command.replace(/\s+/g, " ").trim() : ""
+    return text ? `${call.name} \`${text.length > 70 ? `${text.slice(0, 69)}…` : text}\`` : call.name
+  }
+  const shown = ran.slice(-6).map(label)
+  return `<transcript-evidence>${ran.length} command(s) ran${shown.length ? `, last: ${shown.join("; ")}` : ""}; ${edits} file edit(s)${ran.length > 6 ? "; earlier commands omitted" : ""}.</transcript-evidence>`
 }
 
 // The last assistant answer with text, newest first.

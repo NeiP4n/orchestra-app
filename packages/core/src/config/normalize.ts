@@ -465,6 +465,15 @@ function normalizeExperimental(
         )
         if (value !== undefined) result.portable_shell_scanner = value
       }
+      if (own(experimental, "context_governor")) {
+        const value = decodeEncoded(
+          ConfigExperimental.Info.fields.context_governor,
+          experimental.context_governor,
+          ["experimental", "context_governor"],
+          diagnostics,
+        )
+        if (value !== undefined) result.context_governor = value
+      }
       if (own(experimental, "subagent_depth")) {
         const value = decodeEncoded(
           ConfigExperimental.Info.fields.subagent_depth,

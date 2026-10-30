@@ -9,6 +9,7 @@ import { Effect, Option, Schema } from "effect"
 import { Form } from "../../form.js"
 import { Model } from "../../model.js"
 import { Orchestra } from "../../orchestra.js"
+import { FormDecision } from "../../form-decision.js"
 import { Session } from "../../session.js"
 import { SessionSchema } from "../../session/schema.js"
 import type { SessionMessage } from "../../session/message.js"
@@ -72,6 +73,10 @@ export const Input = Schema.Struct({
   answers: Schema.optionalKey(Schema.Array(Schema.Array(Schema.String))).annotate({
     description:
       "For answer: one entry per question of the worker's <team-question>, in order; each entry lists the chosen option labels, or your own text as a single item",
+  }),
+  reason: Schema.optionalKey(Schema.String).annotate({
+    description:
+      "For answer: one short sentence on why you chose this answer. The operator sees it beside the answer, so they can tell an AI decision from their own and judge it.",
   }),
   limit: Schema.optionalKey(Schema.Int).annotate({ description: "How many recent messages read returns (default 10)" }),
   model: Schema.optionalKey(Schema.String).annotate({
@@ -459,6 +464,13 @@ export const Plugin = {
                     }
                     return list.join(", ")
                   }
+                  // The worker's transcript shows who answered, so an AI decision is never mistaken for the operator's.
+                  const asked = form.metadata?.tool as { messageID?: string; id?: string } | undefined
+                  if (asked?.messageID && asked.id)
+                    FormDecision.note(FormDecision.key(asked.messageID, asked.id), {
+                      by: `${project.name} Orchestrator`,
+                      ...(input.reason?.trim() ? { reason: input.reason.trim().slice(0, 300) } : {}),
+                    })
                   yield* forms
                     .reply({
                       id: form.id,
@@ -548,7 +560,7 @@ export const Plugin = {
             "- Copy the complete session ID exactly from this roster. Never truncate, infer, or substitute an ID.",
             "- Sending a task ends this model turn while the worker runs; a task-linked <team-report> wakes you again. Do not tell the user the task is complete merely because send succeeded.",
             "- After each <team-report>, compare the worker's evidence with the original acceptance criteria. outcome=partial, incomplete, failed, or stopped means the task is still open unless explicitly blocked/cancelled (outcome=unknown: judge the report text itself): inspect the report and send a specific follow-up to the same worker once its previous task is no longer outstanding. outcome=complete is evidence to review, not a substitute for checking the criteria.",
-            "- A <team-question> means a worker is blocked waiting for an answer. Answer it with action answer when the task, the playbook or the operator's instructions settle it; ask the operator only when the decision is genuinely theirs.",
+            "- A <team-question> means a worker is blocked waiting for an answer. Answer it with action answer when the task, the playbook or the operator's instructions settle it, and pass reason: one short sentence on why, which the operator sees next to your answer. Ask the operator only when the decision is genuinely theirs.",
             "- If a sessions tool call fails, inspect its exact error and use list/read to verify IDs and whether a task is outstanding. Fix the arguments or underlying cause before retrying; never repeat the identical failed call.",
             "- Do not call HTTP endpoints directly or guess /api/orchestra routes. If a tool/API error occurs, report its exact message and do not create a replacement session as a workaround.",
             "",

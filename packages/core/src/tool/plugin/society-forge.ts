@@ -27,9 +27,16 @@ const Project = Schema.Struct({
 })
 
 export const Input = Schema.Struct({
-  action: Schema.Literals(["list", "generate"]),
+  action: Schema.Literals(["found", "status", "list", "generate"]),
   goal: Schema.optionalKey(Schema.String).annotate({
-    description: "For generate: the operator's goal in their own words. Every project's Orchestrator receives it.",
+    description:
+      "For found and generate: the operator's goal in their own words. Every project's Orchestrator receives it.",
+  }),
+  name: Schema.optionalKey(Schema.String).annotate({
+    description: "For found: the Society's name. Omit it and the Society is named after the goal.",
+  }),
+  directory: Schema.optionalKey(Schema.String).annotate({
+    description: "For found: a full path to create the Society's folder in. Omit it for the default folder.",
   }),
   projects: Schema.optionalKey(Schema.Array(Project)).annotate({
     description: `For generate: ADDITIONAL projects the goal needs beyond the base four, 0 to ${MAX_PROJECTS}. Never list the base projects (${Federation.baseProjects.map((item) => item.name).join(", ")}): they are always created.`,
@@ -38,7 +45,9 @@ export const Input = Schema.Struct({
 export const Output = Schema.Struct({ output: Schema.String })
 
 const guide = [
-  "society_forge builds the Society's projects from the operator's goal. It exists only in a Society chat.",
+  "society_forge founds a Society and builds its projects from the operator's goal.",
+  "From any other chat, when the operator asks for a Society, call action=found with their goal at once. Do not ask for a name, a folder or the projects, and never assemble a Society by hand with the federation group actions. found creates the Society, its folder, its planner project and its chat, and hands the goal to that chat, which plans the projects itself.",
+  "list and generate work only inside the Society's own chat. There:",
   "Call action=list first for exact team-template and role IDs. When no template fits a project, create the missing role or team with team_forge first, then use its ID.",
   `generate always creates the base projects: ${Federation.baseProjects.map((item) => item.name).join(", ")}. They are separate projects, not sessions of one project, and you do not list them.`,
   `Then call action=generate once with the goal and only the ADDITIONAL projects it needs (0 to ${MAX_PROJECTS}): research, design, marketing, security and so on. Decide yourself: do not ask the operator for names, folders or teams the goal already implies.`,
@@ -58,14 +67,56 @@ export const Plugin = {
           name,
           options: { codemode: false, guide, triggers: ["societ|общест", "goal|цель"] },
           description: [
-            "Generate the projects of a Society from a goal. Available only in a Society (council group) chat. Actions: list, generate.",
+            "Found a Society from a goal, or generate its projects. found works from any chat and creates the Society with its chat, which plans the rest; status, list and generate work only inside a Society (council group) chat. status reads every project's DoD progress and whether it is working, at no model cost. Actions: found, status, list, generate.",
             "generate always creates the base projects (planner, architects, coders, testers) plus the additional ones you pass, each in the Society's folder with its Orchestrator and team, links them to each other and delivers every brief.",
           ].join("\n"),
           input: Input,
           output: Output,
           execute: (input, context) =>
             Effect.gen(function* () {
+              if (input.action === "found") {
+                const goal = input.goal?.trim()
+                if (!goal) return yield* new ToolFailure({ message: "found needs goal: the operator's goal in their own words." })
+                if (Option.isSome(yield* societyOf(context.sessionID).pipe(Effect.option)))
+                  return yield* new ToolFailure({
+                    message: "This chat already is a Society. Use list, then generate, to add its projects.",
+                  })
+                const society = yield* federation.createSociety({
+                  goal,
+                  ...(input.name?.trim() ? { name: input.name.trim() } : {}),
+                  ...(input.directory?.trim() ? { directory: input.directory.trim() } : {}),
+                })
+                // The Society's chat is a session of its own: it runs on the model of the chat that founded it,
+                // not on whatever the server would pick for a session without one.
+                const founder = yield* sessions.get(context.sessionID).pipe(Effect.option)
+                const model = Option.isSome(founder) ? founder.value.model : undefined
+                if (model) yield* sessions.switchModel({ sessionID: society.sessionID, model }).pipe(Effect.ignore)
+                yield* sessions.prompt({ sessionID: society.sessionID, text: goal })
+                return [
+                  `Society "${society.name}" founded in ${society.directory}.`,
+                  `Its chat (${society.sessionID}) has the goal and is deciding the projects now; the planner project already exists.`,
+                  "Tell the operator the Society is working and where its folder is. Do not create projects yourself.",
+                ].join("\n")
+              }
+
               const group = yield* societyOf(context.sessionID)
+
+              // Progress is read from the projects' own DoD boards and sessions by the system, not asked of
+              // their Orchestrators: it costs no model turn anywhere.
+              if (input.action === "status") {
+                const report = yield* federation.societyStatus(group.name)
+                const rows = report.projects.map(
+                  (item) =>
+                    `- ${item.name}: DoD ${item.done}/${item.total}${item.blocked ? `, ${item.blocked} blocked` : ""} · ${item.running ? "working" : "idle"}`,
+                )
+                const done = report.projects.reduce((sum, item) => sum + item.done, 0)
+                const total = report.projects.reduce((sum, item) => sum + item.total, 0)
+                return [
+                  `Society "${group.name}" · ${report.held ? "AIs HELD by the operator: nothing runs until released" : "running"} · DoD ${done}/${total}`,
+                  ...rows,
+                ].join("\n")
+              }
+
               const templates = yield* orchestra.templates()
               const roles = yield* orchestra.roles()
 

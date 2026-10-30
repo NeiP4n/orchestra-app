@@ -7,6 +7,7 @@ import { Job } from "../job.js"
 import { Instance } from "../instance/service.js"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { SessionEvent } from "./event.js"
+import { SessionHold } from "./hold.js"
 import { SessionRunCoordinator } from "./run-coordinator.js"
 import { SessionRunner } from "./runner/index.js"
 import { SessionSchema } from "./schema.js"
@@ -168,8 +169,12 @@ export const layer = Layer.effect(
             yield* coordinator.wake(sessionID, "steer")
           return interrupted
         }),
-      resume: coordinator.run,
-      wake: coordinator.wake,
+      // A held session (a paused Society's) does not start from any path. Its durable work stays where it is
+      // and starts when the hold is released.
+      resume: (sessionID) =>
+        SessionHold.held(sessionID).pipe(Effect.flatMap((held) => (held ? Effect.void : coordinator.run(sessionID)))),
+      wake: (sessionID) =>
+        SessionHold.held(sessionID).pipe(Effect.flatMap((held) => (held ? Effect.void : coordinator.wake(sessionID)))),
       awaitIdle: coordinator.awaitIdle,
     })
   }),

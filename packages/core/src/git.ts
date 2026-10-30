@@ -1,7 +1,7 @@
 export * as Git from "./git.js"
 
 import path from "path"
-import { Context, Effect, Layer, Schema } from "effect"
+import { Context, Effect, Layer, Schema, Semaphore } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { AbsolutePath, RelativePath } from "./schema.js"
 import { FSUtil } from "@orchestra/util/fs-util"
@@ -168,6 +168,9 @@ const layer = Layer.effect(
     const fs = yield* FSUtil.Service
     const proc = yield* AppProcess.Service
     const locks = KeyedMutex.makeUnsafe<string>()
+    // Git is a global service shared by every workspace; without a cap, many Locations scanning at
+    // once spawn dozens of git processes that starve the rest of the machine.
+    const processes = Semaphore.makeUnsafe(4)
     const locked = <A, E, R>(repository: Repository, effect: Effect.Effect<A, E, R>) =>
       locks.withLock(repository.gitDirectory)(effect)
 
@@ -322,6 +325,7 @@ const layer = Layer.effect(
           { stdin: options?.stdin, maxOutputBytes: options?.maxOutputBytes },
         )
         .pipe(
+          processes.withPermit,
           Effect.mapError(
             (cause) =>
               new OperationError({
@@ -396,16 +400,19 @@ const layer = Layer.effect(
         ],
         { concurrency: 2 },
       )
-      const candidates = Array.from(new Set([...tracked, ...untracked])).map((file) => RelativePath.make(file))
+      const candidates = Array.from(new Set([...tracked, ...untracked]))
+        .filter((file) => !unindexable(file))
+        .map((file) => RelativePath.make(file))
       if (!candidates.length) return { skipped: [] }
       const excluded = input.ignores
         ? yield* ignored({ repository: input.ignores, paths: candidates })
         : new Set<RelativePath>()
       const allowed = candidates.filter((item) => !excluded.has(item))
+      const allowedSet = new Set<string>(allowed)
       const maximum = input.maximumUntrackedFileBytes
       const skipped = maximum
         ? (yield* Effect.forEach(
-            untracked.filter((item) => allowed.includes(RelativePath.make(item))),
+            untracked.filter((item) => allowedSet.has(item)),
             (item) =>
               fs.stat(path.join(input.repository.worktree, item)).pipe(
                 Effect.map((info) =>
@@ -416,7 +423,8 @@ const layer = Layer.effect(
             { concurrency: 8 },
           )).filter((item): item is RelativePath => item !== undefined)
         : []
-      const stage = allowed.filter((item) => !skipped.includes(item))
+      const skippedSet = new Set<string>(skipped)
+      const stage = allowed.filter((item) => !skippedSet.has(item))
       const remove = [...excluded, ...skipped]
       if (remove.length)
         yield* repositoryOperation(
@@ -453,6 +461,7 @@ const layer = Layer.effect(
           { stdin: input.paths.join("\0") + "\0" },
         )
         .pipe(
+          processes.withPermit,
           Effect.mapError(
             (cause) =>
               new OperationError({
@@ -747,6 +756,16 @@ function execute(cwd: string, proc: AppProcess.Interface, args: string[]) {
 /** Split NUL-terminated git output into its records. */
 function nuls(text: string) {
   return text.split("\0").filter(Boolean)
+}
+
+const reservedDeviceName = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
+
+/**
+ * Windows device names such as `nul` cannot be read as files, so `git add` aborts the whole
+ * batch with "short read while indexing" and every later capture would fail the same way.
+ */
+function unindexable(file: string) {
+  return process.platform === "win32" && file.split("/").some((part) => reservedDeviceName.test(part))
 }
 
 function resolvePath(cwd: string, value: string) {

@@ -17,6 +17,8 @@ describe("workspace forge input", () => {
       { action: "question", resource: "*", effect: "allow" },
       { action: "society_forge", resource: "*", effect: "allow" },
       { action: "team_forge", resource: "*", effect: "allow" },
+      { action: "rules", resource: "*", effect: "allow" },
+      { action: "dod", resource: "*", effect: "allow" },
     ])
   })
 
@@ -98,5 +100,11 @@ describe("workspace forge directories", () => {
     expect(await WorkspaceForgeTool.isEmptyDirectory(root)).toBe(true)
     await writeFile(path.join(root, "game.json"), "{}")
     expect(await WorkspaceForgeTool.isEmptyDirectory(root)).toBe(false)
+  })
+})
+
+describe("founding a Society", () => {
+  test("the group tool sends a Society request to society_forge instead of asking for members and a mode", () => {
+    expect(WorkspaceForgeTool.groupModeError(undefined)).toContain("society_forge action=found")
   })
 })

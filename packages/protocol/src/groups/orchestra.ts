@@ -325,6 +325,97 @@ export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
     ),
   )
   .add(
+    HttpApiEndpoint.get("orchestra.rules.list", "/api/orchestra/rules/:scope", {
+      params: { scope: Schema.String },
+      success: Schema.Array(
+        Schema.Struct({ id: Schema.String, text: Schema.String, by: Schema.String, at: Schema.Number }),
+      ),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "orchestra.rules.list",
+        summary: "List rules",
+        description:
+          "The standing rules of one scope: global, project:<id> or society:<name>. The AIs of the scope follow them and may add to them.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post("orchestra.rules.add", "/api/orchestra/rules/:scope", {
+      params: { scope: Schema.String },
+      payload: Schema.Struct({ text: Schema.String }),
+      success: Schema.Struct({ id: Schema.String, text: Schema.String, by: Schema.String, at: Schema.Number }),
+      error: InvalidRequestError,
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "orchestra.rules.add",
+        summary: "Add a rule",
+        description: "Add an operator's rule to a scope. At most 20 short rules per scope.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.delete("orchestra.rules.remove", "/api/orchestra/rules/:scope/:id", {
+      params: { scope: Schema.String, id: Schema.String },
+      success: HttpApiSchema.NoContent,
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "orchestra.rules.remove",
+        summary: "Remove a rule",
+        description: "Delete one rule from a scope.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.get("orchestra.group.status", "/api/orchestra/group/:name/status", {
+      params: { name: Schema.String },
+      success: Schema.Struct({
+        held: Schema.Boolean,
+        projects: Schema.Array(
+          Schema.Struct({
+            id: Schema.String,
+            name: Schema.String,
+            done: Schema.Number,
+            total: Schema.Number,
+            blocked: Schema.Number,
+            running: Schema.Boolean,
+          }),
+        ),
+      }),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "orchestra.group.status",
+        summary: "Society progress",
+        description:
+          "Each member project's DoD progress and whether its AIs are working, read from the projects' own boards and sessions without any model call.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.get("orchestra.group.holds", "/api/orchestra/hold", {
+      success: Schema.Array(Schema.String),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "orchestra.group.holds",
+        summary: "List held groups",
+        description: "Names of the Societies whose AIs are held: none of their sessions runs until the hold is released.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.put("orchestra.group.hold", "/api/orchestra/group/:name/hold", {
+      params: { name: Schema.String },
+      payload: Schema.Struct({ held: Schema.Boolean }),
+      success: HttpApiSchema.NoContent,
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "orchestra.group.hold",
+        summary: "Hold or release a group",
+        description:
+          "Hold a Society: whatever its sessions are doing stops and nothing of theirs starts, whatever wakes it, until it is released. Every Society is held when the server starts.",
+      }),
+    ),
+  )
+  .add(
     HttpApiEndpoint.post("orchestra.society.create", "/api/orchestra/society", {
       payload: Schema.Struct({
         name: Schema.String.pipe(Schema.optional),

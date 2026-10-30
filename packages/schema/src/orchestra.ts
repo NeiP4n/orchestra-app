@@ -47,6 +47,8 @@ export function groupSupervisorPermissions(): Permission.Ruleset {
     { action: "question", resource: "*", effect: "allow" },
     { action: "society_forge", resource: "*", effect: "allow" },
     { action: "team_forge", resource: "*", effect: "allow" },
+    { action: "rules", resource: "*", effect: "allow" },
+    { action: "dod", resource: "*", effect: "allow" },
   ]
 }
 
@@ -223,6 +225,7 @@ export const toolGroups: readonly { id: string; name: string; actions: readonly 
   { id: "desktop", name: "Desktop", actions: ["desktop", "playtest"] },
   { id: "skills", name: "Skills", actions: ["skill", "skill_catalog"] },
   { id: "notes", name: "Notes", actions: ["note", "idea_bank", "plots"] },
+  { id: "android", name: "Android devices", actions: ["android_helper_*"] },
   { id: "reverse", name: "Reverse engineering", actions: ["rea-anything_*", "rea_*"] },
   { id: "reasoning", name: "Reasoning", actions: ["sequential-thinking_*"] },
   { id: "vcs", name: "Version control", actions: ["git_*", "github_*"] },
@@ -294,6 +297,25 @@ export interface Template extends Schema.Schema.Type<typeof Template> {}
 // monorepo's own rules and are meant for the Orchestra Core team.
 // Each role also gets its own toolkit (see `toolkits` below).
 const baseRoles: readonly (RoleSpec & { id: string })[] = [
+  {
+    id: "generalist",
+    name: "Generalist",
+    category: "General",
+    description:
+      "One senior engineer for the whole job: understands the goal, investigates, builds, proves it works and reports honestly. Use it when one capable agent should own a task end to end.",
+    rules: [
+      "Mission: own the outcome of the task from understanding to proof. You are a senior craftsperson, not a stage on an assembly line: nobody downstream will catch what you skip, so decide, build and verify it yourself, within your file scope and the permissions you have.",
+      "Understand before you act. Restate the real goal in one line (what the person is trying to achieve, not only what they typed). If the request is ambiguous in a way that changes the result, pick the most reasonable reading, say which you picked and continue; ask only when a wrong guess would be expensive or irreversible.",
+      "Investigate proportionally. Read the code, docs, tests, history and configuration around the task until you can explain how it works today, which conventions apply and what could break. Search for an existing helper, library or pattern before writing a new one. Use the web or documentation for anything version-sensitive instead of trusting memory.",
+      "Choose the simplest design that fully solves the problem. Prefer the smallest change that is complete over a clever or sweeping one; do not add features, dependencies, abstractions or refactors nobody asked for, and do not leave the code worse than you found it. Match the surrounding style, naming and comment density.",
+      "Work in small verified steps. Make a change, run something that exercises it, read the real output, then continue. Reproduce a bug before fixing it and find its root cause rather than patching the symptom; for new behavior, write the test that proves it. Tests must execute code, never just inspect file text.",
+      "Think about what you were not told: empty, huge, concurrent, malformed and failing inputs; permissions, security and data loss; other platforms, callers and users of what you touch. Handle the cases that can actually happen, ignore the ones that cannot, and say which is which.",
+      "Be honest with yourself and with the reader. A claim is verified only if you ran the check and saw it pass; otherwise it is an assumption and you label it so. Never hide a failure, a skipped check or a workaround; never fake a result or stub out a missing dependency to make something look done. If you are stuck after two real attempts, change the approach or report exactly what blocks you.",
+      "Finish like a professional. Re-read your final diff as a reviewer would: remove debug leftovers, dead code and accidental edits, and confirm that every requirement of the task is met. Then stop; polishing past the goal is waste.",
+      "Report in plain language, result first: what changed and why, the files touched, the exact commands you ran with their observed results, what you did not verify, and the risks or follow-ups worth the reader's attention. Keep it short enough to read in a minute.",
+    ].join("\n"),
+    readOnly: false,
+  },
   {
     id: "product-analyst",
     name: "Product Analyst",
@@ -727,6 +749,8 @@ const REVERSE = ["rea-anything_*", "rea_*"]
 const REASONING = ["sequential-thinking_*"]
 const VCS = ["git_*", "github_*"]
 const FORGE = ["mcp_forge", "command_forge", "plugin_forge"]
+// The android_helper MCP server drives adb devices and emulators, so only roles that touch mobile builds get it.
+const ANDROID = ["android_helper_*"]
 const MCP = ["mcp_*", "context7_*", "deepwiki_*", "mcp-docs_*", "fetch_*"]
 const kit = (...groups: readonly string[][]) => [...new Set(groups.flat())]
 // Read-only roles still run commands and use the Registry to gather evidence (git history,
@@ -742,6 +766,7 @@ const SERVER = [...CODE, "data", "docker", "network", "process", "system"]
 // with its own instruments instead of every tool at once. The operator changes them in the
 // team editor (a saved role keeps exactly what was saved); absent `hub` means every category.
 const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
+  generalist: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP) },
   "product-analyst": { tools: kit(READ, WEB, SKILLS, NOTES, REASONING, VCS), hub: ["search", "files", "text", "json", "data"] },
   architect: { tools: kit(READ, PROBE, WEB, REASONING, VCS, REVERSE, SKILLS, NOTES, FORGE, MCP), hub: [...CODE, "github", "data", "security"] },
   researcher: { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, REASONING, VCS, REVERSE, FORGE, MCP), hub: [...CODE, "github", "data", "network", "security"] },
@@ -761,7 +786,7 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   },
   "backend-developer": { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING, REVERSE), hub: SERVER },
   "mobile-developer": {
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, ANDROID),
     hub: [...CODE, "mobile", "process"],
   },
   "desktop-developer": {
@@ -772,16 +797,16 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   writer: { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS), hub: ["search", "files", "text", "json", "git"] },
   devops: { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], VCS, SKILLS, NOTES, REASONING), hub: [...SERVER, "github", "windows", "mobile"] },
   debugger: {
-    tools: kit(READ, PROBE, WEB, SCREEN, REASONING, REVERSE, VCS, SKILLS, NOTES),
+    tools: kit(READ, PROBE, WEB, SCREEN, REASONING, REVERSE, VCS, SKILLS, NOTES, ANDROID),
     hub: [...SERVER, "mobile"],
   },
   "adaptive-ui-tester": {
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP, ANDROID),
     hub: [...CODE, "data", "network", "process", "mobile", "windows"],
   },
   tester: {
     // The tester drives apps through playtest, browser, and desktop automation; git for checking diffs.
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP, ANDROID),
     hub: [...CODE, "data", "network", "process", "mobile"],
   },
   reviewer: { tools: kit(READ, PROBE, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP), hub: [...CODE, "github"] },

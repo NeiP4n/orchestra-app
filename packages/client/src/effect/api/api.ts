@@ -2502,6 +2502,7 @@ export type ConfigUpdateInput = {
     readonly no_proxy?: ReadonlyArray<string> | undefined
   } | null
   readonly compatibilityEnabled?: boolean | null
+  readonly contextGovernor?: boolean | null
   readonly compaction?: {
     readonly auto?: boolean | undefined
     readonly keep?: { readonly tokens?: number | undefined } | undefined
@@ -4725,6 +4726,59 @@ export type OrchestraGroupChatOperation<E = never> = (
   input: OrchestraGroupChatInput,
 ) => Effect.Effect<OrchestraGroupChatOutput, E>
 
+export type OrchestraRulesListInput = { readonly scope: string }
+export type OrchestraRulesListOutput = ReadonlyArray<{
+  readonly id: string
+  readonly text: string
+  readonly by: string
+  readonly at: number
+}>
+export type OrchestraRulesListOperation<E = never> = (
+  input: OrchestraRulesListInput,
+) => Effect.Effect<OrchestraRulesListOutput, E>
+
+export type OrchestraRulesAddInput = { readonly scope: string; readonly text: string }
+export type OrchestraRulesAddOutput = {
+  readonly id: string
+  readonly text: string
+  readonly by: string
+  readonly at: number
+}
+export type OrchestraRulesAddOperation<E = never> = (
+  input: OrchestraRulesAddInput,
+) => Effect.Effect<OrchestraRulesAddOutput, E>
+
+export type OrchestraRulesRemoveInput = { readonly scope: string; readonly id: string }
+export type OrchestraRulesRemoveOutput = void
+export type OrchestraRulesRemoveOperation<E = never> = (
+  input: OrchestraRulesRemoveInput,
+) => Effect.Effect<OrchestraRulesRemoveOutput, E>
+
+export type OrchestraGroupStatusInput = { readonly name: string }
+export type OrchestraGroupStatusOutput = {
+  readonly held: boolean
+  readonly projects: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly done: number
+    readonly total: number
+    readonly blocked: number
+    readonly running: boolean
+  }>
+}
+export type OrchestraGroupStatusOperation<E = never> = (
+  input: OrchestraGroupStatusInput,
+) => Effect.Effect<OrchestraGroupStatusOutput, E>
+
+export type OrchestraGroupHoldsOutput = ReadonlyArray<string>
+export type OrchestraGroupHoldsOperation<E = never> = () => Effect.Effect<OrchestraGroupHoldsOutput, E>
+
+export type OrchestraGroupHoldInput = { readonly name: string; readonly held: boolean }
+export type OrchestraGroupHoldOutput = void
+export type OrchestraGroupHoldOperation<E = never> = (
+  input: OrchestraGroupHoldInput,
+) => Effect.Effect<OrchestraGroupHoldOutput, E>
+
 export type OrchestraSocietyCreateInput = {
   readonly name?: string | undefined
   readonly goal?: string | undefined
@@ -4785,6 +4839,14 @@ export interface OrchestraApi<E = never> {
     readonly remove: OrchestraGroupRemoveOperation<E>
     readonly link: OrchestraGroupLinkOperation<E>
     readonly chat: OrchestraGroupChatOperation<E>
+    readonly status: OrchestraGroupStatusOperation<E>
+    readonly holds: OrchestraGroupHoldsOperation<E>
+    readonly hold: OrchestraGroupHoldOperation<E>
+  }
+  readonly rules: {
+    readonly list: OrchestraRulesListOperation<E>
+    readonly add: OrchestraRulesAddOperation<E>
+    readonly remove: OrchestraRulesRemoveOperation<E>
   }
   readonly society: { readonly create: OrchestraSocietyCreateOperation<E> }
   readonly link: { readonly set: OrchestraLinkSetOperation<E>; readonly list: OrchestraLinkListOperation<E> }

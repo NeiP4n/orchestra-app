@@ -429,6 +429,17 @@ import type {
   OrchestraGroupLinkOutput,
   OrchestraGroupChatInput,
   OrchestraGroupChatOutput,
+  OrchestraRulesListInput,
+  OrchestraRulesListOutput,
+  OrchestraRulesAddInput,
+  OrchestraRulesAddOutput,
+  OrchestraRulesRemoveInput,
+  OrchestraRulesRemoveOutput,
+  OrchestraGroupStatusInput,
+  OrchestraGroupStatusOutput,
+  OrchestraGroupHoldsOutput,
+  OrchestraGroupHoldInput,
+  OrchestraGroupHoldOutput,
   OrchestraSocietyCreateInput,
   OrchestraSocietyCreateOutput,
   OrchestraLinkSetInput,
@@ -1860,6 +1871,7 @@ const EndpointConfigUpdate = (raw: RawClient["server.config"]) => (input?: Confi
         mcpServers: input?.["mcpServers"],
         proxy: input?.["proxy"],
         compatibilityEnabled: input?.["compatibilityEnabled"],
+        contextGovernor: input?.["contextGovernor"],
         compaction: input?.["compaction"],
         agent: input?.["agent"],
         default_agent: input?.["default_agent"],
@@ -2562,6 +2574,40 @@ const EndpointOrchestraGroupChat = (raw: RawClient["server.orchestra"]) => (inpu
     ),
   )
 
+const EndpointOrchestraRulesList = (raw: RawClient["server.orchestra"]) => (input: OrchestraRulesListInput) =>
+  preserveEffect<OrchestraRulesListOutput>()(
+    raw["orchestra.rules.list"]({ params: { scope: input["scope"] } }).pipe(Effect.mapError(mapClientError)),
+  )
+
+const EndpointOrchestraRulesAdd = (raw: RawClient["server.orchestra"]) => (input: OrchestraRulesAddInput) =>
+  preserveEffect<OrchestraRulesAddOutput>()(
+    raw["orchestra.rules.add"]({ params: { scope: input["scope"] }, payload: { text: input["text"] } }).pipe(
+      Effect.mapError(mapClientError),
+    ),
+  )
+
+const EndpointOrchestraRulesRemove = (raw: RawClient["server.orchestra"]) => (input: OrchestraRulesRemoveInput) =>
+  preserveEffect<OrchestraRulesRemoveOutput>()(
+    raw["orchestra.rules.remove"]({ params: { scope: input["scope"], id: input["id"] } }).pipe(
+      Effect.mapError(mapClientError),
+    ),
+  )
+
+const EndpointOrchestraGroupStatus = (raw: RawClient["server.orchestra"]) => (input: OrchestraGroupStatusInput) =>
+  preserveEffect<OrchestraGroupStatusOutput>()(
+    raw["orchestra.group.status"]({ params: { name: input["name"] } }).pipe(Effect.mapError(mapClientError)),
+  )
+
+const EndpointOrchestraGroupHolds = (raw: RawClient["server.orchestra"]) => () =>
+  preserveEffect<OrchestraGroupHoldsOutput>()(raw["orchestra.group.holds"]({}).pipe(Effect.mapError(mapClientError)))
+
+const EndpointOrchestraGroupHold = (raw: RawClient["server.orchestra"]) => (input: OrchestraGroupHoldInput) =>
+  preserveEffect<OrchestraGroupHoldOutput>()(
+    raw["orchestra.group.hold"]({ params: { name: input["name"] }, payload: { held: input["held"] } }).pipe(
+      Effect.mapError(mapClientError),
+    ),
+  )
+
 const EndpointOrchestraSocietyCreate = (raw: RawClient["server.orchestra"]) => (input?: OrchestraSocietyCreateInput) =>
   preserveEffect<OrchestraSocietyCreateOutput>()(
     raw["orchestra.society.create"]({
@@ -2611,6 +2657,14 @@ const adaptGroupOrchestra = (raw: RawClient["server.orchestra"]) => ({
     remove: EndpointOrchestraGroupRemove(raw),
     link: EndpointOrchestraGroupLink(raw),
     chat: EndpointOrchestraGroupChat(raw),
+    status: EndpointOrchestraGroupStatus(raw),
+    holds: EndpointOrchestraGroupHolds(raw),
+    hold: EndpointOrchestraGroupHold(raw),
+  },
+  rules: {
+    list: EndpointOrchestraRulesList(raw),
+    add: EndpointOrchestraRulesAdd(raw),
+    remove: EndpointOrchestraRulesRemove(raw),
   },
   society: { create: EndpointOrchestraSocietyCreate(raw) },
   link: { set: EndpointOrchestraLinkSet(raw), list: EndpointOrchestraLinkList(raw) },

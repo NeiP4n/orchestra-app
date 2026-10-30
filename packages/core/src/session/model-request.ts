@@ -36,6 +36,7 @@ import { Tool } from "../tool.js"
 import { ToolRouter } from "../tool/router.js"
 import { SessionAffinity } from "./affinity.js"
 import { SessionModelTransport } from "./model-transport.js"
+import { SessionContextGovernor } from "./context-governor.js"
 import { SessionPrefixPin } from "./prefix-pin.js"
 import { SessionProviderContext } from "./provider-context.js"
 import { SessionRequestReport } from "./request-report.js"
@@ -242,6 +243,7 @@ export const layer = Layer.effect(
     const transport = yield* SessionModelTransport.Service
     const app = yield* App.Metadata
     const pin = SessionPrefixPin.make()
+    const govern = SessionContextGovernor.make()
     const prepare = Effect.fn("SessionModelRequest.prepare")(function* <
       S extends SessionRequest & { tools?: Definitions },
     >(kind: SessionRequestKind, input: Input, shape: (draft: SessionRequest, tools: Definitions) => Effect.Effect<S>) {
@@ -344,6 +346,17 @@ export const layer = Layer.effect(
               messages: shaped.messages,
             })
           : shaped
+      // Experimental (ORCHESTRA_CONTEXT_GOVERNOR): old bulky tool output leaves the request, not the history.
+      const governed = SessionContextGovernor.policy()
+      const history =
+        kind === "primary" && governed
+          ? govern({
+              sessionID: session.id,
+              key: `${input.agent}\u0000${model.ref.providerID}/${model.ref.id}`,
+              messages: prefix.messages,
+              policy: governed,
+            })
+          : prefix.messages
       const base = LLM.request({
         model: model.model,
         http: {
@@ -362,7 +375,7 @@ export const layer = Layer.effect(
         // TODO: Persist cache lineage so nested forks reuse the root session's cache key.
         promptCacheKey: /^ses_[0-9a-f]{64}$/.test(affinity) ? affinity.slice(4) : affinity,
         system: [...prefix.system],
-        messages: boundImages(unsupportedParts([...prefix.messages], model.capabilities, model.model.provider)),
+        messages: boundImages(unsupportedParts([...history], model.capabilities, model.model.provider)),
         tools: Array.from(hooked, ([name, t]) => ({ ...t, name })),
         toolChoice: input.toolChoice,
         generation: Object.keys(generation).length === 0 ? undefined : generation,
