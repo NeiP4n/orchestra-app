@@ -21,8 +21,10 @@ type Shared = {
   readonly listeners: Listeners
 }
 
-// One pool per Environment, so a workspace-backed location never shares a process with the host.
-const pools = new WeakMap<Environment.Interface, Map<string, Shared>>()
+// One pool per execution plane, so a workspace-backed location never shares a process with the host. An
+// Environment is built per Location, so it cannot be the key: keying on it meant every Location had a pool of
+// its own and nothing was ever shared. The plane is the workspace the Location runs in, or "local".
+const pools = new Map<string, Map<string, Shared>>()
 
 // Locations with different working directories keep separate processes, so several of them start the same
 // `npx -y <package>` at once. npm installs into one shared cache directory per package, and concurrent
@@ -32,13 +34,17 @@ const launches = KeyedMutex.makeUnsafe<string>()
 
 /**
  * Connects an MCP server, sharing one stdio process between every Location that would spawn an
- * identical one: same Environment, command, arguments, declared environment and working directory.
- * Remote servers are connected per Location as before. A shared connection is closed when its last
- * Location releases it, or forgotten as soon as it drops so the next connect starts a fresh process.
+ * identical one: same Environment, command, arguments and declared environment. Remote servers are
+ * connected per Location as before. A shared connection is closed when its last Location releases
+ * it, or forgotten as soon as it drops so the next connect starts a fresh process.
+ *
+ * The working directory is part of the key only when the server config sets `cwd` itself (or
+ * ORCHESTRA_MCP_PER_DIRECTORY is set). A Society or a team opens a Location per project folder, and
+ * keying on the folder started a full copy of every server, each one a chain of three or four
+ * processes, per folder: dozens of copies of the same memory or browser server and a machine out of
+ * memory. Servers are tools, not project state, so one process serves them all.
  *
  * The first Location's elicitation handler and `roots/list` directory serve the shared connection.
- * Locations that need their own directory therefore keep their own process: the working directory
- * is part of the key.
  */
 export const connect = Effect.fnUntraced(function* (
   server: string,
@@ -47,22 +53,22 @@ export const connect = Effect.fnUntraced(function* (
   authProvider?: Parameters<typeof McpClient.connect>[3],
   elicitation?: Parameters<typeof McpClient.connect>[4],
   clientInfo?: Parameters<typeof McpClient.connect>[5],
+  plane = "local",
 ) {
   if (config.type !== "local")
     return yield* McpClient.connect(server, config, directory, authProvider, elicitation, clientInfo)
 
-  const environment = yield* Environment.Service
-  const plane = pools.get(environment) ?? new Map<string, Shared>()
-  pools.set(environment, plane)
+  const shares = pools.get(plane) ?? new Map<string, Shared>()
+  pools.set(plane, shares)
   const key = JSON.stringify([
     server,
     config.command,
     config.environment ?? {},
-    config.cwd ? path.resolve(directory, config.cwd) : directory,
+    config.cwd ? path.resolve(directory, config.cwd) : process.env.ORCHESTRA_MCP_PER_DIRECTORY ? directory : "",
   ])
 
-  const existing = plane.get(key)
-  const shared = existing ?? (yield* open(plane, key, server, config, directory, authProvider, elicitation, clientInfo))
+  const existing = shares.get(key)
+  const shared = existing ?? (yield* open(shares, key, server, config, directory, authProvider, elicitation, clientInfo))
   shared.users++
 
   const mine: Listeners = { close: new Set(), sessionExpired: new Set(), tools: new Set(), prompts: new Set(), resources: new Set() }
@@ -72,7 +78,7 @@ export const connect = Effect.fnUntraced(function* (
         for (const callback of mine[name] as Set<never>) (shared.listeners[name] as Set<never>).delete(callback)
       shared.users--
       if (shared.users > 0) return
-      if (plane.get(key) === shared) plane.delete(key)
+      if (shares.get(key) === shared) shares.delete(key)
       yield* Scope.close(shared.scope, Exit.void)
     }),
   )

@@ -2793,11 +2793,41 @@ test("shares one local MCP process between locations until the last one leaves",
   expect(names.a).toBeGreaterThan(0)
 })
 
-test("starts an identical local launcher one location at a time", async () => {
-  const events: string[] = []
+test("shares one local MCP process between locations in different folders, in different Environments", async () => {
+  const spawns: Array<ChildProcess.Command> = []
   const config = new ConfigMCP.Local({
     type: "local",
     command: [process.execPath, path.join(import.meta.dir, "fixture/mcp-output-schema.ts")],
+  })
+
+  const spawned = await Effect.runPromise(
+    Effect.gen(function* () {
+      const scopes = yield* Effect.forEach(Array.from({ length: 6 }), () => Scope.make())
+      // Each Location builds its own Environment, so the layer is provided per connection, as in the app.
+      yield* Effect.forEach(
+        scopes,
+        (scope, index) =>
+          McpPool.connect("shared", config, [import.meta.dir, path.join(import.meta.dir, "fixture"), path.join(import.meta.dir, "..")][index % 3]!).pipe(
+            Scope.provide(scope),
+            Effect.provide(recordingEnvironmentLayer(spawns)),
+          ),
+        { concurrency: 1 },
+      )
+      yield* Effect.forEach(scopes, (scope) => Scope.close(scope, Exit.void))
+      return spawns.length
+    }),
+  )
+
+  expect(spawned).toBe(1)
+})
+
+test("starts an identical local launcher one location at a time", async () => {
+  const events: string[] = []
+  // A server that sets its own working directory keeps one process per folder.
+  const config = new ConfigMCP.Local({
+    type: "local",
+    command: [process.execPath, path.join(import.meta.dir, "fixture/mcp-output-schema.ts")],
+    cwd: ".",
   })
   const recording = Layer.effect(
     Environment.Service,

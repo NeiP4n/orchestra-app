@@ -5,6 +5,7 @@ import { Cause, Duration, Effect, Fiber, Option, Queue, Scope, Stream } from "ef
 import { ChildProcess } from "effect/unstable/process"
 import type { ChildProcessHandle } from "effect/unstable/process/ChildProcessSpawner"
 import { Environment } from "../environment/index.js"
+import { McpReaper } from "./reaper.js"
 
 /** Mirrors StdioClientTransport: wait this long for a graceful exit after stdin closes. */
 const CLOSE_GRACE = Duration.seconds(2)
@@ -60,6 +61,11 @@ export const make = Effect.fnUntraced(function* (options: Options) {
     yield* Effect.timeoutOption(handle.exitCode, CLOSE_GRACE).pipe(Effect.ignore)
     const terminated = yield* Effect.timeoutOption(handle.kill({ killSignal: "SIGTERM" }), FORCE_KILL_AFTER)
     if (terminated._tag === "None") yield* handle.kill({ killSignal: "SIGKILL" })
+    // Windows has no process group, so the launcher's children (npx, node, python) outlive their parent.
+    yield* Effect.sync(() => {
+      McpReaper.killTree(Number(handle.pid))
+      McpReaper.untrack(Number(handle.pid))
+    })
   }, Effect.ignore())
 
   const close = () =>
@@ -81,6 +87,8 @@ export const make = Effect.fnUntraced(function* (options: Options) {
       state.phase = "starting"
       startup = Effect.runPromise(
         Effect.gen(function* () {
+          // Servers a service that died without closing them left behind are cleared before new ones start.
+          McpReaper.reap()
           const handle = yield* environment.spawner.spawn(
             ChildProcess.make(options.command, [...options.args], {
               cwd: options.cwd,
@@ -93,6 +101,7 @@ export const make = Effect.fnUntraced(function* (options: Options) {
             }),
           )
           state.handle = handle
+          McpReaper.track({ pid: Number(handle.pid), server: options.server, command: options.command })
           if (state.phase === "closed") {
             state.handle = undefined
             return yield* stop(handle)

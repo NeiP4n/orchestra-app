@@ -470,6 +470,7 @@ export const layer = (options?: Options) =>
             authProvider,
             elicitation,
             options?.clientInfo,
+            location.workspaceID ?? "local",
           ).pipe(
             Effect.flatMap((connection) => connection.tools().pipe(Effect.map((tools) => ({ connection, tools })))),
             // A stdio server is spawned on this location's execution plane, not the host's.
