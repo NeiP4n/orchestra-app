@@ -3,6 +3,7 @@ import { testRender } from "@opentui/solid"
 import { expect, test } from "bun:test"
 import { DialogConfig } from "../src/component/dialog-config"
 import { ConfigProvider } from "../src/config"
+import { ClientProvider } from "../src/context/client"
 import { ThemeProvider } from "../src/context/theme"
 import { Keymap } from "../src/context/keymap"
 import { ToastProvider } from "../src/ui/toast"
@@ -10,6 +11,22 @@ import { DialogProvider, useDialog } from "../src/ui/dialog"
 import { emptyThemeSource } from "./fixture/fixture"
 import { TestTuiContexts } from "./fixture/tui-environment"
 import { createTuiResolvedConfig } from "./fixture/tui-runtime"
+import { createApi, createEventStream, createFetch, json } from "./fixture/tui-client"
+
+type Call = { method: string; path: string; body?: unknown }
+
+// The settings dialog also reads and writes the server's own config.
+const serverApi = (calls: Call[] = [], governor?: boolean) =>
+  createApi(
+    createFetch(async (url, request) => {
+      if (url.pathname === "/api/config")
+        return json(governor === undefined ? [] : [{ type: "document", info: { experimental: { context_governor: governor } } }])
+      if (url.pathname === "/api/experimental/config") {
+        calls.push({ method: request.method, path: url.pathname, body: await request.json() })
+        return new Response(null, { status: 204 })
+      }
+    }, createEventStream()).fetch,
+  )
 
 test("DialogConfig sets dialog size to large and renders categorized navigation bar", async () => {
   let dialogContext: ReturnType<typeof useDialog> | undefined
@@ -23,15 +40,17 @@ test("DialogConfig sets dialog size to large and renders categorized navigation 
     () => (
       <TestTuiContexts>
         <ConfigProvider config={createTuiResolvedConfig({ theme: { name: "opencode", mode: "dark" } })}>
-          <ThemeProvider mode="dark" source={emptyThemeSource}>
-            <Keymap.Provider>
-              <ToastProvider>
-                <DialogProvider>
-                  <Harness />
-                </DialogProvider>
-              </ToastProvider>
-            </Keymap.Provider>
-          </ThemeProvider>
+          <ClientProvider api={serverApi()}>
+            <ThemeProvider mode="dark" source={emptyThemeSource}>
+              <Keymap.Provider>
+                <ToastProvider>
+                  <DialogProvider>
+                    <Harness />
+                  </DialogProvider>
+                </ToastProvider>
+              </Keymap.Provider>
+            </ThemeProvider>
+          </ClientProvider>
         </ConfigProvider>
       </TestTuiContexts>
     ),
@@ -60,15 +79,17 @@ test("DialogConfig category tabs filter the visible options when clicked", async
     () => (
       <TestTuiContexts>
         <ConfigProvider config={createTuiResolvedConfig({ theme: { name: "opencode", mode: "dark" } })}>
-          <ThemeProvider mode="dark" source={emptyThemeSource}>
-            <Keymap.Provider>
-              <ToastProvider>
-                <DialogProvider>
-                  <DialogConfig />
-                </DialogProvider>
-              </ToastProvider>
-            </Keymap.Provider>
-          </ThemeProvider>
+          <ClientProvider api={serverApi()}>
+            <ThemeProvider mode="dark" source={emptyThemeSource}>
+              <Keymap.Provider>
+                <ToastProvider>
+                  <DialogProvider>
+                    <DialogConfig />
+                  </DialogProvider>
+                </ToastProvider>
+              </Keymap.Provider>
+            </ThemeProvider>
+          </ClientProvider>
         </ConfigProvider>
       </TestTuiContexts>
     ),
@@ -92,4 +113,36 @@ test("DialogConfig category tabs filter the visible options when clicked", async
   expect(filteredFrame).toContain("Animations")
   expect(filteredFrame).toContain("Mascot")
   expect(filteredFrame).not.toContain("AI language")
+})
+
+test("the Context governor setting is a button that writes the server's config", async () => {
+  const calls: Call[] = []
+  const app = await testRender(
+    () => (
+      <TestTuiContexts>
+        <ConfigProvider config={createTuiResolvedConfig({ theme: { name: "opencode", mode: "dark" } })}>
+          <ClientProvider api={serverApi(calls, false)}>
+            <ThemeProvider mode="dark" source={emptyThemeSource}>
+              <Keymap.Provider>
+                <ToastProvider>
+                  <DialogProvider>
+                    <DialogConfig />
+                  </DialogProvider>
+                </ToastProvider>
+              </Keymap.Provider>
+            </ThemeProvider>
+          </ClientProvider>
+        </ConfigProvider>
+      </TestTuiContexts>
+    ),
+    { width: 120, height: 45 },
+  )
+  app.renderer.start()
+  await app.waitForFrame((frame) => frame.includes("Context governor"))
+
+  const lines = app.captureCharFrame().split("\n")
+  const row = lines.findIndex((line) => line.includes("Context governor"))
+  await app.mockMouse.click(lines[row].indexOf("Context governor") + 2, row)
+  await app.waitFor(() => calls.length > 0)
+  expect(calls).toEqual([{ method: "PATCH", path: "/api/experimental/config", body: { contextGovernor: true } }])
 })

@@ -1,5 +1,6 @@
 import { render, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { registerOrchestraSpinner } from "./component/register-spinner"
+import { setMaxListeners } from "node:events"
 import { Effect, Latch } from "effect"
 import { Service, type Endpoint } from "@orchestra/client/effect/service"
 import { OpenCode, type SessionInfo } from "@orchestra/client"
@@ -301,6 +302,25 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
       // room and mascot panels push a normal screen past upstream's 15. The budget still
       // catches a real leak, which grows without bound.
       renderer.setMaxListeners(32)
+      process.stdin?.setMaxListeners?.(64)
+      // Societies and long sessions keep dozens of streams, timers and subscriptions alive at once, so the
+      // default budget of ten listeners per emitter is crossed by ordinary use, not by a leak. Raise it for
+      // every emitter created from here on.
+      setMaxListeners(128)
+      // A process warning is written to stderr, which is the terminal the interface is drawing on: it lands
+      // in the middle of the screen and garbles it. While the interface owns the terminal, warnings go to
+      // the log instead.
+      const emitWarning = process.emitWarning
+      process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
+        const first = rest[0]
+        const kind = typeof warning === "string" ? (typeof first === "string" ? first : (first as { type?: string })?.type) : warning.name
+        log("warn", "Process warning", { warning: typeof warning === "string" ? warning : warning.message, kind })
+      }) as typeof process.emitWarning
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          process.emitWarning = emitWarning
+        }),
+      )
       if (basicSymbolsNeeded()) renderer.addPostProcessFn(replaceMissingGlyphs)
       const clipboard = yield* Effect.acquireRelease(
         Effect.sync(() => createTuiClipboard(renderer)),

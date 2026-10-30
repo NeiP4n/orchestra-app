@@ -1,7 +1,8 @@
-import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js"
+import { createMemo, createResource, createSignal, onCleanup, onMount, Show } from "solid-js"
 import { TextAttributes } from "@opentui/core"
 import { useDialog } from "../ui/dialog"
 import { useConfig } from "../config"
+import { useClient } from "../context/client"
 import { useTheme, useThemes } from "../context/theme"
 import { DialogSelect } from "../ui/dialog-select"
 import { useToast } from "../ui/toast"
@@ -22,6 +23,11 @@ type Setting = {
   max?: number
   format?: (value: unknown) => string
   keywords?: readonly string[]
+  // Lives in the server's config, not the interface's: read from its config entries and written through its API.
+  remote?: {
+    read: (entries: readonly any[]) => unknown
+    write: (client: ReturnType<typeof useClient>, value: unknown) => Promise<unknown>
+  }
 }
 
 const toggle = { values: [false, true], labels: ["off", "on"] } as const
@@ -100,7 +106,7 @@ export const settings: Setting[] = [
     category: "Appearance",
     description: "The Orchestra mascot beside the prompt",
     path: ["mascot"],
-    default: false,
+    default: true,
     ...toggle,
     keywords: ["character", "sprite"],
   },
@@ -148,6 +154,22 @@ export const settings: Setting[] = [
     default: true,
     ...toggle,
     keywords: ["auto compact", "summarize", "context", "compaction", "compress"],
+  },
+  {
+    title: "Context governor",
+    category: "Agent",
+    description:
+      "Experimental: leave old, bulky tool output out of requests to save tokens. The saved conversation keeps everything",
+    path: ["experimental", "context_governor"],
+    default: false,
+    ...toggle,
+    keywords: ["tokens", "context", "cost", "save", "experimental", "токены", "контекст", "экономия"],
+    remote: {
+      read: (entries) =>
+        entries.findLast((entry) => entry?.type === "document" && entry.info?.experimental?.context_governor !== undefined)
+          ?.info.experimental.context_governor,
+      write: (client, value) => client.api.config.update({ contextGovernor: value === undefined ? null : Boolean(value) }),
+    },
   },
   {
     title: "Tabs",
@@ -229,8 +251,10 @@ export function settingID(setting: Setting) {
 
 export function DialogConfig(props: { current?: string }) {
   const config = useConfig()
+  const client = useClient()
   const toast = useToast()
   const themes = useThemes()
+  const [remote, { refetch }] = createResource(() => client.api.config.get().catch(() => undefined))
   const theme = useTheme().surface("dialog")
   const dialog = useDialog()
   const t = useT()
@@ -267,7 +291,9 @@ export function DialogConfig(props: { current?: string }) {
   onCleanup(() => clearTimeout(settle))
 
   const stored = (setting: Setting) =>
-    setting.path.reduce<unknown>((result, key) => {
+    setting.remote
+      ? setting.remote.read(Array.isArray(remote()) ? (remote() as any[]) : [])
+      : setting.path.reduce<unknown>((result, key) => {
       if (!result || typeof result !== "object") return undefined
       return (result as Record<string, unknown>)[key]
     }, config.data)
@@ -310,15 +336,16 @@ export function DialogConfig(props: { current?: string }) {
   async function write(next: unknown, index: number) {
     const setting = settings[index]
     setSaving(true)
-    await config
-      .update((draft) => {
+    await (setting.remote
+      ? setting.remote.write(client, next).then(() => refetch())
+      : config.update((draft) => {
         const parent = setting.path.slice(0, -1).reduce<Record<string, unknown>>((result, key) => {
           if (!result[key] || typeof result[key] !== "object") result[key] = {}
           return result[key] as Record<string, unknown>
         }, draft)
         if (next === undefined) delete parent[setting.path.at(-1)!]
         else parent[setting.path.at(-1)!] = next
-      })
+      }))
       .then(() => {
         setVibrating(true)
         clearTimeout(settle)

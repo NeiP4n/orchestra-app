@@ -1,5 +1,5 @@
 import type { RGBA } from "@opentui/core"
-import { createEffect, createMemo, createSignal, For, on, onCleanup } from "solid-js"
+import { createEffect, createMemo, createSignal, Index, on, onCleanup } from "solid-js"
 import { useTheme } from "../context/theme"
 import { useConfig } from "../config"
 import { tint } from "../theme/color"
@@ -50,16 +50,22 @@ export function Mascot(props: { state: MascotState; backdrop: RGBA }) {
     setElapsed(0)
     if (config.animations === false) return
     const start = performance.now()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let disposed = false
     const schedule = (delay: number) => {
-      const timer = setTimeout(() => {
+      timer = setTimeout(() => {
+        if (disposed) return
         const t = performance.now() - start
         if ((current === "done" || current === "poke") && t >= HOP) return setHop(undefined)
         setElapsed(t)
         schedule(mascotPose(current, t).hold)
       }, delay)
-      onCleanup(() => clearTimeout(timer))
     }
     schedule(mascotPose(current, 0).hold)
+    onCleanup(() => {
+      disposed = true
+      if (timer !== undefined) clearTimeout(timer)
+    })
   })
 
   const pose = createMemo(() => mascotPose(mood(), elapsed()).pose, undefined, {
@@ -83,17 +89,17 @@ export function Mascot(props: { state: MascotState; backdrop: RGBA }) {
     >
       {/* Every cell is the same glyph with both colours set: changing glyphs or clearing a
           background between frames can leave stale halves on screen. */}
-      <For each={cells()}>
+      <Index each={cells()}>
         {(row) => (
           <text selectable={false}>
-            <For each={row}>
+            <Index each={row()}>
               {(cell) => (
-                <span style={{ fg: cell.top ?? props.backdrop, bg: cell.bottom ?? props.backdrop }}>▀</span>
+                <span style={{ fg: cell().top ?? props.backdrop, bg: cell().bottom ?? props.backdrop }}>▀</span>
               )}
-            </For>
+            </Index>
           </text>
         )}
-      </For>
+      </Index>
     </box>
   )
 }

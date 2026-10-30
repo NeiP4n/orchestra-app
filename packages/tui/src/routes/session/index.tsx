@@ -3849,9 +3849,16 @@ function ApplyPatch(props: ToolProps) {
 
 function Question(props: ToolProps) {
   const theme = useTheme()
+  const t = useT()
   const questions = createMemo(() => parseQuestions(props.input.questions))
   const answers = createMemo(() => parseQuestionAnswers(props.metadata.answers))
   const count = createMemo(() => questions().length)
+  // An AI answered on the operator's behalf (the project's Orchestrator, for a blocked worker): say who and why.
+  const decided = createMemo(() => {
+    const by = recordValue(props.metadata.answeredBy)
+    const name = stringValue(by?.by)
+    return name ? { name, reason: stringValue(by?.reason) } : undefined
+  })
 
   function format(answer?: ReadonlyArray<string>) {
     if (!answer?.length) return "(no answer)"
@@ -3871,6 +3878,20 @@ function Question(props: ToolProps) {
                 </box>
               )}
             </For>
+            <Show when={decided()}>
+              {(decision) => (
+                <box flexDirection="column" border={["left"]} borderColor={neuralPalette(theme).synapse} paddingLeft={1}>
+                  <text fg={neuralPalette(theme).synapse} attributes={TextAttributes.BOLD}>
+                    {`⚖ ${t("Decided by")} ${decision().name}`}
+                  </text>
+                  <Show when={decision().reason}>
+                    <text fg={theme.text.muted} wrapMode="word">
+                      {decision().reason}
+                    </text>
+                  </Show>
+                </box>
+              )}
+            </Show>
           </box>
         </BlockTool>
       </Match>

@@ -183,6 +183,9 @@ export function createFetch(override?: FetchHandler, events?: ReturnType<typeof 
     if (/^\/api\/orchestra\/project\/[^/]+\/session$/.test(url.pathname))
       return json({ data: [], access: {}, category: {} })
     if (url.pathname === "/api/orchestra/group") return json([])
+    // The Societies whose AIs are held: none in the test project.
+    if (url.pathname === "/api/orchestra/hold") return json([])
+    if (/^\/api\/orchestra\/group\/[^/]+\/status$/.test(url.pathname)) return json({ held: false, projects: [] })
     if (url.pathname === "/api/orchestra/owner") return json({})
     // Other agent tools' folders (/compat): none in the test project.
     if (url.pathname === "/api/config/compatibility" && request.method === "GET")

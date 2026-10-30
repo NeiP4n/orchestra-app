@@ -813,6 +813,17 @@ const ru: Record<string, string> = {
   "Transcript images": "Картинки в чате",
   TPS: "Токенов/с",
   Scrollbar: "Полоса прокрутки",
+  "Context governor": "Регулятор контекста",
+  "Experimental: leave old, bulky tool output out of requests to save tokens. The saved conversation keeps everything":
+    "Эксперимент: не отправлять в запросах старые тяжёлые результаты инструментов, чтобы экономить токены. Сохранённая история остаётся целой",
+  "Decided by": "Решил",
+  held: "пауза",
+  "New rule": "Новое правило",
+  "Delete rule": "Удалить правило",
+  "Add a rule": "Добавить правило",
+  "One short sentence every AI of this crew must follow": "Одно короткое предложение, которому следует каждый ИИ этой команды",
+  "The AIs of this crew follow it from their next request": "ИИ этой команды следуют ему со следующего запроса",
+  "AIs held — click to resume": "ИИ на паузе — нажми, чтобы запустить",
   "Auto-compact": "Авто-компрессия",
   "Compress the conversation automatically when it nears the context limit":
     "Автоматически сжимать диалог, когда он приближается к лимиту контекста",

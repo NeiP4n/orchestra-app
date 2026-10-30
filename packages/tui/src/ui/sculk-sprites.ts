@@ -37,15 +37,15 @@ export const SCULK_SPRITE_CELL_HEIGHT = 5 // 5 text rows * 2 vertical pixels = 1
 
 // ============================================================================
 // 1. SCULK SENSOR (Сенсор скалка)
-// Base block of catalyst stone with bone rim and 4 waving cyan tendrils on top.
+// Dark sculk block with a teal rim and waving cyan tendrils on top. No bone ivory: that is the catalyst's.
 // ============================================================================
 const SENSOR_IDLE_0 = [
   "..C....C....", // Tendril tips
   "..C....C....",
   ".MC....MC...",
   ".TC....TC...",
-  "YYYYYYYYYYYY", // Bone rim
-  "YWWWWWWWWWWY",
+  "MMMMMMMMMMMM", // Teal rim
+  "MSSSSSSSSSSM",
   "BBBBBBBBBBBB", // Sculk block base
   "BBDDBBBBDDBB",
   "BBBBBBBBBBBB",
@@ -57,8 +57,8 @@ const SENSOR_VIBRATE_1 = [
   ".CC....CC...",
   ".GC....GC...",
   "TTC....TTC..",
-  "YYYYYYYYYYYY",
-  "YWWWWWWWWWWY",
+  "MMMMMMMMMMMM",
+  "MSSSSSSSSSSM",
   "BBCCBBBBCCBB", // Base resonance veins lighting up!
   "BBDDBBBBDDBB",
   "BBBBBBBBBBBB",
@@ -70,8 +70,8 @@ const SENSOR_VIBRATE_2 = [
   "..CC..CC....",
   "..GC..GC....",
   ".TTC..TTC...",
-  "YYYYYYYYYYYY",
-  "YWWGGGGGGWWY", // Rim glowing
+  "MMMMMMMMMMMM",
+  "MSSGGGGGGSSM", // Rim glowing
   "BBDDBBBBDDBB",
   "BBBBBBBBBBBB",
   "BBBBBBBBBBBB",
@@ -83,8 +83,8 @@ const SENSOR_VIBRATE_3 = [
   "..CC....CC..",
   ".MCC....MCC.",
   ".TC......TC.",
-  "YYYYYYYYYYYY",
-  "YWWWWWWWWWWY",
+  "MMMMMMMMMMMM",
+  "MSSSSSSSSSSM",
   "BBBBBBBBBBBB",
   "BBDDBBBBDDBB",
   "BBBBBBBBBBBB",

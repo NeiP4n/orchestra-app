@@ -36,55 +36,55 @@ export function Dialog(
   return (
     <ThemeContextProvider context="dialog">
       <box
-      onMouseDown={() => {
-        backdropPressed = true
-        dismiss = !!renderer.getSelection()
-      }}
-      onMouseUp={() => {
-        if (!backdropPressed) {
-          dismiss = false
-          return
-        }
-        backdropPressed = false
-        if (dismiss) {
-          dismiss = false
-          return
-        }
-        props.onClose?.()
-      }}
-      width={dimensions().width}
-      height={dimensions().height}
-      alignItems="center"
-      justifyContent={props.centered ? "center" : undefined}
-      position="absolute"
-      zIndex={3000}
-      paddingTop={props.centered ? 0 : dimensions().height / 4}
-      left={0}
-      top={0}
-      backgroundColor={RGBA.fromInts(0, 0, 0, 150)}
-    >
-      <box
-        onMouseDown={(e: { stopPropagation(): void }) => {
-          // A click inside the content is never a backdrop click. This also handles a dialog
-          // mounted by a mouse-down event whose original pointer press began outside it.
-          backdropPressed = false
-          e.stopPropagation()
+        onMouseDown={() => {
+          backdropPressed = true
+          dismiss = !!renderer.getSelection()
         }}
-        onMouseUp={(e: { stopPropagation(): void }) => {
-          // Reset before checking selection. A selection release must bubble up to the
-          // copy-on-select handler in DialogProvider, but never dismiss this dialog.
+        onMouseUp={() => {
+          if (!backdropPressed) {
+            dismiss = false
+            return
+          }
           backdropPressed = false
-          if (renderer.getSelection()?.getSelectedText()) return
-          dismiss = false
-          e.stopPropagation()
+          if (dismiss) {
+            dismiss = false
+            return
+          }
+          props.onClose?.()
         }}
-        width={dialogWidth(props.size ?? "medium")}
-        maxWidth={dimensions().width - 2}
-        backgroundColor={theme.background.base}
-        paddingTop={1}
+        width={dimensions().width}
+        height={dimensions().height}
+        alignItems="center"
+        justifyContent={props.centered ? "center" : undefined}
+        position="absolute"
+        zIndex={3000}
+        paddingTop={props.centered ? 0 : dimensions().height / 4}
+        left={0}
+        top={0}
+        backgroundColor={RGBA.fromValues(theme.background.base.r, theme.background.base.g, theme.background.base.b, 0.6)}
       >
-        {props.children}
-      </box>
+        <box
+          onMouseDown={(e: { stopPropagation(): void }) => {
+            // A click inside the content is never a backdrop click. This also handles a dialog
+            // mounted by a mouse-down event whose original pointer press began outside it.
+            backdropPressed = false
+            e.stopPropagation()
+          }}
+          onMouseUp={(e: { stopPropagation(): void }) => {
+            // Reset before checking selection. A selection release must bubble up to the
+            // copy-on-select handler in DialogProvider, but never dismiss this dialog.
+            backdropPressed = false
+            if (renderer.getSelection()?.getSelectedText()) return
+            dismiss = false
+            e.stopPropagation()
+          }}
+          width={dialogWidth(props.size ?? "medium")}
+          maxWidth={dimensions().width - 2}
+          backgroundColor={theme.background.base}
+          paddingTop={1}
+        >
+          {props.children}
+        </box>
       </box>
     </ThemeContextProvider>
   )

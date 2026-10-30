@@ -218,6 +218,13 @@ describe("rendering", () => {
     expect(wrap("日本語日本語", 6)).toEqual(["日本語", "日本語"])
   })
 
+  test("the option the model recommends is starred, the others are not", () => {
+    const drawn = text(widget("@ui choice Which database?\n- SQLite (recommended) | one file, no server\n- Postgres | a server to run\n- MySQL\n- Something else\n@end"), "idle", 60)
+    const lines = drawn.split("\n")
+    expect(lines.find((line) => line.includes("SQLite"))).toContain("★")
+    expect(lines.filter((line) => line.includes("★"))).toHaveLength(1)
+  })
+
   test("table cells wrap instead of being cut with an ellipsis", () => {
     const status = "Реализован и верифицирован (>25k tok/s, Shannon H, Budget Control)"
     const w = widget(`@ui table Статус\ncols: компонент | статус\n- DeepSeek Dual-Stream Harness | ${status}\n- Integration Matrix & HUD | 37/37 PASS\n@end`)

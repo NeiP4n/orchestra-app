@@ -14,6 +14,7 @@ export function PromptMetadataRow(props: {
   variant?: string
   workMode?: string
   onModeClick?: () => void
+  onAgentClick?: () => void
   muted: boolean
   highlight: RGBA
   agentAlpha: number
@@ -44,9 +45,18 @@ export function PromptMetadataRow(props: {
       >
         <Show when={layout().agent}>
           {(agent) => (
-            <text flexShrink={0} wrapMode="none" fg={fade(props.highlight, props.agentAlpha)}>
-              {agent()}
-            </text>
+            <box
+              flexShrink={0}
+              onMouseDown={(event: { stopPropagation(): void }) => {
+                if (props.mode !== "normal") return
+                event.stopPropagation()
+                props.onAgentClick?.()
+              }}
+            >
+              <text flexShrink={0} wrapMode="none" fg={fade(props.highlight, props.agentAlpha)}>
+                {agent()}
+              </text>
+            </box>
           )}
         </Show>
         <Show when={props.mode === "normal" && layout().auto}>

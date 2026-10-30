@@ -98,6 +98,17 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
       .finally(() => setOpeningGroup(undefined))
   }
+  // Societies whose AIs are held: none of their sessions runs until the operator releases them. The server holds
+  // every Society when it starts, so nothing begins working by itself.
+  const [holds, { refetch: refreshHolds }] = createResource(() =>
+    client.api.orchestra.group.holds().catch(() => [] as string[]),
+  )
+  const held = (name: string) => (holds.latest ?? []).includes(name)
+  const toggleHold = (name: string) =>
+    void client.api.orchestra.group
+      .hold({ name, held: !held(name) })
+      .then(() => refreshHolds())
+      .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
   // Groups first, each with the projects it holds; a project in several groups appears in the first only.
   // Projects in no group follow without a heading.
   const sections = createMemo(() => {
@@ -130,6 +141,22 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       },
     ]
   })
+  const isSociety = (section: { name?: string; supervisor?: string; chat?: string }) =>
+    section.name !== undefined && section.supervisor !== undefined && section.chat === t("Society")
+  // A Society is a crew of several projects and stays folded until opened, so two of them do not bury the
+  // panel; the one holding the open session is shown unfolded.
+  const closed = (section: { name?: string; supervisor?: string; chat?: string; projects: readonly OrchestraProject[] }) => {
+    if (!section.name) return false
+    const chosen = groupClosed[section.name]
+    if (chosen !== undefined) return chosen
+    if (!isSociety(section)) return false
+    const open = current()?.id
+    return !(
+      open !== undefined &&
+      (section.supervisor === open ||
+        section.projects.some((project) => project.main === open || sessionsOf(project).some((session) => session.id === open)))
+    )
+  }
   const [joined, updateJoined] = useJoinedRooms()
   const [expanded, setExpanded] = createStore<Record<string, boolean>>({})
   const [access, setAccess] = createStore<Record<string, OrchestraAccess>>({})
@@ -387,6 +414,21 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           !session.parentID && !removed[session.id] && session.id !== project.main && owner(session)?.id === project.id,
       )
 
+  // A chat the AI is waiting on: a pending question or permission request, subagents included.
+  // Only running sessions can ask, so those are the ones worth syncing.
+  const waiting = createMemo(
+    () =>
+      new Set([...data.session.permission.sessions(), ...data.session.form.sessions()].map((id) => data.session.root(id))),
+  )
+  createEffect(() =>
+    data.session.active().forEach((id) => {
+      void data.session.permission.sync(id).catch(() => undefined)
+      void data.session.form.sync(id).catch(() => undefined)
+    }),
+  )
+  const projectWaiting = (project: OrchestraProject) =>
+    [project.main, ...sessionsOf(project).map((session) => session.id)].some((id) => id !== undefined && waiting().has(id))
+
   const thinking = (project: OrchestraProject) =>
     [project.main, ...sessionsOf(project).map((session) => session.id)].some(
       (id) => id !== undefined && data.session.status(id) === "running",
@@ -483,10 +525,10 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                     id={`group:${section.name}`}
                     hover={hover}
                     setHover={setHover}
-                    onClick={() => setGroupClosed(section.name!, !groupClosed[section.name!])}
+                    onClick={() => setGroupClosed(section.name!, !closed(section))}
                   >
                     <text flexShrink={0} fg={theme.text.muted}>
-                      {groupClosed[section.name!] ? "▸ " : "▾ "}
+                      {closed(section) ? "▸ " : "▾ "}
                     </text>
                     <box flexGrow={1} minWidth={0}>
                       <text fg={theme.text.muted} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
@@ -494,6 +536,22 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                         <span style={{ fg: theme.text.muted }}>{` · ${section.projects.length}`}</span>
                       </text>
                     </box>
+                    {/* The switch that keeps a Society's AIs from working: held, none of its sessions starts. */}
+                    <Show when={isSociety(section)}>
+                      <HoverAction
+                        id={`group-hold:${section.name}`}
+                        onMouseEnter={() => setHover(`group:${section.name}`)}
+                        onMouseLeave={() => setHover(`group:${section.name}`)}
+                        onClick={() => toggleHold(section.name!)}
+                      >
+                        <text
+                          fg={held(section.name!) ? theme.text.feedback.warning.base : theme.text.muted}
+                          attributes={held(section.name!) ? TextAttributes.BOLD : undefined}
+                        >
+                          {held(section.name!) ? ` ⏸ ${t("held")} ` : " ⏸ "}
+                        </text>
+                      </HoverAction>
+                    </Show>
                     <HoverAction
                       id={`group-edit:${section.name}`}
                       onMouseEnter={() => setHover(`group:${section.name}`)}
@@ -506,7 +564,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                     </HoverAction>
                   </Row>
                 </Show>
-                <Show when={!section.name || !groupClosed[section.name]}>
+                <Show when={!section.name || !closed(section)}>
                   {/* The group's own chat lives outside every project, so the group is the only
                       place the left panel can show it. */}
                   <Show when={section.supervisor}>
@@ -570,6 +628,12 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                       {project.name}
                     </text>
                   </box>
+                  {/* Visible while the project is collapsed, so a question is never hidden in a folded tree. */}
+                  <Show when={projectWaiting(project)}>
+                    <text flexShrink={0} fg={theme.text.feedback.warning.base} attributes={TextAttributes.BOLD}>
+                      {" ? "}
+                    </text>
+                  </Show>
                   <HoverAction
                     id={`project-edit:${project.id}`}
                     onMouseEnter={() => setHover(project.id)}
@@ -592,8 +656,13 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                     <text flexShrink={0} fg={palette().spark}>
                       {"★ "}
                     </text>
-                    <text fg={theme.text.base} wrapMode="none" truncate>
-                      {t("Orchestrator")}
+                    <text
+                      fg={project.main !== undefined && waiting().has(project.main) ? theme.text.feedback.warning.base : theme.text.base}
+                      attributes={project.main !== undefined && waiting().has(project.main) ? TextAttributes.BOLD : undefined}
+                      wrapMode="none"
+                      truncate
+                    >
+                      {project.main !== undefined && waiting().has(project.main) ? `? ${t("Orchestrator")}` : t("Orchestrator")}
                     </text>
                   </Row>
                   <For each={groupsOf(project)}>
@@ -619,18 +688,32 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                               <Branch lit={session.id === current()?.id || hover() === session.id} />
                               {/* A working session is a firing neuron. */}
                               <Show
-                                when={data.session.status(session.id) === "running"}
+                                when={waiting().has(session.id)}
                                 fallback={
-                                  <text flexShrink={0} fg={hover() === session.id ? palette().synapse : theme.text.muted}>
-                                    ○
-                                  </text>
+                                  <Show
+                                    when={data.session.status(session.id) === "running"}
+                                    fallback={
+                                      <text flexShrink={0} fg={hover() === session.id ? palette().synapse : theme.text.muted}>
+                                        ○
+                                      </text>
+                                    }
+                                  >
+                                    <NeuronDot energy={0.9} />
+                                  </Show>
                                 }
                               >
-                                <NeuronDot energy={0.9} />
+                                <text flexShrink={0} fg={theme.text.feedback.warning.base} attributes={TextAttributes.BOLD}>
+                                  ?
+                                </text>
                               </Show>
                               <text flexShrink={0}> </text>
                               <box flexGrow={1} minWidth={0}>
-                                <text fg={theme.text.base} wrapMode="none" truncate>
+                                <text
+                                  fg={waiting().has(session.id) ? theme.text.feedback.warning.base : theme.text.base}
+                                  attributes={waiting().has(session.id) ? TextAttributes.BOLD : undefined}
+                                  wrapMode="none"
+                                  truncate
+                                >
                                   {`${shared().has(session.id) ? "⇄ " : ""}${session.title || t("Untitled")}`}
                                 </text>
                               </box>

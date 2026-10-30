@@ -3,7 +3,12 @@ import { expect, test } from "bun:test"
 import { testRender } from "@opentui/solid"
 import { DialogGroups } from "../../src/component/dialog-groups"
 import { ConfigProvider } from "../../src/config"
+import { ArgsProvider } from "../../src/context/args"
 import { ClientProvider } from "../../src/context/client"
+import { DataProvider } from "../../src/context/data"
+import { LocalProvider } from "../../src/context/local"
+import { LocationProvider } from "../../src/context/location"
+import { PermissionProvider } from "../../src/context/permission"
 import { Keymap } from "../../src/context/keymap"
 import { ProjectsProvider } from "../../src/context/projects"
 import { RouteProvider } from "../../src/context/route"
@@ -43,7 +48,17 @@ async function renderDialog(onRequest: FetchHandler) {
                 <ClientProvider api={createApi(createFetch(onRequest).fetch)}>
                   <ProjectsProvider>
                     <ThemeProvider mode="dark" source={emptyThemeSource}>
-                      <DialogGroups />
+                      <ArgsProvider>
+                        <DataProvider directory={directory}>
+                          <LocationProvider>
+                            <PermissionProvider>
+                              <LocalProvider>
+                                <DialogGroups />
+                              </LocalProvider>
+                            </PermissionProvider>
+                          </LocationProvider>
+                        </DataProvider>
+                      </ArgsProvider>
                     </ThemeProvider>
                   </ProjectsProvider>
                 </ClientProvider>

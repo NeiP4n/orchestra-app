@@ -13,6 +13,7 @@ import { getScrollAcceleration } from "../util/scroll"
 import { useConfig } from "../config"
 import { moveSelection, reconcileSelection } from "./select-controller"
 import { useT } from "../util/i18n"
+import { Spinner } from "../component/spinner"
 
 export interface DialogSelectProps<T> {
   title: string
@@ -21,6 +22,9 @@ export interface DialogSelectProps<T> {
   footer?: JSX.Element
   emptyView?: JSX.Element
   noMatchView?: JSX.Element
+  loading?: boolean
+  error?: Error | string | null
+  onRetry?: () => void
   options: DialogSelectOption<T>[]
   flat?: boolean
   filterThreshold?: number
@@ -45,6 +49,8 @@ export interface DialogSelectProps<T> {
   focusTarget?: T
   focusCurrent?: boolean
   sectionNavigation?: boolean
+  // For long, sectioned lists: let the list use most of the screen instead of half of it.
+  tall?: boolean
 }
 
 type DialogSelectActionBase<T> = {
@@ -120,6 +126,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   const actionFocused = createMemo(() => focusedAction() !== undefined)
   let selection: { value: T; category?: string } | undefined
   let resetSelection = false
+  let pressed: T | undefined
   let pendingScroll: (() => void) | undefined
 
   function scrollAfterLayout(center: boolean, value: T) {
@@ -232,6 +239,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   })
 
   const rows = createMemo(() => {
+    if (props.loading || props.error) return 4
     const headers = grouped().reduce((acc, [category], i) => {
       if (!category) return acc
       return acc + (i > 0 ? 2 : 1)
@@ -240,7 +248,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   })
 
   const dimensions = useTerminalDimensions()
-  const height = createMemo(() => Math.min(rows(), Math.floor(dimensions().height / 2) - 6))
+  const height = createMemo(() =>
+    Math.min(rows(), props.tall ? Math.floor((dimensions().height * 3) / 4) - 10 : Math.floor(dimensions().height / 2) - 6),
+  )
 
   const selected = createMemo(() => flat()[store.selected])
 
@@ -361,13 +371,13 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   )
 
   function move(direction: number) {
-    if (props.locked) return
+    if (props.locked || props.loading || props.error) return
     if (flat().length === 0) return
     moveTo(moveSelection(store.selected, { count: flat().length, delta: direction, policy: "wrap" }), true)
   }
 
   function moveSection(direction: 1 | -1) {
-    if (props.locked) return
+    if (props.locked || props.loading || props.error) return
     const sections = grouped().filter(([_, options]) => options.length > 0)
     if (sections.length === 0) return
     const current = sections.findIndex(([category]) => category === selected()?.category)
@@ -421,7 +431,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   }
 
   function submit() {
-    if (props.locked) return
+    if (props.locked || props.loading || props.error) return
     const index = focusedAction()
     if (index !== undefined) {
       trigger(actionItems()[index])
@@ -467,6 +477,38 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           },
         },
         {
+          bind: "ctrl+k",
+          title: "Previous item (vim)",
+          group: "Dialog",
+          run() {
+            move(-1)
+          },
+        },
+        {
+          bind: "ctrl+j",
+          title: "Next item (vim)",
+          group: "Dialog",
+          run() {
+            move(1)
+          },
+        },
+        ...(props.renderFilter === false
+          ? [
+              {
+                bind: "k",
+                title: "Previous item (k)",
+                group: "Dialog",
+                run: () => move(-1),
+              },
+              {
+                bind: "j",
+                title: "Next item (j)",
+                group: "Dialog",
+                run: () => move(1),
+              },
+            ]
+          : []),
+        {
           id: "dialog.select.page_up",
           title: "Page up",
           group: "Dialog",
@@ -506,6 +548,16 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           group: "Dialog",
           run: submit,
         },
+        ...(props.error && props.onRetry
+          ? [
+              {
+                bind: "ctrl+r",
+                title: "Retry",
+                group: "Dialog",
+                run: () => props.onRetry?.(),
+              },
+            ]
+          : []),
         ...visible.map((item) => ({
           id: item.command,
           title: item.title,
@@ -628,12 +680,14 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   function FooterAction(action: { item: VisibleAction }) {
     if (!isActionItem(action.item))
       return (
-        <text>
-          <span style={{ fg: theme.text.base }}>
-            <b>{action.item.title}</b>{" "}
-          </span>
-          <span style={{ fg: theme.text.muted }}>{action.item.label}</span>
-        </text>
+        <box flexDirection="row" gap={1} alignItems="center">
+          <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
+            {action.item.title}
+          </text>
+          <box backgroundColor={theme.background.raised.base} paddingLeft={1} paddingRight={1}>
+            <text fg={theme.text.muted}>{action.item.label}</text>
+          </box>
+        </box>
       )
     const item = action.item
     const active = createMemo(() => isActionFocused(item))
@@ -641,7 +695,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     return (
       <box
         flexDirection="row"
-        backgroundColor={active() ? theme.background.action.primary.focused : RGBA.fromInts(0, 0, 0, 0)}
+        gap={1}
+        alignItems="center"
+        backgroundColor={active() ? theme.background.action.primary.focused : theme.background.action.primary.base}
         onMouseUp={() => trigger(item)}
       >
         <text
@@ -656,17 +712,23 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
         >
           {item.title}
         </text>
-        <text
-          fg={
-            disabled()
-              ? theme.text.action.primary.disabled
-              : active()
-                ? theme.text.action.primary.focused
-                : theme.text.muted
-          }
+        <box
+          backgroundColor={active() ? theme.background.action.primary.focused : theme.background.raised.base}
+          paddingLeft={1}
+          paddingRight={1}
         >
-          {" " + item.label}
-        </text>
+          <text
+            fg={
+              disabled()
+                ? theme.text.action.primary.disabled
+                : active()
+                  ? theme.text.action.primary.focused
+                  : theme.text.muted
+            }
+          >
+            {item.label}
+          </text>
+        </box>
       </box>
     )
   }
@@ -674,15 +736,20 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   return (
     <box gap={1} paddingBottom={1} flexGrow={1}>
       <box paddingLeft={4} paddingRight={4}>
-        <box flexDirection="row" justifyContent="space-between">
+        <box flexDirection="row" justifyContent="space-between" alignItems="center">
           {props.titleView ?? (
             <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
               {props.title}
             </text>
           )}
-          <text fg={theme.text.muted} onMouseUp={() => (props.onCancel ?? dialog.clear)()}>
-            esc
-          </text>
+          <box
+            backgroundColor={theme.background.raised.base}
+            paddingLeft={1}
+            paddingRight={1}
+            onMouseUp={() => (props.onCancel ?? dialog.clear)()}
+          >
+            <text fg={theme.text.muted}>esc</text>
+          </box>
         </box>
         <Show when={props.renderFilter !== false}>
           <box paddingTop={1}>
@@ -715,130 +782,225 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
       </box>
       <box flexGrow={1} flexShrink={1}>
         <Show
-          when={grouped().length > 0}
+          when={!props.loading}
           fallback={
-            <Show
-              when={props.renderFilter !== false && store.filter.length > 0}
-              fallback={
-                props.emptyView ?? (
-                  <box paddingLeft={4} paddingRight={4}>
-                    <text fg={theme.text.muted}>No items available</text>
-                  </box>
-                )
-              }
-            >
-              {props.noMatchView ?? (
-                <box paddingLeft={4} paddingRight={4}>
-                  <text fg={theme.text.muted}>No results found</text>
-                </box>
-              )}
-            </Show>
+            <box paddingLeft={4} paddingRight={4} paddingTop={1} paddingBottom={1} gap={1} flexDirection="column">
+              <box flexDirection="row" gap={1} alignItems="center">
+                <Spinner color={theme.text.muted}>
+                  {t("Loading…")}
+                </Spinner>
+              </box>
+              <box flexDirection="column" gap={0}>
+                <text fg={theme.text.muted}>━ {" ".repeat(20)}</text>
+                <text fg={theme.text.muted}>━ {" ".repeat(14)}</text>
+                <text fg={theme.text.muted}>━ {" ".repeat(26)}</text>
+              </box>
+            </box>
           }
         >
-          <scrollbox
-            paddingLeft={1}
-            paddingRight={1}
-            scrollbarOptions={{ visible: false }}
-            scrollAcceleration={scrollAcceleration()}
-            ref={(r: ScrollBoxRenderable) => (scroll = r)}
-            maxHeight={height()}
-          >
-            <For each={grouped()}>
-              {([category, options], index) => (
-                <>
-                  <Show when={category}>
-                    <box paddingTop={index() > 0 ? 1 : 0} paddingLeft={3}>
-                      <text fg={theme.hue.accent[200]} attributes={TextAttributes.BOLD}>
-                        {category}
+          <Show
+            when={!props.error}
+            fallback={
+              <box paddingLeft={4} paddingRight={4} paddingTop={1} paddingBottom={1} gap={1} flexDirection="column">
+                <box flexDirection="row" gap={1} alignItems="center">
+                  <text fg={theme.text.feedback.error.base} attributes={TextAttributes.BOLD}>
+                    {t("Error:")}
+                  </text>
+                  <text fg={theme.text.feedback.error.base}>
+                    {typeof props.error === "string" ? props.error : props.error?.message || t("An error occurred")}
+                  </text>
+                </box>
+                <Show when={props.onRetry}>
+                  <box
+                    flexDirection="row"
+                    gap={1}
+                    alignItems="center"
+                    onMouseUp={() => props.onRetry?.()}
+                  >
+                    <box
+                      backgroundColor={theme.background.action.primary.focused}
+                      paddingLeft={1}
+                      paddingRight={1}
+                    >
+                      <text fg={theme.text.action.primary.focused} attributes={TextAttributes.BOLD}>
+                        {t("Retry")}
                       </text>
                     </box>
-                  </Show>
-                  <For each={options}>
-                    {(option) => {
-                      const active = createMemo(() => !props.locked && isDeepEqual(option.value, selected()?.value))
-                      const current = createMemo(() => isDeepEqual(option.value, props.current))
-                      return (
-                        <box
-                          flexDirection="column"
-                          position="relative"
-                          onMouseMove={() => {
-                            if (props.locked) return
-                            setFocusedAction(undefined)
-                            const index = flat().findIndex((x) => isDeepEqual(x.value, option.value))
-                            if (index === -1 || index === store.selected) return
-                            moveTo(index)
-                          }}
-                          onMouseUp={() => {
-                            if (props.locked) return
-                            option.onSelect?.(dialog)
-                            props.onSelect?.(option)
-                          }}
-                          onMouseDown={() => {
-                            if (props.locked) return
-                            const index = flat().findIndex((x) => isDeepEqual(x.value, option.value))
-                            if (index === -1) return
-                            moveTo(index)
-                          }}
-                        >
-                          <box
-                            flexDirection="row"
-                            paddingLeft={current() || option.gutter ? 1 : 3}
-                            paddingRight={3}
-                            gap={1}
-                            backgroundColor={
-                              active()
-                                ? actionFocused()
-                                  ? theme.background.raised.high
-                                  : (option.bg ?? theme.background.action.primary.focused)
-                                : RGBA.fromInts(0, 0, 0, 0)
-                            }
-                          >
-                            <Show when={!current() && option.margin}>
-                              <box position="absolute" left={1} flexShrink={0}>
-                                {option.margin}
-                              </box>
-                            </Show>
-                            <Option
-                              title={option.title}
-                              titleView={option.titleView}
-                              footer={
-                                flatten() ? (option.searchFooter ?? option.category ?? option.footer) : option.footer
-                              }
-                              footerColor={option.footerColor}
-                              titleWidth={option.titleWidth}
-                              truncateTitle={option.truncateTitle}
-                              description={option.description !== category ? option.description : undefined}
-                              active={active()}
-                              current={current()}
-                              muted={actionFocused()}
-                              activeColor={option.fg}
-                              gutter={option.gutter}
-                            />
+                    <text fg={theme.text.muted}>({t("or press Ctrl+R")})</text>
+                  </box>
+                </Show>
+              </box>
+            }
+          >
+            <Show
+              when={grouped().length > 0}
+              fallback={
+                <Show
+                  when={props.renderFilter !== false && store.filter.length > 0}
+                  fallback={
+                    props.emptyView ?? (
+                      <box paddingLeft={4} paddingRight={4} paddingTop={1} gap={1} flexDirection="column">
+                        <text fg={theme.text.muted}>{t("No items available")}</text>
+                        <Show when={props.onCancel}>
+                          <box flexDirection="row" gap={1} onMouseUp={() => props.onCancel?.()}>
+                            <box backgroundColor={theme.background.raised.base} paddingLeft={1} paddingRight={1}>
+                              <text fg={theme.text.base} attributes={TextAttributes.BOLD}>Esc</text>
+                            </box>
+                            <text fg={theme.text.muted}>{t("to return")}</text>
                           </box>
-                          <For each={option.details}>
-                            {(detail) => (
-                              <box paddingLeft={3} paddingRight={3}>
-                                <text fg={theme.text.muted} wrapMode="none">
-                                  {Locale.truncateMiddle(detail, Math.max(1, Math.min(76, dimensions().width - 12)))}
-                                </text>
-                              </box>
-                            )}
-                          </For>
+                        </Show>
+                      </box>
+                    )
+                  }
+                >
+                  {props.noMatchView ?? (
+                    <box paddingLeft={4} paddingRight={4} paddingTop={1} gap={1} flexDirection="column">
+                      <text fg={theme.text.muted}>
+                        {t("No results found for")} "{store.filter}"
+                      </text>
+                      <box
+                        flexDirection="row"
+                        gap={1}
+                        onMouseUp={() => {
+                          if (input) input.value = ""
+                          setStore("filter", "")
+                          props.onFilter?.("")
+                        }}
+                      >
+                        <box backgroundColor={theme.background.raised.base} paddingLeft={1} paddingRight={1}>
+                          <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
+                            {t("Clear search")}
+                          </text>
                         </box>
-                      )
-                    }}
-                  </For>
-                </>
-              )}
-            </For>
-          </scrollbox>
+                        <text fg={theme.text.muted}>{t("to view all items")}</text>
+                      </box>
+                    </box>
+                  )}
+                </Show>
+              }
+            >
+              <scrollbox
+                paddingLeft={1}
+                paddingRight={1}
+                scrollbarOptions={{ visible: false }}
+                scrollAcceleration={scrollAcceleration()}
+                ref={(r: ScrollBoxRenderable) => (scroll = r)}
+                maxHeight={height()}
+              >
+                <For each={grouped()}>
+                  {([category, options], index) => (
+                    <>
+                      <Show when={category}>
+                        <box paddingTop={index() > 0 ? 1 : 0} paddingLeft={3}>
+                          <text fg={theme.hue.accent[200]} attributes={TextAttributes.BOLD}>
+                            {category}
+                          </text>
+                        </box>
+                      </Show>
+                      <For each={options}>
+                        {(option) => {
+                          const active = createMemo(() => !props.locked && isDeepEqual(option.value, selected()?.value))
+                          const current = createMemo(() => isDeepEqual(option.value, props.current))
+                          return (
+                            <box
+                              flexDirection="column"
+                              position="relative"
+                              onMouseMove={() => {
+                                if (props.locked) return
+                                setFocusedAction(undefined)
+                                const index = flat().findIndex((x) => isDeepEqual(x.value, option.value))
+                                if (index === -1 || index === store.selected) return
+                                moveTo(index)
+                              }}
+                              onMouseUp={() => {
+                                if (props.locked) return
+                                // The release of the click that opened this dialog must not pick the row under it.
+                                if (!isDeepEqual(pressed, option.value)) return
+                                pressed = undefined
+                                option.onSelect?.(dialog)
+                                props.onSelect?.(option)
+                              }}
+                              onMouseDown={() => {
+                                if (props.locked) return
+                                pressed = option.value
+                                const index = flat().findIndex((x) => isDeepEqual(x.value, option.value))
+                                if (index === -1) return
+                                moveTo(index)
+                              }}
+                            >
+                              <box
+                                flexDirection="row"
+                                paddingLeft={current() || option.gutter ? 1 : 3}
+                                paddingRight={3}
+                                gap={1}
+                                backgroundColor={
+                                  active()
+                                    ? actionFocused()
+                                      ? theme.background.raised.high
+                                      : (option.bg ?? theme.background.action.primary.focused)
+                                    : theme.background.action.primary.base
+                                }
+                              >
+                                <Show when={!current() && option.margin}>
+                                  <box position="absolute" left={1} flexShrink={0}>
+                                    {option.margin}
+                                  </box>
+                                </Show>
+                                <Option
+                                  title={option.title}
+                                  titleView={option.titleView}
+                                  footer={
+                                    flatten() ? (option.searchFooter ?? option.category ?? option.footer) : option.footer
+                                  }
+                                  footerColor={option.footerColor}
+                                  titleWidth={option.titleWidth}
+                                  truncateTitle={option.truncateTitle}
+                                  description={option.description !== category ? option.description : undefined}
+                                  active={active()}
+                                  current={current()}
+                                  muted={actionFocused()}
+                                  activeColor={option.fg}
+                                  gutter={option.gutter}
+                                />
+                              </box>
+                              <For each={option.details}>
+                                {(detail) => (
+                                  <box paddingLeft={3} paddingRight={3}>
+                                    <text fg={theme.text.muted} wrapMode="none">
+                                      {Locale.truncateMiddle(detail, Math.max(1, Math.min(76, dimensions().width - 12)))}
+                                    </text>
+                                  </box>
+                                )}
+                              </For>
+                            </box>
+                          )
+                        }}
+                      </For>
+                    </>
+                  )}
+                </For>
+              </scrollbox>
+            </Show>
+          </Show>
         </Show>
       </box>
-      <Show when={props.footer || visibleActions().length} fallback={<box flexShrink={0} />}>
+      <Show when={props.footer || visibleActions().length || flat().length > 0} fallback={<box flexShrink={0} />}>
         <box paddingRight={2} paddingLeft={4} flexDirection="row" justifyContent="space-between" flexShrink={0}>
           <box flexDirection={dimensions().width < 60 ? "column" : "row"} gap={dimensions().width < 60 ? 0 : 2}>
             {props.footer}
             <For each={left()}>{(item) => <FooterAction item={item} />}</For>
+            <Show when={!props.footer && left().length === 0 && flat().length > 0}>
+              <box flexDirection="row" gap={1} alignItems="center">
+                <box backgroundColor={theme.background.raised.base} paddingLeft={1} paddingRight={1}>
+                  <text fg={theme.text.muted}>↑↓</text>
+                </box>
+                <text fg={theme.text.muted}>{t("navigate")}</text>
+                <box backgroundColor={theme.background.raised.base} paddingLeft={1} paddingRight={1}>
+                  <text fg={theme.text.muted}>↵</text>
+                </box>
+                <text fg={theme.text.muted}>{t("select")}</text>
+              </box>
+            </Show>
           </box>
           <box flexDirection="row" gap={2}>
             <For each={right()}>{(item) => <FooterAction item={item} />}</For>

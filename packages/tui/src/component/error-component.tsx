@@ -5,6 +5,10 @@ import { getScrollAcceleration } from "../util/scroll"
 import { useClipboard } from "../context/clipboard"
 import { useExit } from "../context/exit"
 import { useTuiApp } from "../context/runtime"
+import { useTheme } from "../context/theme"
+import { getOrchestraTheme } from "../theme"
+import { resolveThemeDocument } from "@orchestra/theme/tui"
+import { createComponentTheme, type ComponentTheme } from "../theme/component"
 import { describeOS, describeTerminal } from "../util/system"
 
 export function ErrorComponent(props: { error: Error; reset: () => void; mode?: "dark" | "light" }) {
@@ -14,32 +18,14 @@ export function ErrorComponent(props: { error: Error; reset: () => void; mode?: 
   const app = useTuiApp()
   const [copyState, setCopyState] = createSignal<"idle" | "copied" | "failed">("idle")
 
-  // Safe fallback palette per mode (mirrors theme/assets/orchestra.json) since the
-  // theme context may be the thing that crashed.
-  const isLight = props.mode === "light"
-  const colors = isLight
-    ? {
-        bg: "#ffffff",
-        element: "#f5f5f5",
-        borderSubtle: "#d4d4d4",
-        text: "#1a1a1a",
-        muted: "#8a8a8a",
-        primary: "#3b7dd8",
-        onPrimary: "#ffffff",
-        error: "#d1383d",
-        success: "#3d9a57",
-      }
-    : {
-        bg: "#0a0a0a",
-        element: "#1e1e1e",
-        borderSubtle: "#3c3c3c",
-        text: "#eeeeee",
-        muted: "#808080",
-        primary: "#fab283",
-        onPrimary: "#0a0a0a",
-        error: "#e06c75",
-        success: "#7fd88f",
-      }
+  let theme: ComponentTheme
+  try {
+    theme = useTheme()
+  } catch {
+    const doc = getOrchestraTheme()
+    const resolved = resolveThemeDocument(doc, props.mode ?? "dark")
+    theme = createComponentTheme(() => resolved)
+  }
 
   const message = props.error.message || "An unknown error occurred."
   const stack = props.error.stack || "No stack trace available."
@@ -55,7 +41,7 @@ export function ErrorComponent(props: { error: Error; reset: () => void; mode?: 
   const actions = [
     {
       key: "c",
-      label: () => ({ idle: "Copy report", copied: "✓ Copied", failed: "Copy failed" })[copyState()],
+      label: () => ({ idle: "Copy report", copied: "Copied", failed: "Copy failed" })[copyState()],
       copy: true,
       onUse: copyReport,
     },
@@ -109,18 +95,18 @@ export function ErrorComponent(props: { error: Error; reset: () => void; mode?: 
     <box
       width={term().width}
       height={term().height}
-      backgroundColor={colors.bg}
+      backgroundColor={theme.background.base}
       flexDirection="column"
       alignItems="center"
     >
       <box width={contentWidth()} flexGrow={1} flexDirection="column" paddingTop={1} paddingBottom={1} gap={1}>
         {/* Headline */}
         <box flexDirection="column" alignItems="center" flexShrink={0}>
-          <text attributes={TextAttributes.BOLD} fg={colors.text}>
+          <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
             Orchestra crashed
           </text>
           <Show when={showSubtext()}>
-            <text fg={colors.muted}>An unexpected error stopped the session.</text>
+            <text fg={theme.text.muted}>An unexpected error stopped the session.</text>
           </Show>
         </box>
 
@@ -129,13 +115,13 @@ export function ErrorComponent(props: { error: Error; reset: () => void; mode?: 
           flexShrink={0}
           border
           borderStyle="rounded"
-          borderColor={colors.error}
+          borderColor={theme.text.feedback.error.base}
           title=" Error "
-          titleColor={colors.error}
+          titleColor={theme.text.feedback.error.base}
           paddingLeft={2}
           paddingRight={2}
         >
-          <text fg={colors.text}>{message}</text>
+          <text fg={theme.text.base}>{message}</text>
         </box>
 
         {/* Actions */}
@@ -146,9 +132,9 @@ export function ErrorComponent(props: { error: Error; reset: () => void; mode?: 
               const copyColor = () =>
                 action.copy
                   ? copyState() === "copied"
-                    ? colors.success
+                    ? theme.text.feedback.success.base
                     : copyState() === "failed"
-                      ? colors.error
+                      ? theme.text.feedback.error.base
                       : undefined
                   : undefined
               return (
@@ -156,7 +142,9 @@ export function ErrorComponent(props: { error: Error; reset: () => void; mode?: 
                   <box
                     onMouseDown={() => setSelected(index())}
                     onMouseUp={() => action.onUse()}
-                    backgroundColor={copyColor() ?? (isSelected() ? colors.primary : colors.element)}
+                    backgroundColor={
+                      copyColor() ?? (isSelected() ? theme.background.action.primary.focused : theme.background.raised.base)
+                    }
                     minWidth={15}
                     alignItems="center"
                     paddingLeft={2}
@@ -164,12 +152,12 @@ export function ErrorComponent(props: { error: Error; reset: () => void; mode?: 
                   >
                     <text
                       attributes={TextAttributes.BOLD}
-                      fg={copyColor() || isSelected() ? colors.onPrimary : colors.text}
+                      fg={copyColor() || isSelected() ? theme.text.action.primary.focused : theme.text.base}
                     >
                       {action.label()}
                     </text>
                   </box>
-                  <text fg={isSelected() ? colors.primary : colors.muted}>{action.key}</text>
+                  <text fg={isSelected() ? theme.background.action.primary.focused : theme.text.muted}>{action.key}</text>
                 </box>
               )
             }}
@@ -183,9 +171,9 @@ export function ErrorComponent(props: { error: Error; reset: () => void; mode?: 
           minHeight={3}
           border
           borderStyle="rounded"
-          borderColor={colors.borderSubtle}
+          borderColor={theme.border.base}
           title=" Stack trace "
-          titleColor={colors.muted}
+          titleColor={theme.text.muted}
           bottomTitle=" ↑↓ scroll "
           bottomTitleAlignment="right"
           paddingLeft={1}
@@ -196,21 +184,21 @@ export function ErrorComponent(props: { error: Error; reset: () => void; mode?: 
             flexGrow={1}
             scrollAcceleration={getScrollAcceleration()}
           >
-            <text fg={colors.muted}>{stack}</text>
+            <text fg={theme.text.muted}>{stack}</text>
           </scrollbox>
         </box>
 
         {/* Footer */}
         <Show when={showFooter()}>
           <box flexDirection="column" alignItems="center" flexShrink={0}>
-            <text fg={colors.muted}>
+            <text fg={theme.text.muted}>
               {copyState() === "copied"
                 ? "Report copied — paste it into a new GitHub issue."
                 : copyState() === "failed"
                   ? "Clipboard write failed. Try again or report the crash manually."
                   : "Copy the report and open a GitHub issue to help us fix this."}
             </text>
-            <text fg={colors.muted}>Orchestra {app.version}</text>
+            <text fg={theme.text.muted}>Orchestra {app.version}</text>
           </box>
         </Show>
       </box>

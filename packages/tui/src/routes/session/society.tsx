@@ -1,8 +1,10 @@
 import { tr } from "../../util/i18n"
-import { createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { TextAttributes, type RGBA } from "@opentui/core"
 import { Federation } from "@orchestra/schema/federation"
+import { DialogRules } from "../../component/dialog-rules"
 import { useClient } from "../../context/client"
+import { useDialog } from "../../ui/dialog"
 import { useData } from "../../context/data"
 import { useProjects } from "../../context/projects"
 import { usePromptRef } from "../../context/prompt"
@@ -156,6 +158,7 @@ export function SocietyRoster(props: { sessionID: string }) {
   const theme = useTheme()
   const data = useData()
   const client = useClient()
+  const dialog = useDialog()
   const projects = useProjects()
   const promptRef = usePromptRef()
   const marker = createMemo(() => Federation.groupSupervisor(data.session.get(props.sessionID)?.metadata))
@@ -163,8 +166,26 @@ export function SocietyRoster(props: { sessionID: string }) {
     () => marker()?.groupName,
     () => client.api.orchestra.group.list().catch(() => []),
   )
+  const [holds, { refetch: refetchHolds }] = createResource(() =>
+    client.api.orchestra.group.holds().catch(() => [] as string[]),
+  )
+  // The Society's DoD progress, counted by the system from its projects' boards: no model is asked.
+  const [progress, { refetch: refetchProgress }] = createResource(
+    () => marker()?.groupName,
+    (name) => client.api.orchestra.group.status({ name }).catch(() => undefined),
+  )
+  const done = createMemo(() => (progress.latest?.projects ?? []).reduce((sum, item) => sum + item.done, 0))
+  const total = createMemo(() => (progress.latest?.projects ?? []).reduce((sum, item) => sum + item.total, 0))
+  const held = createMemo(() => {
+    const name = marker()?.groupName
+    return name !== undefined && (holds.latest ?? []).includes(name)
+  })
   onMount(() => {
-    const timer = setInterval(() => void refetch(), 5000)
+    const timer = setInterval(() => {
+      void refetch()
+      void refetchHolds()
+      void refetchProgress()
+    }, 5000)
     onCleanup(() => clearInterval(timer))
   })
   const members = createMemo(() => {
@@ -176,8 +197,22 @@ export function SocietyRoster(props: { sessionID: string }) {
       ...member,
       name: projects.list().find((project) => project.id === member.project)?.name ?? member.project,
       online: projects.list().find((project) => project.id === member.project)?.main !== undefined,
+      main: projects.list().find((project) => project.id === member.project)?.main,
     }))
   })
+  // Native status, read from the sessions themselves: no model turn is spent to learn who is working or
+  // who is waiting for an answer. Only running sessions can ask, so those are the ones worth syncing.
+  createEffect(() =>
+    data.session.active().forEach((id) => {
+      void data.session.permission.sync(id).catch(() => undefined)
+      void data.session.form.sync(id).catch(() => undefined)
+    }),
+  )
+  const waiting = (main: string | undefined) =>
+    main !== undefined &&
+    ((data.session.permission.list(main)?.length ?? 0) > 0 || (data.session.form.list(main)?.length ?? 0) > 0)
+  const glyph = (member: { online: boolean; main?: string }) =>
+    waiting(member.main) ? "?" : member.main !== undefined && data.session.status(member.main) === "running" ? "◉" : member.online ? "●" : "○"
   const [hover, setHover] = createSignal<string>()
   const mention = (callsign: string) => {
     const prompt = promptRef.current
@@ -188,10 +223,29 @@ export function SocietyRoster(props: { sessionID: string }) {
   }
   return (
     <Show when={members().length > 0}>
-      <box flexDirection="row" gap={1} flexWrap="wrap" paddingLeft={1} paddingBottom={1} flexShrink={0}>
-        <text fg={theme.text.muted} wrapMode="none">
-          {tr("Society")}
-        </text>
+      // One row, no wrapping: a Society has six or more members, and a roster that wraps takes the room of
+      // the conversation. Only the call sign is shown; the project's name appears at the end of the row while
+      // the pointer is on its chip.
+      <box flexDirection="row" gap={1} paddingLeft={1} flexShrink={0}>
+        {/* While held, no AI of this Society starts, whatever wakes it. The server holds every Society at start. */}
+        <box
+          onMouseUp={() => {
+            const name = marker()?.groupName
+            if (!name) return
+            void client.api.orchestra.group
+              .hold({ name, held: !held() })
+              .then(() => refetchHolds())
+              .catch(() => undefined)
+          }}
+        >
+          <text
+            wrapMode="none"
+            fg={held() ? theme.text.feedback.warning.base : theme.text.muted}
+            attributes={held() ? TextAttributes.BOLD : undefined}
+          >
+            {held() ? `⏸ ${tr("AIs held — click to resume")}` : "⏸"}
+          </text>
+        </box>
         <For each={members()}>
           {(member) => {
             const color = () => callsignColor(theme, member.callsign)
@@ -208,14 +262,35 @@ export function SocietyRoster(props: { sessionID: string }) {
                   bg={hot() ? color() : undefined}
                   attributes={member.online ? undefined : TextAttributes.DIM}
                 >
-                  {`${member.online ? "●" : "○"} @${member.callsign} · ${member.name}`}
+                  {`${glyph(member)}${member.callsign}`}
                 </text>
               </box>
             )
           }}
         </For>
-        <text fg={theme.text.muted} wrapMode="none">
-          {tr("· @all — everyone")}
+        {/* The Society's rulebook: its AIs follow it, and may add to it. */}
+        <box
+          onMouseUp={() => {
+            const name = marker()?.groupName
+            if (name) dialog.replace(() => <DialogRules scope={`society:${name}`} title={name} />)
+          }}
+        >
+          <text fg={theme.text.muted} wrapMode="none">
+            {tr("rules")}
+          </text>
+        </box>
+        <Show when={total() > 0}>
+          <text fg={theme.text.muted} wrapMode="none">
+            {`DoD ${done()}/${total()}`}
+          </text>
+        </Show>
+        <box onMouseUp={() => mention("all")}>
+          <text fg={theme.text.muted} wrapMode="none">
+            @all
+          </text>
+        </box>
+        <text fg={theme.text.muted} wrapMode="none" truncate flexShrink={1} minWidth={0}>
+          {members().find((member) => member.callsign === hover())?.name ?? ""}
         </text>
       </box>
     </Show>

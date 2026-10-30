@@ -252,7 +252,7 @@ export const Info = Schema.Struct({
   }),
   animations: Schema.optional(Schema.Boolean).annotate({ description: "Enable interface animations" }),
   mascot: Schema.optional(Schema.Boolean).annotate({
-    description: "Show the Orchestra mascot in the prompt (default: false)",
+    description: "Show the Orchestra mascot in the prompt (default: true)",
   }),
   developer: Schema.optional(Schema.Boolean).annotate({
     description: "List developer and debugging commands in the command palette and slash menu",

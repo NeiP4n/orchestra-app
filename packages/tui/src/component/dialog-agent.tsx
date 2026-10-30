@@ -1,7 +1,8 @@
-import { createMemo, createResource } from "solid-js"
+import { createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js"
 import type { OrchestraRole } from "@orchestra/client/promise"
 import { useClient } from "../context/client"
 import { useLocal } from "../context/local"
+import { CategoryRail } from "../ui/category-rail"
 import { DialogSelect, type DialogSelectOption, type DialogSelectRef } from "../ui/dialog-select"
 import { useDialog } from "../ui/dialog"
 import { useT } from "../util/i18n"
@@ -49,7 +50,28 @@ export function DialogAgent() {
   const [roles] = createResource(() => client.api.orchestra.role.list().catch(() => []))
   let select: DialogSelectRef<string> | undefined
 
-  const options = createMemo(() => agentOptions(local.agent.list(), roles() ?? [], t))
+  const all = createMemo(() => agentOptions(local.agent.list(), roles() ?? [], t))
+
+  // Like Settings: a rail of categories with counts beside the list. "" is every category; the rail
+  // hides itself on narrow terminals and the list keeps its section headings.
+  const [category, setCategory] = createSignal("")
+  const rail = createMemo(() => {
+    const names = [...new Set(all().map((option) => option.category ?? ""))]
+    return [
+      { id: "", label: t("All"), count: all().length },
+      ...names.map((id) => ({ id, label: id, count: all().filter((option) => option.category === id).length })),
+    ]
+  })
+  const options = createMemo(() =>
+    category() === ""
+      ? all()
+      : all()
+          .filter((option) => option.category === category())
+          .map((option) => ({ ...option, category: undefined })),
+  )
+
+  onMount(() => dialog.setSize("large"))
+  onCleanup(() => dialog.setSize("medium"))
 
   const step = (direction: 1 | -1) => {
     if (!select) return
@@ -60,12 +82,15 @@ export function DialogAgent() {
   }
 
   return (
-    <DialogSelect
+    <box flexDirection="row" flexGrow={1}>
+      <CategoryRail items={rail()} selected={category()} onSelect={setCategory} />
+      <DialogSelect
       title={t("Select agent")}
       current={local.agent.current()?.id}
       options={options()}
       ref={(ref) => (select = ref)}
       sectionNavigation
+      tall
       bindings={[
         { bind: "shift+tab", title: "Next agent", group: "Dialog", run: () => step(1) },
         { bind: "tab", title: "Previous agent", group: "Dialog", run: () => step(-1) },
@@ -78,6 +103,7 @@ export function DialogAgent() {
         local.agent.set(option.value)
         dialog.clear()
       }}
-    />
+      />
+    </box>
   )
 }

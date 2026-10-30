@@ -170,7 +170,9 @@ function bodyOf(widget: Widget, width: number, active: boolean): { body: Line[];
           const number = `${n + 1} `
           const indent = 2 + cells(number)
           const room = Math.max(4, width - indent)
-          const tone = n === widget.cursor ? "accentBold" : "normal"
+          // The model's own recommendation is marked, so the person sees at a glance what it would pick.
+          const recommended = /\((recommended|рекоменд\w*)\)/i.test(item.label)
+          const tone = n === widget.cursor ? "accentBold" : recommended ? "accent" : "normal"
           const labels = wrap(item.label, room)
           const hint = item.hint ?? ""
           // A short hint stays beside its label. A long one goes under it, wrapped, because the person
@@ -179,6 +181,7 @@ function bodyOf(widget: Widget, width: number, active: boolean): { body: Line[];
           const lines = labels.map((text, line): Line => [
             ...(line === 0 ? [mark(n === widget.cursor), span(number, "dim")] : [span(" ".repeat(indent))]),
             span(text, tone, n),
+            ...(line === labels.length - 1 && recommended ? [span(" ★", "accent", n)] : []),
             ...(line === 0 && beside ? [span(`  ${hint}`, "dim", n)] : []),
           ])
           if (hint !== "" && !beside) lines.push(...wrap(hint, room).map((text): Line => [span(" ".repeat(indent)), span(text, "dim", n)]))

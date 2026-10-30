@@ -69,6 +69,7 @@ import {
 } from "../../prompt/attachment"
 import { DialogImagePreview } from "../dialog-image-preview"
 import { DialogMode } from "../dialog-mode"
+import { DialogAgent } from "../dialog-agent"
 import { useDirectoryRecents } from "../../prompt/directory-recents"
 import { directoryRecentValue } from "../../prompt/directory-completion"
 import { useWorkingDirectoryActions } from "../../ui/working-directory-actions"
@@ -1678,9 +1679,10 @@ export function Prompt(props: PromptProps) {
 
   // The rounded frame already marks the prompt, so its inside keeps the window's own color.
   const promptBg = createMemo(() => theme.background.base)
-  // The mascot is opt-in: it stands in the prompt's right edge, exactly as tall as an empty
-  // prompt, and leaves the prompt when it would squeeze the input on a narrow terminal.
-  const mascot = createMemo(() => config.mascot === true && dimensions().width >= 80)
+  // The mascot stands in the prompt's right edge, exactly as tall as an empty prompt, and leaves the
+  // prompt when it would squeeze the input on a narrow terminal. It is shown until the operator hides it,
+  // which is what the "Hide mascot" command and the Settings toggle both assume.
+  const mascot = createMemo(() => config.mascot !== false && dimensions().width >= 80)
   const mascotState = createMemo((): MascotState => {
     const id = props.sessionID
     if (!id) return "idle"
@@ -1916,6 +1918,11 @@ export function Prompt(props: PromptProps) {
                 variant={promptDisplay().variant}
                 workMode={store.mode === "normal" ? `mode:${local.mode.current()}` : undefined}
                 onModeClick={() => DialogMode.show(dialog)}
+                onAgentClick={() => {
+                  if (local.agent.fixed())
+                    return toast.show({ variant: "info", message: "This chat's agent is fixed", duration: 3000 })
+                  dialog.replace(() => <DialogAgent />)
+                }}
                 muted={!!muted()}
                 highlight={highlight()}
                 agentAlpha={agentMetaAlpha()}
