@@ -89,10 +89,11 @@ export function parseCompactionThreshold(input: string): number | undefined {
 }
 
 /**
- * Formats compaction threshold for display.
+ * Formats compaction threshold for display. "No threshold" is translated by the caller through
+ * i18n; every other value reads the same in every language.
  */
-export function formatCompactionThreshold(threshold: number, isRu: boolean = false): string {
-  if (threshold <= 0) return isRu ? "Весь лимит" : "Context limit"
+export function formatCompactionThreshold(threshold: number): string {
+  if (threshold <= 0) return "Context limit"
   if (threshold >= 1000000) {
     const m = threshold / 1000000
     return `${Number.isInteger(m) ? m : m.toFixed(1)}m`
@@ -425,15 +426,10 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
 
   const toolTokens = createMemo(() => estimateToolTokens(msg()))
 
-  const isRu = () => {
-    const p = t("Project")
-    return p === "Проект"
-  }
-  const toolLabel = () => {
-    const translated = t("Tools & MCP")
-    if (translated !== "Tools & MCP") return translated
-    return isRu() ? "Инструменты и MCP" : "Tools & MCP"
-  }
+  const toolLabel = () => t("Tools & MCP")
+
+  // "Context limit" means "no threshold" and is the only label that changes with the language.
+  const thresholdLabel = (value: number) => (value <= 0 ? t("Context limit") : formatCompactionThreshold(value))
 
   // Load server-wide config to retrieve default compaction threshold
   const [serverConfig, { refetch }] = createResource(() =>
@@ -493,10 +489,8 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
       threshold() > 0 ? (threshold() >= 1000 ? `${threshold() / 1000}k` : String(threshold())) : "0"
 
     const input = await dialog.prompt({
-      title: isRu() ? "Порог автосжатия контекста" : "Context auto-compaction threshold",
-      placeholder: isRu()
-        ? "например: 400k, 200000, 80k или 0 для всего лимита"
-        : "e.g.: 400k, 200000, 80k or 0 for context limit",
+      title: t("Context auto-compaction threshold"),
+      placeholder: t("e.g.: 400k, 200000, 80k or 0 for context limit"),
       value: currentFormatted,
     })
 
@@ -523,38 +517,44 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
     }
 
     const makeDefault = await dialog.confirm({
-      title: isRu() ? "Порог автосжатия" : "Auto-compaction threshold",
-      message: isRu()
-        ? "Сделать этот порог дефолтом для всех новых чатов при создании?"
-        : "Make this threshold the default for all new chats on creation?",
+      title: t("Auto-compaction threshold"),
+      message: t("Make this threshold the default for all new chats on creation?"),
     })
 
     if (makeDefault) {
-      try {
-        if (props.context.client?.config?.update) {
-          await (props.context.client.config.update as any)({
-            compaction: { threshold: parsed },
-          })
-        } else if (client?.api?.config?.update) {
-          await (client.api.config.update as any)({
-            compaction: { threshold: parsed },
-          })
-        }
-        await saveDirectFallback(parsed)
-        await refetch()
-        toast?.show({
-          variant: "success",
-          message: isRu()
-            ? `Порог автосжатия (${formatCompactionThreshold(parsed, isRu())}) сохранен в конфигурацию`
-            : `Auto-compaction threshold (${formatCompactionThreshold(parsed, isRu())}) saved to configuration`,
-        })
-      } catch {
-        toast?.show({
-          variant: "error",
-          message: isRu() ? "Не удалось сохранить конфигурацию" : "Failed to update configuration",
-        })
-      }
+      // The server config is the one writer; the file is the fallback for a failed write. A save that
+      // reached either of them is reported as success, however it landed.
+      const saved = (await writeDefault(parsed).catch(() => false)) || (await saveDirectFallback(parsed))
+      await refetch()
+      toast?.show(
+        saved
+          ? {
+              variant: "success",
+              message: t("Auto-compaction threshold ({threshold}) saved to configuration", {
+                threshold: thresholdLabel(parsed),
+              }),
+            }
+          : { variant: "error", message: t("Failed to update configuration") },
+      )
     }
+  }
+
+  // The default belongs to the server's config; the caller falls back to the file when this throws
+  // or when no client can write at all.
+  async function writeDefault(threshold: number) {
+    if (props.context.client?.config?.update) {
+      await (props.context.client.config.update as any)({
+        compaction: { threshold },
+      })
+      return true
+    }
+    if (client?.api?.config?.update) {
+      await (client.api.config.update as any)({
+        compaction: { threshold },
+      })
+      return true
+    }
+    return false
   }
 
   const state = createMemo(() =>
@@ -628,11 +628,11 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
         <Show when={scope() === "session"}>
           <box flexDirection="row" justifyContent="space-between" gap={1} paddingTop={1}>
             <text fg={theme.text.muted} wrapMode="none">
-              {isRu() ? "Автосжатие при:" : "Auto-compaction at:"}
+              {t("Auto-compaction at:")}
             </text>
             <HoverAction id="sidebar.context.compaction" onClick={handleCompactionPrompt}>
               <text fg={theme.text.base} wrapMode="none">
-                {thresholdShare() ?? formatCompactionThreshold(threshold(), isRu())} ✎
+                {thresholdShare() ?? thresholdLabel(threshold())} ✎
               </text>
             </HoverAction>
           </box>
@@ -706,9 +706,7 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
                 </text>
                 <Show when={scope() === "session" && state()?.percent !== undefined}>
                   <text fg={theme.text.muted} wrapMode="none">
-                    {isRu()
-                      ? `${state()?.percent ?? 0}% из 100% лимита контекста`
-                      : `${state()?.percent ?? 0}% of context limit`}
+                    {t("{percent}% of context limit", { percent: state()?.percent ?? 0 })}
                   </text>
                 </Show>
                 <box flexDirection="row" justifyContent="space-between" gap={1}>

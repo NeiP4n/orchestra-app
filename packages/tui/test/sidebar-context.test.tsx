@@ -16,6 +16,7 @@ import {
   saveDirectFallback,
   SidebarContext,
 } from "../src/feature-plugins/sidebar/context"
+import { ToastProvider, useToast } from "../src/ui/toast"
 import { createApi, createFetch } from "./fixture/tui-client"
 import { TestTuiContexts } from "./fixture/tui-environment"
 import { createTuiResolvedConfig } from "./fixture/tui-runtime"
@@ -97,15 +98,24 @@ async function mount(options?: {
     },
   }
 
+  let toast: ReturnType<typeof useToast> | undefined
+  function ToastProbe() {
+    toast = useToast()
+    return <box />
+  }
+
   const setup = await testRender(
     () => (
       <TestTuiContexts>
         <ConfigProvider config={createTuiResolvedConfig({ language: options?.language })}>
           <Keymap.Provider>
             <ClientProvider api={apiWithConfigUpdate}>
-              <ThemeProvider mode="dark" source={{ discover: async () => ({}) }}>
-                <Block />
-              </ThemeProvider>
+              <ToastProvider>
+                <ThemeProvider mode="dark" source={{ discover: async () => ({}) }}>
+                  <Block />
+                  <ToastProbe />
+                </ThemeProvider>
+              </ToastProvider>
             </ClientProvider>
           </Keymap.Provider>
         </ConfigProvider>
@@ -127,7 +137,21 @@ async function mount(options?: {
     frame,
     getClientConfigUpdate: () => clientConfigUpdateCalled,
     getClientSessionUpdate: () => clientSessionUpdateCalled,
+    getToast: () => toast?.currentToast,
   }
+}
+
+/**
+ * Waits for the compaction decision the sidebar reports for `threshold`. The toast carries the
+ * formatted value, so a stale or unrelated toast cannot satisfy the wait.
+ */
+async function waitForDecision(handle: Awaited<ReturnType<typeof mount>>, threshold: string) {
+  for (let index = 0; index < 150; index++) {
+    const toast = handle.getToast()
+    if (toast?.message.includes(`(${threshold})`)) return toast
+    await Bun.sleep(20)
+  }
+  return handle.getToast()
 }
 
 test("estimateToolTokens and computeBarCells calculate tools usage and bar segments", () => {
@@ -176,13 +200,13 @@ test("parseCompactionThreshold correctly parses threshold string formats", () =>
 })
 
 test("formatCompactionThreshold renders compact human-readable values", () => {
-  expect(formatCompactionThreshold(0, true)).toBe("Весь лимит")
-  expect(formatCompactionThreshold(0, false)).toBe("Context limit")
-  expect(formatCompactionThreshold(400000, true)).toBe("400k")
-  expect(formatCompactionThreshold(80000, false)).toBe("80k")
-  expect(formatCompactionThreshold(1000000, false)).toBe("1m")
-  expect(formatCompactionThreshold(1500000, false)).toBe("1.5m")
-  expect(formatCompactionThreshold(500, true)).toBe("500")
+  // "No threshold" is the only translated label, and the sidebar translates it through i18n.
+  expect(formatCompactionThreshold(0)).toBe("Context limit")
+  expect(formatCompactionThreshold(400000)).toBe("400k")
+  expect(formatCompactionThreshold(80000)).toBe("80k")
+  expect(formatCompactionThreshold(1000000)).toBe("1m")
+  expect(formatCompactionThreshold(1500000)).toBe("1.5m")
+  expect(formatCompactionThreshold(500)).toBe("500")
 })
 
 test("extractServerCompactionThreshold extracts threshold from array or object server config", () => {
@@ -285,6 +309,63 @@ test("sidebar loads default compaction threshold from canonical server config en
     expect(text).toContain("450k ✎")
   } finally {
     setup.renderer.destroy()
+  }
+})
+
+test("a successful config update writes only the server config, and the file fallback stays for failures", async () => {
+  const tmp = await mkdtemp(path.join(tmpdir(), "orchestra-cfg-"))
+  const originalEnv = process.env.XDG_CONFIG_HOME
+  process.env.XDG_CONFIG_HOME = tmp
+
+  try {
+    const configDir = path.join(tmp, "orchestra")
+    await mkdir(configDir, { recursive: true })
+    const configFile = path.join(configDir, "orchestra.json")
+    const untouched = JSON.stringify({ model: "keep" }, null, 2)
+    await writeFile(configFile, untouched, "utf-8")
+
+    // 1) The server accepted the default, so nothing else may write the same setting.
+    const accepted = await mount({ onPrompt: async () => "250k", onConfirm: async () => true })
+    try {
+      const lines = await accepted.frame((text) => text.includes("Context limit ✎"))
+      const row = lines.findIndex((line) => line.includes("Context limit ✎"))
+      await accepted.setup.mockMouse.click(lines[row].indexOf("Context limit ✎") + 2, row)
+      const decision = await waitForDecision(accepted, "250k")
+      await accepted.frame((text) => text.includes("250k ✎"))
+
+      expect(accepted.getClientConfigUpdate()).toEqual({ compaction: { threshold: 250000 } })
+      expect(await readFile(configFile, "utf-8")).toBe(untouched)
+      expect(decision).toMatchObject({
+        variant: "success",
+        message: "Auto-compaction threshold (250k) saved to configuration",
+      })
+    } finally {
+      accepted.setup.renderer.destroy()
+    }
+
+    // 2) The server refused the write: the file is the last resort, and saving it is still a success.
+    const rejected = await mount({
+      onPrompt: async () => "300k",
+      onConfirm: async () => true,
+      onConfigUpdate: async () => {
+        throw new Error("config update failed")
+      },
+    })
+    try {
+      const lines = await rejected.frame((text) => text.includes("Context limit ✎"))
+      const row = lines.findIndex((line) => line.includes("Context limit ✎"))
+      await rejected.setup.mockMouse.click(lines[row].indexOf("Context limit ✎") + 2, row)
+      const decision = await waitForDecision(rejected, "300k")
+      await rejected.frame((text) => text.includes("300k ✎"))
+
+      // The save that reached the file must not be reported as a failure.
+      expect(decision).toMatchObject({ variant: "success" })
+      expect(JSON.parse(await readFile(configFile, "utf-8")).compaction?.threshold).toBe(300000)
+    } finally {
+      rejected.setup.renderer.destroy()
+    }
+  } finally {
+    process.env.XDG_CONFIG_HOME = originalEnv
   }
 })
 
