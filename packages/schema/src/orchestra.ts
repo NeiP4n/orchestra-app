@@ -145,18 +145,26 @@ export function contains(project: string, directory: string) {
 }
 
 function normalizeDirectory(value: string) {
-  const parts = value.replaceAll("\\", "/").split("/")
+  const slashNormalized = value.replaceAll("\\", "/")
+  const isUnc = slashNormalized.startsWith("//")
+  const isRoot = !isUnc && slashNormalized.startsWith("/")
+  const parts = slashNormalized.split("/")
   const segments: string[] = []
   for (const part of parts) {
     if (part === "" || part === ".") continue
     if (part === "..") {
-      segments.pop()
+      if (segments.length > 0 && !(segments.length === 1 && /^[a-zA-Z]:$/.test(segments[0]))) {
+        segments.pop()
+      }
     } else {
       segments.push(part)
     }
   }
-  const prefix = value.startsWith("/") ? "/" : ""
-  return prefix + segments.join("/")
+  const prefix = isUnc ? "//" : isRoot ? "/" : ""
+  const normalized = prefix + segments.join("/")
+  return /^[a-zA-Z]:(?:\/|$)/.test(normalized) || normalized.startsWith("//")
+    ? normalized.toLowerCase()
+    : normalized
 }
 
 // The project a session belongs to. A session a project opened stays with it, so
@@ -921,6 +929,9 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
     description:
       "One team for the whole Orchestra monorepo: core and AI, schemas, protocol and generated client, server and CLI, web UI, desktop and TUI, integration, testing and review",
     members: [
+      member("product-analyst", "Product Analyst"),
+      member("architect", "Architect"),
+      member("designer", "UI/UX Designer"),
       member("core-maintainer", "Core"),
       member("api-contract-engineer", "Contracts"),
       member("backend-developer", "Server and CLI"),

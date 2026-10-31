@@ -10,6 +10,19 @@ const call = (id: string, name = "read") =>
 const result = (id: string, value: unknown, name = "read", type: "text" | "error" = "text") =>
   Message.make({ id: `r${id}`, role: "tool", content: [{ type: "tool-result", id, name, result: { type, value } }] })
 const user = (text: string) => Message.make({ id: `u${text}`, role: "user", content: text })
+const shot = (id: string) =>
+  Message.make({
+    id: `i${id}`,
+    role: "tool",
+    content: [
+      {
+        type: "tool-result",
+        id,
+        name: "desktop_screenshot",
+        result: { type: "content", value: [{ type: "file", uri: `data:image/png;base64,${"A".repeat(4_000)}`, mime: "image/png" }] },
+      },
+    ],
+  })
 
 // A conversation of `steps` read calls, each returning a bulky result.
 const conversation = (steps: number) => [
@@ -23,8 +36,14 @@ const elided = (messages: ReadonlyArray<Message>) =>
   resultsOf(messages).filter((part) => typeof part.result.value === "string" && part.result.value.includes("elided"))
 
 describe("context governor", () => {
-  test("is off unless the experiment is switched on", () => {
+  test("is on unless the config or the environment switches it off", () => {
+    SessionContextGovernor.configure(undefined)
+    expect(SessionContextGovernor.policy()).toBeDefined()
+    SessionContextGovernor.configure(false)
     expect(SessionContextGovernor.policy()).toBeUndefined()
+    SessionContextGovernor.configure(true)
+    expect(SessionContextGovernor.policy()).toBeDefined()
+    SessionContextGovernor.configure(undefined)
   })
 
   test("leaves a request alone while it is below the soft limit", () => {
@@ -49,6 +68,24 @@ describe("context governor", () => {
     expect(resultsOf(governed).at(-1)?.result.value).toBe("tiny")
     // The original messages are untouched.
     expect(elided(messages)).toHaveLength(0)
+    expect(JSON.stringify(governed).length).toBeLessThan(JSON.stringify(messages).length / 2)
+  })
+
+  test("elides old results that carry an image instead of re-sending the base64 on every step", () => {
+    const govern = SessionContextGovernor.make()
+    const messages = [
+      user("go"),
+      ...Array.from({ length: 8 }, (_, index) => [
+        call(`i${index}`, "desktop_screenshot"),
+        shot(`i${index}`),
+      ]).flat(),
+    ]
+    const governed = govern({ sessionID: "s", key: "k", messages, policy })
+
+    const old = governed.slice(0, governed.length - policy.keep)
+    expect(elided(old).length).toBeGreaterThan(0)
+    expect(elided(old)[0]?.result.value).toContain("image or other binary payload")
+    expect(elided(governed.slice(-policy.keep))).toHaveLength(0)
     expect(JSON.stringify(governed).length).toBeLessThan(JSON.stringify(messages).length / 2)
   })
 

@@ -196,10 +196,40 @@ function evaluateTemplate(
   },
 ) {
   return Effect.gen(function* () {
+    const shellMatches = Array.from(template.matchAll(shellRegex))
+    let evaluatedTemplate = template
+
+    if (shellMatches.length > 0) {
+      const shell = yield* services.shell.resolve({ priority: "config" })
+      const outputs = yield* Effect.forEach(
+        shellMatches,
+        (match) => {
+          const source = match[1] ?? ""
+          return services.processes
+            .run(
+              ChildProcess.make(shell, ShellSelect.args(shell, source), {
+                cwd: services.location.directory,
+                stdin: "ignore",
+              }),
+              { combineOutput: true },
+            )
+            .pipe(
+              Effect.map((result) => (result.output ?? Buffer.concat([result.stdout, result.stderr])).toString("utf8")),
+              Effect.mapError(
+                (error) => new Error(`Shell interpolation failed for ${JSON.stringify(source)}: ${error.message}`),
+              ),
+            )
+        },
+        { concurrency: 2 },
+      )
+      const iterator = outputs[Symbol.iterator]()
+      evaluatedTemplate = template.replace(shellRegex, () => iterator.next().value ?? "")
+    }
+
     const args = parseArguments(input)
-    const placeholders = template.match(placeholderRegex) ?? []
+    const placeholders = evaluatedTemplate.match(placeholderRegex) ?? []
     const last = Math.max(0, ...placeholders.map((item) => Number(item.slice(1))))
-    const expanded = template.replaceAll(placeholderRegex, (_, index) => {
+    const expanded = evaluatedTemplate.replaceAll(placeholderRegex, (_, index) => {
       const position = Number(index)
       const argIndex = position - 1
       if (argIndex >= args.length) return ""
@@ -208,35 +238,11 @@ function evaluateTemplate(
     })
     const withArguments = expanded.replaceAll("$ARGUMENTS", () => input)
     const text =
-      placeholders.length === 0 && !template.includes("$ARGUMENTS") && input.trim()
+      placeholders.length === 0 && !evaluatedTemplate.includes("$ARGUMENTS") && input.trim()
         ? `${withArguments}\n\n${input}`.trim()
         : withArguments.trim()
-    const matches = Array.from(text.matchAll(shellRegex))
-    if (matches.length === 0) return text
-    const shell = yield* services.shell.resolve({ priority: "config" })
-    const outputs = yield* Effect.forEach(
-      matches,
-      (match) => {
-        const source = match[1] ?? ""
-        return services.processes
-          .run(
-            ChildProcess.make(shell, ShellSelect.args(shell, source), {
-              cwd: services.location.directory,
-              stdin: "ignore",
-            }),
-            { combineOutput: true },
-          )
-          .pipe(
-            Effect.map((result) => (result.output ?? Buffer.concat([result.stdout, result.stderr])).toString("utf8")),
-            Effect.mapError(
-              (error) => new Error(`Shell interpolation failed for ${JSON.stringify(source)}: ${error.message}`),
-            ),
-          )
-      },
-      { concurrency: 2 },
-    )
-    const iterator = outputs[Symbol.iterator]()
-    return text.replace(shellRegex, () => iterator.next().value ?? "")
+
+    return text
   })
 }
 

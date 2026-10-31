@@ -36,22 +36,48 @@ const isDrive = (value: string) => {
   return value[1] === ":" && ((code >= 65 && code <= 90) || (code >= 97 && code <= 122))
 }
 
-const trimTrailingSlashes = (value: string) => {
-  for (let i = value.length - 1; i >= 0; i--) {
-    if (value[i] !== "/") return value.slice(0, i + 1)
-  }
-  return ""
-}
-
 const isWindowsPath = (value: string) => value[1] === ":" || value.startsWith("\\\\")
 
-/** A comparable form of a directory path: forward slashes for Windows paths, no trailing slash except on roots. */
+/** A comparable form of a directory path: forward slashes for Windows paths, collapsed . and .. segments, no trailing slash except on roots. */
 export function comparablePath(path: string) {
   const value = isWindowsPath(path) ? path.replaceAll("\\", "/") : path
-  const trimmed = trimTrailingSlashes(value)
-  if (!trimmed && value.startsWith("/")) return "/"
-  if (isDrive(trimmed)) return `${trimmed}/`
-  return trimmed
+  const isUnc = value.startsWith("//")
+  const isAbsoluteUnix = !isUnc && value.startsWith("/")
+  const parts = value.split("/")
+  const segments: string[] = []
+
+  for (const part of parts) {
+    if (part === "" || part === ".") continue
+    if (part === "..") {
+      if (segments.length > 0) {
+        if (segments.length === 1 && isDrive(segments[0])) {
+          // Do not pop Windows drive letter (e.g. C:/.. remains C:/)
+        } else if (segments[segments.length - 1] === "..") {
+          segments.push("..")
+        } else {
+          segments.pop()
+        }
+      } else if (!isAbsoluteUnix && !isUnc) {
+        segments.push("..")
+      }
+    } else {
+      segments.push(part)
+    }
+  }
+
+  if (isUnc) {
+    return "//" + segments.join("/")
+  }
+  if (isAbsoluteUnix) {
+    return "/" + segments.join("/")
+  }
+  if (segments.length > 0 && isDrive(segments[0])) {
+    return segments.length === 1 ? `${segments[0]}/` : segments.join("/")
+  }
+  if (segments.length === 0) {
+    return value.startsWith("/") ? "/" : ""
+  }
+  return segments.join("/")
 }
 
 /** `child` is `parent` or inside it. Windows drive and UNC paths compare case-insensitively. */

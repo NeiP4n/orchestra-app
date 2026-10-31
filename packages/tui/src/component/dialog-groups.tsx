@@ -1,6 +1,6 @@
 import { tr } from "../util/i18n"
 import { TextAttributes, type InputRenderable } from "@opentui/core"
-import { createResource, createSignal, For, Show } from "solid-js"
+import { createResource, createSignal, For, Show, type JSX } from "solid-js"
 import { useConfig } from "../config"
 import { useClient } from "../context/client"
 import { useProjects } from "../context/projects"
@@ -12,6 +12,10 @@ import { errorMessage } from "../util/error"
 import { useGroupT } from "../util/i18n-groups"
 import { Button } from "./devtools-registry"
 import { Header } from "./dialog-rooms"
+
+// Every group is two lines: what it is, then what can be done with it. The mode is read here and
+// changed in the form below, because a mode change replaces the group's chat.
+const LABEL_WIDTH = 9
 
 export function DialogGroups(props: { onClose?: () => void }) {
   const client = useClient()
@@ -27,17 +31,8 @@ export function DialogGroups(props: { onClose?: () => void }) {
   const [armed, setArmed] = createSignal<string>()
   const [opening, setOpening] = createSignal<string>()
   const [draftMode, setDraftMode] = createSignal<"lead" | "council">("lead")
-  const [modeOverride, setModeOverride] = createSignal<Record<string, "lead" | "council">>({})
-  const modeOf = (group: { name: string; mode?: "lead" | "council" }) =>
-    modeOverride()[group.name] ?? group.mode ?? "lead"
-  const clearModeOverride = (name: string) =>
-    setModeOverride((current) => {
-      const next = { ...current }
-      delete next[name]
-      return next
-    })
+  const [editing, setEditing] = createSignal<string>()
   const listed = () => (groups.error ? undefined : groups.latest) ?? []
-  const nameOf = (id: string) => projects.list().find((project) => project.id === id)?.name ?? id
 
   const act = (action: () => Promise<unknown>) =>
     void action().then(() => refetch()).catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
@@ -66,50 +61,45 @@ export function DialogGroups(props: { onClose?: () => void }) {
     }
   }
 
+  const reset = () => {
+    if (nameField) nameField.value = ""
+    setPicked([])
+    setDraftMode("lead")
+    setEditing(undefined)
+  }
+
   const save = () => {
     const name = nameField?.value.trim()
     if (!name) return toast.show({ message: t("Enter a group name."), variant: "error" })
     if (picked().length === 0) return toast.show({ message: t("Pick at least one project."), variant: "error" })
     const members = [...picked()]
     const mode = draftMode()
+    const previous = listed().find((item) => item.name === name)
     act(async () => {
+      // A chat carries the mode it was created in, so the chat of the old mode is stale once the
+      // mode changes. Drop it before the save that rebinds the group to the new mode.
+      const stale = previous?.supervisor !== undefined && (previous.mode ?? "lead") !== mode ? previous.supervisor : undefined
+      if (stale) await client.api.session.remove({ sessionID: stale })
       await client.api.orchestra.group.save({ name, projects: members as never, mode, supervisor: undefined })
-      if (nameField) nameField.value = ""
-      setPicked([])
-      setDraftMode("lead")
+      reset()
     })
   }
 
-  const edit = (name: string, members: readonly string[], mode: "lead" | "council" = "lead") => {
-    if (nameField) nameField.value = name
-    setPicked(members)
-    setDraftMode(mode)
+  const edit = (group: { name: string; projects: readonly string[]; mode?: "lead" | "council" }) => {
+    if (nameField) nameField.value = group.name
+    setPicked(group.projects)
+    setDraftMode(group.mode ?? "lead")
+    setEditing(group.name)
   }
 
-  const changeMode = (group: { name: string; projects: readonly string[]; supervisor?: string; mode?: "lead" | "council" }, mode: "lead" | "council") => {
-    if (modeOf(group) === mode) return
-    setModeOverride((current) => ({ ...current, [group.name]: mode }))
-    void (async () => {
-      try {
-        // Changing a mode only changes the group's configuration. It must never
-        // create/open a session or send anything to member projects implicitly.
-        // A chat that cannot be removed keeps its old mode, so the failure is reported
-        // instead of leaving the group in a state the operator did not ask for.
-        if (group.supervisor) await client.api.session.remove({ sessionID: group.supervisor })
-        await client.api.orchestra.group.save({ name: group.name, projects: group.projects as never, mode, supervisor: undefined })
-      } catch (error) {
-        toast.show({ message: errorMessage(error), variant: "error" })
-      } finally {
-        await Promise.resolve(refetch?.()).catch(() => {})
-        clearModeOverride(group.name)
-      }
-    })()
-  }
-
-  const link = (name: string) => act(async () => {
-    const { pairs } = await client.api.orchestra.group.link({ name })
-    toast.show({ message: pairs === 0 ? t("Nothing to link: a group needs two projects.") : t("Linked {count} pair(s).", { count: pairs }), variant: "success" })
-  })
+  const link = (name: string) =>
+    act(async () => {
+      const { pairs } = await client.api.orchestra.group.link({ name })
+      toast.show({
+        message: pairs === 0 ? t("Nothing to link: a group needs two projects.") : t("Linked {count} pair(s).", { count: pairs }),
+        variant: "success",
+      })
+    })
 
   const remove = (name: string) => {
     if (armed() !== name) return setArmed(name)
@@ -117,18 +107,23 @@ export function DialogGroups(props: { onClose?: () => void }) {
     act(() => client.api.orchestra.group.remove({ name }))
   }
 
-  const projectNames = (group: { projects: readonly string[] }) => group.projects.map(nameOf)
-
   return (
     <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
       <Header title={t("Project groups")} onClose={props.onClose} />
       <Show when={groups.error}>
-        {(error) => <text fg={theme.text.feedback.error.base} wrapMode="word">{errorMessage(error())}</text>}
+        {(error) => (
+          <text fg={theme.text.feedback.error.base} wrapMode="word">
+            {errorMessage(error())}
+          </text>
+        )}
+      </Show>
+      <Show when={groups.loading && groups.latest === undefined}>
+        <text fg={theme.text.muted}>{t("Loading groups…")}</text>
       </Show>
       <Show when={listed().length > 0} fallback={<text fg={theme.text.muted}>{t("No groups yet.")}</text>}>
         <For each={listed()}>
           {(group) => (
-            <box flexDirection="column" gap={1} paddingTop={1} paddingBottom={1}>
+            <box flexDirection="column">
               <box flexDirection="row" gap={1}>
                 <box flexGrow={1} minWidth={0}>
                   <text fg={theme.text.base} wrapMode="none" truncate>
@@ -136,74 +131,107 @@ export function DialogGroups(props: { onClose?: () => void }) {
                     <span style={{ fg: theme.text.muted }}>{` · ${group.projects.length} ${group.projects.length === 1 ? "project" : "projects"}`}</span>
                   </text>
                 </box>
-                <Button onClick={() => edit(group.name, group.projects, group.mode ?? "lead")}>{t("Edit")}</Button>
-                <Button onClick={() => link(group.name)}>{t("Link all")}</Button>
-                <Button onLeave={() => setArmed()} onClick={() => remove(group.name)}>{armed() === group.name ? t("Delete?") : t("Delete")}</Button>
+                <text fg={theme.text.muted} wrapMode="none">
+                  {(group.mode ?? "lead") === "council" ? t("Council") : t("Coordinator")}
+                </text>
               </box>
-
               <box flexDirection="row" gap={1}>
-                <text fg={theme.text.muted}>{t("Mode") + ":"}</text>
                 <Button
-                  variant={modeOf(group) === "lead" ? "primary" : "secondary"}
-                  onClick={() => changeMode(group, "lead")}
+                  variant="primary"
+                  disabled={opening() === group.name}
+                  onClick={() => void createSupervisor({ name: group.name, supervisor: group.supervisor, mode: group.mode ?? "lead" })}
                 >
-                  {t("Single coordinator")}
-                </Button>
-                <Button
-                  variant={modeOf(group) === "council" ? "primary" : "secondary"}
-                  onClick={() => changeMode(group, "council")}
-                >
-                  {t("Orchestrator council")}
-                </Button>
-              </box>
-
-              <box flexDirection="row" gap={1}>
-                <text fg={theme.text.muted}>{t("Group chat") + ":"}</text>
-                <Button variant="primary" disabled={opening() === group.name} onClick={() => void createSupervisor({ name: group.name, supervisor: group.supervisor, mode: modeOf(group) })}>
                   {opening() === group.name
                     ? t("Creating...")
                     : group.supervisor
-                      ? (modeOf(group) === "council" ? tr("★ Society · Open") : tr("★ President · Open"))
-                      : (modeOf(group) === "council" ? tr("+ Create Society") : tr("+ Create President"))}
+                      ? (group.mode ?? "lead") === "council"
+                        ? tr("★ Society · Open")
+                        : tr("★ President · Open")
+                      : (group.mode ?? "lead") === "council"
+                        ? tr("+ Create Society")
+                        : tr("+ Create President")}
                 </Button>
-                <Show when={modeOf(group) === "council"}>
-                  <text fg={theme.text.muted}>{tr(group.projects.length === 1 ? "{count} orchestrator · {names}" : "{count} orchestrators · {names}", { count: group.projects.length, names: projectNames(group).join(", ") })}</text>
-                </Show>
+                <Button onClick={() => edit(group)}>{t("Edit")}</Button>
+                <Button onClick={() => link(group.name)}>{t("Link all")}</Button>
+                <Button onLeave={() => setArmed()} onClick={() => remove(group.name)}>
+                  {armed() === group.name ? t("Delete?") : t("Delete")}
+                </Button>
               </box>
-              <text fg={theme.text.muted} wrapMode="word">
-                {modeOf(group) === "council"
-                  ? t("Choose Orchestrator council to set the group mode. Then press Create Society: it creates one chat bound to this group. That chat is the only place where the council works; changing the mode does not start or move any project session.")
-                  : t("President is a chat bound to this group. Press Create President to create one group chat. It will not dispatch tasks to project sessions on its own.")}
-              </text>
             </box>
           )}
         </For>
       </Show>
 
-      <text fg={theme.text.base} attributes={TextAttributes.UNDERLINE}>{t("New or edited group")}</text>
-      <box flexDirection="row" gap={1}>
-        <input width={24} cursorStyle={config.cursor} ref={(element: InputRenderable) => { nameField = element }} onMouseDown={() => nameField?.focus()} placeholder={t("Group name")} placeholderColor={theme.text.muted} textColor={theme.text.formfield.base} focusedTextColor={theme.text.formfield.focused} cursorColor={theme.text.formfield.focused} backgroundColor={theme.background.formfield.base} onSubmit={save} />
-        <Button variant="primary" onClick={save}>{t("Save group")}</Button>
-      </box>
-      <box flexDirection="row" gap={1}>
-        <text fg={theme.text.muted}>{t("New group mode") + ":"}</text>
-        <Button variant={draftMode() === "lead" ? "primary" : undefined} onClick={() => setDraftMode("lead")}>
-          {t("Single coordinator")}
+      <text fg={theme.text.base} attributes={TextAttributes.UNDERLINE}>
+        {editing() ? t("Edit group") : t("New group")}
+      </text>
+      <Field label={t("Name")}>
+        <input
+          width={24}
+          cursorStyle={config.cursor}
+          ref={(element: InputRenderable) => {
+            nameField = element
+          }}
+          onMouseDown={() => nameField?.focus()}
+          placeholder={t("Group name")}
+          placeholderColor={theme.text.muted}
+          textColor={theme.text.formfield.base}
+          focusedTextColor={theme.text.formfield.focused}
+          cursorColor={theme.text.formfield.focused}
+          backgroundColor={theme.background.formfield.base}
+          onSubmit={save}
+        />
+        <Button variant="primary" onClick={save}>
+          {t("Save group")}
         </Button>
-        <Button variant={draftMode() === "council" ? "primary" : undefined} onClick={() => setDraftMode("council")}>
-          {t("Orchestrator council")}
-        </Button>
-      </box>
+      </Field>
+      <Field label={t("Mode")}>
+        <Chip label={t("Coordinator")} selected={draftMode() === "lead"} onClick={() => setDraftMode("lead")} />
+        <Chip label={t("Council")} selected={draftMode() === "council"} onClick={() => setDraftMode("council")} />
+      </Field>
       <Show when={projects.list().length > 0} fallback={<text fg={theme.text.muted}>{t("Create projects first.")}</text>}>
-        <box flexDirection="row" flexWrap="wrap" gap={1}>
+        <Field label={t("Projects")}>
           <For each={projects.list()}>
-            {(project) => <Button variant={picked().includes(project.id) ? "primary" : undefined} onClick={() => toggle(project.id)}>{`${picked().includes(project.id) ? "✓" : "○"} ${project.name}`}</Button>}
+            {(project) => <Chip label={project.name} selected={picked().includes(project.id)} onClick={() => toggle(project.id)} />}
           </For>
-        </box>
+        </Field>
       </Show>
     </box>
   )
 }
+
+// A labelled row of the form: labels line up in one column so the controls read as a single stack.
+function Field(props: { label: string; children: JSX.Element }) {
+  const theme = useTheme().surface("dialog")
+  return (
+    <box flexDirection="row" gap={1}>
+      <box width={LABEL_WIDTH} flexShrink={0}>
+        <text fg={theme.text.muted} wrapMode="none">
+          {props.label}
+        </text>
+      </box>
+      <box flexDirection="row" gap={1} flexWrap="wrap" flexGrow={1} minWidth={0}>
+        {props.children}
+      </box>
+    </box>
+  )
+}
+
+// A chip marks its own selection state: filled when chosen, hollow when not.
+function Chip(props: { label: string; selected: boolean; onClick: () => void }) {
+  const theme = useTheme().surface("dialog")
+  const [hover, setHover] = createSignal(false)
+  const tone = () =>
+    hover() ? theme.text.formfield.hovered : props.selected ? theme.text.formfield.selected : theme.text.formfield.base
+  return (
+    <box flexShrink={0} onMouseOver={() => setHover(true)} onMouseOut={() => setHover(false)} onMouseUp={() => props.onClick()}>
+      <text fg={tone()} wrapMode="none">
+        {`${props.selected ? "■" : "□"} ${props.label}`}
+      </text>
+    </box>
+  )
+}
+
 export function openGroupsDialog(dialog: DialogContext, options?: { onClose?: () => void }) {
   dialog.replace(
     () => (

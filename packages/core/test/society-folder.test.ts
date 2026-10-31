@@ -6,8 +6,17 @@ describe("Society folders", () => {
   test("every project of a Society lives inside the Society's one folder", () => {
     const root = path.join(path.sep, "srv", "societies")
     const society = Federation.societyDirectory("Моё Общество 1", root)
-    expect(society).toBe(path.join(root, "моё-общество-1"))
+    // Cyrillic never reaches the disk: Windows and archives mangle it, so the name is a slug.
+    expect(society).toBe(path.join(root, "moe-obshchestvo-1"))
     expect(Federation.societyProjectDirectory("Моё Общество 1", "Backend API", root)).toBe(path.join(society, "backend-api"))
+  })
+
+  test("the same name always gives the same folder", () => {
+    const root = path.join(path.sep, "srv", "societies")
+    expect(Federation.societyDirectory("Моё Общество 1", root)).toBe(Federation.societyDirectory("Моё Общество 1", root))
+    expect(Federation.societyProjectDirectory("Моё Общество 1", "Кодеры", root)).toBe(
+      Federation.societyProjectDirectory("Моё Общество 1", "Кодеры", root),
+    )
   })
 
   test("a name with no usable characters still gets a stable folder", () => {
@@ -67,5 +76,14 @@ describe("Society base projects", () => {
     }
     // Four distinct folders: nothing may share a project directory.
     expect(new Set(Federation.baseProjects.map((item) => Federation.societyProjectDirectory("x", item.name))).size).toBe(4)
+  })
+
+  test("keep Russian names but use explicit ASCII folders", () => {
+    expect(Federation.baseProjects.map((item) => item.folder)).toEqual(["planner", "architects", "coders", "testers"])
+    expect(Federation.baseProjects.map((item) => item.name)).toEqual(["Планировщик", "Архитекторы", "Кодеры", "Тестировщики"])
+    const society = Federation.societyDirectory("Моё Общество")
+    for (const base of Federation.baseProjects) {
+      expect(Federation.societyProjectDirectory("Моё Общество", base.folder)).toBe(path.join(society, base.folder))
+    }
   })
 })

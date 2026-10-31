@@ -24,7 +24,7 @@ export const withToken = (config: Mcp.ServerConfig, token: string | undefined) =
 }
 
 /** Reads the token of the GitHub CLI session, if the CLI is installed and signed in. */
-export const fromCli = Effect.fnUntraced(function* () {
+const read = Effect.fnUntraced(function* () {
   return yield* Effect.tryPromise({
     try: () =>
       new Promise<string | undefined>((resolve) => {
@@ -36,6 +36,20 @@ export const fromCli = Effect.fnUntraced(function* () {
       }),
     catch: () => undefined,
   }).pipe(Effect.orElseSucceed(() => undefined))
+})
+
+// Reading the token spawns `gh`, and the MCP layer asks once per remote server per Location. A Society
+// boots a Location per project, so the same CLI call ran dozens of times at startup. Staleness is
+// bounded by the TTL: `gh auth login` in another terminal is picked up within a minute.
+const TTL = 60_000
+let cached: { at: number; token: string | undefined } | undefined
+
+export const fromCli = Effect.fnUntraced(function* () {
+  const now = Date.now()
+  if (cached !== undefined && now - cached.at < TTL) return cached.token
+  const token = yield* read()
+  cached = { at: now, token }
+  return token
 })
 
 /** The remote config to connect with: gh's token when available, the configured one otherwise. */

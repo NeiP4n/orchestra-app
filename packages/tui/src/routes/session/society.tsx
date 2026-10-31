@@ -8,10 +8,8 @@ import { useDialog } from "../../ui/dialog"
 import { useData } from "../../context/data"
 import { useProjects } from "../../context/projects"
 import { usePromptRef } from "../../context/prompt"
-import { neuralPalette } from "../../component/neural"
 import { useTheme, useThemes } from "../../context/theme"
 import { emptyPrompt } from "../../prompt/history"
-import { SplitBorder } from "../../ui/border"
 
 // The Society chat: one transcript where the operator writes once, addresses a member
 // Orchestrator by its call sign (@Atlas) and sees every answer under that member's name.
@@ -19,57 +17,43 @@ import { SplitBorder } from "../../ui/border"
 
 type ThemeLike = ReturnType<typeof useTheme>
 
-// A call sign keeps its colour for as long as the group keeps its project order.
+// A call sign keeps its colour for as long as the group keeps its project order. The categorical
+// ramp is the theme's role for "one of N identities", so a roster never borrows a feedback colour.
 export function callsignColor(theme: ThemeLike, callsign: string | undefined): RGBA {
-  const palette = [
-    theme.text.feedback.info.base,
-    theme.text.feedback.success.base,
-    theme.text.feedback.warning.base,
-    theme.hue.accent[200],
-    theme.hue.interactive[300],
-  ]
   const base = (callsign ?? "").replace(/\d+$/, "")
   const index = Math.max(0, Federation.callsignPool.indexOf(base as (typeof Federation.callsignPool)[number]))
   const lap = Number((callsign ?? "").match(/\d+$/)?.[0] ?? 1) - 1
-  return palette[(index + lap) % palette.length]!
-}
-
-function Badge(props: { text: string; color: RGBA; ink: RGBA }) {
-  return (
-    <text fg={props.ink} bg={props.color} attributes={TextAttributes.BOLD} wrapMode="none">
-      {` ${props.text} `}
-    </text>
-  )
+  const palette = theme.categorical
+  return palette[(index + lap) % palette.length]![200]
 }
 
 // What the Council receives once every invited Orchestrator answered: one card per member.
 export function CouncilResultsCard(props: { results: Federation.CouncilResults }) {
   const theme = useTheme()
   const { currentSyntax: syntax } = useThemes()
+  const count = () => props.results.proposals.length
   return (
-    <box flexDirection="column" gap={1} paddingLeft={3} paddingTop={1} paddingBottom={1} flexShrink={0}>
+    <box flexDirection="column" gap={1} paddingLeft={2} paddingTop={1} paddingBottom={1} flexShrink={0}>
       <box flexDirection="row" gap={1}>
-        <Badge text={tr("◆ Council")} color={theme.hue.accent[200]} ink={theme.background.base} />
-        <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
+        <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="none">
+          {tr("Council")}
+        </text>
+        <text fg={theme.text.base} wrapMode="none" truncate>
           {props.results.subject ?? props.results.group}
         </text>
         <text fg={theme.text.muted} wrapMode="none">
-          {tr("{count} answer(s)", { count: props.results.proposals.length })}
+          {count() === 1 ? tr("{count} answer", { count: count() }) : tr("{count} answers", { count: count() })}
         </text>
       </box>
       <For each={props.results.proposals}>
         {(proposal) => {
           const color = () => callsignColor(theme, proposal.callsign)
           return (
-            <box
-              border={["left"]}
-              borderColor={color()}
-              customBorderChars={SplitBorder.customBorderChars}
-              paddingLeft={2}
-              flexDirection="column"
-            >
+            <box flexDirection="column" gap={1} paddingLeft={2}>
               <box flexDirection="row" gap={1}>
-                <Badge text={proposal.callsign ?? proposal.name} color={color()} ink={theme.background.base} />
+                <text fg={color()} attributes={TextAttributes.BOLD} wrapMode="none">
+                  {proposal.callsign ?? proposal.name}
+                </text>
                 <Show when={proposal.callsign}>
                   <text fg={theme.text.muted} wrapMode="none" truncate>
                     {proposal.name}
@@ -104,51 +88,47 @@ export function useQuickSend() {
   }
 }
 
-// Replies the assistant offered with <reply-options>: each is a button that sends its text.
-// They stay on screen after use but turn dim so the chat shows which way the operator went.
+// Replies the assistant offered with <reply-options>: each is a chip that sends its text.
+// A sent chip stays on screen as the chosen one, so the chat shows which way the operator went.
 export function ReplyOptions(props: { options: ReadonlyArray<Federation.ReplyOption>; settled?: boolean }) {
   const theme = useTheme()
   const send = useQuickSend()
-  const [hover, setHover] = createSignal<number>()
   const [chosen, setChosen] = createSignal<number>()
   const locked = () => props.settled === true || chosen() !== undefined
   return (
-    <box flexDirection="column" paddingLeft={3} paddingTop={1} flexShrink={0} position="relative">
-      {/* A branch from the conversation's nerve: interactive answers hang off it like the messages. */}
-      <text position="absolute" left={1} top={1} fg={neuralPalette(theme).signal} selectable={false}>
-        ├─
-      </text>
-      <text fg={theme.text.muted} wrapMode="none">
-        {locked() ? tr("Answer chosen") : tr("Pick an answer — a click sends it to the chat")}
-      </text>
-      <box flexDirection="row" gap={1} flexWrap="wrap" paddingTop={1}>
-        <For each={props.options}>
-          {(option, index) => {
-            const hot = () => !locked() && hover() === index()
-            const picked = () => chosen() === index()
-            return (
-              <box
-                onMouseOver={() => setHover(index())}
-                onMouseOut={() => setHover(undefined)}
-                onMouseUp={() => {
-                  if (locked()) return
-                  setChosen(index())
-                  send(option.send)
-                }}
+    <box flexDirection="row" gap={1} flexWrap="wrap" paddingLeft={2} paddingTop={1} flexShrink={0}>
+      <For each={props.options}>
+        {(option, index) => {
+          const [hover, setHover] = createSignal(false)
+          const picked = () => chosen() === index()
+          const tone = () =>
+            locked() && !picked()
+              ? theme.text.action.secondary.disabled
+              : hover()
+                ? theme.text.action.secondary.hovered
+                : theme.text.action.secondary.base
+          return (
+            <box
+              onMouseOver={() => setHover(true)}
+              onMouseOut={() => setHover(false)}
+              onMouseUp={() => {
+                if (locked()) return
+                setChosen(index())
+                send(option.send)
+              }}
+            >
+              <text
+                wrapMode="none"
+                fg={picked() ? theme.text.feedback.success.base : tone()}
+                bg={hover() && !locked() ? theme.background.action.secondary.hovered : undefined}
+                attributes={picked() ? TextAttributes.BOLD : undefined}
               >
-                <text
-                  wrapMode="none"
-                  fg={hot() ? theme.background.base : picked() ? theme.text.feedback.success.base : theme.hue.accent[200]}
-                  bg={hot() ? theme.hue.accent[200] : theme.background.raised.base}
-                  attributes={picked() ? TextAttributes.BOLD : undefined}
-                >
-                  {` ${picked() ? "✓" : "▸"} ${option.label} `}
-                </text>
-              </box>
-            )
-          }}
-        </For>
-      </box>
+                {`${picked() ? "✓" : "▸"} ${option.label}`}
+              </text>
+            </box>
+          )
+        }}
+      </For>
     </box>
   )
 }
@@ -214,6 +194,7 @@ export function SocietyRoster(props: { sessionID: string }) {
   const glyph = (member: { online: boolean; main?: string }) =>
     waiting(member.main) ? "?" : member.main !== undefined && data.session.status(member.main) === "running" ? "◉" : member.online ? "●" : "○"
   const [hover, setHover] = createSignal<string>()
+  const [holdHover, setHoldHover] = createSignal(false)
   const mention = (callsign: string) => {
     const prompt = promptRef.current
     if (!prompt) return
@@ -229,6 +210,8 @@ export function SocietyRoster(props: { sessionID: string }) {
       <box flexDirection="row" gap={1} paddingLeft={1} flexShrink={0}>
         {/* While held, no AI of this Society starts, whatever wakes it. The server holds every Society at start. */}
         <box
+          onMouseOver={() => setHoldHover(true)}
+          onMouseOut={() => setHoldHover(false)}
           onMouseUp={() => {
             const name = marker()?.groupName
             if (!name) return
@@ -240,10 +223,10 @@ export function SocietyRoster(props: { sessionID: string }) {
         >
           <text
             wrapMode="none"
-            fg={held() ? theme.text.feedback.warning.base : theme.text.muted}
+            fg={holdHover() ? theme.text.action.secondary.hovered : theme.text.action.secondary.base}
             attributes={held() ? TextAttributes.BOLD : undefined}
           >
-            {held() ? `⏸ ${tr("AIs held — click to resume")}` : "⏸"}
+            {held() ? `⏸ ${tr("Resume")}` : `⏸ ${tr("Hold")}`}
           </text>
         </box>
         <For each={members()}>

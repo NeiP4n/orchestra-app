@@ -247,8 +247,11 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
     void expand(projectID)
   }
 
-  const openMain = (project: OrchestraProject) =>
-    client.api.orchestra.project
+  const openMain = (project: OrchestraProject) => {
+    if (project.main) {
+      route.navigate({ type: "session", sessionID: project.main })
+    }
+    return client.api.orchestra.project
       .main({ projectID: project.id })
       .then((session) => {
         data.session.remember(session)
@@ -260,9 +263,16 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           // project visible instead of silently dropping it from an initially empty resource.
           return [...items, { ...project, main: session.id }]
         })
-        route.navigate({ type: "session", sessionID: session.id })
+        if (!project.main) {
+          route.navigate({ type: "session", sessionID: session.id })
+        }
       })
-      .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
+      .catch((error: unknown) => {
+        if (!project.main) {
+          toast.show({ message: errorMessage(error), variant: "error" })
+        }
+      })
+  }
 
   const openCreatedProject = async (project: OrchestraProject) => {
     setExpanded(project.id, true)

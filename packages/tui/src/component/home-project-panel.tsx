@@ -62,10 +62,7 @@ export function HomeProjectPanel(props: {
   const sessions = createMemo(() => data.session.list().filter((session) => !session.parentID))
   const thinking = createMemo(() => sessions().filter((session) => data.session.status(session.id) === "running").length)
   const energyLabel = () => `${"▮".repeat(Math.round(energy() * 5))}${"▯".repeat(5 - Math.round(energy() * 5))}`
-  const mainSessionID = () => {
-    const main = project()?.main
-    return main && roster()?.some((session) => session.id === main) ? main : undefined
-  }
+  const mainSessionID = () => project()?.main
 
   return (
     <Show

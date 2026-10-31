@@ -49,6 +49,39 @@ function measureChars(val: unknown): number {
   return 0
 }
 
+// Roughly what a screenshot or a PDF page costs the model: about 1.5k tokens for a 1280x960 image.
+const IMAGE_TOKENS = 1_500
+
+/** Splits a tool result into text the model reads and pictures it looks at. */
+function measureOutput(val: unknown): { chars: number; images: number } {
+  if (val === null || val === undefined) return { chars: 0, images: 0 }
+  if (typeof val === "string") return { chars: val.length, images: 0 }
+  if (typeof val === "number" || typeof val === "boolean") return { chars: String(val).length, images: 0 }
+  if (Array.isArray(val)) {
+    return val.reduce(
+      (acc, item) => {
+        const next = measureOutput(item)
+        return { chars: acc.chars + next.chars, images: acc.images + next.images }
+      },
+      { chars: 0, images: 0 },
+    )
+  }
+  if (typeof val === "object") {
+    const item = val as { type?: unknown; uri?: unknown }
+    // An image or a PDF arrives as a base64 data URI: counting those bytes as text would report
+    // megabytes the model never reads.
+    if (item.type === "file" && typeof item.uri === "string" && item.uri.startsWith("data:")) {
+      return { chars: 0, images: 1 }
+    }
+    try {
+      return { chars: JSON.stringify(val).length, images: 0 }
+    } catch {
+      return { chars: 0, images: 0 }
+    }
+  }
+  return { chars: 0, images: 0 }
+}
+
 /**
  * Parses user input for compaction threshold.
  * Supports:
@@ -200,6 +233,7 @@ export async function saveDirectFallback(threshold: number): Promise<boolean> {
 export function estimateToolTokens(messages: readonly any[]): number {
   let totalChars = 0
   let explicitTokens = 0
+  let images = 0
 
   for (const message of messages ?? []) {
     if (!message || typeof message !== "object") continue
@@ -258,7 +292,9 @@ export function estimateToolTokens(messages: readonly any[]): number {
         part.result ??
         (part.type === "tool" ? undefined : part.content)
       if (output !== undefined) {
-        outputChars += measureChars(output)
+        const measured = measureOutput(output)
+        outputChars += measured.chars
+        images += measured.images
       }
 
       if (part.state?.metadata?.toolCalls || part.metadata?.toolCalls || part.toolCalls) {
@@ -272,7 +308,7 @@ export function estimateToolTokens(messages: readonly any[]): number {
         }
       }
 
-      if (inputChars === 0 && outputChars === 0) {
+      if (inputChars === 0 && outputChars === 0 && images === 0) {
         totalChars += measureChars(part)
       } else {
         totalChars += inputChars + outputChars
@@ -281,7 +317,8 @@ export function estimateToolTokens(messages: readonly any[]): number {
   }
 
   const estimated = Math.ceil(totalChars / 4)
-  return explicitTokens + estimated
+  // A picture is billed by how much of it the model sees, not by the base64 text that carries it.
+  return explicitTokens + images * IMAGE_TOKENS + estimated
 }
 
 export type BarCell = {

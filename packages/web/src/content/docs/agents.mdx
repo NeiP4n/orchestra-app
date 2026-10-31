@@ -68,6 +68,26 @@ This agent is useful when you want the LLM to analyze code, suggest changes, or 
 
 ---
 
+### Use jailbreak
+
+_Work mode_: `jailbreak` and `jailbreak:<prompt>`, on by default
+
+Jailbreak is a work mode, not an agent: it keeps the session's agent, its tools and its permissions, and adds one of the bundled jailbreak prompts from [togg53192-cmd/jailbreaks](https://github.com/togg53192-cmd/jailbreaks) to the request. Every bundled policy is its own mode, listed under the `Jailbreak` section of the work-mode picker; the ordinary modes keep working exactly as before.
+
+Pick a policy from the `mode:…` control in the composer; switching back to `auto` restores the session's normal behaviour. `Jailbreak → Auto by model` (`jailbreak`) chooses the policy to fit the model, so `deepseek-v4.1-flash-1017` picks `deepseek-4-1` and an unrecognised model gets `unified`. Picking a named policy (`jailbreak:opus-v2`) pins it for that session regardless of the model, the configured prompt or the model match. The bundled ids live in `packages/core/src/jailbreak/catalog.ts` and the picker reads their names from `packages/schema/src/jailbreak.ts`; `bun script/sync-jailbreak-prompts.ts` refreshes both from upstream.
+
+```json
+{
+  "jailbreak": {
+    "prompt": "deepseek-4-1"
+  }
+}
+```
+
+`jailbreak.prompt` only decides which policy the bare `jailbreak` mode runs; a session that pins a policy by its mode ignores it. A prompt written for a specific model works best when the session runs that model. Providers may treat jailbreak prompts as a terms-of-service violation; `"jailbreak": { "enabled": false }` hides the mode and every policy.
+
+---
+
 ### Use general
 
 _Mode_: `subagent`

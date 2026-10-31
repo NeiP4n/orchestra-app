@@ -1128,6 +1128,7 @@ export function resolveSessionThreshold(
   if (parsed === undefined) return undefined
   if (parsed.type === "tokens") return parsed.tokens
   const window = limit.input || limit.context
+  if (parsed.type === "capped") return SessionPlan.thresholdTokens(parsed, window)
   if (!Number.isFinite(window) || window <= 0) return undefined
   return Math.max(1, Math.round((window * parsed.percent) / 100))
 }

@@ -65,6 +65,27 @@ describe("McpInstructions", () => {
     ),
   )
 
+  it.effect("clips instructions from a server that floods the prompt", () => {
+    const first = "First line of the flood"
+    const flood = [first, ...Array.from({ length: 400 }, (_, index) => `line ${index} ${"x".repeat(40)}`)].join("\n")
+    return Effect.gen(function* () {
+      const service = yield* McpInstructions.Service
+      const generation = yield* service.load([]).pipe(Effect.flatMap(readInitial))
+
+      expect(generation.text).toContain(first)
+      expect(generation.text).toContain("more characters of this server's instructions are not shown")
+      expect(generation.text.length).toBeLessThan(5_000)
+      expect(generation.text).not.toContain(`line 399 ${"x".repeat(40)}`)
+    }).pipe(
+      Effect.provide(
+        layer(
+          () => [instructions("alpha", flood)],
+          () => [tool("alpha")],
+        ),
+      ),
+    )
+  })
+
   it.effect("omits instructions when the agent cannot use execute", () =>
     Effect.gen(function* () {
       const service = yield* McpInstructions.Service

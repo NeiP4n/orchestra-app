@@ -14,11 +14,15 @@ type Listeners = {
   resources: Set<() => void>
 }
 
+type Catalog = Effect.Success<ReturnType<McpClient.Connection["tools"]>>
+
 type Shared = {
   users: number
   readonly scope: Scope.Closeable
   readonly ready: Deferred.Deferred<McpClient.Connection, unknown>
   readonly listeners: Listeners
+  /** Catalog read on this process, shared by every Location on it. */
+  tools?: Catalog
 }
 
 // One pool per execution plane, so a workspace-backed location never shares a process with the host. An
@@ -92,6 +96,17 @@ export const connect = Effect.fnUntraced(function* (
     }
   return {
     ...connection,
+    // The catalog belongs to the process, not to the folder that asked for it. A Society opens a Location
+    // per project and each one lists tools on connect, so a server with a few hundred tools was parsed
+    // once per project for the same answer. A list-changed notification clears the cache in `open`.
+    tools: () =>
+      Effect.suspend(() => {
+        if (shared.tools) return Effect.succeed(shared.tools)
+        return Effect.map(connection.tools(), (tools) => {
+          shared.tools = tools
+          return tools
+        })
+      }),
     onClose: subscribe("close"),
     onSessionExpired: subscribe("sessionExpired"),
     onToolsChanged: subscribe("tools"),
@@ -143,7 +158,10 @@ const open = Effect.fnUntraced(function* (
         fan("close")(reason)
       })
       connection.onSessionExpired(fan("sessionExpired"))
-      connection.onToolsChanged(fan("tools"))
+      connection.onToolsChanged(() => {
+        shared.tools = undefined
+        fan("tools")()
+      })
       connection.onPromptsChanged(fan("prompts"))
       connection.onResourcesChanged(fan("resources"))
       return Deferred.succeed(shared.ready, connection)

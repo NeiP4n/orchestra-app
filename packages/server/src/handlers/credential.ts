@@ -24,7 +24,7 @@ export const CredentialHandler = HttpApiBuilder.group(Api, "server.credential", 
           })
         const created = yield* credential.create(ctx.payload)
         const entry = entries(yield* credential.list(created.integrationID)).find((item) => item.id === created.id)
-        return { data: entry ?? { ...created, active: false } }
+        return { data: entry ?? { ...created, active: false, value: maskValue(created.value) } }
       }),
     )
     .handle(
@@ -53,6 +53,32 @@ export const CredentialHandler = HttpApiBuilder.group(Api, "server.credential", 
     ),
 )
 
+function maskSecret(secret: string): string {
+  if (!secret) return secret
+  if (secret.length <= 8) return "•".repeat(secret.length)
+  const prefix = secret.slice(0, Math.min(4, Math.floor(secret.length / 4)))
+  const suffix = secret.slice(-4)
+  return `${prefix}...${suffix}`
+}
+
+function maskValue(value: Credential.Value): Credential.Value {
+  switch (value.type) {
+    case "key":
+      return {
+        ...value,
+        key: maskSecret(value.key),
+      }
+    case "oauth":
+      return {
+        ...value,
+        access: maskSecret(value.access),
+        refresh: maskSecret(value.refresh),
+      }
+    case "external":
+      return value
+  }
+}
+
 // Credential listings order each integration's selected credential last.
 function entries(credentials: Credential.Info[]) {
   const selected = new Map(credentials.map((item) => [item.integrationID, item.id]))
@@ -61,6 +87,6 @@ function entries(credentials: Credential.Info[]) {
     integrationID: item.integrationID,
     label: item.label,
     active: selected.get(item.integrationID) === item.id,
-    value: item.value,
+    value: maskValue(item.value),
   }))
 }

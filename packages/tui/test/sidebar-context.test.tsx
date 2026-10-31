@@ -171,6 +171,30 @@ test("estimateToolTokens and computeBarCells calculate tools usage and bar segme
   expect(cells.some((c) => c.kind.id === "tools")).toBe(true)
 })
 
+test("counts a screenshot as a picture, not as its base64 text", () => {
+  const image = "data:image/jpeg;base64," + "A".repeat(200_000)
+  const tokens = estimateToolTokens([
+    {
+      type: "assistant",
+      content: [
+        {
+          type: "tool",
+          name: "desktop",
+          state: {
+            input: { steps: [{ action: "screenshot" }] },
+            content: [
+              { type: "text", text: "1. screenshot: 1280x960 image" },
+              { type: "file", uri: image, mime: "image/jpeg" },
+            ],
+          },
+        },
+      ],
+    },
+  ])
+  expect(tokens).toBeGreaterThanOrEqual(1_500)
+  expect(tokens).toBeLessThan(5_000)
+})
+
 test("parseCompactionThreshold correctly parses threshold string formats", () => {
   // Empty & invalid
   expect(parseCompactionThreshold("")).toBeUndefined()

@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { Effect, Layer } from "effect"
+import { Deferred, Effect, Fiber, Layer, Option } from "effect"
 import path from "node:path"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
 import { LayerNode } from "@orchestra/util/effect/layer-node"
@@ -18,6 +18,7 @@ import { SessionExecution } from "@orchestra/core/session/execution"
 import { SessionHold } from "@orchestra/core/session/hold"
 import { KV } from "@orchestra/core/kv"
 import { Location } from "@orchestra/core/location"
+import { SessionID } from "@orchestra/schema/session-id"
 import { AbsolutePath } from "@orchestra/core/schema"
 import { tmpdir } from "./fixture/tmpdir"
 import { tempGlobalLayer } from "./fixture/global"
@@ -552,5 +553,48 @@ describe("Federation", () => {
       // Only councils (Societies) are held; a lead group's President is not an autonomous crew.
       expect(yield* federation.holds()).toEqual(["Shop"])
     }),
+  )
+
+  it.live(
+    "creates the whole Society while other sessions hold their dispatch locks",
+    () =>
+      Effect.gen(function* () {
+        const { a } = yield* setup
+        const orchestra = yield* Orchestra.Service
+        const federation = yield* Federation.Service
+        const kv = yield* KV.Service
+        const root = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-society-load-")))
+
+        // The rest of the server is busy: another project's session holds its dispatch lock for the
+        // whole creation below, and its task marker points at a main that no longer exists.
+        const marker = JSON.stringify({ main: SessionID.make("ses_gone_main"), sent: Date.now() })
+        yield* kv.set(`orchestra/task/${a.main!}`, marker)
+        const release = yield* Deferred.make<void>()
+        const holder = yield* Orchestra.dispatchLocks
+          .withLock(a.main!)(Deferred.await(release))
+          .pipe(Effect.forkChild)
+        while ((yield* Orchestra.dispatchLocks.size) === 0) yield* Effect.yieldNow
+
+        const created = yield* federation
+          .createSociety({ goal: "Ship the whole app", name: "LoadTest", directory: root.path, team: "system" })
+          .pipe(Effect.timeoutOption("30 seconds"))
+
+        expect(Option.isSome(created)).toBe(true)
+        const society = Option.getOrThrow(created)
+        const group = (yield* federation.groups()).find((item) => item.name === "LoadTest")!
+        expect(group.projects).toHaveLength(2)
+        const team = group.projects.find((project) => project !== society.project.id)!
+        // Eight template roles plus the team project's own Orchestrator.
+        const teamProject = (yield* orchestra.projects()).find((project) => project.id === team)!
+        expect(teamProject.main).toBeDefined()
+        expect(yield* orchestra.sessions(team)).toHaveLength(8)
+        expect(society.project.main).toBeDefined()
+        // The busy project's marker was not redirected by the creation.
+        expect(yield* kv.get(`orchestra/task/${a.main!}`)).toBe(marker)
+
+        yield* Deferred.succeed(release, void 0)
+        yield* Fiber.join(holder)
+      }),
+    60_000,
   )
 })

@@ -1,12 +1,15 @@
 export * as InstructionBuiltIns from "./builtins.js"
 
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
+import { existsSync } from "node:fs"
+import path from "node:path"
 import { Context, DateTime, Effect, Layer, Schema } from "effect"
 import { Global } from "@orchestra/util/global"
 import { Location } from "../location.js"
 import { Instructions } from "./index.js"
 import { ToolGuidance } from "./guidance.js"
 import { ActionSnippets } from "./snippets.js"
+import { InstructionThinking } from "./thinking.js"
 
 export interface Interface {
   readonly load: (availableTools?: ReadonlySet<string> | ReadonlyArray<string>) => Effect.Effect<Instructions.List>
@@ -19,6 +22,11 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const global = yield* Global.Service
     const location = yield* Location.Service
+    // Naming a script the project does not have costs a failed call, so the budget rule only
+    // mentions the fast-check and map tools when this project actually ships them.
+    const scripts =
+      existsSync(path.join(location.project.directory, "script", "check.ts")) &&
+      existsSync(path.join(location.project.directory, "script", "map.ts"))
     return Service.of({
       load: (availableTools) =>
         Effect.succeed(
@@ -92,6 +100,7 @@ const layer = Layer.effect(
                   ["The environment you are running in is now:", environment].join("\n"),
               },
             }),
+            InstructionThinking.thinkingSource({ scripts }),
             ToolGuidance.make(ToolGuidance.defaultRules, availableTools),
             ActionSnippets.make(ActionSnippets.defaultSnippets, availableTools),
           ]),

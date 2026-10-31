@@ -170,6 +170,24 @@ describe("built-in Orchestra role contracts", () => {
     }
   })
 
+  test("ships a whole-system team that covers every layer", () => {
+    const system = templates.find((item) => item.id === "system")
+    expect(system?.name).toBe("Whole system")
+    expect(system?.members.map((member) => member.agent)).toEqual([
+      role("product-analyst"),
+      role("architect"),
+      role("designer"),
+      role("core-maintainer"),
+      role("api-contract-engineer"),
+      role("backend-developer"),
+      role("frontend-developer"),
+      role("desktop-developer"),
+      role("integration-engineer"),
+      role("tester"),
+      role("reviewer"),
+    ])
+  })
+
   test("ships app teams for mobile and desktop development", () => {
     const mobile = templates.find((item) => item.id === "mobile-app")
     expect(mobile?.members.map((member) => member.agent)).toContain(role("mobile-developer"))

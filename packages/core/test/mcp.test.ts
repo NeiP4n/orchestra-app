@@ -2779,18 +2779,21 @@ test("shares one local MCP process between locations until the last one leaves",
     Effect.gen(function* () {
       const first = yield* Scope.make()
       const second = yield* Scope.make()
-      yield* McpPool.connect("shared", config, import.meta.dir).pipe(Scope.provide(first))
+      const a = yield* McpPool.connect("shared", config, import.meta.dir).pipe(Scope.provide(first))
       const b = yield* McpPool.connect("shared", config, import.meta.dir).pipe(Scope.provide(second))
+      const catalog = yield* a.tools()
       yield* Scope.close(first, Exit.void)
       // The first location is gone; the second still holds a working connection to the same process.
       const tools = yield* b.tools()
       yield* Scope.close(second, Exit.void)
-      return { a: tools.length, spawned: spawns.length }
+      // Both locations read the same parsed catalog instead of listing tools per project.
+      return { a: tools.length, shared: tools === catalog, spawned: spawns.length }
     }).pipe(Effect.provide(recordingEnvironmentLayer(spawns))),
   )
 
   expect(names.spawned).toBe(1)
   expect(names.a).toBeGreaterThan(0)
+  expect(names.shared).toBe(true)
 })
 
 test("shares one local MCP process between locations in different folders, in different Environments", async () => {

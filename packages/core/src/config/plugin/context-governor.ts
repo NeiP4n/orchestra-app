@@ -12,7 +12,7 @@ export const Plugin = define({
   effect: Effect.fn(function* (ctx) {
     const config = yield* Config.Service
     const apply = (entries: readonly Entry[]) =>
-      SessionContextGovernor.configure(Config.latest(entries, "experimental")?.context_governor === true)
+      SessionContextGovernor.configure(Config.latest(entries, "experimental")?.context_governor)
     const loaded = yield* ConfigEntryObserver.observe(
       config,
       ctx.event,

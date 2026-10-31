@@ -14,19 +14,37 @@ const Summary = Schema.Struct({
 })
 type Summary = typeof Summary.Type
 
-const entries = (servers: ReadonlyArray<Summary>) =>
+const entries = (servers: ReadonlyArray<Summary>, limit: number) =>
   servers.flatMap((server) => {
     const result = [`  <server name="${server.server}">`]
     if (server.codemode !== false)
       result.push(
         `    Use tools from this server through \`execute\` under \`tools[${JSON.stringify(McpTool.namespace(server.server))}]\`.`,
       )
-    result.push(...server.instructions.split("\n").map((line) => `    ${line}`), "  </server>")
+    result.push(...clip(server.instructions, limit).split("\n").map((line) => `    ${line}`), "  </server>")
     return result
   })
 
+// Server instructions reach the model on every request, so a chatty server is clipped instead of
+// crowding out the conversation: about 750 tokens per server inside one shared block budget. The
+// marker tells the model the text was shortened rather than ending abruptly.
+const SERVER_LIMIT = 3_000
+const BLOCK_LIMIT = 12_000
+const MIN_SERVER_LIMIT = 800
+
+const allowance = (count: number) =>
+  Math.max(MIN_SERVER_LIMIT, Math.min(SERVER_LIMIT, Math.floor(BLOCK_LIMIT / Math.max(1, count))))
+
+const clip = (text: string, limit: number) => {
+  if (text.length <= limit) return text
+  const cut = text.slice(0, limit)
+  const lastLine = cut.lastIndexOf("\n")
+  const kept = (lastLine > limit / 2 ? cut.slice(0, lastLine) : cut).trimEnd()
+  return `${kept}\n… (${text.length - kept.length} more characters of this server's instructions are not shown)`
+}
+
 const render = (servers: ReadonlyArray<Summary>) =>
-  ["<mcp_instructions>", ...entries(servers), "</mcp_instructions>"].join("\n")
+  ["<mcp_instructions>", ...entries(servers, allowance(servers.length)), "</mcp_instructions>"].join("\n")
 
 const update = (previous: ReadonlyArray<Summary>, current: ReadonlyArray<Summary>) => {
   const diff = Instructions.diffByKey(
@@ -35,6 +53,7 @@ const update = (previous: ReadonlyArray<Summary>, current: ReadonlyArray<Summary
     (server) => server.server,
     (before, after) => before.instructions !== after.instructions || before.codemode !== after.codemode,
   )
+  const limit = allowance(current.length)
   // Additions and removals render as small deltas; anything else restates the full list.
   if (diff.changed.length > 0 || (diff.added.length === 0 && diff.removed.length === 0))
     return [
@@ -44,7 +63,10 @@ const update = (previous: ReadonlyArray<Summary>, current: ReadonlyArray<Summary
   return [
     ...(diff.added.length === 0
       ? []
-      : ["New MCP server instructions are available in addition to those previously listed:", ...entries(diff.added)]),
+      : [
+          "New MCP server instructions are available in addition to those previously listed:",
+          ...entries(diff.added, limit),
+        ]),
     ...(diff.removed.length === 0
       ? []
       : [

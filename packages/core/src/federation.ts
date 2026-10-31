@@ -13,6 +13,7 @@ import { Federation } from "@orchestra/schema/federation"
 import { SessionID } from "@orchestra/schema/session-id"
 import { SessionEvent } from "@orchestra/schema/session-event"
 import { KV } from "./kv.js"
+import { Slug } from "./slug.js"
 import { Bus } from "./bus.js"
 import { Orchestra } from "./orchestra.js"
 import { Model } from "./model.js"
@@ -250,24 +251,19 @@ export function groupChatDirectory(name: string, data: string = Global.Path.data
   return path.join(data, "group", `${slug}-${fnv1a(trimmed)}`)
 }
 
-const slugOf = (value: string) =>
-  value
-    .trim()
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}._-]+/gu, "-")
-    .replace(/^-+|-+$/g, "")
-
 // Every project of a Society lives in the Society's one folder, so the whole thing can be found,
 // moved or deleted as a unit. ORCHESTRA_SOCIETY_ROOT moves the parent of all Society folders.
+// The folder name is an ASCII slug: a Russian name must not reach the disk as Cyrillic, where
+// Windows, archives and other tools mangle it.
 export function societyDirectory(
   name: string,
   root: string = process.env.ORCHESTRA_SOCIETY_ROOT ?? path.join(os.homedir(), "orchestra-society"),
 ) {
-  return path.join(root, slugOf(name) || `society-${fnv1a(name.trim())}`)
+  return path.join(root, Slug.folder(name, { fallback: `society-${fnv1a(name.trim())}` }))
 }
 
 export function societyProjectDirectory(society: string, project: string, root?: string) {
-  return path.join(societyDirectory(society, root), slugOf(project) || `project-${fnv1a(project.trim())}`)
+  return path.join(societyDirectory(society, root), Slug.folder(project, { fallback: `project-${fnv1a(project.trim())}` }))
 }
 
 // The minimum every Society has, as four separate projects (not sessions of one): each has its own
@@ -288,6 +284,7 @@ export const plannerPlan = [
 export const baseProjects = [
   {
     key: "planner",
+    folder: "planner",
     name: "Планировщик",
     role: "strategic-planner",
     brief:
@@ -295,6 +292,7 @@ export const baseProjects = [
   },
   {
     key: "architects",
+    folder: "architects",
     name: "Архитекторы",
     role: "architect",
     brief:
@@ -302,6 +300,7 @@ export const baseProjects = [
   },
   {
     key: "coders",
+    folder: "coders",
     name: "Кодеры",
     role: "developer",
     brief:
@@ -309,6 +308,7 @@ export const baseProjects = [
   },
   {
     key: "testers",
+    folder: "testers",
     name: "Тестировщики",
     role: "tester",
     brief:
@@ -348,11 +348,21 @@ export function societyNameFromGoal(goal: string, limit = 40) {
 }
 
 // Best effort: a project works without git, but a repository lets snapshots and sandboxes work later.
+// A worktree needs a valid HEAD, so an empty initial commit gives the repository one. A host without
+// git or without a configured identity keeps whatever it had, and so does a repository that already
+// has commits: the commit step is allowed to fail.
 const initRepository = (directory: string) =>
   Effect.promise(
     () =>
       new Promise<void>((resolve) => {
-        execFile("git", ["init", "-q"], { cwd: directory, windowsHide: true }, () => resolve())
+        execFile("git", ["init", "-q"], { cwd: directory, windowsHide: true }, () =>
+          execFile(
+            "git",
+            ["commit", "--allow-empty", "-q", "-m", "Initial commit"],
+            { cwd: directory, windowsHide: true },
+            () => resolve(),
+          ),
+        )
       }),
   )
 
@@ -758,8 +768,13 @@ const layer: Layer.Layer<
     })
 
     // A folder that already belongs to a project is never shared: a taken name gets a numeric suffix.
-    const societyFolder = Effect.fnUntraced(function* (society: string, project: string) {
-      const base = path.join(yield* societyRoot(society), slugOf(project) || `project-${fnv1a(project.trim())}`)
+    // Built-in projects pass their own ASCII folder, so "Архитекторы" becomes "architects" instead of
+    // whatever transliteration the name happens to produce.
+    const societyFolder = Effect.fnUntraced(function* (society: string, project: string, folder?: string) {
+      const base = path.join(
+        yield* societyRoot(society),
+        Slug.folder(folder ?? project, { fallback: `project-${fnv1a(project.trim())}` }),
+      )
       const taken = new Set((yield* orchestra.projects()).map((item) => item.directory))
       let directory = base
       for (let attempt = 2; taken.has(directory); attempt++) directory = `${base}-${attempt}`
@@ -1157,7 +1172,7 @@ const layer: Layer.Layer<
         // The first project of a Society is its planner: the group needs a leader from the start, and
         // an empty coordinator would only cost model turns.
         const planner = baseProjects[0]
-        const directory = yield* societyFolder(name, planner.name)
+        const directory = yield* societyFolder(name, planner.name, planner.folder)
         const project = yield* orchestra.create({ name: planner.name, directory }).pipe(
           Effect.mapError(
             (error) => new FederationError({ message: `Could not create the planner project: ${String(error)}` }),
@@ -1173,7 +1188,7 @@ const layer: Layer.Layer<
           ? yield* orchestra
               .create({
                 name: template.name,
-                directory: yield* societyFolder(name, template.name),
+                directory: yield* societyFolder(name, template.name, template.id),
                 template: template.id,
                 workerModels: (role) => Orchestra.workerModels(workerPolicy, role, { favorites, catalog: available }),
               })

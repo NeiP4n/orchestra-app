@@ -1,6 +1,6 @@
 export * as Orchestra from "./orchestra.js"
 
-import { Context, DateTime, Effect, Layer, Option, PubSub, Schema, Stream } from "effect"
+import { Context, DateTime, Duration, Effect, Layer, Option, PubSub, Schema, Stream } from "effect"
 import { KeyedMutex } from "./effect/keyed-mutex.js"
 import path from "node:path"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
@@ -19,6 +19,8 @@ import { Bus } from "./bus.js"
 import { KV } from "./kv.js"
 import { Session } from "./session.js"
 import { SessionStore } from "./session/store.js"
+import { SessionPlan } from "./session/plan.js"
+import { CompactionPolicy } from "./session/compaction-policy.js"
 import { Permission as CorePermission } from "./permission.js"
 import { isRecord } from "@orchestra/ai/utils/record"
 import { SessionEvent } from "@orchestra/schema/session-event"
@@ -186,6 +188,9 @@ const PROJECT = "orchestra/project/"
 const ACCESS = "orchestra/access/"
 const CATEGORY = "orchestra/category/"
 const TASK = "orchestra/task/"
+// Dispatch locks are process-wide, not service-instance-wide: one running session per process is the
+// invariant the dispatcher keeps, and recovery must never wait behind a run that is already in flight.
+export const dispatchLocks = KeyedMutex.makeUnsafe<SessionID>()
 const REPORT = "orchestra/report/"
 const ROLE = "orchestra/role/"
 const TEMPLATE = "orchestra/template/"
@@ -254,12 +259,23 @@ const StoredTemplate = Schema.Struct({ ...Orchestra.TemplateSpec.fields, created
 const decodeRole = Schema.decodeUnknownOption(StoredRole)
 const decodeTemplate = Schema.decodeUnknownOption(StoredTemplate)
 const decodeCreated = Schema.decodeUnknownOption(Schema.Struct({ created: Schema.Number }))
+// Chats that write reports, dumps and scratch output rather than source keep their own folder, so that
+// noise never lands in the project's files. Build and general work stays at the project root.
+const ISOLATED_CATEGORIES = new Set(["design", "quality"])
+
+// The role behind a planned member is the agent it runs on; a folder name keeps only inert characters.
+const roleFolder = (member: { readonly agent: string; readonly title: string }) =>
+  (member.agent.replace(/^team-/, "") || member.title).replace(/[^a-zA-Z0-9._-]+/g, "-")
+
+const PlannedThreshold = Schema.Struct({ percent: Schema.Number, tokens: Schema.Number })
 const PlannedTeamMember = Schema.Struct({
   id: SessionID,
   ...Orchestra.Member.fields,
   model: Model.Ref.pipe(Schema.optional),
   // The models this worker may continue on when its provider refuses the current one.
   models: Schema.Array(Model.Ref).pipe(Schema.optional),
+  // Where automatic compaction starts for this worker; written into the session metadata on create.
+  threshold: PlannedThreshold.pipe(Schema.optional),
 })
 const TeamPlan = Schema.Struct({
   created: Schema.Number,
@@ -313,8 +329,6 @@ const layer: Layer.Layer<
     const git = yield* Git.Service
     const global = yield* Global.Service
     const permissionDelegates = yield* CorePermission.DelegateRegistryService
-    // Serialize task assignment per worker while allowing different workers to run in parallel.
-    const dispatchLocks = KeyedMutex.makeUnsafe<SessionID>()
     // Concurrent UI/API opens must converge on one durable main session per project.
     const mainLocks = KeyedMutex.makeUnsafe<ProjectID>()
     // Physical moves wait for sessions to settle; never hold mainLocks during that wait.
@@ -442,22 +456,40 @@ const layer: Layer.Layer<
         entries,
         (entry) => {
           const workerID = SessionID.make(entry.key.slice(TASK.length))
-          // Report admission and pointer migration must be serialized: the reporter may be
-          // retrying admission at exactly the moment this replacement main is being created.
-          return dispatchLocks.withLock(workerID)(
-            Effect.gen(function* () {
-              const task = Option.getOrUndefined(decodeTask(yield* kv.get(entry.key)))
-              if (!task || task.main === mainID) return
-              const oldMain = yield* sessions.get(task.main).pipe(Effect.orElseSucceed(() => undefined))
-              if (oldMain) return
-
-              const worker = yield* sessions.get(workerID).pipe(Effect.orElseSucceed(() => undefined))
-              let belongs = claims[workerID] === project.id || claims[task.main] === project.id
-              if (!belongs && worker) belongs = yield* owns(project, worker)
-              if (!belongs) return
-              yield* kv.set(entry.key, Schema.encodeSync(Task)({ ...task, main: mainID }))
-            }),
+          const initialTask = Option.getOrUndefined(decodeTask(entry.value))
+          if (!initialTask || initialTask.main === mainID) return Effect.void
+          if (initialTask.projectID && initialTask.projectID !== project.id) return Effect.void
+          if (
+            claims[workerID] &&
+            claims[workerID] !== project.id &&
+            claims[initialTask.main] &&
+            claims[initialTask.main] !== project.id
           )
+            return Effect.void
+
+          return Effect.gen(function* () {
+            const oldMain = yield* sessions.get(initialTask.main).pipe(Effect.orElseSucceed(() => undefined))
+            if (oldMain) return
+
+            // Only markers this project positively owns are redirected. Inferring ownership from the
+            // worker's directory scans every project for every marker without a claim, which is what
+            // made this pass take minutes while the rest of the server was busy.
+            const worker = yield* sessions.get(workerID).pipe(Effect.orElseSucceed(() => undefined))
+            const belongs = claims[workerID] === project.id || claims[initialTask.main] === project.id
+            if (!belongs || !worker) return
+
+            // A worker that is dispatching right now keeps its marker: creation must not wait behind
+            // a run in flight, and the next open retries this pass.
+            yield* dispatchLocks.tryWithLock(workerID)(
+              Effect.gen(function* () {
+                const current = Option.getOrUndefined(decodeTask(yield* kv.get(entry.key)))
+                if (!current || current.main === mainID) return
+                const oldMainCheck = yield* sessions.get(current.main).pipe(Effect.orElseSucceed(() => undefined))
+                if (oldMainCheck) return
+                yield* kv.set(entry.key, Schema.encodeSync(Task)({ ...current, main: mainID }))
+              }),
+            )
+          })
         },
         { concurrency: "unbounded", discard: true },
       )
@@ -519,6 +551,8 @@ const layer: Layer.Layer<
           location: { directory: AbsolutePath.make(project.directory) },
           title: `${project.name} · Orchestrator`,
           agent: Orchestra.agent,
+          // The project's own chat coordinates the whole team, so it keeps the deepest threshold.
+          metadata: { [SessionPlan.CONTEXT_KEY]: CompactionPolicy.mainThreshold },
         })
         .pipe(Effect.orDie)
       yield* kv.remove(MAIN_INITIALIZING + project.id)
@@ -554,6 +588,13 @@ const layer: Layer.Layer<
             yield* sessions.rename({ sessionID: main.id, title }).pipe(Effect.orDie)
             main = { ...main, title }
           }
+          // A main session created before the compaction policy existed gets the deep threshold; a
+          // value the operator already set stays untouched.
+          if (main.metadata?.[SessionPlan.CONTEXT_KEY] === undefined) {
+            const metadata = { ...main.metadata, [SessionPlan.CONTEXT_KEY]: CompactionPolicy.mainThreshold }
+            yield* sessions.setMetadata({ sessionID: main.id, metadata }).pipe(Effect.orDie)
+            main = { ...main, metadata }
+          }
         } else if (pending) {
           main = yield* mainSession({ ...project, main: pending })
         } else {
@@ -581,7 +622,11 @@ const layer: Layer.Layer<
             main = yield* mainSession({ ...project, main: undefined })
           }
         }
-        yield* reconcileMainTasks(project, main.id)
+        // Only a replaced main leaves markers behind: a project whose main was never saved has no task
+        // pointing at a dead session, and creating it must not scan the server's tasks at all.
+        if (!existing && project.main !== undefined) {
+          yield* reconcileMainTasks(project, main.id)
+        }
         return main
       })
 
@@ -594,18 +639,43 @@ const layer: Layer.Layer<
         // Claim before creation so an interruption between these writes is safe to resume.
         yield* kv.set(OWNER + member.id, project.id)
         const existing = yield* sessions.get(member.id).pipe(Effect.orElseSucceed(() => undefined))
+        // The role table decides how much context a worker may build before automatic compaction.
+        // A plan written before the table existed carries no threshold, so the role answers for it.
+        const threshold = member.threshold ?? CompactionPolicy.roleThreshold(member)
         if (!existing) {
+          // Design and quality work writes reports, dumps and scratch files; giving those chats their own
+          // folder keeps that noise out of the project's files, while build and general work stays at the
+          // root where the code they change lives. A folder that cannot be created falls back to the root
+          // instead of failing the whole team.
+          const isolated = ISOLATED_CATEGORIES.has(member.category.toLowerCase())
+          const own = path.join(project.directory, ".orchestra", "work", roleFolder(member))
+          const directory = isolated
+            ? yield* fs.ensureDir(own).pipe(
+                Effect.as(own),
+                Effect.orElseSucceed(() => project.directory),
+              )
+            : project.directory
           yield* sessions
             .create({
               id: member.id,
-              location: { directory: AbsolutePath.make(project.directory) },
+              location: { directory: AbsolutePath.make(directory) },
               title: member.title,
               agent: member.agent,
               model: member.model,
               // Kept on the session itself so a model fallback survives role and config edits.
-              ...(member.models?.length
-                ? { metadata: { [Orchestra.SessionModelsMetadataKey]: member.models } }
-                : {}),
+              metadata: {
+                ...(member.models?.length ? { [Orchestra.SessionModelsMetadataKey]: member.models } : {}),
+                [SessionPlan.CONTEXT_KEY]: threshold,
+              },
+            })
+            .pipe(Effect.orDie)
+        } else if (existing.metadata?.[SessionPlan.CONTEXT_KEY] === undefined) {
+          // Retrofit a chat planned before the policy existed, and never overwrite a threshold the
+          // operator or the planner already set.
+          yield* sessions
+            .setMetadata({
+              sessionID: member.id,
+              metadata: { ...existing.metadata, [SessionPlan.CONTEXT_KEY]: threshold },
             })
             .pipe(Effect.orDie)
         }
@@ -833,7 +903,8 @@ const layer: Layer.Layer<
       const pageSize = 50
       let cursorID = messageID
       let messages: SessionMessage.Info[] = []
-      while (true) {
+      let iterations = 0
+      while (iterations++ < 20) {
         const page = yield* sessions
           .messages({
             sessionID,
@@ -849,6 +920,7 @@ const layer: Layer.Layer<
         if (page.some((message) => message.type === "user") || page.length < pageSize) return messages
         cursorID = page[0].id
       }
+      return messages
     })
 
     const report = (sessionID: SessionID, state: "done" | "failed" | "stopped" | "recovered", detail?: string): Effect.Effect<void> =>
@@ -1627,6 +1699,8 @@ const layer: Layer.Layer<
                 ...member,
                 ...(model ? { model } : {}),
                 ...(chosen.models?.length ? { models: chosen.models } : {}),
+                // The role table decides how much context this worker may build before compaction.
+                threshold: CompactionPolicy.roleThreshold(role),
               }
             }),
           }
@@ -1755,26 +1829,49 @@ const layer: Layer.Layer<
       }),
       main: Effect.fn("Orchestra.main")(function* (id) {
         const main = yield* mainLocks.withLock(id)(ensureMainUnlocked(id))
-        yield* finishProjectMove(id)
-        return yield* mainLocks.withLock(id)(
+        yield* finishProjectMove(id).pipe(
+          Effect.timeoutOption(Duration.seconds(3)),
+          Effect.orElseSucceed(() => Option.none()),
+        )
+        yield* mainLocks.withLock(id)(
           Effect.gen(function* () {
             const project = yield* get(id)
             yield* reconcileTeamUnlocked(project)
-            yield* reconcileReports(project)
-            yield* recoverPending(main.id)
-            return yield* sessions.get(main.id).pipe(Effect.orElseSucceed(() => main))
+            yield* reconcileReports(project).pipe(
+              Effect.timeoutOption(Duration.seconds(3)),
+              Effect.orElseSucceed(() => Option.none()),
+            )
+            yield* recoverPending(main.id).pipe(
+              Effect.timeoutOption(Duration.seconds(3)),
+              Effect.orElseSucceed(() => Option.none()),
+            )
           }),
+        ).pipe(
+          Effect.timeoutOption(Duration.seconds(4)),
+          Effect.orElseSucceed(() => Option.none()),
         )
+        return yield* sessions.get(main.id).pipe(Effect.orElseSucceed(() => main))
       }),
       sessions: Effect.fn("Orchestra.sessions")(function* (id) {
         if (Option.isSome(decodeProjectMovePlan(yield* kv.get(MOVE_PLAN + id)))) return []
-        return yield* mainLocks.withLock(id)(
+        const sessionsEffect = mainLocks.withLock(id)(
           Effect.gen(function* () {
             const project = yield* get(id)
             if (Option.isSome(decodeProjectMovePlan(yield* kv.get(MOVE_PLAN + id)))) return []
             yield* reconcileTeamUnlocked(project)
             return yield* projectSessions(project)
           }),
+        )
+        return yield* sessionsEffect.pipe(
+          Effect.timeoutOption(Duration.seconds(3)),
+          Effect.flatMap((opt) =>
+            Option.isSome(opt)
+              ? Effect.succeed(opt.value)
+              : Effect.gen(function* () {
+                  const project = yield* get(id)
+                  return yield* projectSessions(project)
+                }),
+          ),
         )
       }),
       owns,
@@ -1839,6 +1936,7 @@ const layer: Layer.Layer<
               category: input.category?.trim() || role.category || "Team",
               model: input.model,
               ...(input.models?.length ? { models: input.models } : {}),
+              threshold: CompactionPolicy.roleThreshold(role),
             }
             yield* kv.set(
               TEAM_PLAN + project.id,
@@ -1865,18 +1963,25 @@ const layer: Layer.Layer<
       mainOf: Effect.fn("Orchestra.mainOf")(function* (sessionID) {
         const candidate = (yield* projects()).find((item) => item.main === sessionID)
         if (!candidate) return undefined
-        return yield* mainLocks.withLock(candidate.id)(
+        const current = decodeProject(yield* kv.get(PROJECT + candidate.id))
+        if (Option.isNone(current) || current.value.main !== sessionID) return undefined
+        // Hide management while a move is pending; never wait for the active main turn from its own context hook.
+        if (Option.isSome(decodeProjectMovePlan(yield* kv.get(MOVE_PLAN + candidate.id)))) return undefined
+        // Reconcile non-blocking: if the project lock is already held, do not stall or deadlock callers
+        yield* mainLocks.tryWithLock(candidate.id)(
           Effect.gen(function* () {
-            const current = decodeProject(yield* kv.get(PROJECT + candidate.id))
-            if (Option.isNone(current) || current.value.main !== sessionID) return undefined
-            // Hide management while a move is pending; never wait for the active main turn from its own context hook.
-            if (Option.isSome(decodeProjectMovePlan(yield* kv.get(MOVE_PLAN + candidate.id)))) return undefined
             yield* reconcileTeamUnlocked(current.value)
-            yield* reconcileReports(current.value)
-            yield* recoverPending(sessionID)
-            return current.value
+            yield* reconcileReports(current.value).pipe(
+              Effect.timeoutOption(Duration.seconds(3)),
+              Effect.orElseSucceed(() => Option.none()),
+            )
+            yield* recoverPending(sessionID).pipe(
+              Effect.timeoutOption(Duration.seconds(3)),
+              Effect.orElseSucceed(() => Option.none()),
+            )
           }),
-        )
+        ).pipe(Effect.orElseSucceed(() => Option.none()))
+        return current.value
       }),
       access,
       accessMany: Effect.fn("Orchestra.accessMany")(function* (sessionIDs) {

@@ -30,6 +30,12 @@ describe("ConfigContextGovernorPlugin.Plugin", () => {
       yield* ConfigContextGovernorPlugin.Plugin.effect(host({ event: { subscribe: () => bus.subscribe(Event.Updated) } }))
       expect(SessionContextGovernor.policy()).toBeDefined()
 
+      // An unset setting keeps the governor on: only an explicit false turns it off.
+      yield* test.setEntries(entries(undefined))
+      yield* bus.publish(Event.Updated, {})
+      yield* Effect.sleep("50 millis")
+      expect(SessionContextGovernor.policy()).toBeDefined()
+
       yield* test.setEntries(entries(false))
       yield* bus.publish(Event.Updated, {})
       yield* Effect.gen(function* () {
@@ -40,6 +46,6 @@ describe("ConfigContextGovernorPlugin.Plugin", () => {
         yield* Effect.die(new Error("Timed out waiting for the governor to turn off"))
       })
       expect(SessionContextGovernor.policy()).toBeUndefined()
-    }).pipe(Effect.ensuring(Effect.sync(() => SessionContextGovernor.configure(false)))),
+    }).pipe(Effect.ensuring(Effect.sync(() => SessionContextGovernor.configure(undefined)))),
   )
 })

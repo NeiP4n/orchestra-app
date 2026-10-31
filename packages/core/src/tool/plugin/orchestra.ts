@@ -9,6 +9,8 @@ import { Effect, Option, Schema } from "effect"
 import { Form } from "../../form.js"
 import { Model } from "../../model.js"
 import { Orchestra } from "../../orchestra.js"
+import { ModelRouter } from "../../session/model-router.js"
+import { Token } from "../../util/token.js"
 import { FormDecision } from "../../form-decision.js"
 import { Session } from "../../session.js"
 import { SessionSchema } from "../../session/schema.js"
@@ -128,6 +130,50 @@ export const resolveVariant = Effect.fnUntraced(function* (
   return withVariant(chosen)
 })
 
+const modelRef = (model: Model.Ref) => `${model.providerID}/${model.id}`
+const refWithVariant = (model: Model.Ref) => `${modelRef(model)}${model.variant ? `#${model.variant}` : ""}`
+const baseOf = (reference: string) => reference.split("#")[0]
+
+export interface RoutedWorkerModel {
+  readonly model: string
+  readonly variant?: string
+}
+
+// The Smart Token Router applied to a worker: classify the task, then buy the cheapest candidate
+// that can run the tier's reasoning variant. Pure, because the tool reads the policy, the Feature
+// picks and the catalog before calling it; a pinned role, empty text and an empty catalog all
+// return undefined, which keeps whatever model the caller already had.
+export function routeWorkerModel(input: {
+  readonly role: Orchestra.Role
+  readonly text: string
+  readonly mode?: string
+  readonly candidates: ReadonlyArray<Model.Ref>
+  readonly catalog: ReadonlyArray<ModelRouter.CatalogModel>
+}): RoutedWorkerModel | undefined {
+  if (!input.text.trim() || input.catalog.length === 0 || input.candidates.length === 0) return undefined
+  // A role the operator pinned to one model has nothing to route between.
+  if (input.role.model && !input.role.models?.length) return undefined
+  // A role's own model list names the exact reasoning levels allowed there, so its variants stay;
+  // without such a list the tier chooses the variant, so candidates carry none.
+  const candidates = [
+    ...new Set(input.candidates.map((ref) => (input.role.models?.length ? refWithVariant(ref) : modelRef(ref)))),
+  ]
+  const decision = ModelRouter.classify({
+    task: input.text,
+    // The display name stays out: it is prose, and "Auditor" would count as an audit keyword for
+    // every role that happens to be called that.
+    role: `${input.role.id} ${input.role.category}`,
+    ...(input.mode ? { mode: input.mode } : {}),
+  })
+  const routed = ModelRouter.route({
+    tier: decision.tier,
+    candidates,
+    catalog: input.catalog,
+    tokens: Token.estimate(input.text),
+  })
+  return { model: routed.model, ...(routed.variant ? { variant: routed.variant } : {}) }
+}
+
 export const Plugin = {
   id: "orchestra.tool.orchestra",
   effect: Effect.fn("OrchestraTool.Plugin")(function* (ctx: Context) {
@@ -169,6 +215,45 @@ export const Plugin = {
         })
       }
       return yield* resolveVariant(ref, role, available)
+    })
+
+    // The Smart Token Router decides a model for a task the operator left open: it reads the task,
+    // the role and the mode, picks a tier, and buys the cheapest model that can run that tier's
+    // reasoning variant. An explicit model, a role pinned to one model and a missing catalog all
+    // keep the previous behaviour instead of guessing.
+    const routeModel = Effect.fnUntraced(function* (
+      role: Orchestra.Role | undefined,
+      text: string | undefined,
+      mode: Mode.Spec | undefined,
+    ) {
+      if (!role || !text?.trim() || Option.isNone(catalog)) return undefined
+
+      const policy = yield* Orchestra.workerPolicy
+      const favorites = yield* Orchestra.workerFavorites
+      const available = yield* catalog.value.available()
+      // The candidates are the operator's own: Feature picks, the role's choice, the worker policy.
+      const worker = Orchestra.workerModels(policy, role, { favorites, catalog: available })
+      const refs = [worker.model, ...(worker.models ?? [])].filter((item): item is Model.Ref => item !== undefined)
+      const allowed = (ref: Model.Ref) =>
+        role.models?.length ? role.models.some((item) => baseOf(item) === modelRef(ref)) : true
+      const routed = routeWorkerModel({
+        role,
+        text,
+        ...(mode ? { mode: mode.id } : {}),
+        candidates: refs.filter(allowed),
+        catalog: available,
+      })
+      if (!routed) return undefined
+      const known = available.find((item) => `${item.providerID}/${item.id}` === routed.model)
+      if (!known) return undefined
+      // The routed variant is the tier's; a role variant still applies when the tier named none.
+      const variant =
+        routed.variant ?? (role.variant && known.variants.some((item) => item.id === role.variant) ? role.variant : undefined)
+      return Model.Ref.make({
+        providerID: known.providerID,
+        id: known.id,
+        ...(variant ? { variant: Model.VariantID.make(variant) } : {}),
+      })
     })
 
     // Every action runs on behalf of the project's main session and only
@@ -334,8 +419,14 @@ export const Plugin = {
               })
               // The Orchestrator's automatic choices for one task: a model from the role's list
               // and a narrower tool set. Both are checked against what the operator allowed.
-              const choose = Effect.fnUntraced(function* (role: Orchestra.Role | undefined) {
-                const model = input.model?.trim() ? yield* requireModel(role, input.model.trim()) : undefined
+              const choose = Effect.fnUntraced(function* (
+                role: Orchestra.Role | undefined,
+                text?: string,
+                mode?: Mode.Spec,
+              ) {
+                const model = input.model?.trim()
+                  ? yield* requireModel(role, input.model.trim())
+                  : yield* routeModel(role, text, mode)
                 const tools = input.tools?.map((tool) => tool.trim()).filter(Boolean)
                 if (tools && !role?.autoTools)
                   return yield* new ToolFailure({
@@ -390,7 +481,14 @@ export const Plugin = {
                   yield* busy(session.id)
                   const role = roles.find((item) => item.agent === session.agent)
                   const mode = yield* requireMode(input.mode)
-                  yield* apply(session.id, yield* choose(role))
+                  yield* apply(
+                    session.id,
+                    yield* choose(
+                      role,
+                      input.text,
+                      mode ?? Mode.fromMetadata(session.metadata) ?? (role ? Mode.defaultForRole(role) : undefined),
+                    ),
+                  )
                   yield* applyMode(session, role, mode)
                   yield* dispatch(session.id, input.text)
                   return {
@@ -406,8 +504,8 @@ export const Plugin = {
                     return yield* new ToolFailure({
                       message: `${input.role ? `Unknown role ${input.role}` : "Pass a role"}. Roles: ${roles.map((role) => role.id).join(", ")}`,
                     })
-                  const choice = yield* choose(role)
                   const mode = yield* requireMode(input.mode)
+                  const choice = yield* choose(role, input.text, mode ?? Mode.defaultForRole(role))
 
                   // Reuse the project's existing worker by role before creating anything.
                   // A new instance is an explicit opt-in, not the default response to a new task.

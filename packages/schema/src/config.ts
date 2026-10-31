@@ -145,7 +145,8 @@ export const Patch = Schema.Struct({
     description: "Turn reading other agent tools' folders on or off everywhere (compatibility.enabled); null clears it",
   }),
   contextGovernor: Schema.optionalKey(Schema.NullOr(Schema.Boolean)).annotate({
-    description: "Turn the experimental context governor on or off (experimental.context_governor); null clears it",
+    description:
+      "Turn leaving old, bulky tool output out of model requests on or off (experimental.context_governor, on by default); null clears it",
   }),
   compaction: Schema.optionalKey(Schema.NullOr(ConfigCompaction.Info)).annotate({
     description: "Compaction settings, including default threshold for new sessions; null clears it",

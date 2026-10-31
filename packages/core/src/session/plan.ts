@@ -1,5 +1,7 @@
 export * as SessionPlan from "./plan.js"
 
+import { Option, Schema } from "effect"
+
 // The two dials a Society's planner sets on a chat, and both live in the session metadata so the
 // operator can change them from the sidebar and the planner can change them with the society_plan
 // tool. The context threshold is where automatic compaction starts; the cache switch turns prompt
@@ -10,11 +12,16 @@ export const CACHE_KEY = "orchestra.cache"
 /**
  * A chat's context threshold. Tokens are absolute; a share of the model's window is what the planner can
  * decide without knowing which model ends up running a chat: 60% of a 200k window and 60% of a 1M one are
- * both "compact after this much conversation".
+ * both "compact after this much conversation". A capped threshold combines the two, so a small window
+ * still compacts proportionally while a huge one stops at a token ceiling.
  */
 export type Threshold =
   | { readonly type: "tokens"; readonly tokens: number }
   | { readonly type: "percent"; readonly percent: number }
+  | { readonly type: "capped"; readonly percent: number; readonly tokens: number }
+
+const Capped = Schema.Struct({ percent: Schema.Finite, tokens: Schema.Finite })
+const decodeCapped = Schema.decodeUnknownOption(Capped)
 
 /** Reads a threshold: "60%" keeps a share of the window, anything else is a token count. */
 export function parseThreshold(value: unknown): Threshold | undefined {
@@ -27,6 +34,12 @@ export function parseThreshold(value: unknown): Threshold | undefined {
         : undefined
     }
   }
+  // The object form is what the compaction policy writes: a share of the window with a token cap.
+  const bounded = Option.getOrUndefined(decodeCapped(value))
+  if (bounded !== undefined) {
+    if (bounded.percent <= 0 || bounded.percent > 100 || bounded.tokens < 0) return undefined
+    return { type: "capped", percent: bounded.percent, tokens: Math.round(bounded.tokens) }
+  }
   const tokens = parseContext(value)
   return tokens === undefined ? undefined : { type: "tokens", tokens }
 }
@@ -36,8 +49,13 @@ export function thresholdTokens(value: unknown, window: number | undefined): num
   const parsed = parseThreshold(value)
   if (parsed === undefined) return undefined
   if (parsed.type === "tokens") return parsed.tokens
-  if (window === undefined || !Number.isFinite(window) || window <= 0) return undefined
-  return Math.max(1, Math.round((window * parsed.percent) / 100))
+  // A zero cap means the whole window, the same as a zero token count.
+  if (parsed.type === "capped" && parsed.tokens === 0) return 0
+  if (window === undefined || !Number.isFinite(window) || window <= 0) {
+    return parsed.type === "capped" ? parsed.tokens : undefined
+  }
+  const share = Math.max(1, Math.round((window * parsed.percent) / 100))
+  return parsed.type === "capped" ? Math.min(share, parsed.tokens) : share
 }
 
 /** A context threshold in tokens; 0 or less means the whole context window. */

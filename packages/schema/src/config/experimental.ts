@@ -10,7 +10,7 @@ export class Info extends Schema.Class<Info>("ConfigExperimental.Info")({
   }),
   context_governor: Schema.Boolean.pipe(optional).annotate({
     description:
-      "Elide old, bulky tool output from model requests once they grow large, keeping the full history. Defaults to false.",
+      "Leave old, bulky tool output out of model requests once they grow large, keeping the full history. Defaults to true; set it to false to send the whole history.",
   }),
   subagent_depth: NonNegativeInt.pipe(optional).annotate({
     description: "Maximum subagent nesting depth. Defaults to 1.",

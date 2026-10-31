@@ -8,12 +8,12 @@ import { Money } from "@orchestra/schema/money"
 import { Provider } from "@orchestra/schema/provider"
 import { Config } from "@orchestra/core/config"
 import { Orchestra } from "@orchestra/core/orchestra"
-import { resolveVariant } from "@orchestra/core/tool/plugin/orchestra"
+import { resolveVariant, routeWorkerModel } from "@orchestra/core/tool/plugin/orchestra"
 import type { Role } from "@orchestra/core/orchestra"
 import { it } from "./lib/effect"
 
-const role = (input: { category?: string; name?: string; model?: string; models?: string[] } = {}): Role => ({
-  id: "auditor",
+const role = (input: { id?: string; category?: string; name?: string; model?: string; models?: string[] } = {}): Role => ({
+  id: input.id ?? "auditor",
   name: input.name ?? "Auditor",
   description: "Reviews code",
   rules: "Review",
@@ -240,5 +240,55 @@ describe("resolveVariant", () => {
   test("leaves a model without variants exactly as it was", () => {
     expect(ref(resolve("opencode/kimi-free", undefined))).toBe("opencode/kimi-free")
     expect(ref(resolve("opencode/kimi-free", "high"))).toBe("opencode/kimi-free")
+  })
+})
+
+describe("routeWorkerModel", () => {
+  const catalog = [
+    { providerID: "polza", id: "flash", variants: [{ id: "minimal" }, { id: "fast" }, { id: "low" }], cost: [{ input: 0.1, output: 0.4 }] },
+    { providerID: "polza", id: "deepseek", variants: [{ id: "low" }, { id: "medium" }, { id: "high" }], cost: [{ input: 0.3, output: 1.2 }] },
+    { providerID: "polza", id: "opus", variants: [{ id: "high" }, { id: "max" }], cost: [{ input: 3, output: 15 }] },
+  ]
+  const candidates = [Model.Ref.parse("polza/flash#low"), Model.Ref.parse("polza/deepseek#medium"), Model.Ref.parse("polza/opus#high")]
+
+  test("routes a cheap task to the cheapest model with its cheapest variant", () => {
+    expect(
+      routeWorkerModel({ role: role({ id: "developer" }), text: "Исправь опечатку в README", candidates, catalog }),
+    ).toEqual({ model: "polza/flash", variant: "minimal" })
+  })
+
+  test("routes architecture work to the cheapest model that can reason deeply", () => {
+    expect(
+      routeWorkerModel({
+        role: role({ id: "architect" }),
+        text: "Спроектируй контракты сервиса оплаты",
+        mode: "architecture",
+        candidates,
+        catalog,
+      }),
+    ).toEqual({ model: "polza/deepseek", variant: "high" })
+  })
+
+  test("keeps the variant a role's own model list names", () => {
+    expect(
+      routeWorkerModel({
+        role: role({ id: "architect", models: ["polza/opus#max"] }),
+        text: "Исправь опечатку в README",
+        candidates: [Model.Ref.parse("polza/opus#max")],
+        catalog,
+      }),
+    ).toEqual({ model: "polza/opus", variant: "max" })
+  })
+
+  test("never reroutes a role the operator pinned to one model", () => {
+    expect(
+      routeWorkerModel({ role: role({ model: "polza/opus" }), text: "Исправь опечатку", candidates, catalog }),
+    ).toBeUndefined()
+  })
+
+  test("leaves the current model alone when there is no task text or no catalog", () => {
+    expect(routeWorkerModel({ role: role(), text: "  ", candidates, catalog })).toBeUndefined()
+    expect(routeWorkerModel({ role: role(), text: "Исправь опечатку", candidates, catalog: [] })).toBeUndefined()
+    expect(routeWorkerModel({ role: role(), text: "Исправь опечатку", candidates: [], catalog })).toBeUndefined()
   })
 })

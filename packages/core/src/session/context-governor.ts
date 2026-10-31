@@ -2,8 +2,8 @@ export * as SessionContextGovernor from "./context-governor.js"
 
 import { Message, type ContentPart, type ToolResultPart } from "@orchestra/ai"
 
-// Experimental. Turn it on with the "Context governor" setting (experimental.context_governor in the config),
-// or with ORCHESTRA_CONTEXT_GOVERNOR=1, which also overrides the setting; =0 forces it off.
+// On by default. Turn it off with the "Context governor" setting (experimental.context_governor in the config),
+// or with ORCHESTRA_CONTEXT_GOVERNOR=0, which also overrides the setting; =1 forces it on.
 // ORCHESTRA_CONTEXT_GOVERNOR_SOFT sets the request size, in tokens, at which it acts (default 80000).
 //
 // A coding session spends most of its prompt on tool output the model read once and never needed again:
@@ -28,16 +28,19 @@ export interface Policy {
 export const DEFAULT_SOFT = 80_000
 
 // What the config says; the config plugin keeps it current. Process-wide, like the global config it comes from.
-let configured = false
-export const configure = (enabled: boolean) => {
+// `undefined` means the setting was never written, and that keeps the governor on: it is the cheap way to
+// stop paying for tool output the model already read.
+let configured: boolean | undefined
+export const configure = (enabled: boolean | undefined) => {
   configured = enabled
 }
 
-/** The policy, or undefined while the experiment is off. */
+/** The policy, or undefined when the config or the environment turns the governor off. */
 export const policy = (): Policy | undefined => {
-  const flag = process.env.ORCHESTRA_CONTEXT_GOVERNOR
-  const off = flag === "0" || flag?.toLowerCase() === "false"
-  if (off || !(flag || configured)) return undefined
+  const flag = process.env.ORCHESTRA_CONTEXT_GOVERNOR?.toLowerCase()
+  const off = flag === "0" || flag === "false"
+  const on = flag === "1" || flag === "true"
+  if (off || (!on && configured === false)) return undefined
   const soft = Number(process.env.ORCHESTRA_CONTEXT_GOVERNOR_SOFT)
   return { soft: Number.isFinite(soft) && soft > 0 ? soft : DEFAULT_SOFT, keep: 12, min: 1_500 }
 }
@@ -105,21 +108,26 @@ const elide = (message: Message, min: number) => {
   })
 }
 
+// A result that carries an image is elided like any other: a screenshot from fifty steps ago is re-sent
+// as base64 on every step, and the model can take another one. Media is not a decision to keep, and
+// leaving it in made the governor unable to shrink the image-heavy sessions it mostly acts on.
 const elidable = (part: ContentPart, min: number) =>
   part.type === "tool-result" &&
   !part.providerExecuted &&
   !KEPT.has(part.name) &&
   part.result.type !== "error" &&
-  !(part.result.type === "content" && part.result.value.some((item) => item.type === "file")) &&
   resultChars(part.result) >= min
 
-const stub = (part: ToolResultPart): ToolResultPart => ({
-  ...part,
-  result: {
-    type: "text",
-    value: `[${part.name} output elided: ${resultChars(part.result)} characters from an earlier step. The call above shows what ran. Do not guess or reconstruct the output; run it again if you need it.]`,
-  },
-})
+const stub = (part: ToolResultPart): ToolResultPart => {
+  const media = part.result.type === "content" && part.result.value.some((item) => item.type === "file")
+  return {
+    ...part,
+    result: {
+      type: "text",
+      value: `[${part.name} output elided: ${media ? "an image or other binary payload" : `${resultChars(part.result)} characters`} from an earlier step. The call above shows what ran. Do not guess or reconstruct the output; run it again if you need it.]`,
+    },
+  }
+}
 
 const resultChars = (result: ToolResultPart["result"]) => {
   if (result.type === "content") return result.value.reduce((total, item) => total + JSON.stringify(item).length, 0)

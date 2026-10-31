@@ -73,7 +73,7 @@ export interface PluginContext {
   /** Scoped outbound transport supplied by the V2 host wrapper. */
   fetch?: LoaderResult["fetch"];
   /** V2's discovered per-account model eligibility; absent on legacy hosts. */
-  canUseAccount?: (account: { id?: string; refreshToken: string }, model: string) => boolean;
+  canUseAccount?: (account: { id?: string; addedAt?: number; refreshToken: string }, model: string) => boolean;
 }
 
 export type AuthPrompt =

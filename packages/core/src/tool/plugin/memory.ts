@@ -6,13 +6,29 @@ import { optional } from "@orchestra/schema/schema"
 import type { Tool } from "@orchestra/schema/tool"
 import { Effect, Schema } from "effect"
 import { Memory } from "../../memory/index.js"
+import { getMemoryEngine } from "../../memory/engine.js"
 
 export const name = "memory"
 
 export const Input = Schema.Struct({
-  action: Schema.Literals(["view", "append", "replace", "rewrite", "delete", "remember", "search", "forget"]).annotate({
+  action: Schema.Literals([
+    "search",
+    "remember",
+    "link",
+    "recall",
+    "stats",
+    "read",
+    "write",
+    "list",
+    "view",
+    "append",
+    "replace",
+    "rewrite",
+    "delete",
+    "forget",
+  ]).annotate({
     description:
-      "view blocks; append, replace, rewrite or delete a block; remember a fact in the archive; search the archive and earlier chats; forget an archived fact",
+      "Native associative memory actions: search, remember, link, recall, stats, read, write, list, view, append, replace, rewrite, delete, forget",
   }),
   label: optional(
     Schema.String.annotate({ description: "Block label: 2 to 40 lowercase latin letters, digits and hyphens" }),
@@ -25,34 +41,40 @@ export const Input = Schema.Struct({
   text: optional(Schema.String.annotate({ description: "Text to append to a block or to remember" })),
   old: optional(Schema.String.annotate({ description: "replace: exact text currently in the block" })),
   new: optional(Schema.String.annotate({ description: "replace: text that takes its place, empty to delete it" })),
-  value: optional(Schema.String.annotate({ description: "rewrite: the whole new value of the block" })),
+  value: optional(Schema.String.annotate({ description: "write/rewrite: the whole new value of the block" })),
   description: optional(Schema.String.annotate({ description: "rewrite: what belongs in the block" })),
-  limit: optional(Schema.Number.annotate({ description: "rewrite: character limit of the block, 200 to 8000" })),
+  limit: optional(Schema.Number.annotate({ description: "limit of results or characters" })),
   tags: optional(Schema.Array(Schema.String).annotate({ description: "remember: short lowercase tags" })),
-  query: optional(Schema.String.annotate({ description: "search: words to look for, any language" })),
+  query: optional(Schema.String.annotate({ description: "search/recall: words or concepts to look for, any language" })),
   sessions: optional(
     Schema.Boolean.annotate({ description: "search: also search earlier chats of this project, true by default" }),
   ),
-  id: optional(Schema.String.annotate({ description: "forget: id of an archived fact from search" })),
+  id: optional(Schema.String.annotate({ description: "forget: id of a fact to forget" })),
+  entity: optional(Schema.String.annotate({ description: "remember: entity name (e.g. 'user', 'project', 'architecture')" })),
+  kind: optional(Schema.String.annotate({ description: "remember: entity kind (e.g. 'person', 'concept', 'preference', 'rule')" })),
+  source: optional(Schema.String.annotate({ description: "link: source entity name or id" })),
+  target: optional(Schema.String.annotate({ description: "link: target entity name or id" })),
+  type: optional(Schema.String.annotate({ description: "link: relation type (e.g. 'prefers', 'depends_on', 'uses')" })),
+  weight: optional(Schema.Number.annotate({ description: "link: relation weight (default 1.0)" })),
 })
 export type Input = typeof Input.Type
 
 export const description = [
-  "Your long-term memory, kept across chats. The blocks are already in your instructions; this tool changes them and reaches what is not shown.",
+  "Native associative-vector long-term memory engine and blocks.",
   "",
-  "Blocks (always visible, each with a character limit):",
-  "  append — add text to a block: label, text. The standard blocks are human (user scope) and project (project scope).",
-  "  replace — change exact text inside a block: label, old, new.",
-  "  rewrite — replace a whole block, or create a new one: label, value, optional description, limit and scope. Use it to condense a full block.",
-  "  delete — remove a block you created: label.",
-  "  view — show every block with its size.",
+  "Native Memory Engine (fast associative-vector retrieval in SQLite):",
+  "  remember — save an observation/fact into associative-vector memory: text, optional entity, kind, scope.",
+  "  link — connect two entities in the knowledge graph: source, target, type, optional weight.",
+  "  search — hybrid search (BM25 + cosine + trigram) across memories: query, optional scope, limit.",
+  "  recall — extract compact semantic context ready for agent prompts: query, optional limit.",
+  "  stats — display graph and memory engine statistics.",
   "",
-  "Archive (unbounded, searched on demand):",
-  "  remember — store one self-contained fact: text, optional tags, scope (project by default). A near-duplicate updates the stored fact instead of adding another.",
-  "  search — find facts and passages of earlier chats: query, optional scope, limit, sessions.",
-  "  forget — delete an archived fact that turned out wrong: id.",
-  "",
-  "Save a fact the moment you learn it: a correction or preference from the user, a decision, a command that works, a pitfall you hit. Keep blocks short and current; move detail to the archive. Never store secrets, tokens or passwords.",
+  "Blocks & Archive (backward compatibility):",
+  "  read / view — show blocks or read a specific block by label.",
+  "  write / rewrite — create or rewrite a memory block.",
+  "  list — list all memory blocks.",
+  "  append / replace / delete — modify block content.",
+  "  forget — remove an observation/entity by id.",
 ].join("\n")
 
 export const Plugin = {
@@ -61,10 +83,149 @@ export const Plugin = {
     const memory = yield* Memory.Service
 
     const run = Effect.fn("MemoryTool.run")(function* (input: Input, sessionID: Tool.Context["sessionID"]) {
+      const engine = getMemoryEngine()
+
       switch (input.action) {
-        case "view":
-          return (yield* memory.blocks()).map(show).join("\n\n")
-        case "append":
+        case "remember": {
+          const text = yield* need(input, "text")
+          const engineRes = engine.remember({
+            text,
+            entity: input.entity
+              ? {
+                  name: input.entity,
+                  kind: input.kind,
+                }
+              : undefined,
+            scope: input.scope,
+            source: sessionID,
+          })
+
+          // Зеркалируем в архив для совместимости
+          yield* memory.remember({
+            text,
+            tags: input.tags,
+            scope: input.scope,
+          }).pipe(Effect.ignore)
+
+          return `Remembered fact ${engineRes.observationID} for entity ${engineRes.entityID} (${input.scope ?? "project"}).`
+        }
+
+        case "link": {
+          const source = yield* need(input, "source")
+          const target = yield* need(input, "target")
+          const type = yield* need(input, "type")
+          const res = engine.link({
+            source,
+            target,
+            type,
+            weight: input.weight,
+          })
+          return `Linked ${res.sourceID} -[${type}]-> ${res.targetID} (relation: ${res.id}).`
+        }
+
+        case "recall": {
+          const query = yield* need(input, "query")
+          const context = engine.recall(query, {
+            limit: input.limit ?? 5,
+            scope: input.scope,
+          })
+          if (!context) {
+            return "No relevant memory found for this context."
+          }
+          return context
+        }
+
+        case "stats": {
+          const stats = engine.stats()
+          return [
+            "Native Memory Engine Statistics:",
+            `- Entities: ${stats.entities}`,
+            `- Observations: ${stats.observations}`,
+            `- Relations: ${stats.relations}`,
+            `- Documents: ${stats.docs}`,
+            `- Indexed terms: ${stats.terms}`,
+          ].join("\n")
+        }
+
+        case "search": {
+          const query = yield* need(input, "query")
+          const engineResults = engine.search(query, {
+            limit: input.limit ?? 10,
+            scope: input.scope,
+          })
+
+          const legacyFound = yield* memory.search({
+            query,
+            scope: input.scope,
+            limit: input.limit,
+            sessions: input.sessions,
+            session: sessionID,
+          }).pipe(Effect.orElseSucceed(() => ({ entries: [], recalled: [] })))
+
+          const lines: string[] = []
+
+          if (engineResults.length > 0) {
+            lines.push("Associative Memory (Native SQLite Engine):")
+            for (const item of engineResults) {
+              const ent = item.entityName ? ` [${item.entityName}]` : ""
+              lines.push(`- (${item.score}) ${item.id}${ent}: ${item.content}`)
+            }
+          }
+
+          if (legacyFound.entries.length > 0) {
+            lines.push("Archive:")
+            for (const entry of legacyFound.entries) {
+              lines.push(`- ${entry.id} (${entry.scope}): ${entry.text}`)
+            }
+          }
+
+          if (legacyFound.recalled.length > 0) {
+            lines.push("Earlier chats:")
+            for (const item of legacyFound.recalled) {
+              lines.push(`- ${item.sessionID} "${item.title}": ${item.text}`)
+            }
+          }
+
+          if (lines.length === 0) {
+            return "Nothing found in memory."
+          }
+
+          return lines.join("\n")
+        }
+
+        case "read":
+        case "view": {
+          const blocks = yield* memory.blocks()
+          if (input.label) {
+            const found = blocks.find((b) => b.label === input.label && (!input.scope || b.scope === input.scope))
+            if (!found) return `Block ${input.label} not found.`
+            return show(found)
+          }
+          return blocks.map(show).join("\n\n")
+        }
+
+        case "list": {
+          const blocks = yield* memory.blocks()
+          return blocks
+            .map((b) => `- ${b.label} (${b.scope}): ${b.value.length}/${b.limit} chars`)
+            .join("\n")
+        }
+
+        case "write":
+        case "rewrite": {
+          return changed(
+            "Rewrote",
+            yield* memory.rewrite({
+              label: yield* need(input, "label"),
+              value: input.value ?? input.text ?? "",
+              description: input.description,
+              limit: input.limit,
+              scope: input.scope,
+            }),
+          )
+        }
+
+        case "append": {
           return changed(
             "Appended to",
             yield* memory.append({
@@ -73,7 +234,9 @@ export const Plugin = {
               scope: input.scope,
             }),
           )
-        case "replace":
+        }
+
+        case "replace": {
           return changed(
             "Updated",
             yield* memory.replace({
@@ -83,61 +246,18 @@ export const Plugin = {
               scope: input.scope,
             }),
           )
-        case "rewrite":
-          return changed(
-            "Rewrote",
-            yield* memory.rewrite({
-              label: yield* need(input, "label"),
-              value: input.value ?? (yield* need(input, "text")),
-              description: input.description,
-              limit: input.limit,
-              scope: input.scope,
-            }),
-          )
+        }
+
         case "delete": {
           const block = yield* memory.drop({ label: yield* need(input, "label"), scope: input.scope })
           return `Deleted block ${block.label} (${block.scope}).`
         }
-        case "remember": {
-          const result = yield* memory.remember({
-            text: yield* need(input, "text"),
-            tags: input.tags,
-            scope: input.scope,
-          })
-          return `${result.merged ? "Updated the matching fact" : "Remembered"} ${result.entry.id} (${result.entry.scope}).`
-        }
-        case "search": {
-          const found = yield* memory.search({
-            query: yield* need(input, "query"),
-            scope: input.scope,
-            limit: input.limit,
-            sessions: input.sessions,
-            session: sessionID,
-          })
-          if (found.entries.length === 0 && found.recalled.length === 0) return "Nothing found in memory."
-          return [
-            ...(found.entries.length === 0
-              ? []
-              : [
-                  "Archive:",
-                  ...found.entries.map(
-                    (entry) =>
-                      `- ${entry.id} (${entry.scope}${entry.tags.length ? `; ${entry.tags.join(", ")}` : ""}; ${day(entry.updated)}) ${entry.text}`,
-                  ),
-                ]),
-            ...(found.recalled.length === 0
-              ? []
-              : [
-                  "Earlier chats:",
-                  ...found.recalled.map(
-                    (item) => `- ${item.sessionID} "${item.title}" ${item.role}, ${day(item.time)}: ${item.text}`,
-                  ),
-                ]),
-          ].join("\n")
-        }
+
         case "forget": {
-          const entry = yield* memory.forget({ id: yield* need(input, "id") })
-          return `Forgot ${entry.id}: ${entry.text}`
+          const id = yield* need(input, "id")
+          engine.forget({ id })
+          yield* memory.forget({ id }).pipe(Effect.option)
+          return `Forgot memory item ${id}.`
         }
       }
     })
@@ -162,7 +282,10 @@ export const Plugin = {
   }),
 }
 
-const need = <K extends "label" | "text" | "old" | "query" | "id">(input: Input, key: K) => {
+const need = <K extends "label" | "text" | "old" | "query" | "id" | "source" | "target" | "type">(
+  input: Input,
+  key: K,
+) => {
   const value = input[key]
   return value === undefined || value === ""
     ? Effect.fail(new ToolFailure({ message: `memory ${input.action} needs ${key}` }))
@@ -178,8 +301,4 @@ function show(block: Memory.Block) {
 
 function changed(verb: string, block: Memory.Block) {
   return `${verb} block ${block.label} (${block.scope}), now ${block.value.length}/${block.limit} chars:\n${block.value}`
-}
-
-function day(time: number) {
-  return new Date(time).toISOString().slice(0, 10)
 }

@@ -16,6 +16,11 @@
  * delivers each change as a chronological update, so the cached request prefix survives.
  */
 export * as Memory from "./index.js"
+export { MemoryEngine, getMemoryEngine } from "./engine.js"
+export { openMemoryDatabase } from "./db.js"
+export { hashEmbed, cosineSimilarity } from "./embed.js"
+export { hybridSearch } from "./search.js"
+export { stem, stemRU, stemEN, extractTerms, trigrams, trigramSimilarity } from "./text.js"
 
 import { FSUtil } from "@orchestra/util/fs-util"
 import { Flock } from "@orchestra/util/flock"

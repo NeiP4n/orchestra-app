@@ -1,10 +1,17 @@
 export * as KeyedMutex from "./keyed-mutex.js"
 
-import { Effect, Semaphore } from "effect"
+import { Effect, Option, Semaphore } from "effect"
 
 export interface KeyedMutex<in Key> {
   readonly size: Effect.Effect<number>
   readonly withLock: (key: Key) => <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>
+  /**
+   * Runs the effect only when the key is free right now. `None` means someone holds it, so the
+   * caller can skip the work instead of waiting behind a long-running holder.
+   */
+  readonly tryWithLock: (
+    key: Key,
+  ) => <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<Option.Option<A>, E, R>
 }
 
 /**
@@ -38,7 +45,25 @@ export const makeUnsafe = <Key>(): KeyedMutex<Key> => {
         )
       })
 
-  return { size: Effect.sync(() => locks.size), withLock }
+  const tryWithLock =
+    (key: Key) =>
+    <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      Effect.suspend(() => {
+        const current = locks.get(key)
+        const entry = current ?? { semaphore: Semaphore.makeUnsafe(1), users: 0 }
+        if (!current) locks.set(key, entry)
+        entry.users++
+        return entry.semaphore.withPermitsIfAvailable(1)(effect).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              entry.users--
+              if (entry.users === 0) locks.delete(key)
+            }),
+          ),
+        )
+      })
+
+  return { size: Effect.sync(() => locks.size), withLock, tryWithLock }
 }
 
 /** Creates an in-memory keyed mutex inside an Effect workflow. */

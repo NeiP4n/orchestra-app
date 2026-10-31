@@ -296,6 +296,81 @@ describe("FileAccess.resolve", () => {
     ),
   )
 
+  it.live("resolves an in-location file whose name has spaces and Cyrillic characters", () =>
+    withTempDir(({ path: directory }) =>
+      Effect.gen(function* () {
+        const folder = path.join(directory, "Мои проекты")
+        const targetPath = path.join(folder, "файл 1.txt")
+        yield* Effect.promise(async () => {
+          await fs.mkdir(folder)
+          await fs.writeFile(targetPath, "hello")
+        })
+        const access = yield* FileAccess.Service
+        const target = yield* access.resolve({ path: path.join("Мои проекты", "файл 1.txt") })
+        expect(target).toMatchObject({ absolute: targetPath, resource: "Мои проекты/файл 1.txt" })
+        expect(target.externalDirectory).toBeUndefined()
+      }).pipe(provide(directory)),
+    ),
+  )
+
+  it.live("accepts one in-location absolute path written with either separator", () =>
+    withTempDir(({ path: directory }) =>
+      Effect.gen(function* () {
+        const targetPath = path.join(directory, "mixed separators.txt")
+        yield* Effect.promise(() => fs.writeFile(targetPath, "hello"))
+        const access = yield* FileAccess.Service
+        const forward = yield* access.resolve({ path: targetPath.replaceAll("\\", "/") })
+        const backward = yield* access.resolve({ path: targetPath })
+        expect(forward).toMatchObject({ absolute: targetPath })
+        expect(backward).toMatchObject({ absolute: targetPath })
+        expect(forward.externalDirectory).toBeUndefined()
+        expect(backward.externalDirectory).toBeUndefined()
+      }).pipe(provide(directory)),
+    ),
+  )
+
+  it.live("accepts a trailing separator as the location directory itself", () =>
+    withTempDir(({ path: directory }) =>
+      Effect.gen(function* () {
+        const access = yield* FileAccess.Service
+        const target = yield* access.resolve({ path: `${directory}${path.sep}`, kind: "directory" })
+        expect(target).toMatchObject({ absolute: directory })
+        expect(target.externalDirectory).toBeUndefined()
+      }).pipe(provide(directory)),
+    ),
+  )
+
+  it.live("keeps a sibling whose name shares the location prefix outside the boundary", () =>
+    withTempDir(({ path: parent }) =>
+      Effect.gen(function* () {
+        const directory = path.join(parent, "proj")
+        const sibling = path.join(parent, "proj-evil")
+        yield* Effect.promise(async () => {
+          await fs.mkdir(directory)
+          await fs.mkdir(sibling)
+          await fs.writeFile(path.join(sibling, "escape.txt"), "nope")
+        })
+        const access = yield* FileAccess.Service
+        const target = yield* access.resolve({ path: path.join(sibling, "escape.txt") })
+        expect(target).toMatchObject({ absolute: path.join(sibling, "escape.txt") })
+        expect(target.externalDirectory).toBeDefined()
+      }).pipe(provide(path.join(parent, "proj"))),
+    ),
+  )
+
+  it.live("treats a differently-cased in-location path as internal on Windows", () =>
+    withTempDir(({ path: directory }) =>
+      Effect.gen(function* () {
+        if (process.platform !== "win32") return
+        const targetPath = path.join(directory, "Case Sensitive.txt")
+        yield* Effect.promise(() => fs.writeFile(targetPath, "hello"))
+        const access = yield* FileAccess.Service
+        const target = yield* access.resolve({ path: targetPath.toUpperCase() })
+        expect(target.externalDirectory).toBeUndefined()
+      }).pipe(provide(directory)),
+    ),
+  )
+
   it.live("treats a tilde path as in-location when the location is home", () =>
     Effect.gen(function* () {
       const access = yield* FileAccess.Service

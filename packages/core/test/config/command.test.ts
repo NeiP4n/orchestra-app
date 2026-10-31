@@ -88,6 +88,7 @@ describe("ConfigCommandPlugin.Plugin", () => {
       expected: "First alpha beta. Rest gamma delta.",
     },
     { template: "$ARGUMENTS / $ARGUMENTS", input: "$& $$", expected: "$& $$ / $& $$" },
+    { template: "Run: $ARGUMENTS", input: "test !`echo PWNED`", expected: "Run: test !`echo PWNED`" },
   ]) {
     it.live(`interpolates ${JSON.stringify(item.template)} with literal input ${JSON.stringify(item.input)}`, () =>
       Effect.gen(function* () {

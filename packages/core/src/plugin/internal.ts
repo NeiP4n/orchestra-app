@@ -90,6 +90,10 @@ import { McpCatalog } from "../mcp/catalog.js"
 import { Orchestra } from "../orchestra.js"
 import { PeerTool } from "../tool/plugin/peer.js"
 import { BudgetTool } from "../tool/plugin/budget.js"
+import { CodegraphTool } from "../tool/plugin/codegraph.js"
+import { CheckpointTool } from "../tool/plugin/checkpoint.js"
+import { DesktopInspectTool } from "../tool/plugin/desktop-inspect.js"
+import { DesktopActionTool } from "../tool/plugin/desktop-action.js"
 import { DodTool } from "../tool/plugin/dod.js"
 import { PlaytestTool } from "../tool/plugin/playtest.js"
 import { Peer } from "../peer.js"
@@ -322,6 +326,10 @@ const pre = [
   PeerTool.Plugin,
   DodTool.Plugin,
   BudgetTool.Plugin,
+  CodegraphTool.Plugin,
+  CheckpointTool.Plugin,
+  DesktopInspectTool.Plugin,
+  DesktopActionTool.Plugin,
   PlotTool.Plugin,
   RulesTool.Plugin,
   FederationTool.Plugin,

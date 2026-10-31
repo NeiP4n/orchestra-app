@@ -1,2 +1,5 @@
 [test]
 preload = ["./test/preload.ts"]
+# The per-test budget is set with setDefaultTimeout in test/preload.ts: bunfig's [test] section
+# has no timeout key (Bun reads `--timeout` from the CLI only), so a `timeout` entry here would be
+# silently ignored and tests would keep dying at the 5s default.
