@@ -31,6 +31,7 @@ import { SessionEvent } from "./event.js"
 import { SessionHistory } from "./history.js"
 import type { SessionMessage } from "./message.js"
 import { SessionModelRequest } from "./model-request.js"
+import { SessionPlan } from "./plan.js"
 import { SessionProviderContext } from "./provider-context.js"
 import { SessionRunnerModel } from "./runner/model.js"
 import { SessionRunnerRetry } from "./runner/retry.js"
@@ -370,10 +371,12 @@ export const layer = Layer.effect(
       // Only the user compacts when automatic compaction is off, except on overflow rejections where compaction recovers.
       if (trigger.reason === "auto" && !settings.auto) return { status: "skipped" }
 
-      const sessionThreshold =
-        context.session.metadata?.compaction_threshold !== undefined
-          ? parseCompactionThreshold(context.session.metadata.compaction_threshold as any)
-          : undefined
+      // A chat's own threshold, as the Society's planner set it: tokens, or a share of the window ("60%"),
+      // which keeps the plan true across models that have different windows.
+      const sessionThreshold = resolveSessionThreshold(
+        context.session.metadata?.compaction_threshold,
+        context.model.limit,
+      )
 
       const contextCeiling = calculateCeiling(context.model.limit, settings.buffer, settings.keepFreePercent)
 
@@ -1113,6 +1116,20 @@ export const recentUserMessages = (
     SessionModelRequest.unsupportedParts(toLLMMessages(users, model.ref), model.capabilities),
   )
   return sendable.slice(oldestToDrop(sendable, estimateMessage, keep))
+}
+
+/** A chat's threshold in tokens: a share of the window when it is one, otherwise the value itself. */
+export function resolveSessionThreshold(
+  value: unknown,
+  limit: SessionContext.Loaded["model"]["limit"],
+): number | undefined {
+  if (value === undefined) return undefined
+  const parsed = SessionPlan.parseThreshold(value)
+  if (parsed === undefined) return undefined
+  if (parsed.type === "tokens") return parsed.tokens
+  const window = limit.input || limit.context
+  if (!Number.isFinite(window) || window <= 0) return undefined
+  return Math.max(1, Math.round((window * parsed.percent) / 100))
 }
 
 export const estimateContext = (context: SessionContext.Loaded) => {

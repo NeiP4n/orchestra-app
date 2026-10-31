@@ -22,7 +22,7 @@ const Chat = Schema.Struct({
   }),
   context: Schema.optionalKey(Schema.Union([Schema.Number, Schema.String])).annotate({
     description:
-      "Optional context threshold in tokens where automatic compaction starts (e.g. 200000, 150k); 0 means the whole window.",
+      'Optional context threshold where automatic compaction starts: a share of the model window ("60%", best when the chat may run on any model) or tokens (200000, 150k); 0 means the whole window.',
   }),
   cache: Schema.optionalKey(Schema.Boolean).annotate({
     description: "Optional prompt caching for the project's chats: false turns it off, true restores the default.",
@@ -40,6 +40,7 @@ export const Output = Schema.Struct({ output: Schema.String })
 
 const guide = [
   "society_plan reads and sets the Society's chats: the context threshold where each chat compacts, its prompt caching, and the model it runs on.",
+  'The context threshold is yours to decide: a share of the model window ("60%") when the chat may run on any model, or absolute tokens (200k) when you know the model.',
   "Only the Society's planner project and the Society chat may use it. Use status before apply, then apply once with every chat you decided; do not plan chat by chat across many calls.",
 ].join("\n")
 
@@ -111,10 +112,11 @@ export const Plugin = {
                   failures.push(`${chat.project}: invalid model "${chat.model}".`)
                   continue
                 }
-                const context =
-                  chat.context === undefined ? undefined : SessionPlan.parseContext(chat.context)
-                if (chat.context !== undefined && context === undefined) {
-                  failures.push(`${chat.project}: "${String(chat.context)}" is not a token count.`)
+                const threshold = chat.context === undefined ? undefined : SessionPlan.parseThreshold(chat.context)
+                if (chat.context !== undefined && threshold === undefined) {
+                  failures.push(
+                    `${chat.project}: "${String(chat.context)}" is neither a share of the window ("60%") nor a token count.`,
+                  )
                   continue
                 }
                 const targetSessions =
@@ -125,7 +127,9 @@ export const Plugin = {
                     : yield* projectSessions(target.project.id)
                 for (const session of targetSessions) {
                   const metadata = { ...(session.metadata ?? {}) }
-                  if (context !== undefined) metadata[SessionPlan.CONTEXT_KEY] = context
+                  if (threshold !== undefined)
+                    metadata[SessionPlan.CONTEXT_KEY] =
+                      threshold.type === "tokens" ? threshold.tokens : `${threshold.percent}%`
                   if (chat.cache !== undefined) metadata[SessionPlan.CACHE_KEY] = chat.cache ? "auto" : "off"
                   if (chat.cache !== undefined || context !== undefined)
                     yield* sessions.setMetadata({ sessionID: session.id, metadata }).pipe(Effect.orDie)
@@ -137,7 +141,7 @@ export const Plugin = {
                 applied.push(
                   [
                     target.kind === "society" ? "Society chat" : target.project.name,
-                    context === undefined ? undefined : `context ${context === 0 ? "full window" : context} tokens`,
+                    threshold === undefined ? undefined : `context ${contextLabel(threshold)}`,
                     chat.cache === undefined ? undefined : `cache ${chat.cache ? "on" : "off"}`,
                     chat.model,
                   ]
@@ -168,14 +172,19 @@ export const Plugin = {
       )
       .pipe(Effect.orDie)
 
+    function contextLabel(threshold: SessionPlan.Threshold) {
+      if (threshold.type === "percent") return `${threshold.percent}% of window`
+      return threshold.tokens === 0 ? "full window" : `${threshold.tokens} tokens`
+    }
+
     function describe(owner: string, session: SessionSchema.Info) {
       const metadata = session.metadata ?? {}
-      const context = SessionPlan.parseContext(metadata[SessionPlan.CONTEXT_KEY])
+      const threshold = SessionPlan.parseThreshold(metadata[SessionPlan.CONTEXT_KEY])
       const cache = metadata[SessionPlan.CACHE_KEY] === false || metadata[SessionPlan.CACHE_KEY] === "off"
       return [
         `- ${owner} · ${session.title ?? session.id}`,
         session.model ? `${session.model.providerID}/${session.model.id}` : "default model",
-        `context ${context === undefined ? "model limit" : context === 0 ? "full window" : String(context)}`,
+        `context ${threshold === undefined ? "model limit" : contextLabel(threshold)}`,
         `cache ${cache ? "off" : "on"}`,
         `${session.tokens.input + session.tokens.output} tokens`,
         `$${session.cost.toFixed(2)}`,

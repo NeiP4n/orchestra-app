@@ -461,9 +461,17 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
   )
 
   const [threshold, setThreshold] = createSignal<number>(0)
+  // A Society's planner can set the threshold as a share of the window; the sidebar shows that share as it is.
+  const [thresholdShare, setThresholdShare] = createSignal<string | undefined>(undefined)
 
   createEffect(() => {
     const sessionMeta = (session() as any)?.metadata?.compaction_threshold
+    if (typeof sessionMeta === "string" && /^\s*[0-9]+(?:\.[0-9]+)?\s*%\s*$/.test(sessionMeta)) {
+      setThresholdShare(`${parseFloat(sessionMeta)}%`)
+      setThreshold(0)
+      return
+    }
+    setThresholdShare(undefined)
     if (sessionMeta !== undefined && sessionMeta !== null) {
       const parsed = parseCompactionThreshold(String(sessionMeta))
       if (parsed !== undefined) {
@@ -624,7 +632,7 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
             </text>
             <HoverAction id="sidebar.context.compaction" onClick={handleCompactionPrompt}>
               <text fg={theme.text.base} wrapMode="none">
-                {formatCompactionThreshold(threshold(), isRu())} ✎
+                {thresholdShare() ?? formatCompactionThreshold(threshold(), isRu())} ✎
               </text>
             </HoverAction>
           </box>

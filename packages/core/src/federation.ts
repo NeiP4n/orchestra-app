@@ -278,7 +278,7 @@ export const plannerPlan = [
   "2. Models: which model runs each chat. Honour every model the operator named; place the strong models where a mistake costs the most and the cheap ones on scanning, drafting and checks.",
   "3. Budget: what each chat is worth spending on. Give the chats that carry the work most of the budget and keep the exploratory ones cheap.",
   "4. Caching: prompt caching on for every chat that keeps a long shared prefix, off where a chat's prefix is never reused and would only pay for writes.",
-  "5. Context: a context threshold for every chat, so no chat silently overflows its window.",
+  '5. Context: a context threshold for every chat, so no chat silently overflows its window. Say it as a share of the window ("60%") when you do not know which model will run the chat.',
   "Create the projects the goal needs with society_forge generate; read the chats with society_plan status and apply models, context and caching with society_plan apply. Do this once, up front, instead of sending the same task to each project in separate turns.",
 ].join("\n")
 
