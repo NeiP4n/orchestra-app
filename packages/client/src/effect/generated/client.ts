@@ -2611,7 +2611,7 @@ const EndpointOrchestraGroupHold = (raw: RawClient["server.orchestra"]) => (inpu
 const EndpointOrchestraSocietyCreate = (raw: RawClient["server.orchestra"]) => (input?: OrchestraSocietyCreateInput) =>
   preserveEffect<OrchestraSocietyCreateOutput>()(
     raw["orchestra.society.create"]({
-      payload: { name: input?.["name"], goal: input?.["goal"], directory: input?.["directory"] },
+      payload: { name: input?.["name"], goal: input?.["goal"], directory: input?.["directory"], team: input?.["team"] },
     }).pipe(Effect.mapError(mapClientError)),
   )
 

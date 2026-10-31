@@ -2615,6 +2615,7 @@ export type ConfigEntry =
             effect: "allow" | "deny"
           }>
         }
+        jailbreak?: { enabled?: boolean; prompt?: string }
       }
     }
   | { type: "directory"; path: string }
@@ -12670,17 +12671,26 @@ export type OrchestraSocietyCreateInput = {
     readonly name?: string | undefined
     readonly goal?: string | undefined
     readonly directory?: string | undefined
+    readonly team?: string | undefined
   }["name"]
   readonly goal?: {
     readonly name?: string | undefined
     readonly goal?: string | undefined
     readonly directory?: string | undefined
+    readonly team?: string | undefined
   }["goal"]
   readonly directory?: {
     readonly name?: string | undefined
     readonly goal?: string | undefined
     readonly directory?: string | undefined
+    readonly team?: string | undefined
   }["directory"]
+  readonly team?: {
+    readonly name?: string | undefined
+    readonly goal?: string | undefined
+    readonly directory?: string | undefined
+    readonly team?: string | undefined
+  }["team"]
 }
 
 export type OrchestraSocietyCreateOutput = { name: string; sessionID: string; directory: string }

@@ -3657,7 +3657,12 @@ export function make(options: ClientOptions) {
             {
               method: "POST",
               path: `/api/orchestra/society`,
-              body: { name: input?.["name"], goal: input?.["goal"], directory: input?.["directory"] },
+              body: {
+                name: input?.["name"],
+                goal: input?.["goal"],
+                directory: input?.["directory"],
+                team: input?.["team"],
+              },
               successStatus: 200,
               declaredStatuses: [400, 401],
               empty: false,

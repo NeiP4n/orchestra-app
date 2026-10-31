@@ -913,6 +913,31 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
     ].join("\n"),
   },
   {
+    id: "system",
+    name: "Whole system",
+    description:
+      "One team for the whole Orchestra monorepo: core and AI, schemas, protocol and generated client, server and CLI, web UI, desktop and TUI, integration, testing and review",
+    members: [
+      member("core-maintainer", "Core"),
+      member("api-contract-engineer", "Contracts"),
+      member("backend-developer", "Server and CLI"),
+      member("frontend-developer", "Web UI"),
+      member("desktop-developer", "Desktop and TUI"),
+      member("integration-engineer", "Integration"),
+      member("tester", "Tester"),
+      member("reviewer", "Reviewer"),
+    ],
+    playbook: [
+      "Goal: change the whole product without breaking a layer. Each member owns its packages and answers for them; the Orchestrator owns the split and the final check.",
+      "1. Map the change before dispatching: name every package it touches (schema, protocol, client, core, server, cli, app, ui, session-ui, desktop, tui, theme, ai) and the dependency direction between them.",
+      "2. Dispatch in dependency order, in parallel where scopes are disjoint: Contracts owns schema, protocol and the generated client; Core owns core and ai; Server and CLI owns server, cli and function; Web UI owns app, ui and session-ui; Desktop and TUI owns desktop, tui and theme.",
+      "3. When a package has no dedicated member, give it to the member whose layer owns its contract and say so in the brief. Do not create another agent for it.",
+      "4. Integration checks the seams after the owners report: HTTP handlers, generated client, events, permissions and every consumer of a changed contract.",
+      "5. Tester and Reviewer run in parallel on the combined diff: Tester runs the affected package checks and the user-visible flow, Reviewer reads the diff for defects the checks would miss.",
+      "Done when every touched package typechecks and its own tests pass, the generated client matches the protocol, and Reviewer has no unresolved confirmed defect.",
+    ].join("\n"),
+  },
+  {
     id: "bugfix",
     name: "Bug fix",
     description: "Find the root cause, fix it and prove the fix",

@@ -122,14 +122,23 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
         }),
       )
       .handle("orchestra.society.create", (ctx) =>
-        federation.createSociety({ name: ctx.payload.name, goal: ctx.payload.goal, directory: ctx.payload.directory }).pipe(
-          Effect.map((society) => ({
-            name: society.name,
-            sessionID: society.sessionID,
-            directory: society.directory,
-          })),
-          Effect.catchTag("Federation.Error", (error) => Effect.fail(new InvalidRequestError({ message: error.message }))),
-        ),
+        federation
+          .createSociety({
+            name: ctx.payload.name,
+            goal: ctx.payload.goal,
+            directory: ctx.payload.directory,
+            team: ctx.payload.team,
+          })
+          .pipe(
+            Effect.map((society) => ({
+              name: society.name,
+              sessionID: society.sessionID,
+              directory: society.directory,
+            })),
+            Effect.catchTag("Federation.Error", (error) =>
+              Effect.fail(new InvalidRequestError({ message: error.message })),
+            ),
+          ),
       )
       .handle(
         "orchestra.link.set",

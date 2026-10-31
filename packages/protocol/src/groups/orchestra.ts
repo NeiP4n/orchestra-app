@@ -421,6 +421,7 @@ export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
         name: Schema.String.pipe(Schema.optional),
         goal: Schema.String.pipe(Schema.optional),
         directory: Schema.String.pipe(Schema.optional),
+        team: Schema.String.pipe(Schema.optional),
       }),
       success: Schema.Struct({
         name: Schema.String,
@@ -433,7 +434,7 @@ export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
         identifier: "orchestra.society.create",
         summary: "Create Society",
         description:
-          "Create a Society: its own folder, a coordinator project inside it, the council group and its chat. Give a goal and the Society is named after it; the operator then sends the goal to the chat and the Society generates the projects and their sessions.",
+          "Create a Society: its own folder, a coordinator project inside it, the council group and its chat. Give a goal and the Society is named after it; the operator then sends the goal to the chat and the Society generates the projects and their sessions. Give a team template and its project is created at once with a team covering every layer of the system.",
       }),
     ),
   )

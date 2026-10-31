@@ -4783,6 +4783,7 @@ export type OrchestraSocietyCreateInput = {
   readonly name?: string | undefined
   readonly goal?: string | undefined
   readonly directory?: string | undefined
+  readonly team?: string | undefined
 }
 export type OrchestraSocietyCreateOutput = {
   readonly name: string

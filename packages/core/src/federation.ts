@@ -119,6 +119,8 @@ export interface Interface {
     goal?: string
     // The folder to create the Society's own folder in; ORCHESTRA_SOCIETY_ROOT or ~/orchestra-society without it.
     directory?: string
+    // A team template for one extra project created at once, covering every layer of the system.
+    team?: string
   }) => Effect.Effect<
     { name: string; sessionID: SessionID; directory: string; project: Orchestra.Project },
     FederationError
@@ -315,12 +317,17 @@ export const baseProjects = [
 
 // What the Society's planner receives the moment its Society exists: the goal and the five
 // allocations it must settle before any project starts working.
-function plannerKickoff(input: { society: string; goal: string }) {
+function plannerKickoff(input: { society: string; goal: string; existing?: readonly string[] }) {
   return [
     `<society-goal society="${input.society}">`,
     input.goal,
     "</society-goal>",
     "You are this Society's planner and it has just been founded around this goal. Plan it now, in your first messages, without asking the operator anything the goal already implies.",
+    ...(input.existing?.length
+      ? [
+          `These projects already exist as part of the Society: ${input.existing.join(", ")}. Do not create another project for their work; plan around them.`,
+        ]
+      : []),
     plannerPlan,
   ].join("\n")
 }
@@ -1142,6 +1149,10 @@ const layer: Layer.Layer<
           return yield* new FederationError({ message: `"${chosen}" is not a full path. Give the folder as C:\\... or ~/...` })
         const home = societyDirectory(name, parent)
         yield* kv.set(SOCIETY + name, home)
+        const teamID = input.team?.trim()
+        const template = teamID ? (yield* orchestra.templates()).find((item) => item.id === teamID) : undefined
+        if (teamID && !template)
+          return yield* new FederationError({ message: `Unknown AI team template "${teamID}".` })
         // The first project of a Society is its planner: the group needs a leader from the start, and
         // an empty coordinator would only cost model turns.
         const planner = baseProjects[0]
@@ -1151,15 +1162,40 @@ const layer: Layer.Layer<
             (error) => new FederationError({ message: `Could not create the planner project: ${String(error)}` }),
           ),
         )
-        yield* setGroup({ name, projects: [project.id], mode: "council" })
+        // A team template creates one working project whose sessions cover every layer of the system:
+        // it is planned by the same goal, not left for the planner to invent.
+        const workerPolicy = yield* Orchestra.workerPolicy
+        const team = template
+          ? yield* orchestra
+              .create({
+                name: template.name,
+                directory: yield* societyFolder(name, template.name),
+                template: template.id,
+                workerModels: (role) => Orchestra.workerModels(workerPolicy, role),
+              })
+              .pipe(
+                Effect.tapError(() =>
+                  Effect.gen(function* () {
+                    yield* kv.remove(SOCIETY + name)
+                    yield* orchestra.remove(project.id).pipe(Effect.ignore)
+                  }),
+                ),
+                Effect.mapError(
+                  (error) =>
+                    new FederationError({ message: `Could not create the ${template.name} project: ${String(error)}` }),
+                ),
+              )
+          : undefined
+        const projects = team ? [project.id, team.id] : [project.id]
+        yield* setGroup({ name, projects, mode: "council" })
         // A Society without its chat is unusable and would only be left behind, so a failure here
-        // takes the group and its planner project back out.
-        const chat = yield* ensureGroupChat({ name, projects: [project.id], mode: "council" }).pipe(
+        // takes the group and its projects back out.
+        const chat = yield* ensureGroupChat({ name, projects, mode: "council" }).pipe(
           Effect.tapError(() =>
             Effect.gen(function* () {
               yield* kv.remove(GROUP + name)
               yield* kv.remove(SOCIETY + name)
-              yield* orchestra.remove(project.id).pipe(Effect.ignore)
+              yield* Effect.forEach(projects, (id) => orchestra.remove(id).pipe(Effect.ignore), { discard: true })
             }),
           ),
         )
@@ -1167,7 +1203,11 @@ const layer: Layer.Layer<
         // Society: it creates the projects the goal needs and sets every chat up.
         const goal = input.goal?.trim()
         if (goal) {
-          yield* tell(project.id, "society-goal", plannerKickoff({ society: name, goal }))
+          yield* tell(
+            project.id,
+            "society-goal",
+            plannerKickoff({ society: name, goal, existing: template ? [template.name] : [] }),
+          )
           const main = yield* orchestra.main(project.id).pipe(Effect.option)
           if (Option.isSome(main))
             yield* sessions.resume(main.value.id).pipe(
