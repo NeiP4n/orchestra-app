@@ -1,24 +1,48 @@
-/* Orchestra Companion for Zen Browser - Native Sidebar Tokens */
+/* Orchestra Companion for Zen - SCULK Theme (Deep Dark) */
+
 :root {
-  --v2-bg-base: #242424;
-  --v2-bg-deep: #161616;
-  --v2-bg-layer-1: #2e2e2e;
-  --v2-bg-layer-2: #3a3a3a;
-  --v2-text-base: #f2f2f2;
-  --v2-text-muted: #aeaeae;
-  --v2-text-faint: #808080;
-  --v2-accent: #5b89f7;
-  --v2-accent-hover: #4173ea;
-  --v2-border-base: rgba(255, 255, 255, 0.1);
-  --v2-border-muted: rgba(255, 255, 255, 0.06);
-  --v2-border-focus: #3b82f6;
-  --v2-success-bg: rgba(14, 43, 22, 0.6);
-  --v2-success-fg: #34d399;
-  --v2-success-border: #065f46;
-  --v2-error-bg: rgba(69, 10, 10, 0.6);
-  --v2-error-fg: #f87171;
-  --v2-error-border: #991b1b;
-  --v2-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* SCULK Semantic Color Tokens */
+  --sculk-void: #02080b;
+  --sculk-deep: #050f15;
+  --sculk-card: #0a1b20;
+  --sculk-card-hover: #0d252c;
+  --sculk-border: #0e4c54;
+  --sculk-border-glow: #12929e;
+  --sculk-cyan: #00e5ff;
+  --sculk-teal: #5df9de;
+  --sculk-text: #d6f3f1;
+  --sculk-muted: #5f9aa0;
+  --sculk-faint: #346067;
+  --sculk-glow: 0 0 14px rgba(0, 229, 255, 0.25);
+  --sculk-glow-intense: 0 0 20px rgba(0, 229, 255, 0.45);
+
+  /* Legacy Aliases for Test Compatibility */
+  --v2-bg-base: var(--sculk-void);
+  --v2-bg-deep: var(--sculk-deep);
+  --v2-bg-layer-1: var(--sculk-card);
+  --v2-bg-layer-2: var(--sculk-card-hover);
+  --v2-text-base: var(--sculk-text);
+  --v2-text-muted: var(--sculk-muted);
+  --v2-text-faint: var(--sculk-faint);
+  --v2-accent: var(--sculk-cyan);
+  --v2-accent-hover: var(--sculk-teal);
+  --v2-border-base: var(--sculk-border);
+  --v2-border-muted: rgba(14, 76, 84, 0.5);
+  --v2-border-focus: var(--sculk-cyan);
+
+  /* Feedback Colors in Sculk Palette */
+  --v2-success-bg: rgba(6, 40, 36, 0.7);
+  --v2-success-fg: var(--sculk-teal);
+  --v2-success-border: #0e685f;
+  --v2-error-bg: rgba(45, 10, 20, 0.7);
+  --v2-error-fg: #f43f5e;
+  --v2-error-border: #881337;
+  --v2-info-bg: rgba(0, 30, 40, 0.7);
+  --v2-info-fg: var(--sculk-cyan);
+  --v2-info-border: var(--sculk-border);
+
+  /* Typography */
+  --v2-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", Helvetica, Arial, sans-serif;
   --v2-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
@@ -31,183 +55,211 @@
 body {
   font-family: var(--v2-font);
   font-size: 13px;
-  line-height: 16px;
-  color: var(--v2-text-base);
-  background-color: var(--v2-bg-base);
+  line-height: 18px;
+  background-color: var(--sculk-void);
+  color: var(--sculk-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  overflow-x: hidden;
-  user-select: none;
 }
 
 .sidebar-container {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  height: 100vh;
   padding: 12px;
-  flex: 1;
+  gap: 12px;
+  background: radial-gradient(circle at 50% 0%, rgba(0, 229, 255, 0.04) 0%, transparent 60%), var(--sculk-void);
 }
 
-/* Header & Status Bar */
+/* Header Bar with Glowing Brand */
 .header-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--v2-border-muted);
+  border-bottom: 1px solid var(--sculk-border);
 }
 
 .brand-title {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--v2-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  background: linear-gradient(135deg, var(--sculk-cyan) 0%, var(--sculk-teal) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.35));
 }
 
+/* Status Badge with Bioluminescent Sculk Pulse */
 .status-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   font-size: 11px;
-  font-weight: 500;
-  padding: 2px 8px;
-  border-radius: 9999px;
-  background: var(--v2-bg-deep);
-  border: 1px solid var(--v2-border-muted);
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: var(--sculk-deep);
+  border: 1px solid var(--sculk-border);
 }
 
 .status-dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: var(--v2-text-faint);
+  background: var(--sculk-muted);
+  transition: all 0.3s ease;
+}
+
+@keyframes sculkPulse {
+  0% {
+    box-shadow: 0 0 4px var(--sculk-cyan);
+    opacity: 0.85;
+  }
+  50% {
+    box-shadow: 0 0 14px var(--sculk-cyan), 0 0 22px rgba(93, 249, 222, 0.45);
+    opacity: 1;
+  }
+  100% {
+    box-shadow: 0 0 4px var(--sculk-cyan);
+    opacity: 0.85;
+  }
+}
+
+.status-badge.online {
+  border-color: var(--sculk-border-glow);
+  color: var(--sculk-teal);
 }
 
 .status-badge.online .status-dot {
-  background: var(--v2-success-fg);
-  box-shadow: 0 0 6px rgba(52, 211, 153, 0.4);
+  background: var(--sculk-cyan);
+  animation: sculkPulse 2.4s ease-in-out infinite;
+}
+
+.status-badge.offline {
+  border-color: rgba(14, 76, 84, 0.6);
+  color: var(--sculk-muted);
 }
 
 .status-badge.offline .status-dot {
-  background: var(--v2-error-fg);
+  background: var(--sculk-faint);
 }
 
-/* Skeletons / Loading State */
-.skeleton-box {
-  background: linear-gradient(90deg, var(--v2-bg-layer-1) 25%, var(--v2-bg-layer-2) 50%, var(--v2-bg-layer-1) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-  border-radius: 4px;
+/* Navigation Tabs */
+.tab-bar {
+  display: flex;
+  background: var(--sculk-deep);
+  border: 1px solid var(--sculk-border);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
 }
 
-@keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-.skeleton-text {
-  height: 14px;
-  width: 100%;
-  margin-bottom: 6px;
-}
-
-.skeleton-btn {
-  height: 28px;
-  width: 100%;
-  margin-top: 8px;
-}
-
-/* Section Card */
-.card {
-  background: var(--v2-bg-layer-1);
-  border: 1px solid var(--v2-border-muted);
+.tab-btn {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--sculk-muted);
   border-radius: 6px;
-  padding: 10px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.tab-btn:hover {
+  color: var(--sculk-text);
+  background: rgba(14, 76, 84, 0.25);
+}
+
+.tab-btn.active {
+  background: var(--sculk-card);
+  color: var(--sculk-cyan);
+  border: 1px solid var(--sculk-border-glow);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.15);
+  font-weight: 600;
+}
+
+.tab-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 10px;
+  background: var(--sculk-deep);
+  color: var(--sculk-muted);
+  border: 1px solid var(--sculk-border);
+}
+
+.tab-btn.active .tab-badge {
+  background: rgba(0, 229, 255, 0.15);
+  color: var(--sculk-teal);
+  border-color: var(--sculk-border-glow);
+}
+
+/* Tab Content Areas */
+.tab-content {
+  display: none;
+  flex: 1;
+  overflow-y: auto;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tab-content.active {
+  display: flex;
+}
+
+/* Sculk Cards */
+.card {
+  background: var(--sculk-card);
+  border: 1px solid var(--sculk-border);
+  border-radius: 8px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card:hover {
+  border-color: var(--sculk-border-glow);
+  box-shadow: 0 2px 12px rgba(2, 8, 11, 0.6);
 }
 
 .card-title {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--v2-text-muted);
+  letter-spacing: 0.8px;
+  color: var(--sculk-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-/* Tab Info Box */
+/* Tab Info Preview */
 .tab-info-title {
+  font-weight: 600;
   font-size: 13px;
-  font-weight: 500;
-  color: var(--v2-text-base);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--sculk-text);
+  word-break: break-word;
 }
 
 .tab-info-url {
   font-size: 11px;
+  color: var(--sculk-muted);
   font-family: var(--v2-font-mono);
-  color: var(--v2-text-faint);
+  word-break: break-all;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* Buttons */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  font-family: var(--v2-font);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 16px;
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  border: 1px solid transparent;
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-  user-select: none;
-}
-
-.btn:focus-visible {
-  outline: 2px solid var(--v2-border-focus);
-  outline-offset: 2px;
-}
-
-.btn-primary {
-  background: var(--v2-accent);
-  color: #ffffff;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--v2-accent-hover);
-}
-
-.btn-secondary {
-  background: var(--v2-bg-layer-2);
-  color: var(--v2-text-base);
-  border-color: var(--v2-border-base);
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background: var(--v2-bg-deep);
-  border-color: var(--v2-text-muted);
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-sm {
-  padding: 4px 8px;
-  font-size: 11px;
 }
 
 /* Form Controls */
@@ -219,96 +271,246 @@ body {
 
 .label {
   font-size: 11px;
-  color: var(--v2-text-muted);
-  display: flex;
-  justify-content: space-between;
+  font-weight: 500;
+  color: var(--sculk-muted);
 }
 
 .select, .textarea, .input {
   font-family: var(--v2-font);
   font-size: 12px;
   line-height: 16px;
-  color: var(--v2-text-base);
-  background: var(--v2-bg-deep);
-  border: 1px solid var(--v2-border-base);
-  border-radius: 4px;
-  padding: 6px 8px;
+  color: var(--sculk-text);
+  background: var(--sculk-deep);
+  border: 1px solid var(--sculk-border);
+  border-radius: 6px;
+  padding: 8px 10px;
   outline: none;
   width: 100%;
-}
-
-.select:focus-visible, .textarea:focus-visible, .input:focus-visible {
-  border-color: var(--v2-border-focus);
-  box-shadow: 0 0 0 1px var(--v2-border-focus);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .textarea {
-  min-height: 72px;
+  min-height: 70px;
   resize: vertical;
-  line-height: 18px;
 }
 
-.textarea::placeholder {
-  color: var(--v2-text-faint);
+.select:focus-visible, .textarea:focus-visible, .input:focus-visible {
+  border-color: var(--sculk-cyan);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
 }
 
-.row-inline {
-  display: flex;
+/* Sculk Neon Buttons */
+.btn {
+  font-family: var(--v2-font);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 6px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  outline: none;
 }
 
-/* Empty / Error Banners */
-.alert-box {
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none !important;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.15) 0%, rgba(93, 249, 222, 0.25) 100%);
+  color: var(--sculk-text);
+  border: 1px solid var(--sculk-border-glow);
+  box-shadow: var(--sculk-glow);
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.3) 0%, rgba(93, 249, 222, 0.4) 100%);
+  border-color: var(--sculk-cyan);
+  color: #ffffff;
+  box-shadow: var(--sculk-glow-intense), 0 0 10px var(--sculk-cyan);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-secondary {
+  background: var(--sculk-card);
+  color: var(--sculk-text);
+  border: 1px solid var(--sculk-border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--sculk-card-hover);
+  border-color: var(--sculk-border-glow);
+  color: var(--sculk-cyan);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.15);
+}
+
+.btn-small {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+/* Session Items */
+.session-card {
+  background: var(--sculk-card);
+  border: 1px solid var(--sculk-border);
+  border-radius: 6px;
   padding: 10px;
-  border-radius: 4px;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  transition: all 0.2s ease;
 }
 
-.alert-error {
-  background: var(--v2-error-bg);
-  border: 1px solid var(--v2-error-border);
-  color: var(--v2-error-fg);
+.session-card:hover {
+  border-color: var(--sculk-border-glow);
+  background: var(--sculk-card-hover);
+  box-shadow: 0 2px 10px rgba(0, 229, 255, 0.08);
+}
+
+.session-card.active-conn {
+  border-color: var(--sculk-cyan);
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.2);
+}
+
+.session-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.session-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sculk-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-time {
+  font-size: 10px;
+  color: var(--sculk-muted);
+}
+
+.badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.badge-running {
+  background: rgba(0, 229, 255, 0.15);
+  color: var(--sculk-cyan);
+  border: 1px solid var(--sculk-border-glow);
+}
+
+.badge-idle {
+  background: var(--sculk-deep);
+  color: var(--sculk-muted);
+  border: 1px solid var(--sculk-border);
+}
+
+/* Alerts */
+.alert-box {
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.alert-info {
+  background: var(--v2-info-bg);
+  color: var(--v2-info-fg);
+  border: 1px solid var(--v2-info-border);
 }
 
 .alert-success {
   background: var(--v2-success-bg);
-  border: 1px solid var(--v2-success-border);
   color: var(--v2-success-fg);
+  border: 1px solid var(--v2-success-border);
 }
 
-.empty-view {
+.alert-error {
+  background: var(--v2-error-bg);
+  color: var(--v2-error-fg);
+  border: 1px solid var(--v2-error-border);
+}
+
+/* Empty State */
+.empty-state {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  text-align: center;
   padding: 24px 12px;
+  text-align: center;
+  gap: 8px;
+  color: var(--sculk-muted);
+}
+
+.empty-state-title {
+  font-weight: 600;
+  color: var(--sculk-text);
+  font-size: 13px;
+}
+
+/* Skeletons */
+.skeleton-list {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
-.empty-icon {
-  width: 32px;
-  height: 32px;
-  stroke: var(--v2-text-faint);
-  stroke-width: 1.5;
-  fill: none;
+.skeleton-item {
+  height: 48px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--sculk-card) 25%, var(--sculk-card-hover) 50%, var(--sculk-card) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s infinite;
+  border: 1px solid var(--sculk-border);
 }
 
-.empty-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--v2-text-muted);
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
-.empty-subtitle {
-  font-size: 11px;
-  color: var(--v2-text-faint);
-  max-width: 220px;
-}
-
-/* Hidden utility */
+/* Utilities */
 .hidden {
   display: none !important;
+}
+
+/* Sculk Deep Dark Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--sculk-void);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--sculk-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--sculk-border-glow);
 }

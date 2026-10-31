@@ -3,6 +3,16 @@
   "name": "Orchestra Companion for Zen",
   "version": "1.0.0",
   "description": "AI companion, sidebar panel and context capture for Zen Browser",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "orchestra-zen@local",
+      "strict_min_version": "115.0"
+    }
+  },
+  "icons": {
+    "48": "icon.svg",
+    "128": "icon.svg"
+  },
   "permissions": [
     "activeTab",
     "contextMenus",
@@ -14,11 +24,13 @@
   ],
   "sidebar_action": {
     "default_panel": "sidebar.html",
-    "default_title": "Orchestra"
+    "default_title": "Orchestra",
+    "default_icon": "icon.svg"
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Orchestra Quick Action"
+    "default_title": "Orchestra Quick Action",
+    "default_icon": "icon.svg"
   },
   "background": {
     "scripts": [
