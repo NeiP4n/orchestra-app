@@ -67,6 +67,7 @@ export type HomeProjectsViewProps = {
   onMoveProject: (server: ServerConnection.Any, worktree: string, index: number) => void
   onSelectProject: (server: ServerConnection.Any, directory: string) => void
   onAddProjects: (server: ServerConnection.Any, directories: string[]) => void
+  onCreateAiTeam: (server: ServerConnection.Any) => void
   onOpenProjectNewSession: (server: ServerConnection.Any, directory: string) => void
   canImportSession: boolean
   onImportSession: (server: ServerConnection.Any, project: LocalProject) => void
@@ -147,6 +148,10 @@ export function HomeProjectsView(props: HomeProjectsViewProps) {
                 setState("open", false)
                 props.onAddProjects(server, directories)
               }}
+              onCreateAiTeam={(server) => {
+                setState("open", false)
+                props.onCreateAiTeam(server)
+              }}
               onOpenProjectNewSession={(server, directory) => {
                 setState("open", false)
                 props.onOpenProjectNewSession(server, directory)
@@ -187,18 +192,32 @@ function HomeProjectsPanel(props: HomeProjectsViewProps) {
         <div class="flex h-7 min-w-0 shrink-0 items-center justify-between pl-1.5 pr-3">
           <div class="text-v2-text-text-muted [font-weight:530]">{props.language.t("home.projects")}</div>
           <Show when={props.servers.length === 1 && !(props.projects.length === 0 && props.recentlyClosed.length > 0)}>
-            <Tooltip placement="bottom" value={props.language.t("home.project.add")}>
-              <IconButton
-                data-action="home-add-project"
-                variant="ghost-muted"
-                size="large"
-                class="titlebar-icon [&_[data-slot=icon-svg]]:text-v2-icon-icon-muted"
-                icon={<Icon name="folder-add-left" />}
-                disabled={props.serverHealth(props.servers[0])?.healthy === false}
-                onClick={() => props.onChooseProject(props.servers[0])}
-                aria-label={props.language.t("home.project.add")}
-              />
-            </Tooltip>
+            <div class="flex items-center gap-1">
+              <Tooltip placement="bottom" value={props.language.t("home.aiTeam.title")}>
+                <IconButton
+                  data-action="home-create-ai-team"
+                  variant="ghost-muted"
+                  size="large"
+                  class="titlebar-icon [&_[data-slot=icon-svg]]:text-v2-icon-icon-muted"
+                  icon={<Icon name="brain" />}
+                  disabled={props.serverHealth(props.servers[0])?.healthy === false}
+                  onClick={() => props.onCreateAiTeam(props.servers[0])}
+                  aria-label={props.language.t("home.aiTeam.title")}
+                />
+              </Tooltip>
+              <Tooltip placement="bottom" value={props.language.t("home.project.add")}>
+                <IconButton
+                  data-action="home-add-project"
+                  variant="ghost-muted"
+                  size="large"
+                  class="titlebar-icon [&_[data-slot=icon-svg]]:text-v2-icon-icon-muted"
+                  icon={<Icon name="folder-add-left" />}
+                  disabled={props.serverHealth(props.servers[0])?.healthy === false}
+                  onClick={() => props.onChooseProject(props.servers[0])}
+                  aria-label={props.language.t("home.project.add")}
+                />
+              </Tooltip>
+            </div>
           </Show>
         </div>
       </Show>
@@ -235,8 +254,18 @@ function HomeProjectsPanel(props: HomeProjectsViewProps) {
                     <Show when={props.dropdown}>
                       <HomeProjectNavButton
                         type="button"
-                        data-action="home-add-project-row"
+                        data-action="home-create-ai-team-row"
                         class="mt-1 disabled:opacity-60"
+                        disabled={props.serverHealth(server())?.healthy === false}
+                        onClick={() => props.onCreateAiTeam(server())}
+                      >
+                        <Icon name="brain" size="small" />
+                        <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("home.aiTeam.title")}</span>
+                      </HomeProjectNavButton>
+                      <HomeProjectNavButton
+                        type="button"
+                        data-action="home-add-project-row"
+                        class="disabled:opacity-60"
                         disabled={props.serverHealth(server())?.healthy === false}
                         onClick={() => props.onChooseProject(server())}
                       >
@@ -588,6 +617,16 @@ function HomeProjectEmpty(
     <div class="flex min-w-0 flex-col gap-1">
       <HomeProjectNavButton
         type="button"
+        data-action="home-create-ai-team-row"
+        class="disabled:opacity-60 [&>[data-slot=icon-svg]]:text-v2-icon-icon-muted"
+        disabled={unreachable()}
+        onClick={() => props.onCreateAiTeam(props.server)}
+      >
+        <Icon name="brain" size="small" />
+        <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("home.aiTeam.title")}</span>
+      </HomeProjectNavButton>
+      <HomeProjectNavButton
+        type="button"
         data-action="home-add-project-row"
         class="disabled:opacity-60 [&>[data-slot=icon-svg]]:text-v2-icon-icon-muted"
         disabled={unreachable()}
@@ -765,14 +804,21 @@ function HomeProjectRow(
               <Menu.Item onSelect={() => props.onOpenProjectNewSession(props.server, props.project.worktree)}>
                 {props.language.t("command.session.new")}
               </Menu.Item>
-              <Show when={props.canImportSession}>
-                <Menu.Item onSelect={() => props.onImportSession(props.server, props.project)}>
-                  {props.language.t("command.session.import")}
-                </Menu.Item>
-              </Show>
-              <Menu.Item onSelect={() => props.onEditProject(props.server, props.project)}>
-                {props.language.t("dialog.project.edit.title")}
-              </Menu.Item>
+              <Menu.Sub>
+                <Menu.SubTrigger>{props.language.t("home.project.menu.more")}</Menu.SubTrigger>
+                <Menu.Portal>
+                  <Menu.SubContent class="min-w-[180px] rounded-md border-0 bg-v2-background-bg-layer-01 shadow-[var(--v2-elevation-floating)] focus:outline-none">
+                    <Show when={props.canImportSession}>
+                      <Menu.Item onSelect={() => props.onImportSession(props.server, props.project)}>
+                        {props.language.t("command.session.import")}
+                      </Menu.Item>
+                    </Show>
+                    <Menu.Item onSelect={() => props.onEditProject(props.server, props.project)}>
+                      {props.language.t("dialog.project.edit.title")}
+                    </Menu.Item>
+                  </Menu.SubContent>
+                </Menu.Portal>
+              </Menu.Sub>
               <Show when={props.canRevealProject(props.server)}>
                 <Menu.Item onSelect={() => props.onRevealProject(props.server, props.project)}>
                   {props.language.t(

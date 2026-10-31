@@ -25,6 +25,15 @@ export const HomeServersSchema = Schema.Struct({
   collapsed: Persistence.record(Persistence.fallback(Schema.Boolean, () => false)),
 })
 
+const projectRoot = (directory: string) => pathKey(directory).replace(/\/$/, "")
+
+const contains = (parent: string, child: string) => {
+  const a = projectRoot(parent)
+  const b = projectRoot(child)
+
+  return a === b || b.startsWith(a + "/")
+}
+
 export function createHomeProjectsController(home: HomeController) {
   const platform = usePlatform()
   const pickDirectory = useDirectoryPicker()
@@ -64,6 +73,26 @@ export function createHomeProjectsController(home: HomeController) {
     return [project.worktree, ...(project.sandboxes ?? [])]
   }
 
+  // Roots of the projects the app already knows, so a picked folder that is exactly one of them opens without a
+  // choice between "existing project" and "new project". The value is the project's own worktree, which is the string
+  // project selection matches against.
+  function knownProjects(selected: string[]) {
+    const roots = new Map(home.project.list().map((project) => [projectRoot(project.worktree), project.worktree]))
+
+    return selected.flatMap((directory) => roots.get(projectRoot(directory)) ?? [])
+  }
+
+  function openAiTeam(conn: ServerConnection.Any) {
+    void import("./ai-team-dialog")
+      .then(({ DialogAiTeam }) => dialog.show(() => <DialogAiTeam server={conn} />))
+      .catch((cause: unknown) => {
+        showToast({
+          title: language.t("common.requestFailed"),
+          description: errorMessage(cause, language.t("common.requestFailed")),
+        })
+      })
+  }
+
   function choose(conn: ServerConnection.Any) {
     pickDirectory({
       server: conn,
@@ -71,13 +100,18 @@ export function createHomeProjectsController(home: HomeController) {
       multiple: true,
       onSelect: (result) => {
         const selected = homeProjectDirectories(result)
+
         if (!selected.length) return
 
-        const contains = (parent: string, child: string) => {
-          const a = pathKey(parent).replace(/\/$/, "")
-          const b = pathKey(child).replace(/\/$/, "")
-          return a === b || b.startsWith(a + "/")
+        // A path that is exactly a known project's root needs no choice: open that project.
+        const known = knownProjects(selected)
+
+        if (known.length === selected.length) {
+          known.forEach((worktree) => home.project.select(conn, worktree))
+
+          return
         }
+
         const candidates = home.project.list().flatMap((project) =>
           directories(project)
             .filter((directory) =>
@@ -85,10 +119,12 @@ export function createHomeProjectsController(home: HomeController) {
             )
             .map((directory) => ({ directory, label: directory })),
         )
+
         const unique = [...new Map(candidates.map((item) => [pathKey(item.directory), item])).values()]
 
         if (!unique.length) {
           home.project.add(conn, selected)
+
           return
         }
 
@@ -98,6 +134,7 @@ export function createHomeProjectsController(home: HomeController) {
             candidates={unique}
             onConfirm={(chosen, createNew) => {
               chosen.forEach((directory) => home.project.select(conn, directory))
+
               if (createNew) home.project.add(conn, selected)
               dialog.close()
             }}
@@ -143,6 +180,12 @@ export function createHomeProjectsController(home: HomeController) {
         home.project.select(conn, directory)
       },
       add: home.project.add,
+      aiTeam: (conn: ServerConnection.Any) => {
+        if (authenticate(conn, (next) => openAiTeam(next))) return
+
+        if (home.server.health(conn)?.healthy === false) return
+        openAiTeam(conn)
+      },
       openNewSession: (conn: ServerConnection.Any, directory: string) => {
         if (authenticate(conn, (next) => home.project.openProjectNewSession(next, directory))) return
         home.project.openProjectNewSession(conn, directory)
@@ -231,6 +274,7 @@ function ProjectPathChoiceDialog(props: {
   candidates: { directory: string; label: string }[]
   onConfirm: (selected: string[], createNew: boolean) => void
 }) {
+  const language = useLanguage()
   const [selected, setSelected] = createSignal<string[]>(props.candidates.map((item) => item.directory))
   const [createNew, setCreateNew] = createSignal(false)
 
@@ -244,10 +288,10 @@ function ProjectPathChoiceDialog(props: {
   return (
     <Dialog fit>
       <DialogHeader>
-        <DialogTitleGroup title="Projects found at this path" />
+        <DialogTitleGroup title={language.t("home.project.pathChoice.title")} />
       </DialogHeader>
       <div class="flex max-h-[50vh] flex-col gap-2 overflow-y-auto px-1 py-2">
-        <p class="text-sm text-v2-text-text-muted">Choose one or more existing project directories, or add the selected path as a new project.</p>
+        <p class="text-sm text-v2-text-text-muted">{language.t("home.project.pathChoice.description")}</p>
         <For each={props.candidates}>
           {(item) => (
             <Button
@@ -267,12 +311,15 @@ function ProjectPathChoiceDialog(props: {
             setSelected([])
           }}
         >
-          {createNew() ? "✓ " : ""}Create a new project from selected path{props.paths.length > 1 ? "s" : ""}
+          {createNew() ? "✓ " : ""}
+          {language.plural("home.project.pathChoice.createNew", props.paths.length)}
         </Button>
       </div>
       <DialogFooter>
-        <Button variant="ghost" onClick={() => props.onConfirm([], false)}>Cancel</Button>
-        <Button onClick={() => props.onConfirm(selected(), createNew())}>Continue</Button>
+        <Button variant="ghost" onClick={() => props.onConfirm([], false)}>
+          {language.t("common.cancel")}
+        </Button>
+        <Button onClick={() => props.onConfirm(selected(), createNew())}>{language.t("common.continue")}</Button>
       </DialogFooter>
     </Dialog>
   )

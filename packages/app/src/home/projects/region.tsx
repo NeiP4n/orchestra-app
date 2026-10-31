@@ -34,6 +34,7 @@ export function HomeProjects(props: {
       onMoveProject={props.projects.project.move}
       onSelectProject={props.projects.project.select}
       onAddProjects={props.projects.project.add}
+      onCreateAiTeam={props.projects.project.aiTeam}
       onOpenProjectNewSession={props.projects.project.openNewSession}
       canImportSession={props.projects.project.canImportSession}
       onImportSession={props.projects.project.importSession}

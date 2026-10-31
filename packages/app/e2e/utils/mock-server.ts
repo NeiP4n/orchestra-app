@@ -930,6 +930,24 @@ function mockHandlers(
             id: ctx.params.projectID,
             canonical: projectSeed(config)?.canonical ?? config.directory,
           }),
+        // POST /api/orchestra/society answers the Society a team template creates; its chat is then a readable session.
+        societyCreate: () =>
+          Effect.sync(() => {
+            const directory = `${config.directory}/society`
+
+            const created = currentSession(
+              {
+                id: "ses_mock_society",
+                title: config.createdSessionTitle ?? "AI team",
+                projectID: projectSeed(config)?.id,
+              },
+              directory,
+            )
+
+            config.sessions.push(created)
+
+            return { name: "AI team", sessionID: created.id, directory }
+          }),
         configShells: () => Effect.succeed(config.shells ?? []),
         configUpdate: () => noContent,
         websearchProviders: () => Effect.succeed({ location: location(config), data: [] }),

@@ -152,6 +152,17 @@ const Group = HttpApiGroup.make("mock")
   .add(HttpApiEndpoint.get("mcpResource", "/api/mcp/resource", { success: Json }))
   .add(HttpApiEndpoint.get("projectList", "/api/project", { success: Json }))
   .add(
+    HttpApiEndpoint.post("societyCreate", "/api/orchestra/society", {
+      payload: Schema.Struct({
+        name: Schema.optional(Schema.String),
+        goal: Schema.optional(Schema.String),
+        directory: Schema.optional(Schema.String),
+        team: Schema.optional(Schema.String),
+      }),
+      success: Json,
+    }),
+  )
+  .add(
     HttpApiEndpoint.patch("projectUpdate", "/api/project/:projectID", {
       params: { projectID: Schema.String },
       payload: JsonPayload,

@@ -3,7 +3,7 @@ import { holdRoute, NO_PROVIDER, project, REMOTE_SERVER, seed, sessionHref } fro
 import { mockOpenCodeServer } from "../utils/mock-server"
 import { fixture, mockStressTimeline } from "../utils/session-fixture"
 import { mockRemoteServer } from "../utils/workspace"
-import { expectAppVisible } from "../utils/waits"
+import { APP_READY_TIMEOUT, expectAppVisible } from "../utils/waits"
 
 test.use({ serviceWorkers: "block" })
 
@@ -169,9 +169,11 @@ test("a server whose saved password changes works with the new password", async 
   await remote.getByRole("button", { name: "More options", exact: true }).click()
   await page.getByRole("menuitem", { name: "Edit", exact: true }).click()
   const editor = page.getByRole("dialog", { name: "Edit server" })
-  await editor.getByPlaceholder("password").fill("new-password")
-  // The server now rejects the old password, as after `opencode service set password`.
+  // The server now rejects the old password, as after `opencode service set password`. The editor verifies the
+  // typed password as it changes, so the server must already reject the old one when the field is filled: a check
+  // that leaves before this flip would come back 401 and the editor would keep the old credentials.
   accepted.password = "new-password"
+  await editor.getByPlaceholder("password").fill("new-password")
   await editor.getByRole("button", { name: "Save", exact: true }).click()
   await expect(editor).toHaveCount(0)
 
@@ -186,6 +188,13 @@ const recovery = "C:/OpenCode/Worktrees/project-menu-recovery"
 const worktree =
   "C:/OpenCode/Worktrees/project-42/long-folder-name-for-checking-wrapped-worktree-paths/another-long-folder-name"
 
+// These cases drive the whole stress timeline through the settings surface twice, so on a loaded runner the same work
+// takes over a minute; a 60s default would report its own budget instead of the assertion that broke.
+const STRESS_CASE_TIMEOUT = 120_000
+// Each step waits on the app rather than on a timer; on a loaded runner the settings surface alone can take longer than
+// the suite's 10s assertion budget, so these cases carry an explicit one instead of failing on the default.
+const STRESS_ASSERTION_TIMEOUT = 30_000
+
 for (const state of [
   { name: "local", directory: fixture.directory, icon: "monitor" },
   { name: "worktree", directory: worktree, icon: "outline-worktree" },
@@ -193,6 +202,8 @@ for (const state of [
   { name: "unopened worktree", directory: recovery, icon: "outline-worktree", recovery: "unopened" },
 ]) {
   test(`the session project menu opens settings and Home for a ${state.name} project`, async ({ page }) => {
+    test.setTimeout(STRESS_CASE_TIMEOUT)
+    const check = expect.configure({ timeout: STRESS_ASSERTION_TIMEOUT })
     await page.setViewportSize({ width: 1440, height: 900 })
     const workspace = state.directory !== fixture.directory
     const messages = Promise.withResolvers<void>()
@@ -225,7 +236,7 @@ for (const state of [
       const project = page.locator('[data-component="home-project-row"]').filter({ hasText: name })
       await project.locator("..").getByRole("button", { name: "More options", exact: true }).click()
       await page.getByRole("menuitem", { name: "Close", exact: true }).click()
-      await expect(project).toHaveCount(0)
+      await check(project).toHaveCount(0)
       await page.locator(`[data-titlebar-tab-link][href="${sessionHref(fixture.targetID)}"]`).click()
     }
 
@@ -237,52 +248,63 @@ for (const state of [
     const projectItem = menu.getByRole("menuitem", { name, exact: true })
     const pathItem = menu.getByRole("menuitem", { name: state.directory, exact: true })
     const settings = page.getByTestId("settings-screen")
-    await expect(header.getByRole("heading")).toHaveText(fixture.expected.targetTitle)
+    await check(header.getByRole("heading")).toHaveText(fixture.expected.targetTitle, { timeout: APP_READY_TIMEOUT })
+    // Drive the header menu only once the header is painted and enabled; a late paint then reports here, not in a click retry loop.
+    await check(trigger).toBeVisible({ timeout: APP_READY_TIMEOUT })
+    await check(trigger).toBeEnabled({ timeout: APP_READY_TIMEOUT })
 
     for (const loaded of state.recovery ? [false, true] : [true]) {
       if (state.recovery && loaded) {
         messages.resolve()
-        await expect(header.getByRole("button", { name: "More options", exact: true })).toBeVisible()
+        await check(header.getByRole("button", { name: "More options", exact: true })).toBeVisible()
       }
 
-      await expect(trigger.locator("use")).toHaveAttribute("href", `#opencode-v2-icon-${state.icon}`)
-      await trigger.click()
-      await expect(menu.getByRole("menuitem")).toHaveText([name, state.directory, "Edit project"])
-      await expect(pathItem).toBeDisabled()
+      await check(trigger.locator("use")).toHaveAttribute("href", `#opencode-v2-icon-${state.icon}`, {
+        timeout: APP_READY_TIMEOUT,
+      })
+      await trigger.click({ timeout: APP_READY_TIMEOUT })
+      await check(menu.getByRole("menuitem")).toHaveText([name, state.directory, "Edit project"])
+      await check(pathItem).toBeDisabled()
       await page.keyboard.press("Escape")
-      await expect(menu).toBeHidden()
-      await expect(trigger).toBeFocused()
+      await check(menu).toBeHidden()
+      await check(trigger).toBeFocused()
       await trigger.press("ArrowDown")
-      await expect(projectItem).toBeFocused()
+      await check(projectItem).toBeFocused()
       await page.keyboard.press("ArrowDown")
-      await expect(pathItem).toBeFocused()
+      await check(pathItem).toBeFocused()
 
       for (const key of ["Enter", "Space"]) {
         await page.keyboard.press(key)
-        await expect(menu).toBeVisible()
-        await expect(pathItem).toBeFocused()
+        await check(menu).toBeVisible()
+        await check(pathItem).toBeFocused()
       }
 
       await page.keyboard.press("ArrowDown")
       await page.keyboard.press("Enter")
-      await expect(settings.getByRole("textbox", { name: "Project name", exact: true })).toHaveValue(name)
+      await check(settings.getByRole("textbox", { name: "Project name", exact: true })).toHaveValue(name)
       await settings.getByRole("button", { name: "Back to projects", exact: true }).click()
       await settings.getByRole("button", { name: "Back to app", exact: true }).click()
-      await expect(settings).toBeHidden()
+      await check(settings).toBeHidden()
+      // Back to app returns to the session settings were opened from; wait for that route instead of letting the next
+      // click race a navigation that is still in flight (the settings surface detaches before the route settles).
+      await check(page).toHaveURL(sessionHref(fixture.targetID), { timeout: APP_READY_TIMEOUT })
+      await check(header.getByRole("heading")).toHaveText(fixture.expected.targetTitle, { timeout: APP_READY_TIMEOUT })
     }
 
-    await trigger.click()
+    await trigger.click({ timeout: APP_READY_TIMEOUT })
     await projectItem.click()
-    await expect(page).toHaveURL(new URL("/", page.url()).href)
+    await check(page).toHaveURL(new URL("/", page.url()).href)
     const project = page.locator('[data-component="home-project-row"]').filter({ hasText: name })
-    await expect(project).toHaveAttribute("data-selected", "")
-    await expect(
+    await check(project).toHaveAttribute("data-selected", "")
+    await check(
       page.locator(`[data-component="home-session-row-container"][data-session-id="${fixture.targetID}"]`),
     ).toBeVisible()
   })
 }
 
 test("the project menu path arrow has a glyph when the page has an older icon sprite", async ({ page }) => {
+  test.setTimeout(STRESS_CASE_TIMEOUT)
+  const check = expect.configure({ timeout: STRESS_ASSERTION_TIMEOUT })
   await mockStressTimeline(page)
   await seed(page, { projects: { local: [{ worktree: fixture.directory, expanded: true }] }, tabs: [fixture.targetID] })
   // A page cached before the arrow icon shipped carries a sprite without it.
@@ -301,17 +323,119 @@ test("the project menu path arrow has a glyph when the page has an older icon sp
   )
   await page.goto(sessionHref(fixture.targetID))
   const header = page.locator("[data-session-title]")
-  await expect(header.getByRole("heading")).toHaveText(fixture.expected.targetTitle)
-  await header.getByRole("button", { name: fixture.project.name, exact: true }).click()
+  await check(header.getByRole("heading")).toHaveText(fixture.expected.targetTitle, { timeout: APP_READY_TIMEOUT })
+  const trigger = header.getByRole("button", { name: fixture.project.name, exact: true })
+  // Drive the header menu only once the header is painted and enabled; a late paint then reports here, not in a click retry loop.
+  await check(trigger).toBeVisible({ timeout: APP_READY_TIMEOUT })
+  await check(trigger).toBeEnabled({ timeout: APP_READY_TIMEOUT })
+  await trigger.click({ timeout: APP_READY_TIMEOUT })
 
   const arrow = page
     .getByRole("menu")
     .getByRole("menuitem", { name: fixture.directory, exact: true })
     .locator('[data-slot="session-project-open-icon"]')
 
-  await expect(arrow).toHaveCount(1)
+  await check(arrow).toHaveCount(1)
   await expect
     .poll(() => arrow.locator("svg").evaluate((element: SVGSVGElement) => element.getBBox().width))
     .toBeGreaterThan(0)
-  await expect(page.locator("#opencode-v2-icon-sprite")).toHaveCount(1)
+  await check(page.locator("#opencode-v2-icon-sprite")).toHaveCount(1)
+})
+
+const societyCreate = (page: Page) =>
+  page.waitForRequest(
+    (request) => request.method() === "POST" && new URL(request.url()).pathname === "/api/orchestra/society",
+  )
+
+test("Home creates an AI team from the goal alone", async ({ page }) => {
+  await openHome(page)
+  const created = await holdRoute(page, (url) => url.pathname === "/api/orchestra/society", { method: "POST" })
+  // The Society's chat is read only after the dialog is closed; holding it proves the closure does not wait for it.
+  const read = await holdRoute(page, (url) => url.pathname === "/api/session/ses_mock_society", { method: "GET" })
+  await page.locator('[data-action="home-create-ai-team"]').click()
+
+  const dialog = page.getByRole("dialog")
+  const goal = dialog.getByLabel("Goal", { exact: true })
+  await expect(goal).toBeFocused()
+  await goal.fill("Ship the relay")
+  // Shift+Enter keeps the line break the textarea inserts; plain Enter creates the team.
+  await goal.press("Shift+Enter")
+  await expect(goal).toHaveValue("Ship the relay\n")
+  await page.keyboard.type("today")
+
+  const request = societyCreate(page)
+  await goal.press("Enter")
+  // The creation in flight locks the fields and says what the button is doing.
+  await expect(dialog.getByRole("button", { name: "Creating team…", exact: true })).toBeVisible()
+  await expect(goal).toBeDisabled()
+  expect((await request).postDataJSON()).toEqual({ goal: "Ship the relay\ntoday", team: "system" })
+
+  created.release()
+  // The Society exists once the create answers: a read that never answers must not keep the Create button reachable,
+  // where pressing it again would create a second Society.
+  await expect(dialog).toHaveCount(0)
+  read.release()
+})
+
+test("Home sends the name and parent folder typed in More options", async ({ page }) => {
+  await openHome(page)
+  await page.locator('[data-action="home-create-ai-team"]').click()
+
+  const dialog = page.getByRole("dialog")
+  await dialog.getByLabel("Goal", { exact: true }).fill("Ship the relay")
+  // The extra fields stay out of the way until asked for.
+  await expect(dialog.getByLabel("Name", { exact: true })).toHaveCount(0)
+  await dialog.getByRole("button", { name: "More options", exact: true }).click()
+  await dialog.getByLabel("Name", { exact: true }).fill("Relay team")
+  await dialog.getByLabel("Parent folder", { exact: true }).fill("/tmp/societies")
+
+  const request = societyCreate(page)
+  await dialog.getByRole("button", { name: "Create team", exact: true }).click()
+  expect((await request).postDataJSON()).toEqual({
+    goal: "Ship the relay",
+    team: "system",
+    name: "Relay team",
+    directory: "/tmp/societies",
+  })
+  await expect(dialog).toHaveCount(0)
+})
+
+test("an empty Home offers the AI team before Add project", async ({ page }) => {
+  await mockStressTimeline(page, { fileList: () => [] })
+  await seed(page, { storage: { "opencode.global.dat:server": { projects: { local: [] } } } })
+  await page.goto("/")
+
+  await expect(
+    page.locator('[data-action="home-create-ai-team-row"], [data-action="home-add-project-row"]'),
+  ).toHaveText(["Create AI team", "Add project"])
+})
+
+test("the project menu keeps Import session and Edit project in a submenu", async ({ page }) => {
+  await openHome(page)
+  const project = page.locator('[data-component="home-project-row"]').filter({ hasText: fixture.project.name })
+  await expect(project).toBeVisible()
+  await project.locator("..").getByRole("button", { name: "More options", exact: true }).click()
+
+  const menu = page.getByRole("menu")
+  await expect(menu.getByRole("menuitem", { name: "Edit project", exact: true })).toHaveCount(0)
+  await expect(menu.getByRole("menuitem", { name: "Import session", exact: true })).toHaveCount(0)
+  await menu.getByRole("menuitem", { name: "More", exact: true }).hover()
+  await expect(page.getByRole("menuitem", { name: "Edit project", exact: true })).toBeVisible()
+})
+
+test("picking a known project's own folder opens that project without a path choice", async ({ page }) => {
+  await mockStressTimeline(page, { fileList: () => [] })
+  await seed(page, { projects: { local: [{ worktree: fixture.directory, expanded: true }] } })
+  await page.goto("/")
+
+  await page.getByRole("button", { name: "Add project", exact: true }).click()
+  const picker = page.getByRole("dialog", { name: "Open project", exact: true })
+  const select = picker.getByRole("button", { name: "Select folder", exact: true })
+  // The picker starts at the server's location, which is this project's root.
+  await expect(select).toBeEnabled()
+  await select.click()
+
+  const project = page.locator('[data-component="home-project-row"]').filter({ hasText: fixture.project.name })
+  await expect(project).toHaveAttribute("data-selected", "")
+  await expect(page.getByRole("dialog", { name: "Projects found at this path", exact: true })).toHaveCount(0)
 })
