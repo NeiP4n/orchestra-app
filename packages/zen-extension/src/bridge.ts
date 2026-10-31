@@ -1,15 +1,25 @@
 /**
  * Orchestra WebExtension Bridge for Zen Browser
- * Handles communication with local Orchestra daemon / HTTP API.
+ * Handles communication with local Orchestra daemon / HTTP API, port scanning, and authentication.
  */
 
 export const DEFAULT_SERVER_URL = "http://127.0.0.1:4096"
 export const FALLBACK_SERVER_URL = "http://localhost:4096"
+export const DEFAULT_SCAN_PORTS = [4096, 4444, 49375, 64022]
 
 export interface ServerStatus {
   readonly online: boolean
   readonly version?: string
+  readonly requiresAuth?: boolean
   readonly error?: string
+}
+
+export interface DetectionResult {
+  readonly found: boolean
+  readonly url: string
+  readonly port?: number
+  readonly version?: string
+  readonly requiresAuth?: boolean
 }
 
 export interface SessionSummary {
@@ -39,6 +49,20 @@ export interface PageContext {
   readonly url: string
   readonly text?: string
   readonly selection?: string
+}
+
+/**
+ * Construct Basic or Bearer authorization header for Orchestra API.
+ */
+export function buildAuthHeader(password?: string): string | undefined {
+  if (!password || !password.trim()) return undefined
+  const trimmed = password.trim()
+  if (trimmed.startsWith("Basic ") || trimmed.startsWith("Bearer ")) {
+    return trimmed
+  }
+  const credential = trimmed.includes(":") ? trimmed : `:${trimmed}`
+  const encoded = typeof btoa === "function" ? btoa(credential) : Buffer.from(credential).toString("base64")
+  return `Basic ${encoded}`
 }
 
 /**
@@ -79,19 +103,27 @@ async function fetchWithTimeout(
 }
 
 /**
- * Check if the local Orchestra service is running and responsive.
+ * Check if the local Orchestra service is running and responsive on the specified URL.
  */
 export async function checkServerStatus(
   serverUrl = DEFAULT_SERVER_URL,
+  password?: string,
   customFetch: typeof fetch = fetch,
 ): Promise<ServerStatus> {
   try {
-    const res = await fetchWithTimeout(`${serverUrl}/api/info`, { method: "GET" }, 3000, customFetch)
+    const headers: Record<string, string> = {}
+    const auth = buildAuthHeader(password)
+    if (auth) headers["Authorization"] = auth
+
+    const res = await fetchWithTimeout(`${serverUrl}/api/info`, { method: "GET", headers }, 2500, customFetch)
+    if (res.status === 401) {
+      return { online: true, requiresAuth: true, error: "Authentication required" }
+    }
     if (!res.ok) {
       return { online: false, error: `HTTP ${res.status}: ${res.statusText}` }
     }
     const data = (await res.json()) as { version?: string; status?: string }
-    return { online: true, version: data.version ?? "unknown" }
+    return { online: true, version: data.version ?? "unknown", requiresAuth: false }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return { online: false, error: message }
@@ -99,14 +131,46 @@ export async function checkServerStatus(
 }
 
 /**
+ * Detect active local Orchestra server by scanning standard/candidate ports.
+ */
+export async function detectActiveServer(
+  ports: readonly number[] = DEFAULT_SCAN_PORTS,
+  password?: string,
+  customFetch: typeof fetch = fetch,
+): Promise<DetectionResult> {
+  for (const port of ports) {
+    const candidateUrl = `http://127.0.0.1:${port}`
+    const status = await checkServerStatus(candidateUrl, password, customFetch)
+    if (status.online) {
+      return {
+        found: true,
+        url: candidateUrl,
+        port,
+        version: status.version,
+        requiresAuth: status.requiresAuth,
+      }
+    }
+  }
+  return { found: false, url: DEFAULT_SERVER_URL }
+}
+
+/**
  * Fetch available sessions from the local Orchestra server.
  */
 export async function listSessions(
   serverUrl = DEFAULT_SERVER_URL,
+  password?: string,
   customFetch: typeof fetch = fetch,
 ): Promise<SessionListResult> {
   try {
-    const res = await fetchWithTimeout(`${serverUrl}/api/session`, { method: "GET" }, 4000, customFetch)
+    const headers: Record<string, string> = {}
+    const auth = buildAuthHeader(password)
+    if (auth) headers["Authorization"] = auth
+
+    const res = await fetchWithTimeout(`${serverUrl}/api/session`, { method: "GET", headers }, 4000, customFetch)
+    if (res.status === 401) {
+      return { success: false, sessions: [], error: "HTTP 401: Authentication required" }
+    }
     if (!res.ok) {
       return { success: false, sessions: [], error: `HTTP ${res.status}: ${res.statusText}` }
     }
@@ -128,19 +192,27 @@ export async function listSessions(
 export async function createSession(
   title?: string,
   serverUrl = DEFAULT_SERVER_URL,
+  password?: string,
   customFetch: typeof fetch = fetch,
 ): Promise<CreateSessionResult> {
   try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" }
+    const auth = buildAuthHeader(password)
+    if (auth) headers["Authorization"] = auth
+
     const res = await fetchWithTimeout(
       `${serverUrl}/api/session`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ title: title ?? "Zen Browser Session" }),
       },
       5000,
       customFetch,
     )
+    if (res.status === 401) {
+      return { success: false, error: "HTTP 401: Authentication required" }
+    }
     if (!res.ok) {
       return { success: false, error: `HTTP ${res.status}: ${res.statusText}` }
     }
@@ -162,6 +234,7 @@ export async function sendPrompt(
   sessionID: string,
   text: string,
   serverUrl = DEFAULT_SERVER_URL,
+  password?: string,
   customFetch: typeof fetch = fetch,
 ): Promise<SendPromptResult> {
   if (!sessionID) {
@@ -171,16 +244,23 @@ export async function sendPrompt(
     return { success: false, error: "Prompt text cannot be empty" }
   }
   try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" }
+    const auth = buildAuthHeader(password)
+    if (auth) headers["Authorization"] = auth
+
     const res = await fetchWithTimeout(
       `${serverUrl}/api/session/${sessionID}/prompt`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ text }),
       },
       8000,
       customFetch,
     )
+    if (res.status === 401) {
+      return { success: false, error: "HTTP 401: Authentication required" }
+    }
     if (!res.ok) {
       return { success: false, error: `HTTP ${res.status}: ${res.statusText}` }
     }
@@ -244,6 +324,17 @@ export async function getStoredServerUrl(): Promise<string> {
 export async function setStoredServerUrl(url: string): Promise<void> {
   const storage = getExtensionStorage()
   await storage.set({ serverUrl: url })
+}
+
+export async function getStoredServerPassword(): Promise<string> {
+  const storage = getExtensionStorage()
+  const data = await storage.get(["serverPassword"])
+  return typeof data.serverPassword === "string" ? data.serverPassword : ""
+}
+
+export async function setStoredServerPassword(password: string): Promise<void> {
+  const storage = getExtensionStorage()
+  await storage.set({ serverPassword: password })
 }
 
 export async function getStoredSessionId(): Promise<string | undefined> {

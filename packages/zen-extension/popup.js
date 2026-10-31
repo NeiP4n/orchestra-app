@@ -2,10 +2,13 @@ import {
   buildPageContextPayload,
   checkServerStatus,
   createSession,
+  detectActiveServer,
+  getStoredServerPassword,
   getStoredServerUrl,
   getStoredSessionId,
   listSessions,
   sendPrompt,
+  setStoredServerUrl,
   setStoredSessionId,
 } from "./src/bridge.js"
 
@@ -17,6 +20,7 @@ const quickSendBtn = document.getElementById("quickSendBtn")
 const quickFeedback = document.getElementById("quickFeedback")
 
 let currentServerUrl = "http://127.0.0.1:4096"
+let currentPassword = ""
 let activeTab = { title: "Current Page", url: "about:blank" }
 
 function showFeedback(text, isError = false) {
@@ -29,12 +33,31 @@ function showFeedback(text, isError = false) {
 
 async function init() {
   currentServerUrl = await getStoredServerUrl()
-  const status = await checkServerStatus(currentServerUrl)
+  currentPassword = await getStoredServerPassword()
+  let status = await checkServerStatus(currentServerUrl, currentPassword)
+
+  if (!status.online) {
+    const detection = await detectActiveServer(undefined, currentPassword)
+    if (detection.found) {
+      currentServerUrl = detection.url
+      await setStoredServerUrl(currentServerUrl)
+      status = {
+        online: true,
+        version: detection.version,
+        requiresAuth: detection.requiresAuth,
+      }
+    }
+  }
 
   if (statusBadge && statusText) {
     if (status.online) {
-      statusBadge.className = "status-badge online"
-      statusText.textContent = "Online"
+      if (status.requiresAuth && !currentPassword) {
+        statusBadge.className = "status-badge auth-required"
+        statusText.textContent = "Auth required"
+      } else {
+        statusBadge.className = "status-badge online"
+        statusText.textContent = "Online"
+      }
     } else {
       statusBadge.className = "status-badge offline"
       statusText.textContent = "Offline"
@@ -70,11 +93,11 @@ quickSendBtn?.addEventListener("click", async () => {
   try {
     let sessionId = await getStoredSessionId()
     if (!sessionId) {
-      const list = await listSessions(currentServerUrl)
+      const list = await listSessions(currentServerUrl, currentPassword)
       if (list.success && list.sessions.length > 0 && list.sessions[0]) {
         sessionId = list.sessions[0].id
       } else {
-        const created = await createSession("Zen Browser Session", currentServerUrl)
+        const created = await createSession("Zen Browser Session", currentServerUrl, currentPassword)
         if (created.success && created.sessionID) {
           sessionId = created.sessionID
           await setStoredSessionId(sessionId)
@@ -88,7 +111,7 @@ quickSendBtn?.addEventListener("click", async () => {
     }
 
     const payload = buildPageContextPayload(activeTab)
-    const res = await sendPrompt(sessionId, payload, currentServerUrl)
+    const res = await sendPrompt(sessionId, payload, currentServerUrl, currentPassword)
     if (res.success) {
       showFeedback("Sent to Orchestra!")
     } else {

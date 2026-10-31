@@ -11,11 +11,48 @@
     <!-- Header -->
     <header class="header-bar">
       <span class="brand-title">Orchestra</span>
-      <div id="statusBadge" class="status-badge offline" role="status" aria-live="polite">
-        <span class="status-dot" aria-hidden="true"></span>
-        <span id="statusText">Checking...</span>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <div id="statusBadge" class="status-badge offline" role="status" aria-live="polite">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="statusText">Checking...</span>
+        </div>
+        <button id="toggleSettingsBtn" class="btn btn-secondary btn-sm" title="Settings" aria-label="Settings" style="padding: 3px 6px;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
       </div>
     </header>
+
+    <!-- Settings Panel (Collapsible / Auth trigger) -->
+    <section id="settingsPanel" class="card hidden" aria-labelledby="settingsHeading">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2 id="settingsHeading" class="card-title">Connection Settings</h2>
+        <span id="detectedPortNote" style="font-size: 11px; color: var(--v2-text-muted);"></span>
+      </div>
+      <div class="form-group">
+        <label class="label" for="serverUrlInput">Server URL</label>
+        <div class="row-inline">
+          <input id="serverUrlInput" class="input" type="text" placeholder="http://127.0.0.1:4096" />
+          <button id="autoDetectBtn" class="btn btn-secondary btn-sm" title="Scan active ports" style="white-space: nowrap;">
+            Scan Ports
+          </button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="label" for="serverPasswordInput">Server Password / Token</label>
+        <input id="serverPasswordInput" class="input" type="password" placeholder="Enter password if required" />
+      </div>
+      <div id="authNotice" class="alert-box alert-error hidden" style="font-size: 11px;">
+        Password required. Please enter your server credentials.
+      </div>
+      <div class="row-inline" style="justify-content: flex-end; margin-top: 4px;">
+        <button id="saveSettingsBtn" class="btn btn-primary btn-sm">
+          Connect
+        </button>
+      </div>
+    </section>
 
     <!-- 1. Loading Skeleton State (active while connecting / checking) -->
     <section id="loadingSkeleton" class="card" aria-label="Loading Orchestra status">
@@ -27,10 +64,15 @@
     <!-- 2. Error State (Server Offline) -->
     <section id="serverErrorState" class="card alert-box alert-error hidden" role="alert">
       <div style="font-weight: 600;">Orchestra Offline</div>
-      <div style="font-size: 11px;">Cannot reach daemon at 127.0.0.1:4096. Please ensure Orchestra is running.</div>
-      <button id="retryServerBtn" class="btn btn-secondary btn-sm" style="align-self: flex-start; margin-top: 4px;">
-        Retry Connection
-      </button>
+      <div style="font-size: 11px;">Cannot reach daemon at current URL. Please ensure Orchestra is running.</div>
+      <div class="row-inline" style="margin-top: 4px;">
+        <button id="retryServerBtn" class="btn btn-secondary btn-sm">
+          Retry Connection
+        </button>
+        <button id="scanPortsFromErrorBtn" class="btn btn-secondary btn-sm">
+          Auto-Scan Ports
+        </button>
+      </div>
     </section>
 
     <!-- 3. Populated Active Content -->

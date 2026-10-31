@@ -3,10 +3,13 @@ import {
   buildSelectionPayload,
   checkServerStatus,
   createSession,
+  detectActiveServer,
+  getStoredServerPassword,
   getStoredServerUrl,
   getStoredSessionId,
   listSessions,
   sendPrompt,
+  setStoredServerUrl,
   setStoredSessionId,
 } from "./bridge"
 
@@ -73,16 +76,32 @@ function setupContextMenus() {
   })
 }
 
-async function ensureTargetSession(serverUrl: string): Promise<string | undefined> {
+async function resolveServer(password?: string): Promise<{ url: string; online: boolean; requiresAuth?: boolean }> {
+  let serverUrl = await getStoredServerUrl()
+  let status = await checkServerStatus(serverUrl, password)
+
+  if (!status.online) {
+    const detection = await detectActiveServer(undefined, password)
+    if (detection.found) {
+      serverUrl = detection.url
+      await setStoredServerUrl(serverUrl)
+      status = { online: true, version: detection.version, requiresAuth: detection.requiresAuth }
+    }
+  }
+
+  return { url: serverUrl, online: status.online, requiresAuth: status.requiresAuth }
+}
+
+async function ensureTargetSession(serverUrl: string, password?: string): Promise<string | undefined> {
   const storedId = await getStoredSessionId()
   if (storedId) {
-    const listRes = await listSessions(serverUrl)
+    const listRes = await listSessions(serverUrl, password)
     if (listRes.success && listRes.sessions.some((s) => s.id === storedId)) {
       return storedId
     }
   }
 
-  const listRes = await listSessions(serverUrl)
+  const listRes = await listSessions(serverUrl, password)
   if (listRes.success && listRes.sessions.length > 0) {
     const firstId = listRes.sessions[0]?.id
     if (firstId) {
@@ -91,7 +110,7 @@ async function ensureTargetSession(serverUrl: string): Promise<string | undefine
     }
   }
 
-  const createRes = await createSession("Zen Browser Session", serverUrl)
+  const createRes = await createSession("Zen Browser Session", serverUrl, password)
   if (createRes.success && createRes.sessionID) {
     await setStoredSessionId(createRes.sessionID)
     return createRes.sessionID
@@ -104,15 +123,22 @@ async function handleContextMenuClick(
   info: { menuItemId: string; selectionText?: string; pageUrl?: string },
   tab?: { id?: number; title?: string; url?: string },
 ) {
-  const serverUrl = await getStoredServerUrl()
-  const status = await checkServerStatus(serverUrl)
-  if (!status.online) {
+  const password = await getStoredServerPassword()
+  const server = await resolveServer(password)
+
+  if (!server.online) {
     setBadge("ERR", "#ef4444")
-    console.error("[Orchestra Zen] Cannot dispatch: local server is offline at", serverUrl)
+    console.error("[Orchestra Zen] Cannot dispatch: local server is offline at", server.url)
     return
   }
 
-  const sessionID = await ensureTargetSession(serverUrl)
+  if (server.requiresAuth && !password) {
+    setBadge("AUTH", "#f59e0b")
+    console.error("[Orchestra Zen] Server requires authentication. Please configure password in settings.")
+    return
+  }
+
+  const sessionID = await ensureTargetSession(server.url, password)
   if (!sessionID) {
     setBadge("ERR", "#ef4444")
     console.error("[Orchestra Zen] Failed to obtain an active Orchestra session")
@@ -135,7 +161,7 @@ async function handleContextMenuClick(
   if (!prompt) return
 
   setBadge("...", "#3b82f6")
-  const result = await sendPrompt(sessionID, prompt, serverUrl)
+  const result = await sendPrompt(sessionID, prompt, server.url, password)
   if (result.success) {
     setBadge("OK", "#10b981")
   } else {
@@ -163,7 +189,11 @@ if (api?.runtime?.onMessage) {
   api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const msg = message as { type?: string; payload?: unknown }
     if (msg.type === "CHECK_STATUS") {
-      void getStoredServerUrl().then((url) => checkServerStatus(url)).then(sendResponse)
+      void (async () => {
+        const password = await getStoredServerPassword()
+        const resolved = await resolveServer(password)
+        sendResponse(resolved)
+      })()
       return true
     }
     if (msg.type === "GET_ACTIVE_TAB") {

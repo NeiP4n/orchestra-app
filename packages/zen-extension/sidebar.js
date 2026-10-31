@@ -2,19 +2,36 @@ import {
   buildPageContextPayload,
   checkServerStatus,
   createSession,
+  DEFAULT_SCAN_PORTS,
+  DEFAULT_SERVER_URL,
+  detectActiveServer,
+  getStoredServerPassword,
   getStoredServerUrl,
   getStoredSessionId,
   listSessions,
   sendPrompt,
+  setStoredServerPassword,
+  setStoredServerUrl,
   setStoredSessionId,
 } from "./src/bridge.js"
 
 // DOM Elements
 const statusBadge = document.getElementById("statusBadge")
 const statusText = document.getElementById("statusText")
+const toggleSettingsBtn = document.getElementById("toggleSettingsBtn")
+const settingsPanel = document.getElementById("settingsPanel")
+const serverUrlInput = document.getElementById("serverUrlInput")
+const serverPasswordInput = document.getElementById("serverPasswordInput")
+const autoDetectBtn = document.getElementById("autoDetectBtn")
+const saveSettingsBtn = document.getElementById("saveSettingsBtn")
+const authNotice = document.getElementById("authNotice")
+const detectedPortNote = document.getElementById("detectedPortNote")
+
 const loadingSkeleton = document.getElementById("loadingSkeleton")
 const serverErrorState = document.getElementById("serverErrorState")
 const retryServerBtn = document.getElementById("retryServerBtn")
+const scanPortsFromErrorBtn = document.getElementById("scanPortsFromErrorBtn")
+
 const activeContent = document.getElementById("activeContent")
 const tabTitleEl = document.getElementById("tabTitle")
 const tabUrlEl = document.getElementById("tabUrl")
@@ -30,7 +47,8 @@ const sendPromptBtn = document.getElementById("sendPromptBtn")
 const feedbackBanner = document.getElementById("feedbackBanner")
 const feedbackMessage = document.getElementById("feedbackMessage")
 
-let currentServerUrl = "http://127.0.0.1:4096"
+let currentServerUrl = DEFAULT_SERVER_URL
+let currentPassword = ""
 let activeTabContext = { title: "Current Page", url: "about:blank" }
 
 function showFeedback(message, isError = false) {
@@ -43,15 +61,10 @@ function showFeedback(message, isError = false) {
   }, 4000)
 }
 
-function updateStatusUI(online, version) {
+function updateStatusUI(state, text) {
   if (!statusBadge || !statusText) return
-  if (online) {
-    statusBadge.className = "status-badge online"
-    statusText.textContent = version ? `Online (${version})` : "Online"
-  } else {
-    statusBadge.className = "status-badge offline"
-    statusText.textContent = "Offline"
-  }
+  statusBadge.className = `status-badge ${state}`
+  statusText.textContent = text
 }
 
 async function fetchActiveTab() {
@@ -78,7 +91,7 @@ async function fetchActiveTab() {
 }
 
 async function refreshSessions() {
-  const result = await listSessions(currentServerUrl)
+  const result = await listSessions(currentServerUrl, currentPassword)
   if (!result.success || result.sessions.length === 0) {
     emptySessionsView?.classList.remove("hidden")
     sessionPickerRow?.classList.add("hidden")
@@ -115,7 +128,7 @@ async function refreshSessions() {
 
 async function handleCreateSession() {
   const title = `Zen: ${activeTabContext.title.slice(0, 30)}`
-  const res = await createSession(title, currentServerUrl)
+  const res = await createSession(title, currentServerUrl, currentPassword)
   if (res.success && res.sessionID) {
     await setStoredSessionId(res.sessionID)
     await refreshSessions()
@@ -140,7 +153,7 @@ async function handleSendPage() {
   sendPageBtn.disabled = true
   sendPageBtn.textContent = "Sending page..."
   try {
-    const res = await sendPrompt(sessionId, prompt, currentServerUrl)
+    const res = await sendPrompt(sessionId, prompt, currentServerUrl, currentPassword)
     if (res.success) {
       showFeedback("Page context sent to Orchestra")
     } else {
@@ -165,7 +178,7 @@ async function handleSendPrompt() {
   sendPromptBtn.disabled = true
   sendPromptBtn.textContent = "Sending..."
   try {
-    const res = await sendPrompt(sessionId, text, currentServerUrl)
+    const res = await sendPrompt(sessionId, text, currentServerUrl, currentPassword)
     if (res.success) {
       showFeedback("Prompt sent to agent")
       if (promptInput) promptInput.value = ""
@@ -178,23 +191,97 @@ async function handleSendPrompt() {
   }
 }
 
-async function init() {
+async function scanPorts() {
+  updateStatusUI("offline", "Scanning ports...")
+  if (autoDetectBtn) {
+    autoDetectBtn.disabled = true
+    autoDetectBtn.textContent = "Scanning..."
+  }
+  if (scanPortsFromErrorBtn) {
+    scanPortsFromErrorBtn.disabled = true
+    scanPortsFromErrorBtn.textContent = "Scanning..."
+  }
+
+  try {
+    const detection = await detectActiveServer(DEFAULT_SCAN_PORTS, currentPassword)
+    if (detection.found) {
+      currentServerUrl = detection.url
+      await setStoredServerUrl(currentServerUrl)
+      if (serverUrlInput) serverUrlInput.value = currentServerUrl
+      if (detectedPortNote) detectedPortNote.textContent = `Active: :${detection.port}`
+      showFeedback(`Detected active server on port ${detection.port}`)
+      await connect(false)
+    } else {
+      showFeedback("No active Orchestra service found on standard ports", true)
+      updateStatusUI("offline", "Offline")
+    }
+  } finally {
+    if (autoDetectBtn) {
+      autoDetectBtn.disabled = false
+      autoDetectBtn.textContent = "Scan Ports"
+    }
+    if (scanPortsFromErrorBtn) {
+      scanPortsFromErrorBtn.disabled = false
+      scanPortsFromErrorBtn.textContent = "Auto-Scan Ports"
+    }
+  }
+}
+
+async function connect(tryAutoDetect = true) {
   loadingSkeleton?.classList.remove("hidden")
   serverErrorState?.classList.add("hidden")
   activeContent?.classList.add("hidden")
-  updateStatusUI(false)
+  authNotice?.classList.add("hidden")
+  updateStatusUI("offline", "Checking...")
 
   currentServerUrl = await getStoredServerUrl()
-  const status = await checkServerStatus(currentServerUrl)
+  currentPassword = await getStoredServerPassword()
+  if (serverUrlInput) serverUrlInput.value = currentServerUrl
+  if (serverPasswordInput) serverPasswordInput.value = currentPassword
+
+  let status = await checkServerStatus(currentServerUrl, currentPassword)
+
+  if (!status.online && tryAutoDetect) {
+    updateStatusUI("offline", "Auto-scanning...")
+    const detection = await detectActiveServer(DEFAULT_SCAN_PORTS, currentPassword)
+    if (detection.found) {
+      currentServerUrl = detection.url
+      await setStoredServerUrl(currentServerUrl)
+      if (serverUrlInput) serverUrlInput.value = currentServerUrl
+      if (detectedPortNote) detectedPortNote.textContent = `Auto-detected :${detection.port}`
+      status = {
+        online: true,
+        version: detection.version,
+        requiresAuth: detection.requiresAuth,
+      }
+    }
+  }
 
   loadingSkeleton?.classList.add("hidden")
+
   if (!status.online) {
+    updateStatusUI("offline", "Offline")
     serverErrorState?.classList.remove("hidden")
-    updateStatusUI(false)
     return
   }
 
-  updateStatusUI(true, status.version)
+  let portLabel = ""
+  try {
+    const urlObj = new URL(currentServerUrl)
+    portLabel = urlObj.port ? `:${urlObj.port}` : ""
+  } catch {
+    // ignore
+  }
+
+  if (status.requiresAuth && !currentPassword) {
+    updateStatusUI("auth-required", `Password required ${portLabel}`)
+    settingsPanel?.classList.remove("hidden")
+    authNotice?.classList.remove("hidden")
+    serverPasswordInput?.focus()
+    return
+  }
+
+  updateStatusUI("online", `Online ${portLabel}`)
   activeContent?.classList.remove("hidden")
 
   await fetchActiveTab()
@@ -202,15 +289,37 @@ async function init() {
 }
 
 // Event Listeners
-retryServerBtn?.addEventListener("click", () => void init())
+toggleSettingsBtn?.addEventListener("click", () => {
+  settingsPanel?.classList.toggle("hidden")
+})
+
+autoDetectBtn?.addEventListener("click", () => void scanPorts())
+scanPortsFromErrorBtn?.addEventListener("click", () => void scanPorts())
+
+saveSettingsBtn?.addEventListener("click", async () => {
+  const url = serverUrlInput?.value?.trim() || DEFAULT_SERVER_URL
+  const pass = serverPasswordInput?.value?.trim() || ""
+
+  currentServerUrl = url
+  currentPassword = pass
+
+  await setStoredServerUrl(url)
+  await setStoredServerPassword(pass)
+  showFeedback("Settings saved")
+  await connect(false)
+})
+
+retryServerBtn?.addEventListener("click", () => void connect(true))
 createFirstSessionBtn?.addEventListener("click", () => void handleCreateSession())
 newSessionBtn?.addEventListener("click", () => void handleCreateSession())
+
 sessionSelect?.addEventListener("change", (e) => {
   const target = e.target
   if (target && target.value) {
     void setStoredSessionId(target.value)
   }
 })
+
 sendPageBtn?.addEventListener("click", () => void handleSendPage())
 sendPromptBtn?.addEventListener("click", () => void handleSendPrompt())
 
@@ -222,4 +331,4 @@ promptInput?.addEventListener("keydown", (e) => {
 })
 
 // Run on page load
-void init()
+void connect(true)

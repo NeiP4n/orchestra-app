@@ -1,5 +1,17 @@
 // src/bridge.ts
 var DEFAULT_SERVER_URL = "http://127.0.0.1:4096";
+var DEFAULT_SCAN_PORTS = [4096, 4444, 49375, 64022];
+function buildAuthHeader(password) {
+  if (!password || !password.trim())
+    return;
+  const trimmed = password.trim();
+  if (trimmed.startsWith("Basic ") || trimmed.startsWith("Bearer ")) {
+    return trimmed;
+  }
+  const credential = trimmed.includes(":") ? trimmed : `:${trimmed}`;
+  const encoded = typeof btoa === "function" ? btoa(credential) : Buffer.from(credential).toString("base64");
+  return `Basic ${encoded}`;
+}
 function buildSelectionPayload(selectionText, pageUrl, pageTitle) {
   const cleanSelection = selectionText.trim();
   const titlePart = pageTitle ? ` from "${pageTitle}"` : "";
@@ -31,22 +43,52 @@ async function fetchWithTimeout(url, options, timeoutMs = 4000, customFetch = fe
     clearTimeout(timer);
   }
 }
-async function checkServerStatus(serverUrl = DEFAULT_SERVER_URL, customFetch = fetch) {
+async function checkServerStatus(serverUrl = DEFAULT_SERVER_URL, password, customFetch = fetch) {
   try {
-    const res = await fetchWithTimeout(`${serverUrl}/api/info`, { method: "GET" }, 3000, customFetch);
+    const headers = {};
+    const auth = buildAuthHeader(password);
+    if (auth)
+      headers["Authorization"] = auth;
+    const res = await fetchWithTimeout(`${serverUrl}/api/info`, { method: "GET", headers }, 2500, customFetch);
+    if (res.status === 401) {
+      return { online: true, requiresAuth: true, error: "Authentication required" };
+    }
     if (!res.ok) {
       return { online: false, error: `HTTP ${res.status}: ${res.statusText}` };
     }
     const data = await res.json();
-    return { online: true, version: data.version ?? "unknown" };
+    return { online: true, version: data.version ?? "unknown", requiresAuth: false };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { online: false, error: message };
   }
 }
-async function listSessions(serverUrl = DEFAULT_SERVER_URL, customFetch = fetch) {
+async function detectActiveServer(ports = DEFAULT_SCAN_PORTS, password, customFetch = fetch) {
+  for (const port of ports) {
+    const candidateUrl = `http://127.0.0.1:${port}`;
+    const status = await checkServerStatus(candidateUrl, password, customFetch);
+    if (status.online) {
+      return {
+        found: true,
+        url: candidateUrl,
+        port,
+        version: status.version,
+        requiresAuth: status.requiresAuth
+      };
+    }
+  }
+  return { found: false, url: DEFAULT_SERVER_URL };
+}
+async function listSessions(serverUrl = DEFAULT_SERVER_URL, password, customFetch = fetch) {
   try {
-    const res = await fetchWithTimeout(`${serverUrl}/api/session`, { method: "GET" }, 4000, customFetch);
+    const headers = {};
+    const auth = buildAuthHeader(password);
+    if (auth)
+      headers["Authorization"] = auth;
+    const res = await fetchWithTimeout(`${serverUrl}/api/session`, { method: "GET", headers }, 4000, customFetch);
+    if (res.status === 401) {
+      return { success: false, sessions: [], error: "HTTP 401: Authentication required" };
+    }
     if (!res.ok) {
       return { success: false, sessions: [], error: `HTTP ${res.status}: ${res.statusText}` };
     }
@@ -61,13 +103,20 @@ async function listSessions(serverUrl = DEFAULT_SERVER_URL, customFetch = fetch)
     return { success: false, sessions: [], error: message };
   }
 }
-async function createSession(title, serverUrl = DEFAULT_SERVER_URL, customFetch = fetch) {
+async function createSession(title, serverUrl = DEFAULT_SERVER_URL, password, customFetch = fetch) {
   try {
+    const headers = { "Content-Type": "application/json" };
+    const auth = buildAuthHeader(password);
+    if (auth)
+      headers["Authorization"] = auth;
     const res = await fetchWithTimeout(`${serverUrl}/api/session`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ title: title ?? "Zen Browser Session" })
     }, 5000, customFetch);
+    if (res.status === 401) {
+      return { success: false, error: "HTTP 401: Authentication required" };
+    }
     if (!res.ok) {
       return { success: false, error: `HTTP ${res.status}: ${res.statusText}` };
     }
@@ -81,7 +130,7 @@ async function createSession(title, serverUrl = DEFAULT_SERVER_URL, customFetch 
     return { success: false, error: message };
   }
 }
-async function sendPrompt(sessionID, text, serverUrl = DEFAULT_SERVER_URL, customFetch = fetch) {
+async function sendPrompt(sessionID, text, serverUrl = DEFAULT_SERVER_URL, password, customFetch = fetch) {
   if (!sessionID) {
     return { success: false, error: "Session ID is required" };
   }
@@ -89,11 +138,18 @@ async function sendPrompt(sessionID, text, serverUrl = DEFAULT_SERVER_URL, custo
     return { success: false, error: "Prompt text cannot be empty" };
   }
   try {
+    const headers = { "Content-Type": "application/json" };
+    const auth = buildAuthHeader(password);
+    if (auth)
+      headers["Authorization"] = auth;
     const res = await fetchWithTimeout(`${serverUrl}/api/session/${sessionID}/prompt`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ text })
     }, 8000, customFetch);
+    if (res.status === 401) {
+      return { success: false, error: "HTTP 401: Authentication required" };
+    }
     if (!res.ok) {
       return { success: false, error: `HTTP ${res.status}: ${res.statusText}` };
     }
@@ -136,6 +192,15 @@ async function getStoredServerUrl() {
   const data = await storage.get(["serverUrl"]);
   return typeof data.serverUrl === "string" && data.serverUrl ? data.serverUrl : DEFAULT_SERVER_URL;
 }
+async function setStoredServerUrl(url) {
+  const storage = getExtensionStorage();
+  await storage.set({ serverUrl: url });
+}
+async function getStoredServerPassword() {
+  const storage = getExtensionStorage();
+  const data = await storage.get(["serverPassword"]);
+  return typeof data.serverPassword === "string" ? data.serverPassword : "";
+}
 async function getStoredSessionId() {
   const storage = getExtensionStorage();
   const data = await storage.get(["activeSessionId"]);
@@ -177,15 +242,28 @@ function setupContextMenus() {
     });
   });
 }
-async function ensureTargetSession(serverUrl) {
+async function resolveServer(password) {
+  let serverUrl = await getStoredServerUrl();
+  let status = await checkServerStatus(serverUrl, password);
+  if (!status.online) {
+    const detection = await detectActiveServer(undefined, password);
+    if (detection.found) {
+      serverUrl = detection.url;
+      await setStoredServerUrl(serverUrl);
+      status = { online: true, version: detection.version, requiresAuth: detection.requiresAuth };
+    }
+  }
+  return { url: serverUrl, online: status.online, requiresAuth: status.requiresAuth };
+}
+async function ensureTargetSession(serverUrl, password) {
   const storedId = await getStoredSessionId();
   if (storedId) {
-    const listRes = await listSessions(serverUrl);
+    const listRes = await listSessions(serverUrl, password);
     if (listRes.success && listRes.sessions.some((s) => s.id === storedId)) {
       return storedId;
     }
   }
-  const listRes = await listSessions(serverUrl);
+  const listRes = await listSessions(serverUrl, password);
   if (listRes.success && listRes.sessions.length > 0) {
     const firstId = listRes.sessions[0]?.id;
     if (firstId) {
@@ -193,7 +271,7 @@ async function ensureTargetSession(serverUrl) {
       return firstId;
     }
   }
-  const createRes = await createSession("Zen Browser Session", serverUrl);
+  const createRes = await createSession("Zen Browser Session", serverUrl, password);
   if (createRes.success && createRes.sessionID) {
     await setStoredSessionId(createRes.sessionID);
     return createRes.sessionID;
@@ -201,14 +279,19 @@ async function ensureTargetSession(serverUrl) {
   return;
 }
 async function handleContextMenuClick(info, tab) {
-  const serverUrl = await getStoredServerUrl();
-  const status = await checkServerStatus(serverUrl);
-  if (!status.online) {
+  const password = await getStoredServerPassword();
+  const server = await resolveServer(password);
+  if (!server.online) {
     setBadge("ERR", "#ef4444");
-    console.error("[Orchestra Zen] Cannot dispatch: local server is offline at", serverUrl);
+    console.error("[Orchestra Zen] Cannot dispatch: local server is offline at", server.url);
     return;
   }
-  const sessionID = await ensureTargetSession(serverUrl);
+  if (server.requiresAuth && !password) {
+    setBadge("AUTH", "#f59e0b");
+    console.error("[Orchestra Zen] Server requires authentication. Please configure password in settings.");
+    return;
+  }
+  const sessionID = await ensureTargetSession(server.url, password);
   if (!sessionID) {
     setBadge("ERR", "#ef4444");
     console.error("[Orchestra Zen] Failed to obtain an active Orchestra session");
@@ -228,7 +311,7 @@ async function handleContextMenuClick(info, tab) {
   if (!prompt)
     return;
   setBadge("...", "#3b82f6");
-  const result = await sendPrompt(sessionID, prompt, serverUrl);
+  const result = await sendPrompt(sessionID, prompt, server.url, password);
   if (result.success) {
     setBadge("OK", "#10b981");
   } else {
@@ -252,7 +335,11 @@ if (api?.runtime?.onMessage) {
   api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const msg = message;
     if (msg.type === "CHECK_STATUS") {
-      getStoredServerUrl().then((url) => checkServerStatus(url)).then(sendResponse);
+      (async () => {
+        const password = await getStoredServerPassword();
+        const resolved = await resolveServer(password);
+        sendResponse(resolved);
+      })();
       return true;
     }
     if (msg.type === "GET_ACTIVE_TAB") {

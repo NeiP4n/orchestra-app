@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test"
 import {
+  buildAuthHeader,
   buildPageContextPayload,
   buildSelectionPayload,
   checkServerStatus,
   createSession,
+  detectActiveServer,
   listSessions,
   sendPrompt,
 } from "../src/bridge"
@@ -17,6 +19,10 @@ describe("Orchestra Bridge Client", () => {
   let errorServer: ReturnType<typeof Bun.serve>
   let errorServerUrl: string
 
+  let authServer: ReturnType<typeof Bun.serve>
+  let authServerUrl: string
+  const AUTH_SECRET = "zen-secret-token"
+
   beforeAll(() => {
     errorServer = Bun.serve({
       port: 0,
@@ -26,6 +32,41 @@ describe("Orchestra Bridge Client", () => {
       },
     })
     errorServerUrl = `http://127.0.0.1:${errorServer.port}`
+
+    authServer = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(req) {
+        const auth = req.headers.get("authorization")
+        const expectedBasic = buildAuthHeader(AUTH_SECRET)
+        const expectedBearer = `Bearer ${AUTH_SECRET}`
+
+        if (auth !== expectedBasic && auth !== expectedBearer) {
+          return new Response(JSON.stringify({ error: "Authentication required" }), {
+            status: 401,
+            statusText: "Unauthorized",
+            headers: { "Content-Type": "application/json" },
+          })
+        }
+
+        const url = new URL(req.url)
+        if (url.pathname === "/api/info") {
+          return Response.json({ version: "2.5.0-auth", status: "ready" })
+        }
+        if (url.pathname === "/api/session") {
+          if (req.method === "POST") {
+            return Response.json({ id: "ses_auth_created" })
+          }
+          return Response.json([{ id: "ses_auth_1", title: "Protected Session" }])
+        }
+        if (url.pathname.endsWith("/prompt")) {
+          return Response.json({ success: true })
+        }
+
+        return new Response("Not Found", { status: 404 })
+      },
+    })
+    authServerUrl = `http://127.0.0.1:${authServer.port}`
 
     mockServer = Bun.serve({
       port: 0,
@@ -70,10 +111,6 @@ describe("Orchestra Bridge Client", () => {
           })
         }
 
-        if (url.pathname === "/api/error-test") {
-          return new Response("Internal Server Error", { status: 500, statusText: "Internal Server Error" })
-        }
-
         return new Response("Not Found", { status: 404, statusText: "Not Found" })
       },
     })
@@ -84,6 +121,7 @@ describe("Orchestra Bridge Client", () => {
   afterAll(() => {
     mockServer.stop(true)
     errorServer.stop(true)
+    authServer.stop(true)
   })
 
   describe("Payload formatting", () => {
@@ -117,8 +155,35 @@ describe("Orchestra Bridge Client", () => {
       expect(payload).toContain("Title: Zen Browser Deep Dive")
       expect(payload).toContain("URL: https://zen-browser.app/features")
       expect(payload).toContain("Page text excerpt:")
-      // Body excerpt truncated to max 4000 characters
       expect(payload.length).toBeLessThan(4500)
+    })
+  })
+
+  describe("Authorization header generation", () => {
+    it("should return undefined for empty or missing password", () => {
+      expect(buildAuthHeader(undefined)).toBeUndefined()
+      expect(buildAuthHeader("")).toBeUndefined()
+      expect(buildAuthHeader("   ")).toBeUndefined()
+    })
+
+    it("should construct Basic auth header from raw password", () => {
+      const header = buildAuthHeader("my-secret")
+      expect(header).toBe(`Basic ${btoa(":my-secret")}`)
+    })
+
+    it("should construct Basic auth header from username:password", () => {
+      const header = buildAuthHeader("admin:secret")
+      expect(header).toBe(`Basic ${btoa("admin:secret")}`)
+    })
+
+    it("should preserve Bearer token prefix when supplied", () => {
+      const header = buildAuthHeader("Bearer token_xyz_123")
+      expect(header).toBe("Bearer token_xyz_123")
+    })
+
+    it("should preserve pre-encoded Basic header", () => {
+      const header = buildAuthHeader("Basic dXNlcjpwYXNz")
+      expect(header).toBe("Basic dXNlcjpwYXNz")
     })
   })
 
@@ -171,6 +236,72 @@ describe("Orchestra Bridge Client", () => {
       const promptRes = await sendPrompt("ses_1", "test prompt", errorServerUrl)
       expect(promptRes.success).toBe(false)
       expect(promptRes.error).toContain("500")
+    })
+  })
+
+  describe("Authenticated server handling (401)", () => {
+    it("should detect that authentication is required when password is not supplied", async () => {
+      const status = await checkServerStatus(authServerUrl)
+      expect(status.online).toBe(true)
+      expect(status.requiresAuth).toBe(true)
+      expect(status.error).toContain("Authentication required")
+    })
+
+    it("should succeed connecting to protected server when correct password is provided", async () => {
+      const status = await checkServerStatus(authServerUrl, AUTH_SECRET)
+      expect(status.online).toBe(true)
+      expect(status.requiresAuth).toBe(false)
+      expect(status.version).toBe("2.5.0-auth")
+    })
+
+    it("should reject listSessions on protected server without password", async () => {
+      const res = await listSessions(authServerUrl)
+      expect(res.success).toBe(false)
+      expect(res.error).toContain("401")
+    })
+
+    it("should succeed listSessions on protected server with valid password", async () => {
+      const res = await listSessions(authServerUrl, AUTH_SECRET)
+      expect(res.success).toBe(true)
+      expect(res.sessions.length).toBe(1)
+      expect(res.sessions[0]?.id).toBe("ses_auth_1")
+    })
+
+    it("should succeed createSession and sendPrompt with valid password", async () => {
+      const createRes = await createSession("Secret Session", authServerUrl, AUTH_SECRET)
+      expect(createRes.success).toBe(true)
+      expect(createRes.sessionID).toBe("ses_auth_created")
+
+      const promptRes = await sendPrompt("ses_auth_1", "Secret prompt", authServerUrl, AUTH_SECRET)
+      expect(promptRes.success).toBe(true)
+    })
+  })
+
+  describe("Port auto-detection (detectActiveServer)", () => {
+    it("should find active server across candidate ports", async () => {
+      const mockPort = mockServer.port!
+      const detection = await detectActiveServer([59981, 59982, mockPort, 59983])
+
+      expect(detection.found).toBe(true)
+      expect(detection.port).toBe(mockPort)
+      expect(detection.url).toBe(`http://127.0.0.1:${mockPort}`)
+      expect(detection.version).toBe("2.1.0")
+      expect(detection.requiresAuth).toBe(false)
+    })
+
+    it("should detect active server even if it requires authentication (401)", async () => {
+      const authPort = authServer.port!
+      const detection = await detectActiveServer([59981, authPort, 59982])
+
+      expect(detection.found).toBe(true)
+      expect(detection.port).toBe(authPort)
+      expect(detection.requiresAuth).toBe(true)
+    })
+
+    it("should report found=false when all candidate ports are offline", async () => {
+      const detection = await detectActiveServer([59981, 59982, 59983])
+      expect(detection.found).toBe(false)
+      expect(detection.port).toBeUndefined()
     })
   })
 
