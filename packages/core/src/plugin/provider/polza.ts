@@ -3,7 +3,10 @@ import type { Entry } from "@orchestra/schema/config"
 import { Money } from "@orchestra/schema/money"
 import { Duration, Effect, Schedule, Schema, Semaphore, Stream } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
+import { Bus } from "../../bus.js"
 import { Config } from "../../config.js"
+import { Credential } from "../../credential.js"
+import { Integration } from "../../integration.js"
 import { Model } from "../../model.js"
 import type { PluginInternal } from "../internal.js"
 import { foldSettings } from "./configured.js"
@@ -78,9 +81,32 @@ export const PolzaPlugin = define({
   effect: Effect.fn(function* (ctx) {
     const http = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
     const config = yield* Config.Service
+    const credentials = yield* Credential.Service
+    const bus = yield* Bus.Service
     const lock = Semaphore.makeUnsafe(1)
-    const source = { current: polzaSettings(yield* config.entries()) }
     const loaded = { models: [] as readonly Discovered[], hash: "[]" }
+
+    // The connector is where an operator connects Polza: a key entered there is the key every chat runs on,
+    // and the catalog is read with it. POLZA_API_KEY still works for a keyless install, and a config entry
+    // with settings stays the way to pin the endpoint or the ruble rate.
+    yield* ctx.integration.transform((editor) => {
+      editor.update(providerID, (integration) => {
+        integration.name = name
+      })
+      editor.method.update({ integrationID: providerID, method: { type: "key", label: "Manually enter API Key" } })
+      editor.method.update({ integrationID: providerID, method: { type: "env", names: ["POLZA_API_KEY"] } })
+    })
+
+    const connectedKey = Effect.fn("PolzaPlugin.connectedKey")(function* () {
+      const stored = yield* credentials.list(Integration.ID.make(providerID))
+      return stored.flatMap((item) => (item.value.type === "key" ? [item.value.key] : []))[0]
+    })
+
+    const settings = Effect.fn("PolzaPlugin.settings")(function* () {
+      return polzaSettings(yield* config.entries(), yield* connectedKey())
+    })
+
+    const source = { current: yield* settings() }
 
     yield* ctx.provider.transform((providers) => {
       if (loaded.models.length === 0) return
@@ -154,7 +180,7 @@ export const PolzaPlugin = define({
     )
 
     const reload = Effect.fn("PolzaPlugin.reload")(function* () {
-      const next = polzaSettings(yield* config.entries())
+      const next = yield* settings()
       if (
         next.baseURL === source.current.baseURL &&
         next.apiKey === source.current.apiKey &&
@@ -174,20 +200,29 @@ export const PolzaPlugin = define({
       Stream.runForEach(reload),
       Effect.forkScoped({ startImmediately: true }),
     )
+    // A key connected or switched in the connector takes effect at once, without waiting for a restart.
+    yield* bus.subscribe([Credential.Event.Updated, Credential.Event.Switched]).pipe(
+      Stream.runForEach(() => reload()),
+      Effect.forkScoped({ startImmediately: true }),
+    )
   }),
 } satisfies PluginInternal.InternalPlugin)
 
-export function polzaSettings(entries: readonly Entry[]) {
+export function polzaSettings(entries: readonly Entry[], connected?: string) {
   const settings = foldSettings(entries, providerID, undefined) as
     | { apiKey?: unknown; baseURL?: unknown; exchangeRate?: unknown }
     | undefined
   const baseURL = (
     typeof settings?.baseURL === "string" ? settings.baseURL : defaultBaseURL
   ).replace(/\/+$/, "")
+  // The connector's key wins over the environment, and the environment over a hand-written config. An entry
+  // with only settings still counts as configured: its endpoint and rate describe an install already set up.
   const apiKey =
-    typeof settings?.apiKey === "string" && settings.apiKey.length > 0
-      ? settings.apiKey
-      : process.env.POLZA_API_KEY
+    connected !== undefined && connected.length > 0
+      ? connected
+      : typeof settings?.apiKey === "string" && settings.apiKey.length > 0
+        ? settings.apiKey
+        : process.env.POLZA_API_KEY
   const rate = typeof settings?.exchangeRate === "number" && settings.exchangeRate > 0
     ? settings.exchangeRate
     : DEFAULT_EXCHANGE_RATE

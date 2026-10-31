@@ -14,10 +14,10 @@ test("a chat's threshold is either a token count or a share of the window", () =
 
 test("a share of the window is resolved against the model the chat ends up on", () => {
   expect(SessionCompaction.resolveSessionThreshold("60%", { context: 200_000, output: 32_000 })).toBe(120_000)
-  expect(SessionCompaction.resolveSessionThreshold("60%", { input: 100_000, output: 8_000 })).toBe(60_000)
+  expect(SessionCompaction.resolveSessionThreshold("60%", { context: 0, input: 100_000, output: 8_000 })).toBe(60_000)
   // An unknown window leaves the model's own ceiling in charge instead of guessing a number.
-  expect(SessionCompaction.resolveSessionThreshold("60%", { output: 8_000 })).toBeUndefined()
-  expect(SessionCompaction.resolveSessionThreshold(150_000, { context: 200_000 })).toBe(150_000)
-  expect(SessionCompaction.resolveSessionThreshold(0, { context: 200_000 })).toBe(0)
-  expect(SessionCompaction.resolveSessionThreshold(undefined, { context: 200_000 })).toBeUndefined()
+  expect(SessionCompaction.resolveSessionThreshold("60%", { context: 0, output: 8_000 })).toBeUndefined()
+  expect(SessionCompaction.resolveSessionThreshold(150_000, { context: 200_000, output: 32_000 })).toBe(150_000)
+  expect(SessionCompaction.resolveSessionThreshold(0, { context: 200_000, output: 32_000 })).toBe(0)
+  expect(SessionCompaction.resolveSessionThreshold(undefined, { context: 200_000, output: 32_000 })).toBeUndefined()
 })
