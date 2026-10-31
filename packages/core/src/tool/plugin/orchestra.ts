@@ -98,6 +98,36 @@ export const Output = Schema.Struct({
   sessionID: Schema.optionalKey(SessionSchema.ID),
 })
 
+/**
+ * A delegated task runs an explicit reasoning level, never the provider's silent default: a model
+ * that offers variants must be named with one, as `provider/model#variant` or through the role's
+ * own variant, and an unknown one is refused with the list to choose from.
+ */
+export const resolveVariant = Effect.fnUntraced(function* (
+  ref: Model.Ref,
+  role: Orchestra.Role | undefined,
+  available: ReadonlyArray<{ readonly providerID: string; readonly id: string; readonly variants: ReadonlyArray<{ readonly id: string }> }>,
+) {
+  const chosen: string | undefined = ref.variant ?? role?.variant
+  const withVariant = (variant: string | undefined) =>
+    variant === undefined || ref.variant === variant
+      ? ref
+      : Model.Ref.make({ ...ref, variant: Model.VariantID.make(variant) })
+  const known = available.find((item) => item.providerID === ref.providerID && item.id === ref.id)
+  // A model without variants runs exactly as before, with or without a role variant.
+  if (!known || known.variants.length === 0) return ref
+  const names = known.variants.map((variant) => variant.id as string)
+  if (chosen === undefined)
+    return yield* new ToolFailure({
+      message: `This model requires a reasoning variant: pass ${ref.providerID}/${ref.id}#<id> or set role.variant. Available: ${names.join(", ")}`,
+    })
+  if (!names.includes(chosen))
+    return yield* new ToolFailure({
+      message: `Variant "${chosen}" is not available for "${ref.providerID}/${ref.id}". Available: ${names.join(", ")}`,
+    })
+  return withVariant(chosen)
+})
+
 export const Plugin = {
   id: "orchestra.tool.orchestra",
   effect: Effect.fn("OrchestraTool.Plugin")(function* (ctx: Context) {
@@ -122,17 +152,23 @@ export const Plugin = {
         try: () => Model.Ref.parse(model),
         catch: () => new ToolFailure({ message: `Invalid model "${model}". Use provider/model or provider/model#variant.` }),
       })
-      if (role.models?.length || Option.isNone(catalog)) return ref
+      const withRoleVariant =
+        ref.variant === undefined && role.variant !== undefined
+          ? Model.Ref.make({ ...ref, variant: Model.VariantID.make(role.variant) })
+          : ref
+      if (Option.isNone(catalog)) return withRoleVariant
       const available = yield* catalog.value.available()
       const known = available.find((item) => item.providerID === ref.providerID && item.id === ref.id)
-      if (available.length > 0 && !known)
+      if (role.models?.length || !known) {
+        if (role.models?.length || available.length === 0) return withRoleVariant
         return yield* new ToolFailure({
           message: `Model ${ref.providerID}/${ref.id} is not available. Some that are: ${available
             .slice(0, 20)
             .map((item) => `${item.providerID}/${item.id}`)
             .join(", ")}`,
         })
-      return ref
+      }
+      return yield* resolveVariant(ref, role, available)
     })
 
     // Every action runs on behalf of the project's main session and only
@@ -407,11 +443,14 @@ export const Plugin = {
                     }
                   }
 
-                  // A role without its own model runs on the operator's `orchestra.worker` policy,
-                  // then on the orchestrator's model, the one the operator picked, rather than the
-                  // server's first catalog model. An explicit task model still wins.
+                  // A role without its own model runs on the operator's Feature picks, then on the
+                  // `orchestra.worker` policy, then on the orchestrator's model, the one the operator
+                  // picked, rather than the server's first catalog model. An explicit task model still
+                  // wins.
                   const main = yield* sessions.get(context.sessionID).pipe(Effect.option)
-                  const worker = Orchestra.workerModels(yield* Orchestra.workerPolicy, role)
+                  const favorites = yield* Orchestra.workerFavorites
+                  const available = Option.isNone(catalog) ? [] : yield* catalog.value.available()
+                  const worker = Orchestra.workerModels(yield* Orchestra.workerPolicy, role, { favorites, catalog: available })
                   // The core service holds the project lifecycle lock across ownership, creation,
                   // access and category writes; removal cannot leave a half-created member behind.
                   const created = yield* orchestra

@@ -2130,22 +2130,38 @@ export function toolAllowed(tools: ReadonlyArray<string>, action: string) {
 // The runner only reads a session's own model, so a role's model is set on the
 // sessions opened for it; the TUI applies agent models only to prompts it sends.
 export function modelOf(role: Role | undefined) {
-  return role?.model ? Model.Ref.parse(role.model) : undefined
+  if (!role?.model) return undefined
+  const ref = Model.Ref.parse(role.model)
+  // A role's variant names the reasoning level its model runs; a variant written into the model
+  // string stays authoritative.
+  return ref.variant !== undefined || role.variant === undefined
+    ? ref
+    : Model.Ref.make({ ...ref, variant: Model.VariantID.make(role.variant) })
 }
 
-// The models a worker session runs: the role's own choice first, then the operator's
-// `orchestra.worker` policy for the role's category, then the general worker policy.
-// `models` lists what the worker may continue on when its provider refuses the current
-// model outright, so it excludes that model. An explicit task model passed by a caller
-// always wins; without any policy a worker keeps inheriting the Orchestrator's model.
+// The models a worker session runs: the operator's Feature picks first, then the role's own
+// choice, then the operator's `orchestra.worker` policy for the role's category, then the
+// general worker policy. `models` lists what the worker may continue on when its provider
+// refuses the current model outright, so it excludes that model. An explicit task model passed
+// by a caller always wins; without any policy a worker keeps inheriting the Orchestrator's model.
 export function workerModels(
   policy: ConfigOrchestra.Worker | undefined,
   role: Role | undefined,
+  options: {
+    readonly favorites?: ReadonlyArray<Model.Ref>
+    readonly catalog?: ReadonlyArray<Model.Info>
+  } = {},
 ): WorkerModelChoice {
   const entry = categoryPolicy(policy, role)
-  const model = modelOf(role) ?? refOf(entry?.model) ?? refOf(policy?.model)
+  // Feature is the operator's own shortlist, so it leads once it is not empty: a worker only
+  // falls back to the role and policy models when the pinned provider refuses the model.
+  const favorites = resolveFavorites(options.favorites ?? [], role, options.catalog)
+  const roleModel = modelOf(role)
+  const model = favorites[0] ?? roleModel ?? refOf(entry?.model) ?? refOf(policy?.model)
   const models = distinctModels(
     [
+      ...favorites,
+      ...(roleModel ? [roleModel] : []),
       ...(role?.models ?? []).flatMap(parseModel),
       ...(entry?.models ?? []).flatMap((selection) => [refOf(selection)]),
       ...(policy?.models ?? []).flatMap((selection) => [refOf(selection)]),
@@ -2154,6 +2170,62 @@ export function workerModels(
   )
   return { ...(model ? { model } : {}), ...(models.length > 0 ? { models } : {}) }
 }
+
+// Planning, review and architecture work needs depth; build, test and quick fixes need speed.
+// The role's category and name say which side of that line it sits on.
+const wantsDepth = (role: Role | undefined) =>
+  role !== undefined && /plan|architect|review|strateg|analys|audit|design|debug/i.test(`${role.category} ${role.name}`)
+
+// Highest effort first for depth, cheapest effort first for speed.
+const DepthVariants = ["max", "high", "medium", "low", "fast", "minimal"] as const
+const SpeedVariants = ["fast", "minimal", "low", "medium", "high", "max"] as const
+
+function resolveFavorites(
+  favorites: ReadonlyArray<Model.Ref>,
+  role: Role | undefined,
+  catalog: ReadonlyArray<Model.Info> | undefined,
+) {
+  const depth = wantsDepth(role)
+  const order = depth ? DepthVariants : SpeedVariants
+  return favorites
+    .map((model) => withVariant(model, order, catalog))
+    .sort((left, right) =>
+      depth
+        ? effortOf(left, order, catalog) - effortOf(right, order, catalog)
+        : priceOf(left, catalog) - priceOf(right, catalog),
+    )
+}
+
+// A model that offers reasoning variants must run one, so the pick resolves a variant whenever
+// the catalog knows the model. A pinned variant always wins over the ranking.
+function withVariant(
+  model: Model.Ref,
+  order: ReadonlyArray<string>,
+  catalog: ReadonlyArray<Model.Info> | undefined,
+) {
+  if (model.variant !== undefined) return model
+  const variant = order.find((id) => infoOf(model, catalog)?.variants.some((item) => item.id === id))
+  return variant === undefined ? model : Model.Ref.make({ ...model, variant: Model.VariantID.make(variant) })
+}
+
+// How much effort the model's chosen variant stands for: lower is more thinking, and a model
+// without variants ranks after every model that has them.
+function effortOf(model: Model.Ref, order: ReadonlyArray<string>, catalog: ReadonlyArray<Model.Info> | undefined) {
+  const variants = infoOf(model, catalog)?.variants ?? []
+  const variant = model.variant ?? order.find((candidate) => variants.some((item) => item.id === candidate))
+  const index = variant === undefined ? -1 : order.indexOf(variant)
+  return index === -1 ? order.length : index
+}
+
+// The first price tier is what a call is billed at before any long-context surcharge. An
+// unpriced model ranks after every priced one but keeps its own place among the others.
+function priceOf(model: Model.Ref, catalog: ReadonlyArray<Model.Info> | undefined) {
+  const tier = infoOf(model, catalog)?.cost[0]
+  return tier === undefined ? Number.MAX_SAFE_INTEGER : tier.input + tier.output
+}
+
+const infoOf = (model: Model.Ref, catalog: ReadonlyArray<Model.Info> | undefined) =>
+  catalog?.find((item) => item.providerID === model.providerID && item.id === model.id)
 
 function categoryPolicy(policy: ConfigOrchestra.Worker | undefined, role: Role | undefined) {
   const category = role?.category.trim().toLowerCase()
@@ -2193,6 +2265,14 @@ export const workerPolicy = Effect.gen(function* () {
   const config = yield* Effect.serviceOption(Config.Service)
   if (Option.isNone(config)) return undefined
   return Config.latest(yield* config.value.entries(), "orchestra")?.worker
+})
+
+// The models pinned to the Feature section of the picker, read fresh for the same reason: the
+// shortlist is the operator's own preference, so a worker takes it over any default.
+export const workerFavorites = Effect.gen(function* () {
+  const config = yield* Effect.serviceOption(Config.Service)
+  if (Option.isNone(config)) return []
+  return (Config.latest(yield* config.value.entries(), "model_favorites") ?? []).flatMap(parseModel)
 })
 
 function originOf(builtin: readonly { id: string }[], id: string): Orchestra.Origin {

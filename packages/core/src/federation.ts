@@ -15,6 +15,7 @@ import { SessionEvent } from "@orchestra/schema/session-event"
 import { KV } from "./kv.js"
 import { Bus } from "./bus.js"
 import { Orchestra } from "./orchestra.js"
+import { Model } from "./model.js"
 import { Session } from "./session.js"
 import { Dod } from "./dod.js"
 import { Rules } from "./rules.js"
@@ -1165,13 +1166,16 @@ const layer: Layer.Layer<
         // A team template creates one working project whose sessions cover every layer of the system:
         // it is planned by the same goal, not left for the planner to invent.
         const workerPolicy = yield* Orchestra.workerPolicy
+        const favorites = yield* Orchestra.workerFavorites
+        const catalog = yield* Effect.serviceOption(Model.Service)
+        const available = Option.isNone(catalog) ? [] : yield* catalog.value.available()
         const team = template
           ? yield* orchestra
               .create({
                 name: template.name,
                 directory: yield* societyFolder(name, template.name),
                 template: template.id,
-                workerModels: (role) => Orchestra.workerModels(workerPolicy, role),
+                workerModels: (role) => Orchestra.workerModels(workerPolicy, role, { favorites, catalog: available }),
               })
               .pipe(
                 Effect.tapError(() =>

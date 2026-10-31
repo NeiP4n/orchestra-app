@@ -206,6 +206,9 @@ export const RoleSpec = Schema.Struct({
   mode: Schema.String.pipe(Schema.optional),
   model: Schema.String.pipe(Schema.optional),
   models: Schema.Array(Schema.String).pipe(Schema.optional),
+  // The reasoning variant a role's model runs. A model reference may also carry it as
+  // "provider/model#variant"; the reference wins. A model that offers variants must run one.
+  variant: Schema.String.pipe(Schema.optional),
   tools: Schema.Array(Schema.String).pipe(Schema.optional),
   autoTools: Schema.Boolean.pipe(Schema.optional),
   hub: Schema.Array(Schema.String).pipe(Schema.optional),
