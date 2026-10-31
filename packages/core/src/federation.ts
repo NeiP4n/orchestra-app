@@ -270,6 +270,18 @@ export function societyProjectDirectory(society: string, project: string, root?:
 // The minimum every Society has, as four separate projects (not sessions of one): each has its own
 // Orchestrator, folder and brief. The Society adds whatever else the goal needs. The planner is the
 // Society's first project, created together with it; the others are created on the first generate.
+// The five allocations a Society's planner settles before any project starts working. They are
+// repeated wherever the planner is briefed, so a planner created later plans the same way.
+export const plannerPlan = [
+  "Plan the Society in your first messages, before any project starts working. Decide these five things and write them down:",
+  "1. Roles: which roles the goal needs, matched to the models the account has, their context limits and what it can spend.",
+  "2. Models: which model runs each chat. Honour every model the operator named; place the strong models where a mistake costs the most and the cheap ones on scanning, drafting and checks.",
+  "3. Budget: what each chat is worth spending on. Give the chats that carry the work most of the budget and keep the exploratory ones cheap.",
+  "4. Caching: prompt caching on for every chat that keeps a long shared prefix, off where a chat's prefix is never reused and would only pay for writes.",
+  "5. Context: a context threshold for every chat, so no chat silently overflows its window.",
+  "Create the projects the goal needs with society_forge generate; read the chats with society_plan status and apply models, context and caching with society_plan apply. Do this once, up front, instead of sending the same task to each project in separate turns.",
+].join("\n")
+
 export const baseProjects = [
   {
     key: "planner",
@@ -300,6 +312,18 @@ export const baseProjects = [
       "You are the Society's testers. Verify the work independently of the people who built it: derive tests from the plan's acceptance checks, run them against what the Coders deliver, and report every defect with how to reproduce it. A task is done only when your checks pass. You do not fix product code yourself.",
   },
 ] as const
+
+// What the Society's planner receives the moment its Society exists: the goal and the five
+// allocations it must settle before any project starts working.
+function plannerKickoff(input: { society: string; goal: string }) {
+  return [
+    `<society-goal society="${input.society}">`,
+    input.goal,
+    "</society-goal>",
+    "You are this Society's planner and it has just been founded around this goal. Plan it now, in your first messages, without asking the operator anything the goal already implies.",
+    plannerPlan,
+  ].join("\n")
+}
 
 // A Society created from a goal is named after it: the first words, cut at a word boundary.
 export function societyNameFromGoal(goal: string, limit = 40) {
@@ -340,10 +364,10 @@ const bootstrapText = (input: {
       ? `You are Society, the Orchestrator Council chat for group "${input.name}". Members: ${input.members.join(", ")}. Every member project has its own Orchestrator session; consult_all reaches those existing sessions.`
       : `You are President, the group-bound chat for "${input.name}". The coordinator project is "${input.leaderName}" (${input.leader}); members: ${input.members.join(", ")}. Member Orchestrators already exist in their projects and reach you through report_president; you never create sessions inside a project.`,
     input.mode === "council"
-      ? "You are not a project session: you belong to the group. You do not edit files or run commands yourself; you build the Society through society_forge and the team registry through team_forge."
+      ? "You are not a project session: you belong to the group. You do not edit files or run commands yourself, and you do not build the Society: its planner does. The planner project turns the goal into the plan and creates the other projects."
       : "You are not a project session: you belong to the group, not to a project's team, and you create no sessions.",
     input.mode === "council"
-      ? "When the operator gives a goal, build the Society for it without asking for details the goal already implies. society_forge action=generate always creates the base projects (planner, architects, coders, testers) as separate projects; you add only the additional projects the goal needs: call society_forge action=list for the team templates and roles, create any missing role or team with team_forge, then call generate once with the goal and those extra projects (a short name, a concrete brief, and the best team or role for each). Each project gets its own folder inside the Society's folder, its Orchestrator and team sessions, links to its peers, and starts on its brief immediately. Afterwards, for a question that needs the projects' perspectives, call federation action=consult_all with a short subject and the full task, wait for all proposals, then give one synthesis."
+      ? "The Society's planner already has the goal and is planning it: its first task is the five allocations (roles, models, budget, caching, context), and it creates the base projects (planner, architects, coders, testers) and whatever else the goal needs through society_forge, then sets every chat up with society_plan. Do not create projects yourself, do not ask the operator for names, folders or teams, and do not repeat the plan here. For a question that needs the projects' perspectives, call federation action=consult_all with a short subject and the full task, wait for all proposals, then give one synthesis."
       : "Use federation action=group_status only when the operator asks for the group's status or a coordination recommendation. Summarize the sanitized status here; do not send tickets, messages, or work to any project.",
     ...(input.mode === "council"
       ? [
@@ -1139,6 +1163,20 @@ const layer: Layer.Layer<
             }),
           ),
         )
+        // The planner plans at once, in its own first messages, so no person has to assemble the
+        // Society: it creates the projects the goal needs and sets every chat up.
+        const goal = input.goal?.trim()
+        if (goal) {
+          yield* tell(project.id, "society-goal", plannerKickoff({ society: name, goal }))
+          const main = yield* orchestra.main(project.id).pipe(Effect.option)
+          if (Option.isSome(main))
+            yield* sessions.resume(main.value.id).pipe(
+              Effect.ignore,
+              Effect.delay("1 second"),
+              Effect.forkIn(layerScope),
+              Effect.asVoid,
+            )
+        }
         return { name, sessionID: chat.sessionID, directory: home, project }
       }),
       societyFolder: ({ society, project }) => societyFolder(society, project),

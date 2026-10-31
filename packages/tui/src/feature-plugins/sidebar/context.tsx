@@ -20,19 +20,17 @@ import {
 } from "../../util/context-scope"
 import { loadScope } from "../../util/context-scope-load"
 import { Locale } from "../../util/locale"
+import { formatMoney, formatRubles } from "../../util/money"
+import { polzaSettings, syncPolza } from "../../util/polza"
 import { useCompactLayout } from "../../ui/compact-layout"
 import { useT } from "../../util/i18n"
 import { canonicalToolName, executeCalls } from "../../util/tool-display"
 import { DOD_PANEL, SidebarDod, SidebarDodPanel } from "./dod"
 
-const money = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-})
 
 const MAX_ENTRIES = 8
 
-const scopeLabel = { session: "Session", project: "Project", group: "Group" } as const
+const scopeLabel = { session: "Session", project: "Project", group: "Group", society: "Society" } as const
 
 function measureChars(val: unknown): number {
   if (val === null || val === undefined) return 0
@@ -141,7 +139,12 @@ export function extractServerCompactionThreshold(cfg: unknown): number | undefin
  */
 export async function saveDirectFallback(threshold: number): Promise<boolean> {
   try {
-    const configDir = process.env.XDG_CONFIG_HOME || path.join(homedir(), ".config")
+    // A test or a stripped environment can lack both; writing under a literal "undefined" folder
+    // would leave a config file the server never reads.
+    const xdg = process.env.XDG_CONFIG_HOME
+    const home = homedir()
+    const configDir = xdg && path.isAbsolute(xdg) ? xdg : home ? path.join(home, ".config") : undefined
+    if (!configDir) return false
     const configPaths = [
       path.join(configDir, "orchestra", "orchestra.jsonc"),
       path.join(configDir, "orchestra", "orchestra.json"),
@@ -441,6 +444,22 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
         : Promise.resolve(undefined),
   )
 
+  // What the account behind the models has left, and what it has spent in total. Polza keeps that
+  // itself; other providers do not, so the block only appears for a configured Polza key.
+  const polza = createMemo(() => polzaSettings(serverConfig()))
+  const [apiBalance] = createResource(polza, (settings) => syncPolza(settings))
+  // A Society tab would only ever report "not in a Society" without a council group.
+  const [groups] = createResource(
+    () => props.sessionID,
+    () =>
+      client?.api
+        ? client.api.orchestra.group.list().catch(() => [])
+        : Promise.resolve([] as ReadonlyArray<{ mode?: string }>),
+  )
+  const shownScopes = createMemo(() =>
+    scopes.filter((item) => item !== "society" || (groups.latest ?? []).some((group) => (group.mode ?? "lead") === "council")),
+  )
+
   const [threshold, setThreshold] = createSignal<number>(0)
 
   createEffect(() => {
@@ -585,7 +604,7 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
           </Show>
         </box>
         <box flexDirection="row" gap={1}>
-          <For each={scopes}>
+          <For each={shownScopes()}>
             {(item) => (
               <HoverAction id={`sidebar.context.${item}`} onClick={() => setScope(item)} paddingRight={1}>
                 <text
@@ -621,6 +640,31 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
         </Show>
         <Show when={scope() !== "session" && scoped.latest?.state === "no-group"}>
           <text fg={theme.text.muted}>{t("This session's project is not in a group.")}</text>
+        </Show>
+        <Show when={scope() === "society" && scoped.latest?.state === "no-society"}>
+          <text fg={theme.text.muted}>{t("This session's project is not in a Society.")}</text>
+        </Show>
+        <Show when={apiBalance.latest}>
+          {(info) => (
+            <box paddingTop={1}>
+              <text fg={theme.text.muted} wrapMode="none">
+                {t("API · Polza")}
+              </text>
+              <box flexDirection="row" justifyContent="space-between" gap={1}>
+                <text fg={theme.text.base} wrapMode="none">
+                  {t("{cost} available", { cost: formatRubles(info().available) })}
+                </text>
+                <text fg={theme.text.muted} wrapMode="none">
+                  {t("{cost} spent", { cost: formatRubles(info().spent) })}
+                </text>
+              </box>
+              <Show when={info().reserved > 0}>
+                <text fg={theme.text.muted} wrapMode="none">
+                  {t("{cost} reserved", { cost: formatRubles(info().reserved) })}
+                </text>
+              </Show>
+            </box>
+          )}
         </Show>
         <Show when={bar()}>
           {(item) => {
@@ -669,7 +713,7 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
                   </text>
                   <Show when={spent() > 0}>
                     <text fg={theme.text.muted} wrapMode="none" flexShrink={0}>
-                      {t("{cost} spent", { cost: money.format(spent()) })}
+                      {t("{cost} spent", { cost: formatMoney(spent()) })}
                     </text>
                   </Show>
                 </box>
@@ -720,7 +764,13 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
                 <Show when={scope() !== "session" && entries().length > 0}>
                   <box paddingTop={1}>
                     <text fg={theme.text.muted}>
-                      {t(scope() === "project" ? "Sessions in this project" : "Projects in this group")}
+                      {t(
+                        scope() === "project"
+                          ? "Sessions in this project"
+                          : scope() === "society"
+                            ? "Projects in this Society"
+                            : "Projects in this group",
+                      )}
                     </text>
                     <For each={entries().slice(0, MAX_ENTRIES)}>
                       {(entry) => (
@@ -745,7 +795,7 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
         </Show>
         <Show when={!bar() && scope() === "session" && cost() > 0}>
           <text fg={theme.text.muted} wrapMode="none">
-            {t("{cost} spent", { cost: money.format(cost()) })}
+            {t("{cost} spent", { cost: formatMoney(cost()) })}
           </text>
         </Show>
       </box>

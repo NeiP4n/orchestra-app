@@ -2,10 +2,10 @@ import { Orchestra } from "@orchestra/schema/orchestra"
 import type { SessionMessageInfo } from "@orchestra/client"
 import { lastAssistantWithUsage } from "./session"
 
-/** What the sidebar's Context block totals: this session, the project that owns it, or the project's group. */
-export type Scope = "session" | "project" | "group"
+/** What the sidebar's Context block totals: this session, its project, the group, or the Society. */
+export type Scope = "session" | "project" | "group" | "society"
 
-export const scopes: readonly Scope[] = ["session", "project", "group"]
+export const scopes: readonly Scope[] = ["session", "project", "group", "society"]
 
 /** Token kinds in the order the bar draws them, each with its own glyph so the bar reads without color. */
 export const kinds = [
@@ -29,6 +29,7 @@ export type Entry = { id: string; title: string; tokens: Tokens; cost: number }
 export type Loaded =
   | { state: "no-project" }
   | { state: "no-group"; project: string }
+  | { state: "no-society"; project: string }
   | { state: "ready"; title: string; entries: Entry[] }
 
 export function emptyTokens(): Tokens {
@@ -92,6 +93,22 @@ export function projectOf(input: {
 /** The first group that lists the project. */
 export function groupOf<T extends { projects: ReadonlyArray<string> }>(projectID: string, groups: ReadonlyArray<T>) {
   return groups.find((group) => group.projects.includes(projectID))
+}
+
+/** The council-mode group that lists the project: a Society, not a lead-mode group. */
+export function societyOf<T extends { projects: ReadonlyArray<string>; mode?: string }>(
+  projectID: string,
+  groups: ReadonlyArray<T>,
+) {
+  return groups.find((group) => (group.mode ?? "lead") === "council" && group.projects.includes(projectID))
+}
+
+/** The group whose own chat this session is, when the session is a Society or President chat. */
+export function supervisedGroup<T extends { supervisor?: string }>(
+  sessionID: string,
+  groups: ReadonlyArray<T>,
+) {
+  return groups.find((group) => group.supervisor === sessionID)
 }
 
 /**

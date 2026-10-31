@@ -22,6 +22,7 @@ import { PromptMetadataRow } from "./prompt/metadata"
 import { errorMessage } from "../util/error"
 import { isRateLimitedTurnPending, RATE_LIMIT_CONTINUATION_PROMPT } from "../util/session"
 import { useT } from "../util/i18n"
+import { formatMoney } from "../util/money"
 import type { JoinedRoom } from "../util/room"
 import { guestApi, ignoreGuestUnavailable, roomClient } from "../util/room-guest"
 import { HoverAction } from "./hover-action"
@@ -855,7 +856,7 @@ function RoomSidebar(props: {
               {(info) => (
                 <box>
                   {line(t("Tokens"), `${info().tokens.input + info().tokens.output}`)}
-                  {line(t("Cost"), `$${info().cost.toFixed(2)}`)}
+                  {line(t("Cost"), formatMoney(info().cost))}
                 </box>
               )}
             </Show>

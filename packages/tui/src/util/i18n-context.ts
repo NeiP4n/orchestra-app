@@ -14,4 +14,9 @@ export const ruContext: Record<string, string> = {
   "Sessions in this project": "Сессии проекта",
   "Projects in this group": "Проекты группы",
   "+{count} more": "ещё +{count}",
+  Society: "Общество",
+  "This session's project is not in a Society.": "Проект этой сессии не входит в Общество.",
+  "Projects in this Society": "Проекты Общества",
+  "{cost} available": "доступно {cost}",
+  "{cost} reserved": "зарезервировано {cost}",
 }

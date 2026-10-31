@@ -591,6 +591,7 @@ const PROTOCOLS: Readonly<Record<string, Protocol>> = {
   "@orchestra/ai/providers/minimax/chat": openaiChat,
   "@orchestra/ai/providers/mistral": openaiChat,
   "@orchestra/ai/providers/moonshot/chat": moonshotChat,
+  "@orchestra/ai/providers/polza": openaiChat,
   "@orchestra/ai/providers/togetherai": openaiChat,
   "@orchestra/ai/providers/venice": veniceChat,
   "@orchestra/ai/providers/xai": xaiResponses,

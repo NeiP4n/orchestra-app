@@ -81,6 +81,7 @@ import { OrchestraTool } from "../tool/plugin/orchestra.js"
 import { WorkspaceForgeTool } from "../tool/plugin/workspace-forge.js"
 import { TeamForgeTool } from "../tool/plugin/team-forge.js"
 import { SocietyForgeTool } from "../tool/plugin/society-forge.js"
+import { SocietyPlanTool } from "../tool/plugin/society-plan.js"
 import { CommandForgeTool } from "../tool/plugin/command-forge.js"
 import { McpForgeTool } from "../tool/plugin/mcp-forge.js"
 import { PluginForgeTool } from "../tool/plugin/plugin-forge.js"
@@ -308,6 +309,7 @@ const pre = [
   WorkspaceForgeTool.Plugin,
   TeamForgeTool.Plugin,
   SocietyForgeTool.Plugin,
+  SocietyPlanTool.Plugin,
   CommandForgeTool.Plugin,
   McpForgeTool.Plugin,
   PluginForgeTool.Plugin,

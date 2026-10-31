@@ -97,6 +97,7 @@ const builtins = new Map<string, () => Promise<unknown>>([
   ["@orchestra/ai/providers/openai/responses", () => import("@orchestra/ai/providers/openai/responses")],
   ["@orchestra/ai/providers/openai-compatible", () => import("@orchestra/ai/providers/openai-compatible")],
   ["@orchestra/ai/providers/openrouter", () => import("@orchestra/ai/providers/openrouter")],
+  ["@orchestra/ai/providers/polza", () => import("@orchestra/ai/providers/polza")],
   ["@orchestra/ai/providers/togetherai", () => import("@orchestra/ai/providers/togetherai")],
   ["@orchestra/ai/providers/venice", () => import("@orchestra/ai/providers/venice")],
   ["@orchestra/ai/providers/vercel-ai-gateway", () => import("@orchestra/ai/providers/vercel-ai-gateway")],

@@ -46,8 +46,9 @@ export const Output = Schema.Struct({ output: Schema.String })
 
 const guide = [
   "society_forge founds a Society and builds its projects from the operator's goal.",
-  "From any other chat, when the operator asks for a Society, call action=found with their goal at once. Do not ask for a name, a folder or the projects, and never assemble a Society by hand with the federation group actions. found creates the Society, its folder, its planner project and its chat, and hands the goal to that chat, which plans the projects itself.",
-  "list and generate work only inside the Society's own chat. There:",
+  "From any other chat, when the operator asks for a Society, call action=found with their goal at once. Do not ask for a name, a folder or the projects, and never assemble a Society by hand with the federation group actions. found creates the Society, its folder, its planner project and its chat, and hands the goal to the planner, which plans the projects itself and sets every chat up with society_plan.",
+  "The Society's planner plans its own Society: from the planner project it calls list and generate directly, and it settles models, context and caching with society_plan. The Society's own chat lists and generates too, when the operator works from there.",
+  "list and generate work only inside a Society (from its planner project or its chat). There:",
   "Call action=list first for exact team-template and role IDs. When no template fits a project, create the missing role or team with team_forge first, then use its ID.",
   `generate always creates the base projects: ${Federation.baseProjects.map((item) => item.name).join(", ")}. They are separate projects, not sessions of one project, and you do not list them.`,
   `Then call action=generate once with the goal and only the ADDITIONAL projects it needs (0 to ${MAX_PROJECTS}): research, design, marketing, security and so on. Decide yourself: do not ask the operator for names, folders or teams the goal already implies.`,
@@ -67,7 +68,7 @@ export const Plugin = {
           name,
           options: { codemode: false, guide, triggers: ["societ|общест", "goal|цель"] },
           description: [
-            "Found a Society from a goal, or generate its projects. found works from any chat and creates the Society with its chat, which plans the rest; status, list and generate work only inside a Society (council group) chat. status reads every project's DoD progress and whether it is working, at no model cost. Actions: found, status, list, generate.",
+            "Found a Society from a goal, or generate its projects. found works from any chat and creates the Society with its planner, which plans and builds the rest; status, list and generate work only inside a Society, from its planner project or its chat. status reads every project's DoD progress and whether it is working, at no model cost. Actions: found, status, list, generate.",
             "generate always creates the base projects (planner, architects, coders, testers) plus the additional ones you pass, each in the Society's folder with its Orchestrator and team, links them to each other and delivers every brief.",
           ].join("\n"),
           input: Input,
@@ -91,11 +92,12 @@ export const Plugin = {
                 const founder = yield* sessions.get(context.sessionID).pipe(Effect.option)
                 const model = Option.isSome(founder) ? founder.value.model : undefined
                 if (model) yield* sessions.switchModel({ sessionID: society.sessionID, model }).pipe(Effect.ignore)
-                yield* sessions.prompt({ sessionID: society.sessionID, text: goal })
+                // The goal went to the Society's planner, which is already planning and creating the
+                // projects; the chat is left free for the operator.
                 return [
                   `Society "${society.name}" founded in ${society.directory}.`,
-                  `Its chat (${society.sessionID}) has the goal and is deciding the projects now; the planner project already exists.`,
-                  "Tell the operator the Society is working and where its folder is. Do not create projects yourself.",
+                  `Its planner project (${society.project.id}) has the goal and is planning now; the projects appear as it creates them.`,
+                  "Tell the operator the Society is working and where its folder is. Do not create projects yourself and do not repeat the plan.",
                 ].join("\n")
               }
 
@@ -214,7 +216,7 @@ export const Plugin = {
                       // An existing planner project gets its role session once, on the first generate.
                       if (base.key === "planner" && role && (yield* orchestra.sessions(present.id)).length === 0) {
                         yield* workerOf(present, role)
-                        briefs.set(present.id, base.brief)
+                        briefs.set(present.id, `${base.brief}\n\n${Federation.plannerPlan}`)
                       }
                       continue
                     }
@@ -275,13 +277,16 @@ export const Plugin = {
       )
       .pipe(Effect.orDie)
 
-    // The chat must be the one its group registered as its Society; the marker alone proves nothing.
+    // The planner may build its own Society, and the chat must be the one its group registered:
+    // the marker alone proves nothing, so a chat is verified against its group and a planner against
+    // the first project of a council group.
     function societyOf(sessionID: Parameters<typeof sessions.get>[0]) {
       return Effect.gen(function* () {
         const current = yield* sessions.get(sessionID).pipe(Effect.option)
         const marker = Option.isSome(current) ? FederationSchema.groupSupervisor(current.value.metadata) : undefined
+        const groups = yield* federation.groups()
         const group = marker
-          ? (yield* federation.groups()).find(
+          ? groups.find(
               (item) =>
                 item.supervisor === sessionID &&
                 item.name === marker.groupName &&
@@ -289,11 +294,19 @@ export const Plugin = {
                 FederationSchema.modeOf(item) === "council",
             )
           : undefined
-        if (!group)
+        if (group) return group
+        const project = yield* orchestra.mainOf(sessionID).pipe(Effect.orElseSucceed(() => undefined))
+        const planned = project
+          ? groups.find(
+              (item) => FederationSchema.modeOf(item) === "council" && item.projects[0] === project.id,
+            )
+          : undefined
+        if (!planned)
           return yield* new ToolFailure({
-            message: "society_forge works only in a Society chat. This session is not the registered chat of a council group.",
+            message:
+              "society_forge works only in a Society: from its planner project or from its own chat. This session is neither.",
           })
-        return group
+        return planned
       })
     }
 

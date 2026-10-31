@@ -37,6 +37,7 @@ import { ToolRouter } from "../tool/router.js"
 import { SessionAffinity } from "./affinity.js"
 import { SessionModelTransport } from "./model-transport.js"
 import { SessionContextGovernor } from "./context-governor.js"
+import { SessionPlan } from "./plan.js"
 import { SessionPrefixPin } from "./prefix-pin.js"
 import { SessionProviderContext } from "./provider-context.js"
 import { SessionRequestReport } from "./request-report.js"
@@ -357,8 +358,11 @@ export const layer = Layer.effect(
               policy: governed,
             })
           : prefix.messages
+      // The planner may switch prompt caching off for a chat whose prefix is never reused.
+      const cache = SessionPlan.cachePolicy(session.metadata)
       const base = LLM.request({
         model: model.model,
+        cache,
         http: {
           headers: {
             "x-opencode-session-id": model.ref.providerID === "opencode" ? gateway : session.id,

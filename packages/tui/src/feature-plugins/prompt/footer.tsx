@@ -5,11 +5,7 @@ import { useTerminalDimensions } from "@opentui/solid"
 import { stringWidth } from "../../util/string-width"
 import { translate, useT } from "../../util/i18n"
 import { hoverBackground } from "../../ui/hover"
-
-const money = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-})
+import { formatMoney } from "../../util/money"
 
 // The status call reaches Freebuff's API, so refresh slowly and let the local clock
 // move the countdowns in between.
@@ -137,7 +133,7 @@ export function PromptFooter(props: {
     const cost = props.context.data.session.cost(props.sessionID)
     return [
       usage ? formatContextUsage(usage.tokens, usage.percent) : undefined,
-      cost > 0 ? money.format(cost) : undefined,
+      cost > 0 ? formatMoney(cost) : undefined,
     ].filter((item): item is string => Boolean(item))
   })
   const live = createMemo(() => Boolean(subagents() || shells()))

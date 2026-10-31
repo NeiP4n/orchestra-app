@@ -223,9 +223,9 @@ export function SocietyRoster(props: { sessionID: string }) {
   }
   return (
     <Show when={members().length > 0}>
-      // One row, no wrapping: a Society has six or more members, and a roster that wraps takes the room of
-      // the conversation. Only the call sign is shown; the project's name appears at the end of the row while
-      // the pointer is on its chip.
+      {/* One row, no wrapping: a Society has six or more members, and a roster that wraps takes the room of
+          the conversation. Only the call sign is shown; the project's name appears at the end of the row while
+          the pointer is on its chip. */}
       <box flexDirection="row" gap={1} paddingLeft={1} flexShrink={0}>
         {/* While held, no AI of this Society starts, whatever wakes it. The server holds every Society at start. */}
         <box

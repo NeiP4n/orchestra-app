@@ -2,8 +2,6 @@ import { tr } from "../util/i18n"
 import { TextAttributes, type InputRenderable } from "@opentui/core"
 import { createResource, createSignal, For, Show } from "solid-js"
 import { useConfig } from "../config"
-import { useData } from "../context/data"
-import { useLocal } from "../context/local"
 import { useClient } from "../context/client"
 import { useProjects } from "../context/projects"
 import { useRoute } from "../context/route"
@@ -17,8 +15,6 @@ import { Header } from "./dialog-rooms"
 
 export function DialogGroups(props: { onClose?: () => void }) {
   const client = useClient()
-  const data = useData()
-  const local = useLocal()
   const config = useConfig().data
   const projects = useProjects()
   const route = useRoute()
@@ -26,9 +22,6 @@ export function DialogGroups(props: { onClose?: () => void }) {
   const toast = useToast()
   const t = useGroupT()
   let nameField: InputRenderable | undefined
-  let societyField: InputRenderable | undefined
-  let folderField: InputRenderable | undefined
-  const [founding, setFounding] = createSignal(false)
   const [groups, { refetch }] = createResource(() => client.api.orchestra.group.list())
   const [picked, setPicked] = createSignal<readonly string[]>([])
   const [armed, setArmed] = createSignal<string>()
@@ -70,36 +63,6 @@ export function DialogGroups(props: { onClose?: () => void }) {
       toast.show({ message: errorMessage(error), variant: "error" })
     } finally {
       setOpening(undefined)
-    }
-  }
-
-  // One step from the goal alone: the server names the Society after it and makes its folder,
-  // coordinator, group and chat, and the goal goes to that chat as the first message. The Society
-  // then decides what projects the goal needs and creates them.
-  const found = async () => {
-    const goal = societyField?.value.trim()
-    if (!goal) return toast.show({ message: t("Describe the goal."), variant: "error" })
-    if (founding()) return
-    setFounding(true)
-    try {
-      const directory = folderField?.value.trim()
-      const society = await client.api.orchestra.society.create({ goal, ...(directory ? { directory } : {}) })
-      if (societyField) societyField.value = ""
-      // The chat is a session of its own: it must run on the model the operator has chosen, not on
-      // whatever the server would pick for a session without one.
-      const selection = local.model.selection()
-      if (selection)
-        await client.api.session.switchModel({
-          sessionID: society.sessionID,
-          model: { providerID: selection.providerID, id: selection.modelID, variant: selection.variant },
-        })
-      void data.session.prompt({ sessionID: society.sessionID, text: goal })
-      route.navigate({ type: "session", sessionID: society.sessionID })
-      props.onClose?.()
-    } catch (error) {
-      toast.show({ message: errorMessage(error), variant: "error" })
-    } finally {
-      setFounding(false)
     }
   }
 
@@ -159,15 +122,6 @@ export function DialogGroups(props: { onClose?: () => void }) {
   return (
     <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
       <Header title={t("Project groups")} onClose={props.onClose} />
-      <text fg={theme.text.base} attributes={TextAttributes.UNDERLINE}>{t("New Society")}</text>
-      <text fg={theme.text.base}>{t("Goal")}</text>
-      <box flexDirection="row" gap={1}>
-        <input width={56} focused cursorStyle={config.cursor} ref={(element: InputRenderable) => { societyField = element }} onMouseDown={() => societyField?.focus()} placeholder={t("e.g. release a mobile fishing game")} placeholderColor={theme.text.muted} textColor={theme.text.formfield.base} focusedTextColor={theme.text.formfield.focused} cursorColor={theme.text.formfield.focused} backgroundColor={theme.background.formfield.base} focusedBackgroundColor={theme.background.formfield.focused} onSubmit={() => void found()} />
-        <Button variant="primary" disabled={founding()} onClick={() => void found()}>{founding() ? t("Creating...") : t("Start Society")}</Button>
-      </box>
-      <text fg={theme.text.base}>{t("Folder")}</text>
-      <input width={56} cursorStyle={config.cursor} ref={(element: InputRenderable) => { folderField = element }} onMouseDown={() => folderField?.focus()} placeholder={t("optional, default ~/orchestra-society")} placeholderColor={theme.text.muted} textColor={theme.text.formfield.base} focusedTextColor={theme.text.formfield.focused} cursorColor={theme.text.formfield.focused} backgroundColor={theme.background.formfield.base} focusedBackgroundColor={theme.background.formfield.focused} onSubmit={() => void found()} />
-      <text fg={theme.text.muted} wrapMode="word">{t("Write the goal once. The Society creates itself, decides which projects it needs, creates them with their teams, links them through federation and starts them, all in one folder.")}</text>
       <Show when={groups.error}>
         {(error) => <text fg={theme.text.feedback.error.base} wrapMode="word">{errorMessage(error())}</text>}
       </Show>

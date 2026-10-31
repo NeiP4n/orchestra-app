@@ -24,6 +24,7 @@ import { OpencodePlugin } from "./provider/opencode.js"
 import { OpenRouterPlugin } from "./provider/openrouter.js"
 import { PerplexityPlugin } from "./provider/perplexity.js"
 import { PoePlugin } from "./provider/poe.js"
+import { PolzaPlugin } from "./provider/polza.js"
 import { PromptCacheKeyPlugin } from "./provider/prompt-cache-key.js"
 import { SapAICorePlugin } from "./provider/sap-ai-core.js"
 import { VercelPlugin } from "./provider/vercel.js"
@@ -58,6 +59,7 @@ export const ProviderPlugins: PluginInternal.InternalPlugin[] = [
   OpenRouterPlugin,
   PerplexityPlugin,
   PoePlugin,
+  PolzaPlugin,
   PromptCacheKeyPlugin,
   SapAICorePlugin,
   VercelPlugin,
