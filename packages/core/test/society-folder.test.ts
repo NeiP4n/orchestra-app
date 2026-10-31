@@ -30,6 +30,33 @@ describe("Society name from a goal", () => {
   })
 })
 
+describe("Society generate", () => {
+  const project = (id: string, name: string, directory: string) => ({ id, name, directory }) as any
+  const root = path.join(path.sep, "srv", "societies", "evolution")
+
+  test("adopts a project the Society's folder already holds", async () => {
+    const { findAdoptable } = await import("@orchestra/core/tool/plugin/society-forge")
+    const existing = project("prj_arch", "Архитекторы", path.join(root, "архитекторы"))
+    expect(findAdoptable({ name: "архитекторы", group: { projects: ["prj_planner"] }, projects: [existing], root })).toBe(
+      existing,
+    )
+  })
+
+  test("leaves alone what is already in the group, named otherwise, or outside the Society's folder", async () => {
+    const { findAdoptable } = await import("@orchestra/core/tool/plugin/society-forge")
+    const inside = project("prj_coders", "Кодеры", path.join(root, "кодеры"))
+    const outsider = project("prj_other", "Архитекторы", path.join(path.sep, "srv", "projects", "архитекторы-2"))
+    const rootItself = project("prj_root", "Архитекторы", root)
+    expect(
+      findAdoptable({ name: "Кодеры", group: { projects: ["prj_coders"] }, projects: [inside], root }),
+    ).toBeUndefined()
+    expect(findAdoptable({ name: "Тестировщики", group: { projects: [] }, projects: [inside], root })).toBeUndefined()
+    expect(findAdoptable({ name: "Архитекторы", group: { projects: [] }, projects: [outsider, rootItself], root })).toBe(
+      undefined,
+    )
+  })
+})
+
 describe("Society base projects", () => {
   test("are four separate projects, each on a built-in role", async () => {
     const { Orchestra } = await import("@orchestra/schema/orchestra")

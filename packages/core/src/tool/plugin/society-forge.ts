@@ -4,6 +4,8 @@ import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { Federation as FederationSchema } from "@orchestra/schema/federation"
 import { Effect, Option, Result, Schema } from "effect"
+import path from "node:path"
+import { KeyedMutex } from "../../effect/keyed-mutex.js"
 import { Federation } from "../../federation.js"
 import { Orchestra } from "../../orchestra.js"
 import { Session } from "../../session.js"
@@ -11,6 +13,10 @@ import { Session } from "../../session.js"
 export const name = "society_forge"
 
 const MAX_PROJECTS = 8
+
+// One generate per Society at a time: the planner and the Society's own chat can both be told to plan,
+// and two runs that each see the Society without the other's projects would build everything twice.
+const generateLocks = KeyedMutex.makeUnsafe<string>()
 
 const Project = Schema.Struct({
   name: Schema.String.annotate({ description: "Short project name; it also names the project's folder." }),
@@ -150,10 +156,6 @@ export const Plugin = {
               const wanted = input.projects ?? []
               if (wanted.length > MAX_PROJECTS)
                 return yield* new ToolFailure({ message: `generate takes at most ${MAX_PROJECTS} additional projects.` })
-              const existing = yield* orchestra.projects()
-              const known = new Map(
-                group.projects.flatMap((id) => existing.filter((item) => item.id === id).map((item) => [id, item] as const)),
-              )
               const baseNames = new Set(Federation.baseProjects.map((item) => item.name.toLowerCase()))
 
               // Everything is checked before anything is created, so a typo in the last project's team
@@ -186,8 +188,7 @@ export const Plugin = {
               }
 
               const workerPolicy = yield* Orchestra.workerPolicy
-              const created: Orchestra.Project[] = []
-              const briefs = new Map<Orchestra.ProjectID, string>()
+              const root = yield* federation.societyRoot(group.name)
               const workerOf = (project: Orchestra.Project, role: Orchestra.Role) => {
                 const choice = Orchestra.workerModels(workerPolicy, role)
                 return orchestra.createMember({
@@ -201,70 +202,111 @@ export const Plugin = {
               }
               // Typed failures become a value so what was created can still be registered; interruption
               // and defects are not caught and travel on.
-              const outcome = yield* Effect.result(
-                Effect.gen(function* () {
-                  // The base four are separate projects. The planner is the Society's first project, which
-                  // already exists; the others are created unless an earlier generate already made them.
-                  const first = group.projects[0] ? known.get(group.projects[0]) : undefined
-                  for (const base of Federation.baseProjects) {
-                    const role = roles.find((candidate) => candidate.id === base.role)
-                    const present =
-                      base.key === "planner"
-                        ? first
-                        : [...known.values()].find((item) => item.name.toLowerCase() === base.name.toLowerCase())
-                    if (present) {
-                      // An existing planner project gets its role session once, on the first generate.
-                      if (base.key === "planner" && role && (yield* orchestra.sessions(present.id)).length === 0) {
-                        yield* workerOf(present, role)
-                        briefs.set(present.id, `${base.brief}\n\n${Federation.plannerPlan}`)
-                      }
-                      continue
+              const outcome = yield* generateLocks.withLock(group.name)(
+                Effect.result(
+                  Effect.gen(function* () {
+                    const created: Orchestra.Project[] = []
+                    const briefs = new Map<Orchestra.ProjectID, string>()
+                    // Read inside the lock: a generate that ran a moment ago has already made projects this
+                    // call would otherwise duplicate.
+                    const current = yield* orchestra.projects()
+                    // Projects a failed or parallel generate left in the Society's folder without a group:
+                    // adopt them. Creating a second project for the same role gives the Society two
+                    // Orchestrators, two rosters and a "-2" folder that nobody planned.
+                    const adopt = (name: string) => {
+                      const match = findAdoptable({ name, group, projects: current, root })
+                      if (match && !created.some((item) => item.id === match.id)) created.push(match)
+                      return match
                     }
-                    const directory = yield* federation.societyFolder({ society: group.name, project: base.name })
-                    const project = yield* orchestra.create({ name: base.name, directory })
-                    created.push(project)
-                    briefs.set(project.id, base.brief)
-                    if (role) yield* workerOf(project, role)
-                  }
-                  for (const spec of specs) {
-                    const directory = yield* federation.societyFolder({ society: group.name, project: spec.name })
-                    const project = yield* orchestra.create({
-                      name: spec.name,
-                      directory,
-                      ...(spec.team
-                        ? {
-                            template: spec.team,
-                            workerModels: (role: Orchestra.Role | undefined) =>
-                              Orchestra.workerModels(workerPolicy, role),
-                          }
-                        : {}),
-                    })
-                    created.push(project)
-                    briefs.set(project.id, spec.brief)
-                    if (spec.role) yield* workerOf(project, spec.role)
-                  }
-                }),
+                    // The base four are separate projects. The planner is the Society's first project, which
+                    // already exists; the others are created unless an earlier generate already made them.
+                    const first = group.projects[0]
+                      ? current.find((item) => item.id === group.projects[0])
+                      : undefined
+                    for (const base of Federation.baseProjects) {
+                      const role = roles.find((candidate) => candidate.id === base.role)
+                      const present =
+                        base.key === "planner"
+                          ? first
+                          : (current.find(
+                              (item) =>
+                                group.projects.includes(item.id) && item.name.toLowerCase() === base.name.toLowerCase(),
+                            ) ?? adopt(base.name))
+                      if (present) {
+                        const member = group.projects.includes(present.id)
+                        // A project already in the Society keeps everything it has; one that is joining now
+                        // still needs its role session and its brief.
+                        if (role && (yield* orchestra.sessions(present.id)).length === 0) {
+                          yield* workerOf(present, role)
+                          briefs.set(
+                            present.id,
+                            base.key === "planner" ? `${base.brief}\n\n${Federation.plannerPlan}` : base.brief,
+                          )
+                        } else if (!member) {
+                          briefs.set(
+                            present.id,
+                            base.key === "planner" ? `${base.brief}\n\n${Federation.plannerPlan}` : base.brief,
+                          )
+                        }
+                        continue
+                      }
+                      const directory = yield* federation.societyFolder({ society: group.name, project: base.name })
+                      const project = yield* orchestra.create({ name: base.name, directory })
+                      created.push(project)
+                      briefs.set(project.id, base.brief)
+                      if (role) yield* workerOf(project, role)
+                    }
+                    for (const spec of specs) {
+                      const present = adopt(spec.name)
+                      if (present) {
+                        if (spec.role && (yield* orchestra.sessions(present.id)).length === 0)
+                          yield* workerOf(present, spec.role)
+                        briefs.set(present.id, spec.brief)
+                        continue
+                      }
+                      const directory = yield* federation.societyFolder({ society: group.name, project: spec.name })
+                      const project = yield* orchestra.create({
+                        name: spec.name,
+                        directory,
+                        ...(spec.team
+                          ? {
+                              template: spec.team,
+                              workerModels: (role: Orchestra.Role | undefined) =>
+                                Orchestra.workerModels(workerPolicy, role),
+                            }
+                          : {}),
+                      })
+                      created.push(project)
+                      briefs.set(project.id, spec.brief)
+                      if (spec.role) yield* workerOf(project, spec.role)
+                    }
+                    // Whatever was created joins the Society even if a later project failed, so no project is
+                    // left behind without a group.
+                    if (created.length > 0 || briefs.size > 0) yield* register(group, created, goal, briefs)
+                    return created
+                  }),
+                ),
               )
               const failure = Result.isFailure(outcome) ? outcome.failure : undefined
-
-              // Whatever was created joins the Society even if a later project failed, so no project is
-              // left behind without a group.
-              if (created.length > 0 || briefs.size > 0) yield* register(group, created, goal, briefs)
+              const created = Result.isSuccess(outcome) ? outcome.success : []
               if (failure)
                 return yield* new ToolFailure({
                   message: [
-                    `Stopped after ${created.length} projects: ${String(failure)}`,
+                    `Stopped while building the Society: ${String(failure)}`,
                     created.length
-                      ? `Already created and registered: ${created.map((project) => project.name).join(", ")}.`
-                      : "Nothing was created.",
+                      ? `Already in the Society: ${created.map((project) => project.name).join(", ")}.`
+                      : "Nothing was added.",
                   ].join("\n"),
                 })
 
               return [
-                `Generated ${created.length} project(s) in ${yield* federation.societyRoot(group.name)}:`,
+                `Society "${group.name}" now has these projects in ${root}:`,
                 ...created.map((project) => `- ${project.name} (${project.id}) · ${project.directory}`),
+                created.length === 0 ? "Every project you asked for was already there." : undefined,
                 "Each project is linked to the others and has its brief. Use consult_all to hear from them.",
-              ].join("\n")
+              ]
+                .filter((line): line is string => line !== undefined)
+                .join("\n")
             }).pipe(
               Effect.map((text) => ({ output: { output: text }, content: text })),
               Effect.mapError((error) =>
@@ -361,6 +403,23 @@ function briefText(input: { society: string; project: string; goal: string; brie
     "Plan the work, delegate to your team with the sessions tool, and keep your project's files in your own folder.",
     "</society-brief>",
   ].join("\n")
+}
+
+// A project that belongs in this Society but is not in its group yet: same name, inside the Society's own
+// folder. Adopting it is what keeps a repeated or parallel generate from building the same role twice.
+export function findAdoptable(input: {
+  name: string
+  group: { readonly projects: readonly string[] }
+  projects: ReadonlyArray<Orchestra.Project>
+  root: string
+}) {
+  const wanted = input.name.trim().toLowerCase()
+  return input.projects.find((item) => {
+    if (input.group.projects.includes(item.id)) return false
+    if (item.name.trim().toLowerCase() !== wanted) return false
+    const relative = path.relative(input.root, item.directory)
+    return relative !== "" && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+  })
 }
 
 // The lists go into the model's history and are re-sent on every later request.
