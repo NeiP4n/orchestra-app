@@ -6,6 +6,7 @@ import { LayerNode } from "@orchestra/util/effect/layer-node"
 import { Global } from "@orchestra/util/global"
 import { ORCHESTRA_ARTIFACT, ORCHESTRA_CHANNEL, ORCHESTRA_VERSION } from "./version"
 import { AppProcess } from "@orchestra/util/process"
+import { onParentExit } from "@orchestra/util/parent-exit"
 import { randomBytes, randomUUID } from "node:crypto"
 import { Effect, Redacted, Schema } from "effect"
 import { PersistentPty } from "@orchestra/schema/persistent-pty"
@@ -181,7 +182,7 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
         ? server.shutdown
         : options.mode === "stdio"
           ? waitForStdinClose()
-          : Effect.never
+          : waitForTermination()
     }).pipe(Effect.annotateLogs({ role: "server" })),
   )
 })
@@ -198,6 +199,41 @@ function addressInUse(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false
   if ("code" in error && error.code === "EADDRINUSE") return true
   return "cause" in error && addressInUse(error.cause)
+}
+
+// A foreground server lives as long as the terminal that started it. Closing that terminal sends
+// SIGHUP (and SIGBREAK on Windows); without a listener the signal is delivered to the whole process
+// group and the server can be left behind as an orphan that keeps its port and its sessions. Owning
+// the signal here ends the scope, so the server's finalizers run and the process exits.
+//
+// Signals are not enough on Windows (see onParentExit), so the parent shell is watched as well.
+// A forced exit follows the finalizers, because a wedged PTY or database must not keep the
+// process alive after the terminal is gone.
+const TERMINATION_GRACE_MS = 10_000
+
+function waitForTermination() {
+  return Effect.callback<void>((resume) => {
+    let finished = false
+    const done = () => {
+      if (finished) return
+      finished = true
+      resume(Effect.void)
+    }
+    const signals: NodeJS.Signals[] = ["SIGHUP", "SIGTERM"]
+    if (process.platform === "win32") signals.push("SIGBREAK")
+    for (const signal of signals) process.once(signal, done)
+    const stopWatchingParent = onParentExit(done)
+    return Effect.sync(() => {
+      for (const signal of signals) process.off(signal, done)
+      stopWatchingParent()
+      if (finished) forceExitAfterGrace()
+    })
+  })
+}
+
+function forceExitAfterGrace() {
+  const timer = setTimeout(() => process.exit(0), TERMINATION_GRACE_MS)
+  timer.unref?.()
 }
 
 function waitForStdinClose() {

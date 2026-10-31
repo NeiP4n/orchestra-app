@@ -5,6 +5,7 @@ import { Effect, Latch } from "effect"
 import { Service, type Endpoint } from "@orchestra/client/effect/service"
 import { OpenCode, type SessionInfo } from "@orchestra/client"
 import { Global } from "@orchestra/util/global"
+import { onParentExit } from "@orchestra/util/parent-exit"
 import { ClipboardProvider, useClipboard } from "./context/clipboard"
 import { LogProvider, type LogSink } from "./context/log"
 import { ExitProvider, useExit } from "./context/exit"
@@ -343,6 +344,12 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
       yield* Effect.acquireRelease(
         Effect.sync(() => process.on("SIGHUP", onSighup)),
         () => Effect.sync(() => process.off("SIGHUP", onSighup)),
+      )
+      // A closed terminal does not always deliver the signal above, and an interface whose terminal
+      // is gone would keep its server and its sessions alive behind a window that no longer exists.
+      yield* Effect.acquireRelease(
+        Effect.sync(() => onParentExit(onSighup)),
+        (stop) => Effect.sync(stop),
       )
       renderer.once("destroy", () => shutdown.openUnsafe())
       yield* Effect.tryPromise(async () => {
