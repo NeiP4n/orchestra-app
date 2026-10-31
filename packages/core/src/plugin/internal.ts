@@ -129,6 +129,7 @@ import { AntigravityAuthEffectPlugin } from "@orchestra/plugin-antigravity-auth"
 import { CommandPlugin } from "./command.js"
 import { IdentityPlugin } from "./identity.js"
 import { PlanPlugin } from "./plan.js"
+import { JailbreakPlugin } from "./jailbreak.js"
 import { ModelsDevPlugin } from "./models-dev.js"
 import { McpCodeModeDefaultsPlugin } from "./mcp-codemode-defaults.js"
 import { ProviderPlugins } from "./provider.js"
@@ -281,6 +282,7 @@ const pre = [
   RoomRulesPlugin.Plugin,
   SandboxPlugin.Plugin,
   PlanPlugin.Plugin,
+  JailbreakPlugin.Plugin,
   CommandPlugin.Plugin,
   SkillPlugin.Plugin,
   VcsHgPlugin.Plugin,

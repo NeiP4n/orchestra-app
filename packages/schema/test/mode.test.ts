@@ -22,6 +22,7 @@ describe("work modes", () => {
       "design",
       "ops",
       "self-improvement",
+      "jailbreak",
     ])
     expect(new Set(Mode.list()).size).toBe(Mode.list().length)
     for (const mode of Mode.builtins) {
@@ -112,6 +113,24 @@ describe("work modes", () => {
     expect(String(Mode.fromMetadata({ [Mode.MetadataKey]: "auto" })?.id)).toBe("auto")
     expect(Mode.fromMetadata({ [Mode.MetadataKey]: "gone" })).toBeUndefined()
     expect(Mode.fromMetadata({ [Mode.MetadataKey]: 3 })).toBeUndefined()
+  })
+
+  test("turns every bundled jailbreak policy into a mode of its own", () => {
+    const policies = Mode.jailbreakModes()
+    expect(policies.length).toBeGreaterThan(10)
+    for (const policy of policies) {
+      expect(String(policy.id)).toBe(`${Mode.jailbreakPrefix}${Mode.jailbreakPromptID(policy.id)}`)
+      expect(required(String(policy.id))).toBe(policy)
+      expect(policy.steps).toBe(100)
+      expect(policy.readOnly).toBe(false)
+    }
+    // The ordinary mode list stays the short one; the policies are their own catalogue.
+    expect(Mode.list()).not.toContain("jailbreak:unified")
+    expect(String(Mode.fromMetadata({ [Mode.MetadataKey]: "jailbreak:opus-v2" })?.name)).toBe("opus v2")
+    // A policy a newer build dropped still reads as a jailbreak session instead of silently clearing it.
+    expect(String(Mode.fromMetadata({ [Mode.MetadataKey]: "jailbreak:gone" })?.id)).toBe("jailbreak:gone")
+    expect(Mode.jailbreakPromptID("coding")).toBeUndefined()
+    expect(Mode.of("jailbreak:")).toBeUndefined()
   })
 
   test("exposes the mode's step ceiling to the runner", () => {

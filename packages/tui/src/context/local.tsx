@@ -1,7 +1,7 @@
 import { createStore } from "solid-js/store"
 import { dedupeWith } from "effect/Array"
 import { createSimpleContext } from "./helper"
-import { batch, createMemo, createSignal, onCleanup } from "solid-js"
+import { batch, createMemo, createResource, createSignal, onCleanup } from "solid-js"
 import { useEvent } from "./event"
 import path from "path"
 import { useTuiPaths } from "./runtime"
@@ -156,6 +156,30 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const agent = createAgent()
 
     function createMode() {
+      // Jailbreak is on out of the box: the picker hides it only while the config says
+      // `jailbreak.enabled: false`, so nobody has to switch it on before it exists.
+      const [configs, { refetch }] = createResource(() =>
+        client.api.config
+          .get()
+          .then((entries) => {
+            const latest = entries.findLast(
+              (entry) => entry.type === "document" && entry.info.jailbreak !== undefined,
+            )
+            if (!latest || latest.type !== "document") return true
+            return latest.info.jailbreak?.enabled !== false
+          })
+          .catch(() => false),
+      )
+      // The mode appears or disappears with the config, without restarting the client.
+      onCleanup(event.on("config.updated", () => void refetch()))
+      const base = createMemo(() =>
+        Mode.builtins.filter((mode) => String(mode.id) !== "jailbreak" || configs() !== false),
+      )
+      // Each bundled jailbreak policy is a mode of its own (`jailbreak:<prompt id>`), listed in the
+      // same section as the bare mode that picks one from the model.
+      const modes = createMemo(() =>
+        base().flatMap((mode) => (String(mode.id) === "jailbreak" ? [mode, ...Mode.jailbreakModes()] : [mode])),
+      )
       // A new chat keeps its mode as a draft until creation; an existing chat stores it in
       // session metadata, the same place the orchestrator writes it.
       const [draft, setDraft] = createSignal("auto")
@@ -188,9 +212,11 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         currentFor,
         set,
         setFor,
-        list: () => Mode.builtins,
+        list: () => modes(),
         cycle: () => {
-          const ids = Mode.list()
+          // Cycling walks the ordinary modes only: stepping through every bundled policy would take
+          // dozens of presses, and the picker lists them.
+          const ids = base().map((mode) => String(mode.id))
           const index = ids.indexOf(current())
           const next = ids[(index + 1) % ids.length]
           if (next) set(next)

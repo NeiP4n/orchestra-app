@@ -19,4 +19,17 @@ export const ruContext: Record<string, string> = {
   "Projects in this Society": "Проекты Общества",
   "{cost} available": "доступно {cost}",
   "{cost} reserved": "зарезервировано {cost}",
+  "Tools & MCP": "Инструменты и MCP",
+  "Auto-compaction at:": "Автосжатие при:",
+  "Context limit": "Весь лимит",
+  "{percent}% of context limit": "{percent}% из 100% лимита контекста",
+  // The compaction threshold prompt behind the same block.
+  "Context auto-compaction threshold": "Порог автосжатия контекста",
+  "e.g.: 400k, 200000, 80k or 0 for context limit": "например: 400k, 200000, 80k или 0 для всего лимита",
+  "Auto-compaction threshold": "Порог автосжатия",
+  "Make this threshold the default for all new chats on creation?":
+    "Сделать этот порог дефолтом для всех новых чатов при создании?",
+  "Auto-compaction threshold ({threshold}) saved to configuration":
+    "Порог автосжатия ({threshold}) сохранен в конфигурацию",
+  "Failed to update configuration": "Не удалось сохранить конфигурацию",
 }

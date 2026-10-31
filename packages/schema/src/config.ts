@@ -11,6 +11,7 @@ import { ConfigCompatibility } from "./config/compatibility.js"
 import { ConfigCommand } from "./config/command.js"
 import { ConfigExperimental } from "./config/experimental.js"
 import { ConfigFormatter } from "./config/formatter.js"
+import { ConfigJailbreak } from "./config/jailbreak.js"
 import { ConfigLSP } from "./config/lsp.js"
 import { ConfigMCP } from "./config/mcp.js"
 import { ConfigModel } from "./config/model.js"
@@ -119,6 +120,9 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   }),
   providers: Schema.Record(Schema.String, ConfigProvider.Info).pipe(optional),
   experimental: ConfigExperimental.Info.pipe(optional),
+  jailbreak: ConfigJailbreak.Info.pipe(optional).annotate({
+    description: "Optional Jailbreak mode that runs a bundled jailbreak prompt as an agent system prompt",
+  }),
 }) {}
 
 // Each key present is written to the global config; null removes it, an absent key is left alone.
