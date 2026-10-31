@@ -1,4 +1,4 @@
-import { createMemo, createSignal, onMount } from "solid-js"
+import { createEffect, createMemo, createSignal, on, onMount } from "solid-js"
 import { useLocal } from "../context/local"
 import { DialogSelect } from "../ui/dialog-select"
 import { useDialog } from "../ui/dialog"
@@ -7,9 +7,10 @@ import { DialogVariant } from "./dialog-variant"
 import * as fuzzysort from "fuzzysort"
 import { useConnected } from "./use-connected"
 import { useData } from "../context/data"
-import { modelPreferenceKey } from "../model-preference"
+import { modelPreferenceKey, mergeModelFavorites } from "../model-preference"
 import { useLocation } from "../context/location"
 import { useClient } from "../context/client"
+import { useToast } from "../ui/toast"
 import { useT } from "../util/i18n"
 import {
   FREEBUFF_PROVIDER_ID,
@@ -40,9 +41,25 @@ export function DialogModel(props: {
   const dialog = useDialog()
   const location = useLocation()
   const client = useClient()
+  const toast = useToast()
   const t = useT()
   const [query, setQuery] = createSignal("")
-  const favoritePriority = new Set(local.model.favorite().map(modelPreferenceKey))
+  // Favorites are shared through the server config, so every client of the same server lists
+  // the same models; this machine's model.json adds the ones pinned before the config existed.
+  const configFavorites = createMemo(() => {
+    const entry = data.location.config
+      .list(location.ref)
+      ?.findLast((entry) => entry.type === "document" && entry.info.model_favorites !== undefined)
+    return entry?.type === "document" ? entry.info.model_favorites : undefined
+  })
+  // A toggle lands on screen before the server answers, so a row never flickers out; the
+  // saved list gives way as soon as the config store carries the new value.
+  const [savedFavorites, setSavedFavorites] = createSignal<Array<{ providerID: string; modelID: string }> | undefined>()
+  createEffect(on(configFavorites, () => setSavedFavorites(undefined), { defer: true }))
+  const favoriteModels = createMemo(
+    () => savedFavorites() ?? mergeModelFavorites(configFavorites() ?? [], local.model.favorite()),
+  )
+  const favoritePriority = createMemo(() => new Set(favoriteModels().map(modelPreferenceKey)))
   const [freebuffPricing, setFreebuffPricing] = createSignal<FreebuffPricing | undefined>()
 
   const connected = useConnected()
@@ -95,7 +112,7 @@ export function DialogModel(props: {
   const options = createMemo(() => {
     const needle = query().trim()
     const showSections = showExtra() && needle.length === 0
-    const favorites = connected() ? local.model.favorite() : []
+    const favorites = connected() ? favoriteModels() : []
     const recents = local.model.recent()
 
     function toOptions(items: typeof favorites, category: string) {
@@ -124,7 +141,7 @@ export function DialogModel(props: {
       })
     }
 
-    const favoriteOptions = toOptions(favorites, "Favorites")
+    const favoriteOptions = toOptions(favorites, "Feature")
     const recentOptions = toOptions(
       recents.filter(
         (item) => !favorites.some((fav) => fav.providerID === item.providerID && fav.modelID === item.modelID),
@@ -183,7 +200,7 @@ export function DialogModel(props: {
           fuzzysort.go(needle, modelOptions, { keys: ["title", "category"] }).map((item) => item.obj),
           false,
         ),
-        favoritePriority,
+        favoritePriority(),
       )
     }
 
@@ -218,6 +235,23 @@ export function DialogModel(props: {
     dialog.clear()
   }
 
+  // The picker is the one writer of favorites: the server config holds the shared list, and
+  // model.json mirrors it because the shift+tab cycle reads favorites from there.
+  function toggleFavorite(model: { providerID: string; modelID: string }) {
+    const key = modelPreferenceKey(model)
+    const enabled = !favoriteModels().some((item) => modelPreferenceKey(item) === key)
+    const next = enabled
+      ? [...favoriteModels(), model]
+      : favoriteModels().filter((item) => modelPreferenceKey(item) !== key)
+    const localFavorite = local.model.favorite().some((item) => modelPreferenceKey(item) === key)
+    if (localFavorite !== enabled) local.model.toggleFavorite(model)
+    setSavedFavorites(next)
+    void client.api.config.update({ model_favorites: next.map(modelPreferenceKey) }).catch(() => {
+      setSavedFavorites(undefined)
+      toast.show({ variant: "error", message: t("Failed to save favorite models") })
+    })
+  }
+
   return (
     <DialogSelect<ReturnType<typeof options>[number]["value"]>
       options={options()}
@@ -240,9 +274,7 @@ export function DialogModel(props: {
           command: "model.dialog.favorite",
           title: "Favorite",
           hidden: !connected(),
-          onTrigger: (option) => {
-            local.model.toggleFavorite(option.value as { providerID: string; modelID: string })
-          },
+          onTrigger: (option) => toggleFavorite(option.value),
         },
       ]}
       onFilter={setQuery}

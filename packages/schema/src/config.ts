@@ -36,6 +36,9 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   model: ConfigModel.Selection.pipe(optional).annotate({
     description: "Default model to use when no session or agent model is selected",
   }),
+  model_favorites: ConfigModel.Favorites.pipe(optional).annotate({
+    description: "Models pinned to the Feature section of the model picker, as provider/model without a variant",
+  }),
   default_agent: Schema.String.pipe(optional).annotate({
     description: "Default primary agent to use when no session agent is selected",
   }),
@@ -130,6 +133,9 @@ export const Patch = Schema.Struct({
   shell: Schema.optionalKey(Schema.NullOr(Schema.String)),
   model: Schema.optionalKey(Schema.NullOr(Schema.String)).annotate({
     description: "Default model for new sessions, as provider/model",
+  }),
+  model_favorites: Schema.optionalKey(Schema.NullOr(ConfigModel.Favorites)).annotate({
+    description: "Models pinned to the Feature section of the model picker, as provider/model without a variant; null clears it",
   }),
   mcpServers: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(ConfigMCP.Server))).annotate({
     description: "MCP servers to add or replace under mcp.servers by name; null removes one",

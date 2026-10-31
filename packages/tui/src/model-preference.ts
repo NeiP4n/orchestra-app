@@ -64,6 +64,25 @@ export function favoriteModels(model: ModelPreferenceModel, favorite: ModelPrefe
   return enabled ? [model, ...current] : current
 }
 
+// Favorites are shared through the server config as `provider/model` without a variant, and
+// each machine mirrors them in model.json. The config order leads so every client of the same
+// server lists the same models; entries pinned only on this machine follow.
+export function mergeModelFavorites(config: ReadonlyArray<string>, favorite: ModelPreferenceModel[]) {
+  const seen = new Set<string>()
+  return [...config.flatMap(configFavorite), ...favorite].flatMap((item) => {
+    const key = modelPreferenceKey(item)
+    if (seen.has(key)) return []
+    seen.add(key)
+    return [item]
+  })
+}
+
+function configFavorite(value: string): ModelPreferenceModel[] {
+  const separator = value.indexOf("/")
+  if (separator <= 0 || separator === value.length - 1) return []
+  return [{ providerID: value.slice(0, separator), modelID: value.slice(separator + 1) }]
+}
+
 export function cycleModelVariant(current: string | undefined, variants: string[]) {
   const named = variants.filter((variant) => variant !== "default")
   if (named.length === 0) return undefined

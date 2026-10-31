@@ -1868,6 +1868,7 @@ const EndpointConfigUpdate = (raw: RawClient["server.config"]) => (input?: Confi
       payload: {
         shell: input?.["shell"],
         model: input?.["model"],
+        model_favorites: input?.["model_favorites"],
         mcpServers: input?.["mcpServers"],
         proxy: input?.["proxy"],
         compatibilityEnabled: input?.["compatibilityEnabled"],
@@ -2442,6 +2443,7 @@ const EndpointOrchestraRoleCreate = (raw: RawClient["server.orchestra"]) => (inp
         mode: input["mode"],
         model: input["model"],
         models: input["models"],
+        variant: input["variant"],
         tools: input["tools"],
         autoTools: input["autoTools"],
         hub: input["hub"],
@@ -2463,6 +2465,7 @@ const EndpointOrchestraRoleUpdate = (raw: RawClient["server.orchestra"]) => (inp
         mode: input["mode"],
         model: input["model"],
         models: input["models"],
+        variant: input["variant"],
         tools: input["tools"],
         autoTools: input["autoTools"],
         hub: input["hub"],

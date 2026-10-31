@@ -27,6 +27,13 @@ export const Selection = Schema.Union([Short, Explicit])
   )
   .annotate({ identifier: "Config.ModelSelection" })
 
+// A favorite names provider/model without a variant, so one entry covers every variant of the
+// same model and toggling in the picker touches exactly that row.
+export type Favorites = Schema.Schema.Type<typeof Favorites>
+export const Favorites = Schema.Array(Schema.String.check(Schema.isPattern(/^[^/#]+\/[^#]+$/))).annotate({
+  identifier: "Config.ModelFavorites",
+})
+
 function parse(input: string): Selection {
   const ref = Model.Ref.parse(input)
   return {

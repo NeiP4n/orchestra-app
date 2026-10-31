@@ -32,4 +32,6 @@ export const ruContext: Record<string, string> = {
   "Auto-compaction threshold ({threshold}) saved to configuration":
     "Порог автосжатия ({threshold}) сохранен в конфигурацию",
   "Failed to update configuration": "Не удалось сохранить конфигурацию",
+  // The model picker's favorites, which the server config now holds.
+  "Failed to save favorite models": "Не удалось сохранить избранные модели",
 }

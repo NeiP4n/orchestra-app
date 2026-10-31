@@ -2495,6 +2495,7 @@ export type ConfigShellsOperation<E = never> = () => Effect.Effect<ConfigShellsO
 export type ConfigUpdateInput = {
   readonly shell?: string | null
   readonly model?: string | null
+  readonly model_favorites?: ReadonlyArray<string> | null
   readonly mcpServers?: { readonly [x: string]: Mcp.LocalConfig | Mcp.RemoteConfig | Mcp.StreamableHttpConfig | null }
   readonly proxy?: {
     readonly http?: string | undefined
@@ -4585,6 +4586,7 @@ export type OrchestraRoleCreateInput = {
   readonly mode?: string | undefined
   readonly model?: string | undefined
   readonly models?: ReadonlyArray<string> | undefined
+  readonly variant?: string | undefined
   readonly tools?: ReadonlyArray<string> | undefined
   readonly autoTools?: boolean | undefined
   readonly hub?: ReadonlyArray<string> | undefined
@@ -4605,6 +4607,7 @@ export type OrchestraRoleUpdateInput = {
   readonly mode?: string | undefined
   readonly model?: string | undefined
   readonly models?: ReadonlyArray<string> | undefined
+  readonly variant?: string | undefined
   readonly tools?: ReadonlyArray<string> | undefined
   readonly autoTools?: boolean | undefined
   readonly hub?: ReadonlyArray<string> | undefined

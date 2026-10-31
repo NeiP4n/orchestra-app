@@ -2553,6 +2553,7 @@ export function make(options: ClientOptions) {
             body: {
               shell: input?.["shell"],
               model: input?.["model"],
+              model_favorites: input?.["model_favorites"],
               mcpServers: input?.["mcpServers"],
               proxy: input?.["proxy"],
               compatibilityEnabled: input?.["compatibilityEnabled"],
@@ -3420,6 +3421,7 @@ export function make(options: ClientOptions) {
                 mode: input["mode"],
                 model: input["model"],
                 models: input["models"],
+                variant: input["variant"],
                 tools: input["tools"],
                 autoTools: input["autoTools"],
                 hub: input["hub"],
@@ -3445,6 +3447,7 @@ export function make(options: ClientOptions) {
                 mode: input["mode"],
                 model: input["model"],
                 models: input["models"],
+                variant: input["variant"],
                 tools: input["tools"],
                 autoTools: input["autoTools"],
                 hub: input["hub"],

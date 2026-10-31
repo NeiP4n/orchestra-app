@@ -592,6 +592,12 @@ export const layer = (options?: Options) =>
               if ("default_agent" in patch) {
                 current = applyEdits(current, modify(current, ["default_agent"], patch.default_agent ?? undefined, formatting))
               }
+              if ("model_favorites" in patch) {
+                current = applyEdits(
+                  current,
+                  modify(current, ["model_favorites"], patch.model_favorites ?? undefined, formatting),
+                )
+              }
 
               // 4. Nested structures: compaction
               if ("compaction" in patch) {

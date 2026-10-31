@@ -459,6 +459,8 @@ export type WebSearchProvider = { id: string; name: string }
 
 export type WebSearchResult = { url: string; title?: string; content?: string; time: { published?: number } }
 
+export type ConfigModelFavorites = Array<string>
+
 export type ConfigProxy = { http?: string; https?: string; no_proxy?: Array<string> }
 
 export type McpProtocol = "legacy" | "auto" | "2026-07-28"
@@ -2001,6 +2003,7 @@ export type OrchestraRole = {
   mode?: string | undefined
   model?: string | undefined
   models?: Array<string> | undefined
+  variant?: string | undefined
   tools?: Array<string> | undefined
   autoTools?: boolean | undefined
   hub?: Array<string> | undefined
@@ -2409,6 +2412,7 @@ export type ConfigEntry =
         $schema?: string
         shell?: string
         model?: string | { providerID: string; model: string; variant?: string }
+        model_favorites?: ConfigModelFavorites
         default_agent?: string
         orchestra?: {
           worker?: {
@@ -7426,6 +7430,7 @@ export type ConfigUpdateInput = {
   readonly shell?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -7605,6 +7610,7 @@ export type ConfigUpdateInput = {
   readonly model?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -7781,9 +7787,190 @@ export type ConfigUpdateInput = {
       }
     } | null
   }["model"]
+  readonly model_favorites?: {
+    readonly shell?: string | null
+    readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
+    readonly mcpServers?: {
+      readonly [x: string]:
+        | {
+            readonly type: "local"
+            readonly command: ReadonlyArray<string>
+            readonly cwd?: string
+            readonly environment?: { readonly [x: string]: string }
+            readonly disabled?: boolean
+            readonly codemode?: boolean
+            readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
+            readonly protocol?: "legacy" | "auto" | "2026-07-28"
+          }
+        | {
+            readonly type: "remote"
+            readonly url: string
+            readonly headers?: { readonly [x: string]: string }
+            readonly oauth?:
+              | {
+                  readonly client_id?: string
+                  readonly client_secret?: string
+                  readonly scope?: string
+                  readonly callback_port?: number
+                  readonly redirect_uri?: string
+                  readonly auth_server_metadata_url?: string
+                }
+              | false
+            readonly disabled?: boolean
+            readonly codemode?: boolean
+            readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
+            readonly protocol?: "legacy" | "auto" | "2026-07-28"
+            readonly heartbeatInterval?: number
+            readonly streamTimeout?: number
+          }
+        | {
+            readonly type: "streamable-http"
+            readonly url: string
+            readonly headers?: { readonly [x: string]: string }
+            readonly oauth?:
+              | {
+                  readonly client_id?: string
+                  readonly client_secret?: string
+                  readonly scope?: string
+                  readonly callback_port?: number
+                  readonly redirect_uri?: string
+                  readonly auth_server_metadata_url?: string
+                }
+              | false
+            readonly disabled?: boolean
+            readonly codemode?: boolean
+            readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
+            readonly protocol?: "legacy" | "auto" | "2026-07-28"
+            readonly heartbeatInterval?: number
+            readonly streamTimeout?: number
+          }
+        | null
+    }
+    readonly proxy?: {
+      readonly http?: string
+      readonly https?: string
+      readonly no_proxy?: ReadonlyArray<string>
+    } | null
+    readonly compatibilityEnabled?: boolean | null
+    readonly contextGovernor?: boolean | null
+    readonly compaction?: {
+      readonly auto?: boolean
+      readonly keep?: { readonly tokens?: number }
+      readonly buffer?: number
+      readonly threshold?: number
+      readonly threshold_percent?: number | "Infinity" | "-Infinity" | "NaN"
+      readonly keep_free_percent?: number | "Infinity" | "-Infinity" | "NaN"
+    } | null
+    readonly agent?:
+      | string
+      | {
+          readonly [x: string]: {
+            readonly model?: string | { readonly providerID: string; readonly model: string; readonly variant?: string }
+            readonly request?: {
+              readonly headers?: { readonly [x: string]: string }
+              readonly body?: { readonly [x: string]: JsonValue }
+            }
+            readonly system?: string
+            readonly description?: string
+            readonly mode?: "subagent" | "primary" | "all"
+            readonly hidden?: boolean
+            readonly color?: string
+            readonly steps?: number
+            readonly disabled?: boolean
+            readonly permissions?: ReadonlyArray<{
+              readonly action: string
+              readonly resource: string
+              readonly effect: "allow" | "deny" | "ask"
+            }>
+          } | null
+        }
+      | null
+    readonly default_agent?: string | null
+    readonly agents?: {
+      readonly [x: string]: {
+        readonly model?: string | { readonly providerID: string; readonly model: string; readonly variant?: string }
+        readonly request?: {
+          readonly headers?: { readonly [x: string]: string }
+          readonly body?: { readonly [x: string]: JsonValue }
+        }
+        readonly system?: string
+        readonly description?: string
+        readonly mode?: "subagent" | "primary" | "all"
+        readonly hidden?: boolean
+        readonly color?: string
+        readonly steps?: number
+        readonly disabled?: boolean
+        readonly permissions?: ReadonlyArray<{
+          readonly action: string
+          readonly resource: string
+          readonly effect: "allow" | "deny" | "ask"
+        }>
+      } | null
+    }
+    readonly skills?: ReadonlyArray<string> | null
+    readonly instructions?: ReadonlyArray<string> | null
+    readonly permissions?: ReadonlyArray<{
+      readonly action: string
+      readonly resource: string
+      readonly effect: "allow" | "deny" | "ask"
+    }> | null
+    readonly plugins?: ReadonlyArray<
+      string | { readonly package: string; readonly options?: { readonly [x: string]: JsonValue } }
+    > | null
+    readonly tool_output?: { readonly max_lines?: number; readonly max_bytes?: number } | null
+    readonly commands?: {
+      readonly [x: string]: {
+        readonly template: string
+        readonly description?: string
+        readonly agent?: string
+        readonly model?: string | { readonly providerID: string; readonly model: string; readonly variant?: string }
+        readonly subagent?: boolean
+        readonly subtask?: boolean
+      } | null
+    } | null
+    readonly warming?:
+      | boolean
+      | { readonly prompt?: string; readonly interval?: string; readonly duration?: string }
+      | null
+    readonly mode?:
+      | string
+      | {
+          readonly [x: string]: {
+            readonly model?: string | { readonly providerID: string; readonly model: string; readonly variant?: string }
+            readonly request?: {
+              readonly headers?: { readonly [x: string]: string }
+              readonly body?: { readonly [x: string]: JsonValue }
+            }
+            readonly system?: string
+            readonly description?: string
+            readonly mode?: "subagent" | "primary" | "all"
+            readonly hidden?: boolean
+            readonly color?: string
+            readonly steps?: number
+            readonly disabled?: boolean
+            readonly permissions?: ReadonlyArray<{
+              readonly action: string
+              readonly resource: string
+              readonly effect: "allow" | "deny" | "ask"
+            }>
+          } | null
+        }
+      | null
+    readonly update?: "disable" | "notify" | "auto" | null
+    readonly media?: {
+      readonly image?: {
+        readonly auto_resize?: boolean
+        readonly max_width?: number
+        readonly max_height?: number
+        readonly max_base64_bytes?: number
+      }
+    } | null
+  }["model_favorites"]
   readonly mcpServers?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -7963,6 +8150,7 @@ export type ConfigUpdateInput = {
   readonly proxy?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -8142,6 +8330,7 @@ export type ConfigUpdateInput = {
   readonly compatibilityEnabled?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -8321,6 +8510,7 @@ export type ConfigUpdateInput = {
   readonly contextGovernor?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -8500,6 +8690,7 @@ export type ConfigUpdateInput = {
   readonly compaction?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -8679,6 +8870,7 @@ export type ConfigUpdateInput = {
   readonly agent?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -8858,6 +9050,7 @@ export type ConfigUpdateInput = {
   readonly default_agent?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -9037,6 +9230,7 @@ export type ConfigUpdateInput = {
   readonly agents?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -9216,6 +9410,7 @@ export type ConfigUpdateInput = {
   readonly skills?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -9395,6 +9590,7 @@ export type ConfigUpdateInput = {
   readonly instructions?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -9574,6 +9770,7 @@ export type ConfigUpdateInput = {
   readonly permissions?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -9753,6 +9950,7 @@ export type ConfigUpdateInput = {
   readonly plugins?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -9932,6 +10130,7 @@ export type ConfigUpdateInput = {
   readonly tool_output?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -10111,6 +10310,7 @@ export type ConfigUpdateInput = {
   readonly commands?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -10290,6 +10490,7 @@ export type ConfigUpdateInput = {
   readonly warming?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -10469,6 +10670,7 @@ export type ConfigUpdateInput = {
   readonly mode?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -10648,6 +10850,7 @@ export type ConfigUpdateInput = {
   readonly update?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -10827,6 +11030,7 @@ export type ConfigUpdateInput = {
   readonly media?: {
     readonly shell?: string | null
     readonly model?: string | null
+    readonly model_favorites?: ReadonlyArray<string> | null
     readonly mcpServers?: {
       readonly [x: string]:
         | {
@@ -12169,6 +12373,7 @@ export type OrchestraRoleCreateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12183,6 +12388,7 @@ export type OrchestraRoleCreateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12197,6 +12403,7 @@ export type OrchestraRoleCreateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12211,6 +12418,7 @@ export type OrchestraRoleCreateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12225,6 +12433,7 @@ export type OrchestraRoleCreateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12239,6 +12448,7 @@ export type OrchestraRoleCreateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12253,6 +12463,7 @@ export type OrchestraRoleCreateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12267,11 +12478,27 @@ export type OrchestraRoleCreateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
     readonly registry?: ReadonlyArray<string> | undefined
   }["models"]
+  readonly variant?: {
+    readonly name: string
+    readonly description: string
+    readonly rules: string
+    readonly category: string
+    readonly readOnly: boolean
+    readonly mode?: string | undefined
+    readonly model?: string | undefined
+    readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
+    readonly tools?: ReadonlyArray<string> | undefined
+    readonly autoTools?: boolean | undefined
+    readonly hub?: ReadonlyArray<string> | undefined
+    readonly registry?: ReadonlyArray<string> | undefined
+  }["variant"]
   readonly tools?: {
     readonly name: string
     readonly description: string
@@ -12281,6 +12508,7 @@ export type OrchestraRoleCreateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12295,6 +12523,7 @@ export type OrchestraRoleCreateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12309,6 +12538,7 @@ export type OrchestraRoleCreateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12323,6 +12553,7 @@ export type OrchestraRoleCreateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12343,6 +12574,7 @@ export type OrchestraRoleUpdateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12357,6 +12589,7 @@ export type OrchestraRoleUpdateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12371,6 +12604,7 @@ export type OrchestraRoleUpdateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12385,6 +12619,7 @@ export type OrchestraRoleUpdateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12399,6 +12634,7 @@ export type OrchestraRoleUpdateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12413,6 +12649,7 @@ export type OrchestraRoleUpdateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12427,6 +12664,7 @@ export type OrchestraRoleUpdateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12441,11 +12679,27 @@ export type OrchestraRoleUpdateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
     readonly registry?: ReadonlyArray<string> | undefined
   }["models"]
+  readonly variant?: {
+    readonly name: string
+    readonly description: string
+    readonly rules: string
+    readonly category: string
+    readonly readOnly: boolean
+    readonly mode?: string | undefined
+    readonly model?: string | undefined
+    readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
+    readonly tools?: ReadonlyArray<string> | undefined
+    readonly autoTools?: boolean | undefined
+    readonly hub?: ReadonlyArray<string> | undefined
+    readonly registry?: ReadonlyArray<string> | undefined
+  }["variant"]
   readonly tools?: {
     readonly name: string
     readonly description: string
@@ -12455,6 +12709,7 @@ export type OrchestraRoleUpdateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12469,6 +12724,7 @@ export type OrchestraRoleUpdateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12483,6 +12739,7 @@ export type OrchestraRoleUpdateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
@@ -12497,6 +12754,7 @@ export type OrchestraRoleUpdateInput = {
     readonly mode?: string | undefined
     readonly model?: string | undefined
     readonly models?: ReadonlyArray<string> | undefined
+    readonly variant?: string | undefined
     readonly tools?: ReadonlyArray<string> | undefined
     readonly autoTools?: boolean | undefined
     readonly hub?: ReadonlyArray<string> | undefined
