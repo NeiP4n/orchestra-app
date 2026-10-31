@@ -20,6 +20,28 @@ export const ModelUsage = Schema.Struct({
 }).annotate({ identifier: "SessionStats.ModelUsage" })
 export type ModelUsage = typeof ModelUsage.Type
 
+/** One model's spend and what is left of its token budget. */
+export const BudgetLine = Schema.Struct({
+  model: Model.Ref,
+  requests: NonNegativeInt,
+  tokens: TokenUsage.Info,
+  cost: Money.USD,
+  limit: NonNegativeInt.pipe(optional),
+  remaining: NonNegativeInt.pipe(optional),
+}).annotate({ identifier: "SessionStats.BudgetLine" })
+export type BudgetLine = typeof BudgetLine.Type
+
+/** Spend across models, with the budget left for the next task when the limits are known. */
+export const Budget = Schema.Struct({
+  requests: NonNegativeInt,
+  tokens: TokenUsage.Info,
+  cost: Money.USD,
+  limit: NonNegativeInt.pipe(optional),
+  remaining: NonNegativeInt.pipe(optional),
+  models: Schema.Array(BudgetLine),
+}).annotate({ identifier: "SessionStats.Budget" })
+export type Budget = typeof Budget.Type
+
 export const ToolUsage = Schema.Struct({
   name: Schema.String,
   calls: NonNegativeInt,

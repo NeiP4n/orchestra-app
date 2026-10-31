@@ -9,6 +9,7 @@ import { Provider } from "@orchestra/schema/provider"
 import { Event } from "@orchestra/schema/event"
 import { SessionEvent } from "@orchestra/schema/session-event"
 import { SessionMessage } from "@orchestra/schema/session-message"
+import type { Budget, BudgetLine } from "@orchestra/schema/session-stats"
 import { ToolMode } from "@orchestra/schema/session-stats"
 import { TokenUsage } from "@orchestra/schema/token-usage"
 import { Database } from "../database/database.js"
@@ -89,41 +90,78 @@ export interface SessionBudgetReport {
   }
   readonly stepCount: number
   readonly budget?: Token.ContextBudget
+  /** Spend per model, with what is left of each model's token budget when a limit is known. */
+  readonly spend: Budget
 }
 
 export function sessionBudget(
   messages: ReadonlyArray<SessionMessage.Info>,
   modelLimit?: { readonly context: number; readonly input?: number; readonly output?: number },
-  options?: { readonly reserveOutput?: number; readonly warningThreshold?: number; readonly criticalThreshold?: number },
+  options?: {
+    readonly reserveOutput?: number
+    readonly warningThreshold?: number
+    readonly criticalThreshold?: number
+    /** Token budgets keyed by `provider/model`, compared against this history's own spend. */
+    readonly limits?: ReadonlyArray<{ readonly model: string; readonly tokens: number }>
+  },
 ): SessionBudgetReport {
-  let input = 0
-  let output = 0
-  let reasoning = 0
-  let cacheRead = 0
-  let cacheWrite = 0
   let stepCount = 0
+  const spendByModel = new Map<string, { model: Model.Ref; requests: number; tokens: Tokens; cost: number }>()
 
   for (const message of messages) {
-    if (message.type === "assistant") {
-      stepCount++
-      if (message.tokens) {
-        input += Math.max(0, message.tokens.input)
-        output += Math.max(0, message.tokens.output)
-        reasoning += Math.max(0, message.tokens.reasoning)
-        cacheRead += Math.max(0, message.tokens.cache.read)
-        cacheWrite += Math.max(0, message.tokens.cache.write)
-      }
+    if (message.type !== "assistant") continue
+    stepCount++
+    // A reasoning variant changes how a model is called, not which budget it spends, so the
+    // variant stays out of the key and the report shows the base model once.
+    const key = `${message.model.providerID}/${message.model.id}`
+    const line = spendByModel.get(key) ?? {
+      model: Model.Ref.make({ id: message.model.id, providerID: message.model.providerID }),
+      requests: 0,
+      tokens: emptyTokens(),
+      cost: 0,
+    }
+    spendByModel.set(key, line)
+    line.requests++
+    line.cost += message.cost ?? 0
+    if (message.tokens) {
+      addTokens(line.tokens, {
+        input: Math.max(0, message.tokens.input),
+        output: Math.max(0, message.tokens.output),
+        reasoning: Math.max(0, message.tokens.reasoning),
+        cache: {
+          read: Math.max(0, message.tokens.cache.read),
+          write: Math.max(0, message.tokens.cache.write),
+        },
+      })
     }
   }
 
-  const total = input + output + reasoning + cacheRead + cacheWrite
+  const models = [...spendByModel.values()].map((line): BudgetLine => {
+    const limit = options?.limits?.find((entry) => entry.model === `${line.model.providerID}/${line.model.id}`)?.tokens
+    return {
+      model: line.model,
+      requests: line.requests,
+      tokens: line.tokens,
+      cost: Money.USD.make(line.cost),
+      limit,
+      remaining: limit === undefined ? undefined : Math.max(0, limit - TokenUsage.total(line.tokens)),
+    }
+  })
+  const tokens = models.reduce((sum, line) => {
+    addTokens(sum, line.tokens)
+    return sum
+  }, emptyTokens())
+  const total = TokenUsage.total(tokens)
   const sessionTokens = {
-    input,
-    output,
-    reasoning,
-    cache: { read: cacheRead, write: cacheWrite },
+    input: tokens.input,
+    output: tokens.output,
+    reasoning: tokens.reasoning,
+    cache: { read: tokens.cache.read, write: tokens.cache.write },
     total,
   }
+  // A total is only meaningful when every model that spent has a limit: adding partial
+  // limits would report a budget the session can overspend unnoticed.
+  const limited = models.length > 0 && models.every((line) => line.limit !== undefined)
 
   const contextWindow = modelLimit ? (modelLimit.input && modelLimit.input > 0 ? modelLimit.input : modelLimit.context) : 0
   const budget =
@@ -141,7 +179,36 @@ export function sessionBudget(
     sessionTokens,
     stepCount,
     budget,
+    spend: {
+      requests: models.reduce((sum, line) => sum + line.requests, 0),
+      tokens,
+      cost: Money.USD.make(models.reduce((sum, line) => sum + line.cost, 0)),
+      limit: limited ? models.reduce((sum, line) => sum + (line.limit ?? 0), 0) : undefined,
+      remaining: limited ? models.reduce((sum, line) => sum + (line.remaining ?? 0), 0) : undefined,
+      models,
+    },
   }
+}
+
+export interface BudgetForecast {
+  readonly estimate: number
+  readonly limit: number
+  readonly used: number
+  readonly remaining: number
+  readonly fits: boolean
+}
+
+/** Whether a task's estimated tokens still fit into what is left of a model's budget. */
+export function forecastBudget(input: {
+  readonly estimate: number
+  readonly limit: number
+  readonly used: number
+}): BudgetForecast {
+  const limit = Math.max(0, input.limit)
+  const used = Math.max(0, input.used)
+  const estimate = Math.max(0, input.estimate)
+  const remaining = Math.max(0, limit - used)
+  return { estimate, limit, used, remaining, fits: estimate <= remaining }
 }
 
 export class InvalidRangeError extends Schema.TaggedError<InvalidRangeError>()("SessionStats.InvalidRangeError", {
