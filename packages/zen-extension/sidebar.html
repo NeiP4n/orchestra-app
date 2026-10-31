@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Orchestra Companion</title>
+  <link rel="stylesheet" href="sidebar.css">
+</head>
+<body>
+  <div class="sidebar-container" role="main">
+    <!-- Header -->
+    <header class="header-bar">
+      <span class="brand-title">Orchestra</span>
+      <div id="statusBadge" class="status-badge offline" role="status" aria-live="polite">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="statusText">Checking...</span>
+      </div>
+    </header>
+
+    <!-- 1. Loading Skeleton State (active while connecting / checking) -->
+    <section id="loadingSkeleton" class="card" aria-label="Loading Orchestra status">
+      <div class="skeleton-box skeleton-text" style="width: 40%;"></div>
+      <div class="skeleton-box skeleton-text"></div>
+      <div class="skeleton-box skeleton-btn"></div>
+    </section>
+
+    <!-- 2. Error State (Server Offline) -->
+    <section id="serverErrorState" class="card alert-box alert-error hidden" role="alert">
+      <div style="font-weight: 600;">Orchestra Offline</div>
+      <div style="font-size: 11px;">Cannot reach daemon at 127.0.0.1:4096. Please ensure Orchestra is running.</div>
+      <button id="retryServerBtn" class="btn btn-secondary btn-sm" style="align-self: flex-start; margin-top: 4px;">
+        Retry Connection
+      </button>
+    </section>
+
+    <!-- 3. Populated Active Content -->
+    <main id="activeContent" class="hidden" style="display: flex; flex-direction: column; gap: 12px;">
+      <!-- Active Tab Context Card -->
+      <section class="card" aria-labelledby="currentTabHeading">
+        <h2 id="currentTabHeading" class="card-title">Active Page Context</h2>
+        <div class="tab-info-title" id="tabTitle">Loading active tab...</div>
+        <div class="tab-info-url" id="tabUrl">—</div>
+        <button id="sendPageBtn" class="btn btn-secondary btn-sm" aria-label="Send current web page context to Orchestra session">
+          Send current page to Orchestra
+        </button>
+      </section>
+
+      <!-- Session Picker -->
+      <section class="card" aria-labelledby="sessionHeading">
+        <div class="label">
+          <span id="sessionHeading">Target Session</span>
+          <span id="sessionCount" style="color: var(--v2-text-faint);"></span>
+        </div>
+
+        <!-- 4. Empty Sessions State -->
+        <div id="emptySessionsView" class="empty-view hidden">
+          <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+            <line x1="7" y1="8" x2="17" y2="8"></line>
+            <line x1="7" y1="12" x2="13" y2="12"></line>
+          </svg>
+          <div class="empty-title">No Active Sessions</div>
+          <div class="empty-subtitle">Create a session to begin sending web context and agent prompts.</div>
+          <button id="createFirstSessionBtn" class="btn btn-primary btn-sm">Create New Session</button>
+        </div>
+
+        <div id="sessionPickerRow" class="row-inline">
+          <select id="sessionSelect" class="select" aria-label="Select target session"></select>
+          <button id="newSessionBtn" class="btn btn-secondary btn-sm" title="Create new session" aria-label="Create new session">
+            + New
+          </button>
+        </div>
+      </section>
+
+      <!-- Quick Prompt Input -->
+      <section class="card" aria-labelledby="promptHeading">
+        <div class="label">
+          <label id="promptHeading" for="promptInput">Quick Agent Prompt</label>
+          <span style="font-size: 10px; color: var(--v2-text-faint);">Ctrl+Enter</span>
+        </div>
+        <textarea
+          id="promptInput"
+          class="textarea"
+          placeholder="Ask Orchestra agent about this page, write code, or automate a task..."
+          aria-label="Agent prompt input"
+        ></textarea>
+        <div class="row-inline" style="justify-content: flex-end;">
+          <button id="sendPromptBtn" class="btn btn-primary" aria-label="Send prompt to session">
+            Send Prompt
+          </button>
+        </div>
+      </section>
+
+      <!-- Operation Outcome Feedback -->
+      <div id="feedbackBanner" class="alert-box alert-success hidden" role="status" aria-live="polite">
+        <span id="feedbackMessage">Operation succeeded</span>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="sidebar.js"></script>
+</body>
+</html>

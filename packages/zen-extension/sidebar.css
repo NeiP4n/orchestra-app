@@ -1,0 +1,314 @@
+/* Orchestra Companion for Zen Browser - Native Sidebar Tokens */
+:root {
+  --v2-bg-base: #242424;
+  --v2-bg-deep: #161616;
+  --v2-bg-layer-1: #2e2e2e;
+  --v2-bg-layer-2: #3a3a3a;
+  --v2-text-base: #f2f2f2;
+  --v2-text-muted: #aeaeae;
+  --v2-text-faint: #808080;
+  --v2-accent: #5b89f7;
+  --v2-accent-hover: #4173ea;
+  --v2-border-base: rgba(255, 255, 255, 0.1);
+  --v2-border-muted: rgba(255, 255, 255, 0.06);
+  --v2-border-focus: #3b82f6;
+  --v2-success-bg: rgba(14, 43, 22, 0.6);
+  --v2-success-fg: #34d399;
+  --v2-success-border: #065f46;
+  --v2-error-bg: rgba(69, 10, 10, 0.6);
+  --v2-error-fg: #f87171;
+  --v2-error-border: #991b1b;
+  --v2-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --v2-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--v2-font);
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--v2-text-base);
+  background-color: var(--v2-bg-base);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  user-select: none;
+}
+
+.sidebar-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  flex: 1;
+}
+
+/* Header & Status Bar */
+.header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--v2-border-muted);
+}
+
+.brand-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--v2-text-muted);
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: var(--v2-bg-deep);
+  border: 1px solid var(--v2-border-muted);
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--v2-text-faint);
+}
+
+.status-badge.online .status-dot {
+  background: var(--v2-success-fg);
+  box-shadow: 0 0 6px rgba(52, 211, 153, 0.4);
+}
+
+.status-badge.offline .status-dot {
+  background: var(--v2-error-fg);
+}
+
+/* Skeletons / Loading State */
+.skeleton-box {
+  background: linear-gradient(90deg, var(--v2-bg-layer-1) 25%, var(--v2-bg-layer-2) 50%, var(--v2-bg-layer-1) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.skeleton-text {
+  height: 14px;
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+.skeleton-btn {
+  height: 28px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+/* Section Card */
+.card {
+  background: var(--v2-bg-layer-1);
+  border: 1px solid var(--v2-border-muted);
+  border-radius: 6px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.card-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--v2-text-muted);
+}
+
+/* Tab Info Box */
+.tab-info-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--v2-text-base);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-info-url {
+  font-size: 11px;
+  font-family: var(--v2-font-mono);
+  color: var(--v2-text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: var(--v2-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  user-select: none;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--v2-border-focus);
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  background: var(--v2-accent);
+  color: #ffffff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--v2-accent-hover);
+}
+
+.btn-secondary {
+  background: var(--v2-bg-layer-2);
+  color: var(--v2-text-base);
+  border-color: var(--v2-border-base);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--v2-bg-deep);
+  border-color: var(--v2-text-muted);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-sm {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+/* Form Controls */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: 11px;
+  color: var(--v2-text-muted);
+  display: flex;
+  justify-content: space-between;
+}
+
+.select, .textarea, .input {
+  font-family: var(--v2-font);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--v2-text-base);
+  background: var(--v2-bg-deep);
+  border: 1px solid var(--v2-border-base);
+  border-radius: 4px;
+  padding: 6px 8px;
+  outline: none;
+  width: 100%;
+}
+
+.select:focus-visible, .textarea:focus-visible, .input:focus-visible {
+  border-color: var(--v2-border-focus);
+  box-shadow: 0 0 0 1px var(--v2-border-focus);
+}
+
+.textarea {
+  min-height: 72px;
+  resize: vertical;
+  line-height: 18px;
+}
+
+.textarea::placeholder {
+  color: var(--v2-text-faint);
+}
+
+.row-inline {
+  display: flex;
+  gap: 6px;
+}
+
+/* Empty / Error Banners */
+.alert-box {
+  padding: 10px;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.alert-error {
+  background: var(--v2-error-bg);
+  border: 1px solid var(--v2-error-border);
+  color: var(--v2-error-fg);
+}
+
+.alert-success {
+  background: var(--v2-success-bg);
+  border: 1px solid var(--v2-success-border);
+  color: var(--v2-success-fg);
+}
+
+.empty-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px 12px;
+  gap: 8px;
+}
+
+.empty-icon {
+  width: 32px;
+  height: 32px;
+  stroke: var(--v2-text-faint);
+  stroke-width: 1.5;
+  fill: none;
+}
+
+.empty-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--v2-text-muted);
+}
+
+.empty-subtitle {
+  font-size: 11px;
+  color: var(--v2-text-faint);
+  max-width: 220px;
+}
+
+/* Hidden utility */
+.hidden {
+  display: none !important;
+}

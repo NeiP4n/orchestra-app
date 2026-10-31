@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Orchestra Quick Action</title>
+  <link rel="stylesheet" href="sidebar.css">
+  <style>
+    body {
+      width: 300px;
+      min-height: auto;
+      padding: 0;
+      background: var(--v2-bg-base);
+    }
+    .popup-container {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="popup-container" role="dialog" aria-label="Orchestra Quick Action">
+    <header class="header-bar">
+      <span class="brand-title">Orchestra Quick Action</span>
+      <div id="statusBadge" class="status-badge offline" role="status">
+        <span class="status-dot"></span>
+        <span id="statusText">Checking...</span>
+      </div>
+    </header>
+
+    <div class="card">
+      <div class="card-title">Active Tab</div>
+      <div class="tab-info-title" id="tabTitle">Loading...</div>
+      <div class="tab-info-url" id="tabUrl">—</div>
+      <button id="quickSendBtn" class="btn btn-primary btn-sm" style="margin-top: 6px;">
+        Send Page to Orchestra
+      </button>
+    </div>
+
+    <div id="quickFeedback" class="alert-box alert-success hidden" role="status"></div>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

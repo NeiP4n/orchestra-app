@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Orchestra Companion for Zen",
+  "version": "1.0.0",
+  "description": "AI companion, sidebar panel and context capture for Zen Browser",
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:*/*",
+    "http://localhost:*/*"
+  ],
+  "sidebar_action": {
+    "default_panel": "sidebar.html",
+    "default_title": "Orchestra"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Orchestra Quick Action"
+  },
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  }
+}
