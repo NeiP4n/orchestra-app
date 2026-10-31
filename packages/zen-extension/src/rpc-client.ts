@@ -1,11 +1,15 @@
 /**
  * Two-way RPC bridge client for Zen Browser extension
  * Connects via WebSocket to Orchestra daemon (ws://127.0.0.1:4097)
+ * With automatic HTTP Long-Poll & Heartbeat fallback (http://127.0.0.1:4097)
  * Allows autonomous AI control: inspecting tabs, reading DOM, executing scripts, controlling media.
  */
 
 export const DEFAULT_RPC_URL = "ws://127.0.0.1:4097"
+export const DEFAULT_HTTP_FALLBACK_URL = "http://127.0.0.1:4097"
 export const RECONNECT_INTERVAL_MS = 2000
+export const HTTP_POLL_INTERVAL_MS = 1500
+export const HEARTBEAT_INTERVAL_MS = 4000
 
 export interface RpcRequest {
   readonly id: string | number
@@ -29,15 +33,17 @@ export interface AiActivityEvent {
 
 export type BrowserLike = {
   tabs?: {
-    query: (queryInfo: Record<string, unknown>) => Promise<Array<{
-      id?: number
-      title?: string
-      url?: string
-      active?: boolean
-      audible?: boolean
-      mutedInfo?: { muted?: boolean }
-      muted?: boolean
-    }>>
+    query: (queryInfo: Record<string, unknown>) => Promise<
+      Array<{
+        id?: number
+        title?: string
+        url?: string
+        active?: boolean
+        audible?: boolean
+        mutedInfo?: { muted?: boolean }
+        muted?: boolean
+      }>
+    >
     update: (tabId: number, updateProperties: Record<string, unknown>) => Promise<unknown>
     create: (createProperties: Record<string, unknown>) => Promise<{ id?: number }>
     remove: (tabId: number) => Promise<void>
@@ -161,7 +167,11 @@ export async function handleRpcAction(
         func: (sel: unknown, val: unknown) => {
           const targetSelector = String(sel)
           const targetValue = String(val)
-          const el = document.querySelector(targetSelector) as HTMLInputElement | HTMLTextAreaElement | HTMLElement | null
+          const el = document.querySelector(targetSelector) as
+            | HTMLInputElement
+            | HTMLTextAreaElement
+            | HTMLElement
+            | null
           if (!el) throw new Error(`Input element not found: ${targetSelector}`)
           if ("value" in el) {
             el.value = targetValue
@@ -203,7 +213,12 @@ export async function handleRpcAction(
       if (!browserApi.scripting?.executeScript || !browserApi.tabs?.query) {
         throw new Error("Scripting/Tabs API unavailable")
       }
-      const cmd = typeof params.action === "string" ? params.action : typeof params.command === "string" ? params.command : "toggle"
+      const cmd =
+        typeof params.action === "string"
+          ? params.action
+          : typeof params.command === "string"
+            ? params.command
+            : "toggle"
       let tabId: number
       if (typeof params.tabId === "number") {
         tabId = params.tabId
@@ -222,14 +237,18 @@ export async function handleRpcAction(
         func: (actionCmd: unknown) => {
           const command = String(actionCmd).toLowerCase()
           if (command === "next") {
-            const nextBtn = document.querySelector(".ytp-next-button, button[aria-label='Next'], [data-testid='control-button-skip-forward']") as HTMLElement | null
+            const nextBtn = document.querySelector(
+              ".ytp-next-button, button[aria-label='Next'], [data-testid='control-button-skip-forward']",
+            ) as HTMLElement | null
             if (nextBtn) {
               nextBtn.click()
               return { command: "next", handledByButton: true }
             }
           }
           if (command === "prev") {
-            const prevBtn = document.querySelector(".ytp-prev-button, button[aria-label='Previous'], [data-testid='control-button-skip-back']") as HTMLElement | null
+            const prevBtn = document.querySelector(
+              ".ytp-prev-button, button[aria-label='Previous'], [data-testid='control-button-skip-back']",
+            ) as HTMLElement | null
             if (prevBtn) {
               prevBtn.click()
               return { command: "prev", handledByButton: true }
@@ -297,18 +316,40 @@ export function formatActionSummary(action: string, params: Record<string, unkno
 export class ZenRpcClient {
   private ws: WebSocket | null = null
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private pollTimer: ReturnType<typeof setTimeout> | null = null
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private isDestroyed = false
   public isConnected = false
+  public isWsConnected = false
+
+  private readonly browserApi: BrowserLike
+  private readonly httpFallbackUrl: string
 
   constructor(
     private readonly url = DEFAULT_RPC_URL,
-    private readonly browserApi = getBrowserApi() ?? {},
+    browserApiOrHttpFallback?: BrowserLike | string,
+    fallbackUrlOrBrowserApi?: string | BrowserLike,
     private readonly wsFactory: (url: string) => WebSocket = (u) => new WebSocket(u),
-  ) {}
+    private readonly customFetch: typeof fetch = fetch,
+  ) {
+    if (typeof browserApiOrHttpFallback === "string") {
+      this.httpFallbackUrl = browserApiOrHttpFallback
+      this.browserApi = (
+        typeof fallbackUrlOrBrowserApi === "object" && fallbackUrlOrBrowserApi !== null
+          ? fallbackUrlOrBrowserApi
+          : (getBrowserApi() ?? {})
+      ) as BrowserLike
+    } else {
+      this.browserApi = (browserApiOrHttpFallback ?? getBrowserApi() ?? {}) as BrowserLike
+      this.httpFallbackUrl =
+        typeof fallbackUrlOrBrowserApi === "string" ? fallbackUrlOrBrowserApi : DEFAULT_HTTP_FALLBACK_URL
+    }
+  }
 
   public start() {
     this.isDestroyed = false
-    this.connect()
+    this.connectWs()
+    this.startHttpFallback()
   }
 
   public stop() {
@@ -317,23 +358,38 @@ export class ZenRpcClient {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
+    if (this.pollTimer) {
+      clearTimeout(this.pollTimer)
+      this.pollTimer = null
+    }
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer)
+      this.heartbeatTimer = null
+    }
     if (this.ws) {
       this.ws.close()
       this.ws = null
     }
-    this.isConnected = false
-    this.broadcastStatus(false)
+    this.isWsConnected = false
+    this.setConnectionState(false)
   }
 
-  private connect() {
+  private setConnectionState(connected: boolean) {
+    if (this.isConnected !== connected) {
+      this.isConnected = connected
+      this.broadcastStatus(connected)
+    }
+  }
+
+  private connectWs() {
     if (this.isDestroyed) return
 
     try {
       this.ws = this.wsFactory(this.url)
 
       this.ws.onopen = () => {
-        this.isConnected = true
-        this.broadcastStatus(true)
+        this.isWsConnected = true
+        this.setConnectionState(true)
         this.send({
           type: "hello",
           client: "zen-extension",
@@ -346,26 +402,142 @@ export class ZenRpcClient {
       }
 
       this.ws.onclose = () => {
-        this.handleDisconnect()
+        this.handleWsDisconnect()
       }
 
       this.ws.onerror = () => {
-        this.handleDisconnect()
+        this.handleWsDisconnect()
       }
     } catch {
-      this.handleDisconnect()
+      this.handleWsDisconnect()
     }
   }
 
-  private handleDisconnect() {
-    this.isConnected = false
-    this.broadcastStatus(false)
+  private handleWsDisconnect() {
+    this.isWsConnected = false
+    if (!this.isConnected) {
+      this.setConnectionState(false)
+    }
     if (this.isDestroyed) return
     if (!this.reconnectTimer) {
       this.reconnectTimer = setTimeout(() => {
         this.reconnectTimer = null
-        this.connect()
+        this.connectWs()
       }, RECONNECT_INTERVAL_MS)
+    }
+  }
+
+  private startHttpFallback() {
+    if (this.isDestroyed) return
+
+    // Regular heartbeat
+    this.heartbeatTimer = setInterval(() => {
+      if (this.isDestroyed) return
+      void this.sendHeartbeat()
+    }, HEARTBEAT_INTERVAL_MS)
+
+    // Initial heartbeat immediately
+    void this.sendHeartbeat()
+
+    // Start poll loop
+    this.scheduleNextPoll(100)
+  }
+
+  private scheduleNextPoll(delayMs = HTTP_POLL_INTERVAL_MS) {
+    if (this.isDestroyed) return
+    if (this.pollTimer) {
+      clearTimeout(this.pollTimer)
+    }
+    this.pollTimer = setTimeout(() => {
+      this.pollTimer = null
+      void this.executeHttpPoll()
+    }, delayMs)
+  }
+
+  private async sendHeartbeat(): Promise<void> {
+    try {
+      const res = await this.customFetch(`${this.httpFallbackUrl}/heartbeat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client: "zen-extension", version: "1.0.0" }),
+      })
+      if (res.ok) {
+        this.setConnectionState(true)
+      }
+    } catch {
+      if (!this.isWsConnected) {
+        this.setConnectionState(false)
+      }
+    }
+  }
+
+  private async executeHttpPoll(): Promise<void> {
+    if (this.isDestroyed) return
+
+    // If WebSocket is actively connected, we still check server heartbeat occasionally, but skip heavy poll
+    if (this.isWsConnected) {
+      this.scheduleNextPoll(HTTP_POLL_INTERVAL_MS)
+      return
+    }
+
+    try {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 2500)
+      const res = await this.customFetch(`${this.httpFallbackUrl}/poll`, {
+        method: "GET",
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timer))
+
+      if (res.ok) {
+        this.setConnectionState(true)
+        if (res.status === 200) {
+          const data = (await res.json()) as RpcRequest | { empty?: boolean } | null
+          if (data && typeof data === "object" && "id" in data && "action" in data) {
+            void this.executeHttpRpcRequest(data as RpcRequest)
+          }
+        }
+      } else {
+        if (!this.isWsConnected) {
+          this.setConnectionState(false)
+        }
+      }
+    } catch {
+      if (!this.isWsConnected) {
+        this.setConnectionState(false)
+      }
+    } finally {
+      this.scheduleNextPoll(HTTP_POLL_INTERVAL_MS)
+    }
+  }
+
+  private async executeHttpRpcRequest(req: RpcRequest): Promise<void> {
+    const { id, action, params = {} } = req
+    try {
+      const result = await handleRpcAction(action, params, this.browserApi)
+      await this.customFetch(`${this.httpFallbackUrl}/result`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, success: true, result }),
+      })
+      this.broadcastActivity({
+        action,
+        summary: formatActionSummary(action, params),
+        success: true,
+        timestamp: Date.now(),
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      await this.customFetch(`${this.httpFallbackUrl}/result`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, success: false, error: message }),
+      })
+      this.broadcastActivity({
+        action,
+        summary: `Failed ${action}: ${message}`,
+        success: false,
+        timestamp: Date.now(),
+      })
     }
   }
 

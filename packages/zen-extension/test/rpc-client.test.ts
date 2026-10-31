@@ -301,4 +301,89 @@ describe("RPC Bridge Client & Actions", () => {
       expect(client.isConnected).toBe(false)
     })
   })
+
+  describe("ZenRpcClient HTTP Polling & Heartbeat fallback", () => {
+    let fallbackServer: ReturnType<typeof Bun.serve>
+    let fallbackHttpUrl: string
+    const heartbeatsReceived: unknown[] = []
+    const httpResultsReceived: Array<{ id: string; success: boolean; result?: unknown }> = []
+    let pendingPollRequest: { id: string; action: string; params?: Record<string, unknown> } | null = null
+
+    beforeAll(() => {
+      fallbackServer = Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        async fetch(req) {
+          const url = new URL(req.url)
+
+          if (req.method === "POST" && url.pathname === "/heartbeat") {
+            const body = await req.json()
+            heartbeatsReceived.push(body)
+            return Response.json({ ok: true, timestamp: Date.now() })
+          }
+
+          if (req.method === "GET" && url.pathname === "/poll") {
+            if (pendingPollRequest) {
+              const reqToSend = pendingPollRequest
+              pendingPollRequest = null
+              return Response.json(reqToSend)
+            }
+            return new Response(null, { status: 204 })
+          }
+
+          if (req.method === "POST" && url.pathname === "/result") {
+            const body = (await req.json()) as { id: string; success: boolean; result?: unknown }
+            httpResultsReceived.push(body)
+            return Response.json({ received: true })
+          }
+
+          return new Response("Not Found", { status: 404 })
+        },
+      })
+
+      fallbackHttpUrl = `http://127.0.0.1:${fallbackServer.port}`
+    })
+
+    afterAll(() => {
+      fallbackServer.stop(true)
+    })
+
+    it("should send heartbeat and execute RPC requests via HTTP polling when WS is offline", async () => {
+      // Point WS to an unavailable port to trigger HTTP fallback
+      const offlineWsUrl = "ws://127.0.0.1:59989"
+      const client = new ZenRpcClient(offlineWsUrl, mockBrowser, fallbackHttpUrl)
+
+      pendingPollRequest = {
+        id: "poll_action_123",
+        action: "tabs",
+      }
+
+      client.start()
+
+      // Wait for heartbeat or poll result
+      await new Promise<void>((resolve) => {
+        const interval = setInterval(() => {
+          if (
+            heartbeatsReceived.length > 0 &&
+            httpResultsReceived.some((r) => r.id === "poll_action_123")
+          ) {
+            clearInterval(interval)
+            resolve()
+          }
+        }, 50)
+      })
+
+      expect(client.isConnected).toBe(true)
+      expect(client.isWsConnected).toBe(false)
+      expect(heartbeatsReceived.some((h) => (h as { client?: string }).client === "zen-extension")).toBe(true)
+
+      const executedResult = httpResultsReceived.find((r) => r.id === "poll_action_123")
+      expect(executedResult?.success).toBe(true)
+      expect(Array.isArray(executedResult?.result)).toBe(true)
+      expect((executedResult?.result as Array<unknown>).length).toBe(2)
+
+      client.stop()
+      expect(client.isConnected).toBe(false)
+    })
+  })
 })

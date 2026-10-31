@@ -22,8 +22,13 @@
   "host_permissions": [
     "http://127.0.0.1/*",
     "http://localhost/*",
+    "ws://127.0.0.1/*",
+    "ws://localhost/*",
     "<all_urls>"
   ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*;"
+  },
   "sidebar_action": {
     "default_panel": "sidebar.html",
     "default_title": "Orchestra",

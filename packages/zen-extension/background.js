@@ -213,7 +213,10 @@ async function setStoredSessionId(id) {
 
 // src/rpc-client.ts
 var DEFAULT_RPC_URL = "ws://127.0.0.1:4097";
+var DEFAULT_HTTP_FALLBACK_URL = "http://127.0.0.1:4097";
 var RECONNECT_INTERVAL_MS = 2000;
+var HTTP_POLL_INTERVAL_MS = 1500;
+var HEARTBEAT_INTERVAL_MS = 4000;
 function getBrowserApi() {
   if (typeof globalThis === "undefined")
     return;
@@ -449,19 +452,27 @@ function formatActionSummary(action, params = {}) {
 class ZenRpcClient {
   url;
   browserApi;
+  httpFallbackUrl;
   wsFactory;
+  customFetch;
   ws = null;
   reconnectTimer = null;
+  pollTimer = null;
+  heartbeatTimer = null;
   isDestroyed = false;
   isConnected = false;
-  constructor(url = DEFAULT_RPC_URL, browserApi = getBrowserApi() ?? {}, wsFactory = (u) => new WebSocket(u)) {
+  isWsConnected = false;
+  constructor(url = DEFAULT_RPC_URL, browserApi = getBrowserApi() ?? {}, httpFallbackUrl = DEFAULT_HTTP_FALLBACK_URL, wsFactory = (u) => new WebSocket(u), customFetch = fetch) {
     this.url = url;
     this.browserApi = browserApi;
+    this.httpFallbackUrl = httpFallbackUrl;
     this.wsFactory = wsFactory;
+    this.customFetch = customFetch;
   }
   start() {
     this.isDestroyed = false;
-    this.connect();
+    this.connectWs();
+    this.startHttpFallback();
   }
   stop() {
     this.isDestroyed = true;
@@ -469,21 +480,35 @@ class ZenRpcClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    if (this.pollTimer) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = null;
+    }
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
-    this.isConnected = false;
-    this.broadcastStatus(false);
+    this.isWsConnected = false;
+    this.setConnectionState(false);
   }
-  connect() {
+  setConnectionState(connected) {
+    if (this.isConnected !== connected) {
+      this.isConnected = connected;
+      this.broadcastStatus(connected);
+    }
+  }
+  connectWs() {
     if (this.isDestroyed)
       return;
     try {
       this.ws = this.wsFactory(this.url);
       this.ws.onopen = () => {
-        this.isConnected = true;
-        this.broadcastStatus(true);
+        this.isWsConnected = true;
+        this.setConnectionState(true);
         this.send({
           type: "hello",
           client: "zen-extension",
@@ -494,25 +519,130 @@ class ZenRpcClient {
         this.handleMessage(event.data);
       };
       this.ws.onclose = () => {
-        this.handleDisconnect();
+        this.handleWsDisconnect();
       };
       this.ws.onerror = () => {
-        this.handleDisconnect();
+        this.handleWsDisconnect();
       };
     } catch {
-      this.handleDisconnect();
+      this.handleWsDisconnect();
     }
   }
-  handleDisconnect() {
-    this.isConnected = false;
-    this.broadcastStatus(false);
+  handleWsDisconnect() {
+    this.isWsConnected = false;
+    if (!this.isConnected) {
+      this.setConnectionState(false);
+    }
     if (this.isDestroyed)
       return;
     if (!this.reconnectTimer) {
       this.reconnectTimer = setTimeout(() => {
         this.reconnectTimer = null;
-        this.connect();
+        this.connectWs();
       }, RECONNECT_INTERVAL_MS);
+    }
+  }
+  startHttpFallback() {
+    if (this.isDestroyed)
+      return;
+    this.heartbeatTimer = setInterval(() => {
+      if (this.isDestroyed)
+        return;
+      this.sendHeartbeat();
+    }, HEARTBEAT_INTERVAL_MS);
+    this.sendHeartbeat();
+    this.scheduleNextPoll(100);
+  }
+  scheduleNextPoll(delayMs = HTTP_POLL_INTERVAL_MS) {
+    if (this.isDestroyed)
+      return;
+    if (this.pollTimer) {
+      clearTimeout(this.pollTimer);
+    }
+    this.pollTimer = setTimeout(() => {
+      this.pollTimer = null;
+      this.executeHttpPoll();
+    }, delayMs);
+  }
+  async sendHeartbeat() {
+    try {
+      const res = await this.customFetch(`${this.httpFallbackUrl}/heartbeat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client: "zen-extension", version: "1.0.0" })
+      });
+      if (res.ok) {
+        this.setConnectionState(true);
+      }
+    } catch {
+      if (!this.isWsConnected) {
+        this.setConnectionState(false);
+      }
+    }
+  }
+  async executeHttpPoll() {
+    if (this.isDestroyed)
+      return;
+    if (this.isWsConnected) {
+      this.scheduleNextPoll(HTTP_POLL_INTERVAL_MS);
+      return;
+    }
+    try {
+      const controller = new AbortController;
+      const timer = setTimeout(() => controller.abort(), 2500);
+      const res = await this.customFetch(`${this.httpFallbackUrl}/poll`, {
+        method: "GET",
+        signal: controller.signal
+      }).finally(() => clearTimeout(timer));
+      if (res.ok) {
+        this.setConnectionState(true);
+        if (res.status === 200) {
+          const data = await res.json();
+          if (data && typeof data === "object" && "id" in data && "action" in data) {
+            this.executeHttpRpcRequest(data);
+          }
+        }
+      } else {
+        if (!this.isWsConnected) {
+          this.setConnectionState(false);
+        }
+      }
+    } catch {
+      if (!this.isWsConnected) {
+        this.setConnectionState(false);
+      }
+    } finally {
+      this.scheduleNextPoll(HTTP_POLL_INTERVAL_MS);
+    }
+  }
+  async executeHttpRpcRequest(req) {
+    const { id, action, params = {} } = req;
+    try {
+      const result = await handleRpcAction(action, params, this.browserApi);
+      await this.customFetch(`${this.httpFallbackUrl}/result`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, success: true, result })
+      });
+      this.broadcastActivity({
+        action,
+        summary: formatActionSummary(action, params),
+        success: true,
+        timestamp: Date.now()
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.customFetch(`${this.httpFallbackUrl}/result`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, success: false, error: message })
+      });
+      this.broadcastActivity({
+        action,
+        summary: `Failed ${action}: ${message}`,
+        success: false,
+        timestamp: Date.now()
+      });
     }
   }
   broadcastStatus(connected) {

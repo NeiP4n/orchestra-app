@@ -419,3 +419,182 @@ describe("ZenBridgeServer direct tests", () => {
     expect(err?.message).toContain("Zen Browser extension is not connected")
   })
 })
+
+describe("HTTP Long-Polling and Heartbeat fallback", () => {
+  let server: ZenBridgeServer
+  let serverPort: number
+
+  beforeAll(() => {
+    server = new ZenBridgeServer({ port: 0 })
+    server.start(0)
+    serverPort = server.port
+  })
+
+  afterAll(() => {
+    server.stop()
+  })
+
+  test("POST /heartbeat records clientInfo and marks connected = true", async () => {
+    const res = await fetch(`http://127.0.0.1:${serverPort}/heartbeat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client: "zen-http-client", version: "3.2.1" }),
+    })
+    expect(res.status).toBe(200)
+    const json = (await res.json()) as { ok: boolean; connected: boolean }
+    expect(json.ok).toBe(true)
+    expect(json.connected).toBe(true)
+
+    const status = server.getStatus()
+    expect(status.connected).toBe(true)
+    expect(status.clientInfo?.client).toBe("zen-http-client")
+    expect(status.clientInfo?.version).toBe("3.2.1")
+  })
+
+  test("GET /poll immediately returns queued RPC request", async () => {
+    // Send heartbeat to ensure connected
+    await fetch(`http://127.0.0.1:${serverPort}/heartbeat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client: "zen-http-client", version: "3.2.1" }),
+    })
+
+    // Initiate RPC call via HTTP queue
+    const rpcPromise = server.sendRpc<{ tabId: number; title: string }>("tabs", { query: "active" })
+
+    // Poller fetches the request
+    const pollRes = await fetch(`http://127.0.0.1:${serverPort}/poll`)
+    expect(pollRes.status).toBe(200)
+    const rpcItem = (await pollRes.json()) as { id: string; action: string; params: { query: string } }
+    expect(rpcItem.action).toBe("tabs")
+    expect(rpcItem.params.query).toBe("active")
+
+    // Post result back
+    const resultRes = await fetch(`http://127.0.0.1:${serverPort}/result`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: rpcItem.id,
+        success: true,
+        result: { tabId: 1, title: "Long Poll Active Tab" },
+      }),
+    })
+    expect(resultRes.status).toBe(200)
+
+    // RPC promise resolves with the result
+    const result = await rpcPromise
+    expect(result.tabId).toBe(1)
+    expect(result.title).toBe("Long Poll Active Tab")
+  })
+
+  test("POST /result handles error response and rejects sendRpc", async () => {
+    await fetch(`http://127.0.0.1:${serverPort}/heartbeat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client: "zen-http-client", version: "3.2.1" }),
+    })
+
+    const rpcPromise = server.sendRpc("eval", { code: "throw new Error('fail')" })
+    // Attach error catcher to prevent unhandled rejection during HTTP dispatch
+    const outcomePromise = rpcPromise.then(
+      () => null,
+      (err) => err,
+    )
+
+    const pollRes = await fetch(`http://127.0.0.1:${serverPort}/poll`)
+    const rpcItem = (await pollRes.json()) as { id: string; action: string }
+
+    await fetch(`http://127.0.0.1:${serverPort}/result`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: rpcItem.id,
+        success: false,
+        error: "Execution failed in tab",
+      }),
+    })
+
+    const err = await outcomePromise
+    expect(err).toBeInstanceOf(Error)
+    expect((err as Error).message).toContain("Execution failed in tab")
+  })
+
+  test("end-to-end zen_browser tool execution via HTTP fallback", async () => {
+    const prevBridge = getZenBridgeServer()
+    setZenBridgeServer(server)
+
+    try {
+      // Send heartbeat
+      await fetch(`http://127.0.0.1:${serverPort}/heartbeat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client: "zen-extension-http", version: "2.5.0" }),
+      })
+
+      // Status check through tool
+      const statusRes = await Effect.runPromise(run({ action: "status" }))
+      expect(statusRes.output).toContain("Zen Browser connected (zen-extension-http v2.5.0)")
+
+      // Execute tool tabs action
+      const toolPromise = Effect.runPromise(run({ action: "tabs" }))
+
+      // Poller receives request
+      const pollRes = await fetch(`http://127.0.0.1:${serverPort}/poll`)
+      const rpcItem = (await pollRes.json()) as { id: string; action: string }
+      expect(rpcItem.action).toBe("tabs")
+
+      // Send tabs result
+      await fetch(`http://127.0.0.1:${serverPort}/result`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: rpcItem.id,
+          success: true,
+          result: {
+            tabs: [{ id: 101, title: "HTTP Workspace Tab", url: "https://zen-browser.app/workspaces", active: true }],
+          },
+        }),
+      })
+
+      // Tool outputs rendered tabs
+      const toolOutput = await toolPromise
+      expect(toolOutput.output).toContain("Open tabs (1):")
+      expect(toolOutput.output).toContain("Tab #101 [active]: HTTP Workspace Tab")
+    } finally {
+      setZenBridgeServer(prevBridge)
+    }
+  })
+
+  test("GET /poll times out and returns 204 No Content when queue is empty", async () => {
+    const timeoutServer = new ZenBridgeServer({ port: 0 })
+    timeoutServer.start(0)
+    try {
+      const pollRes = await fetch(`http://127.0.0.1:${timeoutServer.port}/poll`)
+      expect(pollRes.status).toBe(204)
+    } finally {
+      timeoutServer.stop()
+    }
+  }, 10000)
+
+  test("getStatus() reports connected: false when heartbeat expires", async () => {
+    const expiryServer = new ZenBridgeServer({ port: 0 })
+    expiryServer.start(0)
+    try {
+      // Send heartbeat
+      await fetch(`http://127.0.0.1:${expiryServer.port}/heartbeat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client: "zen-test", version: "1.0.0" }),
+      })
+      expect(expiryServer.getStatus().connected).toBe(true)
+
+      // Manually advance lastSeen to more than 5000ms ago
+      // @ts-expect-error accessing private for testing expiry
+      expiryServer.lastSeen = Date.now() - 5001
+
+      expect(expiryServer.getStatus().connected).toBe(false)
+    } finally {
+      expiryServer.stop()
+    }
+  })
+})

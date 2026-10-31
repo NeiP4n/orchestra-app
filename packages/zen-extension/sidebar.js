@@ -14,6 +14,7 @@ import {
   setStoredServerUrl,
   setStoredSessionId,
 } from "./src/bridge.js"
+import { ZenRpcClient } from "./src/rpc-client.js"
 
 // DOM Elements
 const statusBadge = document.getElementById("statusBadge")
@@ -418,5 +419,13 @@ promptInput?.addEventListener("keydown", (e) => {
 })
 
 // Run on page load
+// Keep active RPC connection while sidebar is open to prevent idle sleep
+const sidebarRpcClient = new ZenRpcClient()
+sidebarRpcClient.start()
+
+window.addEventListener("beforeunload", () => {
+  sidebarRpcClient.stop()
+})
+
 initRpcListeners()
 void connect(true)

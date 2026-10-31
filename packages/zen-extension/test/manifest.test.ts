@@ -44,7 +44,13 @@ describe("Zen Extension Manifest", () => {
     // Host permissions for local daemon and web content
     expect(manifest.host_permissions).toContain("http://127.0.0.1/*")
     expect(manifest.host_permissions).toContain("http://localhost/*")
+    expect(manifest.host_permissions).toContain("ws://127.0.0.1/*")
+    expect(manifest.host_permissions).toContain("ws://localhost/*")
     expect(manifest.host_permissions).toContain("<all_urls>")
+
+    // Content Security Policy for WebSocket & local HTTP access
+    expect(manifest.content_security_policy?.extension_pages).toBeDefined()
+    expect(manifest.content_security_policy.extension_pages).toContain("connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*")
 
     // Native Zen / Firefox sidebar_action with icon
     expect(manifest.sidebar_action).toEqual({
