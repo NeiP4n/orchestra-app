@@ -921,7 +921,10 @@ function mockHandlers(
             if (config.projects) return resolve(config.projects)
             const seed = projectSeed(config)
 
-            return [{ ...projectFields(config), canonical: seed?.canonical ?? seed?.worktree ?? config.directory }]
+            return [
+              { ...projectFields(config), canonical: seed?.canonical ?? seed?.worktree ?? config.directory },
+              ...societyProjects(config).map((item) => ({ id: item.id, canonical: item.directory })),
+            ]
           }),
         projectUpdate: (ctx) =>
           Effect.succeed({
@@ -948,6 +951,17 @@ function mockHandlers(
 
             return { name: "AI team", sessionID: created.id, directory }
           }),
+        orchestraGroupList: () =>
+          Effect.succeed([
+            {
+              name: "AI team",
+              projects: societyProjects(config).map((item) => item.id),
+              mode: "council",
+              supervisor: "ses_mock_society",
+            },
+          ]),
+        orchestraProjectList: () =>
+          Effect.succeed(societyProjects(config).map((item) => ({ ...item, created: 0 }))),
         configShells: () => Effect.succeed(config.shells ?? []),
         configUpdate: () => noContent,
         websearchProviders: () => Effect.succeed({ location: location(config), data: [] }),
@@ -1392,10 +1406,24 @@ function mockHandlers(
 
 // The requested workspace (directory) inside the configured project.
 function location(config: MockServerConfig, directory = config.directory) {
+  const society = societyProjects(config).find((item) => item.directory === directory)
+
+  if (society) return { directory, project: { id: society.id, directory, canonical: directory } }
+
   return {
     directory,
     project: { id: projectSeed(config)?.id, directory: config.directory, canonical: config.directory },
   }
+}
+
+// The Society's projects exist only after its create, so every other Home list keeps its seeded shape.
+function societyProjects(config: MockServerConfig) {
+  if (!config.sessions.some((session) => session.id === "ses_mock_society")) return []
+
+  return [
+    { id: "prj_mock_society", name: "AI team", directory: `${config.directory}/society` },
+    { id: "prj_mock_team", name: "Whole system", directory: `${config.directory}/society/whole-system` },
+  ]
 }
 
 // The project fields the mock reads.

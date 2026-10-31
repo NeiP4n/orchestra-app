@@ -191,6 +191,7 @@ const worktree =
 // These cases drive the whole stress timeline through the settings surface twice, so on a loaded runner the same work
 // takes over a minute; a 60s default would report its own budget instead of the assertion that broke.
 const STRESS_CASE_TIMEOUT = 120_000
+
 // Each step waits on the app rather than on a timer; on a loaded runner the settings surface alone can take longer than
 // the suite's 10s assertion budget, so these cases carry an explicit one instead of failing on the default.
 const STRESS_ASSERTION_TIMEOUT = 30_000
@@ -398,6 +399,25 @@ test("Home sends the name and parent folder typed in More options", async ({ pag
     directory: "/tmp/societies",
   })
   await expect(dialog).toHaveCount(0)
+})
+
+test("Home shows the projects of the AI team it just created", async ({ page }) => {
+  await openHome(page)
+  await page.locator('[data-action="home-create-ai-team"]').click()
+
+  const dialog = page.getByRole("dialog")
+  await dialog.getByLabel("Goal", { exact: true }).fill("Ship the relay")
+  await dialog.getByRole("button", { name: "Create team", exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+
+  // The chat opens on its own; Home then lists the projects the Society's group names, not just the chat's folder.
+  await expect(page).toHaveURL(/\/session\/ses_mock_society$/)
+  await page.getByRole("button", { name: "Home" }).click()
+  await expect(page).toHaveURL("/")
+
+  const rows = page.locator('[data-component="home-project-row"]')
+  await expect(rows.filter({ hasText: "whole-system" })).toBeVisible()
+  await expect(rows.filter({ hasText: "society" })).toBeVisible()
 })
 
 test("an empty Home offers the AI team before Add project", async ({ page }) => {

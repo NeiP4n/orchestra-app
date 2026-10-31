@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { createRequestQueue } from "./request-queue"
+import { createRequestQueue, type RequestQueueLog } from "./request-queue"
 
 function setup(input?: {
   limit?: number
@@ -9,7 +9,7 @@ function setup(input?: {
   setupHeadersTimeoutMs?: number
 }) {
   const pending: Array<{ url: string; signal: AbortSignal; resolve: () => void }> = []
-  const logs: Array<{ message: string; data: Record<string, unknown> }> = []
+  const logs: Array<{ message: string; data: RequestQueueLog }> = []
   let clock = 0
 
   const queue = createRequestQueue({
@@ -131,6 +131,7 @@ describe("createRequestQueue", () => {
     expect(input.queue.queued()).toBe(1)
     const error = await dead.catch((cause: unknown) => cause)
     expect(error).toBeInstanceOf(DOMException)
+    // SAFETY: the assertion above pins the abort reason to the DOMException the queue builds for a timeout.
     expect((error as DOMException).name).toBe("TimeoutError")
     expect(input.pending.map((item) => new URL(item.url).pathname)).toEqual(["/api/dead", "/api/next"])
     input.pending[1]!.resolve()
@@ -149,12 +150,29 @@ describe("createRequestQueue", () => {
     ]
 
     const errors = await Promise.all(others.map((request) => request.catch((cause: unknown) => cause)))
+    // SAFETY: every request here is expected to time out, so each rejection is the queue's DOMException.
     expect(errors.map((error) => (error as DOMException).name)).toEqual([
       "TimeoutError",
       "TimeoutError",
       "TimeoutError",
     ])
     // Past the normal deadline, the create is still on the wire.
+    expect(input.pending[0]!.signal.aborted).toBe(false)
+    input.pending[0]!.resolve()
+    await expect(create).resolves.toBeInstanceOf(Response)
+    expect(input.queue.inflight()).toBe(0)
+  })
+
+  test("society creation gets the setup deadline while other API requests keep the normal one", async () => {
+    const input = setup({ limit: 2, slowLimit: 2, headersTimeoutMs: 10, setupHeadersTimeoutMs: 200 })
+    const create = input.queue.fetch("http://server/api/orchestra/society", { method: "POST" })
+    const read = input.queue.fetch("http://server/api/orchestra/group")
+
+    const error = await read.catch((cause: unknown) => cause)
+    expect(error).toBeInstanceOf(DOMException)
+    // SAFETY: the assertion above pins the rejection to the DOMException the queue raises for a deadline.
+    expect((error as DOMException).name).toBe("TimeoutError")
+    // Past the normal deadline, the create that builds the whole team is still on the wire.
     expect(input.pending[0]!.signal.aborted).toBe(false)
     input.pending[0]!.resolve()
     await expect(create).resolves.toBeInstanceOf(Response)

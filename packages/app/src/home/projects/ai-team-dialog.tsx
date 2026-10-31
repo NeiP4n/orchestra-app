@@ -11,8 +11,10 @@ import { Icon } from "@orchestra/ui/icon"
 import { useLanguage } from "@/runtime/i18n/language"
 import { ServerConnection } from "@/runtime/server/registry"
 import { useGlobal } from "@/runtime/server/runtime"
+import type { ServerCtx } from "@/runtime/server/runtime"
 import { useTabs } from "@/shell/tabs/tabs"
 import { showToast } from "@/shell/notifications/toast"
+import { addProjects } from "./add"
 
 // The built-in team whose project covers every layer of the system.
 export const AI_TEAM_TEMPLATE = "system"
@@ -48,6 +50,20 @@ export function DialogAiTeam(props: { server: ServerConnection.Any }) {
       // The Society exists as soon as the create answers. Close first, so a failed follow-up read cannot leave the
       // operator in front of a dialog whose button would create a second one.
       dialog.close()
+
+      // The create answers with the Society's chat only, so its group is the source of the projects to show in Home.
+      // A failed read must not hide the chat that already exists, so it reports and leaves the panel as it was.
+      const directories = await societyProjects(ctx, society.sessionID).catch((cause: unknown) => {
+        showToast({
+          title: language.t("common.requestFailed"),
+          description: cause instanceof Error ? cause.message : String(cause),
+        })
+
+        return []
+      })
+
+      addProjects(ctx, directories)
+
       void startTransition(() => {
         const tab = tabs.addSessionTab({ server: ServerConnection.key(props.server), sessionId: society.sessionID })
         tabs.select(tab)
@@ -168,4 +184,19 @@ export function DialogAiTeam(props: { server: ServerConnection.Any }) {
       </DialogFooter>
     </Dialog>
   )
+}
+
+// The projects that belong to the Society whose council chat is `sessionID`, as the directories Home lists.
+async function societyProjects(ctx: ServerCtx, sessionID: string) {
+  const group = (await ctx.sdk.api.orchestra.group.list()).find((item) => item.supervisor === sessionID)
+
+  if (!group) return []
+
+  const projects = await ctx.sdk.api.orchestra.project.list()
+
+  return group.projects.flatMap((id) => {
+    const project = projects.find((item) => item.id === id)
+
+    return project ? [project.directory] : []
+  })
 }

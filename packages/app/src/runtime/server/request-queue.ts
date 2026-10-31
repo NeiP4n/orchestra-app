@@ -21,16 +21,24 @@ export const requestStallMs = 2_000
 export const requestHeadersTimeoutMs = 60_000
 
 // Creating a worktree runs the project's setup script (dependency installs, fetches) before the
-// server answers, so it needs a budget measured in minutes rather than seconds. Cutting it off
-// kills the script midway and leaves a registered but half-initialised worktree behind.
+// server answers, and creating a Society with a team builds a second project with one session per
+// member before it answers either. Both need a budget measured in minutes rather than seconds:
+// cutting one off kills the work midway and leaves a registered but half-initialised project behind.
 export const setupRequestHeadersTimeoutMs = 10 * 60_000
+
+// Which requests hold slots and which still wait, as the stall report names them.
+export type RequestQueueLogEntry = { method: string; url: string; ms: number }
+
+export type RequestQueueLog = { limit: number; inflight: RequestQueueLogEntry[]; queued: RequestQueueLogEntry[] }
 
 function isSlowRequest(pathname: string) {
   return slowRequestPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))
 }
 
 function isSetupRequest(method: string, pathname: string) {
-  return method === "POST" && pathname === "/api/worktree"
+  if (method !== "POST") return false
+
+  return pathname === "/api/worktree" || pathname === "/api/orchestra/society"
 }
 
 export function createRequestQueue(input: {
@@ -40,7 +48,7 @@ export function createRequestQueue(input: {
   stallMs?: number
   headersTimeoutMs?: number
   setupHeadersTimeoutMs?: number
-  log?: (message: string, data: Record<string, unknown>) => void
+  log?: (message: string, data: RequestQueueLog) => void
   now?: () => number
 }) {
   const limit = input.limit ?? requestQueueLimit
