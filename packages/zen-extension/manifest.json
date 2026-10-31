@@ -14,13 +14,15 @@
     "128": "icon.svg"
   },
   "permissions": [
-    "activeTab",
-    "contextMenus",
-    "storage"
+    "tabs",
+    "scripting",
+    "storage",
+    "contextMenus"
   ],
   "host_permissions": [
     "http://127.0.0.1/*",
-    "http://localhost/*"
+    "http://localhost/*",
+    "<all_urls>"
   ],
   "sidebar_action": {
     "default_panel": "sidebar.html",

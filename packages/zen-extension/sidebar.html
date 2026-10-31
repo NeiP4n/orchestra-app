@@ -11,7 +11,11 @@
     <!-- Header -->
     <header class="header-bar">
       <span class="brand-title">Orchestra</span>
-      <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <div id="rpcBadge" class="status-badge offline" role="status" aria-label="AI Bridge status" style="font-size: 10px;">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="rpcStatusText">AI Bridge: Disconnected</span>
+        </div>
         <div id="statusBadge" class="status-badge offline" role="status" aria-live="polite">
           <span class="status-dot" aria-hidden="true"></span>
           <span id="statusText">Checking...</span>
@@ -130,6 +134,21 @@
           <button id="sendPromptBtn" class="btn btn-primary" aria-label="Send prompt to session">
             Send Prompt
           </button>
+        </div>
+      </section>
+
+      <!-- AI Autonomous Activity Stream -->
+      <section class="card" aria-labelledby="aiActivityHeading">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <h2 id="aiActivityHeading" class="card-title">AI Activity</h2>
+          <button id="clearActivityBtn" class="btn btn-secondary btn-sm" style="font-size: 10px; padding: 1px 6px;">
+            Clear
+          </button>
+        </div>
+        <div id="aiActivityEmpty" class="tab-info-url" style="font-style: italic;">
+          Waiting for autonomous AI commands...
+        </div>
+        <div id="aiActivityList" class="hidden" style="display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow-y: auto;">
         </div>
       </section>
 

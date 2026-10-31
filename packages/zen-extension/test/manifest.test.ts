@@ -36,13 +36,15 @@ describe("Zen Extension Manifest", () => {
     })
 
     // Permissions
-    expect(manifest.permissions).toContain("activeTab")
-    expect(manifest.permissions).toContain("contextMenus")
+    expect(manifest.permissions).toContain("tabs")
+    expect(manifest.permissions).toContain("scripting")
     expect(manifest.permissions).toContain("storage")
+    expect(manifest.permissions).toContain("contextMenus")
 
-    // Host permissions for local daemon
+    // Host permissions for local daemon and web content
     expect(manifest.host_permissions).toContain("http://127.0.0.1/*")
     expect(manifest.host_permissions).toContain("http://localhost/*")
+    expect(manifest.host_permissions).toContain("<all_urls>")
 
     // Native Zen / Firefox sidebar_action with icon
     expect(manifest.sidebar_action).toEqual({

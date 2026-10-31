@@ -502,6 +502,38 @@ body {
   }
 }
 
+/* AI Activity Feed */
+.activity-feed-item {
+  font-size: 11px;
+  line-height: 14px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: var(--sculk-deep);
+  border-left: 2px solid var(--sculk-cyan);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+.activity-feed-item.error {
+  border-left-color: var(--v2-error-fg);
+}
+
+.activity-feed-text {
+  color: var(--v2-text-base);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-feed-time {
+  font-size: 9px;
+  color: var(--sculk-faint);
+  font-family: var(--v2-font-mono);
+  flex-shrink: 0;
+}
+
 /* Utilities */
 .hidden {
   display: none !important;

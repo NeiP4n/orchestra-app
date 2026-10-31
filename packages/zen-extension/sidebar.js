@@ -18,6 +18,8 @@ import {
 // DOM Elements
 const statusBadge = document.getElementById("statusBadge")
 const statusText = document.getElementById("statusText")
+const rpcBadge = document.getElementById("rpcBadge")
+const rpcStatusText = document.getElementById("rpcStatusText")
 const toggleSettingsBtn = document.getElementById("toggleSettingsBtn")
 const settingsPanel = document.getElementById("settingsPanel")
 const serverUrlInput = document.getElementById("serverUrlInput")
@@ -47,6 +49,10 @@ const sendPromptBtn = document.getElementById("sendPromptBtn")
 const feedbackBanner = document.getElementById("feedbackBanner")
 const feedbackMessage = document.getElementById("feedbackMessage")
 
+const aiActivityEmpty = document.getElementById("aiActivityEmpty")
+const aiActivityList = document.getElementById("aiActivityList")
+const clearActivityBtn = document.getElementById("clearActivityBtn")
+
 let currentServerUrl = DEFAULT_SERVER_URL
 let currentPassword = ""
 let activeTabContext = { title: "Current Page", url: "about:blank" }
@@ -65,6 +71,81 @@ function updateStatusUI(state, text) {
   if (!statusBadge || !statusText) return
   statusBadge.className = `status-badge ${state}`
   statusText.textContent = text
+}
+
+function updateRpcStatus(connected) {
+  if (!rpcBadge || !rpcStatusText) return
+  if (connected) {
+    rpcBadge.className = "status-badge online"
+    rpcStatusText.textContent = "AI Bridge: Connected"
+  } else {
+    rpcBadge.className = "status-badge offline"
+    rpcStatusText.textContent = "AI Bridge: Disconnected"
+  }
+}
+
+function appendActivity(activity) {
+  if (!aiActivityList || !activity) return
+  aiActivityEmpty?.classList.add("hidden")
+  aiActivityList.classList.remove("hidden")
+
+  const item = document.createElement("div")
+  item.className = activity.success ? "activity-feed-item" : "activity-feed-item error"
+
+  const textSpan = document.createElement("span")
+  textSpan.className = "activity-feed-text"
+  textSpan.textContent = `AI: ${activity.summary}`
+
+  const timeSpan = document.createElement("span")
+  timeSpan.className = "activity-feed-time"
+  const date = activity.timestamp ? new Date(activity.timestamp) : new Date()
+  timeSpan.textContent = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+
+  item.appendChild(textSpan)
+  item.appendChild(timeSpan)
+
+  aiActivityList.insertBefore(item, aiActivityList.firstChild)
+
+  while (aiActivityList.children.length > 25) {
+    aiActivityList.removeChild(aiActivityList.lastChild)
+  }
+}
+
+function initRpcListeners() {
+  const browserApi = typeof globalThis !== "undefined"
+    ? ((globalThis.browser ?? globalThis.chrome))
+    : undefined
+
+  if (browserApi?.runtime?.sendMessage) {
+    try {
+      browserApi.runtime.sendMessage({ type: "GET_RPC_STATUS" }, (res) => {
+        if (res && typeof res.connected === "boolean") {
+          updateRpcStatus(res.connected)
+        }
+      })
+      browserApi.runtime.sendMessage({ type: "GET_AI_ACTIVITIES" }, (res) => {
+        if (res && Array.isArray(res.activities)) {
+          for (const act of [...res.activities].reverse()) {
+            appendActivity(act)
+          }
+        }
+      })
+    } catch {
+      // ignore
+    }
+  }
+
+  if (browserApi?.runtime?.onMessage) {
+    browserApi.runtime.onMessage.addListener((message) => {
+      const msg = message
+      if (msg.type === "RPC_STATUS") {
+        updateRpcStatus(Boolean(msg.connected))
+      }
+      if (msg.type === "AI_ACTIVITY" && msg.activity) {
+        appendActivity(msg.activity)
+      }
+    })
+  }
 }
 
 async function fetchActiveTab() {
@@ -313,6 +394,12 @@ retryServerBtn?.addEventListener("click", () => void connect(true))
 createFirstSessionBtn?.addEventListener("click", () => void handleCreateSession())
 newSessionBtn?.addEventListener("click", () => void handleCreateSession())
 
+clearActivityBtn?.addEventListener("click", () => {
+  if (aiActivityList) aiActivityList.innerHTML = ""
+  aiActivityList?.classList.add("hidden")
+  aiActivityEmpty?.classList.remove("hidden")
+})
+
 sessionSelect?.addEventListener("change", (e) => {
   const target = e.target
   if (target && target.value) {
@@ -331,4 +418,5 @@ promptInput?.addEventListener("keydown", (e) => {
 })
 
 // Run on page load
+initRpcListeners()
 void connect(true)

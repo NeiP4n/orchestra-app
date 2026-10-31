@@ -12,6 +12,7 @@ import {
   setStoredServerUrl,
   setStoredSessionId,
 } from "./bridge"
+import { type AiActivityEvent, ZenRpcClient } from "./rpc-client"
 
 type WebExtGlobal = {
   runtime?: {
@@ -19,6 +20,7 @@ type WebExtGlobal = {
     onMessage?: {
       addListener: (cb: (msg: unknown, sender: unknown, sendResponse: (res?: unknown) => void) => boolean | void) => void
     }
+    sendMessage?: (message: unknown) => Promise<unknown>
   }
   contextMenus?: {
     create: (props: Record<string, unknown>, cb?: () => void) => void
@@ -43,6 +45,16 @@ const api = (typeof globalThis !== "undefined"
 
 const MENU_SEND_SELECTION = "orchestra-send-selection"
 const MENU_ANALYZE_PAGE = "orchestra-analyze-page"
+
+const recentAiActivities: AiActivityEvent[] = []
+const MAX_ACTIVITIES = 30
+
+function recordActivity(activity: AiActivityEvent) {
+  recentAiActivities.unshift(activity)
+  if (recentAiActivities.length > MAX_ACTIVITIES) {
+    recentAiActivities.pop()
+  }
+}
 
 function setBadge(text: string, color = "#5b89f7") {
   try {
@@ -170,6 +182,10 @@ async function handleContextMenuClick(
   }
 }
 
+// Initialize RPC client for autonomous AI control over Zen Browser
+const rpcClient = new ZenRpcClient()
+rpcClient.start()
+
 if (api?.runtime?.onInstalled) {
   api.runtime.onInstalled.addListener(() => {
     setupContextMenus()
@@ -184,10 +200,10 @@ if (api?.contextMenus?.onClicked) {
   })
 }
 
-// Background message bus for sidebar / popup actions
+// Background message bus for sidebar / popup actions and AI activity
 if (api?.runtime?.onMessage) {
   api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    const msg = message as { type?: string; payload?: unknown }
+    const msg = message as { type?: string; payload?: unknown; activity?: AiActivityEvent }
     if (msg.type === "CHECK_STATUS") {
       void (async () => {
         const password = await getStoredServerPassword()
@@ -204,6 +220,18 @@ if (api?.runtime?.onMessage) {
         return true
       }
       sendResponse(null)
+      return false
+    }
+    if (msg.type === "GET_RPC_STATUS") {
+      sendResponse({ connected: rpcClient.isConnected })
+      return false
+    }
+    if (msg.type === "GET_AI_ACTIVITIES") {
+      sendResponse({ activities: recentAiActivities })
+      return false
+    }
+    if (msg.type === "AI_ACTIVITY" && msg.activity) {
+      recordActivity(msg.activity)
       return false
     }
     return false

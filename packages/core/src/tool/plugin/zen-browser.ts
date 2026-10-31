@@ -1,0 +1,198 @@
+export * as ZenBrowserTool from "./zen-browser.js"
+
+import { ToolFailure } from "@orchestra/ai"
+import type { Context } from "@orchestra/plugin/effect/plugin"
+import { optional } from "@orchestra/schema/schema"
+import { Effect, Schema } from "effect"
+import { zenBridgeServer, ZenBridgeServer } from "../../zen/bridge-server.js"
+
+export const name = "zen_browser"
+
+export const description = [
+  "Direct interaction with Zen Browser via WebSocket bridge:",
+  "view open tabs, read page content, execute JavaScript, click elements, type text, navigate URLs, and control media playback (YouTube, Spotify, SoundCloud, etc.).",
+  "",
+  "Actions:",
+  "  status — check connection status with the Zen Browser extension (Orchestra Companion).",
+  "  tabs — list all open tabs with their ids, titles, URLs and active state.",
+  "  read — read visible text content and metadata of a tab (defaults to active tab).",
+  "  eval — execute JavaScript expression or code in a tab (defaults to active tab). Requires 'code'.",
+  "  click — click an element matching CSS selector in a tab. Requires 'selector'.",
+  "  type — type text into an input element matching CSS selector in a tab. Requires 'selector'.",
+  "  navigate — navigate a tab to a specified URL, or open new tab if no tabId. Requires 'url'.",
+  "  activate — bring a tab to the foreground. Requires 'tabId'.",
+  "  close — close a tab. Defaults to active tab or specified 'tabId'.",
+  "  media — control media playback (play_pause, play, pause, next, prev, mute).",
+].join("\n")
+
+export const Input = Schema.Struct({
+  action: Schema.Literals([
+    "status",
+    "tabs",
+    "read",
+    "eval",
+    "click",
+    "type",
+    "navigate",
+    "activate",
+    "close",
+    "media",
+  ]),
+  tabId: optional(Schema.Number),
+  url: optional(Schema.String),
+  code: optional(Schema.String),
+  selector: optional(Schema.String),
+  text: optional(Schema.String),
+  command: optional(Schema.Literals(["play_pause", "play", "pause", "next", "prev", "mute"])),
+})
+export type Input = typeof Input.Type
+
+export const Output = Schema.Struct({
+  output: Schema.String,
+})
+export type Output = typeof Output.Type
+
+let currentBridge: ZenBridgeServer = zenBridgeServer
+
+export function setZenBridgeServer(server: ZenBridgeServer): void {
+  currentBridge = server
+}
+
+export function getZenBridgeServer(): ZenBridgeServer {
+  return currentBridge
+}
+
+export function validate(input: Input): string | undefined {
+  if (input.action === "eval" && !input.code?.trim()) {
+    return 'zen_browser action "eval" requires "code"'
+  }
+  if ((input.action === "click" || input.action === "type") && !input.selector?.trim()) {
+    return `zen_browser action "${input.action}" requires "selector"`
+  }
+  if (input.action === "navigate" && !input.url?.trim()) {
+    return 'zen_browser action "navigate" requires "url"'
+  }
+  return undefined
+}
+
+export function renderResult(action: string, result: unknown): string {
+  if (result === undefined || result === null) return "OK"
+  if (typeof result === "string") return result
+
+  if (action === "tabs") {
+    const list =
+      typeof result === "object" && result && "tabs" in result && Array.isArray((result as { tabs: unknown[] }).tabs)
+        ? (result as { tabs: unknown[] }).tabs
+        : Array.isArray(result)
+          ? result
+          : null
+    if (list) {
+      if (list.length === 0) return "No open tabs."
+      return [
+        `Open tabs (${list.length}):`,
+        ...list.map((item) => {
+          const tab = item as { id?: number; title?: string; url?: string; active?: boolean }
+          const marker = tab.active ? " [active]" : ""
+          const id = tab.id !== undefined ? `Tab #${tab.id}` : "Tab"
+          const title = tab.title || "(untitled)"
+          const url = tab.url ? `\n    ${tab.url}` : ""
+          return `* ${id}${marker}: ${title}${url}`
+        }),
+      ].join("\n")
+    }
+  }
+
+  if (action === "read" && typeof result === "object" && result) {
+    const r = result as { title?: string; url?: string; text?: string; excerpt?: string }
+    const parts: string[] = []
+    if (r.title) parts.push(`Title: ${r.title}`)
+    if (r.url) parts.push(`URL: ${r.url}`)
+    if (parts.length > 0) parts.push("---")
+    parts.push(r.text || r.excerpt || "(empty page content)")
+    return parts.join("\n")
+  }
+
+  if (action === "eval") {
+    const val =
+      typeof result === "object" && result !== null && "result" in result
+        ? (result as { result: unknown }).result
+        : result
+    if (val === undefined) return "undefined"
+    if (val === null) return "null"
+    return typeof val === "object" ? JSON.stringify(val, null, 2) : String(val)
+  }
+
+  if (typeof result === "object") {
+    return JSON.stringify(result, null, 2)
+  }
+
+  return String(result)
+}
+
+export const run = (input: Input) =>
+  Effect.gen(function* () {
+    const bridge = getZenBridgeServer()
+    const status = bridge.getStatus()
+
+    if (input.action === "status") {
+      if (!status.connected) {
+        return {
+          output: `Zen Browser bridge is running on port ${bridge.port}, but no Zen Browser extension is currently connected. Ensure Zen Browser is open with Orchestra Companion.`,
+        }
+      }
+      return {
+        output: `Zen Browser connected (${status.clientInfo?.client ?? "zen-extension"} v${status.clientInfo?.version ?? "unknown"}) on port ${bridge.port}.`,
+      }
+    }
+
+    if (!status.connected) {
+      return {
+        output: `Zen Browser bridge is running on port ${bridge.port}, but no Zen Browser extension is currently connected. Ensure Zen Browser is open with Orchestra Companion.`,
+      }
+    }
+
+    const invalid = validate(input)
+    if (invalid) {
+      return yield* new ToolFailure({ message: invalid })
+    }
+
+    const params: Record<string, unknown> = {}
+    if (input.tabId !== undefined) params.tabId = input.tabId
+    if (input.url !== undefined) params.url = input.url
+    if (input.code !== undefined) params.code = input.code
+    if (input.selector !== undefined) params.selector = input.selector
+    if (input.text !== undefined) params.text = input.text
+    if (input.command !== undefined) params.command = input.command
+    if (input.action === "media" && params.command === undefined) {
+      params.command = "play_pause"
+    }
+
+    const raw = yield* Effect.tryPromise({
+      try: () => bridge.sendRpc(input.action, params),
+      catch: (error) =>
+        new ToolFailure({
+          message: `zen_browser ${input.action} failed: ${error instanceof Error ? error.message : String(error)}`,
+          error,
+        }),
+    })
+
+    return { output: renderResult(input.action, raw) }
+  })
+
+export const Plugin = {
+  id: "orchestra.tool.zen-browser",
+  effect: Effect.fn("ZenBrowserTool.Plugin")(function* (ctx: Context) {
+    yield* ctx.tool
+      .transform((editor) =>
+        editor.add({
+          name,
+          options: { codemode: false, core: true },
+          description,
+          input: Input,
+          output: Output,
+          execute: (value) => run(value).pipe(Effect.map((output) => ({ output, content: output.output }))),
+        }),
+      )
+      .pipe(Effect.orDie)
+  }),
+}
