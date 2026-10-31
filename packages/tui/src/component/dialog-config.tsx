@@ -23,6 +23,9 @@ type Setting = {
   max?: number
   format?: (value: unknown) => string
   keywords?: readonly string[]
+  // Tuning knob for whoever runs the server, not a choice a user makes while working:
+  // the dialog lists it only after Developer mode is on.
+  advanced?: boolean
   // Lives in the server's config, not the interface's: read from its config entries and written through its API.
   remote?: {
     read: (entries: readonly any[]) => unknown
@@ -143,6 +146,7 @@ export const settings: Setting[] = [
     description: "Show average tokens per second of the model",
     path: ["session", "tps"],
     default: true,
+    advanced: true,
     ...toggle,
     keywords: ["tokens per second", "throughput", "speed"],
   },
@@ -159,9 +163,10 @@ export const settings: Setting[] = [
     title: "Context governor",
     category: "Agent",
     description:
-      "Experimental: leave old, bulky tool output out of requests to save tokens. The saved conversation keeps everything",
+      "Leave old, bulky tool output out of requests to save tokens. The saved conversation keeps everything",
     path: ["experimental", "context_governor"],
-    default: false,
+    default: true,
+    advanced: true,
     ...toggle,
     keywords: ["tokens", "context", "cost", "save", "experimental", "токены", "контекст", "экономия"],
     remote: {
@@ -240,6 +245,7 @@ export const settings: Setting[] = [
     description: "Bottom bar with server, UI, Tools and Registry",
     path: ["debug", "devtools"],
     default: false,
+    advanced: true,
     ...toggle,
     keywords: ["debug bar", "developer tools"],
   },
@@ -267,10 +273,9 @@ export function DialogConfig(props: { current?: string }) {
     dialog.setSize("medium")
   })
 
-  const categories = createMemo(() => [
-    "All",
-    ...Array.from(new Set(settings.map((s) => s.category))),
-  ])
+  // Everyday settings only; server-tuning knobs appear once Developer mode is on.
+  const listed = createMemo(() => settings.filter((setting) => !setting.advanced || config.data.developer))
+  const categories = createMemo(() => ["All", ...Array.from(new Set(listed().map((s) => s.category)))])
   const [selectedCategory, setSelectedCategory] = createSignal("All")
 
   function cycleCategory(direction: number) {
@@ -282,9 +287,10 @@ export function DialogConfig(props: { current?: string }) {
 
   const current = Math.max(
     0,
-    settings.findIndex((setting) => settingID(setting) === props.current),
+    listed().findIndex((setting) => settingID(setting) === props.current),
   )
   const [selected, setSelected] = createSignal(current)
+  const currentSetting = createMemo(() => listed()[selected()])
   const [saving, setSaving] = createSignal(false)
   const [vibrating, setVibrating] = createSignal(false)
   let settle: ReturnType<typeof setTimeout> | undefined
@@ -315,12 +321,12 @@ export function DialogConfig(props: { current?: string }) {
 
   const filteredSettings = createMemo(() => {
     const cat = selectedCategory()
-    return cat === "All" ? settings : settings.filter((s) => s.category === cat)
+    return cat === "All" ? listed() : listed().filter((s) => s.category === cat)
   })
 
   const options = createMemo(() =>
     filteredSettings().map((setting) => {
-      const globalIndex = settings.indexOf(setting)
+      const globalIndex = listed().indexOf(setting)
       return {
         title: t(setting.title),
         category: selectedCategory() === "All" ? t(setting.category) : undefined,
@@ -334,7 +340,7 @@ export function DialogConfig(props: { current?: string }) {
   )
 
   async function write(next: unknown, index: number) {
-    const setting = settings[index]
+    const setting = listed()[index]
     setSaving(true)
     await (setting.remote
       ? setting.remote.write(client, next).then(() => refetch())
@@ -357,7 +363,7 @@ export function DialogConfig(props: { current?: string }) {
 
   function change(direction: number, index = selected()) {
     if (saving()) return
-    const setting = settings[index]
+    const setting = listed()[index]
     if (!setting) return
     const current = value(setting)
     const choices = values(setting)
@@ -371,7 +377,7 @@ export function DialogConfig(props: { current?: string }) {
   // Removing the key, rather than writing the default, keeps the config file
   // free of values the user never chose and follows future default changes.
   function reset(index = selected()) {
-    if (saving() || stored(settings[index]) === undefined) return
+    if (saving() || stored(listed()[index]) === undefined) return
     return write(undefined, index)
   }
 
@@ -379,7 +385,7 @@ export function DialogConfig(props: { current?: string }) {
     categories().map((id) => ({
       id,
       label: t(id),
-      count: id === "All" ? settings.length : settings.filter((setting) => setting.category === id).length,
+      count: id === "All" ? listed().length : listed().filter((setting) => setting.category === id).length,
     })),
   )
 
@@ -415,18 +421,15 @@ export function DialogConfig(props: { current?: string }) {
           <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="flex-start">
             <box flexGrow={1} minWidth={0} paddingRight={2}>
               <text fg={theme.text.base} wrapMode="word">
-                {t(settings[selected()]?.description ?? "")}
+                {t(currentSetting()?.description ?? "")}
               </text>
               <box flexDirection="row" gap={2} paddingTop={0}>
-                <text fg={theme.text.muted}>
-                  path: <span style={{ fg: theme.text.base }}>{settings[selected()] ? settingID(settings[selected()]) : ""}</span>
-                </text>
-                <Show when={settings[selected()]?.default !== undefined}>
+                <Show when={currentSetting()?.default !== undefined}>
                   <text fg={theme.text.muted}>
-                    default: <span style={{ fg: theme.text.base }}>{String(settings[selected()]?.default)}</span>
+                    default: <span style={{ fg: theme.text.base }}>{String(currentSetting()?.default)}</span>
                   </text>
                 </Show>
-                <Show when={settings[selected()] && changed(settings[selected()])}>
+                <Show when={currentSetting() && changed(currentSetting()!)}>
                   <text fg={theme.text.action.primary.base} attributes={TextAttributes.BOLD}>
                     ● {t("modified")}
                   </text>

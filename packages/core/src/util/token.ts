@@ -62,9 +62,3 @@ export function formatCount(count: number): string {
   if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`
   return String(count)
 }
-
-export function estimateBytes(tokens: number): number {
-  return Math.max(0, tokens * CHARS_PER_TOKEN)
-}
-
-

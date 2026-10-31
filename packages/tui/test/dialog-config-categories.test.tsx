@@ -68,8 +68,9 @@ test("DialogConfig sets dialog size to large and renders categorized navigation 
   for (const category of ["All", "General", "Appearance", "Chat", "Agent", "Workspace", "Notifications", "Input", "Developer"])
     expect(frame).toContain(category)
 
-  // Verify rich footer card metadata is rendered
-  expect(frame).toContain("path:")
+  // Verify rich footer card metadata is rendered: the default stays, the internal config
+  // path is engineering detail the dialog no longer shows.
+  expect(frame).not.toContain("path:")
   expect(frame).toContain("default:")
   expect(frame).toContain("tab")
 })
@@ -120,7 +121,7 @@ test("the Context governor setting is a button that writes the server's config",
   const app = await testRender(
     () => (
       <TestTuiContexts>
-        <ConfigProvider config={createTuiResolvedConfig({ theme: { name: "opencode", mode: "dark" } })}>
+        <ConfigProvider config={createTuiResolvedConfig({ developer: true, theme: { name: "opencode", mode: "dark" } })}>
           <ClientProvider api={serverApi(calls, false)}>
             <ThemeProvider mode="dark" source={emptyThemeSource}>
               <Keymap.Provider>
@@ -145,4 +146,34 @@ test("the Context governor setting is a button that writes the server's config",
   await app.mockMouse.click(lines[row].indexOf("Context governor") + 2, row)
   await app.waitFor(() => calls.length > 0)
   expect(calls).toEqual([{ method: "PATCH", path: "/api/experimental/config", body: { contextGovernor: true } }])
+})
+
+test("advanced settings stay out of the list until Developer mode is on", async () => {
+  const app = await testRender(
+    () => (
+      <TestTuiContexts>
+        <ConfigProvider config={createTuiResolvedConfig({ theme: { name: "opencode", mode: "dark" } })}>
+          <ClientProvider api={serverApi()}>
+            <ThemeProvider mode="dark" source={emptyThemeSource}>
+              <Keymap.Provider>
+                <ToastProvider>
+                  <DialogProvider>
+                    <DialogConfig />
+                  </DialogProvider>
+                </ToastProvider>
+              </Keymap.Provider>
+            </ThemeProvider>
+          </ClientProvider>
+        </ConfigProvider>
+      </TestTuiContexts>
+    ),
+    { width: 120, height: 45 },
+  )
+  app.renderer.start()
+  await app.waitForFrame((frame) => frame.includes("Settings") && frame.includes("Auto-compact"))
+
+  // Rows around it are listed, so the advanced row is hidden rather than scrolled away.
+  const frame = app.captureCharFrame()
+  expect(frame).toContain("Permissions")
+  expect(frame).not.toContain("Context governor")
 })

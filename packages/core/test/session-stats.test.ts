@@ -277,11 +277,10 @@ describe("SessionStats", () => {
     expect(exceeded.warning).toContain("Context limit exceeded: used 105000 tokens")
   })
 
-  test("Token.formatCount and Token.estimateBytes format memory and token quantities", () => {
+  test("Token.formatCount formats memory and token quantities", () => {
     expect(Token.formatCount(500)).toBe("500")
     expect(Token.formatCount(12_500)).toBe("12.5k")
     expect(Token.formatCount(1_500_000)).toBe("1.5M")
-    expect(Token.estimateBytes(1_000)).toBe(4_000)
   })
 
   test("SessionStats.sessionBudget analyzes message token usage and evaluates context limits", () => {
