@@ -3,6 +3,7 @@ import {
   buildSelectionPayload,
   checkServerStatus,
   createSession,
+  DEFAULT_SERVER_URL,
   detectActiveServer,
   getStoredServerPassword,
   getStoredServerUrl,
@@ -20,6 +21,9 @@ type WebExtGlobal = {
     onMessage?: {
       addListener: (cb: (msg: unknown, sender: unknown, sendResponse: (res?: unknown) => void) => boolean | void) => void
     }
+    onConnect?: {
+      addListener: (cb: (port: { name?: string; onDisconnect?: { addListener: (cb: () => void) => void } }) => void) => void
+    }
     sendMessage?: (message: unknown) => Promise<unknown>
   }
   contextMenus?: {
@@ -27,6 +31,13 @@ type WebExtGlobal = {
     removeAll: (cb?: () => void) => void
     onClicked?: {
       addListener: (cb: (info: { menuItemId: string; selectionText?: string; pageUrl?: string }, tab?: { id?: number; title?: string; url?: string }) => void) => void
+    }
+  }
+  alarms?: {
+    create: (name: string, alarmInfo: { periodInMinutes?: number; delayInMinutes?: number }) => void
+    get: (name: string, cb: (alarm: unknown) => void) => void
+    onAlarm?: {
+      addListener: (cb: (alarm: { name?: string }) => void) => void
     }
   }
   tabs?: {
@@ -73,19 +84,27 @@ function setBadge(text: string, color = "#5b89f7") {
 function setupContextMenus() {
   if (!api?.contextMenus) return
 
-  api.contextMenus.removeAll?.(() => {
-    api.contextMenus?.create({
-      id: MENU_SEND_SELECTION,
-      title: "Send selection to Orchestra",
-      contexts: ["selection"],
-    })
+  try {
+    api.contextMenus.removeAll?.(() => {
+      try {
+        api.contextMenus?.create?.({
+          id: MENU_SEND_SELECTION,
+          title: "Send selection to Orchestra",
+          contexts: ["selection"],
+        })
 
-    api.contextMenus?.create({
-      id: MENU_ANALYZE_PAGE,
-      title: "Analyze page with Orchestra",
-      contexts: ["page", "selection"],
+        api.contextMenus?.create?.({
+          id: MENU_ANALYZE_PAGE,
+          title: "Analyze page with Orchestra",
+          contexts: ["page", "selection"],
+        })
+      } catch (err) {
+        console.warn("[Orchestra Zen] setupContextMenus create error:", err)
+      }
     })
-  })
+  } catch (err) {
+    console.warn("[Orchestra Zen] setupContextMenus removeAll error:", err)
+  }
 }
 
 async function resolveServer(password?: string): Promise<{ url: string; online: boolean; requiresAuth?: boolean }> {
@@ -182,40 +201,127 @@ async function handleContextMenuClick(
   }
 }
 
+const KEEPALIVE_ALARM_NAME = "orchestra-keepalive"
+
+function setupKeepAliveAlarm() {
+  if (!api?.alarms) {
+    console.warn("[Orchestra Zen] alarms API is not available")
+    return
+  }
+
+  try {
+    api.alarms.create(KEEPALIVE_ALARM_NAME, {
+      periodInMinutes: 0.25, // every 15 seconds
+    })
+    console.log("[Orchestra Zen] Registered keepalive alarm (every 15s)")
+  } catch (err) {
+    console.error("[Orchestra Zen] Failed to register keepalive alarm:", err)
+  }
+}
+
+// Synchronous top-level alarm listener wakes up background script when alarm triggers
+if (api?.alarms?.onAlarm) {
+  api.alarms.onAlarm.addListener((alarm: { name?: string }) => {
+    if (alarm.name === KEEPALIVE_ALARM_NAME) {
+      console.log("[Orchestra Zen] Keepalive alarm tick: ensuring connection...")
+      try {
+        rpcClient?.ensureConnected?.()
+      } catch (err) {
+        console.error("[Orchestra Zen] Keepalive ensureConnected error:", err)
+      }
+      void (async () => {
+        try {
+          await fetch("http://127.0.0.1:4097/heartbeat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ client: "zen-extension-alarm", version: "1.0.0" }),
+          })
+        } catch {
+          // ignore
+        }
+      })()
+    }
+  })
+}
+
+// Synchronous top-level port listener keeps background active when sidebar or popup is open
+if (api?.runtime?.onConnect) {
+  api.runtime.onConnect.addListener((port: any) => {
+    console.log(`[Orchestra Zen] Port connected: ${port?.name ?? "unknown"}`)
+    port?.onDisconnect?.addListener(() => {
+      console.log(`[Orchestra Zen] Port disconnected: ${port?.name ?? "unknown"}`)
+    })
+  })
+}
+
 // Initialize RPC client for autonomous AI control over Zen Browser
-const rpcClient = new ZenRpcClient()
-rpcClient.start()
+let rpcClient: ZenRpcClient | undefined
+
+try {
+  console.log("[Orchestra Zen] Starting ZenRpcClient on port 4097...")
+  rpcClient = new ZenRpcClient({ port: 4097 })
+  rpcClient.start()
+  console.log("[Orchestra Zen] ZenRpcClient started successfully")
+} catch (err) {
+  console.error("[Orchestra Zen] Failed to initialize ZenRpcClient:", err)
+}
+
+try {
+  setupKeepAliveAlarm()
+} catch (err) {
+  console.error("[Orchestra Zen] setupKeepAliveAlarm error:", err)
+}
 
 if (api?.runtime?.onInstalled) {
   api.runtime.onInstalled.addListener(() => {
-    setupContextMenus()
+    try {
+      setupContextMenus()
+    } catch (err) {
+      console.warn("[Orchestra Zen] onInstalled setupContextMenus error:", err)
+    }
   })
 } else {
-  setupContextMenus()
+  try {
+    setupContextMenus()
+  } catch (err) {
+    console.warn("[Orchestra Zen] setupContextMenus error:", err)
+  }
 }
 
 if (api?.contextMenus?.onClicked) {
-  api.contextMenus.onClicked.addListener((info, tab) => {
-    void handleContextMenuClick(info, tab)
+  api.contextMenus.onClicked.addListener((info: any, tab: any) => {
+    try {
+      void handleContextMenuClick(info, tab)
+    } catch (err) {
+      console.error("[Orchestra Zen] handleContextMenuClick error:", err)
+    }
   })
 }
 
 // Background message bus for sidebar / popup actions and AI activity
 if (api?.runtime?.onMessage) {
-  api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  api.runtime.onMessage.addListener((message: unknown, _sender: unknown, sendResponse: (res?: unknown) => void) => {
     const msg = message as { type?: string; payload?: unknown; activity?: AiActivityEvent }
     if (msg.type === "CHECK_STATUS") {
       void (async () => {
-        const password = await getStoredServerPassword()
-        const resolved = await resolveServer(password)
-        sendResponse(resolved)
+        try {
+          const password = await getStoredServerPassword()
+          const resolved = await resolveServer(password)
+          sendResponse(resolved)
+        } catch (err) {
+          console.error("[Orchestra Zen] CHECK_STATUS error:", err)
+          sendResponse({ url: DEFAULT_SERVER_URL, online: false })
+        }
       })()
       return true
     }
     if (msg.type === "GET_ACTIVE_TAB") {
       if (api.tabs?.query) {
-        void api.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
+        void api.tabs.query({ active: true, currentWindow: true }).then((tabs: any[]) => {
           sendResponse(tabs[0] ?? null)
+        }).catch((err: any) => {
+          console.error("[Orchestra Zen] GET_ACTIVE_TAB error:", err)
+          sendResponse(null)
         })
         return true
       }
@@ -223,7 +329,7 @@ if (api?.runtime?.onMessage) {
       return false
     }
     if (msg.type === "GET_RPC_STATUS") {
-      sendResponse({ connected: rpcClient.isConnected })
+      sendResponse({ connected: rpcClient?.isConnected ?? false })
       return false
     }
     if (msg.type === "GET_AI_ACTIVITIES") {

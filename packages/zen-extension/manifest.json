@@ -17,7 +17,8 @@
     "tabs",
     "scripting",
     "storage",
-    "contextMenus"
+    "contextMenus",
+    "alarms"
   ],
   "host_permissions": [
     "http://127.0.0.1/*",
@@ -27,7 +28,7 @@
     "<all_urls>"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*;"
+    "extension_pages": "script-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:* http://127.0.0.1 ws://127.0.0.1 http://localhost ws://localhost http://127.0.0.1:4097 ws://127.0.0.1:4097 http://127.0.0.1:4096 ws://127.0.0.1:4096 http://localhost:4097 ws://localhost:4097 http://localhost:4096 ws://localhost:4096;"
   },
   "sidebar_action": {
     "default_panel": "sidebar.html",

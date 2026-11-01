@@ -9,7 +9,7 @@ export const DEFAULT_RPC_URL = "ws://127.0.0.1:4097"
 export const DEFAULT_HTTP_FALLBACK_URL = "http://127.0.0.1:4097"
 export const RECONNECT_INTERVAL_MS = 2000
 export const HTTP_POLL_INTERVAL_MS = 1500
-export const HEARTBEAT_INTERVAL_MS = 4000
+export const HEARTBEAT_INTERVAL_MS = 2000
 
 export interface RpcRequest {
   readonly id: string | number
@@ -313,6 +313,30 @@ export function formatActionSummary(action: string, params: Record<string, unkno
   }
 }
 
+export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+
+export interface ZenRpcClientOptions {
+  readonly url?: string
+  readonly port?: number
+  readonly httpFallbackUrl?: string
+  readonly browserApi?: BrowserLike
+  readonly wsFactory?: (url: string) => WebSocket
+  readonly customFetch?: FetchLike
+}
+
+const defaultWsFactory = (u: string): WebSocket => {
+  const Ctor =
+    typeof WebSocket !== "undefined"
+      ? WebSocket
+      : typeof globalThis !== "undefined" && "WebSocket" in globalThis
+        ? (globalThis as any).WebSocket
+        : undefined
+  if (!Ctor) {
+    throw new Error("WebSocket constructor is not available in current environment")
+  }
+  return new Ctor(u)
+}
+
 export class ZenRpcClient {
   private ws: WebSocket | null = null
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -322,34 +346,71 @@ export class ZenRpcClient {
   public isConnected = false
   public isWsConnected = false
 
+  private readonly url: string
   private readonly browserApi: BrowserLike
   private readonly httpFallbackUrl: string
+  private readonly wsFactory: (url: string) => WebSocket
+  private readonly customFetch: FetchLike
 
   constructor(
-    private readonly url = DEFAULT_RPC_URL,
+    urlOrOptions: string | ZenRpcClientOptions = DEFAULT_RPC_URL,
     browserApiOrHttpFallback?: BrowserLike | string,
     fallbackUrlOrBrowserApi?: string | BrowserLike,
-    private readonly wsFactory: (url: string) => WebSocket = (u) => new WebSocket(u),
-    private readonly customFetch: typeof fetch = fetch,
+    wsFactory: (url: string) => WebSocket = defaultWsFactory,
+    customFetch: FetchLike = (url, init) => fetch(url, init),
   ) {
-    if (typeof browserApiOrHttpFallback === "string") {
-      this.httpFallbackUrl = browserApiOrHttpFallback
-      this.browserApi = (
-        typeof fallbackUrlOrBrowserApi === "object" && fallbackUrlOrBrowserApi !== null
-          ? fallbackUrlOrBrowserApi
-          : (getBrowserApi() ?? {})
-      ) as BrowserLike
-    } else {
-      this.browserApi = (browserApiOrHttpFallback ?? getBrowserApi() ?? {}) as BrowserLike
+    if (typeof urlOrOptions === "object" && urlOrOptions !== null) {
+      const port = urlOrOptions.port ?? 4097
+      this.url = urlOrOptions.url ?? (urlOrOptions.port ? `ws://127.0.0.1:${port}` : DEFAULT_RPC_URL)
       this.httpFallbackUrl =
-        typeof fallbackUrlOrBrowserApi === "string" ? fallbackUrlOrBrowserApi : DEFAULT_HTTP_FALLBACK_URL
+        urlOrOptions.httpFallbackUrl ?? (urlOrOptions.port ? `http://127.0.0.1:${port}` : DEFAULT_HTTP_FALLBACK_URL)
+      this.browserApi = urlOrOptions.browserApi ?? getBrowserApi() ?? {}
+      this.wsFactory = urlOrOptions.wsFactory ?? wsFactory
+      this.customFetch = urlOrOptions.customFetch ?? customFetch
+    } else {
+      this.url = typeof urlOrOptions === "string" ? urlOrOptions : DEFAULT_RPC_URL
+      this.wsFactory = wsFactory
+      this.customFetch = customFetch
+      if (typeof browserApiOrHttpFallback === "string") {
+        this.httpFallbackUrl = browserApiOrHttpFallback
+        this.browserApi = (
+          typeof fallbackUrlOrBrowserApi === "object" && fallbackUrlOrBrowserApi !== null
+            ? fallbackUrlOrBrowserApi
+            : (getBrowserApi() ?? {})
+        ) as BrowserLike
+      } else {
+        this.browserApi = (browserApiOrHttpFallback ?? getBrowserApi() ?? {}) as BrowserLike
+        this.httpFallbackUrl =
+          typeof fallbackUrlOrBrowserApi === "string" ? fallbackUrlOrBrowserApi : DEFAULT_HTTP_FALLBACK_URL
+      }
     }
   }
 
   public start() {
     this.isDestroyed = false
-    this.connectWs()
-    this.startHttpFallback()
+    console.log(`[ZenRpcClient] Starting RPC client (url=${this.url}, fallback=${this.httpFallbackUrl})`)
+    // Send immediate HTTP heartbeat to establish connection status instantly
+    void this.sendHeartbeat()
+    try {
+      this.connectWs()
+    } catch (err) {
+      console.error("[ZenRpcClient] Error starting WebSocket connection:", err)
+      void this.sendHeartbeat()
+    }
+    try {
+      this.startHttpFallback()
+    } catch (err) {
+      console.error("[ZenRpcClient] Error starting HTTP fallback:", err)
+    }
+  }
+
+  public ensureConnected() {
+    if (this.isDestroyed) return
+    if (!this.isWsConnected && !this.ws) {
+      console.log("[ZenRpcClient] ensureConnected triggered: reconnecting WebSocket...")
+      this.connectWs()
+    }
+    void this.sendHeartbeat()
   }
 
   public stop() {
@@ -377,6 +438,7 @@ export class ZenRpcClient {
   private setConnectionState(connected: boolean) {
     if (this.isConnected !== connected) {
       this.isConnected = connected
+      console.log(`[ZenRpcClient] Connection state changed: ${connected ? "CONNECTED" : "DISCONNECTED"}`)
       this.broadcastStatus(connected)
     }
   }
@@ -385,9 +447,11 @@ export class ZenRpcClient {
     if (this.isDestroyed) return
 
     try {
+      console.log(`[ZenRpcClient] Creating WebSocket instance to ${this.url}`)
       this.ws = this.wsFactory(this.url)
 
       this.ws.onopen = () => {
+        console.log(`[ZenRpcClient] WebSocket connection established to ${this.url}`)
         this.isWsConnected = true
         this.setConnectionState(true)
         this.send({
@@ -402,14 +466,19 @@ export class ZenRpcClient {
       }
 
       this.ws.onclose = () => {
+        console.warn(`[ZenRpcClient] WebSocket closed for ${this.url}`)
         this.handleWsDisconnect()
       }
 
-      this.ws.onerror = () => {
+      this.ws.onerror = (err) => {
+        console.error(`[ZenRpcClient] WebSocket error for ${this.url}:`, err)
         this.handleWsDisconnect()
+        void this.sendHeartbeat()
       }
-    } catch {
+    } catch (err) {
+      console.error(`[ZenRpcClient] Failed to instantiate WebSocket for ${this.url}:`, err)
       this.handleWsDisconnect()
+      void this.sendHeartbeat()
     }
   }
 
@@ -455,19 +524,29 @@ export class ZenRpcClient {
   }
 
   private async sendHeartbeat(): Promise<void> {
-    try {
-      const res = await this.customFetch(`${this.httpFallbackUrl}/heartbeat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client: "zen-extension", version: "1.0.0" }),
-      })
-      if (res.ok) {
-        this.setConnectionState(true)
+    const candidateUrls = [this.httpFallbackUrl]
+    if (this.httpFallbackUrl.includes("127.0.0.1")) {
+      candidateUrls.push(this.httpFallbackUrl.replace("127.0.0.1", "localhost"))
+    }
+
+    for (const baseUrl of candidateUrls) {
+      try {
+        const res = await this.customFetch(`${baseUrl}/heartbeat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ client: "zen-extension", version: "1.0.0" }),
+        })
+        if (res.ok) {
+          this.setConnectionState(true)
+          return
+        }
+      } catch {
+        // try next candidate url
       }
-    } catch {
-      if (!this.isWsConnected) {
-        this.setConnectionState(false)
-      }
+    }
+
+    if (!this.isWsConnected) {
+      this.setConnectionState(false)
     }
   }
 
@@ -482,7 +561,7 @@ export class ZenRpcClient {
 
     try {
       const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 2500)
+      const timer = setTimeout(() => controller.abort(), 30_000)
       const res = await this.customFetch(`${this.httpFallbackUrl}/poll`, {
         method: "GET",
         signal: controller.signal,
@@ -501,8 +580,9 @@ export class ZenRpcClient {
           this.setConnectionState(false)
         }
       }
-    } catch {
-      if (!this.isWsConnected) {
+    } catch (error) {
+      const isAbort = error instanceof Error && error.name === "AbortError"
+      if (!isAbort && !this.isWsConnected) {
         this.setConnectionState(false)
       }
     } finally {
@@ -564,7 +644,7 @@ export class ZenRpcClient {
   }
 
   private send(data: unknown) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (this.ws && (this.ws.readyState === 1 || (typeof WebSocket !== "undefined" && this.ws.readyState === WebSocket.OPEN))) {
       this.ws.send(JSON.stringify(data))
     }
   }

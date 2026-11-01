@@ -216,7 +216,7 @@ var DEFAULT_RPC_URL = "ws://127.0.0.1:4097";
 var DEFAULT_HTTP_FALLBACK_URL = "http://127.0.0.1:4097";
 var RECONNECT_INTERVAL_MS = 2000;
 var HTTP_POLL_INTERVAL_MS = 1500;
-var HEARTBEAT_INTERVAL_MS = 4000;
+var HEARTBEAT_INTERVAL_MS = 2000;
 function getBrowserApi() {
   if (typeof globalThis === "undefined")
     return;
@@ -448,13 +448,15 @@ function formatActionSummary(action, params = {}) {
       return `Executed action: ${action}`;
   }
 }
+var defaultWsFactory = (u) => {
+  const Ctor = typeof WebSocket !== "undefined" ? WebSocket : typeof globalThis !== "undefined" && ("WebSocket" in globalThis) ? globalThis.WebSocket : undefined;
+  if (!Ctor) {
+    throw new Error("WebSocket constructor is not available in current environment");
+  }
+  return new Ctor(u);
+};
 
 class ZenRpcClient {
-  url;
-  browserApi;
-  httpFallbackUrl;
-  wsFactory;
-  customFetch;
   ws = null;
   reconnectTimer = null;
   pollTimer = null;
@@ -462,17 +464,56 @@ class ZenRpcClient {
   isDestroyed = false;
   isConnected = false;
   isWsConnected = false;
-  constructor(url = DEFAULT_RPC_URL, browserApi = getBrowserApi() ?? {}, httpFallbackUrl = DEFAULT_HTTP_FALLBACK_URL, wsFactory = (u) => new WebSocket(u), customFetch = fetch) {
-    this.url = url;
-    this.browserApi = browserApi;
-    this.httpFallbackUrl = httpFallbackUrl;
-    this.wsFactory = wsFactory;
-    this.customFetch = customFetch;
+  url;
+  browserApi;
+  httpFallbackUrl;
+  wsFactory;
+  customFetch;
+  constructor(urlOrOptions = DEFAULT_RPC_URL, browserApiOrHttpFallback, fallbackUrlOrBrowserApi, wsFactory = defaultWsFactory, customFetch = (url, init) => fetch(url, init)) {
+    if (typeof urlOrOptions === "object" && urlOrOptions !== null) {
+      const port = urlOrOptions.port ?? 4097;
+      this.url = urlOrOptions.url ?? (urlOrOptions.port ? `ws://127.0.0.1:${port}` : DEFAULT_RPC_URL);
+      this.httpFallbackUrl = urlOrOptions.httpFallbackUrl ?? (urlOrOptions.port ? `http://127.0.0.1:${port}` : DEFAULT_HTTP_FALLBACK_URL);
+      this.browserApi = urlOrOptions.browserApi ?? getBrowserApi() ?? {};
+      this.wsFactory = urlOrOptions.wsFactory ?? wsFactory;
+      this.customFetch = urlOrOptions.customFetch ?? customFetch;
+    } else {
+      this.url = typeof urlOrOptions === "string" ? urlOrOptions : DEFAULT_RPC_URL;
+      this.wsFactory = wsFactory;
+      this.customFetch = customFetch;
+      if (typeof browserApiOrHttpFallback === "string") {
+        this.httpFallbackUrl = browserApiOrHttpFallback;
+        this.browserApi = typeof fallbackUrlOrBrowserApi === "object" && fallbackUrlOrBrowserApi !== null ? fallbackUrlOrBrowserApi : getBrowserApi() ?? {};
+      } else {
+        this.browserApi = browserApiOrHttpFallback ?? getBrowserApi() ?? {};
+        this.httpFallbackUrl = typeof fallbackUrlOrBrowserApi === "string" ? fallbackUrlOrBrowserApi : DEFAULT_HTTP_FALLBACK_URL;
+      }
+    }
   }
   start() {
     this.isDestroyed = false;
-    this.connectWs();
-    this.startHttpFallback();
+    console.log(`[ZenRpcClient] Starting RPC client (url=${this.url}, fallback=${this.httpFallbackUrl})`);
+    this.sendHeartbeat();
+    try {
+      this.connectWs();
+    } catch (err) {
+      console.error("[ZenRpcClient] Error starting WebSocket connection:", err);
+      this.sendHeartbeat();
+    }
+    try {
+      this.startHttpFallback();
+    } catch (err) {
+      console.error("[ZenRpcClient] Error starting HTTP fallback:", err);
+    }
+  }
+  ensureConnected() {
+    if (this.isDestroyed)
+      return;
+    if (!this.isWsConnected && !this.ws) {
+      console.log("[ZenRpcClient] ensureConnected triggered: reconnecting WebSocket...");
+      this.connectWs();
+    }
+    this.sendHeartbeat();
   }
   stop() {
     this.isDestroyed = true;
@@ -498,6 +539,7 @@ class ZenRpcClient {
   setConnectionState(connected) {
     if (this.isConnected !== connected) {
       this.isConnected = connected;
+      console.log(`[ZenRpcClient] Connection state changed: ${connected ? "CONNECTED" : "DISCONNECTED"}`);
       this.broadcastStatus(connected);
     }
   }
@@ -505,8 +547,10 @@ class ZenRpcClient {
     if (this.isDestroyed)
       return;
     try {
+      console.log(`[ZenRpcClient] Creating WebSocket instance to ${this.url}`);
       this.ws = this.wsFactory(this.url);
       this.ws.onopen = () => {
+        console.log(`[ZenRpcClient] WebSocket connection established to ${this.url}`);
         this.isWsConnected = true;
         this.setConnectionState(true);
         this.send({
@@ -519,13 +563,18 @@ class ZenRpcClient {
         this.handleMessage(event.data);
       };
       this.ws.onclose = () => {
+        console.warn(`[ZenRpcClient] WebSocket closed for ${this.url}`);
         this.handleWsDisconnect();
       };
-      this.ws.onerror = () => {
+      this.ws.onerror = (err) => {
+        console.error(`[ZenRpcClient] WebSocket error for ${this.url}:`, err);
         this.handleWsDisconnect();
+        this.sendHeartbeat();
       };
-    } catch {
+    } catch (err) {
+      console.error(`[ZenRpcClient] Failed to instantiate WebSocket for ${this.url}:`, err);
       this.handleWsDisconnect();
+      this.sendHeartbeat();
     }
   }
   handleWsDisconnect() {
@@ -565,19 +614,25 @@ class ZenRpcClient {
     }, delayMs);
   }
   async sendHeartbeat() {
-    try {
-      const res = await this.customFetch(`${this.httpFallbackUrl}/heartbeat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client: "zen-extension", version: "1.0.0" })
-      });
-      if (res.ok) {
-        this.setConnectionState(true);
-      }
-    } catch {
-      if (!this.isWsConnected) {
-        this.setConnectionState(false);
-      }
+    const candidateUrls = [this.httpFallbackUrl];
+    if (this.httpFallbackUrl.includes("127.0.0.1")) {
+      candidateUrls.push(this.httpFallbackUrl.replace("127.0.0.1", "localhost"));
+    }
+    for (const baseUrl of candidateUrls) {
+      try {
+        const res = await this.customFetch(`${baseUrl}/heartbeat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ client: "zen-extension", version: "1.0.0" })
+        });
+        if (res.ok) {
+          this.setConnectionState(true);
+          return;
+        }
+      } catch {}
+    }
+    if (!this.isWsConnected) {
+      this.setConnectionState(false);
     }
   }
   async executeHttpPoll() {
@@ -589,7 +644,7 @@ class ZenRpcClient {
     }
     try {
       const controller = new AbortController;
-      const timer = setTimeout(() => controller.abort(), 2500);
+      const timer = setTimeout(() => controller.abort(), 30000);
       const res = await this.customFetch(`${this.httpFallbackUrl}/poll`, {
         method: "GET",
         signal: controller.signal
@@ -607,8 +662,9 @@ class ZenRpcClient {
           this.setConnectionState(false);
         }
       }
-    } catch {
-      if (!this.isWsConnected) {
+    } catch (error) {
+      const isAbort = error instanceof Error && error.name === "AbortError";
+      if (!isAbort && !this.isWsConnected) {
         this.setConnectionState(false);
       }
     } finally {
@@ -662,7 +718,7 @@ class ZenRpcClient {
     } catch {}
   }
   send(data) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (this.ws && (this.ws.readyState === 1 || typeof WebSocket !== "undefined" && this.ws.readyState === WebSocket.OPEN)) {
       this.ws.send(JSON.stringify(data));
     }
   }
@@ -725,18 +781,26 @@ function setBadge(text, color = "#5b89f7") {
 function setupContextMenus() {
   if (!api?.contextMenus)
     return;
-  api.contextMenus.removeAll?.(() => {
-    api.contextMenus?.create({
-      id: MENU_SEND_SELECTION,
-      title: "Send selection to Orchestra",
-      contexts: ["selection"]
+  try {
+    api.contextMenus.removeAll?.(() => {
+      try {
+        api.contextMenus?.create?.({
+          id: MENU_SEND_SELECTION,
+          title: "Send selection to Orchestra",
+          contexts: ["selection"]
+        });
+        api.contextMenus?.create?.({
+          id: MENU_ANALYZE_PAGE,
+          title: "Analyze page with Orchestra",
+          contexts: ["page", "selection"]
+        });
+      } catch (err) {
+        console.warn("[Orchestra Zen] setupContextMenus create error:", err);
+      }
     });
-    api.contextMenus?.create({
-      id: MENU_ANALYZE_PAGE,
-      title: "Analyze page with Orchestra",
-      contexts: ["page", "selection"]
-    });
-  });
+  } catch (err) {
+    console.warn("[Orchestra Zen] setupContextMenus removeAll error:", err);
+  }
 }
 async function resolveServer(password) {
   let serverUrl = await getStoredServerUrl();
@@ -815,18 +879,86 @@ async function handleContextMenuClick(info, tab) {
     console.error("[Orchestra Zen] sendPrompt error:", result.error);
   }
 }
-var rpcClient = new ZenRpcClient;
-rpcClient.start();
+var KEEPALIVE_ALARM_NAME = "orchestra-keepalive";
+function setupKeepAliveAlarm() {
+  if (!api?.alarms) {
+    console.warn("[Orchestra Zen] alarms API is not available");
+    return;
+  }
+  try {
+    api.alarms.create(KEEPALIVE_ALARM_NAME, {
+      periodInMinutes: 0.25
+    });
+    console.log("[Orchestra Zen] Registered keepalive alarm (every 15s)");
+  } catch (err) {
+    console.error("[Orchestra Zen] Failed to register keepalive alarm:", err);
+  }
+}
+if (api?.alarms?.onAlarm) {
+  api.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === KEEPALIVE_ALARM_NAME) {
+      console.log("[Orchestra Zen] Keepalive alarm tick: ensuring connection...");
+      try {
+        rpcClient?.ensureConnected?.();
+      } catch (err) {
+        console.error("[Orchestra Zen] Keepalive ensureConnected error:", err);
+      }
+      (async () => {
+        try {
+          await fetch("http://127.0.0.1:4097/heartbeat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ client: "zen-extension-alarm", version: "1.0.0" })
+          });
+        } catch {}
+      })();
+    }
+  });
+}
+if (api?.runtime?.onConnect) {
+  api.runtime.onConnect.addListener((port) => {
+    console.log(`[Orchestra Zen] Port connected: ${port?.name ?? "unknown"}`);
+    port?.onDisconnect?.addListener(() => {
+      console.log(`[Orchestra Zen] Port disconnected: ${port?.name ?? "unknown"}`);
+    });
+  });
+}
+var rpcClient;
+try {
+  console.log("[Orchestra Zen] Starting ZenRpcClient on port 4097...");
+  rpcClient = new ZenRpcClient({ port: 4097 });
+  rpcClient.start();
+  console.log("[Orchestra Zen] ZenRpcClient started successfully");
+} catch (err) {
+  console.error("[Orchestra Zen] Failed to initialize ZenRpcClient:", err);
+}
+try {
+  setupKeepAliveAlarm();
+} catch (err) {
+  console.error("[Orchestra Zen] setupKeepAliveAlarm error:", err);
+}
 if (api?.runtime?.onInstalled) {
   api.runtime.onInstalled.addListener(() => {
-    setupContextMenus();
+    try {
+      setupContextMenus();
+    } catch (err) {
+      console.warn("[Orchestra Zen] onInstalled setupContextMenus error:", err);
+    }
   });
 } else {
-  setupContextMenus();
+  try {
+    setupContextMenus();
+  } catch (err) {
+    console.warn("[Orchestra Zen] setupContextMenus error:", err);
+  }
 }
 if (api?.contextMenus?.onClicked) {
   api.contextMenus.onClicked.addListener((info, tab) => {
-    handleContextMenuClick(info, tab);
+    try {
+      handleContextMenuClick(info, tab);
+    } catch (err) {
+      console.error("[Orchestra Zen] handleContextMenuClick error:", err);
+    }
   });
 }
 if (api?.runtime?.onMessage) {
@@ -834,9 +966,14 @@ if (api?.runtime?.onMessage) {
     const msg = message;
     if (msg.type === "CHECK_STATUS") {
       (async () => {
-        const password = await getStoredServerPassword();
-        const resolved = await resolveServer(password);
-        sendResponse(resolved);
+        try {
+          const password = await getStoredServerPassword();
+          const resolved = await resolveServer(password);
+          sendResponse(resolved);
+        } catch (err) {
+          console.error("[Orchestra Zen] CHECK_STATUS error:", err);
+          sendResponse({ url: DEFAULT_SERVER_URL, online: false });
+        }
       })();
       return true;
     }
@@ -844,6 +981,9 @@ if (api?.runtime?.onMessage) {
       if (api.tabs?.query) {
         api.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
           sendResponse(tabs[0] ?? null);
+        }).catch((err) => {
+          console.error("[Orchestra Zen] GET_ACTIVE_TAB error:", err);
+          sendResponse(null);
         });
         return true;
       }
@@ -851,7 +991,7 @@ if (api?.runtime?.onMessage) {
       return false;
     }
     if (msg.type === "GET_RPC_STATUS") {
-      sendResponse({ connected: rpcClient.isConnected });
+      sendResponse({ connected: rpcClient?.isConnected ?? false });
       return false;
     }
     if (msg.type === "GET_AI_ACTIVITIES") {

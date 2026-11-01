@@ -597,4 +597,41 @@ describe("HTTP Long-Polling and Heartbeat fallback", () => {
       expiryServer.stop()
     }
   })
+
+  test("CORS: OPTIONS preflight returns 204 with moz-extension origin and allowed headers", async () => {
+    const res = await fetch(`http://127.0.0.1:${serverPort}/heartbeat`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: "moz-extension://a1b2c3d4-e5f6-7890-abcd-ef0123456789",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "Content-Type, Authorization",
+      },
+    })
+    expect(res.status).toBe(204)
+    expect(res.headers.get("access-control-allow-origin")).toBe("moz-extension://a1b2c3d4-e5f6-7890-abcd-ef0123456789")
+    expect(res.headers.get("access-control-allow-methods")).toContain("POST")
+    expect(res.headers.get("access-control-allow-methods")).toContain("OPTIONS")
+    expect(res.headers.get("access-control-allow-headers")).toContain("Content-Type")
+  })
+
+  test("CORS: POST /heartbeat and GET /poll allow null or extension origins", async () => {
+    // null origin
+    const nullRes = await fetch(`http://127.0.0.1:${serverPort}/heartbeat`, {
+      method: "POST",
+      headers: {
+        Origin: "null",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ client: "zen-test", version: "1.0.0" }),
+    })
+    expect(nullRes.headers.get("access-control-allow-origin")).toBe("null")
+
+    // moz-extension origin
+    const extRes = await fetch(`http://127.0.0.1:${serverPort}/status`, {
+      headers: {
+        Origin: "moz-extension://test-extension-uuid",
+      },
+    })
+    expect(extRes.headers.get("access-control-allow-origin")).toBe("moz-extension://test-extension-uuid")
+  })
 })
