@@ -13,6 +13,7 @@ import {
   extractServerCompactionThreshold,
   formatCompactionThreshold,
   parseCompactionThreshold,
+  parseThresholdValue,
   saveDirectFallback,
   SidebarContext,
 } from "../src/feature-plugins/sidebar/context"
@@ -29,6 +30,7 @@ async function mount(options?: {
   onConfirm?: (opts: any) => Promise<boolean | undefined>
   onConfigUpdate?: (data: any) => Promise<any>
   onSessionUpdate?: (data: any) => Promise<any>
+  sessionMetadata?: any
 }) {
   const directory = await mkdtemp(path.join(tmpdir(), "sidebar-context-"))
   const messages = options?.messages ?? [
@@ -67,7 +69,7 @@ async function mount(options?: {
       data: {
         session: {
           message: { list: () => messages },
-          get: () => ({ id: "ses_1", location: { directory } }),
+          get: () => ({ id: "ses_1", location: { directory }, metadata: options?.sessionMetadata }),
           cost: () => 1.5,
         },
         location: { model: { list: () => [{ providerID: "p", id: "m", limit: { context: 20000 } }] } },
@@ -221,6 +223,36 @@ test("parseCompactionThreshold correctly parses threshold string formats", () =>
   // Raw numbers
   expect(parseCompactionThreshold("200000")).toBe(200000)
   expect(parseCompactionThreshold(" 200,000 ")).toBe(200000)
+  expect(parseCompactionThreshold(120000)).toBe(120000)
+
+  // Percent formats
+  expect(parseCompactionThreshold("60%")).toBeUndefined() // without window returns undefined for tokens
+  expect(parseCompactionThreshold("60%", 200000)).toBe(120000) // with 200k window returns 120k
+  expect(parseCompactionThreshold("80%", 100000)).toBe(80000)
+
+  // Object representations (e.g. from CompactionPolicy or society_plan)
+  expect(parseCompactionThreshold({ percent: 60, tokens: 250000 }, 200000)).toBe(120000)
+  expect(parseCompactionThreshold({ percent: 80, tokens: 100000 }, 200000)).toBe(100000) // capped at 100k
+  expect(parseCompactionThreshold({ percent: 60 }, 200000)).toBe(120000)
+  expect(parseCompactionThreshold({ tokens: 120000 })).toBe(120000)
+})
+
+test("parseThresholdValue parses percent, tokens, and capped structures", () => {
+  expect(parseThresholdValue(undefined)).toBeUndefined()
+  expect(parseThresholdValue(null)).toBeUndefined()
+  expect(parseThresholdValue("invalid")).toBeUndefined()
+  expect(parseThresholdValue(120000)).toEqual({ type: "tokens", tokens: 120000 })
+  expect(parseThresholdValue("80k")).toEqual({ type: "tokens", tokens: 80000 })
+  expect(parseThresholdValue("60%")).toEqual({ type: "percent", percent: 60 })
+  expect(parseThresholdValue(" 60 % ")).toEqual({ type: "percent", percent: 60 })
+  expect(parseThresholdValue({ percent: 60, tokens: 250000 })).toEqual({
+    type: "capped",
+    percent: 60,
+    tokens: 250000,
+  })
+  expect(parseThresholdValue({ percent: 70 })).toEqual({ type: "percent", percent: 70 })
+  expect(parseThresholdValue({ tokens: "150k" })).toEqual({ type: "tokens", tokens: 150000 })
+  expect(parseThresholdValue("off")).toEqual({ type: "tokens", tokens: 0 })
 })
 
 test("formatCompactionThreshold renders compact human-readable values", () => {
@@ -485,5 +517,49 @@ test("sidebar context renders Russian localization for auto-compaction and progr
     expect(text).toContain("Инструменты и MCP")
   } finally {
     setup.renderer.destroy()
+  }
+})
+
+test("sidebar context renders calculated token threshold for percent and capped metadata instead of falling back to 250k", async () => {
+  // Test capped object threshold: { percent: 60, tokens: 250000 } on 20000 limit model -> 12k
+  const capped = await mount({
+    sessionMetadata: { compaction_threshold: { percent: 60, tokens: 250000 } },
+  })
+  try {
+    const lines = await capped.frame((text) => text.includes("Auto-compaction at:"))
+    const text = lines.join("\n")
+    expect(text).toContain("Auto-compaction at:")
+    expect(text).toContain("60% (12k) ✎")
+    expect(text).not.toContain("250k")
+  } finally {
+    capped.setup.renderer.destroy()
+  }
+
+  // Test string percent threshold: "60%" on 20000 limit model -> 12k
+  const pct = await mount({
+    sessionMetadata: { compaction_threshold: "60%" },
+  })
+  try {
+    const lines = await pct.frame((text) => text.includes("Auto-compaction at:"))
+    const text = lines.join("\n")
+    expect(text).toContain("Auto-compaction at:")
+    expect(text).toContain("60% (12k) ✎")
+    expect(text).not.toContain("250k")
+  } finally {
+    pct.setup.renderer.destroy()
+  }
+
+  // Test numeric threshold: 15000 -> 15k
+  const num = await mount({
+    sessionMetadata: { compaction_threshold: 15000 },
+  })
+  try {
+    const lines = await num.frame((text) => text.includes("Auto-compaction at:"))
+    const text = lines.join("\n")
+    expect(text).toContain("Auto-compaction at:")
+    expect(text).toContain("15k ✎")
+    expect(text).not.toContain("250k")
+  } finally {
+    num.setup.renderer.destroy()
   }
 })

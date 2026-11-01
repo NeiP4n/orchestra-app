@@ -17,6 +17,10 @@ const Chat = Schema.Struct({
   project: Schema.String.annotate({
     description: 'Project id or name from status, or "society" for the Society\'s own chat.',
   }),
+  role: Schema.optionalKey(Schema.String).annotate({
+    description:
+      "Optional agent role (e.g. 'tester', 'reviewer', 'backend-developer') or session title to match within the project; omitted targets all chats in the project.",
+  }),
   model: Schema.optionalKey(Schema.String).annotate({
     description: "Optional provider/model (or provider/model#variant) every chat of that project runs on.",
   }),
@@ -119,19 +123,36 @@ export const Plugin = {
                   )
                   continue
                 }
-                const targetSessions =
+                const targetSessions = (
                   target.kind === "society"
                     ? scope.group.supervisor
-                      ? yield* sessions.get(scope.group.supervisor).pipe(Effect.map((item) => [item]), Effect.orElseSucceed(() => []))
+                      ? yield* sessions
+                          .get(scope.group.supervisor)
+                          .pipe(Effect.map((item) => [item]), Effect.orElseSucceed(() => []))
                       : []
                     : yield* projectSessions(target.project.id)
+                ).filter((session) => {
+                  if (!chat.role || chat.role === "*" || chat.role.toLowerCase() === "all") return true
+                  const roleName = chat.role.toLowerCase()
+                  const agent = (session.agent ?? "").toLowerCase()
+                  const title = (session.title ?? "").toLowerCase()
+                  return (
+                    agent.includes(roleName) ||
+                    title.includes(roleName) ||
+                    session.id.toLowerCase() === roleName
+                  )
+                })
                 for (const session of targetSessions) {
                   const metadata = { ...(session.metadata ?? {}) }
                   if (threshold !== undefined)
                     metadata[SessionPlan.CONTEXT_KEY] =
-                      threshold.type === "tokens" ? threshold.tokens : `${threshold.percent}%`
+                      threshold.type === "tokens"
+                        ? threshold.tokens
+                        : threshold.type === "capped"
+                          ? { percent: threshold.percent, tokens: threshold.tokens }
+                          : `${threshold.percent}%`
                   if (chat.cache !== undefined) metadata[SessionPlan.CACHE_KEY] = chat.cache ? "auto" : "off"
-                  if (chat.cache !== undefined || context !== undefined)
+                  if (chat.cache !== undefined || threshold !== undefined)
                     yield* sessions.setMetadata({ sessionID: session.id, metadata }).pipe(Effect.orDie)
                   if (Option.isSome(model))
                     yield* sessions
@@ -140,7 +161,11 @@ export const Plugin = {
                 }
                 applied.push(
                   [
-                    target.kind === "society" ? "Society chat" : target.project.name,
+                    target.kind === "society"
+                      ? "Society chat"
+                      : chat.role
+                        ? `${target.project.name} (${chat.role})`
+                        : target.project.name,
                     threshold === undefined ? undefined : `context ${contextLabel(threshold)}`,
                     chat.cache === undefined ? undefined : `cache ${chat.cache ? "on" : "off"}`,
                     chat.model,
@@ -174,6 +199,7 @@ export const Plugin = {
 
     function contextLabel(threshold: SessionPlan.Threshold) {
       if (threshold.type === "percent") return `${threshold.percent}% of window`
+      if (threshold.type === "capped") return `${threshold.percent}% of window (up to ${threshold.tokens} tokens)`
       return threshold.tokens === 0 ? "full window" : `${threshold.tokens} tokens`
     }
 

@@ -82,20 +82,55 @@ function measureOutput(val: unknown): { chars: number; images: number } {
   return { chars: 0, images: 0 }
 }
 
+export type CompactionThresholdParsed =
+  | { type: "tokens"; tokens: number }
+  | { type: "percent"; percent: number }
+  | { type: "capped"; percent: number; tokens: number }
+
 /**
- * Parses user input for compaction threshold.
- * Supports:
- * - '400k', '80K' (* 1,000)
- * - '1m', '0.5M' (* 1,000,000)
- * - raw numbers like '200000', '200,000'
- * - '0', 'all', 'max', 'весь', 'весь лимит' -> 0 (no threshold / context window limit)
+ * Parses a compaction threshold value from any representation:
+ * - number of tokens: 120000, 0
+ * - string of tokens: '400k', '1.5m', '200000', '200,000'
+ * - string percent: '60%', ' 60 % '
+ * - object: { percent: 60, tokens: 250000 }, { percent: 60 }, { tokens: 120000 }
+ * - zero / disabled keywords: '0', 'none', 'off', 'full', 'all', 'max', 'весь', 'без сжатия' -> 0
  */
-export function parseCompactionThreshold(input: string): number | undefined {
-  if (typeof input !== "string") return undefined
-  const cleaned = input.trim().toLowerCase().replace(/,/g, "")
+export function parseThresholdValue(value: unknown): CompactionThresholdParsed | undefined {
+  if (value === undefined || value === null) return undefined
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value < 0) return undefined
+    return { type: "tokens", tokens: Math.round(value) }
+  }
+  if (typeof value === "object") {
+    const raw = value as Record<string, unknown>
+    const percent = typeof raw.percent === "number" ? raw.percent : undefined
+    const rawTokens = raw.tokens
+    let tokens: number | undefined
+    if (typeof rawTokens === "number") {
+      tokens = Number.isFinite(rawTokens) && rawTokens >= 0 ? Math.round(rawTokens) : undefined
+    } else if (typeof rawTokens === "string") {
+      tokens = parseCompactionThreshold(rawTokens)
+    }
+    if (percent !== undefined && tokens !== undefined) {
+      if (percent <= 0 || percent > 100 || tokens < 0) return undefined
+      return { type: "capped", percent, tokens }
+    }
+    if (percent !== undefined) {
+      if (percent <= 0 || percent > 100) return undefined
+      return { type: "percent", percent }
+    }
+    if (tokens !== undefined) {
+      return tokens <= 0 ? { type: "tokens", tokens: 0 } : { type: "tokens", tokens }
+    }
+    return undefined
+  }
+  if (typeof value !== "string") return undefined
+  const cleaned = value.trim().toLowerCase().replace(/,/g, "")
   if (!cleaned) return undefined
   if (
     cleaned === "0" ||
+    cleaned === "0k" ||
+    cleaned === "0m" ||
     cleaned === "all" ||
     cleaned === "max" ||
     cleaned === "весь" ||
@@ -109,16 +144,52 @@ export function parseCompactionThreshold(input: string): number | undefined {
     cleaned === "off" ||
     cleaned === "disabled"
   ) {
-    return 0
+    return { type: "tokens", tokens: 0 }
+  }
+  const percentMatch = cleaned.match(/^([0-9]+(?:\.[0-9]+)?)\s*%$/)
+  if (percentMatch) {
+    const percent = parseFloat(percentMatch[1])
+    if (!Number.isFinite(percent) || percent <= 0 || percent > 100) return undefined
+    return { type: "percent", percent }
   }
   const match = cleaned.match(/^([0-9]+(?:\.[0-9]+)?)\s*([km])?$/i)
   if (!match) return undefined
   const num = parseFloat(match[1])
   if (Number.isNaN(num) || num < 0) return undefined
   const unit = match[2]?.toLowerCase()
-  if (unit === "k") return Math.round(num * 1000)
-  if (unit === "m") return Math.round(num * 1000000)
-  return Math.round(num)
+  if (unit === "k") return { type: "tokens", tokens: Math.round(num * 1000) }
+  if (unit === "m") return { type: "tokens", tokens: Math.round(num * 1000000) }
+  return { type: "tokens", tokens: Math.round(num) }
+}
+
+/**
+ * Parses user input for compaction threshold into integer tokens.
+ * Supports:
+ * - '400k', '80K' (* 1,000)
+ * - '1m', '0.5M' (* 1,000,000)
+ * - raw numbers like '200000', '200,000'
+ * - '0', 'all', 'max', 'весь', 'весь лимит' -> 0 (no threshold / context window limit)
+ * - percent like '60%' when window is provided -> Math.round(window * 0.6)
+ * - object representations { percent, tokens }
+ */
+export function parseCompactionThreshold(input: unknown, window?: number): number | undefined {
+  const parsed = parseThresholdValue(input)
+  if (!parsed) return undefined
+  if (parsed.type === "tokens") return parsed.tokens
+  if (parsed.type === "percent") {
+    if (window && window > 0) {
+      return Math.max(1, Math.round((window * parsed.percent) / 100))
+    }
+    return undefined
+  }
+  if (parsed.type === "capped") {
+    if (window && window > 0) {
+      const share = Math.max(1, Math.round((window * parsed.percent) / 100))
+      return Math.min(share, parsed.tokens)
+    }
+    return parsed.tokens
+  }
+  return undefined
 }
 
 /**
@@ -499,80 +570,135 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
 
   createEffect(() => {
     const sessionMeta = (session() as any)?.metadata?.compaction_threshold
-    if (typeof sessionMeta === "string" && /^\s*[0-9]+(?:\.[0-9]+)?\s*%\s*$/.test(sessionMeta)) {
-      setThresholdShare(`${parseFloat(sessionMeta)}%`)
-      setThreshold(0)
-      return
-    }
-    setThresholdShare(undefined)
-    if (sessionMeta !== undefined && sessionMeta !== null) {
-      const parsed = parseCompactionThreshold(String(sessionMeta))
-      if (parsed !== undefined) {
-        setThreshold(parsed)
+    const window = state()?.limit
+    const parsed = parseThresholdValue(sessionMeta)
+    if (parsed) {
+      if (parsed.type === "percent") {
+        setThresholdShare(`${parsed.percent}%`)
+        if (window && window > 0) {
+          setThreshold(Math.max(1, Math.round((window * parsed.percent) / 100)))
+        } else {
+          setThreshold(0)
+        }
+        return
+      }
+      if (parsed.type === "capped") {
+        setThresholdShare(`${parsed.percent}%`)
+        if (window && window > 0) {
+          const share = Math.max(1, Math.round((window * parsed.percent) / 100))
+          setThreshold(Math.min(share, parsed.tokens))
+        } else {
+          setThreshold(parsed.tokens)
+        }
+        return
+      }
+      if (parsed.type === "tokens") {
+        setThresholdShare(undefined)
+        setThreshold(parsed.tokens)
         return
       }
     }
+    setThresholdShare(undefined)
     const def = extractServerCompactionThreshold(serverConfig())
     if (def !== undefined && def > 0) {
       setThreshold(def)
+    } else {
+      setThreshold(0)
     }
   })
+
+  const displayThreshold = () => {
+    const share = thresholdShare()
+    const tokens = threshold()
+    if (tokens <= 0) {
+      return share ?? thresholdLabel(0)
+    }
+    if (share) {
+      return `${share} (${thresholdLabel(tokens)})`
+    }
+    return thresholdLabel(tokens)
+  }
 
   async function handleCompactionPrompt() {
     const dialog = props.context.ui?.dialog
     if (!dialog) return
 
     const currentFormatted =
-      threshold() > 0 ? (threshold() >= 1000 ? `${threshold() / 1000}k` : String(threshold())) : "0"
+      thresholdShare() ??
+      (threshold() > 0 ? (threshold() >= 1000 ? `${threshold() / 1000}k` : String(threshold())) : "0")
 
     const input = await dialog.prompt({
       title: t("Context auto-compaction threshold"),
-      placeholder: t("e.g.: 400k, 200000, 80k or 0 for context limit"),
+      placeholder: t("e.g.: 400k, 200000, 60%, 80k or 0 for context limit"),
       value: currentFormatted,
     })
 
     if (input === undefined) return
-    const parsed = parseCompactionThreshold(input)
+    const parsed = parseThresholdValue(input)
     if (parsed === undefined) return
 
-    setThreshold(parsed)
+    const window = state()?.limit
+    let valueToSave: unknown
+    let effectiveTokens = 0
+
+    if (parsed.type === "tokens") {
+      valueToSave = parsed.tokens
+      effectiveTokens = parsed.tokens
+      setThreshold(parsed.tokens)
+      setThresholdShare(undefined)
+    } else if (parsed.type === "percent") {
+      valueToSave = `${parsed.percent}%`
+      effectiveTokens = window && window > 0 ? Math.max(1, Math.round((window * parsed.percent) / 100)) : 0
+      setThresholdShare(`${parsed.percent}%`)
+      setThreshold(effectiveTokens)
+    } else if (parsed.type === "capped") {
+      valueToSave = { percent: parsed.percent, tokens: parsed.tokens }
+      effectiveTokens =
+        window && window > 0
+          ? Math.min(Math.max(1, Math.round((window * parsed.percent) / 100)), parsed.tokens)
+          : parsed.tokens
+      setThresholdShare(`${parsed.percent}%`)
+      setThreshold(effectiveTokens)
+    }
 
     try {
       if (props.context.client?.session?.update) {
         await (props.context.client.session.update as any)({
           sessionID: props.sessionID,
-          metadata: { compaction_threshold: parsed },
+          metadata: { compaction_threshold: valueToSave },
         })
       } else if (client?.api?.session?.update) {
         await (client.api.session.update as any)({
           sessionID: props.sessionID,
-          metadata: { compaction_threshold: parsed },
+          metadata: { compaction_threshold: valueToSave },
         })
       }
     } catch {
       // Ignore session update error in test environments
     }
 
-    const makeDefault = await dialog.confirm({
-      title: t("Auto-compaction threshold"),
-      message: t("Make this threshold the default for all new chats on creation?"),
-    })
+    if (effectiveTokens > 0) {
+      const makeDefault = await dialog.confirm({
+        title: t("Auto-compaction threshold"),
+        message: t("Make this threshold the default for all new chats on creation?"),
+      })
 
-    if (makeDefault) {
-      // The server config is the one writer; the file is the fallback for a failed write. A save that
-      // reached either of them is reported as success, however it landed.
-      const saved = (await writeDefault(parsed).catch(() => false)) || (await saveDirectFallback(parsed))
-      await refetch()
-      toast?.show(
-        saved
-          ? {
-              variant: "success",
-              message: t("Auto-compaction threshold ({threshold}) saved to configuration", {
-                threshold: thresholdLabel(parsed),
-              }),
-            }
-          : { variant: "error", message: t("Failed to update configuration") },
-      )
+      if (makeDefault) {
+        // The server config is the one writer; the file is the fallback for a failed write. A save that
+        // reached either of them is reported as success, however it landed.
+        const saved = (await writeDefault(effectiveTokens).catch(() => false)) || (await saveDirectFallback(effectiveTokens))
+        await refetch()
+        toast?.show(
+          saved
+            ? {
+                variant: "success",
+                message: t("Auto-compaction threshold ({threshold}) saved to configuration", {
+                  threshold: thresholdLabel(effectiveTokens),
+                }),
+              }
+            : { variant: "error", message: t("Failed to update configuration") },
+        )
+      }
     }
   }
 
@@ -669,7 +795,7 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
             </text>
             <HoverAction id="sidebar.context.compaction" onClick={handleCompactionPrompt}>
               <text fg={theme.text.base} wrapMode="none">
-                {thresholdShare() ?? thresholdLabel(threshold())} ✎
+                {displayThreshold()} ✎
               </text>
             </HoverAction>
           </box>
