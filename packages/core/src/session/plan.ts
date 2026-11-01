@@ -34,6 +34,11 @@ export function parseThreshold(value: unknown): Threshold | undefined {
         : undefined
     }
   }
+  // An explicit token object from the compaction policy.
+  if (typeof value === "object" && value !== null && "tokens" in value && !("percent" in value)) {
+    const tokens = parseContext((value as { tokens: unknown }).tokens)
+    if (tokens !== undefined) return { type: "tokens", tokens }
+  }
   // The object form is what the compaction policy writes: a share of the window with a token cap.
   const bounded = Option.getOrUndefined(decodeCapped(value))
   if (bounded !== undefined) {

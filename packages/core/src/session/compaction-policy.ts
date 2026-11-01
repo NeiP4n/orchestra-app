@@ -6,18 +6,18 @@ export * as CompactionPolicy from "./compaction-policy.js"
  * (`SessionPlan.CONTEXT_KEY`), so the operator can still change it per chat.
  */
 export type Threshold = {
-  readonly percent: number
+  readonly type: "tokens"
   readonly tokens: number
 }
 
 /** Analysis, architecture and review reason over the whole project, so they compact last. */
-export const deepThreshold: Threshold = { percent: 80, tokens: 120_000 }
+export const deepThreshold: Threshold = { type: "tokens", tokens: 900_000 }
 
 /** Everyday implementation work sits in the middle. */
-export const standardThreshold: Threshold = { percent: 60, tokens: 60_000 }
+export const standardThreshold: Threshold = { type: "tokens", tokens: 500_000 }
 
 /** Testing and debugging read logs and dumps, which burn context fast, so they compact early. */
-export const leanThreshold: Threshold = { percent: 50, tokens: 30_000 }
+export const leanThreshold: Threshold = { type: "tokens", tokens: 300_000 }
 
 // Roles whose work is mostly reasoning over the whole project. "analyst" is the short name operators
 // use for `product-analyst`.

@@ -26,7 +26,7 @@ const Chat = Schema.Struct({
   }),
   context: Schema.optionalKey(Schema.Union([Schema.Number, Schema.String])).annotate({
     description:
-      'Optional context threshold where automatic compaction starts: a share of the model window ("60%", best when the chat may run on any model) or tokens (200000, 150k); 0 means the whole window.',
+      "Optional context threshold where automatic compaction starts: absolute tokens (300k, 500k, 900k, 300000, 900000); do not use percentages. 0 means the whole window.",
   }),
   cache: Schema.optionalKey(Schema.Boolean).annotate({
     description: "Optional prompt caching for the project's chats: false turns it off, true restores the default.",
@@ -44,7 +44,7 @@ export const Output = Schema.Struct({ output: Schema.String })
 
 const guide = [
   "society_plan reads and sets the Society's chats: the context threshold where each chat compacts, its prompt caching, and the model it runs on.",
-  'The context threshold is yours to decide: a share of the model window ("60%") when the chat may run on any model, or absolute tokens (200k) when you know the model.',
+  "The context threshold must be set in absolute token numbers (300k, 500k, 900k, 300000, 900000); do not use percentages.",
   "Only the Society's planner project and the Society chat may use it. Use status before apply, then apply once with every chat you decided; do not plan chat by chat across many calls.",
 ].join("\n")
 
@@ -61,7 +61,7 @@ export const Plugin = {
           name,
           options: { codemode: false, guide, triggers: ["context|контекст|cache|кеш|plan|план"] },
           description: [
-            "Set the Society's chats up: context threshold, prompt caching and model per project chat.",
+            "Set the Society's chats up: context threshold in tokens (e.g. 300k, 500k, 900k), prompt caching and model per project chat. Do not use percentages.",
             "status lists every chat of the Society with its model, context threshold, cache and spend; apply changes the chats you name.",
             "The planner decides these right after the goal, before the projects start working, so no chat overflows its window or spends on caching it never reuses.",
           ].join("\n"),

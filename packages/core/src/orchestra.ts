@@ -267,7 +267,12 @@ const ISOLATED_CATEGORIES = new Set(["design", "quality"])
 const roleFolder = (member: { readonly agent: string; readonly title: string }) =>
   (member.agent.replace(/^team-/, "") || member.title).replace(/[^a-zA-Z0-9._-]+/g, "-")
 
-const PlannedThreshold = Schema.Struct({ percent: Schema.Number, tokens: Schema.Number })
+const PlannedThreshold = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("tokens"), tokens: Schema.Number }),
+  Schema.Struct({ percent: Schema.Number, tokens: Schema.Number }),
+  Schema.Struct({ type: Schema.Literal("percent"), percent: Schema.Number }),
+  Schema.Struct({ type: Schema.Literal("capped"), percent: Schema.Number, tokens: Schema.Number }),
+])
 const PlannedTeamMember = Schema.Struct({
   id: SessionID,
   ...Orchestra.Member.fields,

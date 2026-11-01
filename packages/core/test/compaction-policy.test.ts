@@ -83,13 +83,28 @@ describe("CompactionPolicy", () => {
 
   test("the main session gets the deepest threshold", () => {
     expect(CompactionPolicy.mainThreshold).toEqual(CompactionPolicy.deepThreshold)
-    expect(CompactionPolicy.mainThreshold).toEqual({ percent: 80, tokens: 120_000 })
-    expect(CompactionPolicy.standardThreshold).toEqual({ percent: 60, tokens: 60_000 })
-    expect(CompactionPolicy.leanThreshold).toEqual({ percent: 50, tokens: 30_000 })
+    expect(CompactionPolicy.mainThreshold).toEqual({ type: "tokens", tokens: 900_000 })
+    expect(CompactionPolicy.standardThreshold).toEqual({ type: "tokens", tokens: 500_000 })
+    expect(CompactionPolicy.leanThreshold).toEqual({ type: "tokens", tokens: 300_000 })
   })
 })
 
 describe("SessionPlan capped thresholds", () => {
+  test("parses the policy object into a tokens threshold", () => {
+    expect(SessionPlan.parseThreshold(CompactionPolicy.deepThreshold)).toEqual({
+      type: "tokens",
+      tokens: 900_000,
+    })
+    expect(SessionPlan.parseThreshold(CompactionPolicy.standardThreshold)).toEqual({
+      type: "tokens",
+      tokens: 500_000,
+    })
+    expect(SessionPlan.parseThreshold(CompactionPolicy.leanThreshold)).toEqual({
+      type: "tokens",
+      tokens: 300_000,
+    })
+  })
+
   test("parses the policy object into a capped threshold", () => {
     expect(SessionPlan.parseThreshold({ percent: 80, tokens: 120_000 })).toEqual({
       type: "capped",

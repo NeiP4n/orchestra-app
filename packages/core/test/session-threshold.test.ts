@@ -24,17 +24,16 @@ test("a share of the window is resolved against the model the chat ends up on", 
 })
 
 test("CompactionPolicy provides default main and role thresholds", () => {
-  expect(CompactionPolicy.mainThreshold).toEqual({ percent: 80, tokens: 120_000 })
-  expect(CompactionPolicy.deepThreshold).toEqual({ percent: 80, tokens: 120_000 })
-  expect(CompactionPolicy.standardThreshold).toEqual({ percent: 60, tokens: 60_000 })
-  expect(CompactionPolicy.leanThreshold).toEqual({ percent: 50, tokens: 30_000 })
+  expect(CompactionPolicy.mainThreshold).toEqual({ type: "tokens", tokens: 900_000 })
+  expect(CompactionPolicy.deepThreshold).toEqual({ type: "tokens", tokens: 900_000 })
+  expect(CompactionPolicy.standardThreshold).toEqual({ type: "tokens", tokens: 500_000 })
+  expect(CompactionPolicy.leanThreshold).toEqual({ type: "tokens", tokens: 300_000 })
 
-  // Resolving mainThreshold on 200k model caps at 120k tokens
+  // Resolving mainThreshold returns the absolute tokens (900k)
+  expect(
+    SessionCompaction.resolveSessionThreshold(CompactionPolicy.mainThreshold, { context: 1_000_000, output: 32_000 }),
+  ).toBe(900_000)
   expect(
     SessionCompaction.resolveSessionThreshold(CompactionPolicy.mainThreshold, { context: 200_000, output: 32_000 }),
-  ).toBe(120_000)
-  // Resolving mainThreshold on 100k model takes 80% = 80k tokens
-  expect(
-    SessionCompaction.resolveSessionThreshold(CompactionPolicy.mainThreshold, { context: 100_000, output: 32_000 }),
-  ).toBe(80_000)
+  ).toBe(900_000)
 })
