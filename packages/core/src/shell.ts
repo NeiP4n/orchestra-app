@@ -1,6 +1,7 @@
 export * as Shell from "./shell.js"
 
 import path from "path"
+import { execFile } from "node:child_process"
 import { Context, Deferred, Duration, Effect, Fiber, Latch, Layer, Schema, Schedule, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { produce } from "immer"
@@ -38,6 +39,55 @@ type CreateInput = Shell.CreateInput & {
   shell?: string
 }
 
+/**
+ * Guaranteed termination of a process tree.
+ * On Windows, calls taskkill.exe /pid <pid> /T /F to recursively terminate the entire process tree.
+ * On POSIX (Linux/macOS), terminates via process signals (SIGTERM, then SIGKILL).
+ */
+export const killProcessTree = (
+  pid?: number,
+  handle?: { kill: (opts?: ChildProcess.KillOptions) => Effect.Effect<void, unknown> },
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    if (process.platform === "win32") {
+      if (pid !== undefined && Number.isSafeInteger(pid) && pid > 0) {
+        yield* Effect.promise(
+          () =>
+            new Promise<void>((resolve) => {
+              execFile("taskkill.exe", ["/pid", String(pid), "/T", "/F"], () => {
+                resolve()
+              })
+            }),
+        )
+      }
+      if (handle) {
+        yield* handle.kill().pipe(Effect.catch(() => Effect.void))
+      }
+      return
+    }
+
+    if (handle) {
+      yield* handle.kill({ forceKillAfter: Duration.seconds(3) }).pipe(Effect.catch(() => Effect.void))
+      return
+    }
+
+    if (pid !== undefined && Number.isSafeInteger(pid) && pid > 0) {
+      try {
+        process.kill(-pid, "SIGTERM")
+      } catch {}
+      try {
+        process.kill(pid, "SIGTERM")
+      } catch {}
+      yield* Effect.sleep(Duration.millis(250))
+      try {
+        process.kill(-pid, "SIGKILL")
+      } catch {}
+      try {
+        process.kill(pid, "SIGKILL")
+      } catch {}
+    }
+  })
+
 type Active = {
   // Immutable snapshot; lifecycle updates replace it via immer `produce`.
   info: Info
@@ -49,6 +99,7 @@ type Active = {
   done: Deferred.Deferred<Info, NotFoundError>
   timeoutFiber?: Fiber.Fiber<void>
   timeout?: (duration: number) => Effect.Effect<void>
+  kill: Effect.Effect<void>
 }
 
 /**
@@ -142,6 +193,9 @@ const layer = () =>
         Effect.gen(function* () {
           for (const command of commands.values()) {
             if (command.timeoutFiber) yield* Fiber.interrupt(command.timeoutFiber)
+            if (command.info.status === "running") {
+              yield* command.kill.pipe(Effect.catch(() => Effect.void))
+            }
             // Teardown interrupts pending commands; it is not a terminal command failure.
             yield* Deferred.interrupt(command.done)
           }
@@ -163,6 +217,9 @@ const layer = () =>
         if (!command) return
         commands.delete(id)
         if (command.timeoutFiber) yield* Fiber.interrupt(command.timeoutFiber)
+        if (command.info.status === "running") {
+          yield* command.kill.pipe(Effect.catch(() => Effect.void))
+        }
         // Unblock any wait still pending when the command is removed before it terminated.
         yield* Deferred.fail(command.done, new NotFoundError({ id }))
         yield* Effect.promise(() => unlink(command.file).catch(() => {}))
@@ -317,8 +374,16 @@ const layer = () =>
                 size: 0,
                 newlines: 0,
                 done: Deferred.makeUnsafe<Info, NotFoundError>(),
+                kill: killProcessTree(handle.pid, handle),
               }
               commands.set(id, command)
+              yield* Effect.addFinalizer(() =>
+                Effect.gen(function* () {
+                  if (command.info.status === "running") {
+                    yield* command.kill.pipe(Effect.catch(() => Effect.void))
+                  }
+                }),
+              )
 
               const stream = createWriteStream(file)
               const outputDone = Latch.makeUnsafe()
@@ -398,7 +463,7 @@ const layer = () =>
                         finish(
                           "timeout",
                           undefined,
-                          handle.kill({ forceKillAfter: Duration.seconds(3) }).pipe(Effect.catch(() => Effect.void)),
+                          command.kill.pipe(Effect.catch(() => Effect.void)),
                         ),
                       ),
                     ),
