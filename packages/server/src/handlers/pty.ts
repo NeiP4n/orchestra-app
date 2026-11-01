@@ -3,13 +3,13 @@ import { PtyProtocol } from "@orchestra/core/pty/protocol"
 import { PtyTicket } from "@orchestra/core/pty/ticket"
 import { Location } from "@orchestra/core/location"
 import { LocationServiceMap } from "@orchestra/core/location-service-map"
-import { Effect, Queue } from "effect"
+import { Effect } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiSchema } from "effect/unstable/httpapi"
 import { Socket } from "effect/unstable/socket"
 import { Api } from "../api"
 import { CorsConfig, isAllowedRequestOrigin } from "../cors"
-import { ForbiddenError, PtyNotFoundError } from "@orchestra/protocol/errors"
+import { ForbiddenError, PtyNotFoundError, ServiceUnavailableError } from "@orchestra/protocol/errors"
 import {
   LEGACY_PTY_CONNECT_TOKEN_HEADER,
   PTY_CONNECT_TICKET_QUERY,
@@ -18,6 +18,7 @@ import {
 } from "@orchestra/protocol/groups/pty"
 import { locationErrors, requestRef, response } from "../location"
 import { PtyEnvironment } from "../pty-environment"
+import { PtyOutbox } from "../pty-outbox"
 import { runPtySocket } from "./pty-socket"
 
 const ticketScope = Effect.gen(function* () {
@@ -47,15 +48,24 @@ export const PtyHandler = HttpApiBuilder.group(Api, "server.pty", (handlers) =>
           const location = yield* Location.Service
           const cwd = ctx.payload.cwd || location.directory
           return yield* response(
-            pty.create({
-              ...ctx.payload,
-              args: ctx.payload.args ? [...ctx.payload.args] : undefined,
-              cwd,
-              env: {
-                ...ctx.payload.env,
-                ...(yield* environment.get({ directory: location.directory, cwd })),
-              },
-            }),
+            pty
+              .create({
+                ...ctx.payload,
+                args: ctx.payload.args ? [...ctx.payload.args] : undefined,
+                cwd,
+                env: {
+                  ...ctx.payload.env,
+                  ...(yield* environment.get({ directory: location.directory, cwd })),
+                },
+              })
+              .pipe(
+                // The host, not the request, is out of room: 503 tells the client to retry later
+                // instead of looping on a spawn that cannot succeed.
+                Effect.catchTag(
+                  "Pty.CapacityError",
+                  (error) => new ServiceUnavailableError({ service: "pty", message: error.message }),
+                ),
+              ),
           )
         }),
       )
@@ -190,17 +200,20 @@ export const PtyHandler = HttpApiBuilder.group(Api, "server.pty", (handlers) =>
                     Effect.catch(() => Effect.void),
                   )
 
-              // Outbound frames flow through one queue drained by a single writer so replay, live
-              // output, and the close frame keep their order.
-              // TODO: Integrate graceful-shutdown socket tracking before clients migrate to this route.
-              const outbox = yield* Queue.unbounded<string | Uint8Array | Socket.CloseEvent>()
-              yield* Effect.addFinalizer(() => Queue.shutdown(outbox))
+              // Outbound frames flow through one bounded queue drained by a single writer so replay,
+              // live output, and the close frame keep their order. A client that stops reading hits
+              // the byte/frame budget instead of growing the server's memory without limit.
+              const outbox = yield* PtyOutbox.make()
 
               const attachment = yield* pty
                 .attach(ctx.params.ptyID, {
                   cursor,
-                  onData: (chunk) => Queue.offerUnsafe(outbox, chunk),
-                  onEnd: () => Queue.offerUnsafe(outbox, new Socket.CloseEvent(1000)),
+                  onData: (chunk) => {
+                    outbox.offer(chunk)
+                  },
+                  onEnd: () => {
+                    outbox.offer(new Socket.CloseEvent(1000))
+                  },
                 })
                 .pipe(
                   Effect.catchTags({
@@ -220,17 +233,22 @@ export const PtyHandler = HttpApiBuilder.group(Api, "server.pty", (handlers) =>
               }
               yield* Effect.addFinalizer(() => Effect.sync(detach))
 
-              for (const chunk of PtyProtocol.chunks(attachment.replay)) Queue.offerUnsafe(outbox, chunk)
-              Queue.offerUnsafe(outbox, PtyProtocol.metaFrame(attachment.cursor))
+              for (const chunk of PtyProtocol.chunks(attachment.replay)) outbox.offer(chunk)
+              outbox.offer(PtyProtocol.metaFrame(attachment.cursor))
               attachment.activate()
 
-              const drain = Effect.gen(function* () {
-                while (true) {
-                  const item = yield* Queue.take(outbox)
-                  yield* write(item)
-                  if (item instanceof Socket.CloseEvent) return
-                }
-              })
+              const drain = Effect.race(
+                Effect.gen(function* () {
+                  while (true) {
+                    const item = yield* outbox.take
+                    yield* write(item)
+                    if (item instanceof Socket.CloseEvent) return
+                  }
+                }),
+                outbox.awaitOverflow.pipe(
+                  Effect.andThen(write(new Socket.CloseEvent(PtyOutbox.OverflowCode, PtyOutbox.OverflowReason))),
+                ),
+              ).pipe(Effect.ensuring(outbox.shutdown))
 
               yield* runPtySocket(
                 drain,

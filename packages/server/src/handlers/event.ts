@@ -20,7 +20,11 @@ export const EventHandler = HttpApiBuilder.group(Api, "server.event", (handlers)
           data: {},
         } as const
         const stream = yield* feed.stream({ lastEventID })
-        const output = Stream.make(EventFeed.frame(connected)).pipe(Stream.concat(stream))
+        const batched = stream.pipe(
+          Stream.groupedWithin(32, "20 millis"),
+          Stream.map((chunk) => chunk.join("")),
+        )
+        const output = Stream.make(EventFeed.frame(connected)).pipe(Stream.concat(batched))
         return HttpServerResponse.stream(output.pipe(Stream.encodeText), {
           contentType: "text/event-stream",
           headers: {

@@ -837,38 +837,40 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           if (!ctx.query.follow) return withCurrentVisibility(durable)
           // Permission requests are not in the durable log; a following guest hears this session's
           // live ones too, instead of polling for them.
-          const live = Stream.callback<typeof RoomLiveEvent.Type>((queue) =>
-            Effect.acquireRelease(
-              bus.listen((event) =>
-                Effect.sync(() =>
-                  // Only transcript/permission events for this room's session leave the host.
-                  // The JSON round trip omits optional fields and keeps the host's location private.
-                  Option.filter(
-                    decodeRoomLiveEvent(
-                      JSON.parse(
-                        JSON.stringify({
-                        id: event.id,
-                        created: event.created,
-                        type: event.type,
-                        data: event.data,
-                        ...("durable" in event && event.durable ? { durable: event.durable } : {}),
-                      }),
+          const live = Stream.callback<typeof RoomLiveEvent.Type>(
+            (queue) =>
+              Effect.acquireRelease(
+                bus.listen((event) =>
+                  Effect.sync(() =>
+                    // Only transcript/permission events for this room's session leave the host.
+                    // The JSON round trip omits optional fields and keeps the host's location private.
+                    Option.filter(
+                      decodeRoomLiveEvent(
+                        JSON.parse(
+                          JSON.stringify({
+                            id: event.id,
+                            created: event.created,
+                            type: event.type,
+                            data: event.data,
+                            ...("durable" in event && event.durable ? { durable: event.durable } : {}),
+                          }),
+                        ),
                       ),
-                    ),
-                    (item) => item.data.sessionID === session.id,
-                  ).pipe(
-                    Option.map((item) =>
-                      Queue.offerUnsafe(queue, {
-                        ...item,
-                        // Guests distinguish live boundaries from durable history replay.
-                        metadata: { ...(item.metadata ?? {}), __opencodeRoomLive: true },
-                      }),
+                      (item) => item.data.sessionID === session.id,
+                    ).pipe(
+                      Option.map((item) =>
+                        Queue.offerUnsafe(queue, {
+                          ...item,
+                          // Guests distinguish live boundaries from durable history replay.
+                          metadata: { ...(item.metadata ?? {}), __opencodeRoomLive: true },
+                        }),
+                      ),
                     ),
                   ),
                 ),
+                (unsubscribe) => unsubscribe,
               ),
-              (unsubscribe) => unsubscribe,
-            ),
+            { bufferSize: 256, strategy: "sliding" },
           )
           const stream = durable.pipe(Stream.merge(live, { haltStrategy: "left" }))
           return withCurrentVisibility(stream)

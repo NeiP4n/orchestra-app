@@ -7,12 +7,13 @@ import {
   PTY_CONNECT_TOKEN_HEADER,
   PTY_CONNECT_TOKEN_HEADER_VALUE,
 } from "@orchestra/protocol/groups/persistent-pty"
-import { Effect, Queue, Semaphore } from "effect"
+import { Effect, Semaphore } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiSchema } from "effect/unstable/httpapi"
 import { Socket } from "effect/unstable/socket"
 import { Api } from "../api"
 import { CorsConfig, isAllowedRequestOrigin } from "../cors"
+import { PtyOutbox } from "../pty-outbox"
 import { runPtySocket } from "./pty-socket"
 
 export const PersistentPtyHandler = HttpApiBuilder.group(Api, "server.experimental", (handlers) =>
@@ -127,7 +128,7 @@ export const PersistentPtyHandler = HttpApiBuilder.group(Api, "server.experiment
 
           const socket = yield* Effect.orDie(ctx.request.upgrade)
           const write = yield* socket.writer
-          const outbox = yield* Queue.unbounded<string | Uint8Array | Socket.CloseEvent>()
+          const outbox = yield* PtyOutbox.make()
           const input = yield* Semaphore.make(1)
           let attachment: PersistentPty.Attachment | undefined
           // Bun's native ws upgrade must start before asynchronous daemon I/O.
@@ -139,16 +140,16 @@ export const PersistentPtyHandler = HttpApiBuilder.group(Api, "server.experiment
                 role,
                 takeover: url.searchParams.get("takeover") === "true",
                 onEvent: (event) => {
-                  if (event.type === "output") Queue.offerUnsafe(outbox, event.data)
+                  if (event.type === "output") outbox.offer(event.data)
                   if (event.type === "resized")
-                    Queue.offerUnsafe(
-                      outbox,
+                    outbox.offer(
                       JSON.stringify({ ...event, checkpoint: Buffer.from(event.checkpoint).toString("base64") }),
                     )
-                  if (event.type !== "output" && event.type !== "resized")
-                    Queue.offerUnsafe(outbox, JSON.stringify(event))
+                  if (event.type !== "output" && event.type !== "resized") outbox.offer(JSON.stringify(event))
                 },
-                onEnd: () => Queue.offerUnsafe(outbox, new Socket.CloseEvent(1000)),
+                onEnd: () => {
+                  outbox.offer(new Socket.CloseEvent(1000))
+                },
               })
               .pipe(
                 Effect.catchTags({
@@ -157,12 +158,11 @@ export const PersistentPtyHandler = HttpApiBuilder.group(Api, "server.experiment
                 }),
               )
             if (!attachment) {
-              Queue.offerUnsafe(outbox, new Socket.CloseEvent(4404, "terminal unavailable"))
+              outbox.offer(new Socket.CloseEvent(4404, "terminal unavailable"))
               return
             }
 
-            Queue.offerUnsafe(
-              outbox,
+            outbox.offer(
               JSON.stringify({
                 type: "attached",
                 attachmentID,
@@ -178,21 +178,23 @@ export const PersistentPtyHandler = HttpApiBuilder.group(Api, "server.experiment
                 },
               }),
             )
-            if (attachment.replay.data.length > 0) Queue.offerUnsafe(outbox, attachment.replay.data)
-            Queue.offerUnsafe(
-              outbox,
-              JSON.stringify({ type: "replay_complete", endOffset: attachment.replay.endOffset }),
-            )
+            if (attachment.replay.data.length > 0) outbox.offer(attachment.replay.data)
+            outbox.offer(JSON.stringify({ type: "replay_complete", endOffset: attachment.replay.endOffset }))
             attachment.activate()
           })
 
-          const drain = Effect.gen(function* () {
-            while (true) {
-              const item = yield* Queue.take(outbox)
-              yield* write(item)
-              if (item instanceof Socket.CloseEvent) return
-            }
-          })
+          const drain = Effect.race(
+            Effect.gen(function* () {
+              while (true) {
+                const item = yield* outbox.take
+                yield* write(item)
+                if (item instanceof Socket.CloseEvent) return
+              }
+            }),
+            outbox.awaitOverflow.pipe(
+              Effect.andThen(write(new Socket.CloseEvent(PtyOutbox.OverflowCode, PtyOutbox.OverflowReason))),
+            ),
+          ).pipe(Effect.ensuring(outbox.shutdown))
 
           yield* runPtySocket(
             drain,

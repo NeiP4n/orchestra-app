@@ -38,6 +38,37 @@ function makeSource() {
   }
 }
 
+describe("EventRingBuffer", () => {
+  const frame = (id: string) => ({ id, encoded: `data: ${id}\n\n` })
+
+  test("keeps the newest frames in publish order after wrapping", () => {
+    const ring = new EventFeed.EventRingBuffer(3)
+    for (const id of ["evt_one", "evt_two", "evt_three", "evt_four", "evt_five"]) ring.push(frame(id))
+
+    expect(ring.size).toBe(3)
+    expect(ring.replaySince("evt_two")).toBeUndefined()
+    expect(ring.replaySince("evt_three")).toEqual(["data: evt_four\n\n", "data: evt_five\n\n"])
+    expect(ring.replaySince("evt_five")).toEqual([])
+  })
+
+  test("never retains more than its capacity", () => {
+    const ring = new EventFeed.EventRingBuffer(2)
+    for (let index = 0; index < 1_000; index++) ring.push(frame(`evt_${index}`))
+
+    expect(ring.size).toBe(2)
+    expect(ring.replaySince("evt_998")).toEqual(["data: evt_999\n\n"])
+  })
+
+  test("ignores pushes when it retains nothing", () => {
+    for (const capacity of [0, -1]) {
+      const ring = new EventFeed.EventRingBuffer(capacity)
+      ring.push(frame("evt_one"))
+      expect(ring.size).toBe(0)
+      expect(ring.replaySince("evt_one")).toBeUndefined()
+    }
+  })
+})
+
 describe("EventFeed", () => {
   test("preserves the public SSE frame encoding", () => {
     const payload = event("wire")
@@ -131,6 +162,45 @@ describe("EventFeed", () => {
       })
 
       expect(Array.from(yield* Fiber.join(received))).toEqual([Credential.Event.Switched.type])
+    }),
+  )
+
+  it.effect("closes a subscriber whose buffered frames exceed the byte budget", () =>
+    Effect.gen(function* () {
+      const source = makeSource()
+      const feed = yield* EventFeed.make(source.observe, {
+        capacityBytes: 32,
+        encode: () => "x".repeat(24),
+      })
+      const stream = yield* feed.subscribe
+
+      yield* source.publish(event("one"))
+      yield* source.publish(event("two"))
+
+      const result = yield* stream.pipe(Stream.runCollect, Effect.exit)
+      expect(Option.getOrUndefined(Exit.findErrorOption(result))).toBeInstanceOf(EventFeed.SubscriberOverflowError)
+    }),
+  )
+
+  it.effect("frees the byte budget as frames are consumed", () =>
+    Effect.gen(function* () {
+      const source = makeSource()
+      const feed = yield* EventFeed.make(source.observe, {
+        capacityBytes: 64,
+        encode: (value) => value.type.padEnd(40, "x"),
+      })
+      const stream = yield* feed.subscribe
+
+      // Two 40-byte frames do not fit in 64 bytes at once, so the second publish only succeeds
+      // because the first frame was consumed and its bytes were returned to the budget.
+      yield* source.publish(event("one"))
+      expect(yield* stream.pipe(Stream.take(1), Stream.runCollect)).toHaveLength(1)
+
+      yield* source.publish(event("two"))
+      expect(yield* stream.pipe(Stream.take(1), Stream.runCollect)).toHaveLength(1)
+
+      yield* source.publish(event("three"))
+      yield* source.publish(event("four"))
     }),
   )
 
@@ -240,6 +310,56 @@ describe("EventFeed", () => {
       const received = yield* stream.pipe(Stream.take(1), Stream.runCollect, Effect.forkScoped)
       yield* source.publish(event("four"))
       expect(Array.from(yield* Fiber.join(received))).toEqual(["evt_four"])
+    }),
+  )
+
+  test("classifies critical lifecycle events correctly", () => {
+    expect(EventFeed.isCriticalEvent({ type: "session.status" })).toBeTrue()
+    expect(EventFeed.isCriticalEvent({ type: "session.step.ended" })).toBeTrue()
+    expect(EventFeed.isCriticalEvent({ type: "session.step.failed" })).toBeTrue()
+    expect(EventFeed.isCriticalEvent({ type: "session.execution.failed" })).toBeTrue()
+    expect(EventFeed.isCriticalEvent({ type: "session.interrupted" })).toBeTrue()
+    expect(EventFeed.isCriticalEvent({ type: "permission.asked" })).toBeTrue()
+    expect(EventFeed.isCriticalEvent({ type: "agent.updated" })).toBeFalse()
+    expect(EventFeed.isCriticalEvent({ type: "model.updated" })).toBeFalse()
+    expect(EventFeed.isCriticalEvent({ type: "session.text.delta" })).toBeFalse()
+  })
+
+  it.effect("reliably delivers critical lifecycle events to subscribers", () =>
+    Effect.gen(function* () {
+      const source = makeSource()
+      const feed = yield* EventFeed.make(source.observe, {
+        capacity: 4,
+        encode: (e) => `${e.id}:${e.type}`,
+      })
+      const stream = yield* feed.subscribe
+      const received = yield* stream.pipe(Stream.take(3), Stream.runCollect, Effect.forkScoped)
+
+      yield* source.publish({
+        id: Event.ID.make("evt_status"),
+        created: Date.now(),
+        type: "session.status",
+        data: {},
+      })
+      yield* source.publish({
+        id: Event.ID.make("evt_step_ended"),
+        created: Date.now(),
+        type: "session.step.ended",
+        data: {},
+      })
+      yield* source.publish({
+        id: Event.ID.make("evt_error"),
+        created: Date.now(),
+        type: "session.execution.failed",
+        data: {},
+      })
+
+      const frames = yield* Fiber.join(received)
+      expect(Array.from(frames)).toEqual([
+        "evt_status:session.status",
+        "evt_step_ended:session.step.ended",
+        "evt_error:session.execution.failed",
+      ])
     }),
   )
 })
