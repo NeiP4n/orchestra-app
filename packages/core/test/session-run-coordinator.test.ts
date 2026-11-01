@@ -790,4 +790,82 @@ describe("SessionRunCoordinator", () => {
       expect(yield* coordinator.isActive("session")).toBe(false)
     }),
   )
+
+  it.effect("guarantees dispatch lock release and fiber interruption when interrupted during startup registration", () =>
+    Effect.gen(function* () {
+      const startGate = yield* Deferred.make<void>()
+      const startedCalled = yield* Deferred.make<void>()
+      let dispatchLocked = false
+      let drainRan = false
+      const settledReasons: Array<string | undefined> = []
+
+      const coordinator = yield* SessionRunCoordinator.make<string, never, string>({
+        started: () =>
+          Effect.gen(function* () {
+            dispatchLocked = true
+            yield* Deferred.succeed(startedCalled, undefined)
+            yield* Deferred.await(startGate)
+          }),
+        drain: () =>
+          Effect.sync(() => {
+            drainRan = true
+          }),
+        settled: (_key, _exit, reason) =>
+          Effect.sync(() => {
+            dispatchLocked = false
+            settledReasons.push(reason)
+          }),
+      })
+
+      yield* coordinator.wake("session")
+      yield* Deferred.await(startedCalled)
+      expect(dispatchLocked).toBe(true)
+
+      const interrupted = yield* coordinator.interrupt("session", "user")
+      expect(interrupted).toBe(true)
+
+      yield* Deferred.succeed(startGate, undefined)
+      yield* coordinator.awaitIdle("session")
+
+      expect(dispatchLocked).toBe(false)
+      expect(drainRan).toBe(false)
+      expect(settledReasons).toEqual(["user"])
+      expect(yield* coordinator.isActive("session")).toBe(false)
+    }),
+  )
+
+  it.effect("guarantees immediate interruption and dispatch lock release when interrupt arrives during initial registration", () =>
+    Effect.gen(function* () {
+      let dispatchLocked = false
+      let drainRan = false
+      const settledReasons: Array<string | undefined> = []
+
+      const coordinator = yield* SessionRunCoordinator.make<string, never, string>({
+        started: () =>
+          Effect.sync(() => {
+            dispatchLocked = true
+          }),
+        drain: () =>
+          Effect.sync(() => {
+            drainRan = true
+          }),
+        settled: (_key, _exit, reason) =>
+          Effect.sync(() => {
+            dispatchLocked = false
+            settledReasons.push(reason)
+          }),
+      })
+
+      yield* coordinator.wake("session")
+      const interrupted = yield* coordinator.interrupt("session", "user")
+      expect(interrupted).toBe(true)
+
+      yield* coordinator.awaitIdle("session")
+
+      expect(dispatchLocked).toBe(false)
+      expect(drainRan).toBe(false)
+      expect(settledReasons).toEqual(["user"])
+      expect(yield* coordinator.isActive("session")).toBe(false)
+    }),
+  )
 })

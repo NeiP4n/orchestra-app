@@ -48,10 +48,16 @@ export class Service extends Context.Service<Service, Interface>()("@orchestra/S
 
 type InterruptReason = "user" | "shutdown" | "inactivity"
 
-export function terminal(exit: Exit.Exit<void, SessionRunner.RunError>, reason?: InterruptReason) {
-  if (Exit.isSuccess(exit)) return { type: "succeeded" as const }
-  if (Cause.hasInterrupts(exit.cause)) return { type: "interrupted" as const, reason: reason ?? "shutdown" }
-  return { type: "failed" as const, error: toSessionError(Cause.squash(exit.cause)) }
+export type TerminalOutcome =
+  | { readonly type: "succeeded" }
+  | { readonly type: "interrupted"; readonly reason: InterruptReason }
+  | { readonly type: "failed"; readonly error: ReturnType<typeof toSessionError> }
+
+export function terminal(exit: Exit.Exit<void, SessionRunner.RunError>, reason?: InterruptReason): TerminalOutcome {
+  if (reason !== undefined) return { type: "interrupted", reason }
+  if (Exit.isSuccess(exit)) return { type: "succeeded" }
+  if (Cause.hasInterrupts(exit.cause)) return { type: "interrupted", reason: "shutdown" }
+  return { type: "failed", error: toSessionError(Cause.squash(exit.cause)) }
 }
 
 /** Process-local execution: drains run in this process using the selected instance. */
@@ -152,29 +158,39 @@ export const layer = Layer.effect(
       active: coordinator.active,
       isActive: coordinator.isActive,
       interrupt: (sessionID, options) =>
-        Effect.gen(function* () {
-          const interrupted = yield* coordinator.interrupt(sessionID, options?.reason ?? "user", options)
-          if (!options?.resume) return interrupted
-          // Resume steering input and between-turn control work from the interrupted
-          // intent. Queued next-turn prompts stay parked: a steer-scoped drain never
-          // promotes them, and a control item behind a queued prompt waits its turn.
-          // Interruption acknowledges before cleanup settles, so this wake usually lands
-          // on the stopping execution's doorbell and starts the successor at settle.
-          // Reading the inbox concurrently with the dying drain is safe: delivery consumes
-          // rows inside uninterruptible publications, so a steer row is either still
-          // promotable here or was fully delivered and needs no resumption.
-          const next = yield* SessionInbox.nextPromotable(db, sessionID, "input")
-          if (next === undefined) return interrupted
-          if (next.delivery === "steer" || next.type === "compaction" || next.type === "move")
-            yield* coordinator.wake(sessionID, "steer")
-          return interrupted
-        }),
+        Effect.uninterruptibleMask((restore) =>
+          Effect.gen(function* () {
+            const interrupted = yield* coordinator.interrupt(sessionID, options?.reason ?? "user", options)
+            if (!options?.resume) return interrupted
+            // Resume steering input and between-turn control work from the interrupted
+            // intent. Queued next-turn prompts stay parked: a steer-scoped drain never
+            // promotes them, and a control item behind a queued prompt waits its turn.
+            // Interruption acknowledges before cleanup settles, so this wake usually lands
+            // on the stopping execution's doorbell and starts the successor at settle.
+            // Reading the inbox concurrently with the dying drain is safe: delivery consumes
+            // rows inside uninterruptible publications, so a steer row is either still
+            // promotable here or was fully delivered and needs no resumption.
+            const next = yield* restore(SessionInbox.nextPromotable(db, sessionID, "input"))
+            if (next === undefined) return interrupted
+            if (next.delivery === "steer" || next.type === "compaction" || next.type === "move")
+              yield* coordinator.wake(sessionID, "steer")
+            return interrupted
+          }),
+        ),
       // A held session (a paused Society's) does not start from any path. Its durable work stays where it is
       // and starts when the hold is released.
       resume: (sessionID) =>
-        SessionHold.held(sessionID).pipe(Effect.flatMap((held) => (held ? Effect.void : coordinator.run(sessionID)))),
+        Effect.uninterruptibleMask((restore) =>
+          SessionHold.held(sessionID).pipe(
+            Effect.flatMap((held) => (held ? Effect.void : restore(coordinator.run(sessionID)))),
+          ),
+        ),
       wake: (sessionID) =>
-        SessionHold.held(sessionID).pipe(Effect.flatMap((held) => (held ? Effect.void : coordinator.wake(sessionID)))),
+        Effect.uninterruptibleMask((restore) =>
+          SessionHold.held(sessionID).pipe(
+            Effect.flatMap((held) => (held ? Effect.void : coordinator.wake(sessionID))),
+          ),
+        ),
       awaitIdle: coordinator.awaitIdle,
     })
   }),

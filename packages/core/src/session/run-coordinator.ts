@@ -39,10 +39,12 @@ export interface Coordinator<Key, E, Reason = never> {
  */
 type Execution<E, Reason> = {
   readonly done: Deferred.Deferred<void, E>
+  readonly interrupted: Deferred.Deferred<void>
   owner?: Fiber.Fiber<void>
   scope: Promotable
   pendingWake?: Promotable
   stopping: boolean
+  phase: "starting" | "running" | "settling"
   interruptionReason?: Reason
 }
 
@@ -87,19 +89,35 @@ export const make = <Key, E, Reason = never>(options: {
     const start = (key: Key, force: boolean, scope: Promotable) => {
       const execution: Execution<E, Reason> = {
         done: Deferred.makeUnsafe<void, E>(),
+        interrupted: Deferred.makeUnsafe<void>(),
         scope,
         stopping: false,
+        phase: "starting",
       }
       executions.set(key, execution)
       // The leading yield lets `owner` be assigned before the drain can settle, and keeps
       // failing self-waking executions from growing the stack across successor starts.
       // Drains start one tick after wake; callers observe progress through events or run.
-      execution.owner = fork(
+      const fiber = fork(
         Effect.yieldNow.pipe(
-          Effect.andThen(Effect.uninterruptible(options.started?.(key) ?? Effect.void)),
-          Effect.andThen(loop(key, execution, force)),
+          Effect.andThen(
+            Effect.gen(function* () {
+              if (execution.stopping || Deferred.isDoneUnsafe(execution.interrupted)) {
+                return yield* Effect.interrupt
+              }
+              if (options.started) {
+                yield* Effect.uninterruptible(options.started(key))
+              }
+              execution.phase = "running"
+              if (execution.stopping || Deferred.isDoneUnsafe(execution.interrupted)) {
+                return yield* Effect.interrupt
+              }
+              yield* loop(key, execution, force)
+            }),
+          ),
           Effect.onExit((exit) =>
             Effect.sync(() => {
+              execution.phase = "settling"
               execution.owner = undefined
             }).pipe(
               Effect.andThen(Effect.exit(options.settled?.(key, exit, execution.interruptionReason) ?? Effect.void)),
@@ -127,6 +145,10 @@ export const make = <Key, E, Reason = never>(options: {
           Effect.asVoid,
         ),
       )
+      execution.owner = fiber
+      if (execution.stopping) {
+        fork(Fiber.interrupt(fiber))
+      }
       return execution
     }
 
@@ -141,21 +163,24 @@ export const make = <Key, E, Reason = never>(options: {
     const isActive = (key: Key) => Effect.sync(() => executions.has(key))
 
     const run = (key: Key): Effect.Effect<void, E> =>
-      Effect.suspend(() => {
-        const execution = executions.get(key)
-        if (execution !== undefined) {
-          // A stopping execution or an execution in terminal settlement refuses joiners: wait out its cleanup, then run fresh.
-          if (execution.stopping || execution.owner === undefined)
-            return Deferred.await(execution.done).pipe(Effect.ignoreCause, Effect.andThen(run(key)))
-          // If the active execution is running with a narrower scope (e.g. steer),
-          // coalesce so input is drained before settling without creating a duplicate execution.
-          if (execution.scope !== "input") {
-            execution.pendingWake = "input"
+      Effect.uninterruptibleMask((restore) =>
+        Effect.suspend(() => {
+          const execution = executions.get(key)
+          if (execution !== undefined) {
+            // A stopping execution or an execution in terminal settlement refuses joiners: wait out its cleanup, then run fresh.
+            if (execution.stopping || execution.phase === "settling")
+              return restore(Deferred.await(execution.done)).pipe(Effect.ignoreCause, Effect.andThen(run(key)))
+            // If the active execution is running with a narrower scope (e.g. steer),
+            // coalesce so input is drained before settling without creating a duplicate execution.
+            if (execution.scope !== "input") {
+              execution.pendingWake = "input"
+            }
+            return restore(Deferred.await(execution.done))
           }
-          return Deferred.await(execution.done)
-        }
-        return Deferred.await(start(key, true, "input").done)
-      })
+          const started = start(key, true, "input")
+          return restore(Deferred.await(started.done))
+        }),
+      )
 
     const wake = (key: Key, scope: Promotable = "input") =>
       Effect.sync(() => {
@@ -172,7 +197,7 @@ export const make = <Key, E, Reason = never>(options: {
       Effect.sync(() => {
         const execution = executions.get(key)
         if (execution === undefined || execution.stopping) return false
-        if (execution.owner === undefined) {
+        if (execution.phase === "settling") {
           // Settlement window: the owner exited but the settled hook has not finished. The
           // terminal outcome is already decided, so no reason attaches — but the interrupt
           // still claims the recorded wakes so settle does not start a dead-intent successor.
@@ -184,20 +209,25 @@ export const make = <Key, E, Reason = never>(options: {
         // Wakes arriving during cleanup are new admissions and restart normally at settle.
         execution.pendingWake = undefined
         execution.interruptionReason = reason
-        // Fire and forget: nobody benefits from waiting out cleanup here, and callers like
-        // the interrupt endpoint must acknowledge immediately even when finalizers are slow.
-        fork(Fiber.interrupt(execution.owner))
+        Deferred.doneUnsafe(execution.interrupted, Exit.void)
+        if (execution.owner !== undefined) {
+          // Fire and forget: nobody benefits from waiting out cleanup here, and callers like
+          // the interrupt endpoint must acknowledge immediately even when finalizers are slow.
+          fork(Fiber.interrupt(execution.owner))
+        }
         return true
       })
 
     // One execution's `done` already spans coalesced continuations; re-check after it
     // settles to cover a successor execution started by a late doorbell.
     const awaitIdle = (key: Key): Effect.Effect<void> =>
-      Effect.suspend(() => {
-        const execution = executions.get(key)
-        if (execution === undefined) return Effect.void
-        return Deferred.await(execution.done).pipe(Effect.ignoreCause, Effect.andThen(awaitIdle(key)))
-      })
+      Effect.uninterruptibleMask((restore) =>
+        Effect.suspend(() => {
+          const execution = executions.get(key)
+          if (execution === undefined) return Effect.void
+          return restore(Deferred.await(execution.done)).pipe(Effect.ignoreCause, Effect.andThen(awaitIdle(key)))
+        }),
+      )
 
     return {
       active: Effect.sync(() => new Set(executions.keys())),
@@ -205,16 +235,18 @@ export const make = <Key, E, Reason = never>(options: {
       run,
       wake,
       interrupt: (key, reason, options) =>
-        Effect.suspend(() => {
-          const execution = executions.get(key)
-          return interrupt(key, reason).pipe(
-            Effect.tap(() =>
-              options?.awaitSettlement && execution
-                ? Deferred.await(execution.done).pipe(Effect.ignoreCause)
-                : Effect.void,
-            ),
-          )
-        }),
+        Effect.uninterruptibleMask((restore) =>
+          Effect.suspend(() => {
+            const execution = executions.get(key)
+            return interrupt(key, reason).pipe(
+              Effect.tap(() =>
+                options?.awaitSettlement && execution
+                  ? restore(Deferred.await(execution.done)).pipe(Effect.ignoreCause)
+                  : Effect.void,
+              ),
+            )
+          }),
+        ),
       awaitIdle,
     }
   })
