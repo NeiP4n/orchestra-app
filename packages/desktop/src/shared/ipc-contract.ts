@@ -41,3 +41,22 @@ export type ClipboardImage = {
   width: number
   height: number
 }
+
+export type TrayStatus = "online" | "offline" | "busy"
+
+export type TrayUpdateStatus = {
+  status: TrayStatus
+  activeTasks?: number
+}
+
+export type TraySetCloseToTray = {
+  enabled: boolean
+}
+
+export type TrayGetCloseToTray = {
+  enabled: boolean
+}
+
+export type ShortcutsRegisterQuickAction = {
+  shortcut: string
+}

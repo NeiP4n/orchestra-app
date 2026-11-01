@@ -25,10 +25,12 @@ import {
 import { registerRendererProtocol, setProtocolReporter } from "./protocol"
 import { loadWindow } from "./scheme"
 import { createWindowRegistry } from "./registry"
+// oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports
 import { makeWindowRecovery } from "./recovery"
 import { takeEarlyWindow, type EarlyWindow } from "./early"
 import { manageWindowState, readWindowState, resolveWindowState, windowStateFile } from "./window-state"
 import { allowRendererPermissions, wireNavigationPolicy, wireRendererHeaders } from "./security"
+import { isCloseToTrayEnabled } from "../native/tray-state"
 
 const themeReady = new WeakMap<BrowserWindow, () => void>()
 
@@ -99,6 +101,32 @@ export function getWindowByID(id: string) {
 /** App windows that host the renderer, excluding popups and other native windows. */
 export function getMainWindows() {
   return registry.list().filter((win) => !win.isDestroyed())
+}
+
+export function showAndFocusMainWindow() {
+  const win = getLastFocusedWindow() ?? getMainWindows()[0]
+
+  if (!win || win.isDestroyed()) return
+
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+}
+
+export function toggleOrFocusMainWindow() {
+  const win = getLastFocusedWindow() ?? getMainWindows()[0]
+
+  if (!win || win.isDestroyed()) return
+
+  if (win.isVisible() && win.isFocused()) {
+    win.hide()
+
+    return
+  }
+
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
 }
 
 /** Runs for each app window as it registers, before its renderer loads. */
@@ -219,6 +247,12 @@ export const makeMainWindows = Effect.fn("Window.make")(function* () {
     win.on("focus", () => registry.focused(id))
     // Windows emits session-end, but not before-quit, during shutdown and logoff.
     win.on("session-end", () => registry.setQuitting())
+    win.on("close", (event) => {
+      if (!registry.isQuitting() && isCloseToTrayEnabled()) {
+        event.preventDefault()
+        win.hide()
+      }
+    })
     win.on("closed", () => {
       if (!registry.closed(id)) return
       runFork(

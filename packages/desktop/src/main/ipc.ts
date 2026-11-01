@@ -12,7 +12,9 @@ import { eventHandlers } from "./ipc-handlers/events"
 import { extensionHandlers } from "./ipc-handlers/extensions"
 import { fileHandlers } from "./ipc-handlers/files"
 import { menuHandlers } from "./ipc-handlers/menu"
+import { shortcutHandlers } from "./ipc-handlers/shortcuts"
 import { storageHandlers } from "./ipc-handlers/storage"
+import { trayHandlers } from "./ipc-handlers/tray"
 import { windowHandlers } from "./ipc-handlers/window"
 import { IpcPortHandoff, IpcServerProtocolLive } from "./ipc-transport"
 import { ApplicationLifecycle } from "./lifecycle"
@@ -31,6 +33,8 @@ const handlers = Layer.mergeAll(
   menuHandlers,
   eventHandlers,
   extensionHandlers,
+  trayHandlers,
+  shortcutHandlers,
 )
 
 export const layer = RpcServer.layer(DesktopRpcs, { disableFatalDefects: true }).pipe(

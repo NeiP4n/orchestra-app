@@ -9,7 +9,12 @@ import type {
   PickedFiles,
   SaveFilePickerOptions,
   ServerReadyData,
+  ShortcutsRegisterQuickAction,
   TitlebarTheme,
+  TrayGetCloseToTray,
+  TraySetCloseToTray,
+  TrayStatus,
+  TrayUpdateStatus,
 } from "../shared/ipc-contract"
 
 export type ElectronAPI = {
@@ -68,4 +73,15 @@ export type ElectronAPI = {
   setForceFocus(enabled: boolean): Promise<void>
   recordFatalRendererError(error: FatalRendererError): Promise<void>
   setNativeTranslations(bundle: DesktopNativeBundle): Promise<void>
+  updateTrayStatus(opts: TrayUpdateStatus): Promise<void>
+  updateTrayStatus(status: TrayStatus, activeTasks?: number): Promise<void>
+  setTrayStatus(opts: TrayUpdateStatus): Promise<void>
+  setTrayStatus(status: TrayStatus, activeTasks?: number): Promise<void>
+  setCloseToTray(opts: TraySetCloseToTray): Promise<void>
+  setCloseToTray(enabled: boolean): Promise<void>
+  getCloseToTray(): Promise<TrayGetCloseToTray>
+  registerQuickAction(opts: ShortcutsRegisterQuickAction): Promise<void>
+  registerQuickAction(shortcut: string): Promise<void>
+  registerQuickActionShortcut(opts: ShortcutsRegisterQuickAction): Promise<void>
+  registerQuickActionShortcut(shortcut: string): Promise<void>
 }

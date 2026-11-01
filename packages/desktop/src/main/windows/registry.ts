@@ -1,6 +1,9 @@
+import { Predicate } from "effect"
+
 // Tracks open windows and the persisted window id list used to restore
 // windows (and their per-window persisted state) across app launches.
 export function createWindowRegistry<W>(persistence: {
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- raw store persistence reader
   read: () => unknown
   write: (ids: string[]) => void
 }) {
@@ -13,13 +16,16 @@ export function createWindowRegistry<W>(persistence: {
 
     if (!Array.isArray(value)) return []
 
-    return value.filter((id): id is string => typeof id === "string" && id.length > 0)
+    return value.filter((id): id is string => Predicate.isString(id) && id.length > 0)
   }
 
   return {
     persisted,
     setQuitting(value = true) {
       quitting = value
+    },
+    isQuitting() {
+      return quitting
     },
     register(id: string, window: W) {
       windows.set(id, window)

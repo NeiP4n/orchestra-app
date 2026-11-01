@@ -7,6 +7,8 @@ import { DesktopInitialization } from "./lifecycle/desktop-initialization"
 import { installContextMenu } from "./lifecycle/environment"
 import { ApplicationLifecycle } from "./lifecycle"
 import { DesktopLogging } from "./native/logging"
+import { destroyShortcuts, initShortcuts } from "./native/shortcuts"
+import { destroyTray, initTray } from "./native/tray"
 import { BackgroundService } from "./service/background-service"
 import { DesktopCli } from "./service/desktop-cli"
 import { marks } from "./lifecycle/marks"
@@ -26,6 +28,16 @@ const runIpc = Effect.fn("Desktop.runIpc")(function* () {
   yield* Effect.forkScoped(extensions.start)
 
   if (lifecycle.restoreWindows().length) ipc.installMenu()
+
+  initTray()
+  initShortcuts()
+
+  yield* Effect.addFinalizer(() =>
+    Effect.sync(() => {
+      destroyTray()
+      destroyShortcuts()
+    }),
+  )
   // The first window's renderer now has its IPC port and is hydrating its stores over it. The crash
   // reporter (spawns a process) and the context menu (a dependency tree) are not worth answering late.
   yield* Effect.sleep("500 millis")

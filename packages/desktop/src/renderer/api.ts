@@ -1,3 +1,10 @@
+import { Predicate } from "effect"
+import type {
+  ShortcutsRegisterQuickAction,
+  TraySetCloseToTray,
+  TrayStatus,
+  TrayUpdateStatus,
+} from "../shared/ipc-contract"
 import type { ElectronAPI } from "./api-types"
 import { invoke, listen, send } from "./ipc-client"
 
@@ -91,4 +98,40 @@ export const api: ElectronAPI = {
   setForceFocus: (enabled) => invoke("AppSetForceFocus", { enabled }),
   recordFatalRendererError: (error) => invoke("AppRecordFatalRendererError", { error }),
   setNativeTranslations: (bundle) => invoke("AppSetNativeTranslations", { value: bundle }),
+  updateTrayStatus: (statusOrOpts: TrayUpdateStatus | TrayStatus, activeTasks?: number) => {
+    const payload = Predicate.isString(statusOrOpts)
+      ? { status: statusOrOpts, activeTasks }
+      : statusOrOpts
+
+    return invoke("TrayUpdateStatus", payload)
+  },
+  setTrayStatus: (statusOrOpts: TrayUpdateStatus | TrayStatus, activeTasks?: number) => {
+    const payload = Predicate.isString(statusOrOpts)
+      ? { status: statusOrOpts, activeTasks }
+      : statusOrOpts
+
+    return invoke("TrayUpdateStatus", payload)
+  },
+  setCloseToTray: (enabledOrOpts: TraySetCloseToTray | boolean) => {
+    const payload = Predicate.isBoolean(enabledOrOpts)
+      ? { enabled: enabledOrOpts }
+      : enabledOrOpts
+
+    return invoke("TraySetCloseToTray", payload)
+  },
+  getCloseToTray: () => invoke("TrayGetCloseToTray"),
+  registerQuickAction: (shortcutOrOpts: ShortcutsRegisterQuickAction | string) => {
+    const payload = Predicate.isString(shortcutOrOpts)
+      ? { shortcut: shortcutOrOpts }
+      : shortcutOrOpts
+
+    return invoke("ShortcutsRegisterQuickAction", payload)
+  },
+  registerQuickActionShortcut: (shortcutOrOpts: ShortcutsRegisterQuickAction | string) => {
+    const payload = Predicate.isString(shortcutOrOpts)
+      ? { shortcut: shortcutOrOpts }
+      : shortcutOrOpts
+
+    return invoke("ShortcutsRegisterQuickAction", payload)
+  },
 }
