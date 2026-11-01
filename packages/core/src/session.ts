@@ -67,6 +67,8 @@ import { Job } from "./job.js"
 import type { Command } from "./command.js"
 import { SessionEnvironment } from "./session/environment.js"
 import { InstructionEntry } from "./session/instruction-entry.js"
+import { CompactionPolicy } from "./session/compaction-policy.js"
+import { SessionPlan } from "./session/plan.js"
 
 // get project -> project.locations
 //
@@ -303,7 +305,15 @@ const layer = Layer.effect(
               agent: input.agent,
               // Children inherit metadata and permissions the way they inherit
               // location, so host policies that read them treat the family uniformly.
-              metadata: input.metadata ?? parent?.metadata,
+              // A chat with an agent (or explicitly configured) gets default auto-compaction threshold.
+              metadata: (() => {
+                const base = input.metadata ?? parent?.metadata
+                if (base?.[SessionPlan.CONTEXT_KEY] !== undefined) return base
+                if (input.agent || parent?.agent) {
+                  return { ...base, [SessionPlan.CONTEXT_KEY]: CompactionPolicy.mainThreshold }
+                }
+                return base
+              })(),
               permissions: input.permissions ?? parent?.permissions,
               model: input.model
                 ? {

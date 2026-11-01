@@ -222,6 +222,13 @@ const table = sqliteTable("session", {
 })
 ```
 
+## Absolute Truthfulness & Anti-Simulation Invariant
+
+- **Mandatory Truthfulness**: Always speak only the truth about the factual state of code, system state, and test results.
+- **Strict Prohibition of OS-Level Emulation Substitution**: Never substitute target tools, protocols, or web extensions with OS-level emulations, GUI automation, or indirect workarounds (e.g. never substitute browser WebExtension/bridge operations with desktop OS keystrokes or mouse clicks, and never claim a target tool succeeded when an OS emulation was used).
+- **No False Completion (DONE)**: Never declare a task or result DONE without actual end-to-end code execution and verification.
+- **Transparent Limitations**: Speak only verified facts about current state. Openly and clearly report any limitations, partial failures, or required manual steps.
+
 ## Testing
 
 - Avoid mocks as much as possible, you shouldn't be using globalThis.\* at all unless it's the only option.

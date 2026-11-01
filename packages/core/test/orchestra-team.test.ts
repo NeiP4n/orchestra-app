@@ -20,6 +20,8 @@ import { LocationServiceMap } from "@orchestra/core/location-service-map"
 import { Orchestra } from "@orchestra/core/orchestra"
 import { Federation } from "@orchestra/core/federation"
 import { Dod } from "@orchestra/core/dod"
+import { CompactionPolicy } from "@orchestra/core/session/compaction-policy"
+import { SessionPlan } from "@orchestra/core/session/plan"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { Session } from "@orchestra/core/session"
@@ -288,7 +290,32 @@ describe("Orchestra team", () => {
       expect(main.id).toBe(project.main!)
       expect(main.title).toBe("No team · Orchestrator")
       expect(main.agent).toBe(Orchestra.agent)
+      expect(main.metadata?.[SessionPlan.CONTEXT_KEY]).toEqual(CompactionPolicy.mainThreshold)
       expect(yield* orchestra.mainOf(main.id)).toMatchObject({ id: project.id })
+    }),
+  )
+
+  it.live("automatically assigns default compaction threshold to all project sessions even without team", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-single-chat-")))
+      const orchestra = yield* Orchestra.Service
+      const sessions = yield* Session.Service
+      const project = yield* orchestra.create({ name: "Single Chat Project", directory: tmp.path })
+
+      // Main session gets threshold
+      const main = yield* orchestra.main(project.id)
+      expect(main.metadata?.[SessionPlan.CONTEXT_KEY]).toEqual(CompactionPolicy.mainThreshold)
+
+      // Create an auxiliary single session in project folder without explicit metadata
+      const singleSession = yield* sessions.create({
+        location: { directory: AbsolutePath.make(tmp.path) },
+        title: "User Scratchpad",
+      })
+      // Ensure that orchestra.sessions guarantees threshold on every project session
+      const list = yield* orchestra.sessions(project.id)
+      const found = list.find((s) => s.id === singleSession.id)
+      expect(found).toBeDefined()
+      expect(found?.metadata?.[SessionPlan.CONTEXT_KEY]).toEqual(CompactionPolicy.mainThreshold)
     }),
   )
 
@@ -334,6 +361,7 @@ describe("Orchestra team", () => {
       )
       const main = yield* orchestra.main(project.id)
       expect(main.id).toBe(originalID)
+      expect(main.metadata?.[SessionPlan.CONTEXT_KEY]).toEqual(CompactionPolicy.mainThreshold)
       expect((yield* orchestra.projects()).find((item) => item.id === project.id)?.main).toBe(originalID)
       expect(yield* orchestra.mainOf(originalID)).toMatchObject({ id: project.id })
     }).pipe(Effect.scoped),

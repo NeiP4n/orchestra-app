@@ -23,6 +23,8 @@ import { ProjectTable } from "@orchestra/core/project/sql"
 import { Provider } from "@orchestra/core/provider"
 import { AbsolutePath, RelativePath } from "@orchestra/core/schema"
 import { Session } from "@orchestra/core/session"
+import { CompactionPolicy } from "@orchestra/core/session/compaction-policy"
+import { SessionPlan } from "@orchestra/core/session/plan"
 import { SessionMessage } from "@orchestra/core/session/message"
 import { SessionProjector } from "@orchestra/core/session/projector"
 import { SessionExecution } from "@orchestra/core/session/execution"
@@ -383,8 +385,12 @@ describe("Session.create", () => {
       const forked = yield* session.fork({ sessionID: created.id })
       expect(forked.metadata).toEqual(metadata)
 
-      // Absent stays absent: no empty-object normalization.
+      // Absent stays absent: no empty-object normalization for raw sessions without agent.
       expect((yield* session.create({ location })).metadata).toBeUndefined()
+
+      // A chat created with an agent gets default auto-compaction threshold in metadata.
+      const chatWithAgent = yield* session.create({ location, agent: Agent.ID.make("build") })
+      expect(chatWithAgent.metadata).toEqual({ [SessionPlan.CONTEXT_KEY]: CompactionPolicy.mainThreshold })
 
       const replacement = { thread: "updated", owner: "host" }
       yield* session.setMetadata({ sessionID: created.id, metadata: replacement })

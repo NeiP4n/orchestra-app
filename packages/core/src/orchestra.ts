@@ -537,6 +537,14 @@ const layer: Layer.Layer<
       return yield* Dod.initialize(root ?? canonical)
     })
 
+    const createSession = (input: Parameters<typeof sessions.create>[0]) => {
+      const metadata =
+        input.metadata?.[SessionPlan.CONTEXT_KEY] !== undefined
+          ? input.metadata
+          : { ...input.metadata, [SessionPlan.CONTEXT_KEY]: CompactionPolicy.mainThreshold }
+      return sessions.create({ ...input, metadata })
+    }
+
     const mainSession = Effect.fnUntraced(function* (project: Project) {
       // The reservation is written first; if the process dies anywhere below, the next open
       // reuses this exact ID instead of creating a second main session.
@@ -545,16 +553,14 @@ const layer: Layer.Layer<
       yield* kv.set(MAIN_INITIALIZING + project.id, id)
       yield* save({ ...project, main: id })
       yield* kv.set(OWNER + id, project.id)
-      const created = yield* sessions
-        .create({
-          id,
-          location: { directory: AbsolutePath.make(project.directory) },
-          title: `${project.name} · Orchestrator`,
-          agent: Orchestra.agent,
-          // The project's own chat coordinates the whole team, so it keeps the deepest threshold.
-          metadata: { [SessionPlan.CONTEXT_KEY]: CompactionPolicy.mainThreshold },
-        })
-        .pipe(Effect.orDie)
+      const created = yield* createSession({
+        id,
+        location: { directory: AbsolutePath.make(project.directory) },
+        title: `${project.name} · Orchestrator`,
+        agent: Orchestra.agent,
+        // The project's own chat coordinates the whole team, so it keeps the deepest threshold.
+        metadata: { [SessionPlan.CONTEXT_KEY]: CompactionPolicy.mainThreshold },
+      }).pipe(Effect.orDie)
       yield* kv.remove(MAIN_INITIALIZING + project.id)
       return created
     })
@@ -588,13 +594,6 @@ const layer: Layer.Layer<
             yield* sessions.rename({ sessionID: main.id, title }).pipe(Effect.orDie)
             main = { ...main, title }
           }
-          // A main session created before the compaction policy existed gets the deep threshold; a
-          // value the operator already set stays untouched.
-          if (main.metadata?.[SessionPlan.CONTEXT_KEY] === undefined) {
-            const metadata = { ...main.metadata, [SessionPlan.CONTEXT_KEY]: CompactionPolicy.mainThreshold }
-            yield* sessions.setMetadata({ sessionID: main.id, metadata }).pipe(Effect.orDie)
-            main = { ...main, metadata }
-          }
         } else if (pending) {
           main = yield* mainSession({ ...project, main: pending })
         } else {
@@ -627,6 +626,13 @@ const layer: Layer.Layer<
         if (!existing && project.main !== undefined) {
           yield* reconcileMainTasks(project, main.id)
         }
+        // A main session created before the compaction policy existed (or orphan/recovered) gets the deep threshold;
+        // a value the operator already set stays untouched.
+        if (main.metadata?.[SessionPlan.CONTEXT_KEY] === undefined) {
+          const metadata = { ...main.metadata, [SessionPlan.CONTEXT_KEY]: CompactionPolicy.mainThreshold }
+          yield* sessions.setMetadata({ sessionID: main.id, metadata }).pipe(Effect.orDie)
+          main = { ...main, metadata }
+        }
         return main
       })
 
@@ -655,20 +661,18 @@ const layer: Layer.Layer<
                 Effect.orElseSucceed(() => project.directory),
               )
             : project.directory
-          yield* sessions
-            .create({
-              id: member.id,
-              location: { directory: AbsolutePath.make(directory) },
-              title: member.title,
-              agent: member.agent,
-              model: member.model,
-              // Kept on the session itself so a model fallback survives role and config edits.
-              metadata: {
-                ...(member.models?.length ? { [Orchestra.SessionModelsMetadataKey]: member.models } : {}),
-                [SessionPlan.CONTEXT_KEY]: threshold,
-              },
-            })
-            .pipe(Effect.orDie)
+          yield* createSession({
+            id: member.id,
+            location: { directory: AbsolutePath.make(directory) },
+            title: member.title,
+            agent: member.agent,
+            model: member.model,
+            // Kept on the session itself so a model fallback survives role and config edits.
+            metadata: {
+              ...(member.models?.length ? { [Orchestra.SessionModelsMetadataKey]: member.models } : {}),
+              [SessionPlan.CONTEXT_KEY]: threshold,
+            },
+          }).pipe(Effect.orDie)
         } else if (existing.metadata?.[SessionPlan.CONTEXT_KEY] === undefined) {
           // Retrofit a chat planned before the policy existed, and never overwrite a threshold the
           // operator or the planner already set.
@@ -1859,7 +1863,18 @@ const layer: Layer.Layer<
             const project = yield* get(id)
             if (Option.isSome(decodeProjectMovePlan(yield* kv.get(MOVE_PLAN + id)))) return []
             yield* reconcileTeamUnlocked(project)
-            return yield* projectSessions(project)
+            const list = yield* projectSessions(project)
+            const result: SessionSchema.Info[] = []
+            for (const s of list) {
+              if (s.metadata?.[SessionPlan.CONTEXT_KEY] === undefined) {
+                const metadata = { ...s.metadata, [SessionPlan.CONTEXT_KEY]: CompactionPolicy.mainThreshold }
+                yield* sessions.setMetadata({ sessionID: s.id, metadata }).pipe(Effect.orDie)
+                result.push({ ...s, metadata })
+              } else {
+                result.push(s)
+              }
+            }
+            return result
           }),
         )
         return yield* sessionsEffect.pipe(
@@ -1869,7 +1884,18 @@ const layer: Layer.Layer<
               ? Effect.succeed(opt.value)
               : Effect.gen(function* () {
                   const project = yield* get(id)
-                  return yield* projectSessions(project)
+                  const list = yield* projectSessions(project)
+                  const result: SessionSchema.Info[] = []
+                  for (const s of list) {
+                    if (s.metadata?.[SessionPlan.CONTEXT_KEY] === undefined) {
+                      const metadata = { ...s.metadata, [SessionPlan.CONTEXT_KEY]: CompactionPolicy.mainThreshold }
+                      yield* sessions.setMetadata({ sessionID: s.id, metadata }).pipe(Effect.orDie)
+                      result.push({ ...s, metadata })
+                    } else {
+                      result.push(s)
+                    }
+                  }
+                  return result
                 }),
           ),
         )
@@ -1889,6 +1915,11 @@ const layer: Layer.Layer<
                 message: `Project "${project.name}" is moving to "${move.value.to}". Reopen it after the move before claiming sessions.`,
               })
             yield* kv.set(OWNER + sessionID, projectID)
+            const claimedSession = yield* sessions.get(sessionID).pipe(Effect.orElseSucceed(() => undefined))
+            if (claimedSession && claimedSession.metadata?.[SessionPlan.CONTEXT_KEY] === undefined) {
+              const metadata = { ...claimedSession.metadata, [SessionPlan.CONTEXT_KEY]: CompactionPolicy.mainThreshold }
+              yield* sessions.setMetadata({ sessionID: claimedSession.id, metadata }).pipe(Effect.orDie)
+            }
           }),
         )
       }),
