@@ -18,6 +18,13 @@ describe("ToolGuidance instructions", () => {
     expect(text).toContain("</tool-routing>")
   })
 
+  test("routes unanswered external facts to search and the browser, including asking a web AI", () => {
+    const text = ToolGuidance.render()
+    expect(text).toContain("Gemini, ChatGPT, DeepSeek, Qwen")
+    expect(text).toContain("cite the URL you used")
+    expect(text).toContain("use the browser and ask there")
+  })
+
   test("renders custom routing rules when provided", () => {
     const text = ToolGuidance.render([
       {

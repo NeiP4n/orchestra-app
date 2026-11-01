@@ -41,12 +41,12 @@ export const defaultRules: ReadonlyArray<GuidanceRule> = [
   {
     intent: "Live pages, web apps & browser flows",
     tools: ["browser", "playwright_*", "chrome-devtools_*", "puppeteer_*"],
-    guidance: "Drive the page with these instead of reconstructing it from a fetch or curl: open the URL, read the accessibility tree or DOM, act, then assert on the result. A rendered page is evidence; a guessed one is not.",
+    guidance: "Drive the page with these instead of reconstructing it from a fetch or curl: open the URL, read the accessibility tree or DOM, act, then assert on the result. A rendered page is evidence; a guessed one is not. When the answer needs another assistant's knowledge, open its chat (Gemini, ChatGPT, DeepSeek, Qwen) in the browser, ask it there, and cite the URL you used instead of paraphrasing from memory.",
   },
   {
     intent: "Current information, unfamiliar libraries & APIs",
     tools: ["research", "websearch", "webfetch", "deepwiki_*"],
-    guidance: "Call research first: one call searches and reads the most relevant pages. Then read the primary source (official docs, changelog, source) before relying on the fact.",
+    guidance: "Call research first: one call searches and reads the most relevant pages. Then read the primary source (official docs, changelog, source) before relying on the fact. If the source needs a signed-in or interactive assistant, use the browser and ask there; never answer a current-events or version question from memory.",
   },
   {
     intent: "Binary analysis, decompilation, APK reversing & native library inspection",

@@ -762,4 +762,32 @@ describe("SessionRunCoordinator", () => {
       expect((yield* coordinator.active).size).toBe(0)
     }),
   )
+
+  it.effect("runs a wake registered during stream drain failure", () =>
+    Effect.gen(function* () {
+      let attempts = 0
+      const firstStarted = yield* Deferred.make<void>()
+      const secondStarted = yield* Deferred.make<void>()
+      const coordinator = yield* SessionRunCoordinator.make({
+        drain: () =>
+          Effect.gen(function* () {
+            attempts++
+            if (attempts === 1) {
+              yield* Deferred.succeed(firstStarted, undefined)
+              return yield* Effect.fail(new Error("stream interrupted / connection dropped"))
+            }
+            yield* Deferred.succeed(secondStarted, undefined)
+          }),
+      })
+
+      yield* coordinator.wake("session")
+      yield* Deferred.await(firstStarted)
+      yield* coordinator.wake("session")
+      yield* Deferred.await(secondStarted)
+      yield* coordinator.awaitIdle("session")
+
+      expect(attempts).toBe(2)
+      expect(yield* coordinator.isActive("session")).toBe(false)
+    }),
+  )
 })

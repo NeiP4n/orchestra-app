@@ -1,6 +1,6 @@
 export * as SessionRunCoordinator from "./run-coordinator.js"
 
-import { Deferred, Effect, Exit, Fiber, FiberSet, Scope } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, FiberSet, Scope } from "effect"
 import type { Promotable } from "./inbox.js"
 
 /** Serializes execution for each key while allowing different keys to run concurrently. */
@@ -101,9 +101,28 @@ export const make = <Key, E, Reason = never>(options: {
           Effect.onExit((exit) =>
             Effect.sync(() => {
               execution.owner = undefined
-            }).pipe(Effect.andThen(options.settled?.(key, exit, execution.interruptionReason) ?? Effect.void)),
+            }).pipe(
+              Effect.andThen(Effect.exit(options.settled?.(key, exit, execution.interruptionReason) ?? Effect.void)),
+              Effect.andThen((settledExit) =>
+                Effect.sync(() => {
+                  // The settled hook reports cleanup or lifecycle failures. Keep them attached to the
+                  // exit joiners observe instead of swallowing them, without changing the execution's
+                  // typed error channel: the hook itself cannot fail with E.
+                  if (Exit.isFailure(settledExit))
+                    return settle(
+                      key,
+                      execution,
+                      Exit.failCause(
+                        Exit.isFailure(exit)
+                          ? Cause.combine(exit.cause, Cause.map(settledExit.cause, () => undefined as never))
+                          : Cause.map(settledExit.cause, () => undefined as never),
+                      ),
+                    )
+                  settle(key, execution, exit)
+                }),
+              ),
+            ),
           ),
-          Effect.onExit((exit) => Effect.sync(() => settle(key, execution, exit))),
           Effect.exit,
           Effect.asVoid,
         ),

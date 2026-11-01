@@ -18,7 +18,14 @@ import type { SessionMessage } from "../../session/message.js"
 
 export const name = "sessions"
 
-const description = [
+// The modes the tool advertises come from the schema registry, so adding or removing a builtin
+// mode cannot leave the orchestrator's instructions listing a stale set.
+export const MODE_IDS = Mode.builtins
+  .filter((mode) => String(mode.id) !== "jailbreak")
+  .map((mode) => String(mode.id))
+  .join(", ")
+
+export const description = [
   "Run this project's AI team: the other sessions of the project, each a separate chat with its own role.",
   "Only the project's main session (the orchestrator) has this tool.",
   "Before creating a worker, inspect the roster and reuse an existing writable session with the needed role. Action create reuses an existing session of that role by default; set newInstance=true only when an additional parallel worker is deliberately needed.",
@@ -29,7 +36,7 @@ const description = [
   "Copy the complete sessionID exactly from the roster or action list; never abbreviate or invent one. If a sessions action fails, inspect the exact error and current list/read state, correct the cause, then retry only with changed/corrected arguments. Never repeat an identical failed call.",
   "A worker that asks the human a question during its task blocks until someone answers; that question also arrives here as a <team-question>. Answer it with action answer (sessionID of the worker, answers: one list of chosen option labels or your own text per question, in order) when the task and the operator's instructions settle it; if only the operator can decide, tell the operator instead.",
   "read returns a session's latest messages; create accepts an exact role ID from the global Orchestra role registry even if no session exists for that role yet, reuses a writable matching session by default or creates one if needed, and can give it a first task; set_mode changes how an existing session works; stop interrupts a running session.",
-  "Modes: auto, fast, coding, research, planning, review, debug, design, ops. A mode changes how a session works and may make it read-only; it never widens the role's permissions. Pass mode to send or create, or use action set_mode. Use fast for trivial work, planning/research before building, coding for implementation, review/debug for checks. A planner in coding mode still cannot edit files.",
+  `Modes: ${MODE_IDS}. A mode changes how a session works and may make it read-only; it never widens the role's permissions. Pass mode to send or create, or use action set_mode. Use fast for trivial work, planning or research before building, coding for implementation, architecture for parallel-safe design, test to verify, review or debug for checks, and self-improvement for work on the product itself. A planner in coding mode still cannot edit files.`,
   "Never pass a display title as a role ID: use an exact role id from the roles listed with your team.",
   "Access per session is hidden < read < write < full: read allows list and read, write adds send, full adds stop. Sessions you create get full access.",
 ].join("\n")

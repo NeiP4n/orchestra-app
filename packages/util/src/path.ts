@@ -36,11 +36,11 @@ const isDrive = (value: string) => {
   return value[1] === ":" && ((code >= 65 && code <= 90) || (code >= 97 && code <= 122))
 }
 
-const isWindowsPath = (value: string) => value[1] === ":" || value.startsWith("\\\\")
+const isWindowsPlatform = typeof process !== "undefined" && process.platform === "win32"
 
 /** A comparable form of a directory path: forward slashes for Windows paths, collapsed . and .. segments, no trailing slash except on roots. */
 export function comparablePath(path: string) {
-  const value = isWindowsPath(path) ? path.replaceAll("\\", "/") : path
+  const value = path.includes("\\") ? path.replaceAll("\\", "/") : path
   const isUnc = value.startsWith("//")
   const isAbsoluteUnix = !isUnc && value.startsWith("/")
   const parts = value.split("/")
@@ -84,7 +84,9 @@ export function comparablePath(path: string) {
 export function containsDirectory(parent: string, child: string) {
   const normalize = (value: string) => {
     const key = comparablePath(value)
-    return /^[a-z]:\//i.test(key) || key.startsWith("//") ? key.toLowerCase() : key
+    return isWindowsPlatform || /^[a-z]:(\/|$)/i.test(key) || key.startsWith("//")
+      ? key.toLowerCase()
+      : key
   }
   const root = normalize(parent)
   const target = normalize(child)

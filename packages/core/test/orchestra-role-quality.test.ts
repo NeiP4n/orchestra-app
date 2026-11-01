@@ -76,6 +76,13 @@ describe("built-in role toolkits", () => {
     expect(findRole("mobile-developer")?.hub).toContain("mobile")
     expect(findRole("security-auditor")?.hub).toContain("security")
   })
+
+  test("research roles can open live pages and ask a web AI, not only fetch", () => {
+    for (const id of ["researcher", "deep-researcher"]) {
+      expect(findRole(id)?.tools).toContain("browser")
+      expect(findRole(id)?.tools).toEqual(expect.arrayContaining(["websearch", "research", "webfetch"]))
+    }
+  })
 })
 
 const findRole = (id: string) => roles.find((item) => item.id === id)

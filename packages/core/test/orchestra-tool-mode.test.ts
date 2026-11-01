@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Schema } from "effect"
+import { Mode } from "@orchestra/schema/mode"
 import { OrchestraTool } from "../src/tool/plugin/orchestra.js"
 
 const decode = Schema.decodeUnknownSync(OrchestraTool.Input)
@@ -18,5 +19,15 @@ describe("sessions mode interface", () => {
 
   test("keeps the mode optional for the existing actions", () => {
     expect(decode({ action: "list" }).mode).toBeUndefined()
+  })
+
+  test("advertises every builtin mode instead of a stale hand-written list", () => {
+    const advertised = OrchestraTool.description
+    for (const mode of Mode.builtins.filter((item) => String(item.id) !== "jailbreak"))
+      expect(advertised).toContain(String(mode.id))
+    expect(advertised).not.toContain("jailbreak")
+    expect(OrchestraTool.MODE_IDS).toContain("self-improvement")
+    expect(OrchestraTool.MODE_IDS).toContain("architecture")
+    expect(OrchestraTool.MODE_IDS).toContain("test")
   })
 })
