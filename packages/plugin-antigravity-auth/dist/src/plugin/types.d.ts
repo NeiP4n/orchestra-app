@@ -75,6 +75,7 @@ export interface PluginContext {
     /** V2's discovered per-account model eligibility; absent on legacy hosts. */
     canUseAccount?: (account: {
         id?: string;
+        addedAt?: number;
         refreshToken: string;
     }, model: string) => boolean;
 }

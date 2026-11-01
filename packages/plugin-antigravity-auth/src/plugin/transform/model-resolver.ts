@@ -1,14 +1,14 @@
 /**
  * Model Resolution with Thinking Tier Support
- * 
+ *
  * Resolves model names with tier suffixes (e.g., gemini-3-pro-high, claude-opus-4-6-thinking-low)
  * to their actual API model names and corresponding thinking configurations.
  */
 
-import type { ResolvedModel, ThinkingTier, GoogleSearchConfig } from "./types";
+import type { ResolvedModel, ThinkingTier, GoogleSearchConfig } from "./types"
 
 export interface ModelResolverOptions {
-  cli_first?: boolean;
+  cli_first?: boolean
 }
 
 /**
@@ -20,18 +20,18 @@ export const THINKING_TIER_BUDGETS = {
   "gemini-2.5-pro": { low: 8192, medium: 16384, high: 32768 },
   "gemini-2.5-flash": { low: 6144, medium: 12288, high: 24576 },
   default: { low: 4096, medium: 8192, high: 16384 },
-} as const;
+} as const
 
 /**
  * Gemini 3 uses thinkingLevel strings instead of numeric budgets.
  * Flash supports: minimal, low, medium, high
  * Pro supports: low, high (no minimal/medium)
  */
-export const GEMINI_3_THINKING_LEVELS = ["minimal", "low", "medium", "high"] as const;
+export const GEMINI_3_THINKING_LEVELS = ["minimal", "low", "medium", "high"] as const
 
 /**
  * Model aliases - maps user-friendly names to API model names.
- * 
+ *
  * Format:
  * - Gemini 3 Pro variants: gemini-3-pro-{low,medium,high}
  * - Claude thinking variants: claude-{model}-thinking-{low,medium,high}
@@ -48,6 +48,12 @@ export const MODEL_ALIASES: Record<string, string> = {
   "gemini-3-flash-medium": "gemini-3-flash",
   "gemini-3-flash-high": "gemini-3-flash",
 
+  // Gemini 3.8 Flash tiered models (Google API backend uses gemini-3.8-flash-tiered)
+  "gemini-3.8-flash": "gemini-3.8-flash-tiered",
+  "gemini-3.8-flash-low": "gemini-3.8-flash-tiered",
+  "gemini-3.8-flash-medium": "gemini-3.8-flash-tiered",
+  "gemini-3.8-flash-high": "gemini-3.8-flash-tiered",
+
   // Claude proxy names (gemini- prefix for compatibility)
   "gemini-claude-opus-4-6-thinking-low": "claude-opus-4-6-thinking",
   "gemini-claude-opus-4-6-thinking-medium": "claude-opus-4-6-thinking",
@@ -57,7 +63,7 @@ export const MODEL_ALIASES: Record<string, string> = {
   // Image generation models - only gemini-3-pro-image is available via Antigravity API
   // Note: gemini-2.5-flash-image (Nano Banana) is NOT supported by Antigravity - only Google AI API
   // Reference: Antigravity-Manager/src-tauri/src/proxy/common/model_mapping.rs
-};
+}
 
 /**
  * Model IDs that Antigravity fetchAvailableModels advertises verbatim with a
@@ -68,22 +74,19 @@ const advertisedModelIds = new Set([
   "claude-opus-5-5-high",
   "claude-sonnet-5-5-high",
   "gemini-4-argon-high",
-  "gemini-3.8-flash-high",
-  "gemini-3.8-flash-medium",
-  "gemini-3.8-flash-low",
   "gpt-oss-120b-medium",
-]);
-export const ADVERTISED_TIER_SUFFIX_MODEL_IDS: ReadonlySet<string> = advertisedModelIds;
+])
+export const ADVERTISED_TIER_SUFFIX_MODEL_IDS: ReadonlySet<string> = advertisedModelIds
 
 /** Preserve backend IDs discovered from Google's account-specific catalog. */
 export function registerAdvertisedModelIds(ids: Iterable<string>): void {
-  for (const id of ids) advertisedModelIds.add(id.toLowerCase());
+  for (const id of ids) advertisedModelIds.add(id.toLowerCase())
 }
 
-const TIER_REGEX = /-(minimal|low|medium|high)$/;
-const QUOTA_PREFIX_REGEX = /^antigravity-/i;
-const GEMINI_3_PRO_REGEX = /^gemini-3(?:\.\d+)?-pro/i;
-const GEMINI_3_FLASH_REGEX = /^gemini-3(?:\.\d+)?-flash/i;
+const TIER_REGEX = /-(minimal|low|medium|high)$/
+const QUOTA_PREFIX_REGEX = /^antigravity-/i
+const GEMINI_3_PRO_REGEX = /^gemini-3(?:\.\d+)?-pro/i
+const GEMINI_3_FLASH_REGEX = /^gemini-3(?:\.\d+)?-flash/i
 
 // ANTIGRAVITY_ONLY_MODELS removed - all models now default to antigravity
 
@@ -91,7 +94,7 @@ const GEMINI_3_FLASH_REGEX = /^gemini-3(?:\.\d+)?-flash/i;
  * Image generation models - always route to Antigravity.
  * These models don't support thinking and require imageConfig.
  */
-const IMAGE_GENERATION_MODELS = /image|imagen/i;
+const IMAGE_GENERATION_MODELS = /image|imagen/i
 
 // Legacy LEGACY_ANTIGRAVITY_GEMINI3 regex removed - all Gemini models now default to antigravity
 
@@ -101,12 +104,12 @@ const IMAGE_GENERATION_MODELS = /image|imagen/i;
  * GPT models like gpt-oss-120b-medium should NOT have -medium stripped.
  */
 function supportsThinkingTiers(model: string): boolean {
-  const lower = model.toLowerCase();
+  const lower = model.toLowerCase()
   return (
     lower.includes("gemini-3") ||
     lower.includes("gemini-2.5") ||
     (lower.includes("claude") && lower.includes("thinking"))
-  );
+  )
 }
 
 /**
@@ -116,10 +119,10 @@ function supportsThinkingTiers(model: string): boolean {
 function extractThinkingTierFromModel(model: string): ThinkingTier | undefined {
   // Only extract tier for models that support thinking tiers
   if (!supportsThinkingTiers(model)) {
-    return undefined;
+    return undefined
   }
-  const tierMatch = model.match(TIER_REGEX);
-  return tierMatch?.[1] as ThinkingTier | undefined;
+  const tierMatch = model.match(TIER_REGEX)
+  return tierMatch?.[1] as ThinkingTier | undefined
 }
 
 /**
@@ -127,35 +130,31 @@ function extractThinkingTierFromModel(model: string): ThinkingTier | undefined {
  */
 function getBudgetFamily(model: string): keyof typeof THINKING_TIER_BUDGETS {
   if (model.includes("claude")) {
-    return "claude";
+    return "claude"
   }
   if (model.includes("gemini-2.5-pro")) {
-    return "gemini-2.5-pro";
+    return "gemini-2.5-pro"
   }
   if (model.includes("gemini-2.5-flash")) {
-    return "gemini-2.5-flash";
+    return "gemini-2.5-flash"
   }
-  return "default";
+  return "default"
 }
 
 /**
  * Checks if a model is a thinking-capable model.
  */
 function isThinkingCapableModel(model: string): boolean {
-  const lower = model.toLowerCase();
-  return (
-    lower.includes("thinking") ||
-    lower.includes("gemini-3") ||
-    lower.includes("gemini-2.5")
-  );
+  const lower = model.toLowerCase()
+  return lower.includes("thinking") || lower.includes("gemini-3") || lower.includes("gemini-2.5")
 }
 
 function isGemini3ProModel(model: string): boolean {
-  return GEMINI_3_PRO_REGEX.test(model);
+  return GEMINI_3_PRO_REGEX.test(model)
 }
 
 function isGemini3FlashModel(model: string): boolean {
-  return GEMINI_3_FLASH_REGEX.test(model);
+  return GEMINI_3_FLASH_REGEX.test(model)
 }
 
 /**
@@ -163,7 +162,7 @@ function isGemini3FlashModel(model: string): boolean {
  * Accepts names with or without the "antigravity-" quota prefix.
  */
 export function isAdvertisedTierSuffixModel(model: string): boolean {
-  return ADVERTISED_TIER_SUFFIX_MODEL_IDS.has(model.replace(QUOTA_PREFIX_REGEX, "").toLowerCase());
+  return ADVERTISED_TIER_SUFFIX_MODEL_IDS.has(model.replace(QUOTA_PREFIX_REGEX, "").toLowerCase())
 }
 
 /**
@@ -187,50 +186,52 @@ export function isAdvertisedTierSuffixModel(model: string): boolean {
  * @returns Resolved model with thinking configuration
  */
 export function resolveModelWithTier(requestedModel: string, options: ModelResolverOptions = {}): ResolvedModel {
-  const isAntigravity = QUOTA_PREFIX_REGEX.test(requestedModel);
-  const modelWithoutQuota = requestedModel.replace(QUOTA_PREFIX_REGEX, "");
+  const isAntigravity = QUOTA_PREFIX_REGEX.test(requestedModel)
+  const modelWithoutQuota = requestedModel.replace(QUOTA_PREFIX_REGEX, "")
 
-  const isAdvertisedTierId = isAdvertisedTierSuffixModel(modelWithoutQuota);
+  const isAdvertisedTierId = isAdvertisedTierSuffixModel(modelWithoutQuota)
 
-  const tier = extractThinkingTierFromModel(modelWithoutQuota);
+  const tier = extractThinkingTierFromModel(modelWithoutQuota)
   // Advertised IDs keep their suffix; it still selects the thinking level below.
-  const baseName = tier && !isAdvertisedTierId ? modelWithoutQuota.replace(TIER_REGEX, "") : modelWithoutQuota;
+  const baseName = tier && !isAdvertisedTierId ? modelWithoutQuota.replace(TIER_REGEX, "") : modelWithoutQuota
 
-  const isImageModel = IMAGE_GENERATION_MODELS.test(modelWithoutQuota);
-  const isClaudeModel = modelWithoutQuota.toLowerCase().includes("claude");
-  
+  const isImageModel = IMAGE_GENERATION_MODELS.test(modelWithoutQuota)
+  const isClaudeModel = modelWithoutQuota.toLowerCase().includes("claude")
+
   // All models default to Antigravity quota unless cli_first is enabled
   // Fallback to gemini-cli happens at the account rotation level when Antigravity is exhausted
-  const preferGeminiCli = options.cli_first === true && !isAntigravity && !isImageModel && !isClaudeModel;
-  const quotaPreference = preferGeminiCli ? "gemini-cli" as const : "antigravity" as const;
-  const explicitQuota = isAntigravity || isImageModel;
+  const preferGeminiCli = options.cli_first === true && !isAntigravity && !isImageModel && !isClaudeModel
+  const quotaPreference = preferGeminiCli ? ("gemini-cli" as const) : ("antigravity" as const)
+  const explicitQuota = isAntigravity || isImageModel
 
-  const isGemini3 = modelWithoutQuota.toLowerCase().startsWith("gemini-3");
-  const skipAlias = isAntigravity && isGemini3;
+  const isGemini3 = modelWithoutQuota.toLowerCase().startsWith("gemini-3")
+  const skipAlias = isAntigravity && isGemini3
 
   // For Antigravity Gemini 3 Pro models without explicit tier, append default tier
   // Antigravity API: gemini-3-pro requires tier suffix (gemini-3-pro-low/high)
   //                  gemini-3-flash uses bare name + thinkingLevel param
   // Pro defaults to -low unless an explicit tier is provided
-  const isGemini3Pro = isGemini3ProModel(modelWithoutQuota);
-  const isGemini3Flash = isGemini3FlashModel(modelWithoutQuota);
-  
-  let antigravityModel = modelWithoutQuota;
+  const isGemini3Pro = isGemini3ProModel(modelWithoutQuota)
+  const isGemini3Flash = isGemini3FlashModel(modelWithoutQuota)
+
+  let antigravityModel = modelWithoutQuota
   if (skipAlias && !isAdvertisedTierId) {
     if (isGemini3Pro && !tier && !isImageModel) {
-      antigravityModel = `${modelWithoutQuota}-low`;
-    } else if (isGemini3Flash && tier) {
-      antigravityModel = baseName;
+      antigravityModel = `${modelWithoutQuota}-low`
+    } else if (isGemini3Flash) {
+      const base = tier ? baseName : modelWithoutQuota
+      antigravityModel = base === "gemini-3.8-flash" ? "gemini-3.8-flash-tiered" : base
     }
   }
 
-  const actualModel = skipAlias || isAdvertisedTierId
-    ? antigravityModel
-    : MODEL_ALIASES[modelWithoutQuota] || MODEL_ALIASES[baseName] || baseName;
+  const actualModel =
+    skipAlias || isAdvertisedTierId
+      ? antigravityModel
+      : MODEL_ALIASES[modelWithoutQuota] || MODEL_ALIASES[baseName] || baseName
 
-  const resolvedModel = actualModel;
+  const resolvedModel = actualModel
 
-  const isThinking = isThinkingCapableModel(resolvedModel);
+  const isThinking = isThinkingCapableModel(resolvedModel)
 
   // Image generation models don't support thinking - return early without thinking config
   if (isImageModel) {
@@ -240,12 +241,13 @@ export function resolveModelWithTier(requestedModel: string, options: ModelResol
       isImageModel: true,
       quotaPreference,
       explicitQuota,
-    };
+    }
   }
 
   // Check if this is a Gemini 3 model (works for both aliased and skipAlias paths)
-  const isEffectiveGemini3 = resolvedModel.toLowerCase().includes("gemini-3");
-  const isClaudeThinking = resolvedModel.toLowerCase().includes("claude") && resolvedModel.toLowerCase().includes("thinking");
+  const isEffectiveGemini3 = resolvedModel.toLowerCase().includes("gemini-3")
+  const isClaudeThinking =
+    resolvedModel.toLowerCase().includes("claude") && resolvedModel.toLowerCase().includes("thinking")
 
   if (!tier) {
     // Gemini 3 models without explicit tier get a default thinkingLevel
@@ -256,7 +258,7 @@ export function resolveModelWithTier(requestedModel: string, options: ModelResol
         isThinkingModel: true,
         quotaPreference,
         explicitQuota,
-      };
+      }
     }
     // Claude thinking models without explicit tier get max budget (32768)
     // Per Anthropic docs, budget_tokens is required when enabling extended thinking
@@ -267,9 +269,9 @@ export function resolveModelWithTier(requestedModel: string, options: ModelResol
         isThinkingModel: true,
         quotaPreference,
         explicitQuota,
-      };
+      }
     }
-    return { actualModel: resolvedModel, isThinkingModel: isThinking, quotaPreference, explicitQuota };
+    return { actualModel: resolvedModel, isThinkingModel: isThinking, quotaPreference, explicitQuota }
   }
 
   // Gemini 3 models with tier always get thinkingLevel set
@@ -281,12 +283,12 @@ export function resolveModelWithTier(requestedModel: string, options: ModelResol
       isThinkingModel: true,
       quotaPreference,
       explicitQuota,
-    };
+    }
   }
 
-  const budgetFamily = getBudgetFamily(resolvedModel);
-  const budgets = THINKING_TIER_BUDGETS[budgetFamily];
-  const thinkingBudget = budgets[tier];
+  const budgetFamily = getBudgetFamily(resolvedModel)
+  const budgets = THINKING_TIER_BUDGETS[budgetFamily]
+  const thinkingBudget = budgets[tier]
 
   return {
     actualModel: resolvedModel,
@@ -295,29 +297,29 @@ export function resolveModelWithTier(requestedModel: string, options: ModelResol
     isThinkingModel: isThinking,
     quotaPreference,
     explicitQuota,
-  };
+  }
 }
 
 /**
  * Gets the model family for routing decisions.
  */
 export function getModelFamily(model: string): "claude" | "gemini-flash" | "gemini-pro" {
-  const lower = model.toLowerCase();
+  const lower = model.toLowerCase()
   if (lower.includes("claude")) {
-    return "claude";
+    return "claude"
   }
   if (lower.includes("flash")) {
-    return "gemini-flash";
+    return "gemini-flash"
   }
-  return "gemini-pro";
+  return "gemini-pro"
 }
 
 /**
  * Variant config from OpenCode's providerOptions.
  */
 export interface VariantConfig {
-  thinkingBudget?: number;
-  googleSearch?: GoogleSearchConfig;
+  thinkingBudget?: number
+  googleSearch?: GoogleSearchConfig
 }
 
 /**
@@ -325,15 +327,15 @@ export interface VariantConfig {
  * ≤8192 → low, ≤16384 → medium, >16384 → high
  */
 function budgetToGemini3Level(budget: number): "low" | "medium" | "high" {
-  if (budget <= 8192) return "low";
-  if (budget <= 16384) return "medium";
-  return "high";
+  if (budget <= 8192) return "low"
+  if (budget <= 16384) return "medium"
+  return "high"
 }
 
 /**
  * Resolves model name for a specific headerStyle (quota fallback support).
  * Transforms model names when switching between gemini-cli and antigravity quotas.
- * 
+ *
  * Issue #103: When quota fallback occurs, model names need to be transformed:
  * - gemini-3-flash-preview (gemini-cli) → gemini-3-flash (antigravity)
  * - gemini-3-pro-preview (gemini-cli) → gemini-3-pro-low (antigravity)
@@ -341,90 +343,86 @@ function budgetToGemini3Level(budget: number): "low" | "medium" | "high" {
  */
 export function resolveModelForHeaderStyle(
   requestedModel: string,
-  headerStyle: "antigravity" | "gemini-cli"
+  headerStyle: "antigravity" | "gemini-cli",
 ): ResolvedModel {
-  const lower = requestedModel.toLowerCase();
-  const isGemini3 = lower.includes("gemini-3");
-  
+  const lower = requestedModel.toLowerCase()
+  const isGemini3 = lower.includes("gemini-3")
+
   if (!isGemini3) {
-    return resolveModelWithTier(requestedModel);
+    return resolveModelWithTier(requestedModel)
   }
 
   if (headerStyle === "antigravity") {
     let transformedModel = requestedModel
       .replace(/-preview-customtools$/i, "")
       .replace(/-preview$/i, "")
-      .replace(/^antigravity-/i, "");
-    
-    const isGemini3Pro = isGemini3ProModel(transformedModel);
-    const hasTierSuffix = /-(low|medium|high)$/i.test(transformedModel);
-    const isImageModel = IMAGE_GENERATION_MODELS.test(transformedModel);
-    
+      .replace(/^antigravity-/i, "")
+
+    const isGemini3Pro = isGemini3ProModel(transformedModel)
+    const hasTierSuffix = /-(low|medium|high)$/i.test(transformedModel)
+    const isImageModel = IMAGE_GENERATION_MODELS.test(transformedModel)
+
     // Don't add tier suffix to image models - they don't support thinking
     if (isGemini3Pro && !hasTierSuffix && !isImageModel) {
-      transformedModel = `${transformedModel}-low`;
+      transformedModel = `${transformedModel}-low`
     }
-    
-    const prefixedModel = `antigravity-${transformedModel}`;
-    return resolveModelWithTier(prefixedModel);
-  }
-  
-  if (headerStyle === "gemini-cli") {
-    let transformedModel = requestedModel
-      .replace(/^antigravity-/i, "")
-      .replace(/-(low|medium|high)$/i, "");
 
-    const hasPreviewSuffix = /-preview($|-)/i.test(transformedModel);
+    const prefixedModel = `antigravity-${transformedModel}`
+    return resolveModelWithTier(prefixedModel)
+  }
+
+  if (headerStyle === "gemini-cli") {
+    let transformedModel = requestedModel.replace(/^antigravity-/i, "").replace(/-(low|medium|high)$/i, "")
+
+    const hasPreviewSuffix = /-preview($|-)/i.test(transformedModel)
     if (!hasPreviewSuffix) {
-      transformedModel = `${transformedModel}-preview`;
+      transformedModel = `${transformedModel}-preview`
     }
-    
+
     return {
       ...resolveModelWithTier(transformedModel),
       quotaPreference: "gemini-cli",
-    };
+    }
   }
 
-  return resolveModelWithTier(requestedModel);
+  return resolveModelWithTier(requestedModel)
 }
 
 /**
  * Resolves model with variant config from providerOptions.
  * Variant config takes priority over tier suffix in model name.
  */
-export function resolveModelWithVariant(
-  requestedModel: string,
-  variantConfig?: VariantConfig
-): ResolvedModel {
-  const base = resolveModelWithTier(requestedModel);
+export function resolveModelWithVariant(requestedModel: string, variantConfig?: VariantConfig): ResolvedModel {
+  const base = resolveModelWithTier(requestedModel)
 
   if (!variantConfig) {
-    return base;
+    return base
   }
 
   // Apply Google Search config if present
   if (variantConfig.googleSearch) {
-    base.googleSearch = variantConfig.googleSearch;
-    base.configSource = "variant";
+    base.googleSearch = variantConfig.googleSearch
+    base.configSource = "variant"
   }
 
   if (!variantConfig.thinkingBudget) {
-    return base;
+    return base
   }
 
-  const budget = variantConfig.thinkingBudget;
-  const isGemini3 = base.actualModel.toLowerCase().includes("gemini-3");
+  const budget = variantConfig.thinkingBudget
+  const isGemini3 = base.actualModel.toLowerCase().includes("gemini-3")
 
   if (isGemini3) {
-    const level = budgetToGemini3Level(budget);
-    const isAntigravityGemini3Pro = base.quotaPreference === "antigravity" &&
+    const level = budgetToGemini3Level(budget)
+    const isAntigravityGemini3Pro =
+      base.quotaPreference === "antigravity" &&
       isGemini3ProModel(base.actualModel) &&
-      !isAdvertisedTierSuffixModel(base.actualModel);
+      !isAdvertisedTierSuffixModel(base.actualModel)
 
-    let actualModel = base.actualModel;
+    let actualModel = base.actualModel
     if (isAntigravityGemini3Pro) {
-      const baseModel = base.actualModel.replace(/-(low|medium|high)$/, "");
-      actualModel = `${baseModel}-${level}`;
+      const baseModel = base.actualModel.replace(/-(low|medium|high)$/, "")
+      actualModel = `${baseModel}-${level}`
     }
 
     return {
@@ -433,12 +431,12 @@ export function resolveModelWithVariant(
       thinkingLevel: level,
       thinkingBudget: undefined,
       configSource: "variant",
-    };
+    }
   }
 
   return {
     ...base,
     thinkingBudget: budget,
     configSource: "variant",
-  };
+  }
 }

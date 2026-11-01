@@ -38,6 +38,11 @@ export const MODEL_ALIASES = {
     "gemini-3-flash-low": "gemini-3-flash",
     "gemini-3-flash-medium": "gemini-3-flash",
     "gemini-3-flash-high": "gemini-3-flash",
+    // Gemini 3.8 Flash tiered models (Google API backend uses gemini-3.8-flash-tiered)
+    "gemini-3.8-flash": "gemini-3.8-flash-tiered",
+    "gemini-3.8-flash-low": "gemini-3.8-flash-tiered",
+    "gemini-3.8-flash-medium": "gemini-3.8-flash-tiered",
+    "gemini-3.8-flash-high": "gemini-3.8-flash-tiered",
     // Claude proxy names (gemini- prefix for compatibility)
     "gemini-claude-opus-4-6-thinking-low": "claude-opus-4-6-thinking",
     "gemini-claude-opus-4-6-thinking-medium": "claude-opus-4-6-thinking",
@@ -56,9 +61,6 @@ const advertisedModelIds = new Set([
     "claude-opus-5-5-high",
     "claude-sonnet-5-5-high",
     "gemini-4-argon-high",
-    "gemini-3.8-flash-high",
-    "gemini-3.8-flash-medium",
-    "gemini-3.8-flash-low",
     "gpt-oss-120b-medium",
 ]);
 export const ADVERTISED_TIER_SUFFIX_MODEL_IDS = advertisedModelIds;
@@ -121,9 +123,7 @@ function getBudgetFamily(model) {
  */
 function isThinkingCapableModel(model) {
     const lower = model.toLowerCase();
-    return (lower.includes("thinking") ||
-        lower.includes("gemini-3") ||
-        lower.includes("gemini-2.5"));
+    return lower.includes("thinking") || lower.includes("gemini-3") || lower.includes("gemini-2.5");
 }
 function isGemini3ProModel(model) {
     return GEMINI_3_PRO_REGEX.test(model);
@@ -185,8 +185,9 @@ export function resolveModelWithTier(requestedModel, options = {}) {
         if (isGemini3Pro && !tier && !isImageModel) {
             antigravityModel = `${modelWithoutQuota}-low`;
         }
-        else if (isGemini3Flash && tier) {
-            antigravityModel = baseName;
+        else if (isGemini3Flash) {
+            const base = tier ? baseName : modelWithoutQuota;
+            antigravityModel = base === "gemini-3.8-flash" ? "gemini-3.8-flash-tiered" : base;
         }
     }
     const actualModel = skipAlias || isAdvertisedTierId
@@ -309,9 +310,7 @@ export function resolveModelForHeaderStyle(requestedModel, headerStyle) {
         return resolveModelWithTier(prefixedModel);
     }
     if (headerStyle === "gemini-cli") {
-        let transformedModel = requestedModel
-            .replace(/^antigravity-/i, "")
-            .replace(/-(low|medium|high)$/i, "");
+        let transformedModel = requestedModel.replace(/^antigravity-/i, "").replace(/-(low|medium|high)$/i, "");
         const hasPreviewSuffix = /-preview($|-)/i.test(transformedModel);
         if (!hasPreviewSuffix) {
             transformedModel = `${transformedModel}-preview`;

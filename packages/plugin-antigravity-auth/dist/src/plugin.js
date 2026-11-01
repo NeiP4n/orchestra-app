@@ -200,17 +200,27 @@ function shouldSkipLocalServer() {
 }
 async function openBrowser(url) {
     try {
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            return false;
+        }
+        const parsed = new URL(url);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+            return false;
+        }
+        // Экранируем кавычки и спецсимволы командной строки для предотвращения command injection
+        const sanitizedUrl = parsed.href.replace(/[\r\n"]/g, "");
         if (process.platform === "darwin") {
-            exec(`open "${url}"`);
+            exec(`open "${sanitizedUrl}"`);
             return true;
         }
         if (process.platform === "win32") {
-            exec(`start "" "${url}"`);
+            const winSafeUrl = sanitizedUrl.replace(/\^/g, "^^").replace(/[&|<>]/g, "^$&");
+            exec(`start "" "${winSafeUrl}"`);
             return true;
         }
         if (isWSL()) {
             try {
-                exec(`wslview "${url}"`);
+                exec(`wslview "${sanitizedUrl}"`);
                 return true;
             }
             catch { }
@@ -218,7 +228,7 @@ async function openBrowser(url) {
         if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
             return false;
         }
-        exec(`xdg-open "${url}"`);
+        exec(`xdg-open "${sanitizedUrl}"`);
         return true;
     }
     catch {
@@ -1300,7 +1310,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                         const urlString = toUrlString(input);
                         const family = getModelFamilyFromUrl(urlString);
                         const model = extractModelFromUrl(urlString);
-                        const eligible = (account) => !canUseAccount || canUseAccount({ id: account.id, refreshToken: account.parts.refreshToken }, model ?? "");
+                        const eligible = (account) => !canUseAccount || canUseAccount({ id: account.id, refreshToken: account.parts.refreshToken, addedAt: account.addedAt }, model ?? "");
                         if (!accountManager.getAccounts().some(account => account.enabled !== false && eligible(account))) {
                             throw new Error("No enabled Antigravity account has access to this model. Refresh available models from /antigravity.");
                         }

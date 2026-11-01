@@ -82,13 +82,23 @@ export const AntigravityV2Plugin = Plugin.define({
         const outbound = new AsyncLocalStorage();
         let modelAccounts = {};
         let accountCatalogLoaded = false;
+        let catalogWrittenAt = 0;
         const transport = await createAntigravityPlugin(PROVIDER_ID)({
             client,
             directory: ctx.location.directory,
             runtimeVersion: 2,
             canUseAccount: (account, model) => {
+                if (!accountCatalogLoaded)
+                    return true;
                 const eligible = modelAccounts[`antigravity-${resolveModelWithTier(model).actualModel}`];
-                return !accountCatalogLoaded || !!eligible?.includes(accountID(account));
+                if (!eligible)
+                    return false;
+                if (eligible.includes(accountID(account)))
+                    return true;
+                // An account connected after the catalog was written cannot appear in it,
+                // so its absence says nothing about access. Excluding it would keep a
+                // freshly added account out of rotation until the next model discovery.
+                return (account.addedAt ?? 0) > catalogWrittenAt;
             },
             fetch: (input, init) => {
                 const send = outbound.getStore() ?? globalThis.fetch;
@@ -109,8 +119,10 @@ export const AntigravityV2Plugin = Plugin.define({
         const validCache = cached?.identity === accountPoolIdentity(saved?.accounts ?? []) && cached.models;
         let modelDefinitions = validCache ? buildAccountModelDefinitions(validCache) : OPENCODE_V2_MODEL_DEFINITIONS;
         accountCatalogLoaded = !!validCache;
-        if (validCache)
+        if (validCache) {
             modelAccounts = cached.accounts;
+            catalogWrittenAt = cached.updatedAt;
+        }
         let discoveryGeneration = 0;
         let catalogSnapshot;
         const catalogWrites = new Set();
@@ -177,7 +189,8 @@ export const AntigravityV2Plugin = Plugin.define({
             modelDefinitions = buildAccountModelDefinitions(models);
             modelAccounts = eligibleAccounts;
             accountCatalogLoaded = true;
-            catalogSnapshot = JSON.parse(JSON.stringify({ version: 3, identity: accountPoolIdentity(latest?.accounts ?? []), updatedAt: Date.now(), models, accounts: eligibleAccounts }));
+            catalogWrittenAt = Date.now();
+            catalogSnapshot = JSON.parse(JSON.stringify({ version: 3, identity: accountPoolIdentity(latest?.accounts ?? []), updatedAt: catalogWrittenAt, models, accounts: eligibleAccounts }));
             const writing = writeCatalog();
             catalogWrites.add(writing);
             try {
