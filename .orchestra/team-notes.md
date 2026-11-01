@@ -5,9 +5,10 @@ Durable facts about working in this fork. Keep short and factual.
 ## Core edge cases (аудит L-019)
 
 - `it.effect` в `packages/core/test/lib/effect.ts` работает на `TestClock`: `Effect.sleep(...)` внутри теста не завершится без `TestClock.adjust`, тест просто висит до 30s-таймаута. Для перекрытия фиберов использовать `Effect.yieldNow`.
-- `Orchestra.contains` из `@orchestra/schema/orchestra` не нормализует регистр Windows (`C:/Proj` против `c:/proj/sub` -> false), в отличие от `@orchestra/util/path.containsDirectory` и `FSUtil.contains`. Используется в правах инструментов (read/grep/glob/room-rules/sandbox) и federation — ложный отказ при расхождении регистра. `containsDirectory` в `@orchestra/util/path` теперь гарантированно раскрывает `..` через `comparablePath`, нормализует любые бэкслэши и отсекает traversal escapes.
+- `Orchestra.contains` из `@orchestra/schema/orchestra` не нормализует регистр Windows (`C:/Proj` против `c:/proj/sub` -> false), в отличие от `@orchestra/util/path.containsDirectory` и `FSUtil.contains`. Используется в правах инструментов (read/grep/glob/room-rules/sandbox) и federation — ложный отказ при расхождении регистра. `containsDirectory` в `@orchestra/util/path` теперь гарантированно раскрывает `..` через `comparablePath`, канонизирует пути через `realpathSync.native` (раскрывая короткие DOS 8.3 имена и Windows junctions), нормализует любые бэкслэши и отсекает traversal escapes.
 - `Project.resolve` канонизирует директорию через `@orchestra/util/fs-util` (resolve -> realpath), ID = hash(`directory:<canonical>`), поэтому один каталог в разной записи (регистр, слеши, `..`, MSYS `/c/...`) даёт один projectID. `database/path.ts` сам путь не нормализует — в `ProjectTable.worktree` писать только канонические значения.
 - `KeyedMutex` освобождает ключ при прерывании и дефекте держателя; 25 конкурентных `withLock` на одном ключе дают peak=1 и `size===0` (тесты в `test/effect/keyed-mutex.test.ts`).
+- Завершение шелл-команд на Windows (`packages/core/src/shell.ts`): стандартный `child.kill()` оставляет процессы-зомби из порожденных дочерних процессов; `killProcessTree` завершает всё дерево процессов через `taskkill.exe /pid <pid> /T /F` при таймауте, удалении команды и остановке сервиса.
 
 ## TUI checks and red tests
 

@@ -1342,6 +1342,111 @@ leaves:
         at: "2026-11-01T18:32:10.375Z"
         by: "AI"
         output_summary: " 0 fail /  32 expect() calls / Ran 14 tests across 3 files. [4.65s]"
+
+  - id: L-025
+    what: "Защита песочницы путей Windows от обхода через короткие имена DOS 8.3 и junctions в packages/util"
+    group: "Core"
+    task_state: DONE
+    owner: "AI"
+    owner_id: "local-ai"
+    steps:
+      - "[x] 1. Изучить packages/util/src/path.ts (comparablePath, containsDirectory) и выявить сценарии обхода с DOS 8.3 именами и тильдой ~"
+      - "[x] 2. Добавить канонизацию коротких имен DOS 8.3 и запрет traversal через тильду в comparablePath"
+      - "[x] 3. Написать юнит-тесты в packages/util/test/path.test.ts, проверяющие отсечение DOS 8.3 путей и junctions"
+      - "[x] 4. Прогнать typecheck и тесты packages/util, закоммитить и запушить на GitHub"
+    verification:
+      state: PASSED
+      command: "cd packages/util; bun run typecheck; if ($LASTEXITCODE -ne 0) { exit 1 }; bun test test/path.test.ts"
+      evidence:
+        command: "cd packages/util; bun run typecheck; if ($LASTEXITCODE -ne 0) { exit 1 }; bun test test/path.test.ts"
+        exit_code: 0
+        at: "2026-11-01T20:15:53.797Z"
+        by: "AI"
+        output_summary: " 0 fail /  52 expect() calls / Ran 7 tests across 1 file. [2.73s]"
+
+  - id: L-026
+    what: "Устранение гонки отмены фиберов в SessionRunCoordinator и SessionExecution (P0)"
+    group: "Core"
+    task_state: DONE
+    owner: "AI"
+    owner_id: "local-ai"
+    steps:
+      - "[x] 1. Изучить packages/core/src/session/execution.ts и run-coordinator.ts на предмет окна гонки между claim и interrupt"
+      - "[x] 2. Обеспечить транзакционную привязку фибера и дескриптора прерывания в uninterruptibleMask"
+      - "[x] 3. Написать юнит-тесты на прерывание во время регистрации фибера в packages/core/test/session-run-coordinator.test.ts"
+      - "[x] 4. Прогнать typecheck и тесты packages/core, закоммитить и запушить на GitHub"
+    verification:
+      state: PASSED
+      command: "cd packages/core; bun run typecheck; if ($LASTEXITCODE -ne 0) { exit 1 }; bun test test/session-run-coordinator.test.ts"
+      evidence:
+        command: "cd packages/core; bun run typecheck; if ($LASTEXITCODE -ne 0) { exit 1 }; bun test test/session-run-coordinator.test.ts"
+        exit_code: 0
+        at: "2026-11-01T20:44:51.913Z"
+        by: "AI"
+        output_summary: " 0 fail /  86 expect() calls / Ran 32 tests across 1 file. [1244.00ms]"
+
+  - id: L-027
+    what: "Защита сервера от OOM и бэкпрешер в Server-Sent Events (L-027, P1)"
+    group: "Core"
+    task_state: DONE
+    owner: "AI"
+    owner_id: "local-ai"
+    steps:
+      - "[x] 1. Изучить packages/server на предмет использования Queue.unbounded в трансляции событий SSE"
+      - "[x] 2. Внедрить управляемый бэкпрешер с ограниченной очередью и адаптивным батчингом чанков"
+      - "[x] 3. Написать юнит-тесты на обработку переполнения и стабильность доставки событий в packages/server"
+      - "[x] 4. Прогнать typecheck и тесты packages/server, закоммитить и запушить на GitHub"
+    verification:
+      state: PASSED
+      command: "cd packages/server; bun run typecheck; if ($LASTEXITCODE -ne 0) { exit 1 }; bun test test/event-feed.test.ts"
+      evidence:
+        command: "cd packages/server; bun run typecheck; if ($LASTEXITCODE -ne 0) { exit 1 }; bun test test/event-feed.test.ts"
+        exit_code: 0
+        at: "2026-11-01T21:19:33.919Z"
+        by: "AI"
+        output_summary: " 0 fail /  41 expect() calls / Ran 17 tests across 1 file. [317.00ms]"
+
+  - id: L-028
+    what: "Защита системных инструкций сессии от затирания при фоновом сжатии (L-028, P1)"
+    group: "Core"
+    task_state: DONE
+    owner: "AI"
+    owner_id: "local-ai"
+    steps:
+      - "[x] 1. Изучить packages/core/src/session/compaction.ts на предмет сохранения инструкций и проверки эпохи сжатия"
+      - "[x] 2. Внедрить версионирование эпохи сжатия и предотвращение затирания системных инструкций при параллельных промптах"
+      - "[x] 3. Написать юнит-тесты на защиту эпохи инструкций при фоновом сжатии в packages/core/test/session/compaction-300k.test.ts"
+      - "[x] 4. Прогнать typecheck и тесты packages/core, закоммитить и запушить на GitHub"
+    verification:
+      state: PASSED
+      command: "cd packages/core; bun run typecheck; if ($LASTEXITCODE -ne 0) { exit 1 }; bun test test/session/compaction-300k.test.ts"
+      evidence:
+        command: "cd packages/core; bun run typecheck; if ($LASTEXITCODE -ne 0) { exit 1 }; bun test test/session/compaction-300k.test.ts"
+        exit_code: 0
+        at: "2026-11-01T22:00:20.998Z"
+        by: "AI"
+        output_summary: " 0 fail /  30 expect() calls / Ran 6 tests across 1 file. [2.80s]"
+
+  - id: L-029
+    what: "Гарантированное завершение дерева дочерних процессов шелла на Windows (L-029, P2)"
+    group: "Core"
+    task_state: DONE
+    owner: "AI"
+    owner_id: "local-ai"
+    steps:
+      - "[x] 1. Изучить packages/core/src/shell.ts на предмет завершения процессов при abort и timeout на Windows"
+      - "[x] 2. Реализовать гарантированное завершение дерева процессов на Windows через taskkill /T /F"
+      - "[x] 3. Написать юнит-тесты на корректное завершение дерева дочерних процессов в packages/core/test/shell.test.ts"
+      - "[x] 4. Прогнать typecheck и тесты packages/core, закоммитить и запушить на GitHub"
+    verification:
+      state: PASSED
+      command: "cd packages/core; bun run typecheck; if ($LASTEXITCODE -ne 0) { exit 1 }; bun test test/shell.test.ts"
+      evidence:
+        command: "cd packages/core; bun run typecheck; if ($LASTEXITCODE -ne 0) { exit 1 }; bun test test/shell.test.ts"
+        exit_code: 0
+        at: "2026-11-01T22:24:01.495Z"
+        by: "AI"
+        output_summary: " 0 fail /  30 expect() calls / Ran 14 tests across 1 file. [3.49s]"
 dead_ends:
   - what: "Удаление OpenCode Zen (L-006 шаги 1-2, L-004 шаг 3, L-010 охранный скрипт)"
     why: >-
@@ -1561,3 +1666,4 @@ validator:
     summary: >-
       SELF-TEST: зелёный (46 мутантов) — валидатор ловит свои плохие фикстуры, включая
       «этап без листьев», «depends_on этапа в никуда» и «дубль имени этапа».
+
