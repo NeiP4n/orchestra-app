@@ -1,3 +1,5 @@
+import { realpathSync } from "node:fs"
+
 export function getFilename(path: string | undefined) {
   if (!path) return ""
   const trimmed = path.replace(/[/\\]+$/, "")
@@ -38,6 +40,67 @@ const isDrive = (value: string) => {
 
 const isWindowsPlatform = typeof process !== "undefined" && process.platform === "win32"
 
+function cleanResolvedPath(resolved: string): string {
+  let p = resolved.replaceAll("\\", "/")
+  if (p.startsWith("//?/UNC/")) {
+    p = "//" + p.slice(8)
+  } else if (p.startsWith("//?/")) {
+    p = p.slice(4)
+  }
+  if (p.length > 3 && p.endsWith("/")) {
+    p = p.slice(0, -1)
+  }
+  return p
+}
+
+function canonicalizePath(normalized: string, isRelative: boolean): string {
+  if (typeof realpathSync !== "function") return normalized
+
+  if (isRelative) {
+    if (typeof process === "undefined" || typeof process.cwd !== "function") return normalized
+    try {
+      const real = cleanResolvedPath(realpathSync.native(normalized))
+      const cwd = cleanResolvedPath(process.cwd())
+      if (real === cwd) return "."
+      if (real.startsWith(cwd + "/")) {
+        return real.slice(cwd.length + 1)
+      }
+    } catch {}
+    return normalized
+  }
+
+  try {
+    return cleanResolvedPath(realpathSync.native(normalized))
+  } catch {}
+
+  let cur = normalized
+  const trailingSegments: string[] = []
+
+  while (true) {
+    const slashIdx = cur.lastIndexOf("/")
+    if (slashIdx === -1) break
+    const parent = slashIdx === 0 ? "/" : cur.slice(0, slashIdx)
+    const segment = cur.slice(slashIdx + 1)
+    if (segment) {
+      trailingSegments.unshift(segment)
+    }
+    const probe = /^[a-zA-Z]:$/.test(parent) ? `${parent}/` : parent
+    try {
+      const realParent = cleanResolvedPath(realpathSync.native(probe))
+      const suffix = trailingSegments.join("/")
+      const separator = realParent.endsWith("/") ? "" : "/"
+      return `${realParent}${separator}${suffix}`
+    } catch {
+      cur = parent
+      if (cur === "/" || /^[a-zA-Z]:\/?$/.test(cur) || (cur.startsWith("//") && cur.split("/").length <= 4)) {
+        break
+      }
+    }
+  }
+
+  return normalized
+}
+
 /** A comparable form of a directory path: forward slashes for Windows paths, collapsed . and .. segments, no trailing slash except on roots. */
 export function comparablePath(path: string) {
   const value = path.includes("\\") ? path.replaceAll("\\", "/") : path
@@ -65,19 +128,30 @@ export function comparablePath(path: string) {
     }
   }
 
+  let result: string
+  const isDrivePath = segments.length > 0 && isDrive(segments[0])
+  const isRelative = !isUnc && !isAbsoluteUnix && !isDrivePath
+
   if (isUnc) {
-    return "//" + segments.join("/")
+    result = "//" + segments.join("/")
+  } else if (isAbsoluteUnix) {
+    result = "/" + segments.join("/")
+  } else if (isDrivePath) {
+    result = segments.length === 1 ? `${segments[0]}/` : segments.join("/")
+  } else if (segments.length === 0) {
+    result = value.startsWith("/") ? "/" : ""
+  } else {
+    result = segments.join("/")
   }
-  if (isAbsoluteUnix) {
-    return "/" + segments.join("/")
+
+  const shouldCanonicalize = isWindowsPlatform
+    ? isDrivePath || isUnc || isRelative
+    : isAbsoluteUnix
+
+  if (shouldCanonicalize && result !== "" && result !== "/") {
+    return canonicalizePath(result, isRelative)
   }
-  if (segments.length > 0 && isDrive(segments[0])) {
-    return segments.length === 1 ? `${segments[0]}/` : segments.join("/")
-  }
-  if (segments.length === 0) {
-    return value.startsWith("/") ? "/" : ""
-  }
-  return segments.join("/")
+  return result
 }
 
 /** `child` is `parent` or inside it. Windows drive and UNC paths compare case-insensitively. */
