@@ -1,128 +1,138 @@
-import {
-  buildPageContextPayload,
-  checkServerStatus,
-  createSession,
-  detectActiveServer,
-  getStoredServerPassword,
-  getStoredServerUrl,
-  getStoredSessionId,
-  listSessions,
-  sendPrompt,
-  setStoredServerUrl,
-  setStoredSessionId,
-} from "./src/bridge.js"
+// Orchestra Zen Connector - Action Popup
+// Self-contained connector status and active tab monitor (no external module imports)
+
+const BRIDGE_STATUS_URL = "http://127.0.0.1:4097/status"
 
 const statusBadge = document.getElementById("statusBadge")
 const statusText = document.getElementById("statusText")
-const tabTitleEl = document.getElementById("tabTitle")
-const tabUrlEl = document.getElementById("tabUrl")
-const quickSendBtn = document.getElementById("quickSendBtn")
-const quickFeedback = document.getElementById("quickFeedback")
+const bridgeStatus = document.getElementById("bridgeStatus")
+const bridgeProto = document.getElementById("bridgeProto")
+const tabTitle = document.getElementById("tabTitle")
+const tabUrl = document.getElementById("tabUrl")
 
-let currentServerUrl = "http://127.0.0.1:4096"
-let currentPassword = ""
-let activeTab = { title: "Current Page", url: "about:blank" }
+const webext = typeof browser !== "undefined" ? browser : typeof chrome !== "undefined" ? chrome : null
 
-function showFeedback(text, isError = false) {
-  if (!quickFeedback) return
-  quickFeedback.textContent = text
-  quickFeedback.className = isError ? "alert-box alert-error" : "alert-box alert-success"
-  quickFeedback.classList.remove("hidden")
-  setTimeout(() => quickFeedback.classList.add("hidden"), 3000)
-}
-
-async function init() {
-  currentServerUrl = await getStoredServerUrl()
-  currentPassword = await getStoredServerPassword()
-  let status = await checkServerStatus(currentServerUrl, currentPassword)
-
-  if (!status.online) {
-    const detection = await detectActiveServer(undefined, currentPassword)
-    if (detection.found) {
-      currentServerUrl = detection.url
-      await setStoredServerUrl(currentServerUrl)
-      status = {
-        online: true,
-        version: detection.version,
-        requiresAuth: detection.requiresAuth,
-      }
-    }
+async function updateActiveTab() {
+  if (!webext?.tabs?.query) {
+    if (tabTitle) tabTitle.textContent = "Вкладки недоступны"
+    if (tabUrl) tabUrl.textContent = "—"
+    return
   }
 
-  if (statusBadge && statusText) {
-    if (status.online) {
-      if (status.requiresAuth && !currentPassword) {
-        statusBadge.className = "status-badge auth-required"
-        statusText.textContent = "Auth required"
-      } else {
-        statusBadge.className = "status-badge online"
-        statusText.textContent = "Online"
-      }
-    } else {
-      statusBadge.className = "status-badge offline"
-      statusText.textContent = "Offline"
-      if (quickSendBtn) quickSendBtn.disabled = true
-    }
-  }
-
-  const browserApi = typeof globalThis !== "undefined"
-    ? ((globalThis.browser ?? globalThis.chrome))
-    : undefined
-
-  if (browserApi?.tabs?.query) {
-    try {
-      const tabs = await browserApi.tabs.query({ active: true, currentWindow: true })
-      if (tabs && tabs[0]) {
-        activeTab = {
-          title: tabs[0].title || "Untitled",
-          url: tabs[0].url || "about:blank",
-        }
-      }
-    } catch {
-      // fallback
-    }
-  }
-
-  if (tabTitleEl) tabTitleEl.textContent = activeTab.title
-  if (tabUrlEl) tabUrlEl.textContent = activeTab.url
-}
-
-quickSendBtn?.addEventListener("click", async () => {
-  quickSendBtn.disabled = true
-  quickSendBtn.textContent = "Sending..."
   try {
-    let sessionId = await getStoredSessionId()
-    if (!sessionId) {
-      const list = await listSessions(currentServerUrl, currentPassword)
-      if (list.success && list.sessions.length > 0 && list.sessions[0]) {
-        sessionId = list.sessions[0].id
-      } else {
-        const created = await createSession("Zen Browser Session", currentServerUrl, currentPassword)
-        if (created.success && created.sessionID) {
-          sessionId = created.sessionID
-          await setStoredSessionId(sessionId)
-        }
-      }
+    const tabs = await webext.tabs.query({ active: true, currentWindow: true })
+    const active = tabs?.[0]
+    if (active) {
+      if (tabTitle) tabTitle.textContent = active.title || "(Без названия)"
+      if (tabUrl) tabUrl.textContent = active.url || "about:blank"
+    } else {
+      if (tabTitle) tabTitle.textContent = "Нет активной вкладки"
+      if (tabUrl) tabUrl.textContent = "—"
     }
+  } catch (err) {
+    if (tabTitle) tabTitle.textContent = "Ошибка получения вкладки"
+    if (tabUrl) tabUrl.textContent = String(err)
+  }
+}
 
-    if (!sessionId) {
-      showFeedback("Failed to obtain session", true)
+async function checkBridgeStatus() {
+  let isBgConnected = false
+  if (webext?.runtime?.sendMessage) {
+    try {
+      const bgResp = await webext.runtime.sendMessage({ type: "GET_RPC_STATUS" })
+      if (bgResp && bgResp.connected) {
+        isBgConnected = true
+      }
+    } catch {}
+  }
+
+  try {
+    const res = await fetch(BRIDGE_STATUS_URL, {
+      method: "GET",
+      headers: { Origin: "moz-extension://zen-connector" },
+    })
+
+    if (!res.ok) {
+      setOffline(`HTTP ${res.status}`)
       return
     }
 
-    const payload = buildPageContextPayload(activeTab)
-    const res = await sendPrompt(sessionId, payload, currentServerUrl, currentPassword)
-    if (res.success) {
-      showFeedback("Sent to Orchestra!")
+    const data = await res.json()
+    if (data && (data.connected || isBgConnected)) {
+      setOnline(data)
     } else {
-      showFeedback(`Error: ${res.error}`, true)
+      setWaitingBridge(data)
     }
-  } catch (err) {
-    showFeedback(String(err), true)
-  } finally {
-    quickSendBtn.disabled = false
-    quickSendBtn.textContent = "Send Page to Orchestra"
+  } catch {
+    if (isBgConnected) {
+      setOnline({ clientInfo: { client: "zen-extension", version: "1.0.0" } })
+    } else {
+      setOffline("Порт 4097 не отвечает")
+    }
   }
-})
+}
 
-void init()
+function setOnline(data) {
+  if (statusBadge) {
+    statusBadge.className = "status-badge online"
+  }
+  if (statusText) {
+    statusText.textContent = "Подключено к Orchestra"
+  }
+  if (bridgeStatus) {
+    bridgeStatus.textContent = "Подключено (порт 4097)"
+    bridgeStatus.style.color = "var(--sculk-teal)"
+  }
+  if (bridgeProto) {
+    const client = data?.clientInfo?.client || "zen-extension"
+    const ver = data?.clientInfo?.version || "1.0.0"
+    bridgeProto.textContent = `WebSocket / HTTP (${client} v${ver})`
+    bridgeProto.style.color = "var(--sculk-text)"
+  }
+}
+
+function setWaitingBridge(data) {
+  if (statusBadge) {
+    statusBadge.className = "status-badge offline"
+  }
+  if (statusText) {
+    statusText.textContent = "Ожидание Orchestra"
+  }
+  if (bridgeStatus) {
+    bridgeStatus.textContent = "Мост активен (порт 4097), ждёт расширение"
+    bridgeStatus.style.color = "#f59e0b"
+  }
+  if (bridgeProto) {
+    bridgeProto.textContent = "Слушает порт 4097"
+    bridgeProto.style.color = "var(--sculk-muted)"
+  }
+}
+
+function setOffline(reason) {
+  if (statusBadge) {
+    statusBadge.className = "status-badge offline"
+  }
+  if (statusText) {
+    statusText.textContent = "Оффлайн"
+  }
+  if (bridgeStatus) {
+    bridgeStatus.textContent = reason
+    bridgeStatus.style.color = "#f43f5e"
+  }
+  if (bridgeProto) {
+    bridgeProto.textContent = "Мост не запущен"
+    bridgeProto.style.color = "var(--sculk-muted)"
+  }
+}
+
+async function refresh() {
+  await Promise.all([updateActiveTab(), checkBridgeStatus()])
+}
+
+// Initial load
+void refresh()
+
+// Auto-refresh every 2 seconds
+setInterval(() => {
+  void refresh()
+}, 2000)

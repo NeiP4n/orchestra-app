@@ -8,6 +8,7 @@ body {
   background-color: var(--sculk-void);
   color: var(--sculk-text);
   overflow: hidden;
+  font-family: var(--v2-font);
 }
 
 .popup-container {
@@ -18,11 +19,20 @@ body {
   background: radial-gradient(circle at 50% 0%, rgba(0, 229, 255, 0.08) 0%, transparent 75%), var(--sculk-void);
 }
 
+.popup-container .brand-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sculk-cyan);
+}
+
 .popup-container .card {
   padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
   background: var(--sculk-card);
   border: 1px solid var(--sculk-border);
+  border-radius: 6px;
 }
 
 .popup-container .card:hover {
@@ -30,20 +40,64 @@ body {
   box-shadow: 0 0 12px rgba(0, 229, 255, 0.12);
 }
 
-.popup-container .brand-title {
-  font-size: 13px;
-  color: var(--sculk-cyan);
-}
-
-.popup-container .btn-primary {
-  width: 100%;
-  padding: 9px 12px;
-  font-size: 12px;
-  letter-spacing: 0.3px;
-}
-
-#quickFeedback {
-  text-align: center;
+.card-title {
   font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--sculk-muted);
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+
+.status-label {
+  color: var(--sculk-muted);
+}
+
+.status-value {
+  color: var(--sculk-text);
   font-weight: 500;
+}
+
+.tab-info-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--sculk-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-info-url {
+  font-size: 11px;
+  font-family: var(--v2-font-mono);
+  color: var(--sculk-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-badge.online {
+  background: rgba(93, 249, 222, 0.15);
+  color: var(--sculk-teal);
+  border: 1px solid var(--sculk-teal);
+}
+
+.status-badge.online .status-dot {
+  background-color: var(--sculk-teal);
+  box-shadow: 0 0 6px var(--sculk-teal);
+}
+
+.status-badge.offline {
+  background: rgba(244, 63, 94, 0.15);
+  color: #f43f5e;
+  border: 1px solid #f43f5e;
+}
+
+.status-badge.offline .status-dot {
+  background-color: #f43f5e;
 }

@@ -258,12 +258,16 @@ async function handleRpcAction(action, params = {}, browserApi = getBrowserApi()
       const tabId = await resolveTargetTabId(browserApi, params.tabId);
       const results = await browserApi.scripting.executeScript({
         target: { tabId },
-        func: () => ({
-          title: document.title,
-          url: window.location.href,
-          innerText: document.body ? document.body.innerText.slice(0, 50000) : "",
-          selection: window.getSelection() ? String(window.getSelection()) : ""
-        })
+        func: () => {
+          const bodyText = document.body ? document.body.innerText.slice(0, 50000) : "";
+          return {
+            title: document.title,
+            url: window.location.href,
+            text: bodyText,
+            innerText: bodyText,
+            selection: window.getSelection() ? String(window.getSelection()) : ""
+          };
+        }
       });
       return results?.[0]?.result;
     }
@@ -278,7 +282,122 @@ async function handleRpcAction(action, params = {}, browserApi = getBrowserApi()
         target: { tabId },
         args: [code],
         func: (scriptCode) => {
-          return window.eval(String(scriptCode));
+          const src = String(scriptCode).trim();
+          let evalResult;
+          let evalDone = false;
+          let lastError;
+          try {
+            try {
+              evalResult = new Function("return (" + src + ")")();
+              evalDone = true;
+            } catch {
+              evalResult = new Function(src)();
+              evalDone = true;
+            }
+          } catch (err) {
+            lastError = err;
+          }
+          if (!evalDone) {
+            try {
+              const channelId = "__zen_eval_" + Math.random().toString(36).slice(2);
+              const container = document.createElement("div");
+              container.id = channelId;
+              container.style.display = "none";
+              (document.head || document.documentElement).appendChild(container);
+              const nonceEl = document.querySelector("script[nonce]");
+              const nonce = nonceEl ? nonceEl.getAttribute("nonce") || nonceEl.nonce : null;
+              const scriptEl = document.createElement("script");
+              if (nonce) {
+                scriptEl.setAttribute("nonce", nonce);
+              }
+              const wrappedCode = `
+              (() => {
+                const __container = document.getElementById("${channelId}");
+                if (!__container) return;
+                try {
+                  const __evalFn = function() {
+                    ${src.includes("return") ? src : `return (${src});`}
+                  };
+                  const __res = __evalFn();
+                  let __serialized;
+                  if (__res === undefined) {
+                    __serialized = "__zen_undefined__";
+                  } else if (__res === null) {
+                    __serialized = "null";
+                  } else if (typeof __res === "object") {
+                    try {
+                      __serialized = JSON.stringify(__res);
+                    } catch {
+                      __serialized = String(__res);
+                    }
+                  } else {
+                    __serialized = String(__res);
+                  }
+                  __container.setAttribute("data-result", __serialized);
+                } catch (__err) {
+                  __container.setAttribute("data-error", __err instanceof Error ? __err.message : String(__err));
+                }
+              })();
+              `;
+              scriptEl.textContent = wrappedCode;
+              (document.head || document.documentElement).appendChild(scriptEl);
+              scriptEl.remove();
+              const dataResult = container.getAttribute("data-result");
+              const dataError = container.getAttribute("data-error");
+              container.remove();
+              if (dataError) {
+                throw new Error(dataError);
+              }
+              if (dataResult !== null) {
+                if (dataResult === "__zen_undefined__") {
+                  evalResult = undefined;
+                } else {
+                  try {
+                    evalResult = JSON.parse(dataResult);
+                  } catch {
+                    evalResult = dataResult;
+                  }
+                }
+                evalDone = true;
+              }
+            } catch (domErr) {
+              lastError = domErr || lastError;
+            }
+          }
+          if (!evalDone) {
+            try {
+              if (src === "document.title") {
+                evalResult = document.title;
+                evalDone = true;
+              } else if (src === "location.href" || src === "window.location.href") {
+                evalResult = window.location.href;
+                evalDone = true;
+              } else if (src === "document.body.innerText") {
+                evalResult = document.body ? document.body.innerText.slice(0, 50000) : "";
+                evalDone = true;
+              }
+            } catch {}
+          }
+          if (!evalDone) {
+            const msg = lastError instanceof Error ? lastError.message : String(lastError);
+            throw new Error(`Eval failed: ${msg}`);
+          }
+          if (evalResult === undefined)
+            return;
+          if (evalResult === null)
+            return null;
+          if (typeof evalResult === "object") {
+            if ("nodeType" in evalResult) {
+              const el = evalResult;
+              return el.outerHTML ? el.outerHTML.slice(0, 5000) : `<${el.tagName}>`;
+            }
+            try {
+              return JSON.parse(JSON.stringify(evalResult));
+            } catch {
+              return String(evalResult);
+            }
+          }
+          return evalResult;
         }
       });
       return results?.[0]?.result;
@@ -297,6 +416,9 @@ async function handleRpcAction(action, params = {}, browserApi = getBrowserApi()
           const el = document.querySelector(String(sel));
           if (!el)
             throw new Error(`Element not found: ${String(sel)}`);
+          el.focus();
+          el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+          el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
           el.click();
           return { clicked: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 100) };
         }
@@ -320,14 +442,36 @@ async function handleRpcAction(action, params = {}, browserApi = getBrowserApi()
           const el = document.querySelector(targetSelector);
           if (!el)
             throw new Error(`Input element not found: ${targetSelector}`);
-          if ("value" in el) {
-            el.value = targetValue;
-          } else {
+          el.focus();
+          let execSuccess = false;
+          try {
+            document.execCommand("selectAll", false, undefined);
+            execSuccess = document.execCommand("insertText", false, targetValue);
+          } catch {}
+          const isTextInput = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || "value" in el;
+          if (isTextInput) {
+            try {
+              const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+              const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
+              descriptor?.set?.call(el, targetValue);
+            } catch {
+              el.value = targetValue;
+            }
+          } else if (!execSuccess) {
             el.innerText = targetValue;
           }
-          el.dispatchEvent(new Event("input", { bubbles: true }));
-          el.dispatchEvent(new Event("change", { bubbles: true }));
-          return { typed: true, length: targetValue.length };
+          try {
+            el.dispatchEvent(new InputEvent("input", {
+              bubbles: true,
+              cancelable: true,
+              inputType: "insertText",
+              data: targetValue
+            }));
+          } catch {
+            el.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+          }
+          el.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+          return { typed: true, length: targetValue.length, selector: targetSelector };
         }
       });
       return results?.[0]?.result;

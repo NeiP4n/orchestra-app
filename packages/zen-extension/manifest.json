@@ -13,13 +13,7 @@
     "48": "icon.svg",
     "128": "icon.svg"
   },
-  "permissions": [
-    "tabs",
-    "scripting",
-    "storage",
-    "contextMenus",
-    "alarms"
-  ],
+  "permissions": ["tabs", "scripting", "storage", "contextMenus", "alarms"],
   "host_permissions": [
     "http://127.0.0.1/*",
     "http://localhost/*",
@@ -28,21 +22,14 @@
     "<all_urls>"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:* http://127.0.0.1 ws://127.0.0.1 http://localhost ws://localhost http://127.0.0.1:4097 ws://127.0.0.1:4097 http://127.0.0.1:4096 ws://127.0.0.1:4096 http://localhost:4097 ws://localhost:4097 http://localhost:4096 ws://localhost:4096;"
-  },
-  "sidebar_action": {
-    "default_panel": "sidebar.html",
-    "default_title": "Orchestra",
-    "default_icon": "icon.svg"
+    "extension_pages": "script-src 'self' 'unsafe-eval'; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:* http://127.0.0.1 ws://127.0.0.1 http://localhost ws://localhost http://127.0.0.1:4097 ws://127.0.0.1:4097 http://127.0.0.1:4096 ws://127.0.0.1:4096 http://localhost:4097 ws://localhost:4097 http://localhost:4096 ws://localhost:4096;"
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Orchestra Quick Action",
+    "default_title": "Orchestra Connector",
     "default_icon": "icon.svg"
   },
   "background": {
-    "scripts": [
-      "background.js"
-    ]
+    "scripts": ["background.js"]
   }
 }

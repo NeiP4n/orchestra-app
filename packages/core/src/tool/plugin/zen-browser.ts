@@ -76,6 +76,16 @@ export function validate(input: Input): string | undefined {
 }
 
 export function renderResult(action: string, result: unknown): string {
+  if (action === "eval") {
+    const val =
+      typeof result === "object" && result !== null && "result" in result
+        ? (result as { result: unknown }).result
+        : result
+    if (val === undefined) return "undefined"
+    if (val === null) return "null"
+    return typeof val === "object" ? JSON.stringify(val, null, 2) : String(val)
+  }
+
   if (result === undefined || result === null) return "OK"
   if (typeof result === "string") return result
 
@@ -110,16 +120,6 @@ export function renderResult(action: string, result: unknown): string {
     if (parts.length > 0) parts.push("---")
     parts.push(r.text || r.excerpt || "(empty page content)")
     return parts.join("\n")
-  }
-
-  if (action === "eval") {
-    const val =
-      typeof result === "object" && result !== null && "result" in result
-        ? (result as { result: unknown }).result
-        : result
-    if (val === undefined) return "undefined"
-    if (val === null) return "null"
-    return typeof val === "object" ? JSON.stringify(val, null, 2) : String(val)
   }
 
   if (typeof result === "object") {
@@ -190,7 +190,13 @@ export const Plugin = {
           description,
           input: Input,
           output: Output,
-          execute: (value) => run(value).pipe(Effect.map((output) => ({ output, content: output.output }))),
+          execute: (value) =>
+            run(value).pipe(
+              Effect.map((res) => ({
+                output: res,
+                content: res.output,
+              })),
+            ),
         }),
       )
       .pipe(Effect.orDie)

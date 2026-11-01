@@ -50,19 +50,15 @@ describe("Zen Extension Manifest", () => {
 
     // Content Security Policy for WebSocket & local HTTP access
     expect(manifest.content_security_policy?.extension_pages).toBeDefined()
-    expect(manifest.content_security_policy.extension_pages).toContain("connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*")
+    expect(manifest.content_security_policy.extension_pages).toContain(
+      "connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*",
+    )
 
-    // Native Zen / Firefox sidebar_action with icon
-    expect(manifest.sidebar_action).toEqual({
-      default_panel: "sidebar.html",
-      default_title: "Orchestra",
-      default_icon: "icon.svg",
-    })
-
-    // Action popup with icon
+    // Pure connector action popup with icon (no separate sidebar page)
+    expect(manifest.sidebar_action).toBeUndefined()
     expect(manifest.action).toEqual({
       default_popup: "popup.html",
-      default_title: "Orchestra Quick Action",
+      default_title: "Orchestra Connector",
       default_icon: "icon.svg",
     })
 
@@ -74,12 +70,6 @@ describe("Zen Extension Manifest", () => {
 
   it("should ensure all referenced entrypoint files exist on disk", () => {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"))
-
-    const sidebarPath = join(extensionDir, manifest.sidebar_action.default_panel)
-    expect(existsSync(sidebarPath)).toBe(true)
-    const sidebarHtml = readFileSync(sidebarPath, "utf-8")
-    expect(sidebarHtml).toContain("sidebar.css")
-    expect(sidebarHtml).toContain("sidebar.js")
 
     const popupPath = join(extensionDir, manifest.action.default_popup)
     expect(existsSync(popupPath)).toBe(true)

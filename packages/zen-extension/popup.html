@@ -1,37 +1,41 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Orchestra Quick Action</title>
-  <link rel="stylesheet" href="sidebar.css">
-  <link rel="stylesheet" href="popup.css">
-</head>
-<body>
-  <div class="popup-container">
-    <div class="header-bar">
-      <span class="brand-title">Orchestra Quick</span>
-      <div id="statusBadge" class="status-badge offline">
-        <span class="status-dot"></span>
-        <span id="statusText">Checking...</span>
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Orchestra Connector</title>
+    <link rel="stylesheet" href="sidebar.css" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="popup-container">
+      <div class="header-bar">
+        <div class="brand-title">Orchestra Connector</div>
+        <div id="statusBadge" class="status-badge offline">
+          <span class="status-dot"></span>
+          <span id="statusText">Проверка...</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Статус моста</div>
+        <div class="status-row">
+          <span class="status-label">Порт 4097:</span>
+          <span id="bridgeStatus" class="status-value">Опрос...</span>
+        </div>
+        <div class="status-row">
+          <span class="status-label">Протокол:</span>
+          <span id="bridgeProto" class="status-value">—</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Текущая вкладка</div>
+        <div class="tab-info-title" id="tabTitle">Определение...</div>
+        <div class="tab-info-url" id="tabUrl">—</div>
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">Current Tab</div>
-      <div class="tab-info-title" id="tabTitle">Loading...</div>
-      <div class="tab-info-url" id="tabUrl">—</div>
-    </div>
-
-    <button id="quickSendBtn" class="btn btn-primary">
-      Send Page to Orchestra
-    </button>
-
-    <div id="quickFeedback" class="alert-box alert-success hidden">
-      Sent!
-    </div>
-  </div>
-
-  <script type="module" src="popup.js"></script>
-</body>
+    <script src="popup.js"></script>
+  </body>
 </html>

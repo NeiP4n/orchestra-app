@@ -4,6 +4,7 @@ import { ZenBridgeServer } from "../../src/zen/bridge-server.js"
 import {
   getZenBridgeServer,
   name,
+  Output,
   Plugin,
   renderResult,
   run,
@@ -69,6 +70,10 @@ describe("zen_browser unit tests", () => {
     expect(renderResult("eval", { result: null })).toBe("null")
     expect(renderResult("eval", { result: undefined })).toBe("undefined")
     expect(renderResult("eval", { result: { a: 1 } })).toContain('"a": 1')
+    expect(renderResult("eval", "ChatGPT")).toBe("ChatGPT")
+    expect(renderResult("eval", undefined)).toBe("undefined")
+    expect(renderResult("eval", null)).toBe("null")
+    expect(renderResult("eval", { title: "ChatGPT", online: true })).toContain('"title": "ChatGPT"')
 
     // objects
     expect(renderResult("click", { clicked: true, tabId: 1 })).toContain('"clicked": true')
@@ -359,6 +364,42 @@ describe("zen_browser with mock connected extension", () => {
 
   test("Plugin metadata is correct", () => {
     expect(Plugin.id).toBe("orchestra.tool.zen-browser")
+  })
+
+  test("Plugin registration and execute return object conforming to Output schema", async () => {
+    let capturedTool:
+      | {
+          name: string
+          output: unknown
+          execute: (val: unknown) => Effect.Effect<{ output: { output: string }; content: string }>
+        }
+      | undefined
+    const mockCtx = {
+      tool: {
+        transform: (fn: (editor: { add: (tool: typeof capturedTool) => void }) => void) =>
+          Effect.sync(() => {
+            const editor = {
+              add: (tool: typeof capturedTool) => {
+                capturedTool = tool
+              },
+            }
+            fn(editor)
+          }),
+      },
+    }
+
+    await Effect.runPromise(Effect.scoped(Plugin.effect(mockCtx as any)))
+    expect(capturedTool).toBeDefined()
+    expect(capturedTool?.name).toBe("zen_browser")
+    expect(capturedTool?.output).toBe(Output)
+
+    // Execute status action through capturedTool.execute
+    const execRes = await Effect.runPromise(capturedTool!.execute({ action: "status" }))
+    expect(execRes).toHaveProperty("output")
+    expect(execRes).toHaveProperty("content")
+    expect(execRes.output).toHaveProperty("output")
+    expect(typeof execRes.output.output).toBe("string")
+    expect(execRes.content).toBe(execRes.output.output)
   })
 })
 

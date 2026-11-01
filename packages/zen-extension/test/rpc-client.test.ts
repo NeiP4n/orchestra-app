@@ -67,17 +67,20 @@ describe("RPC Bridge Client & Actions", () => {
 
           // Mock return value based on injection function intent
           const funcStr = injection.func.toString()
-          if (funcStr.includes("document.title") && funcStr.includes("innerText")) {
-            return [{
-              result: {
-                title: "Mock Page Title",
-                url: "https://mock.example.com",
-                innerText: "Simulated page body text",
-                selection: "Selected text excerpt",
+          if (funcStr.includes("window.getSelection") || funcStr.includes("selection")) {
+            return [
+              {
+                result: {
+                  title: "Mock Page Title",
+                  url: "https://mock.example.com",
+                  text: "Simulated page body text",
+                  innerText: "Simulated page body text",
+                  selection: "Selected text excerpt",
+                },
               },
-            }]
+            ]
           }
-          if (funcStr.includes("window.eval")) {
+          if (funcStr.includes("window.eval") || funcStr.includes("Function(") || funcStr.includes("eval")) {
             return [{ result: "eval_success_42" }]
           }
           if (funcStr.includes("el.click()")) {
@@ -130,11 +133,13 @@ describe("RPC Bridge Client & Actions", () => {
       const result = (await handleRpcAction("read", { tabId: 101 }, mockBrowser)) as {
         title: string
         url: string
+        text: string
         innerText: string
         selection: string
       }
 
       expect(result.title).toBe("Mock Page Title")
+      expect(result.text).toBe("Simulated page body text")
       expect(result.innerText).toBe("Simulated page body text")
       expect(result.selection).toBe("Selected text excerpt")
       expect(executedScripts.some((s) => s.tabId === 101)).toBe(true)
@@ -144,6 +149,52 @@ describe("RPC Bridge Client & Actions", () => {
       const result = await handleRpcAction("eval", { code: "1 + 1", tabId: 102 }, mockBrowser)
       expect(result).toBe("eval_success_42")
       expect(executedScripts.some((s) => s.args?.[0] === "1 + 1")).toBe(true)
+    })
+
+    it("should capture and execute the injected eval function accurately", async () => {
+      let capturedInjection: { func: (...args: any[]) => any; args?: any[] } | undefined
+      const customBrowser = {
+        tabs: {
+          query: async () => [{ id: 777 }],
+        },
+        scripting: {
+          executeScript: async (inj: any) => {
+            capturedInjection = inj
+            const res = inj.func(...inj.args)
+            return [{ result: res }]
+          },
+        },
+      }
+
+      // Test arithmetic expression
+      const evalMath = await handleRpcAction("eval", { code: "2 * 21", tabId: 777 }, customBrowser as any)
+      expect(evalMath).toBe(42)
+      expect(capturedInjection).toBeDefined()
+
+      // Test object expression
+      const evalObj = await handleRpcAction(
+        "eval",
+        { code: "({ title: 'ChatGPT', active: true })", tabId: 777 },
+        customBrowser as any,
+      )
+      expect(evalObj).toEqual({ title: "ChatGPT", active: true })
+
+      // Test statement with return
+      const evalReturn = await handleRpcAction(
+        "eval",
+        { code: "const x = 'hello'; return x + ' world'", tabId: 777 },
+        customBrowser as any,
+      )
+      expect(evalReturn).toBe("hello world")
+
+      // Test document.title fallback
+      const originalTitle = globalThis.document?.title
+      if (typeof document !== "undefined") {
+        document.title = "ChatGPT - Test"
+        const evalTitle = await handleRpcAction("eval", { code: "document.title", tabId: 777 }, customBrowser as any)
+        expect(evalTitle).toBe("ChatGPT - Test")
+        document.title = originalTitle || ""
+      }
     })
 
     it("should throw error on 'eval' when code is missing", async () => {
@@ -363,10 +414,7 @@ describe("RPC Bridge Client & Actions", () => {
       // Wait for heartbeat or poll result
       await new Promise<void>((resolve) => {
         const interval = setInterval(() => {
-          if (
-            heartbeatsReceived.length > 0 &&
-            httpResultsReceived.some((r) => r.id === "poll_action_123")
-          ) {
+          if (heartbeatsReceived.length > 0 && httpResultsReceived.some((r) => r.id === "poll_action_123")) {
             clearInterval(interval)
             resolve()
           }
