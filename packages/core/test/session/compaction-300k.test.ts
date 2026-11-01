@@ -8,12 +8,13 @@ import { LayerNode } from "@orchestra/util/effect/layer-node"
 import { Bus } from "@orchestra/core/bus"
 import { SessionCompaction } from "@orchestra/core/session/compaction"
 import type { SessionContext } from "@orchestra/core/session/context"
+import { SessionEvent } from "@orchestra/core/session/event"
 import { SessionMessage } from "@orchestra/core/session/message"
 import { SessionModelRequest } from "@orchestra/core/session/model-request"
 import { PluginHooks } from "@orchestra/core/plugin/hooks"
 import { SessionProjector } from "@orchestra/core/session/projector"
 import { SessionRunnerModel } from "@orchestra/core/session/runner/model"
-import { SessionTable } from "@orchestra/core/session/sql"
+import { InstructionStateTable, SessionTable } from "@orchestra/core/session/sql"
 import { SessionStore } from "@orchestra/core/session/store"
 import { Session } from "@orchestra/core/session"
 import { Location } from "@orchestra/core/location"
@@ -21,11 +22,14 @@ import { Project } from "@orchestra/core/project"
 import { ProjectTable } from "@orchestra/core/project/sql"
 import { Agent } from "@orchestra/core/agent"
 import { AbsolutePath } from "@orchestra/core/schema"
+import { Instruction } from "@orchestra/schema/instruction"
 import { Money } from "@orchestra/schema/money"
+import { eq } from "drizzle-orm"
 import { Effect, Layer, Schema, Stream } from "effect"
 import { testEffect } from "../lib/effect"
 
 let capturedRequests: LLMRequest[] = []
+let onStreamHook: (() => Effect.Effect<void>) | undefined
 
 const model = LanguageModel.make({
   id: "summary-model",
@@ -47,7 +51,7 @@ const cost = [
 const mockLLM = Layer.mock(LLMClient.Service)({
   stream: (request: LLMRequest) => {
     capturedRequests.push(request)
-    return Stream.make(
+    const baseStream = Stream.make(
       LLMEvent.textDelta({
         id: "summary-delta",
         text: "## Objective\n- 300k context compaction test\n## Requirements\n- verify\n## Decisions\n- none\n## Work State\n### Completed\n- test\n### Active\n- test\n### Blocked\n- none\n## Next Move\n- finish\n## Relevant Files\n- compaction-300k.test.ts\n## Important Context\n- 300k+ tokens context",
@@ -68,6 +72,10 @@ const mockLLM = Layer.mock(LLMClient.Service)({
         reason: { normalized: "stop" },
       }),
     )
+    if (onStreamHook) {
+      return Stream.fromEffect(onStreamHook()).pipe(Stream.flatMap(() => baseStream))
+    }
+    return baseStream
   },
   generate: () => Effect.die("unused"),
 })
@@ -362,5 +370,113 @@ describe("Compaction 300k Context Verification (TEST-300K-001)", () => {
       const outcome = yield* compaction.compact({ reason: "auto", context: contextRealText })
       expect(outcome.status).toBe("skipped")
     }),
+  )
+
+  it.effect(
+    "6. Concurrent instruction updates during compaction: updated instructions are preserved across compaction boundaries",
+    () =>
+      Effect.gen(function* () {
+        const compaction = yield* SessionCompaction.Service
+        const bus = yield* Bus.Service
+        const db = (yield* Database.Service).db
+
+        const session = yield* insertTestSession(Session.ID.make("ses_concurrent_instructions"), {
+          metadata: { compaction_threshold: 200_000 },
+        })
+
+        const hashDevV1 = Schema.decodeUnknownSync(Instruction.Hash)("1".repeat(64))
+        const hashRulesV1 = Schema.decodeUnknownSync(Instruction.Hash)("2".repeat(64))
+        const hashDevV2 = Schema.decodeUnknownSync(Instruction.Hash)("3".repeat(64))
+        const hashToolV1 = Schema.decodeUnknownSync(Instruction.Hash)("4".repeat(64))
+
+        const initialValues: Instruction.Values = {
+          "system/role": hashDevV1,
+          "system/base_rules": hashRulesV1,
+        }
+
+        yield* db
+          .insert(InstructionStateTable)
+          .values({
+            session_id: session.id,
+            epoch_start: 1,
+            through_seq: 1,
+            initial_values: initialValues,
+            current_values: initialValues,
+          })
+          .run()
+          .pipe(Effect.orDie)
+
+        const bigModel = SessionRunnerModel.resolved(model, {
+          capabilities: { tools: true, input: ["text", "image"], output: ["text"] },
+          cost,
+          limit: { context: 1_000_000, input: 800_000, output: 64_000 },
+        })
+
+        const context350k: SessionContext.Loaded = {
+          session,
+          model: bigModel,
+          messages: [
+            Schema.decodeUnknownSync(SessionMessage.User)({
+              id: SessionMessage.ID.make("msg_concurrent_user"),
+              type: "user",
+              text: "Explain the architecture in detail",
+              time: { created: 0 },
+            }),
+            Schema.decodeUnknownSync(SessionMessage.Assistant)({
+              id: SessionMessage.ID.make("msg_concurrent_assistant"),
+              type: "assistant",
+              agent: Agent.defaultID,
+              model: { id: "summary-model", providerID: "test" },
+              content: [{ type: "text", text: "Summary of large architecture discussion" }],
+              tokens: { input: 350_000, output: 2_000, reasoning: 0, cache: { read: 0, write: 0 } },
+              time: { created: 1, completed: 2 },
+            }),
+          ],
+          agent: {
+            id: Agent.defaultID,
+            info: { ...Agent.Info.default(Agent.defaultID), system: "System" },
+          },
+          initial: "Initial instructions",
+          tools: { definitions: [], execute: () => Effect.die("unused") },
+        }
+
+        // Simulate concurrent instruction update during LLM summary generation
+        onStreamHook = () =>
+          Effect.gen(function* () {
+            yield* bus.publish(SessionEvent.InstructionsUpdated, {
+              sessionID: session.id,
+              delta: {
+                "system/role": hashDevV2,
+                "system/new_tool": hashToolV1,
+              },
+              text: "Updated system role to v2 and added new_tool",
+            })
+          })
+
+        const outcome = yield* compaction.compact({ reason: "auto", context: context350k })
+        onStreamHook = undefined
+
+        expect(outcome.status).toBe("completed")
+
+        const finalState = yield* db
+          .select()
+          .from(InstructionStateTable)
+          .where(eq(InstructionStateTable.session_id, session.id))
+          .get()
+          .pipe(Effect.orDie)
+
+        expect(finalState).toBeDefined()
+        const currentValues = finalState?.current_values as Record<string, string>
+        const initialSavedValues = finalState?.initial_values as Record<string, string>
+
+        // Verify updated role was preserved and not overwritten by stale v1
+        expect(currentValues["system/role"]).toBe(hashDevV2)
+        expect(currentValues["system/base_rules"]).toBe(hashRulesV1)
+        expect(currentValues["system/new_tool"]).toBe(hashToolV1)
+
+        expect(initialSavedValues["system/role"]).toBe(hashDevV2)
+        expect(initialSavedValues["system/base_rules"]).toBe(hashRulesV1)
+        expect(initialSavedValues["system/new_tool"]).toBe(hashToolV1)
+      }),
   )
 })

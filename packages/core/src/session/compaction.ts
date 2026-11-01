@@ -18,6 +18,7 @@ import type { StreamOptions } from "@orchestra/ai/route"
 import type { SessionCompactionResult } from "@orchestra/plugin/effect/session"
 import type { SessionError } from "@orchestra/schema/session-error"
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
+import { eq } from "drizzle-orm"
 import { Context, Effect, Layer, Result, Stream } from "effect"
 import { Agent } from "../agent.js"
 import { Bus } from "../bus.js"
@@ -29,6 +30,7 @@ import { Token } from "../util/token.js"
 import type { SessionContext } from "./context.js"
 import { SessionEvent } from "./event.js"
 import { SessionHistory } from "./history.js"
+import { InstructionStateTable } from "./sql.js"
 import type { SessionMessage } from "./message.js"
 import { SessionModelRequest } from "./model-request.js"
 import { SessionPlan } from "./plan.js"
@@ -421,13 +423,21 @@ export const layer = Layer.effect(
         trigger.reason === "overflow" ? Math.min(cap, Math.floor(estimateContext(context) * SHRINK_STEPS[0])) : cap
 
       const selected = model === context.model ? trigger : { ...trigger, context: { ...context, model } }
+      const sessionID = context.session.id
+      const baselineInstructionState = yield* db
+        .select()
+        .from(InstructionStateTable)
+        .where(eq(InstructionStateTable.session_id, sessionID))
+        .get()
+        .pipe(Effect.orDie)
+
       const compaction = native
         ? compactNatively(selected, budget, settings.keep)
         : summarize(selected, budget, settings.keep)
       return yield* compaction.pipe(
         Effect.matchEffect({
-          onSuccess: (result) => publish(selected, result),
-          onFailure: (failure) => publish(selected, failure),
+          onSuccess: (result) => publish(selected, result, baselineInstructionState),
+          onFailure: (failure) => publish(selected, failure, baselineInstructionState),
         }),
       )
     })
@@ -821,6 +831,7 @@ export const layer = Layer.effect(
     const publish = Effect.fnUntraced(function* (
       trigger: Trigger,
       outcome: Result | Failure,
+      baselineInstructionState?: typeof InstructionStateTable.$inferSelect,
     ): Effect.fn.Return<Outcome> {
       const context = trigger.context
       const sessionID = context.session.id
@@ -837,6 +848,35 @@ export const layer = Layer.effect(
         })
         return { status: "failed", error: outcome.error }
       }
+
+      yield* db
+        .transaction((tx) =>
+          Effect.gen(function* () {
+            const currentInstructionState = yield* tx
+              .select()
+              .from(InstructionStateTable)
+              .where(eq(InstructionStateTable.session_id, sessionID))
+              .get()
+              .pipe(Effect.orDie)
+
+            if (currentInstructionState) {
+              const mergedCurrentValues = {
+                ...(baselineInstructionState?.current_values ?? {}),
+                ...(currentInstructionState.current_values ?? {}),
+              }
+              yield* tx
+                .update(InstructionStateTable)
+                .set({
+                  current_values: mergedCurrentValues,
+                  initial_values: mergedCurrentValues,
+                })
+                .where(eq(InstructionStateTable.session_id, sessionID))
+                .run()
+                .pipe(Effect.orDie)
+            }
+          }),
+        )
+        .pipe(Effect.orDie)
 
       yield* bus.publish(
         SessionEvent.Compaction.Ended,
