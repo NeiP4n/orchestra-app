@@ -1447,6 +1447,27 @@ leaves:
         at: "2026-11-01T22:24:01.495Z"
         by: "AI"
         output_summary: " 0 fail /  30 expect() calls / Ran 14 tests across 1 file. [3.49s]"
+
+  - id: L-030
+    what: "Перевод порогов сжатия с процентов/мелких капов на крупные абсолютные числа токенов (300k, 500k, 900k)"
+    group: "Core"
+    task_state: DONE
+    owner: "AI"
+    owner_id: "local-ai"
+    steps:
+      - "[x] 1. Обновить packages/core/src/session/compaction-policy.ts: заменить проценты и мелкие капы (30k, 60k, 120k) на полноценные токенные числа (300k, 500k, 900k)"
+      - "[x] 2. Обновить society-plan.ts и инструкции планировщика: предписать выставлять пороги в токенах (300k, 500k, 900k), а не в процентах"
+      - "[x] 3. Обновить пороги существующих сессий в базе данных и разослать обновления через живой API сервера"
+      - "[x] 4. Прогнать typecheck и тесты packages/core, закоммитить и запушить на GitHub"
+    verification:
+      state: PASSED
+      command: "cd packages/core; bun run typecheck; if ($LASTEXITCODE -ne 0) { exit 1 }; bun test test/compaction-policy.test.ts test/plugin/plan.test.ts"
+      evidence:
+        command: "cd packages/core; bun run typecheck; if ($LASTEXITCODE -ne 0) { exit 1 }; bun test test/compaction-policy.test.ts test/plugin/plan.test.ts"
+        exit_code: 0
+        at: "2026-11-01T23:13:58.040Z"
+        by: "AI"
+        output_summary: " 0 fail /  102 expect() calls / Ran 25 tests across 2 files. [455.00ms]"
 dead_ends:
   - what: "Удаление OpenCode Zen (L-006 шаги 1-2, L-004 шаг 3, L-010 охранный скрипт)"
     why: >-
