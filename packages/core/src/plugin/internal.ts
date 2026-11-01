@@ -94,7 +94,6 @@ import { CodegraphTool } from "../tool/plugin/codegraph.js"
 import { CheckpointTool } from "../tool/plugin/checkpoint.js"
 import { DesktopInspectTool } from "../tool/plugin/desktop-inspect.js"
 import { DesktopActionTool } from "../tool/plugin/desktop-action.js"
-import { ZenBrowserTool } from "../tool/plugin/zen-browser.js"
 import { DodTool } from "../tool/plugin/dod.js"
 import { PlaytestTool } from "../tool/plugin/playtest.js"
 import { Peer } from "../peer.js"
@@ -331,7 +330,6 @@ const pre = [
   CheckpointTool.Plugin,
   DesktopInspectTool.Plugin,
   DesktopActionTool.Plugin,
-  ZenBrowserTool.Plugin,
   PlotTool.Plugin,
   RulesTool.Plugin,
   FederationTool.Plugin,
