@@ -4,11 +4,13 @@ import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { Effect, Schema } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
-import { Parser } from "htmlparser2"
 import { Permission } from "../../permission.js"
 import { WebSearch } from "../../websearch.js"
 import { collectBoundedResponseBody } from "../http-body.js"
 import { convertHTMLToMarkdown } from "../html-markdown.js"
+import { openSearch, parseDuckDuckGo, decodeDuckDuckGo } from "./open-search.js"
+
+export { parseDuckDuckGo, decodeDuckDuckGo }
 
 export const name = "research"
 
@@ -93,18 +95,23 @@ export const Plugin = {
                   Effect.catch((error) =>
                     error._tag === "WebSearch.Disabled"
                       ? Effect.succeed({ provider: "none", results: [] as Found[] })
-                      : Effect.map(duckduckgo(http, input.query), (results) => ({
-                          provider: "duckduckgo",
+                      : Effect.map(openSearch(http, input.query, input.pages ?? DEFAULT_PAGES), (results) => ({
+                          provider: "open-web",
                           results,
                         })),
                   ),
                 )
 
+              let effectiveResults = found.results
+              if (effectiveResults.length === 0 && (!input.urls || input.urls.length === 0)) {
+                effectiveResults = yield* openSearch(http, input.query, input.pages ?? DEFAULT_PAGES)
+              }
+
               const known = (input.urls ?? []).flatMap((url) => {
                 const title = URL.canParse(url) ? new URL(url).hostname : url
                 return [{ title, url, snippet: "" }]
               })
-              const candidates = [...known, ...found.results].filter(
+              const candidates = [...known, ...effectiveResults].filter(
                 (item, index, all) => URL.canParse(item.url) && all.findIndex((other) => other.url === item.url) === index,
               )
               const pages = candidates.slice(0, input.pages ?? DEFAULT_PAGES)
@@ -171,64 +178,4 @@ const readPage = (http: HttpClient.HttpClient, page: Found) =>
     return excerpt.length > EXCERPT_CHARS ? `${excerpt.slice(0, EXCERPT_CHARS)}\n…` : excerpt
   }).pipe(Effect.timeout("25 seconds"))
 
-/** Search without a configured provider: DuckDuckGo's no-JavaScript endpoint keeps research usable. */
-const duckduckgo = (http: HttpClient.HttpClient, query: string) =>
-  Effect.gen(function* () {
-    const response = yield* http.execute(
-      HttpClientRequest.get(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`).pipe(
-        HttpClientRequest.setHeaders({ "User-Agent": USER_AGENT, Accept: "text/html" }),
-      ),
-    )
-    const ok = yield* HttpClientResponse.filterStatusOk(response)
-    const body = yield* collectBoundedResponseBody(
-      ok,
-      PAGE_BYTES,
-      () => new Error("Search response too large"),
-    )
-    return parseDuckDuckGo(new TextDecoder().decode(body))
-  }).pipe(
-    Effect.timeout("20 seconds"),
-    Effect.orElseSucceed(() => [] as Found[]),
-  )
 
-export function parseDuckDuckGo(html: string): Found[] {
-  const results: Found[] = []
-  let current: { url: string; title: string } | undefined
-  let text = ""
-  const flush = () => {
-    if (!current) return
-    const title = text.replace(/\s+/g, " ").trim()
-    if (title) results.push({ title, url: current.url, snippet: "" })
-    current = undefined
-    text = ""
-  }
-  const parser = new Parser({
-    onopentag(tag, attributes) {
-      if (tag !== "a") return
-      if (!attributes.class?.split(/\s+/).includes("result__a")) return
-      flush()
-      const href = decodeDuckDuckGo(attributes.href ?? "")
-      if (!href) return
-      current = { url: href, title: "" }
-    },
-    ontext(value) {
-      if (current) text += value
-    },
-    onclosetag(tag) {
-      if (tag === "a") flush()
-    },
-  })
-  parser.write(html)
-  parser.end()
-  return results.slice(0, MAX_PAGES)
-}
-
-function decodeDuckDuckGo(href: string) {
-  if (href === "") return undefined
-  const absolute = href.startsWith("//") ? `https:${href}` : href
-  if (!URL.canParse(absolute)) return undefined
-  const url = new URL(absolute)
-  const target = url.searchParams.get("uddg")
-  if (target && URL.canParse(target)) return target
-  return url.hostname.endsWith("duckduckgo.com") ? undefined : url.href
-}

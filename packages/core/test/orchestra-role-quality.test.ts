@@ -77,6 +77,27 @@ describe("built-in role toolkits", () => {
     expect(findRole("security-auditor")?.hub).toContain("security")
   })
 
+  test("engineering roles have MCP tools for library reconnaissance", () => {
+    const targetRoles = [
+      "frontend-developer",
+      "backend-developer",
+      "desktop-developer",
+      "core-maintainer",
+      "tester",
+      "integration-engineer",
+      "database-engineer",
+      "performance-engineer",
+    ]
+    for (const roleId of targetRoles) {
+      const roleItem = findRole(roleId)
+      expect(roleItem).toBeDefined()
+      expect(roleItem?.tools).toContain("context7_*")
+      expect(roleItem?.tools).toContain("deepwiki_*")
+      expect(roleItem?.tools).toContain("fetch_*")
+      expect(roleItem?.tools).toContain("mcp-docs_*")
+    }
+  })
+
   test("research roles can open live pages and ask a web AI, not only fetch", () => {
     for (const id of ["researcher", "deep-researcher"]) {
       expect(findRole(id)?.tools).toContain("browser")
@@ -222,6 +243,7 @@ describe("shared team prompt", () => {
       "Do not spawn subagents",
       "Do not commit, push, publish, deploy or delete user data",
       "Keep effort proportional",
+      "MANDATORY LIBRARY RECONNAISSANCE: Prior to implementing or modifying code with external libraries/frameworks",
       "Separate what you verified from what you assume",
       "Real integration required",
       "Zero-tolerance for false completion",

@@ -4,10 +4,11 @@ import type { Context } from "@orchestra/plugin/effect/plugin"
 import type { SessionHooks } from "@orchestra/plugin/effect/session"
 import { ToolFailure } from "@orchestra/ai"
 import { Effect, Schema, Semaphore } from "effect"
-import { HttpClientError } from "effect/unstable/http"
+import { HttpClient, HttpClientError } from "effect/unstable/http"
 import { Form } from "../../form.js"
 import { Permission } from "../../permission.js"
 import { WebSearch } from "../../websearch.js"
+import { openSearch } from "./open-search.js"
 
 export const name = "websearch"
 export const NO_RESULTS = "No search results found. Please try a different query."
@@ -63,15 +64,36 @@ export const Plugin = {
                     onProvider: (provider) => context.progress({ provider: provider.id }),
                   },
                 )
+              const fallbackOpenSearch = (query: string): Effect.Effect<WebSearch.Response> =>
+                Effect.gen(function* () {
+                  const http = yield* Effect.serviceOption(HttpClient.HttpClient)
+                  if (http._tag === "Some") {
+                    const openResults = yield* openSearch(http.value, query)
+                    return new WebSearch.Response({
+                      providerID: WebSearch.ID.make("open-web"),
+                      results: openResults.map((r) => ({
+                        url: r.url,
+                        title: r.title,
+                        content: r.snippet,
+                        time: {},
+                      })),
+                    })
+                  }
+                  return new WebSearch.Response({
+                    providerID: WebSearch.ID.make("none"),
+                    results: [],
+                  })
+                })
+
               const result = yield* search().pipe(
-                Effect.catchTag("WebSearch.ProviderRequired", () => {
-                  return providerSelectionLock
+                Effect.catchTag("WebSearch.ProviderRequired", () =>
+                  providerSelectionLock
                     .withPermit(
                       Effect.gen(function* () {
-                        if (yield* websearch.default()) return
+                        if (yield* websearch.default()) return yield* search()
                         const providers = (yield* ctx.websearch.providers()).data
                         const defaultProvider = providers[0]
-                        if (!defaultProvider) return yield* new WebSearch.ProviderRequiredError()
+                        if (!defaultProvider) return yield* fallbackOpenSearch(input.query)
                         const response = yield* forms.ask({
                           sessionID: context.sessionID,
                           title: "Web Search",
@@ -129,12 +151,12 @@ export const Plugin = {
                         const providerID = selection?.answer.provider ?? "random"
                         if (providerID === "random") {
                           yield* websearch.select("random")
-                          return
+                          return yield* search()
                         }
                         const provider = providers.find((provider) => provider.id === providerID)
-                        if (!provider) return yield* new WebSearch.ProviderRequiredError()
+                        if (!provider) return yield* fallbackOpenSearch(input.query)
                         yield* websearch.select(provider.id)
-                        return provider.id
+                        return yield* search(provider.id)
                       }),
                     )
                     .pipe(
@@ -142,9 +164,8 @@ export const Plugin = {
                         duration: "1 minute",
                         orElse: () => Effect.fail(new Error("Web search cancelled")),
                       }),
-                      Effect.flatMap(search),
-                    )
-                }),
+                    ),
+                ),
               )
               const output = {
                 provider: result.providerID,

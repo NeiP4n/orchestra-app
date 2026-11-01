@@ -32,7 +32,8 @@ const webSearchToolNode = makeLocationNode({
 })
 
 const sessionID = Session.ID.make("ses_websearch_test")
-const providers = [
+type ProviderFixture = { readonly id: WebSearch.ID; readonly name: string }
+const providers: readonly ProviderFixture[] = [
   { id: WebSearch.ID.make("exa"), name: "Exa" },
   { id: WebSearch.ID.make("parallel"), name: "Parallel" },
 ]
@@ -51,50 +52,55 @@ class Fixture {
 }
 
 const it = testEffect(TestWebSearch.layer)
-const setup = Effect.gen(function* () {
-  const fixture = new Fixture()
-  const websearch = yield* TestWebSearch.Service
-  const kv = yield* KV.Service
-  yield* websearch.transform((editor) =>
-    providers.forEach((provider) =>
-      editor.add({
-        ...provider,
-        execute: () =>
-          Effect.gen(function* () {
-            fixture.events.push("query")
-            if (fixture.error) return yield* fixture.error
-            return fixture.results
+const setupWith = (initialProviders: readonly ProviderFixture[] = providers) =>
+  Effect.gen(function* () {
+    const fixture = new Fixture()
+    const websearch = yield* TestWebSearch.Service
+    const kv = yield* KV.Service
+    if (initialProviders.length > 0) {
+      yield* websearch.transform((editor) =>
+        initialProviders.forEach((provider) =>
+          editor.add({
+            ...provider,
+            execute: () =>
+              Effect.gen(function* () {
+                fixture.events.push("query")
+                if (fixture.error) return yield* fixture.error
+                return fixture.results
+              }),
           }),
-      }),
-    ),
-  )
-  const context = yield* Layer.build(
-    AppNodeBuilder.build(LayerNode.group([Tool.node, webSearchToolNode]), [
-      Permission.node.replace(
-        permissionLayer({
-          assert: (input) =>
-            Effect.sync(() => {
-              fixture.events.push("permission")
-              fixture.assertions.push(input)
-            }),
-        }),
-      ),
-      WebSearch.node.replace(Layer.succeed(WebSearch.Service, websearch)),
-      Form.node.replace(
-        Layer.mock(Form.Service, {
-          ask: (input) =>
-            Effect.gen(function* () {
-              fixture.formRequests.push(input)
-              yield* fixture.formWait
-              return fixture.formResponses.shift() ?? fixture.formResponse
-            }),
-        }),
-      ),
-      Image.node.replace(imagePassthrough),
-    ]),
-  )
-  return Object.assign(fixture, { websearch, kv, registry: Context.get(context, Tool.Service) })
-})
+        ),
+      )
+    }
+    const context = yield* Layer.build(
+      AppNodeBuilder.build(LayerNode.group([Tool.node, webSearchToolNode]), [
+        Permission.node.replace(
+          permissionLayer({
+            assert: (input) =>
+              Effect.sync(() => {
+                fixture.events.push("permission")
+                fixture.assertions.push(input)
+              }),
+          }),
+        ),
+        WebSearch.node.replace(Layer.succeed(WebSearch.Service, websearch)),
+        Form.node.replace(
+          Layer.mock(Form.Service, {
+            ask: (input) =>
+              Effect.gen(function* () {
+                fixture.formRequests.push(input)
+                yield* fixture.formWait
+                return fixture.formResponses.shift() ?? fixture.formResponse
+              }),
+          }),
+        ),
+        Image.node.replace(imagePassthrough),
+      ]),
+    )
+    return Object.assign(fixture, { websearch, kv, registry: Context.get(context, Tool.Service) })
+  })
+
+const setup = setupWith(providers)
 
 describe("WebSearchTool registration", () => {
   it.effect("asserts permission before delegating to WebSearch", () =>
@@ -200,6 +206,21 @@ describe("WebSearchTool registration", () => {
         status: "completed",
         content: [{ type: "text", text: WebSearchTool.NO_RESULTS }],
       })
+    }),
+  )
+
+  it.effect("falls back gracefully when no paid providers are configured", () =>
+    Effect.gen(function* () {
+      const fixture = yield* setupWith([])
+      const registry = fixture.registry
+
+      const result = yield* executeTool(registry, {
+        sessionID,
+        ...toolIdentity,
+        call: { type: "tool-call", id: "call-no-providers", name: "websearch", input: { query: "effect" } },
+      })
+      expect(result.status).toBe("completed")
+      expect(["open-web", "none"]).toContain(result.metadata?.provider)
     }),
   )
 

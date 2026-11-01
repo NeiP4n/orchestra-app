@@ -18,11 +18,24 @@ describe("ToolGuidance instructions", () => {
     expect(text).toContain("</tool-routing>")
   })
 
+  test("asks a vague request as one compact form instead of a long generated prompt", () => {
+    const text = ToolGuidance.render()
+    expect(text).toContain("A vague or underspecified request -> question")
+    expect(text).toContain("at most three short questions")
+    expect(text).toContain("Never answer a vague request by generating a long prompt")
+  })
+
   test("routes unanswered external facts to search and the browser, including asking a web AI", () => {
     const text = ToolGuidance.render()
     expect(text).toContain("Gemini, ChatGPT, DeepSeek, Qwen")
     expect(text).toContain("cite the URL you used")
     expect(text).toContain("use the browser and ask there")
+  })
+
+  test("a missing capability is installed and inspected without handing work to the user", () => {
+    const text = ToolGuidance.render()
+    expect(text).toContain("Never ask the user to install, enable or verify it")
+    expect(text).toContain("mcp_forge action='list'")
   })
 
   test("renders custom routing rules when provided", () => {

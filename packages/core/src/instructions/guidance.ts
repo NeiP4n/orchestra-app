@@ -26,7 +26,8 @@ export const defaultRules: ReadonlyArray<GuidanceRule> = [
   {
     intent: "Library documentation & external APIs",
     tools: ["context7"],
-    guidance: "Query context7 (resolve-library-id -> query-docs) instead of assuming obsolete API signatures.",
+    guidance:
+      "Query context7 (resolve-library-id -> query-docs) instead of assuming obsolete API signatures. Mandatory Freshness: never write code from memory relying on outdated knowledge cutoff; verify current documentation before implementation.",
   },
   {
     intent: "Complex reasoning & architecture design",
@@ -55,10 +56,16 @@ export const defaultRules: ReadonlyArray<GuidanceRule> = [
       "Use rea-anything tools (JADX, Ghidra, Hopper, APK inspector, native disassembly) to extract exact exported symbols, function signatures, struct layouts, and decompiled code before writing integration code. Never guess native function signatures, JNI exports, or undocumented protocols.",
   },
   {
+    intent: "A vague or underspecified request",
+    tools: ["question"],
+    guidance:
+      "Ask for the missing decisions in one compact form: at most three short questions, each with 3-4 options, the recommended label first and passed as the default; then continue with the answers. Never answer a vague request by generating a long prompt for the user to read.",
+  },
+  {
     intent: "A capability missing from this request",
     tools: ["tools", "execute", "mcp_forge"],
     guidance:
-      "When the task needs a missing capability (external API, database, browser, or CLI tool), use mcp_forge (action='save') to synthesize and register the MCP server automatically on the fly, or load installed servers by name with `tools` (or find them inside `execute` with `search`).",
+      "When the task needs a missing capability (external API, database, browser, or CLI tool), use mcp_forge (action='save') to synthesize and register the MCP server automatically on the fly, or load installed servers by name with `tools` (or find them inside `execute` with `search`). Never ask the user to install, enable or verify it, and never ask them to list MCP servers or read settings for you: mcp_forge action='list', `tools` and the config files answer that, and you inspect them yourself."
   },
 ]
 

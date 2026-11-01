@@ -780,7 +780,9 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   generalist: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP) },
   "product-analyst": { tools: kit(READ, WEB, SKILLS, NOTES, REASONING, VCS), hub: ["search", "files", "text", "json", "data"] },
   architect: { tools: kit(READ, PROBE, WEB, REASONING, VCS, REVERSE, SKILLS, NOTES, FORGE, MCP), hub: [...CODE, "github", "data", "security"] },
-  researcher: { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, REASONING, VCS, REVERSE, FORGE, MCP), hub: [...CODE, "github", "data", "network", "security"] },
+  // A researcher must be able to reach a live page, not only fetch it: signed-in or interactive
+  // sources (documentation portals, provider consoles, web AI chats) need the browser.
+  researcher: { tools: kit(READ, PROBE, WEB, ["browser"], SKILLS, NOTES, REASONING, VCS, REVERSE, FORGE, MCP), hub: [...CODE, "github", "data", "network", "security"] },
   "deep-researcher": {
     tools: kit(READ, PROBE, WEB, SCREEN, REASONING, VCS, REVERSE, SKILLS, NOTES, FORGE, MCP),
     hub: [...SERVER, "github", "security"],
@@ -792,19 +794,19 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   designer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING), hub: CODE },
   developer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP) },
   "frontend-developer": {
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, MCP),
     hub: [...CODE, "network", "process"],
   },
-  "backend-developer": { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING, REVERSE), hub: SERVER },
+  "backend-developer": { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING, REVERSE, MCP), hub: SERVER },
   "mobile-developer": {
     tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, ANDROID),
     hub: [...CODE, "mobile", "process"],
   },
   "desktop-developer": {
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, MCP),
     hub: [...CODE, "process", "system", "windows"],
   },
-  "database-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, REASONING), hub: SERVER },
+  "database-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, REASONING, MCP), hub: SERVER },
   writer: { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS), hub: ["search", "files", "text", "json", "git"] },
   devops: { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], VCS, SKILLS, NOTES, REASONING), hub: [...SERVER, "github", "windows", "mobile"] },
   debugger: {
@@ -827,7 +829,7 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
     hub: [...SERVER, "github", "security"],
   },
   "accessibility-auditor": { tools: kit(READ, PROBE, WEB, SCREEN, SKILLS, NOTES, REASONING, VCS), hub: CODE },
-  "performance-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING), hub: SERVER },
+  "performance-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, MCP), hub: SERVER },
   "dependency-auditor": { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP), hub: [...CODE, "github", "security"] },
   "compatibility-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE) },
   "data-migration-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, REASONING), hub: SERVER },
