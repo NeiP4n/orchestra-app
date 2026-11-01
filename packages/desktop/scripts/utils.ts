@@ -82,13 +82,16 @@ export async function downloadCliToResources(version = CLI_VERSION, dest = windo
   const directory = await mkdtemp(join(tmpdir(), "orchestra-cli-"))
 
   try {
-    await $`bun install --no-save --cwd ${directory} ${`${cli.package}@${version}`} ${`--os=${cli.os}`} ${`--cpu=${cli.cpu}`}`
-    await copyCliToResources(join(directory, "node_modules", cli.package), dest)
+    try {
+      await $`bun install --no-save --cwd ${directory} ${`${cli.package}@${version}`} ${`--os=${cli.os}`} ${`--cpu=${cli.cpu}`}`
+      await copyCliToResources(join(directory, "node_modules", cli.package), dest)
+      console.log(`Copied ${cli.package}@${version} to ${dest}`)
+    } catch (error) {
+      console.warn(`Failed to download CLI ${cli.package}@${version} from registry (404 / unavailable), skipping:`, error)
+    }
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
-
-  console.log(`Copied ${cli.package}@${version} to ${dest}`)
 }
 
 export async function copyBuiltCliToResources(root: string, dest = windowsify("resources/orchestra-cli")) {
