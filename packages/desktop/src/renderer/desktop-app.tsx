@@ -136,7 +136,7 @@ export function DesktopApp(props: { api: ElectronAPI; version: string }) {
     <PlatformProvider value={platform}>
       <AppBaseProviders
         locale={locale.latest}
-        defaultTheme="maestro"
+        defaultTheme="sculk"
         onNativeTranslations={(bundle) => void props.api.setNativeTranslations(bundle).catch(() => undefined)}
         onThemeApplied={(mode, scheme) => {
           void props.api.setTitlebar({ mode, scheme })
