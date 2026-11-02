@@ -1,4 +1,13 @@
-import { realpathSync } from "node:fs"
+// Namespace import, not a named import: in the browser bundle Vite
+// externalizes node:fs to a stub with no named exports, and Rolldown
+// fails the build on a missing named export ("realpathSync" is not
+// exported by "__vite-browser-external:node:fs") even though the code
+// below already guards on typeof realpathSync !== "function". Reading
+// the property off the namespace object keeps that guard working in
+// the browser (undefined -> normalized path) and real on Node.
+import * as nodeFs from "node:fs"
+
+const realpathSync = nodeFs.realpathSync
 
 export function getFilename(path: string | undefined) {
   if (!path) return ""
