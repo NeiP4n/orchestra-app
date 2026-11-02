@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { createMachine, deleteMachine, listMachines, updateMachineStatus, type MachineSpec } from "./store"
+import {
+  createMachine,
+  deleteMachine,
+  listMachines,
+  setMachineSnapshot,
+  updateMachineStatus,
+  type MachineSpec,
+} from "./store"
 
 const spec: MachineSpec = {
   name: "ai-pc",
@@ -34,6 +41,15 @@ describe("desktop machines store", () => {
     expect(() => updateMachineStatus(created.items, "missing", "stopped")).toThrow()
     expect(() => deleteMachine(created.items, "missing")).toThrow()
     expect(() => createMachine(created.items, spec, "m1", 1000)).toThrow()
+  })
+
+  test("snapshot id is stored on the machine without changing its status", () => {
+    const created = createMachine({}, spec, "m1", 1000)
+    const snapshotted = setMachineSnapshot(created.items, "m1", "snap_1")
+
+    expect(snapshotted.machine.snapshotId).toBe("snap_1")
+    expect(snapshotted.machine.status).toBe("creating")
+    expect(() => setMachineSnapshot(created.items, "missing", "snap_1")).toThrow()
   })
 
   test("bad specs fail before any record is written", () => {

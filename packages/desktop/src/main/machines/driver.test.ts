@@ -3,10 +3,12 @@ import {
   containerExecCommand,
   containerName,
   containerRemoveCommand,
+  containerSnapshotCommand,
   containerStartCommand,
   containerStatusCommand,
   containerStopCommand,
   resolveContainerRuntime,
+  snapshotImage,
 } from "./driver"
 import type { Machine } from "./store"
 
@@ -59,6 +61,16 @@ describe("container machine driver", () => {
       "-f",
       "{{.State.Running}}",
       "orchestra-machine-m1",
+    ])
+  })
+
+  test("snapshot commits the container to a machine-scoped image", () => {
+    expect(snapshotImage(machine, "snap_1")).toBe("orchestra-machine-m1:snap_1")
+    expect(containerSnapshotCommand("docker", machine, "snap_1")).toEqual([
+      "docker",
+      "commit",
+      "orchestra-machine-m1",
+      "orchestra-machine-m1:snap_1",
     ])
   })
 

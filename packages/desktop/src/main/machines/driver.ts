@@ -62,3 +62,14 @@ export function containerExecCommand(runtime: ContainerRuntime, machine: Machine
 export function containerStatusCommand(runtime: ContainerRuntime, machine: Machine): string[] {
   return [runtime, "inspect", "-f", "{{.State.Running}}", containerName(machine.id)]
 }
+
+// A container snapshot is a committed image of the machine's filesystem.
+// Restoring it is starting a container from that image, via the existing
+// start command with the snapshot image instead of the base image.
+export function snapshotImage(machine: Machine, snapshotId: string): string {
+  return `orchestra-machine-${machine.id}:${snapshotId}`
+}
+
+export function containerSnapshotCommand(runtime: ContainerRuntime, machine: Machine, snapshotId: string): string[] {
+  return [runtime, "commit", containerName(machine.id), snapshotImage(machine, snapshotId)]
+}

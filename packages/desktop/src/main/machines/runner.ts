@@ -10,6 +10,7 @@ import { execFile } from "node:child_process"
 import {
   containerExecCommand,
   containerRemoveCommand,
+  containerSnapshotCommand,
   containerStartCommand,
   containerStatusCommand,
   containerStopCommand,
@@ -81,6 +82,15 @@ export function execInContainer(
   command: readonly string[],
 ): Promise<ExecResult> {
   return run(exec, containerExecCommand(runtime, machine, command))
+}
+
+export function snapshotContainer(
+  exec: Executor,
+  runtime: ContainerRuntime,
+  machine: Machine,
+  snapshotId: string,
+): Promise<ExecResult> {
+  return run(exec, containerSnapshotCommand(runtime, machine, snapshotId))
 }
 
 export async function isContainerRunning(

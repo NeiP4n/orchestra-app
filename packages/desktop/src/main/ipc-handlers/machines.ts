@@ -4,10 +4,18 @@ import { DesktopStorage } from "../storage"
 import {
   createExecFileExecutor,
   detectContainerRuntime,
+  snapshotContainer,
   startContainer,
   stopContainer,
 } from "../machines/runner"
-import { createMachine, deleteMachine, listMachines, parseMachine, updateMachineStatus } from "../machines/store"
+import {
+  createMachine,
+  deleteMachine,
+  listMachines,
+  parseMachine,
+  setMachineSnapshot,
+  updateMachineStatus,
+} from "../machines/store"
 
 const namespace = "machines"
 
@@ -126,6 +134,40 @@ export const machineHandlers = MachineRpcs.toLayer(
           }
 
           return save("stopped")
+        }),
+      MachinesSnapshot: ({ id }) =>
+        Effect.gen(function* () {
+          const raw = storage.state.items(namespace).items[id]
+
+          if (!raw) return yield* Effect.fail(new Error(`Machine ${id} not found`))
+
+          const machine = parseMachine(raw)
+
+          if (machine.backend !== "container") {
+            return yield* Effect.fail(new Error(`Machine ${id} backend ${machine.backend} cannot snapshot yet`))
+          }
+
+          if (machine.status !== "running" && machine.status !== "stopped") {
+            return yield* Effect.fail(new Error(`Machine ${id} cannot snapshot from ${machine.status}`))
+          }
+
+          const snapshotId = `snap_${Date.now().toString(36)}`
+          const exec = createExecFileExecutor()
+
+          try {
+            const runtime = yield* Effect.tryPromise(() => detectContainerRuntime(exec))
+
+            yield* Effect.tryPromise(() => snapshotContainer(exec, runtime, machine, snapshotId))
+          } catch (error) {
+            return yield* Effect.fail(error instanceof Error ? error : new Error(String(error)))
+          }
+
+          const current = storage.state.items(namespace).items
+          const snapshotted = setMachineSnapshot(current, id, snapshotId)
+
+          storage.state.update(namespace, { [id]: JSON.stringify(snapshotted.machine) }, [])
+
+          return snapshotted.machine
         }),
     })
   }),

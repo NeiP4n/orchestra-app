@@ -62,6 +62,11 @@ export const MachinesStop = Rpc.make("MachinesStop", {
   success: MachineSchema,
 })
 
+export const MachinesSnapshot = Rpc.make("MachinesSnapshot", {
+  payload: { id: Schema.String },
+  success: MachineSchema,
+})
+
 export const MachineRpcs = RpcGroup.make(
   MachinesList,
   MachinesCreate,
@@ -69,4 +74,5 @@ export const MachineRpcs = RpcGroup.make(
   MachinesDelete,
   MachinesStart,
   MachinesStop,
+  MachinesSnapshot,
 )

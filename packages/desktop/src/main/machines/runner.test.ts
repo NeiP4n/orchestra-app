@@ -5,6 +5,7 @@ import {
   execInContainer,
   isContainerRunning,
   removeContainer,
+  snapshotContainer,
   startContainer,
   stopContainer,
   type Executor,
@@ -51,6 +52,14 @@ describe("container machine runner", () => {
     expect(await isContainerRunning(fakeExec([], "true\n"), "docker", machine)).toBe(true)
     expect(await isContainerRunning(fakeExec([], "false\n"), "docker", machine)).toBe(false)
     await expect(startContainer(fakeExec([], "", 1), "docker", machine)).rejects.toThrow("Command failed (1)")
+  })
+
+  test("snapshot forwards the commit command", async () => {
+    const seen: string[][] = []
+
+    await snapshotContainer(fakeExec(seen), "docker", machine, "snap_1")
+
+    expect(seen[0]).toEqual(["docker", "commit", "orchestra-machine-m1", "orchestra-machine-m1:snap_1"])
   })
 
   test("real execFile executor runs a plain command and reports a failing one", async () => {
