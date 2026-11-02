@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test"
-import { execInContainer, isContainerRunning, removeContainer, startContainer, stopContainer, type Executor } from "./runner"
+import {
+  createExecFileExecutor,
+  detectContainerRuntime,
+  execInContainer,
+  isContainerRunning,
+  removeContainer,
+  startContainer,
+  stopContainer,
+  type Executor,
+} from "./runner"
 import type { Machine } from "./store"
 
 const machine: Machine = {
@@ -42,5 +51,19 @@ describe("container machine runner", () => {
     expect(await isContainerRunning(fakeExec([], "true\n"), "docker", machine)).toBe(true)
     expect(await isContainerRunning(fakeExec([], "false\n"), "docker", machine)).toBe(false)
     await expect(startContainer(fakeExec([], "", 1), "docker", machine)).rejects.toThrow("Command failed (1)")
+  })
+
+  test("real execFile executor runs a plain command and reports a failing one", async () => {
+    const exec = createExecFileExecutor()
+
+    expect((await exec(["echo", "hello"])).stdout.trim()).toBe("hello")
+    expect((await exec(["false"])).exitCode).not.toBe(0)
+  })
+
+  test("runtime detection prefers docker and refuses when neither is found", async () => {
+    const dockerOnly: Executor = async (command) => ({ stdout: "", exitCode: command[1] === "docker" ? 0 : 1 })
+
+    expect(await detectContainerRuntime(dockerOnly)).toBe("docker")
+    await expect(detectContainerRuntime(fakeExec([], "", 1))).rejects.toThrow("No container runtime available")
   })
 })

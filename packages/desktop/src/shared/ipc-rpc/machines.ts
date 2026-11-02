@@ -52,4 +52,21 @@ export const MachinesDelete = Rpc.make("MachinesDelete", {
   payload: { id: Schema.String },
 })
 
-export const MachineRpcs = RpcGroup.make(MachinesList, MachinesCreate, MachinesUpdateStatus, MachinesDelete)
+export const MachinesStart = Rpc.make("MachinesStart", {
+  payload: { id: Schema.String },
+  success: MachineSchema,
+})
+
+export const MachinesStop = Rpc.make("MachinesStop", {
+  payload: { id: Schema.String },
+  success: MachineSchema,
+})
+
+export const MachineRpcs = RpcGroup.make(
+  MachinesList,
+  MachinesCreate,
+  MachinesUpdateStatus,
+  MachinesDelete,
+  MachinesStart,
+  MachinesStop,
+)
