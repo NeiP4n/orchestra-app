@@ -59,7 +59,7 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false, guide, triggers: ["context|контекст|cache|кеш|plan|план"] },
+          options: { codemode: false, guide, triggers: ["society.?plan|план общества|society plan"] },
           description: [
             "Set the Society's chats up: context threshold in tokens (e.g. 300k, 500k, 900k), prompt caching and model per project chat. Do not use percentages.",
             "status lists every chat of the Society with its model, context threshold, cache and spend; apply changes the chats you name.",

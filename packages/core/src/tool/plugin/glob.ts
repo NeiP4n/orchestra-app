@@ -82,7 +82,7 @@ export const Plugin = {
         editor.add({
           name,
           options: { codemode: false, core: true },
-          description: 'Search file paths using a glob pattern (examples: "**/*.ts", "src/**/*.tsx").',
+          description: 'Search file paths using a glob pattern (examples: "**/*.ts", "src/**/*.tsx"). TOOL CHOICE: use glob ONLY when the user gives a pattern, not a single file name. If the user already named a file, read it directly — do NOT glob for it first.',
           input: Input,
           output: Output,
           execute: (input, context) =>

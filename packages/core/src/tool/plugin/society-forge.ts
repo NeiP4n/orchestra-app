@@ -72,7 +72,7 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false, guide, triggers: ["societ|общест", "goal|цель"] },
+          options: { codemode: false, guide, triggers: ["societ|общест"] },
           description: [
             "Found a Society from a goal, or generate its projects. found works from any chat and creates the Society with its planner, which plans and builds the rest; status, list and generate work only inside a Society, from its planner project or its chat. status reads every project's DoD progress and whether it is working, at no model cost. Actions: found, status, list, generate.",
             "generate always creates the base projects (planner, architects, coders, testers) plus the additional ones you pass, each in the Society's folder with its Orchestrator and team, links them to each other and delivers every brief.",

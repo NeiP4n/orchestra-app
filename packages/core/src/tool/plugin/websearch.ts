@@ -120,7 +120,11 @@ export const Plugin = {
                           ],
                         })
                         if (response.status === "cancelled")
-                          return yield* Effect.fail(new Error("Web search cancelled"))
+                          return yield* Effect.fail(
+                            new Error(
+                              "Web search needs a provider choice, which cannot be asked in a non-interactive run. Do NOT retry websearch and do NOT invent a search tool name. Use webfetch for a known URL instead, or ask the user to pick a web search provider in interactive mode.",
+                            ),
+                          )
                         if (response.answer.choice === "disable") {
                           yield* websearch.select(false)
                           return yield* new WebSearch.DisabledError()

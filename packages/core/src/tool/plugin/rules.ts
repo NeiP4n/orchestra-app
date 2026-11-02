@@ -42,7 +42,7 @@ export const Plugin = {
         editor.add({
           name,
           // Loaded on demand: the rules block every request carries names the tool, so a model that wants it asks for it.
-          options: { codemode: false, triggers: ["rule|правил|always|never|всегда|никогда"] },
+          options: { codemode: false, triggers: ["rule|правил"] },
           description,
           input: Input,
           output: Output,

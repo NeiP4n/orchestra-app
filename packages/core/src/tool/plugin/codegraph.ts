@@ -31,6 +31,7 @@ export type Output = typeof Output.Type
 
 export const description = [
   "Navigate the project's code graph: declarations, who calls them and what a change would touch. Read-only apart from its own cache.",
+  "TOOL CHOICE: use codegraph ONLY for callers and blast radius (explore/impact). For a simple text search use grep, for a file outline use symbols overview (or read if symbols fails). Do NOT use codegraph as a first search tool, and do NOT repeat a grep result with codegraph afterwards.",
   "",
   "Actions:",
   "  search — declarations whose name matches, best match first, with kind and location.",

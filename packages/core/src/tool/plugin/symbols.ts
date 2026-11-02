@@ -65,7 +65,8 @@ export type Input = typeof Input.Type
 
 export const description = [
   "Navigate and edit code by symbols through the project's language servers (TypeScript, Python, Go, Rust, C/C++, C#, Java and more when installed).",
-  "Prefer it over reading whole files: an overview costs a fraction of a read, and symbol edits cannot miss because of whitespace.",
+  "An overview costs a fraction of a read, and symbol edits cannot miss because of whitespace — but only when a language server is actually installed for that file type.",
+  "TOOL CHOICE: if symbols fails with 'No language server', STOP: do NOT retry symbols, do NOT glob first, use read instead and say the language server is missing. Prefer symbols over read only after a symbols call has succeeded once in this session.",
   "",
   "Actions:",
   "  overview — the symbols of a file as an indented outline with line ranges: path, optional depth.",

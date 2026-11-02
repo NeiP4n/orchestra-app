@@ -224,8 +224,8 @@ const layer = Layer.effect(
         const known = BUILTIN.find((server) => server.extensions.includes(path.extname(file).toLowerCase()))
         return yield* new LspError({
           message: known
-            ? `No language server for ${path.basename(file)}: install one of ${known.commands.map((command) => command[0]).join(", ")} or configure "lsp" in orchestra.json.`
-            : `No language server handles ${path.extname(file) || path.basename(file)} files; configure one under "lsp" in orchestra.json.`,
+            ? `No language server for ${path.basename(file)}: install one of ${known.commands.map((command) => command[0]).join(", ")} or configure "lsp" in orchestra.json. Do NOT retry symbols for this file — use read instead.`
+            : `No language server handles ${path.extname(file) || path.basename(file)} files; configure one under "lsp" in orchestra.json. Do NOT retry symbols for this file — use read instead.`,
         })
       }
       const existing = running.get(found.server.id)

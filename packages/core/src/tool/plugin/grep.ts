@@ -102,7 +102,7 @@ export const Plugin = {
           name,
           options: { codemode: false, core: true },
           description:
-            "Search file contents using ripgrep's regular expression syntax or literal text matching. Use it to locate specific code, symbols, or text patterns, and narrow searches with `path` or `include`. Returns matching file paths, line numbers, and line previews.",
+            "Search file contents using ripgrep's regular expression syntax or literal text matching. Use it to locate specific code, symbols, or text patterns, and narrow searches with `path` or `include`. Returns matching file paths, line numbers, and line previews. TOOL CHOICE: use grep for a simple text or symbol search — do NOT read whole files to search them, do NOT use codegraph for a simple search, and do NOT repeat the same search with shell grep afterwards.",
           input: Input,
           output: Output,
           execute: (input, context) =>
