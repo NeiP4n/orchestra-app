@@ -21,6 +21,7 @@ export function MachinesRoute() {
   const [terminalOutput, setTerminalOutput] = createSignal("")
   const [filesPath, setFilesPath] = createSignal("/")
   const [filesOutput, setFilesOutput] = createSignal("")
+  const [tasksOutput, setTasksOutput] = createSignal("")
   const [backend, setBackend] = createSignal<MachineBackend>("firecracker")
   const [selectedId, setSelectedId] = createSignal<string | undefined>(undefined)
   const selected = createMemo(() => machines.find((machine) => machine.id === selectedId()))
@@ -173,6 +174,15 @@ export function MachinesRoute() {
     void platform.machines
       .exec(id, ["ls", "-la", path])
       .then((result) => setFilesOutput(`${result.stdout}\n${language.t("machines.exitCode")}: ${result.exitCode}`))
+      .catch(() => undefined)
+  }
+
+  const refreshTasks = (id: string) => {
+    if (!platform.machines) return
+
+    void platform.machines
+      .exec(id, ["ps", "aux"])
+      .then((result) => setTasksOutput(`${result.stdout}\n${language.t("machines.exitCode")}: ${result.exitCode}`))
       .catch(() => undefined)
   }
 
@@ -336,7 +346,22 @@ export function MachinesRoute() {
           </div>
           <div class="rounded-md border border-v2-border-border-base p-3">
             <h3 class="text-v2-text-text-base font-medium">{language.t("machines.tasks")}</h3>
-            <p class="text-v2-text-text-muted">{language.t("machines.tasksEmpty")}</p>
+            <Show
+              when={platform.machines && selected()?.status === "running"}
+              fallback={<p class="text-v2-text-text-muted">{language.t("machines.tasksEmpty")}</p>}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  const machine = selected()
+
+                  if (machine) refreshTasks(machine.id)
+                }}
+              >
+                {language.t("machines.refresh")}
+              </button>
+              <pre class="mt-2 whitespace-pre-wrap text-v2-text-text-base">{tasksOutput()}</pre>
+            </Show>
           </div>
         </section>
       </div>

@@ -507,6 +507,7 @@ export const dict = {
   "machines.run": "Run",
   "machines.path": "Path",
   "machines.list": "List",
+  "machines.refresh": "Refresh",
   "machines.exitCode": "Exit code",
   "machines.files": "Files",
   "machines.filesEmpty": "Files inside this machine will appear here once it is running.",
