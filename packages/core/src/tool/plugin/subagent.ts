@@ -236,6 +236,13 @@ export const Plugin = {
                   }),
                 ),
               )
+              // A missing job record is not a completed subagent: without
+              // this check it fell through to "completed" with a placeholder
+              // text, and the caller trusted work that never reported.
+              if (result === undefined)
+                return yield* new ToolFailure({
+                  message: `Subagent job record missing (sessionID: ${child.id}); the subagent result is unknown, not completed.`,
+                })
               if (result?.type === "backgrounded") {
                 yield* subagents.notify(recovery, result.info.started_at)
                 return backgroundResult(child.id)

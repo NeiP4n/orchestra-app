@@ -30,7 +30,14 @@ export async function importWslMachine(
 export async function verifyWslMachine(exec: WslExecutor, machine: Machine): Promise<void> {
   const result = await exec(wslExecCommand(machine, ["true"]))
 
-  if (result.exitCode !== 0) throw new Error(`WSL distribution for machine ${machine.id} is not registered or not runnable`)
+  // There is no import step in the app yet, so a missing distribution
+  // must say exactly how to create it instead of a bare "not runnable":
+  // the distribution name is derived from the machine id.
+  if (result.exitCode !== 0)
+    throw new Error(
+      `WSL distribution for machine ${machine.id} is not registered or not runnable. ` +
+        `Import it first: wsl --import orchestra-machine-${machine.id} <install-location> <tarball-path>`,
+    )
 }
 
 export function spawnWslKeepAlive(spawnFn: SpawnFunction, machine: Machine): SpawnedProcess {

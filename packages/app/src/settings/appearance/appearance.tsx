@@ -125,6 +125,15 @@ export const SettingsAppearance: Component = () => {
               />
             </SettingsRow>
 
+            <SettingsRow
+              title={language.t("settings.general.row.theme.reset.title")}
+              description={language.t("settings.general.row.theme.reset.description")}
+            >
+              <button type="button" data-action="settings-theme-reset" onClick={appearance.theme.reset}>
+                {language.t("settings.general.row.theme.reset.label")}
+              </button>
+            </SettingsRow>
+
             <FontSetting kind="ui" fonts={appearance.fonts} />
             <FontSetting kind="code" fonts={appearance.fonts} />
             <FontSetting kind="terminal" fonts={appearance.fonts} />

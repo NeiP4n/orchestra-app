@@ -34,19 +34,26 @@ export type Executor = (command: readonly string[]) => Promise<ExecResult>
 // execFile (non-zero exit) is normalised to an ExecResult, so callers see
 // exit codes instead of exceptions and decide the machine status. Stderr
 // is captured too: without it, "image not found", "daemon not running"
-// and "name conflict" all looked identical in error messages.
+// and "name conflict" all looked identical in error messages. A timeout and
+// a max buffer bound the wait: without them, a hung docker daemon or a
+// runaway command output hangs the IPC call forever or exhausts memory.
 export function createExecFileExecutor(): Executor {
   return (command) =>
     new Promise<ExecResult>((resolve) => {
-      execFile(command[0], command.slice(1), (error, stdout, stderr) => {
-        const code = error?.code !== undefined ? Number(error.code) : error ? 1 : 0
+      execFile(
+        command[0],
+        command.slice(1),
+        { timeout: 120_000, maxBuffer: 10 * 1024 * 1024 },
+        (error, stdout, stderr) => {
+          const code = error?.code !== undefined ? Number(error.code) : error ? 1 : 0
 
-        resolve({
-          stdout: stdout.toString(),
-          stderr: stderr.toString(),
-          exitCode: Number.isNaN(code) ? 1 : code,
-        })
-      })
+          resolve({
+            stdout: stdout.toString(),
+            stderr: stderr.toString(),
+            exitCode: Number.isNaN(code) ? 1 : code,
+          })
+        },
+      )
     })
 }
 

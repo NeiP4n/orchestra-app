@@ -287,7 +287,11 @@ export const Plugin = {
     // The team as the orchestrator may see it, grouped by category in first-seen order.
     // A session's role is named by its role id, the one action create takes, not its agent id.
     const team = Effect.fnUntraced(function* (project: Orchestra.Project) {
-      const members = yield* orchestra.sessions(project.id).pipe(Effect.orDie)
+      // A failed session list is a tool failure the model can react to,
+      // not a defect that kills the step: orDie hid the cause entirely.
+      const members = yield* orchestra.sessions(project.id).pipe(
+        Effect.mapError((error) => new ToolFailure({ message: "Could not list team sessions", error })),
+      )
       const access = yield* orchestra.accessMany(members.map((session) => session.id))
       const categories = yield* orchestra.categories(members.map((session) => session.id))
       const roles = yield* orchestra.roles()
@@ -337,7 +341,14 @@ export const Plugin = {
             ...(row.outcome ? [`last report ${row.outcome}`] : []),
             ...(row.sent === undefined
               ? []
-              : [`task outstanding (sent ${Math.round((now - row.sent) / 60_000)} min ago)`]),
+              : [
+                  `task outstanding (sent ${Math.round((now - row.sent) / 60_000)} min ago${
+                    // A task unanswered for over an hour is stale, not just
+                    // outstanding: the orchestrator should nudge, reassign
+                    // or cancel it instead of assuming it is still in flight.
+                    now - row.sent > 60 * 60_000 ? ", stale" : ""
+                  })`,
+                ]),
           ].join(" · "),
       )
     })
@@ -410,7 +421,9 @@ export const Plugin = {
                 const metadata = { ...(session.metadata ?? {}) }
                 if (mode.id === "auto") delete metadata[Mode.MetadataKey]
                 else metadata[Mode.MetadataKey] = mode.id
-                yield* sessions.setMetadata({ sessionID, metadata }).pipe(Effect.orDie)
+                yield* sessions.setMetadata({ sessionID, metadata }).pipe(
+                  Effect.mapError((error) => new ToolFailure({ message: `Could not set mode for ${sessionID}`, error })),
+                )
               })
               // New workers start in their role's default mode; an existing worker keeps the
               // mode the operator or the Orchestrator already chose unless one is passed now.
@@ -455,9 +468,14 @@ export const Plugin = {
                 sessionID: SessionSchema.ID,
                 choice: { model?: Model.Ref; permissions?: Permission.Ruleset },
               ) {
-                if (choice.model) yield* sessions.switchModel({ sessionID, model: choice.model }).pipe(Effect.orDie)
+                if (choice.model)
+                  yield* sessions.switchModel({ sessionID, model: choice.model }).pipe(
+                    Effect.mapError((error) => new ToolFailure({ message: `Could not switch model for ${sessionID}`, error })),
+                  )
                 if (choice.permissions)
-                  yield* sessions.setPermissions({ sessionID, permissions: choice.permissions }).pipe(Effect.orDie)
+                  yield* sessions.setPermissions({ sessionID, permissions: choice.permissions }).pipe(
+                    Effect.mapError((error) => new ToolFailure({ message: `Could not set permissions for ${sessionID}`, error })),
+                  )
               })
               const busy = (sessionID: SessionSchema.ID) =>
                 Effect.gen(function* () {
@@ -571,7 +589,11 @@ export const Plugin = {
                       Effect.mapError((error) => new ToolFailure({ message: `Could not create a session: ${error.message}`, error })),
                     )
                   if (choice.permissions)
-                    yield* sessions.setPermissions({ sessionID: created.id, permissions: choice.permissions }).pipe(Effect.orDie)
+                    yield* sessions.setPermissions({ sessionID: created.id, permissions: choice.permissions }).pipe(
+                      Effect.mapError((error) =>
+                        new ToolFailure({ message: `Could not set permissions for ${created.id}`, error }),
+                      ),
+                    )
                   yield* applyMode(created, role, mode)
                   if (input.text?.trim()) yield* dispatch(created.id, input.text)
                   return {

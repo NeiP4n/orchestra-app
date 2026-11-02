@@ -425,6 +425,10 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       loadThemes,
       themes: () => store.themes,
       setTheme,
+      // A stored theme wins over the platform default forever, so without
+      // this there was no way back once a non-default theme was picked
+      // (the Maestro default survived the sculk revert that way).
+      resetTheme: () => setTheme(props.defaultTheme ?? "oc-2"),
       setColorScheme,
       registerTheme: (theme: DesktopTheme) => setStore("themes", theme.id, theme),
       previewTheme: (id: string) => {

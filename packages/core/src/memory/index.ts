@@ -26,7 +26,7 @@ import { FSUtil } from "@orchestra/util/fs-util"
 import { Flock } from "@orchestra/util/flock"
 import { Global } from "@orchestra/util/global"
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
-import { and, desc, eq, inArray, like, ne, or } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, like, ne, or } from "drizzle-orm"
 import { Context, Effect, Layer, Option, Schema } from "effect"
 import path from "path"
 import { Database } from "../database/database.js"
@@ -414,10 +414,12 @@ const layer = Layer.effect(
       // SQLite LIKE folds case for ASCII only, so a capitalised Cyrillic word needs its own pattern.
       const patterns = [...new Set(words.flatMap((word) => [word, word[0].toUpperCase() + word.slice(1)]))]
       // Only the most recently active chats are scanned, so a search stays cheap on a large history.
+      // Archived chats are excluded: an archived session is deliberately put
+      // away, and its text should not resurface as live project context.
       const recent = db
         .select({ id: SessionTable.id })
         .from(SessionTable)
-        .where(eq(SessionTable.project_id, location.project.id))
+        .where(and(eq(SessionTable.project_id, location.project.id), isNull(SessionTable.time_archived)))
         .orderBy(desc(SessionTable.time_updated))
         .limit(RECALL_SESSIONS)
       const rows = yield* db

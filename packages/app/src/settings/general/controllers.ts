@@ -89,6 +89,7 @@ export function createAppearanceSettingsController() {
       options: themes,
       current: createMemo(() => themes().find((option) => option.id === theme.themeId())),
       select: (option: { id: string } | null) => option && theme.setTheme(option.id),
+      reset: () => theme.resetTheme(),
     },
     fonts: {
       ui: createMemo(() => ({

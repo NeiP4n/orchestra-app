@@ -30,6 +30,9 @@ describe("wsl runner", () => {
     await expect(verifyWslMachine(async () => ({ stdout: "", exitCode: 1 }), machine)).rejects.toThrow(
       "not registered",
     )
+    await expect(verifyWslMachine(async () => ({ stdout: "", exitCode: 1 }), machine)).rejects.toThrow(
+      "wsl --import orchestra-machine-m1",
+    )
   })
 
   test("keep-alive spawns sleep infinity inside the distribution", () => {
