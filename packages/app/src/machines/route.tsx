@@ -273,6 +273,27 @@ export function MachinesRoute() {
           </div>
         </section>
       </div>
+      <footer class="flex flex-wrap items-center gap-3 border-t border-v2-border-border-base pt-2 text-v2-text-text-muted">
+        <Show
+          when={selected()}
+          fallback={<span>{language.t("machines.noSelection")}</span>}
+        >
+          {(machine) => (
+            <>
+              <span class="text-v2-text-text-base font-medium">{machine().name}</span>
+              <span>{statusLabel(machine().status)}</span>
+              <span>{machine().backend}</span>
+              <span>
+                {machine().cpu} CPU · {machine().memoryMb} MB · {machine().diskGb} GB
+              </span>
+              <span>{isFullVm(machine().backend) ? language.t("machines.fullVmNote") : language.t("machines.containerNote")}</span>
+            </>
+          )}
+        </Show>
+        <span class="ml-auto">
+          {machines.length} {language.t("machines.title")}
+        </span>
+      </footer>
     </div>
   )
 }

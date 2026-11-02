@@ -497,6 +497,7 @@ export const dict = {
   "machines.snapshot": "Snapshot",
   "machines.delete": "Delete",
   "machines.containerNote": "Container (not a full PC)",
+  "machines.fullVmNote": "Full VM",
   "machines.noSelection": "Select a machine to work with it.",
   "machines.agent": "Agent",
   "machines.agentEmpty": "The agent for this machine will appear here once it is connected.",
