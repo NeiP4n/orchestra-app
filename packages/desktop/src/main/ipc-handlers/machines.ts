@@ -8,6 +8,8 @@ import {
   startContainer,
   stopContainer,
 } from "../machines/runner"
+import { spawnAppleVzMachine } from "../machines/apple-vz-runner"
+import { createNodeSpawn, type SpawnedProcess } from "../machines/firecracker-spawn"
 import {
   createMachine,
   deleteMachine,
@@ -18,6 +20,8 @@ import {
 } from "../machines/store"
 
 const namespace = "machines"
+
+const appleVzProcesses = new Map<string, SpawnedProcess>()
 
 export const machineHandlers = MachineRpcs.toLayer(
   Effect.gen(function* () {
@@ -70,6 +74,38 @@ export const machineHandlers = MachineRpcs.toLayer(
 
           const machine = parseMachine(raw)
 
+          if (machine.backend === "apple-vz") {
+            if (machine.status !== "stopped" && machine.status !== "error") {
+              return yield* Effect.fail(new Error(`Machine ${id} cannot start from ${machine.status}`))
+            }
+
+            save("starting")
+
+            const kernelPath = process.env.ORCHESTRA_VZ_KERNEL ?? ""
+            const diskPath = process.env.ORCHESTRA_VZ_DISK ?? ""
+
+            if (!kernelPath || !diskPath) {
+              save("error")
+
+              return yield* Effect.fail(
+                new Error("Apple Vz machine needs ORCHESTRA_VZ_KERNEL and ORCHESTRA_VZ_DISK paths"),
+              )
+            }
+
+            try {
+              appleVzProcesses.set(
+                id,
+                spawnAppleVzMachine(createNodeSpawn(), machine, { kernelPath, diskPath }),
+              )
+            } catch (error) {
+              save("error")
+
+              return yield* Effect.fail(error instanceof Error ? error : new Error(String(error)))
+            }
+
+            return save("running")
+          }
+
           if (machine.backend !== "container") {
             return yield* Effect.fail(new Error(`Machine ${id} backend ${machine.backend} cannot start yet`))
           }
@@ -110,6 +146,29 @@ export const machineHandlers = MachineRpcs.toLayer(
           if (!raw) return yield* Effect.fail(new Error(`Machine ${id} not found`))
 
           const machine = parseMachine(raw)
+
+          if (machine.backend === "apple-vz") {
+            if (machine.status !== "running" && machine.status !== "starting") {
+              return yield* Effect.fail(new Error(`Machine ${id} cannot stop from ${machine.status}`))
+            }
+
+            save("stopping")
+
+            const process = appleVzProcesses.get(id)
+
+            if (!process) {
+              save("error")
+
+              return yield* Effect.fail(
+                new Error(`Machine ${id} has no tracked Apple Vz helper process to kill`),
+              )
+            }
+
+            process.kill()
+            appleVzProcesses.delete(id)
+
+            return save("stopped")
+          }
 
           if (machine.backend !== "container") {
             return yield* Effect.fail(new Error(`Machine ${id} backend ${machine.backend} cannot stop yet`))
