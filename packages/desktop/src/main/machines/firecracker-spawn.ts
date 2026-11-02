@@ -28,11 +28,7 @@ export function createNodeSpawn(): SpawnFunction {
   }
 }
 
-export function spawnFirecrackerProcess(
-  spawnFn: SpawnFunction,
-  binary: string,
-  machine: Machine,
-): { child: SpawnedProcess; socketPath: string } {
+export function spawnFirecrackerProcess(spawnFn: SpawnFunction, binary: string, machine: Machine) {
   if (!binary.trim()) throw new Error("Firecracker binary path is required")
 
   const args = firecrackerProcessCommand(binary, machine)
