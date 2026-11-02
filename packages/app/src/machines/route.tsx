@@ -91,26 +91,61 @@ export function MachinesRoute() {
     setName("")
   }
 
-  const start = (id: string) => {
-    const next = startMachine(machines, id)
-    const updated = next.find((machine) => machine.id === id)
-
-    setMachines(next)
+  const applyUpdated = (updated: Machine) => {
+    setMachines((list) => list.map((machine) => (machine.id === updated.id ? updated : machine)))
 
     const storage = machineStorage()
 
-    if (storage && updated) void saveMachine(storage, updated).catch(() => undefined)
+    if (storage) void saveMachine(storage, updated).catch(() => undefined)
+  }
+
+  const start = (id: string) => {
+    if (!platform.machines) {
+      const next = startMachine(machines, id)
+      const updated = next.find((machine) => machine.id === id)
+
+      setMachines(next)
+
+      const storage = machineStorage()
+
+      if (storage && updated) void saveMachine(storage, updated).catch(() => undefined)
+
+      return
+    }
+
+    void platform.machines
+      .start(id)
+      .then(applyUpdated)
+      .catch(() => undefined)
   }
 
   const stop = (id: string) => {
-    const next = stopMachine(machines, id)
-    const updated = next.find((machine) => machine.id === id)
+    if (!platform.machines) {
+      const next = stopMachine(machines, id)
+      const updated = next.find((machine) => machine.id === id)
 
-    setMachines(next)
+      setMachines(next)
 
-    const storage = machineStorage()
+      const storage = machineStorage()
 
-    if (storage && updated) void saveMachine(storage, updated).catch(() => undefined)
+      if (storage && updated) void saveMachine(storage, updated).catch(() => undefined)
+
+      return
+    }
+
+    void platform.machines
+      .stop(id)
+      .then(applyUpdated)
+      .catch(() => undefined)
+  }
+
+  const snapshot = (id: string) => {
+    if (!platform.machines) return
+
+    void platform.machines
+      .snapshot(id)
+      .then(applyUpdated)
+      .catch(() => undefined)
   }
 
   const remove = (id: string) => {
@@ -204,6 +239,11 @@ export function MachinesRoute() {
                   <Show when={machine.status === "running" || machine.status === "starting"}>
                     <button type="button" onClick={() => stop(machine.id)}>
                       {language.t("machines.stop")}
+                    </button>
+                  </Show>
+                  <Show when={platform.machines}>
+                    <button type="button" onClick={() => snapshot(machine.id)}>
+                      {language.t("machines.snapshot")}
                     </button>
                   </Show>
                   <button type="button" onClick={() => remove(machine.id)}>

@@ -2,6 +2,7 @@ import { createSimpleContext } from "@orchestra/ui/context"
 import type { AsyncStorage, SyncStorage } from "@solid-primitives/storage"
 import type { Accessor } from "solid-js"
 import type { DesktopMenuAction } from "@/shell/commands/desktop-menu"
+import type { Machine } from "@/machines/machine"
 import type { DraftStore } from "@/runtime/persistence/drafts"
 import type { Bridge } from "@orchestra/gui-extensions/sdk/bridge"
 
@@ -115,6 +116,13 @@ type PlatformBase = {
 
   /** GUI extension bridge to the main-process extension host (desktop only). */
   extensions?: Bridge
+
+  /** Autonomous AI machines, backed by desktop main-process IPC (desktop only). */
+  machines?: {
+    start(id: string): Promise<Machine>
+    stop(id: string): Promise<Machine>
+    snapshot(id: string): Promise<Machine>
+  }
 }
 
 export type Platform = PlatformBase &

@@ -44,6 +44,59 @@ export function createDesktopPlatform(api: ElectronAPI, windowState: DesktopWind
       return () => window.removeEventListener(DragCancelEvent, callback)
     },
     runDesktopMenuAction: createDesktopMenuAction(api),
+    machines: {
+      start: async (id) => {
+        const machine = await api.machinesStart(id)
+
+        return {
+          id: machine.id,
+          name: machine.name,
+          backend: machine.backend,
+          cpu: machine.cpu,
+          memoryMb: machine.memoryMb,
+          diskGb: machine.diskGb,
+          network: machine.network,
+          status: machine.status,
+          snapshotId: machine.snapshotId,
+          projectId: machine.projectId,
+          createdAt: machine.createdAt,
+        }
+      },
+      stop: async (id) => {
+        const machine = await api.machinesStop(id)
+
+        return {
+          id: machine.id,
+          name: machine.name,
+          backend: machine.backend,
+          cpu: machine.cpu,
+          memoryMb: machine.memoryMb,
+          diskGb: machine.diskGb,
+          network: machine.network,
+          status: machine.status,
+          snapshotId: machine.snapshotId,
+          projectId: machine.projectId,
+          createdAt: machine.createdAt,
+        }
+      },
+      snapshot: async (id) => {
+        const machine = await api.machinesSnapshot(id)
+
+        return {
+          id: machine.id,
+          name: machine.name,
+          backend: machine.backend,
+          cpu: machine.cpu,
+          memoryMb: machine.memoryMb,
+          diskGb: machine.diskGb,
+          network: machine.network,
+          status: machine.status,
+          snapshotId: machine.snapshotId,
+          projectId: machine.projectId,
+          createdAt: machine.createdAt,
+        }
+      },
+    },
     checkAppExists: async (appName) => {
       return api.checkAppExists(appName)
     },
