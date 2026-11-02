@@ -68,8 +68,10 @@ export default function Layout(props: ParentProps) {
             </aside>
           </Show>
           {/* Size containment collapses percentage-height descendants in WebKit. */}
+          {/* Maestro stage: the working area is a rounded card floating on
+              the deep stage background, not a flat full-bleed sheet. */}
           <main
-            class="flex-1 min-h-0 min-w-0 overflow-x-hidden flex flex-col items-start contain-content"
+            class="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col items-start contain-content rounded-[18px] bg-v2-background-bg-base ring-1 ring-v2-border-border-base"
             style={{
               "padding-top": bottomTitlebar() ? "env(safe-area-inset-top, 0px)" : "0px",
               "padding-bottom":

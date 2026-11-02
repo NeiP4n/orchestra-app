@@ -39,13 +39,13 @@ describe("theme preload", () => {
     },
   )
 
-  test("defaults to sculk on desktop (window.electron present) with no stored theme", () => {
+  test("defaults to maestro on desktop (window.electron present) with no stored theme", () => {
     Object.defineProperty(window, "electron", { value: {}, configurable: true })
 
     try {
       run()
 
-      expect(document.documentElement.dataset.theme).toBe("sculk")
+      expect(document.documentElement.dataset.theme).toBe("maestro")
     } finally {
       // @ts-expect-error removing the test-only desktop marker
       delete window.electron

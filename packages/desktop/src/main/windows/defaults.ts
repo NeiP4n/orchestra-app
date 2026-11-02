@@ -1,14 +1,14 @@
 import { resolveThemeVariant } from "@orchestra/ui/theme/resolve"
 import type { DesktopTheme } from "@orchestra/ui/theme/types"
 import { nativeTheme } from "electron"
-import sculkThemeJson from "../../../../ui/src/theme/themes/sculk.json"
+import maestroThemeJson from "../../../../ui/src/theme/themes/maestro.json"
 import { BACKGROUND_COLOR_KEY } from "../storage/keys"
 import { getStore } from "../storage/store"
 
 // Frame defaults shared by the early window (created on ready, before the renderer exists) and the
 // full window setup in appearance.ts, so both draw the same frame.
 
-const sculkTheme = sculkThemeJson as DesktopTheme
+const maestroTheme = maestroThemeJson as DesktopTheme
 
 // Match the renderer's 36px titlebar plus its former 8px content inset.
 export const titlebarHeight = 44
@@ -26,7 +26,7 @@ export function storedBackgroundColor() {
   if (typeof stored === "string") return stored
   const dark = tone() === "dark"
 
-  return resolveThemeVariant(dark ? sculkTheme.dark : sculkTheme.light, dark)["background-base"]
+  return resolveThemeVariant(dark ? maestroTheme.dark : maestroTheme.light, dark)["background-base"]
 }
 
 export function titlebarOverlay(mode: "light" | "dark" = tone(), zoom = 1) {

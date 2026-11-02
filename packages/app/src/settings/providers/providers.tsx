@@ -3,7 +3,7 @@ import { Badge } from "@orchestra/ui/badge"
 import { useDialog } from "@orchestra/ui/context/dialog"
 import { Icon } from "@orchestra/ui/icon"
 import { Menu } from "@orchestra/ui/menu"
-import { OpenCodeLogo } from "@/providers/opencode-logo"
+import { OrchestraLogo } from "@/providers/opencode-logo"
 import { showToast } from "@/shell/notifications/toast"
 import { popularProviders, useProviders } from "@/providers/catalog/providers"
 import { consoleProviderGroup } from "@/providers/catalog/console"
@@ -465,7 +465,7 @@ export const SettingsProviders: Component<{
                         <div class="settings-provider-console group">
                           <div class="settings-provider-console-header">
                             <div class="settings-provider-lead">
-                              <OpenCodeLogo class="settings-provider-icon size-4 shrink-0" />
+                              <OrchestraLogo class="settings-provider-icon size-4 shrink-0" />
                               <div class="settings-provider-console-summary">
                                 <div class="settings-provider-main">
                                   <span class="settings-provider-name truncate">
