@@ -4,6 +4,7 @@ import { DesktopStorage } from "../storage"
 import {
   createExecFileExecutor,
   detectContainerRuntime,
+  execInContainer,
   snapshotContainer,
   startContainer,
   stopContainer,
@@ -227,6 +228,31 @@ export const machineHandlers = MachineRpcs.toLayer(
           storage.state.update(namespace, { [id]: JSON.stringify(snapshotted.machine) }, [])
 
           return snapshotted.machine
+        }),
+      MachinesExec: ({ id, command }) =>
+        Effect.gen(function* () {
+          const raw = storage.state.items(namespace).items[id]
+
+          if (!raw) return yield* Effect.fail(new Error(`Machine ${id} not found`))
+
+          const machine = parseMachine(raw)
+
+          if (machine.backend !== "container") {
+            return yield* Effect.fail(new Error(`Machine ${id} backend ${machine.backend} cannot exec yet`))
+          }
+
+          if (machine.status !== "running") {
+            return yield* Effect.fail(new Error(`Machine ${id} cannot exec from ${machine.status}`))
+          }
+
+          if (command.length === 0) {
+            return yield* Effect.fail(new Error("Exec command is empty"))
+          }
+
+          const exec = createExecFileExecutor()
+          const runtime = yield* Effect.tryPromise(() => detectContainerRuntime(exec))
+
+          return yield* Effect.tryPromise(() => execInContainer(exec, runtime, machine, command))
         }),
     })
   }),

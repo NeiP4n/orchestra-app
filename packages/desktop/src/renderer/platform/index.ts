@@ -45,6 +45,7 @@ export function createDesktopPlatform(api: ElectronAPI, windowState: DesktopWind
     },
     runDesktopMenuAction: createDesktopMenuAction(api),
     machines: {
+      exec: (id, command) => api.machinesExec(id, command),
       start: async (id) => {
         const machine = await api.machinesStart(id)
 

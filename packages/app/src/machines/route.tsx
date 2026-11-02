@@ -17,6 +17,8 @@ export function MachinesRoute() {
   const platform = usePlatform()
   const [machines, setMachines] = createStore<Machine[]>([])
   const [name, setName] = createSignal("")
+  const [terminalCommand, setTerminalCommand] = createSignal("")
+  const [terminalOutput, setTerminalOutput] = createSignal("")
   const [backend, setBackend] = createSignal<MachineBackend>("firecracker")
   const [selectedId, setSelectedId] = createSignal<string | undefined>(undefined)
   const selected = createMemo(() => machines.find((machine) => machine.id === selectedId()))
@@ -148,6 +150,19 @@ export function MachinesRoute() {
       .catch(() => undefined)
   }
 
+  const runTerminal = (id: string) => {
+    if (!platform.machines) return
+
+    const command = terminalCommand().trim().split(/\s+/).filter(Boolean)
+
+    if (command.length === 0) return
+
+    void platform.machines
+      .exec(id, command)
+      .then((result) => setTerminalOutput(`${result.stdout}\n${language.t("machines.exitCode")}: ${result.exitCode}`))
+      .catch(() => undefined)
+  }
+
   const remove = (id: string) => {
     setMachines((list) => removeMachine(list, id))
 
@@ -256,7 +271,23 @@ export function MachinesRoute() {
                 </div>
                 <div class="min-h-0 flex-1 rounded-md border border-v2-border-border-base p-3">
                   <h3 class="text-v2-text-text-base font-medium">{language.t("machines.terminal")}</h3>
-                  <p class="text-v2-text-text-muted">{language.t("machines.terminalEmpty")}</p>
+                  <Show
+                    when={platform.machines && machine().status === "running"}
+                    fallback={<p class="text-v2-text-text-muted">{language.t("machines.terminalEmpty")}</p>}
+                  >
+                    <div class="flex flex-wrap items-center gap-2">
+                      <input
+                        aria-label={language.t("machines.command")}
+                        placeholder={language.t("machines.command")}
+                        value={terminalCommand()}
+                        onInput={(event) => setTerminalCommand(event.currentTarget.value)}
+                      />
+                      <button type="button" onClick={() => runTerminal(machine().id)}>
+                        {language.t("machines.run")}
+                      </button>
+                    </div>
+                    <pre class="mt-2 whitespace-pre-wrap text-v2-text-text-base">{terminalOutput()}</pre>
+                  </Show>
                 </div>
               </>
             )}
