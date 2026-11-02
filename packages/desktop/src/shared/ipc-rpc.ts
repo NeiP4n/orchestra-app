@@ -3,6 +3,7 @@ import { AppRpcs } from "./ipc-rpc/app"
 import { EventRpcs } from "./ipc-rpc/events"
 import { ExtensionRpcs } from "./ipc-rpc/extensions"
 import { FileRpcs } from "./ipc-rpc/files"
+import { MachineRpcs } from "./ipc-rpc/machines"
 import { MenuRpcs } from "./ipc-rpc/menu"
 import { ShortcutRpcs } from "./ipc-rpc/shortcuts"
 import { StorageRpcs } from "./ipc-rpc/storage"
@@ -16,6 +17,8 @@ export { EventRpcs } from "./ipc-rpc/events"
 export { ExtensionRpcs } from "./ipc-rpc/extensions"
 
 export { FileRpcs } from "./ipc-rpc/files"
+
+export { MachineRpcs } from "./ipc-rpc/machines"
 
 export { MenuRpcs } from "./ipc-rpc/menu"
 
@@ -44,6 +47,7 @@ export const DesktopRpcs = AppRpcs.merge(
   ExtensionRpcs,
   TrayRpcs,
   ShortcutRpcs,
+  MachineRpcs,
 )
 
 export type DesktopRpcClient = RpcClient.FromGroup<typeof DesktopRpcs, RpcClientError.RpcClientError>
