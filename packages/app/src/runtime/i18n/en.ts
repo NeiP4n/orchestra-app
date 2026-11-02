@@ -494,6 +494,7 @@ export const dict = {
   "machines.backend": "Backend",
   "machines.start": "Start",
   "machines.stop": "Stop",
+  "machines.reset": "Reset",
   "machines.snapshot": "Snapshot",
   "machines.delete": "Delete",
   "machines.containerNote": "Container (not a full PC)",

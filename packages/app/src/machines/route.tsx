@@ -153,6 +153,30 @@ export function MachinesRoute() {
       .catch(() => undefined)
   }
 
+  const reset = async (id: string) => {
+    if (!platform.machines) {
+      const stopped = stopMachine(machines, id)
+      const restarted = startMachine(stopped, id)
+      const updated = restarted.find((machine) => machine.id === id)
+
+      setMachines(restarted)
+
+      const storage = machineStorage()
+
+      if (storage && updated) await saveMachine(storage, updated).catch(() => undefined)
+
+      return
+    }
+
+    try {
+      applyUpdated(await platform.machines.stop(id))
+      applyUpdated(await platform.machines.start(id))
+    } catch {
+      // A failed reset leaves the machine in its last known state;
+      // the user can retry Start or Stop from the same header.
+    }
+  }
+
   const runTerminal = (id: string) => {
     if (!platform.machines) return
 
@@ -277,6 +301,11 @@ export function MachinesRoute() {
                   <Show when={machine.status === "running" || machine.status === "starting"}>
                     <button type="button" onClick={() => stop(machine.id)}>
                       {language.t("machines.stop")}
+                    </button>
+                  </Show>
+                  <Show when={machine.status === "running"}>
+                    <button type="button" onClick={() => void reset(machine.id)}>
+                      {language.t("machines.reset")}
                     </button>
                   </Show>
                   <Show when={platform.machines}>
