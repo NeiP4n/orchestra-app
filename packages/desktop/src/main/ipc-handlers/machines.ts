@@ -12,6 +12,7 @@ import {
 } from "../machines/runner"
 import { spawnAppleVzMachine } from "../machines/apple-vz-runner"
 import { createNodeSpawn, type SpawnedProcess } from "../machines/firecracker-spawn"
+import { spawnWslKeepAlive, terminateWslMachine, verifyWslMachine } from "../machines/wsl-runner"
 import {
   createMachine,
   deleteMachine,
@@ -24,6 +25,8 @@ import {
 const namespace = "machines"
 
 const appleVzProcesses = new Map<string, SpawnedProcess>()
+
+const wslProcesses = new Map<string, SpawnedProcess>()
 
 export const machineHandlers = MachineRpcs.toLayer(
   Effect.gen(function* () {
@@ -75,6 +78,27 @@ export const machineHandlers = MachineRpcs.toLayer(
           if (!raw) return yield* Effect.fail(new Error(`Machine ${id} not found`))
 
           const machine = parseMachine(raw)
+
+          if (machine.backend === "wsl") {
+            if (machine.status !== "stopped" && machine.status !== "error") {
+              return yield* Effect.fail(new Error(`Machine ${id} cannot start from ${machine.status}`))
+            }
+
+            save("starting")
+
+            const exec = createExecFileExecutor()
+
+            try {
+              yield* Effect.tryPromise(() => verifyWslMachine(exec, machine))
+              wslProcesses.set(id, spawnWslKeepAlive(createNodeSpawn(), machine))
+            } catch (error) {
+              save("error")
+
+              return yield* Effect.fail(error instanceof Error ? error : new Error(String(error)))
+            }
+
+            return save("running")
+          }
 
           if (machine.backend === "apple-vz") {
             if (machine.status !== "stopped" && machine.status !== "error") {
@@ -148,6 +172,29 @@ export const machineHandlers = MachineRpcs.toLayer(
           if (!raw) return yield* Effect.fail(new Error(`Machine ${id} not found`))
 
           const machine = parseMachine(raw)
+
+          if (machine.backend === "wsl") {
+            if (machine.status !== "running" && machine.status !== "starting") {
+              return yield* Effect.fail(new Error(`Machine ${id} cannot stop from ${machine.status}`))
+            }
+
+            save("stopping")
+
+            const exec = createExecFileExecutor()
+
+            try {
+              yield* Effect.tryPromise(() => terminateWslMachine(exec, machine))
+            } catch (error) {
+              save("error")
+
+              return yield* Effect.fail(error instanceof Error ? error : new Error(String(error)))
+            }
+
+            wslProcesses.get(id)?.kill()
+            wslProcesses.delete(id)
+
+            return save("stopped")
+          }
 
           if (machine.backend === "apple-vz") {
             if (machine.status !== "running" && machine.status !== "starting") {
