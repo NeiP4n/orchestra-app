@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { spawnFirecrackerProcess, type SpawnFunction } from "./firecracker-spawn"
+import { createNodeSpawn, spawnFirecrackerProcess, type SpawnFunction } from "./firecracker-spawn"
 import type { Machine } from "./store"
 
 const machine: Machine = {
@@ -37,5 +37,14 @@ describe("firecracker process spawn", () => {
     }
 
     expect(() => spawnFirecrackerProcess(fakeSpawn, " ", machine)).toThrow("Firecracker binary path is required")
+  })
+
+  test("a missing binary records an error instead of throwing in the main process", async () => {
+    const spawned = createNodeSpawn()("definitely-not-a-real-binary-xyz", [])
+
+    // The spawn error event fires asynchronously; give it a turn to arrive.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(spawned.error).toBeInstanceOf(Error)
   })
 })

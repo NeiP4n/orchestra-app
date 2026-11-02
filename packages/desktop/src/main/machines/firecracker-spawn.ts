@@ -16,6 +16,11 @@ import type { Machine } from "./store"
 export interface SpawnedProcess {
   pid: number | undefined
   kill: () => void
+  // Set when the spawn itself fails (e.g. a missing helper binary). Without
+  // an "error" listener, that failure is an async event with no listener
+  // and throws in the main process; recording it lets the caller fail the
+  // start cleanly instead of crashing.
+  error?: Error
 }
 
 export type SpawnFunction = (command: string, args: readonly string[]) => SpawnedProcess
@@ -23,8 +28,13 @@ export type SpawnFunction = (command: string, args: readonly string[]) => Spawne
 export function createNodeSpawn(): SpawnFunction {
   return (command, args) => {
     const child = nodeSpawn(command, [...args], { stdio: "ignore", detached: false, windowsHide: true })
+    const spawned: SpawnedProcess = { pid: child.pid, kill: () => void child.kill() }
 
-    return { pid: child.pid, kill: () => void child.kill() }
+    child.on("error", (error) => {
+      spawned.error = error
+    })
+
+    return spawned
   }
 }
 

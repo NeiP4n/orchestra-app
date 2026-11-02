@@ -75,4 +75,34 @@ describe("container machine runner", () => {
     expect(await detectContainerRuntime(dockerOnly)).toBe("docker")
     await expect(detectContainerRuntime(fakeExec([], "", 1))).rejects.toThrow("No container runtime available")
   })
+
+  test("runtime detection uses where on Windows, where which does not exist", async () => {
+    const seen: string[][] = []
+
+    const exec: Executor = async (command) => {
+      seen.push([...command])
+
+      return { stdout: "", exitCode: command[1] === "docker" ? 0 : 1 }
+    }
+
+    expect(await detectContainerRuntime(exec, "win32")).toBe("docker")
+    expect(seen[0][0]).toBe("where")
+    expect(await detectContainerRuntime(exec, "linux")).toBe("docker")
+    expect(seen[2][0]).toBe("which")
+  })
+
+  test("start accepts a snapshot image instead of the base image", async () => {
+    const seen: string[][] = []
+
+    await startContainer(fakeExec(seen), "docker", machine, "orchestra-machine-m1:snap_1")
+
+    expect(seen[0]).toContain("orchestra-machine-m1:snap_1")
+    expect(seen[0]).not.toContain("orchestra-machine:local")
+  })
+
+  test("a failing command surfaces stderr in its error", async () => {
+    const exec: Executor = async () => ({ stdout: "", stderr: "Error: image not found", exitCode: 1 })
+
+    await expect(startContainer(exec, "docker", machine)).rejects.toThrow("Error: image not found")
+  })
 })

@@ -74,8 +74,11 @@ describe("Memory blocks", () => {
           const created = yield* memory.rewrite({ label: "stack", value: "Bun, Effect", description: "Tech stack" })
           expect(created.scope).toBe("project")
 
+          // Project blocks live under the primary .orchestra directory, not
+          // the legacy .opencode one (the layer migrated; this expectation
+          // still pointed at the old path and failed on unmodified code).
           const file = yield* Effect.promise(() =>
-            fs.readFile(path.join(tmp.path, "repo", ".opencode", "memory", "blocks", "stack.md"), "utf8"),
+            fs.readFile(path.join(tmp.path, "repo", ".orchestra", "memory", "blocks", "stack.md"), "utf8"),
           )
           expect(file).toContain("description: Tech stack")
           expect(file).toContain("Bun, Effect")

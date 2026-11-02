@@ -87,6 +87,7 @@ export type ElectronAPI = {
   registerQuickActionShortcut(shortcut: string): Promise<void>
   machinesStart(id: string): Promise<DesktopMachine>
   machinesStop(id: string): Promise<DesktopMachine>
+  machinesDelete(id: string): Promise<void>
   machinesSnapshot(id: string): Promise<DesktopMachine>
   machinesExec(id: string, command: string[]): Promise<{ stdout: string; exitCode: number }>
   machinesLogs(id: string): Promise<{ stdout: string; exitCode: number }>

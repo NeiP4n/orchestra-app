@@ -488,6 +488,7 @@ export const dict = {
   "notification.session.error.fallbackDescription": "An error occurred",
 
   "machines.title": "Machines",
+  "machines.error": "Machine action failed",
   "machines.empty": "No machines yet. Allocate a PC for the AI to start.",
   "machines.create": "Allocate a PC",
   "machines.name": "Name",

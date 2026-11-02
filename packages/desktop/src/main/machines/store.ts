@@ -41,6 +41,18 @@ const allowedTransitions: Record<MachineStatus, readonly MachineStatus[]> = {
   destroying: [],
 }
 
+const backends: readonly string[] = ["firecracker", "qemu-kvm", "apple-vz", "wsl", "container"]
+
+const statuses: readonly string[] = [
+  "creating",
+  "stopped",
+  "starting",
+  "running",
+  "stopping",
+  "error",
+  "destroying",
+]
+
 export function parseMachine(value: string): Machine {
   // SAFETY: the handler only writes JSON produced from a Machine, and the
   // field checks below reject anything that is not a machine-shaped record.
@@ -50,11 +62,31 @@ export function parseMachine(value: string): Machine {
     throw new Error("Stored machine is missing required fields")
   }
 
+  // A bogus enum value is not a machine either: without this check, the
+  // transition table lookup in updateMachineStatus throws a TypeError
+  // instead of a clean error, and a corrupt row poisons the whole list.
+  if (!backends.includes(parsed.backend) || !statuses.includes(parsed.status)) {
+    throw new Error(`Stored machine ${parsed.id} has an unknown backend or status`)
+  }
+
   return parsed
 }
 
 export function listMachines(items: Record<string, string>): Machine[] {
-  return Object.values(items).map((value) => parseMachine(value))
+  // One corrupt row must not kill the whole list: skip it, like the app
+  // side persistence already does. A single bad row used to make the
+  // desktop machine list empty/broken.
+  const machines: Machine[] = []
+
+  for (const value of Object.values(items)) {
+    try {
+      machines.push(parseMachine(value))
+    } catch {
+      // Skip the corrupt row and keep the rest of the list usable.
+    }
+  }
+
+  return machines
 }
 
 export function createMachine(items: Record<string, string>, spec: MachineSpec, id: string, createdAt: number) {

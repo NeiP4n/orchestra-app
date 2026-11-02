@@ -125,6 +125,7 @@ type PlatformBase = {
     exec(id: string, command: string[]): Promise<{ stdout: string; exitCode: number }>
     logs(id: string): Promise<{ stdout: string; exitCode: number }>
     network(id: string, network: boolean): Promise<Machine>
+    delete(id: string): Promise<void>
   }
 }
 

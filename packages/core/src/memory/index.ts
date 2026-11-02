@@ -150,16 +150,41 @@ const layer = Layer.effect(
     const locked = <A>(scope: Scope, effect: Effect.Effect<A, MemoryError>) =>
       Effect.scoped(Flock.effect(`memory:${roots[scope]}`).pipe(Effect.andThen(effect)))
 
+    // Project memory lives inside the repository (<project>/.orchestra), so
+    // the first project write must make sure a plain `git add -A` cannot
+    // drag it into history. Append-only and idempotent: never rewrite the
+    // user's .gitignore, and never fail the memory write itself if the
+    // .gitignore cannot be read or written.
+    const ensureProjectGitignore = Effect.fn("Memory.ensureProjectGitignore")(function* () {
+      const gitignore = path.join(location.project.directory, ".gitignore")
+      const existing = (yield* fs.readFileStringSafe(gitignore).pipe(Effect.orElseSucceed(() => undefined))) ?? ""
+
+      if (existing.split("\n").some((line) => line.trim() === ".orchestra/")) return
+
+      const next =
+        existing === "" ? ".orchestra/\n" : existing.endsWith("\n") ? `${existing}.orchestra/\n` : `${existing}\n.orchestra/\n`
+
+      yield* fs.writeFileString(gitignore, next).pipe(Effect.ignore)
+    })
+
     const writeFile = (file: string, content: string) => {
       const temporary = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`
-      return io(
-        fs
-          .ensureDir(path.dirname(file))
-          .pipe(
-            Effect.andThen(fs.writeFileString(temporary, content)),
-            Effect.andThen(fs.rename(temporary, file)),
-            Effect.ensuring(fs.remove(temporary, { force: true }).pipe(Effect.ignore)),
+      const protect =
+        file.startsWith(roots.project + path.sep) || file.startsWith(roots.project + "/")
+          ? ensureProjectGitignore()
+          : Effect.void
+      return protect.pipe(
+        Effect.andThen(() =>
+          io(
+            fs
+              .ensureDir(path.dirname(file))
+              .pipe(
+                Effect.andThen(fs.writeFileString(temporary, content)),
+                Effect.andThen(fs.rename(temporary, file)),
+                Effect.ensuring(fs.remove(temporary, { force: true }).pipe(Effect.ignore)),
+              ),
           ),
+        ),
       )
     }
 

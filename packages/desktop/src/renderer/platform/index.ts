@@ -115,6 +115,7 @@ export function createDesktopPlatform(api: ElectronAPI, windowState: DesktopWind
           createdAt: machine.createdAt,
         }
       },
+      delete: (id) => api.machinesDelete(id),
     },
     checkAppExists: async (appName) => {
       return api.checkAppExists(appName)

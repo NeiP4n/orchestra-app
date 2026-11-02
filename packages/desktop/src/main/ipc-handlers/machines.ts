@@ -5,12 +5,15 @@ import {
   createExecFileExecutor,
   detectContainerRuntime,
   execInContainer,
+  isContainerRunning,
   logsContainer,
+  removeContainer,
   setContainerNetwork,
   snapshotContainer,
   startContainer,
   stopContainer,
 } from "../machines/runner"
+import { snapshotImage } from "../machines/driver"
 import { spawnAppleVzMachine } from "../machines/apple-vz-runner"
 import { createNodeSpawn, type SpawnedProcess } from "../machines/firecracker-spawn"
 import { spawnWslKeepAlive, terminateWslMachine, verifyWslMachine } from "../machines/wsl-runner"
@@ -56,7 +59,43 @@ export const machineHandlers = MachineRpcs.toLayer(
           return updated.machine
         }),
       MachinesDelete: ({ id }) =>
-        Effect.sync(() => {
+        Effect.gen(function* () {
+          const raw = storage.state.items(namespace).items[id]
+
+          if (raw) {
+            const machine = parseMachine(raw)
+            const exec = createExecFileExecutor()
+
+            // Delete must clean up the backend, not just the record:
+            // otherwise a deleted running machine keeps living with no
+            // record and no cleanup path, and its name blocks the next
+            // start. Cleanup is best-effort — a failed cleanup must not
+            // trap the user with an undeletable record.
+            if (machine.backend === "container") {
+              // Stop and remove are independently best-effort: a container
+              // that is already stopped still needs removing, so a failed
+              // stop must not skip the remove.
+              yield* Effect.tryPromise(() => detectContainerRuntime(exec))
+                .pipe(
+                  Effect.andThen((runtime) =>
+                    Effect.tryPromise(() => stopContainer(exec, runtime, machine)).pipe(
+                      Effect.ignore,
+                      Effect.andThen(() => Effect.tryPromise(() => removeContainer(exec, runtime, machine))),
+                      Effect.ignore,
+                    ),
+                  ),
+                  Effect.ignore,
+                )
+            } else if (machine.backend === "wsl") {
+              yield* Effect.tryPromise(() => terminateWslMachine(exec, machine)).pipe(Effect.ignore)
+              wslProcesses.get(id)?.kill()
+              wslProcesses.delete(id)
+            } else if (machine.backend === "apple-vz") {
+              appleVzProcesses.get(id)?.kill()
+              appleVzProcesses.delete(id)
+            }
+          }
+
           const current = storage.state.items(namespace).items
           const next = deleteMachine(current, id)
 
@@ -92,8 +131,18 @@ export const machineHandlers = MachineRpcs.toLayer(
 
             try {
               yield* Effect.tryPromise(() => verifyWslMachine(exec, machine))
-              wslProcesses.set(id, spawnWslKeepAlive(createNodeSpawn(), machine))
+              const spawned = spawnWslKeepAlive(createNodeSpawn(), machine)
+              wslProcesses.set(id, spawned)
+
+              // "Running" must be verified, not assumed: if the keep-alive
+              // died at once (or its binary is missing), the distro is not
+              // actually up, and claiming "running" is a phantom machine.
+              yield* Effect.tryPromise(() => verifyWslMachine(exec, machine))
+
+              if (spawned.error) throw spawned.error
             } catch (error) {
+              wslProcesses.get(id)?.kill()
+              wslProcesses.delete(id)
               save("error")
 
               return yield* Effect.fail(error instanceof Error ? error : new Error(String(error)))
@@ -149,7 +198,18 @@ export const machineHandlers = MachineRpcs.toLayer(
           try {
             const runtime = yield* Effect.tryPromise(() => detectContainerRuntime(exec))
 
-            yield* Effect.tryPromise(() => startContainer(exec, runtime, machine))
+            // A snapshot, when one exists, is the machine: starting from the
+            // base image after a snapshot silently discards it, so the
+            // snapshot image is the start image whenever it is set.
+            const image = machine.snapshotId ? snapshotImage(machine, machine.snapshotId) : undefined
+
+            yield* Effect.tryPromise(() => startContainer(exec, runtime, machine, image))
+
+            // docker run -d exits 0 even when the container exits at once
+            // (bad image, bad command), so verify it is actually running.
+            const running = yield* Effect.tryPromise(() => isContainerRunning(exec, runtime, machine))
+
+            if (!running) throw new Error(`Container for machine ${id} exited immediately after start`)
           } catch (error) {
             save("error")
 
@@ -187,6 +247,10 @@ export const machineHandlers = MachineRpcs.toLayer(
             try {
               yield* Effect.tryPromise(() => terminateWslMachine(exec, machine))
             } catch (error) {
+              // A failed terminate must not leak the keep-alive: it would
+              // keep the distro alive in the background with no record of it.
+              wslProcesses.get(id)?.kill()
+              wslProcesses.delete(id)
               save("error")
 
               return yield* Effect.fail(error instanceof Error ? error : new Error(String(error)))

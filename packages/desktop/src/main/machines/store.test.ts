@@ -62,4 +62,18 @@ describe("desktop machines store", () => {
     expect(() => createMachine({}, { ...spec, name: " " }, "m1", 1000)).toThrow()
     expect(() => createMachine({}, { ...spec, memoryMb: 128 }, "m1", 1000)).toThrow()
   })
+
+  test("one corrupt row does not kill the list, and bogus enums fail cleanly", () => {
+    const created = createMachine({}, spec, "m1", 1000)
+
+    const items = {
+      ...created.items,
+      bad: "{not json",
+      bogus: JSON.stringify({ ...created.machine, id: "m2", status: "flying" }),
+    }
+
+    expect(listMachines(items)).toHaveLength(1)
+    expect(listMachines(items)[0].id).toBe("m1")
+    expect(() => updateMachineStatus(items, "bogus", "starting")).toThrow("unknown backend or status")
+  })
 })

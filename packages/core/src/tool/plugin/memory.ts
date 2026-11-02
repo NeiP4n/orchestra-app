@@ -7,6 +7,7 @@ import type { Tool } from "@orchestra/schema/tool"
 import { Effect, Schema } from "effect"
 import { Memory } from "../../memory/index.js"
 import { getMemoryEngine } from "../../memory/engine.js"
+import { Permission } from "../../permission.js"
 
 export const name = "memory"
 
@@ -81,8 +82,41 @@ export const Plugin = {
   id: "orchestra.tool.memory",
   effect: Effect.fn("MemoryTool.Plugin")(function* (ctx: Context) {
     const memory = yield* Memory.Service
+    const permission = yield* Permission.Service
 
-    const run = Effect.fn("MemoryTool.run")(function* (input: Input, sessionID: Tool.Context["sessionID"]) {
+    // Memory writes are permanent and feed every later request, so they
+    // are not free: read actions (search, recall, read, list, stats) run
+    // without approval, but every write goes through permission.assert and
+    // can be denied by the operator's permission rules.
+    const writeActions: ReadonlyArray<Input["action"]> = [
+      "remember",
+      "link",
+      "write",
+      "rewrite",
+      "append",
+      "replace",
+      "delete",
+      "forget",
+    ]
+
+    const run = Effect.fn("MemoryTool.run")(function* (input: Input, context: Tool.Context) {
+      const sessionID = context.sessionID
+
+      if (writeActions.includes(input.action)) {
+        const resource = `memory:${input.scope ?? "project"}:${input.label ?? input.id ?? "block"}`
+
+        yield* permission
+          .assert({
+            action: name,
+            resources: [resource],
+            save: [resource],
+            sessionID: context.sessionID,
+            agent: context.agent,
+            source: { type: "tool", messageID: context.messageID, id: context.id },
+          })
+          .pipe(Effect.mapError((error) => new ToolFailure({ message: `Memory ${input.action} denied`, error })))
+      }
+
       const engine = getMemoryEngine()
 
       switch (input.action) {
@@ -270,7 +304,7 @@ export const Plugin = {
           description,
           input: Input,
           execute: (input, context) =>
-            run(input, context.sessionID).pipe(
+            run(input, context).pipe(
               Effect.map((output) => ({ content: output })),
               Effect.mapError((error) =>
                 error instanceof ToolFailure ? error : new ToolFailure({ message: error.message }),

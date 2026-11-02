@@ -23,6 +23,7 @@ import type { Machine } from "./store"
 
 export interface ExecResult {
   stdout: string
+  stderr?: string
   exitCode: number
 }
 
@@ -31,23 +32,37 @@ export type Executor = (command: readonly string[]) => Promise<ExecResult>
 // Real executor for the desktop main process: execFile, never a shell, so
 // a machine id or argument cannot inject a shell command. A rejected
 // execFile (non-zero exit) is normalised to an ExecResult, so callers see
-// exit codes instead of exceptions and decide the machine status.
+// exit codes instead of exceptions and decide the machine status. Stderr
+// is captured too: without it, "image not found", "daemon not running"
+// and "name conflict" all looked identical in error messages.
 export function createExecFileExecutor(): Executor {
   return (command) =>
     new Promise<ExecResult>((resolve) => {
-      execFile(command[0], command.slice(1), (error, stdout) => {
+      execFile(command[0], command.slice(1), (error, stdout, stderr) => {
         const code = error?.code !== undefined ? Number(error.code) : error ? 1 : 0
 
-        resolve({ stdout: stdout.toString(), exitCode: Number.isNaN(code) ? 1 : code })
+        resolve({
+          stdout: stdout.toString(),
+          stderr: stderr.toString(),
+          exitCode: Number.isNaN(code) ? 1 : code,
+        })
       })
     })
 }
 
-export async function detectContainerRuntime(exec: Executor): Promise<ContainerRuntime> {
+export async function detectContainerRuntime(
+  exec: Executor,
+  platform: NodeJS.Platform = process.platform,
+): Promise<ContainerRuntime> {
   const available: ContainerRuntime[] = []
 
+  // "which" does not exist on Windows, so probing with it reported both
+  // runtimes absent even with Docker Desktop installed — on the desktop
+  // target platform. "where" is the Windows equivalent.
+  const locator = platform === "win32" ? "where" : "which"
+
   for (const runtime of ["docker", "podman"] as const) {
-    const result = await exec(["which", runtime])
+    const result = await exec([locator, runtime])
 
     if (result.exitCode === 0) available.push(runtime)
   }
@@ -59,14 +74,21 @@ async function run(exec: Executor, command: readonly string[]): Promise<ExecResu
   const result = await exec(command)
 
   if (result.exitCode !== 0) {
-    throw new Error(`Command failed (${result.exitCode}): ${command[0]} ${command.slice(1).join(" ")}`)
+    const detail = result.stderr?.trim() ? `: ${result.stderr.trim().slice(0, 500)}` : ""
+
+    throw new Error(`Command failed (${result.exitCode}): ${command[0]} ${command.slice(1).join(" ")}${detail}`)
   }
 
   return result
 }
 
-export function startContainer(exec: Executor, runtime: ContainerRuntime, machine: Machine): Promise<ExecResult> {
-  return run(exec, containerStartCommand(runtime, machine))
+export function startContainer(
+  exec: Executor,
+  runtime: ContainerRuntime,
+  machine: Machine,
+  image?: string,
+): Promise<ExecResult> {
+  return run(exec, containerStartCommand(runtime, machine, image))
 }
 
 export function stopContainer(exec: Executor, runtime: ContainerRuntime, machine: Machine): Promise<ExecResult> {

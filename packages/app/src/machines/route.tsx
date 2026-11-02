@@ -23,9 +23,19 @@ export function MachinesRoute() {
   const [filesOutput, setFilesOutput] = createSignal("")
   const [tasksOutput, setTasksOutput] = createSignal("")
   const [logsOutput, setLogsOutput] = createSignal("")
+  const [error, setError] = createSignal<string | undefined>(undefined)
+
+  // User actions used to swallow IPC failures silently, leaving the panel
+  // showing a stale status with no hint anything failed. Surface the error
+  // text in the panel instead; background persistence saves stay silent.
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- promise rejection reasons are inherently unknown; this function parses them into a message.
+  const reportError = (thrown: unknown) => {
+    setError(thrown instanceof Error ? thrown.message : String(thrown))
+  }
   // WSL is the priority backend for the Windows desktop target; firecracker
   // cannot start from IPC yet and qemu-kvm has no driver at all, so neither
   // may be the default a fresh machine is created with.
+
   const [backend, setBackend] = createSignal<MachineBackend>("wsl")
   const [selectedId, setSelectedId] = createSignal<string | undefined>(undefined)
   const selected = createMemo(() => machines.find((machine) => machine.id === selectedId()))
@@ -70,7 +80,7 @@ export function MachinesRoute() {
           }
         }
       })
-      .catch(() => undefined)
+      .catch(reportError)
   })
 
   const statusLabel = (status: MachineStatus) => {
@@ -136,7 +146,7 @@ export function MachinesRoute() {
     void platform.machines
       .start(id)
       .then(applyUpdated)
-      .catch(() => undefined)
+      .catch(reportError)
   }
 
   const stop = (id: string) => {
@@ -156,7 +166,7 @@ export function MachinesRoute() {
     void platform.machines
       .stop(id)
       .then(applyUpdated)
-      .catch(() => undefined)
+      .catch(reportError)
   }
 
   const snapshot = (id: string) => {
@@ -165,7 +175,7 @@ export function MachinesRoute() {
     void platform.machines
       .snapshot(id)
       .then(applyUpdated)
-      .catch(() => undefined)
+      .catch(reportError)
   }
 
   const toggleNetwork = (id: string, network: boolean) => {
@@ -188,7 +198,7 @@ export function MachinesRoute() {
     void platform.machines
       .network(id, network)
       .then(applyUpdated)
-      .catch(() => undefined)
+      .catch(reportError)
   }
 
   const reset = async (id: string) => {
@@ -209,9 +219,10 @@ export function MachinesRoute() {
     try {
       applyUpdated(await platform.machines.stop(id))
       applyUpdated(await platform.machines.start(id))
-    } catch {
+    } catch (thrown) {
       // A failed reset leaves the machine in its last known state;
       // the user can retry Start or Stop from the same header.
+      reportError(thrown)
     }
   }
 
@@ -225,7 +236,7 @@ export function MachinesRoute() {
     void platform.machines
       .exec(id, command)
       .then((result) => setTerminalOutput(`${result.stdout}\n${language.t("machines.exitCode")}: ${result.exitCode}`))
-      .catch(() => undefined)
+      .catch(reportError)
   }
 
   const listFiles = (id: string) => {
@@ -236,7 +247,7 @@ export function MachinesRoute() {
     void platform.machines
       .exec(id, ["ls", "-la", path])
       .then((result) => setFilesOutput(`${result.stdout}\n${language.t("machines.exitCode")}: ${result.exitCode}`))
-      .catch(() => undefined)
+      .catch(reportError)
   }
 
   const refreshTasks = (id: string) => {
@@ -245,7 +256,7 @@ export function MachinesRoute() {
     void platform.machines
       .exec(id, ["ps", "aux"])
       .then((result) => setTasksOutput(`${result.stdout}\n${language.t("machines.exitCode")}: ${result.exitCode}`))
-      .catch(() => undefined)
+      .catch(reportError)
   }
 
   const refreshLogs = (id: string) => {
@@ -254,10 +265,25 @@ export function MachinesRoute() {
     void platform.machines
       .logs(id)
       .then((result) => setLogsOutput(`${result.stdout}\n${language.t("machines.exitCode")}: ${result.exitCode}`))
-      .catch(() => undefined)
+      .catch(reportError)
   }
 
   const remove = (id: string) => {
+    // On desktop, delete through IPC so the backend is stopped and removed
+    // too; deleting only the local record used to orphan live containers,
+    // distros and VMs with no cleanup path.
+    if (platform.machines?.delete) {
+      void platform.machines
+        .delete(id)
+        .then(() => {
+          setMachines((list) => removeMachine(list, id))
+          setSelectedId(undefined)
+        })
+        .catch(reportError)
+
+      return
+    }
+
     setMachines((list) => removeMachine(list, id))
 
     const storage = machineStorage()
@@ -269,6 +295,13 @@ export function MachinesRoute() {
 
   return (
     <div data-slot="machines-panel" class="flex min-h-0 flex-1 flex-col gap-4 px-4 py-4">
+      <Show when={error()} keyed>
+        {(message) => (
+          <p class="text-v2-text-text-danger">
+            {language.t("machines.error")}: {message}
+          </p>
+        )}
+      </Show>
       <div class="flex flex-wrap items-center gap-3">
         <h1 class="text-v2-text-text-base text-lg font-semibold">{language.t("machines.title")}</h1>
         <input
