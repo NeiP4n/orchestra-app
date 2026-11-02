@@ -91,6 +91,7 @@ import { Orchestra } from "../orchestra.js"
 import { PeerTool } from "../tool/plugin/peer.js"
 import { BudgetTool } from "../tool/plugin/budget.js"
 import { MuseChatTool } from "../tool/plugin/muse-chat.js"
+import { DreamTeamTool } from "../tool/plugin/dream-team.js"
 import { CodegraphTool } from "../tool/plugin/codegraph.js"
 import { CheckpointTool } from "../tool/plugin/checkpoint.js"
 import { DesktopInspectTool } from "../tool/plugin/desktop-inspect.js"
@@ -328,6 +329,7 @@ const pre = [
   DodTool.Plugin,
   BudgetTool.Plugin,
   MuseChatTool.Plugin,
+  DreamTeamTool.Plugin,
   CodegraphTool.Plugin,
   CheckpointTool.Plugin,
   DesktopInspectTool.Plugin,
