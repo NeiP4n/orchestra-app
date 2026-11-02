@@ -60,3 +60,17 @@ export type TrayGetCloseToTray = {
 export type ShortcutsRegisterQuickAction = {
   shortcut: string
 }
+
+export type DesktopMachine = {
+  id: string
+  name: string
+  backend: "firecracker" | "qemu-kvm" | "apple-vz" | "wsl" | "container"
+  cpu: number
+  memoryMb: number
+  diskGb: number
+  network: boolean
+  status: "creating" | "stopped" | "starting" | "running" | "stopping" | "error" | "destroying"
+  snapshotId?: string
+  projectId?: string
+  createdAt: number
+}

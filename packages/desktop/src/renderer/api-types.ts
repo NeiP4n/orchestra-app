@@ -3,6 +3,7 @@ import type { DesktopNativeBundle } from "@orchestra/app/i18n/desktop-native"
 import type { WindowBootstrap } from "../shared/window-bootstrap"
 import type {
   ClipboardImage,
+  DesktopMachine,
   DirectoryPickerOptions,
   FatalRendererError,
   FilePickerOptions,
@@ -84,4 +85,7 @@ export type ElectronAPI = {
   registerQuickAction(shortcut: string): Promise<void>
   registerQuickActionShortcut(opts: ShortcutsRegisterQuickAction): Promise<void>
   registerQuickActionShortcut(shortcut: string): Promise<void>
+  machinesStart(id: string): Promise<DesktopMachine>
+  machinesStop(id: string): Promise<DesktopMachine>
+  machinesSnapshot(id: string): Promise<DesktopMachine>
 }
