@@ -18,6 +18,7 @@ describe("apple-vz runner", () => {
   test("spawn passes the helper start command and returns the process handle", () => {
     let killed = false
     const calls: { command: string; args: readonly string[] }[] = []
+
     const handle = spawnAppleVzMachine(
       (command, args) => {
         calls.push({ command, args })
