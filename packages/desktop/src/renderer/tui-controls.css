@@ -1,0 +1,132 @@
+/* TUI controls on desktop.
+ *
+ * Mirrors the terminal UI's control language (packages/tui):
+ * - Primary is a filled chip: flat background, no radius, no shadow.
+ * - Secondary keeps a transparent background and is marked clickable
+ *   with brackets, exactly as the TUI renders `[ Label ]`.
+ * - Hover and focus switch instantly, like terminal cells: no
+ *   transitions, no gradients, no soft shadows.
+ * - Selected items invert: background becomes the text color and the
+ *   text becomes the background color, as a TUI selection row does.
+ * - Focus is a square outline with no offset halo.
+ * This file is imported only by the desktop renderer, so the web
+ * shell keeps its rounded controls.
+ */
+
+/* Buttons: square, flat, instant. */
+[data-component="button-v2"] {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background-image: none !important;
+  text-shadow: none !important;
+  transition: none !important;
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  letter-spacing: 0;
+}
+
+[data-component="button-v2"]:is(:focus-visible, [data-state="focus"]):not(:disabled) {
+  outline: 2px solid var(--v2-border-border-focus) !important;
+  outline-offset: 0 !important;
+}
+
+/* Primary (submit / contrast): the TUI filled chip. */
+[data-component="button-v2"]:is([data-variant="submit"], [data-variant="contrast"]) {
+  background-color: var(--v2-background-bg-accent) !important;
+  color: var(--v2-text-text-contrast) !important;
+}
+
+[data-component="button-v2"]:is([data-variant="submit"], [data-variant="contrast"]):is(:hover, [data-state="hover"]):not(:disabled) {
+  background-color: var(--v2-background-bg-accent) !important;
+  filter: brightness(1.18);
+}
+
+[data-component="button-v2"]:is([data-variant="submit"], [data-variant="contrast"]):is(:active, [data-state="pressed"]):not(:disabled) {
+  filter: brightness(0.88);
+}
+
+/* Neutral / outline: a terminal box border, inverted on hover. */
+[data-component="button-v2"]:is([data-variant="neutral"], [data-variant="outline"]) {
+  background-color: transparent !important;
+  box-shadow: inset 0 0 0 1px var(--v2-border-border-base) !important;
+}
+
+[data-component="button-v2"]:is([data-variant="neutral"], [data-variant="outline"]):is(:hover, [data-state="hover"]):not(:disabled) {
+  background-color: var(--v2-text-text-base) !important;
+  color: var(--v2-background-bg-base) !important;
+  background-image: none !important;
+}
+
+[data-component="button-v2"]:is([data-variant="danger"], [data-variant="warning"]) {
+  background-color: transparent !important;
+  box-shadow: inset 0 0 0 1px var(--v2-border-border-base) !important;
+}
+
+/* Secondary (ghost): transparent, marked clickable with brackets. */
+[data-component="button-v2"]:is([data-variant="ghost"], [data-variant="ghost-muted"], [data-variant="ghost-faint"]):not([data-icon])::before {
+  content: "[ ";
+}
+
+[data-component="button-v2"]:is([data-variant="ghost"], [data-variant="ghost-muted"], [data-variant="ghost-faint"]):not([data-icon])::after {
+  content: " ]";
+}
+
+[data-component="button-v2"]:is([data-variant="ghost"], [data-variant="ghost-muted"], [data-variant="ghost-faint"]):is(:hover, [data-state="hover"]):not(:disabled) {
+  background-color: var(--v2-text-text-base) !important;
+  color: var(--v2-background-bg-base) !important;
+}
+
+[data-component="button-v2"]:is(:disabled, [data-state="disabled"]) {
+  filter: none;
+  opacity: 0.5;
+}
+
+/* Selected segmented items invert, like a TUI selection row. */
+[data-slot="segmented-control-v2-item"] {
+  border-radius: 0 !important;
+  transition: none !important;
+}
+
+[data-slot="segmented-control-v2-item"][data-pressed="true"] {
+  background-color: var(--v2-text-text-base) !important;
+  color: var(--v2-background-bg-base) !important;
+}
+
+/* Active titlebar tab inverts, like the focused TUI tab. */
+[data-slot="titlebar-tab-item"][data-active="true"] {
+  background-color: var(--v2-text-text-base) !important;
+  color: var(--v2-background-bg-base) !important;
+  border-radius: 0 !important;
+}
+
+/* TUI fade-in: a 200ms horizontal sweep, as in the TUI's fade-in
+ * text (packages/tui/src/component/fade-in-text.tsx). Used on the
+ * titlebar brand, which is the desktop shell's own mark. */
+@keyframes tui-fade-sweep {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+[data-slot="titlebar-brand"] {
+  animation: tui-fade-sweep 200ms linear both;
+}
+
+/* TUI spinner feel: stepped rotation, one frame at a time, instead
+ * of a smooth CSS spin. The desktop spinner's squares keep their own
+ * pulse; the stepped turn below applies to its container's icon
+ * slots that use a plain rotation. */
+@keyframes tui-step-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tui-step-spin {
+  animation: tui-step-spin 800ms steps(8, end) infinite;
+}
