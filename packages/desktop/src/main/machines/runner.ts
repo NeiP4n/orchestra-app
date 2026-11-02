@@ -10,6 +10,7 @@ import { execFile } from "node:child_process"
 import {
   containerExecCommand,
   containerLogsCommand,
+  containerNetworkCommand,
   containerRemoveCommand,
   containerSnapshotCommand,
   containerStartCommand,
@@ -91,6 +92,15 @@ export function logsContainer(
   machine: Machine,
 ): Promise<ExecResult> {
   return run(exec, containerLogsCommand(runtime, machine))
+}
+
+export function setContainerNetwork(
+  exec: Executor,
+  runtime: ContainerRuntime,
+  machine: Machine,
+  network: boolean,
+): Promise<ExecResult> {
+  return run(exec, containerNetworkCommand(runtime, machine, network))
 }
 
 export function snapshotContainer(

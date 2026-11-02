@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   containerExecCommand,
   containerLogsCommand,
+  containerNetworkCommand,
   containerName,
   containerRemoveCommand,
   containerSnapshotCommand,
@@ -71,6 +72,23 @@ describe("container machine driver", () => {
       "logs",
       "--tail",
       "100",
+      "orchestra-machine-m1",
+    ])
+  })
+
+  test("network toggle connects or disconnects the runtime default network", () => {
+    expect(containerNetworkCommand("docker", machine, true)).toEqual([
+      "docker",
+      "network",
+      "connect",
+      "bridge",
+      "orchestra-machine-m1",
+    ])
+    expect(containerNetworkCommand("podman", machine, false)).toEqual([
+      "podman",
+      "network",
+      "disconnect",
+      "podman",
       "orchestra-machine-m1",
     ])
   })

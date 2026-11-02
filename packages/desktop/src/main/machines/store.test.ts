@@ -3,6 +3,7 @@ import {
   createMachine,
   deleteMachine,
   listMachines,
+  setMachineNetwork,
   setMachineSnapshot,
   updateMachineStatus,
   type MachineSpec,
@@ -50,6 +51,15 @@ describe("desktop machines store", () => {
     expect(snapshotted.machine.snapshotId).toBe("snap_1")
     expect(snapshotted.machine.status).toBe("creating")
     expect(() => setMachineSnapshot(created.items, "missing", "snap_1")).toThrow()
+  })
+
+  test("network flag is stored on the machine without changing its status", () => {
+    const created = createMachine({}, spec, "m1", 1000)
+    const networked = setMachineNetwork(created.items, "m1", true)
+
+    expect(networked.machine.network).toBe(true)
+    expect(networked.machine.status).toBe("creating")
+    expect(() => setMachineNetwork(created.items, "missing", true)).toThrow()
   })
 
   test("bad specs fail before any record is written", () => {

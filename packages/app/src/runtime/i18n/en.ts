@@ -496,6 +496,8 @@ export const dict = {
   "machines.stop": "Stop",
   "machines.reset": "Reset",
   "machines.snapshot": "Snapshot",
+  "machines.networkOn": "Enable network",
+  "machines.networkOff": "Disable network",
   "machines.delete": "Delete",
   "machines.containerNote": "Container (not a full PC)",
   "machines.fullVmNote": "Full VM",

@@ -6,6 +6,7 @@ import {
   detectContainerRuntime,
   execInContainer,
   logsContainer,
+  setContainerNetwork,
   snapshotContainer,
   startContainer,
   stopContainer,
@@ -18,6 +19,7 @@ import {
   deleteMachine,
   listMachines,
   parseMachine,
+  setMachineNetwork,
   setMachineSnapshot,
   updateMachineStatus,
 } from "../machines/store"
@@ -318,6 +320,45 @@ export const machineHandlers = MachineRpcs.toLayer(
           const runtime = yield* Effect.tryPromise(() => detectContainerRuntime(exec))
 
           return yield* Effect.tryPromise(() => logsContainer(exec, runtime, machine))
+        }),
+      MachinesNetwork: ({ id, network }) =>
+        Effect.gen(function* () {
+          const raw = storage.state.items(namespace).items[id]
+
+          if (!raw) return yield* Effect.fail(new Error(`Machine ${id} not found`))
+
+          const machine = parseMachine(raw)
+
+          if (machine.backend !== "container") {
+            return yield* Effect.fail(
+              new Error(`Machine ${id} backend ${machine.backend} cannot toggle network yet`),
+            )
+          }
+
+          if (machine.status !== "running") {
+            return yield* Effect.fail(new Error(`Machine ${id} cannot toggle network from ${machine.status}`))
+          }
+
+          // Already in the requested state: no runtime call, no failure
+          // from a redundant connect/disconnect.
+          if (machine.network === network) return machine
+
+          const exec = createExecFileExecutor()
+
+          try {
+            const runtime = yield* Effect.tryPromise(() => detectContainerRuntime(exec))
+
+            yield* Effect.tryPromise(() => setContainerNetwork(exec, runtime, machine, network))
+          } catch (error) {
+            return yield* Effect.fail(error instanceof Error ? error : new Error(String(error)))
+          }
+
+          const current = storage.state.items(namespace).items
+          const updated = setMachineNetwork(current, id, network)
+
+          storage.state.update(namespace, { [id]: JSON.stringify(updated.machine) }, [])
+
+          return updated.machine
         }),
     })
   }),

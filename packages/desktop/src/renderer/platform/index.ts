@@ -98,6 +98,23 @@ export function createDesktopPlatform(api: ElectronAPI, windowState: DesktopWind
           createdAt: machine.createdAt,
         }
       },
+      network: async (id, network) => {
+        const machine = await api.machinesNetwork(id, network)
+
+        return {
+          id: machine.id,
+          name: machine.name,
+          backend: machine.backend,
+          cpu: machine.cpu,
+          memoryMb: machine.memoryMb,
+          diskGb: machine.diskGb,
+          network: machine.network,
+          status: machine.status,
+          snapshotId: machine.snapshotId,
+          projectId: machine.projectId,
+          createdAt: machine.createdAt,
+        }
+      },
     },
     checkAppExists: async (appName) => {
       return api.checkAppExists(appName)

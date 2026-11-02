@@ -87,6 +87,16 @@ export function updateMachineStatus(items: Record<string, string>, id: string, t
   return { items: { ...items, [id]: JSON.stringify(next) }, machine: next }
 }
 
+export function setMachineNetwork(items: Record<string, string>, id: string, network: boolean) {
+  const raw = items[id]
+
+  if (!raw) throw new Error(`Machine ${id} not found`)
+
+  const next = { ...parseMachine(raw), network }
+
+  return { items: { ...items, [id]: JSON.stringify(next) }, machine: next }
+}
+
 export function setMachineSnapshot(items: Record<string, string>, id: string, snapshotId: string) {
   const raw = items[id]
 

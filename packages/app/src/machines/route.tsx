@@ -154,6 +154,29 @@ export function MachinesRoute() {
       .catch(() => undefined)
   }
 
+  const toggleNetwork = (id: string, network: boolean) => {
+    if (!platform.machines) {
+      const updated = machines.find((machine) => machine.id === id)
+
+      if (!updated) return
+
+      const next = { ...updated, network }
+
+      setMachines((list) => list.map((machine) => (machine.id === id ? next : machine)))
+
+      const storage = machineStorage()
+
+      if (storage) void saveMachine(storage, next).catch(() => undefined)
+
+      return
+    }
+
+    void platform.machines
+      .network(id, network)
+      .then(applyUpdated)
+      .catch(() => undefined)
+  }
+
   const reset = async (id: string) => {
     if (!platform.machines) {
       const stopped = stopMachine(machines, id)
@@ -316,6 +339,11 @@ export function MachinesRoute() {
                   <Show when={machine.status === "running"}>
                     <button type="button" onClick={() => void reset(machine.id)}>
                       {language.t("machines.reset")}
+                    </button>
+                  </Show>
+                  <Show when={machine.status === "running"}>
+                    <button type="button" onClick={() => toggleNetwork(machine.id, !machine.network)}>
+                      {machine.network ? language.t("machines.networkOff") : language.t("machines.networkOn")}
                     </button>
                   </Show>
                   <Show when={platform.machines}>

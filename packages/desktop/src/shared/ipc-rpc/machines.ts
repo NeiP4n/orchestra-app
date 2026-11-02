@@ -77,6 +77,11 @@ export const MachinesLogs = Rpc.make("MachinesLogs", {
   success: Schema.Struct({ stdout: Schema.String, exitCode: Schema.Number }),
 })
 
+export const MachinesNetwork = Rpc.make("MachinesNetwork", {
+  payload: { id: Schema.String, network: Schema.Boolean },
+  success: MachineSchema,
+})
+
 export const MachineRpcs = RpcGroup.make(
   MachinesList,
   MachinesCreate,
@@ -87,4 +92,5 @@ export const MachineRpcs = RpcGroup.make(
   MachinesSnapshot,
   MachinesExec,
   MachinesLogs,
+  MachinesNetwork,
 )

@@ -124,6 +124,7 @@ type PlatformBase = {
     snapshot(id: string): Promise<Machine>
     exec(id: string, command: string[]): Promise<{ stdout: string; exitCode: number }>
     logs(id: string): Promise<{ stdout: string; exitCode: number }>
+    network(id: string, network: boolean): Promise<Machine>
   }
 }
 

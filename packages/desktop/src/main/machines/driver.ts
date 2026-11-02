@@ -67,6 +67,29 @@ export function containerLogsCommand(runtime: ContainerRuntime, machine: Machine
   return [runtime, "logs", "--tail", "100", containerName(machine.id)]
 }
 
+// Live network toggle for a running container: a container started with
+// --network none gains the runtime's default network on connect, and loses
+// it on disconnect, without a restart. The default network name differs
+// by runtime (docker: "bridge", podman: "podman"), so it is not a user
+// setting here — it is the network the runtime already provides.
+export function defaultContainerNetwork(runtime: ContainerRuntime): string {
+  return runtime === "docker" ? "bridge" : "podman"
+}
+
+export function containerNetworkCommand(
+  runtime: ContainerRuntime,
+  machine: Machine,
+  network: boolean,
+): string[] {
+  return [
+    runtime,
+    "network",
+    network ? "connect" : "disconnect",
+    defaultContainerNetwork(runtime),
+    containerName(machine.id),
+  ]
+}
+
 // A container snapshot is a committed image of the machine's filesystem.
 // Restoring it is starting a container from that image, via the existing
 // start command with the snapshot image instead of the base image.
