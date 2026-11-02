@@ -180,7 +180,7 @@ export const Plugin = {
       editor.add({
         name: "dream_team_assemble",
         description:
-          "Assemble a dream team for a task: roles assigned to agents that actually exist, phases, and the acceptance criteria that define 100% done. Spawn each role with the subagent tool afterwards; do not report the task done before dream_team_verify reports 100%.",
+          "Assemble a dream team for a task: roles assigned to agents that actually exist, phases, and the acceptance criteria that define 100% done. Spawn each role with the subagent tool afterwards; do not report the task done before dream_team_verify reports 100%. Use from a primary session: the subagent depth limit blocks nested dream teams spawned from inside a subagent.",
         input: Schema.Struct({ task: Schema.String }),
         output: Output,
         options: { codemode: false },

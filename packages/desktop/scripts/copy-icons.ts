@@ -63,5 +63,6 @@ function pngToIco(png: Buffer): Buffer {
   header.writeUInt16LE(32, 12)
   header.writeUInt32LE(png.length, 14)
   header.writeUInt32LE(header.length, 18)
+
   return Buffer.concat([header, png])
 }
