@@ -142,11 +142,38 @@ export interface VerifyReport {
   report: string
 }
 
-export function verifyChecklist(items: ChecklistItem[]): VerifyReport {
-  const total = items.length
-  const passed = items.filter((item) => item.status === "pass").length
+// The gate is only meaningful if it cannot be gamed by its caller, so
+// it scores the PLAN's criteria, not whatever the caller submits:
+// - a criterion counts as passed only with a "pass" item carrying
+//   non-empty evidence; a pass claimed without evidence does not count
+// - duplicate items for one criterion count once
+// - a plan criterion with no submitted item is a gap, not an omission
+// - items outside the plan's criteria are ignored, never scored
+export function verifyChecklist(items: ChecklistItem[], expected: readonly string[] = DEFAULT_CRITERIA): VerifyReport {
+  const byCriterion = new Map<string, ChecklistItem>()
+
+  for (const item of items) {
+    const key = item.criterion.trim()
+
+    if (key && !byCriterion.has(key)) byCriterion.set(key, item)
+  }
+
+  const scored = expected.map((criterion) => {
+    const item = byCriterion.get(criterion.trim())
+    const hasEvidence = !!item && item.evidence.trim().length > 0
+    const pass = item?.status === "pass" && hasEvidence
+    const reason = !item
+      ? "(not checked)"
+      : item.status !== "pass"
+        ? item.evidence || "(none given)"
+        : "(pass claimed without evidence — does not count)"
+    return { criterion, status: pass ? ("pass" as const) : ("fail" as const), evidence: reason }
+  })
+  const total = scored.length
+  const passed = scored.filter((item) => item.status === "pass").length
   const percent = total === 0 ? 0 : Math.round((passed / total) * 100)
-  const gaps = items.filter((item) => item.status !== "pass")
+  const gaps = scored.filter((item) => item.status !== "pass")
+  const extras = items.filter((item) => !expected.some((criterion) => criterion.trim() === item.criterion.trim())).length
   const report =
     total === 0
       ? "NOT DONE (0%): no acceptance criteria were checked. Run the verification with real evidence for every criterion."
@@ -155,7 +182,8 @@ export function verifyChecklist(items: ChecklistItem[]): VerifyReport {
         : [
             `NOT DONE (${percent}%): ${passed} of ${total} criteria pass.`,
             "Gaps — re-spawn the role that owns each gap with the subagent tool, fix it, then verify again:",
-            ...gaps.map((gap) => `- ${gap.criterion} — evidence: ${gap.evidence || "(none given)"}`),
+            ...gaps.map((gap) => `- ${gap.criterion} — evidence: ${gap.evidence}`),
+            ...(extras > 0 ? [`${extras} submitted item(s) outside the plan's criteria were ignored, not scored.`] : []),
           ].join("\n")
   return { total, passed, percent, gaps, report }
 }
@@ -201,7 +229,7 @@ export const Plugin = {
       editor.add({
         name: "dream_team_verify",
         description:
-          "Gate for 100% done: check acceptance criteria against real evidence (test runs, build output, lint output, review findings). Returns a percentage and the exact gaps. If it is not 100%, fix the gaps and verify again; never report completion before 100%.",
+          "Gate for 100% done: check the plan's acceptance criteria (the five criteria from dream_team_assemble) against real evidence (test runs, build output, lint output, review findings). Submit exactly one item per criterion. A pass without evidence does not count, duplicates count once, and a missing criterion is a gap. Returns a percentage and the exact gaps. If it is not 100%, fix the gaps and verify again; never report completion before 100%.",
         input: Schema.Struct({ items: Schema.Array(ChecklistItemSchema) }),
         output: Output,
         options: { codemode: false },

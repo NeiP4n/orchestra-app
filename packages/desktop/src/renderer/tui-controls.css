@@ -86,16 +86,25 @@
   transition: none !important;
 }
 
-[data-slot="segmented-control-v2-item"][data-pressed="true"] {
+/* Solid renders data-pressed as a bare attribute, never as "true", so
+ * the selector must match presence, like the base segmented CSS does. */
+[data-slot="segmented-control-v2-item"][data-pressed] {
   background-color: var(--v2-text-text-base) !important;
   color: var(--v2-background-bg-base) !important;
 }
 
-/* Active titlebar tab inverts, like the focused TUI tab. */
+/* Active titlebar tab inverts, like the focused TUI tab. The link inside
+ * the tab sets its own explicit text colour, which beats the inherited
+ * colour from the item — without overriding it too, the inverted tab's
+ * title is the same colour as its background and unreadable. */
 [data-slot="titlebar-tab-item"][data-active="true"] {
   background-color: var(--v2-text-text-base) !important;
   color: var(--v2-background-bg-base) !important;
   border-radius: 0 !important;
+}
+
+[data-slot="titlebar-tab-item"][data-active="true"] [data-slot="tab-link"] {
+  color: var(--v2-background-bg-base) !important;
 }
 
 /* TUI fade-in: a 200ms horizontal sweep, as in the TUI's fade-in

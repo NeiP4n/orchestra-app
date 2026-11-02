@@ -15,10 +15,9 @@ describe("machines panel controller", () => {
   test("add, start and stop follow the machine status rules", () => {
     const added = addMachine([], spec, "m1", 1000)
 
-    expect(added[0].status).toBe("creating")
+    expect(added[0].status).toBe("stopped")
 
-    const stopped = added.map((machine) => ({ ...machine, status: "stopped" as const }))
-    const started = startMachine(stopped, "m1")
+    const started = startMachine(added, "m1")
 
     expect(started[0].status).toBe("starting")
 
@@ -31,8 +30,9 @@ describe("machines panel controller", () => {
 
   test("starting a creating machine and removing an unknown machine fail", () => {
     const added = addMachine([], spec, "m1", 1000)
+    const creating = added.map((machine) => ({ ...machine, status: "creating" as const }))
 
-    expect(() => startMachine(added, "m1")).toThrow()
+    expect(() => startMachine(creating, "m1")).toThrow()
     expect(() => removeMachine(added, "missing")).toThrow()
     expect(() => addMachine(added, spec, "m1", 1000)).toThrow()
   })

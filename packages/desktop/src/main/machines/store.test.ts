@@ -22,14 +22,10 @@ describe("desktop machines store", () => {
   test("create, list, transition, delete round-trips through plain records", () => {
     const created = createMachine({}, spec, "m1", 1000)
 
-    expect(created.machine.status).toBe("creating")
+    expect(created.machine.status).toBe("stopped")
     expect(listMachines(created.items)).toHaveLength(1)
 
-    const started = updateMachineStatus(
-      updateMachineStatus(created.items, "m1", "stopped").items,
-      "m1",
-      "starting",
-    )
+    const started = updateMachineStatus(created.items, "m1", "starting")
 
     expect(started.machine.status).toBe("starting")
     expect(deleteMachine(started.items, "m1")).toEqual({})
@@ -49,7 +45,7 @@ describe("desktop machines store", () => {
     const snapshotted = setMachineSnapshot(created.items, "m1", "snap_1")
 
     expect(snapshotted.machine.snapshotId).toBe("snap_1")
-    expect(snapshotted.machine.status).toBe("creating")
+    expect(snapshotted.machine.status).toBe("stopped")
     expect(() => setMachineSnapshot(created.items, "missing", "snap_1")).toThrow()
   })
 
@@ -58,7 +54,7 @@ describe("desktop machines store", () => {
     const networked = setMachineNetwork(created.items, "m1", true)
 
     expect(networked.machine.network).toBe(true)
-    expect(networked.machine.status).toBe("creating")
+    expect(networked.machine.status).toBe("stopped")
     expect(() => setMachineNetwork(created.items, "missing", true)).toThrow()
   })
 

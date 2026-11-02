@@ -23,7 +23,10 @@ export function MachinesRoute() {
   const [filesOutput, setFilesOutput] = createSignal("")
   const [tasksOutput, setTasksOutput] = createSignal("")
   const [logsOutput, setLogsOutput] = createSignal("")
-  const [backend, setBackend] = createSignal<MachineBackend>("firecracker")
+  // WSL is the priority backend for the Windows desktop target; firecracker
+  // cannot start from IPC yet and qemu-kvm has no driver at all, so neither
+  // may be the default a fresh machine is created with.
+  const [backend, setBackend] = createSignal<MachineBackend>("wsl")
   const [selectedId, setSelectedId] = createSignal<string | undefined>(undefined)
   const selected = createMemo(() => machines.find((machine) => machine.id === selectedId()))
 
@@ -53,8 +56,19 @@ export function MachinesRoute() {
       .then((loaded) => {
         if (loaded.length === 0) return
 
-        setMachines(loaded)
-        setSelectedId(loaded[0].id)
+        // Repair machines stuck in "creating" by the old create path, which
+        // never transitioned them onward: creation is synchronous, so they
+        // are stopped and startable.
+        const repaired = loaded.map((machine) => (machine.status === "creating" ? { ...machine, status: "stopped" as const } : machine))
+
+        setMachines(repaired)
+        setSelectedId(repaired[0].id)
+
+        for (const machine of repaired) {
+          if (machine.status === "stopped" && loaded.find((old) => old.id === machine.id)?.status === "creating") {
+            void saveMachine(storage, machine).catch(() => undefined)
+          }
+        }
       })
       .catch(() => undefined)
   })
@@ -81,7 +95,7 @@ export function MachinesRoute() {
   const create = () => {
     if (!name().trim()) return
 
-    const id = `machine_${Date.now()}`
+    const id = `machine_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
     const createdAt = Date.now()
     const spec = { name: name(), backend: backend(), cpu: 2, memoryMb: 2048, diskGb: 20, network: false }
 
@@ -90,7 +104,7 @@ export function MachinesRoute() {
     const storage = machineStorage()
 
     if (storage) {
-      void saveMachine(storage, { ...spec, id, status: "creating", createdAt }).catch(() => undefined)
+      void saveMachine(storage, { ...spec, id, status: "stopped", createdAt }).catch(() => undefined)
     }
 
     setSelectedId(id)
@@ -270,14 +284,15 @@ export function MachinesRoute() {
           onChange={(event) => {
             const value = event.currentTarget.value
 
-            if (value === "firecracker" || value === "qemu-kvm" || value === "apple-vz" || value === "wsl" || value === "container") {
+            // qemu-kvm is deliberately not offered: it has no driver at all,
+            // so offering it only creates machines that can never start.
+            if (value === "firecracker" || value === "apple-vz" || value === "wsl" || value === "container") {
               setBackend(value)
             }
           }}
           class="rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 py-1 text-v2-text-text-base"
         >
           <option value="firecracker">firecracker</option>
-          <option value="qemu-kvm">qemu-kvm</option>
           <option value="apple-vz">apple-vz</option>
           <option value="wsl">wsl</option>
           <option value="container">container</option>

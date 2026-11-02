@@ -26,23 +26,36 @@ describe("dream team assemble", () => {
 })
 
 describe("dream team verify gate", () => {
-  test("reports 100% only when every criterion passes", () => {
+  test("reports 100% only when every plan criterion passes with evidence", () => {
     const report = verifyChecklist([
-      { criterion: "Build passes", status: "pass", evidence: "bun run build ok" },
-      { criterion: "Tests pass", status: "pass", evidence: "12/12" },
+      { criterion: "The task's requirements are implemented, not partially or as a stub.", status: "pass", evidence: "diff reviewed" },
+      { criterion: "The build passes.", status: "pass", evidence: "bun run build ok" },
+      { criterion: "The tests pass (new or extended tests cover the change).", status: "pass", evidence: "12/12" },
+      { criterion: "The linter is clean for the changed files.", status: "pass", evidence: "oxlint 0 errors" },
+      { criterion: "Reviewer findings are resolved, not ignored.", status: "pass", evidence: "no open findings" },
     ])
     expect(report.percent).toBe(100)
     expect(report.report).toContain("DONE (100%)")
   })
 
-  test("reports the exact gaps otherwise", () => {
+  test("a submitted subset of the plan criteria is not 100%", () => {
     const report = verifyChecklist([
-      { criterion: "Build passes", status: "pass", evidence: "ok" },
-      { criterion: "Tests pass", status: "fail", evidence: "2 failing" },
+      { criterion: "The build passes.", status: "pass", evidence: "ok" },
+      { criterion: "The tests pass (new or extended tests cover the change).", status: "pass", evidence: "ok" },
     ])
-    expect(report.percent).toBe(50)
-    expect(report.gaps.map((gap) => gap.criterion)).toEqual(["Tests pass"])
-    expect(report.report).toContain("NOT DONE (50%)")
+    expect(report.percent).toBe(40)
+    expect(report.gaps).toHaveLength(3)
+    expect(report.report).toContain("NOT DONE (40%)")
+  })
+
+  test("a pass without evidence does not count, and duplicates do not inflate", () => {
+    const report = verifyChecklist([
+      { criterion: "The build passes.", status: "pass", evidence: "   " },
+      { criterion: "The tests pass (new or extended tests cover the change).", status: "pass", evidence: "ok" },
+      { criterion: "The tests pass (new or extended tests cover the change).", status: "pass", evidence: "ok again" },
+    ])
+    expect(report.percent).toBe(20)
+    expect(report.gaps.map((gap) => gap.criterion)).toContain("The build passes.")
   })
 
   test("empty checklist is not done", () => {

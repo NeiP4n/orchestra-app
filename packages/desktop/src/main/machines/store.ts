@@ -66,7 +66,11 @@ export function createMachine(items: Record<string, string>, spec: MachineSpec, 
     throw new Error("Machine resources are below minimum")
   }
 
-  const machine: Machine = { ...spec, id, status: "creating", createdAt }
+  // Creation is synchronous: there is no async provisioning step, so a
+  // new machine is immediately stopped and startable (see the app
+  // controller for the same rule). Creating it as "creating" left it
+  // stuck forever, because no handler ever transitioned it onward.
+  const machine: Machine = { ...spec, id, status: "stopped", createdAt }
 
   return { items: { ...items, [id]: JSON.stringify(machine) }, machine }
 }

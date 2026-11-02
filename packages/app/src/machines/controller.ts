@@ -10,7 +10,11 @@ export function addMachine(machines: readonly Machine[], spec: MachineSpec, id: 
 
   if (machines.some((machine) => machine.id === id)) throw new Error(`Machine ${id} already exists`)
 
-  return [...machines, { ...spec, id, status: "creating", createdAt }]
+  // Creation is synchronous: there is no async provisioning step, so a
+  // new machine is immediately stopped and startable. Creating it as
+  // "creating" left it stuck forever, because nothing ever transitioned
+  // it to "stopped" and the Start button only renders for stopped/error.
+  return [...machines, { ...spec, id, status: "stopped", createdAt }]
 }
 
 export function startMachine(machines: readonly Machine[], id: string): Machine[] {
