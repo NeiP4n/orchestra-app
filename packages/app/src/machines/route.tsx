@@ -1,8 +1,10 @@
-import { For, Show, createMemo, createSignal } from "solid-js"
+import { For, Show, createMemo, createSignal, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/runtime/i18n/language"
+import { usePlatform } from "@/runtime/platform/platform"
 import { addMachine, removeMachine, startMachine, stopMachine } from "./controller"
 import { isFullVm, type Machine, type MachineBackend, type MachineStatus } from "./machine"
+import { loadMachines, removeMachineRecord, saveMachine, type MachineStorage } from "./persistence"
 
 // Desktop-only autonomous AI workspace panel. The TUI has no equivalent
 // panel: this route exists only in the desktop/web shell. Phase E layout:
@@ -12,11 +14,44 @@ import { isFullVm, type Machine, type MachineBackend, type MachineStatus } from 
 // hardcoding sculk hex values in the component.
 export function MachinesRoute() {
   const language = useLanguage()
+  const platform = usePlatform()
   const [machines, setMachines] = createStore<Machine[]>([])
   const [name, setName] = createSignal("")
   const [backend, setBackend] = createSignal<MachineBackend>("firecracker")
   const [selectedId, setSelectedId] = createSignal<string | undefined>(undefined)
   const selected = createMemo(() => machines.find((machine) => machine.id === selectedId()))
+
+  // Desktop storage is a namespace storage with enumeration; web storage
+  // is a plain sync storage without it, so persistence is only used
+  // where the namespace storage is actually present.
+  // SAFETY: the checks below confirm the enumeration methods exist
+  // before the storage is used as a MachineStorage.
+  const machineStorage = (): MachineStorage | undefined => {
+    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- see SAFETY above
+    const storage = platform.storage?.("machines") as Partial<MachineStorage> | undefined
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- see SAFETY above
+    const hasEnumeration = storage && typeof storage.getLength === "function" && typeof storage.key === "function"
+
+    if (!hasEnumeration) return undefined
+
+    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- see SAFETY above
+    return storage as MachineStorage
+  }
+
+  onMount(() => {
+    const storage = machineStorage()
+
+    if (!storage) return
+
+    void loadMachines(storage)
+      .then((loaded) => {
+        if (loaded.length === 0) return
+
+        setMachines(loaded)
+        setSelectedId(loaded[0].id)
+      })
+      .catch(() => undefined)
+  })
 
   const statusLabel = (status: MachineStatus) => {
     switch (status) {
@@ -41,12 +76,51 @@ export function MachinesRoute() {
     if (!name().trim()) return
 
     const id = `machine_${Date.now()}`
+    const createdAt = Date.now()
+    const spec = { name: name(), backend: backend(), cpu: 2, memoryMb: 2048, diskGb: 20, network: false }
 
-    setMachines((list) =>
-      addMachine(list, { name: name(), backend: backend(), cpu: 2, memoryMb: 2048, diskGb: 20, network: false }, id, Date.now()),
-    )
+    setMachines((list) => addMachine(list, spec, id, createdAt))
+
+    const storage = machineStorage()
+
+    if (storage) {
+      void saveMachine(storage, { ...spec, id, status: "creating", createdAt }).catch(() => undefined)
+    }
+
     setSelectedId(id)
     setName("")
+  }
+
+  const start = (id: string) => {
+    const next = startMachine(machines, id)
+    const updated = next.find((machine) => machine.id === id)
+
+    setMachines(next)
+
+    const storage = machineStorage()
+
+    if (storage && updated) void saveMachine(storage, updated).catch(() => undefined)
+  }
+
+  const stop = (id: string) => {
+    const next = stopMachine(machines, id)
+    const updated = next.find((machine) => machine.id === id)
+
+    setMachines(next)
+
+    const storage = machineStorage()
+
+    if (storage && updated) void saveMachine(storage, updated).catch(() => undefined)
+  }
+
+  const remove = (id: string) => {
+    setMachines((list) => removeMachine(list, id))
+
+    const storage = machineStorage()
+
+    if (storage) void removeMachineRecord(storage, id).catch(() => undefined)
+
+    setSelectedId(undefined)
   }
 
   return (
@@ -123,22 +197,16 @@ export function MachinesRoute() {
                   <h2 class="text-v2-text-text-base font-semibold">{machine.name}</h2>
                   <span class="text-v2-text-text-muted">{statusLabel(machine.status)}</span>
                   <Show when={machine.status === "stopped" || machine.status === "error"}>
-                    <button type="button" onClick={() => setMachines((list) => startMachine(list, machine.id))}>
+                    <button type="button" onClick={() => start(machine.id)}>
                       {language.t("machines.start")}
                     </button>
                   </Show>
                   <Show when={machine.status === "running" || machine.status === "starting"}>
-                    <button type="button" onClick={() => setMachines((list) => stopMachine(list, machine.id))}>
+                    <button type="button" onClick={() => stop(machine.id)}>
                       {language.t("machines.stop")}
                     </button>
                   </Show>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMachines((list) => removeMachine(list, machine.id))
-                      setSelectedId(undefined)
-                    }}
-                  >
+                  <button type="button" onClick={() => remove(machine.id)}>
                     {language.t("machines.delete")}
                   </button>
                 </div>
