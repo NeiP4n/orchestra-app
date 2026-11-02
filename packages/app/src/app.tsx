@@ -48,6 +48,7 @@ function BodyTypography() {
 export function AppBaseProviders(
   props: ParentProps<{
     locale?: Locale
+    defaultTheme?: string
     onNativeTranslations?: Parameters<typeof LanguageProvider>[0]["onNativeTranslations"]
     onThemeApplied?: (mode: "light" | "dark", scheme: "system" | "light" | "dark") => void
   }>,
@@ -56,6 +57,7 @@ export function AppBaseProviders(
     <MetaProvider>
       <Font />
       <ThemeProvider
+        defaultTheme={props.defaultTheme}
         onThemeApplied={(_, mode, scheme) => {
           props.onThemeApplied?.(mode, scheme)
         }}

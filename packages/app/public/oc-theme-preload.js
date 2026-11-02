@@ -1,6 +1,10 @@
 ;(function () {
   var key = "opencode-theme-id"
-  var themeId = localStorage.getItem(key) || "oc-2"
+  // Desktop runs under Electron (window.electron is exposed by the
+  // Electron preload before page scripts), web does not. Only desktop
+  // defaults to sculk; a stored theme always wins on both.
+  var isDesktop = typeof window !== "undefined" && typeof window.electron !== "undefined"
+  var themeId = localStorage.getItem(key) || (isDesktop ? "sculk" : "oc-2")
 
   var scheme = localStorage.getItem("opencode-color-scheme") || "system"
   var isDark = scheme === "dark" || (scheme === "system" && matchMedia("(prefers-color-scheme: dark)").matches)

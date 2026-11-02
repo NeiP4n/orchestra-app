@@ -39,6 +39,19 @@ describe("theme preload", () => {
     },
   )
 
+  test("defaults to sculk on desktop (window.electron present) with no stored theme", () => {
+    Object.defineProperty(window, "electron", { value: {}, configurable: true })
+
+    try {
+      run()
+
+      expect(document.documentElement.dataset.theme).toBe("sculk")
+    } finally {
+      // @ts-expect-error removing the test-only desktop marker
+      delete window.electron
+    }
+  })
+
   test.each([
     { scheme: undefined, key: "opencode-theme-css-light", css: "--background-base:#fff;", expected: "light" },
     { scheme: "dark", key: "opencode-theme-css-dark", css: "--background-base:#010203;", expected: "dark" },
