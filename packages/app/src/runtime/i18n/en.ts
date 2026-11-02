@@ -505,6 +505,8 @@ export const dict = {
   "machines.terminalEmpty": "The terminal inside this machine will appear here once it is running.",
   "machines.command": "Command",
   "machines.run": "Run",
+  "machines.path": "Path",
+  "machines.list": "List",
   "machines.exitCode": "Exit code",
   "machines.files": "Files",
   "machines.filesEmpty": "Files inside this machine will appear here once it is running.",

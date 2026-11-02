@@ -19,6 +19,8 @@ export function MachinesRoute() {
   const [name, setName] = createSignal("")
   const [terminalCommand, setTerminalCommand] = createSignal("")
   const [terminalOutput, setTerminalOutput] = createSignal("")
+  const [filesPath, setFilesPath] = createSignal("/")
+  const [filesOutput, setFilesOutput] = createSignal("")
   const [backend, setBackend] = createSignal<MachineBackend>("firecracker")
   const [selectedId, setSelectedId] = createSignal<string | undefined>(undefined)
   const selected = createMemo(() => machines.find((machine) => machine.id === selectedId()))
@@ -163,6 +165,17 @@ export function MachinesRoute() {
       .catch(() => undefined)
   }
 
+  const listFiles = (id: string) => {
+    if (!platform.machines) return
+
+    const path = filesPath().trim() || "/"
+
+    void platform.machines
+      .exec(id, ["ls", "-la", path])
+      .then((result) => setFilesOutput(`${result.stdout}\n${language.t("machines.exitCode")}: ${result.exitCode}`))
+      .catch(() => undefined)
+  }
+
   const remove = (id: string) => {
     setMachines((list) => removeMachine(list, id))
 
@@ -296,7 +309,30 @@ export function MachinesRoute() {
         <section class="flex min-h-0 flex-col gap-4">
           <div class="rounded-md border border-v2-border-border-base p-3">
             <h3 class="text-v2-text-text-base font-medium">{language.t("machines.files")}</h3>
-            <p class="text-v2-text-text-muted">{language.t("machines.filesEmpty")}</p>
+            <Show
+              when={platform.machines && selected()?.status === "running"}
+              fallback={<p class="text-v2-text-text-muted">{language.t("machines.filesEmpty")}</p>}
+            >
+              <div class="flex flex-wrap items-center gap-2">
+                <input
+                  aria-label={language.t("machines.path")}
+                  placeholder={language.t("machines.path")}
+                  value={filesPath()}
+                  onInput={(event) => setFilesPath(event.currentTarget.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const machine = selected()
+
+                    if (machine) listFiles(machine.id)
+                  }}
+                >
+                  {language.t("machines.list")}
+                </button>
+              </div>
+              <pre class="mt-2 whitespace-pre-wrap text-v2-text-text-base">{filesOutput()}</pre>
+            </Show>
           </div>
           <div class="rounded-md border border-v2-border-border-base p-3">
             <h3 class="text-v2-text-text-base font-medium">{language.t("machines.tasks")}</h3>
