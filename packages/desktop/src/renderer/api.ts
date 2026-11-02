@@ -138,4 +138,5 @@ export const api: ElectronAPI = {
   machinesStop: (id) => invoke("MachinesStop", { id }).then(mutable),
   machinesSnapshot: (id) => invoke("MachinesSnapshot", { id }).then(mutable),
   machinesExec: (id, command) => invoke("MachinesExec", { id, command }).then(mutable),
+  machinesLogs: (id) => invoke("MachinesLogs", { id }).then(mutable),
 }

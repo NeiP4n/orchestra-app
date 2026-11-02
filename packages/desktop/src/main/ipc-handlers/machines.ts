@@ -5,6 +5,7 @@ import {
   createExecFileExecutor,
   detectContainerRuntime,
   execInContainer,
+  logsContainer,
   snapshotContainer,
   startContainer,
   stopContainer,
@@ -253,6 +254,23 @@ export const machineHandlers = MachineRpcs.toLayer(
           const runtime = yield* Effect.tryPromise(() => detectContainerRuntime(exec))
 
           return yield* Effect.tryPromise(() => execInContainer(exec, runtime, machine, command))
+        }),
+      MachinesLogs: ({ id }) =>
+        Effect.gen(function* () {
+          const raw = storage.state.items(namespace).items[id]
+
+          if (!raw) return yield* Effect.fail(new Error(`Machine ${id} not found`))
+
+          const machine = parseMachine(raw)
+
+          if (machine.backend !== "container") {
+            return yield* Effect.fail(new Error(`Machine ${id} backend ${machine.backend} cannot show logs yet`))
+          }
+
+          const exec = createExecFileExecutor()
+          const runtime = yield* Effect.tryPromise(() => detectContainerRuntime(exec))
+
+          return yield* Effect.tryPromise(() => logsContainer(exec, runtime, machine))
         }),
     })
   }),

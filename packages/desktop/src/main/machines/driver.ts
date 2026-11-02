@@ -63,6 +63,10 @@ export function containerStatusCommand(runtime: ContainerRuntime, machine: Machi
   return [runtime, "inspect", "-f", "{{.State.Running}}", containerName(machine.id)]
 }
 
+export function containerLogsCommand(runtime: ContainerRuntime, machine: Machine): string[] {
+  return [runtime, "logs", "--tail", "100", containerName(machine.id)]
+}
+
 // A container snapshot is a committed image of the machine's filesystem.
 // Restoring it is starting a container from that image, via the existing
 // start command with the snapshot image instead of the base image.

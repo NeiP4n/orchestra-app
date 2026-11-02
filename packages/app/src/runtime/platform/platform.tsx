@@ -123,6 +123,7 @@ type PlatformBase = {
     stop(id: string): Promise<Machine>
     snapshot(id: string): Promise<Machine>
     exec(id: string, command: string[]): Promise<{ stdout: string; exitCode: number }>
+    logs(id: string): Promise<{ stdout: string; exitCode: number }>
   }
 }
 

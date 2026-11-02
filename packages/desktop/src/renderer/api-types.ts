@@ -89,4 +89,5 @@ export type ElectronAPI = {
   machinesStop(id: string): Promise<DesktopMachine>
   machinesSnapshot(id: string): Promise<DesktopMachine>
   machinesExec(id: string, command: string[]): Promise<{ stdout: string; exitCode: number }>
+  machinesLogs(id: string): Promise<{ stdout: string; exitCode: number }>
 }

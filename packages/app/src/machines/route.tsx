@@ -22,6 +22,7 @@ export function MachinesRoute() {
   const [filesPath, setFilesPath] = createSignal("/")
   const [filesOutput, setFilesOutput] = createSignal("")
   const [tasksOutput, setTasksOutput] = createSignal("")
+  const [logsOutput, setLogsOutput] = createSignal("")
   const [backend, setBackend] = createSignal<MachineBackend>("firecracker")
   const [selectedId, setSelectedId] = createSignal<string | undefined>(undefined)
   const selected = createMemo(() => machines.find((machine) => machine.id === selectedId()))
@@ -210,6 +211,15 @@ export function MachinesRoute() {
       .catch(() => undefined)
   }
 
+  const refreshLogs = (id: string) => {
+    if (!platform.machines) return
+
+    void platform.machines
+      .logs(id)
+      .then((result) => setLogsOutput(`${result.stdout}\n${language.t("machines.exitCode")}: ${result.exitCode}`))
+      .catch(() => undefined)
+  }
+
   const remove = (id: string) => {
     setMachines((list) => removeMachine(list, id))
 
@@ -390,6 +400,25 @@ export function MachinesRoute() {
                 {language.t("machines.refresh")}
               </button>
               <pre class="mt-2 whitespace-pre-wrap text-v2-text-text-base">{tasksOutput()}</pre>
+            </Show>
+          </div>
+          <div class="rounded-md border border-v2-border-border-base p-3">
+            <h3 class="text-v2-text-text-base font-medium">{language.t("machines.logs")}</h3>
+            <Show
+              when={platform.machines && selected()?.status === "running"}
+              fallback={<p class="text-v2-text-text-muted">{language.t("machines.logsEmpty")}</p>}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  const machine = selected()
+
+                  if (machine) refreshLogs(machine.id)
+                }}
+              >
+                {language.t("machines.refresh")}
+              </button>
+              <pre class="mt-2 whitespace-pre-wrap text-v2-text-text-base">{logsOutput()}</pre>
             </Show>
           </div>
         </section>

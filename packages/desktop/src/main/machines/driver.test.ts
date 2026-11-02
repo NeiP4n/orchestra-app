@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   containerExecCommand,
+  containerLogsCommand,
   containerName,
   containerRemoveCommand,
   containerSnapshotCommand,
@@ -60,6 +61,16 @@ describe("container machine driver", () => {
       "inspect",
       "-f",
       "{{.State.Running}}",
+      "orchestra-machine-m1",
+    ])
+  })
+
+  test("logs tails the last 100 lines of the container", () => {
+    expect(containerLogsCommand("docker", machine)).toEqual([
+      "docker",
+      "logs",
+      "--tail",
+      "100",
       "orchestra-machine-m1",
     ])
   })

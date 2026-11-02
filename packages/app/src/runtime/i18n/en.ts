@@ -513,6 +513,8 @@ export const dict = {
   "machines.files": "Files",
   "machines.filesEmpty": "Files inside this machine will appear here once it is running.",
   "machines.tasks": "Tasks",
+  "machines.logs": "Logs",
+  "machines.logsEmpty": "Logs from this machine will appear here once it is running.",
   "machines.tasksEmpty": "Tasks for this machine will appear here once it is running.",
   "machines.status.creating": "Creating",
   "machines.status.stopped": "Stopped",
