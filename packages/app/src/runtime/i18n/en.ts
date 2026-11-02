@@ -498,6 +498,16 @@ export const dict = {
   "machines.snapshot": "Snapshot",
   "machines.networkOn": "Enable network",
   "machines.networkOff": "Disable network",
+  "muse.title": "Muse",
+  "muse.description":
+    "A separate Muse chat, like the browser chat with Muse, running inside Orchestra on the Muse Spark model.",
+  "muse.tools":
+    "From this chat, Muse can manage the same Orchestra: list agents, create sessions, send them prompts, and switch their agent or model, using the orchestra_* tools.",
+  "muse.openChat": "Open Muse chat",
+  "muse.noServer": "No Orchestra server is connected yet.",
+  "muse.noProject": "Open a project first, then open the Muse chat.",
+  "muse.keyNote":
+    "The Muse chat needs a Meta Model API key connected in Settings, under the Meta provider. Muse's browser sign-in credential works only in Muse Code itself, not in Orchestra.",
   "machines.delete": "Delete",
   "machines.containerNote": "Container (not a full PC)",
   "machines.fullVmNote": "Full VM",

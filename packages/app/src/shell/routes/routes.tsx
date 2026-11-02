@@ -19,6 +19,8 @@ const DraftRoute = lazy(() => import("@/new-session/route").then((module) => ({ 
 
 const MachinesRoute = lazy(() => import("@/machines/route").then((module) => ({ default: module.MachinesRoute })))
 
+const MuseRoute = lazy(() => import("@/muse/route").then((module) => ({ default: module.MuseRoute })))
+
 const SettingsScreen = lazy(() => import("@/settings/shell").then((module) => ({ default: module.SettingsScreen })))
 
 const ConnectServerScreen = lazy(() =>
@@ -47,6 +49,7 @@ export function AppRoutes() {
     <Route component={AppLayout}>
       <Route path="/" component={Home} />
       <Route path="/machines" component={MachinesRoute} />
+      <Route path="/muse" component={MuseRoute} />
       <Route path="/settings" component={SettingsScreen} />
       <Route
         path="/server/:serverKey/session/:id"

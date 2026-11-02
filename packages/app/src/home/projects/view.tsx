@@ -363,6 +363,16 @@ export function HomeUtilityNav(props: {
           <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("machines.title")}</span>
         </HomeProjectNavButton>
       </Show>
+      <Show when={platform.platform === "desktop"}>
+        <HomeProjectNavButton
+          type="button"
+          class="text-v2-text-text-faint [&>[data-slot=icon-svg]]:text-v2-icon-icon-muted"
+          onClick={() => navigate("/muse")}
+        >
+          <Icon name="brain" size="small" />
+          <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("muse.title")}</span>
+        </HomeProjectNavButton>
+      </Show>
       <HomeProjectNavButton
         type="button"
         class="text-v2-text-text-faint [&>[data-slot=icon-svg]]:text-v2-icon-icon-muted"
