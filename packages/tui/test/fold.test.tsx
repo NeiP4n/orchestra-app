@@ -16,7 +16,7 @@ beforeAll(() => setActiveLanguage("ru"))
 afterAll(() => setActiveLanguage("en"))
 
 const zen =
-  "Error: Zen's free tier counts requests per IP address, and this address has used its daily allowance until the daily reset. Retrying from the same address cannot help: turn on OpenCode-only WARP routing and Auto IP to continue from another address, or choose another model."
+  "Error: Zen's free tier counts requests per IP address, and this address has used its daily allowance until the daily reset. Retrying from the same address cannot help: wait for the daily reset to continue from this address, or choose another model."
 
 describe("folding rules", () => {
   test("short text is left alone and long text keeps its first rows", () => {
@@ -75,12 +75,12 @@ describe("error card", () => {
     const collapsed = app.captureCharFrame()
     expect(collapsed).toContain("▸ подробнее")
     expect(collapsed).toContain("✗")
-    expect(collapsed).not.toContain("OpenCode-only")
+    expect(collapsed).not.toContain("wait for the daily reset")
     await click(app, "▸ подробнее")
-    await app.waitForFrame((frame) => frame.includes("OpenCode-only"))
+    await app.waitForFrame((frame) => frame.includes("wait for the daily reset"))
     expect(app.captureCharFrame()).toContain("▾ свернуть")
     await click(app, "▾ свернуть")
-    await app.waitForFrame((frame) => !frame.includes("OpenCode-only"))
+    await app.waitForFrame((frame) => !frame.includes("wait for the daily reset"))
   })
 
   test("a short error stays a single plain line with no toggle", async () => {

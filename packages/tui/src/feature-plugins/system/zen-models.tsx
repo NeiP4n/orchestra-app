@@ -172,7 +172,7 @@ export default Plugin.define({
     }
 
     // Runs only when asked: every check is one request per model through the server, so it follows
-    // the same route as chat (direct, WARP or a proxy) and spends the same allowance.
+    // the same route as chat and spends the same allowance.
     async function refresh() {
       if (state.running) return
       update((draft) => { draft.running = true })
