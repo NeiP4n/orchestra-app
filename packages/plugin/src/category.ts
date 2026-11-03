@@ -51,7 +51,6 @@ export function categorizePlugin(id?: string, target?: string): PluginCategory {
     text.includes("groq") ||
     text.includes("mistral") ||
     text.includes("ollama") ||
-    text.includes("proxy-manager") ||
     /(?:^|[./_-])model(?:s)?(?:[./_-]|$)/.test(text)
   ) {
     return "Providers & Models"

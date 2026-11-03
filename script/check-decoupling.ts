@@ -184,11 +184,6 @@ export const ALLOWLIST: readonly DecouplingAllowlistEntry[] = [
     reason: "Legacy default web server fallback in TUI notes",
   },
   {
-    path: "packages/tui/src/feature-plugins/system/proxy-manager-core.ts",
-    allowed: ["opencode.ai"],
-    reason: "OpenCode Zen proxy manager upstream target",
-  },
-  {
     path: "packages/tui/src/feature-plugins/system/stats.tsx",
     allowed: ["opencode.ai"],
     reason: "Zen models quota and documentation URL",
