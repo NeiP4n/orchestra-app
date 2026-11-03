@@ -56,6 +56,7 @@ function render(
     createdMainGate?: Promise<void>
     groups?: { name: string; projects: string[]; mode?: "lead" | "council"; supervisor?: string }[]
     sessionID?: string
+    roster?: ReturnType<typeof session>[]
   } = {},
 ) {
   let projectCreated = false
@@ -128,7 +129,11 @@ function render(
       if (url.pathname === "/api/orchestra/project") return json(projectCreated ? [...projects, createdProject] : projects)
       if (url.pathname === "/api/orchestra/template") return json([team])
       if (url.pathname === `/api/orchestra/project/${project.id}/session`)
-        return json({ data: [listed], access: { [worker.id]: "write" }, category: { [worker.id]: "Build" } })
+        return json({
+          data: options.roster ?? [listed],
+          access: { [worker.id]: "write" },
+          category: { [worker.id]: "Build" },
+        })
       if (url.pathname === `/api/orchestra/project/${createdProject.id}/session`) {
         // Some backends can be slow to load a newly-created project's roster.
         // Keep the route controllably pending to verify opening the main session is independent.
@@ -536,4 +541,34 @@ test("the compact layout docks both side panels beside the chat on a laptop-size
   const row = top(await setup.waitForFrame((frame) => top(frame).includes("Worker task")))
   // the sidebar is the compact width, at the right edge
   expect(row.indexOf("Worker task")).toBeGreaterThanOrEqual(140 - SESSION_SIDEBAR_COMPACT_WIDTH)
+})
+
+test("an expanded project folds sessions past the cap behind a more row", async () => {
+  await using state = await tmpdir()
+  const calls: Call[] = []
+  const roster = [
+    worker,
+    ...Array.from({ length: 11 }, (_, index) =>
+      session(`ses_task${index + 1}`, `Task ${String(index + 1).padStart(2, "0")}`),
+    ),
+  ]
+  await using setup = await render(state.path, calls, [project], worker, "full", { width: 140, roster })
+
+  // Twelve sessions, eight shown: the rest fold behind one row instead of
+  // burying the panel.
+  const folded = await setup.waitForFrame(
+    (frame) => frame.includes("Task 01") && frame.includes("+ 4 more"),
+    { maxPasses: 100 },
+  )
+  expect(folded).not.toContain("Task 11")
+
+  await setup.renderOnce()
+  const more = cell(setup.captureCharFrame(), "+ 4 more")
+  await setup.mockMouse.click(more.x + 2, more.y)
+
+  const unfolded = await setup.waitForFrame(
+    (frame) => frame.includes("Task 11") && frame.includes("Show less"),
+    { maxPasses: 100 },
+  )
+  expect(unfolded).not.toContain("+ 4 more")
 })
