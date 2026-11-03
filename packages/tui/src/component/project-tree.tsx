@@ -52,6 +52,11 @@ import { AllSessionsField, useEmptyRoom } from "./session-network"
 
 const ACCESS_ORDER: readonly OrchestraAccess[] = ["hidden", "read", "write", "full"]
 
+// Sessions shown under one expanded project before the rest fold behind a
+// "+ N more" row. A team project accumulates a session per role and attempt;
+// listing all of them buries every other project in the panel.
+const SESSION_LIMIT = 8
+
 export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?: () => void; onShow?: () => void }) {
   const t = useT()
   const client = useClient()
@@ -159,6 +164,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
   }
   const [joined, updateJoined] = useJoinedRooms()
   const [expanded, setExpanded] = createStore<Record<string, boolean>>({})
+  const [showAll, setShowAll] = createStore<Record<string, boolean>>({})
   const [access, setAccess] = createStore<Record<string, OrchestraAccess>>({})
   const [category, setCategory] = createStore<Record<string, string | undefined>>({})
   const [hover, setHoverState] = createSignal<string>()
@@ -444,6 +450,31 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       (id) => id !== undefined && data.session.status(id) === "running",
     )
 
+  // The groups actually rendered: capped at SESSION_LIMIT sessions unless the
+  // operator asked for all of them. The open session is always kept, so the
+  // tree still shows where you are even when it sits past the cap.
+  const visibleGroupsOf = (project: OrchestraProject) => {
+    const groups = groupsOf(project)
+    const total = groups.reduce((count, group) => count + group.sessions.length, 0)
+    if (showAll[project.id] || total <= SESSION_LIMIT) return { groups, hidden: 0, total }
+    const open = current()?.id
+    let budget = SESSION_LIMIT
+    const visible = groups
+      .map((group) => ({
+        ...group,
+        sessions: group.sessions.filter((session) => {
+          if (budget > 0) {
+            budget--
+            return true
+          }
+          return session.id === open
+        }),
+      }))
+      .filter((group) => group.sessions.length > 0)
+    const shown = visible.reduce((count, group) => count + group.sessions.length, 0)
+    return { groups: visible, hidden: total - shown, total }
+  }
+
   // Categories in first-seen order; sessions without one come last, under "Other"
   // only when the project uses categories at all.
   const groupsOf = (project: OrchestraProject) => {
@@ -675,7 +706,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                       {project.main !== undefined && waiting().has(project.main) ? `? ${t("Orchestrator")}` : t("Orchestrator")}
                     </text>
                   </Row>
-                  <For each={groupsOf(project)}>
+                  <For each={visibleGroupsOf(project).groups}>
                     {(group) => (
                       <>
                         <Show when={group.name}>
@@ -773,6 +804,28 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                       </>
                     )}
                   </For>
+                  <Show when={visibleGroupsOf(project).hidden > 0}>
+                    <Row
+                      id={`${project.id}:more`}
+                      hover={hover}
+                      setHover={setHover}
+                      onClick={() => setShowAll(project.id, true)}
+                    >
+                      <Branch />
+                      <text fg={theme.text.muted}>{t("+ {count} more", { count: visibleGroupsOf(project).hidden })}</text>
+                    </Row>
+                  </Show>
+                  <Show when={showAll[project.id] && visibleGroupsOf(project).total > SESSION_LIMIT}>
+                    <Row
+                      id={`${project.id}:less`}
+                      hover={hover}
+                      setHover={setHover}
+                      onClick={() => setShowAll(project.id, false)}
+                    >
+                      <Branch />
+                      <text fg={theme.text.muted}>{t("Show less")}</text>
+                    </Row>
+                  </Show>
                   <Row
                     id={`${project.id}:new`}
                     hover={hover}
