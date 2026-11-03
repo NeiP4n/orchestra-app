@@ -8,7 +8,6 @@ import { sessionLocationMissingStory } from "./session-location-missing"
 import { oneCellSpinnerStory } from "./one-cell-spinner"
 import { notesCanvasStory } from "./notes-canvas"
 import { compatStory } from "./compat"
-import { warpSidebarStory } from "./warp-sidebar"
 import { orchestraAudioFxStory } from "./orchestra-audio-fx"
 
 /**
@@ -28,7 +27,6 @@ const stories: Story[] = [
   oneCellSpinnerStory,
   notesCanvasStory,
   compatStory,
-  warpSidebarStory,
   orchestraAudioFxStory,
 ]
 
