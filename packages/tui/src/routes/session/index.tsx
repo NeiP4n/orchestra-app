@@ -1675,6 +1675,7 @@ export function Session(props: {
                     directory={session()!.location.directory}
                     projectID={session()!.projectID}
                     sessionID={route.sessionID}
+                    error={currentLocation.error?.cause}
                   />
                 </Match>
                 <Match when={!disabled()}>

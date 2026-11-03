@@ -1,4 +1,4 @@
-import { createMemo } from "solid-js"
+import { createMemo, Show } from "solid-js"
 import { useTuiPaths } from "../../context/runtime"
 import { useTheme } from "../../context/theme"
 import { Locale } from "../../util/locale"
@@ -11,7 +11,12 @@ import { errorMessage } from "../../util/error"
 import { DialogWorkspaces, type WorkspaceSelection } from "../../component/dialog-workspaces"
 import { useData } from "../../context/data"
 
-export function SessionLocationMissing(props: { directory: string; projectID: string; sessionID: string }) {
+export function SessionLocationMissing(props: {
+  directory: string
+  projectID: string
+  sessionID: string
+  error?: unknown
+}) {
   const dialog = useDialog()
   const client = useClient()
   const toast = useToast()
@@ -53,10 +58,16 @@ export function SessionLocationMissing(props: { directory: string; projectID: st
     })
   }
 
-  return <SessionLocationUnavailable directory={props.directory} onMove={open} />
+  return (
+    <SessionLocationUnavailable
+      directory={props.directory}
+      onMove={open}
+      message={props.error === undefined ? undefined : errorMessage(props.error)}
+    />
+  )
 }
 
-export function SessionLocationUnavailable(props: { directory: string; onMove: () => void }) {
+export function SessionLocationUnavailable(props: { directory: string; onMove: () => void; message?: string }) {
   const paths = useTuiPaths()
   const theme = useTheme()
   const directory = createMemo(() => Locale.truncateMiddle(abbreviateHome(props.directory, paths.home), 72))
@@ -71,6 +82,12 @@ export function SessionLocationUnavailable(props: { directory: string; onMove: (
       body={
         <box paddingLeft={1} gap={1}>
           <text fg={theme.text.muted}>{directory()}</text>
+          {/* The failure cause is the only clue to whether the directory is
+              gone, its config is broken or a plugin failed to load; without
+              it this screen is an undiagnosable dead end. */}
+          <Show when={props.message}>
+            {(message) => <text fg={theme.text.feedback.error.base}>{message()}</text>}
+          </Show>
           <text fg={theme.text.base}>Choose another directory to continue this session.</text>
         </box>
       }
