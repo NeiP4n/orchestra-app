@@ -16,6 +16,7 @@ import { isRecord } from "../util/record"
 import { useToast } from "../ui/toast"
 import { Spinner } from "./spinner"
 import { DialogWorkspaceFileChanges } from "./dialog-workspace-file-changes"
+import { DialogPrompt } from "../ui/dialog-prompt"
 import type { WorktreeListOutput } from "@orchestra/client"
 import { useRoute } from "../context/route"
 import { DialogWorktreeName } from "./dialog-worktree-name"
@@ -106,7 +107,17 @@ export function DialogWorkspaces(props: DialogWorkspacesProps) {
   function refresh() {
     return client.api.worktree.refresh({ projectID: props.projectID })
   }
-  const directoryData = createMemo(() => directories.latest ?? props.initialDirectories)
+  // The saved inventory only ever holds discovered checkouts: a project that is
+  // not a git repository gets no rows at all, so its list would always be empty.
+  // The project's own canonical directory is always a valid destination, so it
+  // is offered even when discovery saved nothing.
+  const directoryData = createMemo(() => {
+    const data = directories.latest ?? props.initialDirectories
+    const canonical = sessionData.project.get(props.projectID)?.canonical
+    if (!canonical || canonical === "/") return data
+    if (data?.some((item) => item.directory === canonical)) return data
+    return [...(data ?? []), { directory: canonical }]
+  })
   // Show the locked error view only when we have nothing to display. A refresh
   // that fails after the list rendered keeps the list and its actions.
   const showError = createMemo(() => Boolean(loadError()) && !directoryData())
@@ -309,6 +320,34 @@ export function DialogWorkspaces(props: DialogWorkspacesProps) {
     props.onSelect({ type: "new", name })
   }
 
+  // Worktrees are discovered only for git projects, so a plain directory can
+  // never appear in the list above. Any existing directory is a valid move
+  // destination on the server, so let the operator type one instead of
+  // dead-ending on an empty list.
+  function enterPath() {
+    dialog.replace(() => (
+      <DialogPrompt
+        title="Directory path"
+        placeholder="/path/to/directory"
+        description={() => <text fg={theme.text.muted}>Any existing directory, ~ for your home directory.</text>}
+        onCancel={() => reopen()}
+        onConfirm={(value) => {
+          const directory = enteredDirectory(value)
+          if (!directory) return reopen()
+          props.onSelect({ type: "directory", directory, subdirectory: false })
+        }}
+      />
+    ))
+  }
+
+  function enteredDirectory(value: string) {
+    const trimmed = value.trim()
+    if (!trimmed) return undefined
+    const expanded =
+      trimmed === "~" ? paths.home : trimmed.startsWith("~/") ? path.join(paths.home, trimmed.slice(2)) : trimmed
+    return path.isAbsolute(expanded) ? expanded : path.resolve(paths.cwd, expanded)
+  }
+
   async function move(option: DialogSelectOption<WorkspaceSelection | undefined>) {
     if (route.data.type !== "session" || option.value?.type !== "directory") return
     const sessionID = route.data.sessionID
@@ -354,6 +393,9 @@ export function DialogWorkspaces(props: DialogWorkspacesProps) {
           ) : (
             <box paddingLeft={4} paddingRight={4}>
               <text fg={theme.text.muted}>No worktrees available</text>
+              <text fg={theme.text.muted}>
+                Press {shortcuts.get("dialog.move_session.path")} to enter a directory path instead.
+              </text>
             </box>
           )
         }
@@ -380,6 +422,12 @@ export function DialogWorkspaces(props: DialogWorkspacesProps) {
                   title: "new",
                   selection: "none",
                   onTrigger: () => void create(),
+                },
+                {
+                  command: "dialog.move_session.path",
+                  title: "path",
+                  selection: "none",
+                  onTrigger: () => enterPath(),
                 },
                 {
                   command: "dialog.move_session.delete",
