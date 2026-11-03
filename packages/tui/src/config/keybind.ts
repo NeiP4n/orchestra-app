@@ -278,6 +278,7 @@ export const Definitions = {
   "dialog.move_session.move": keybind("ctrl+m", "Move session to worktree"),
   "dialog.move_session.delete": keybind("ctrl+d", "Delete worktree"),
   "dialog.move_session.refresh": keybind("ctrl+r", "Refresh worktrees"),
+  "dialog.move_session.path": keybind("ctrl+e", "Enter directory path"),
   "prompt.autocomplete.prev": keybind("up,ctrl+p", "Move to previous autocomplete item"),
   "prompt.autocomplete.next": keybind("down,ctrl+n", "Move to next autocomplete item"),
   "prompt.autocomplete.hide": keybind("escape", "Hide autocomplete"),
