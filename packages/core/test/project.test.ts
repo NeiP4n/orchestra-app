@@ -10,6 +10,8 @@ import { Database } from "@orchestra/core/database/database"
 import { Project } from "@orchestra/core/project"
 import { ProjectSchema } from "@orchestra/core/project/schema"
 import { ProjectTable } from "@orchestra/core/project/sql"
+import { WorktreeTable } from "@orchestra/core/worktree/sql"
+import { eq } from "drizzle-orm"
 import { AbsolutePath } from "@orchestra/core/schema"
 import { Hash } from "@orchestra/util/hash"
 import { tmpdir } from "./fixture/tmpdir"
@@ -194,6 +196,30 @@ describe("Project.resolve", () => {
       expect(result.canonical).toBe(result.directory)
       expect(result.previous).toBeUndefined()
       expect(result.vcs).toBeUndefined()
+    }),
+  )
+
+  it.live("records the canonical directory in the worktree inventory for markerless projects", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      const project = yield* Project.Service
+      const db = (yield* Database.Service).db
+
+      const result = yield* project.resolve(abs(tmp.path))
+
+      // Without this row the project has no worktree source: creating a
+      // workspace fails with "Worktree source not found" and the location
+      // picker is empty, even though the directory itself exists.
+      const rows = yield* db
+        .select({ directory: WorktreeTable.directory, strategy: WorktreeTable.strategy })
+        .from(WorktreeTable)
+        .where(eq(WorktreeTable.project_id, result.id))
+        .all()
+        .pipe(Effect.orDie)
+      expect(rows).toEqual([{ directory: result.canonical, strategy: null }])
     }),
   )
 

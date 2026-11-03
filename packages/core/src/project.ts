@@ -128,7 +128,10 @@ const layer = Layer.effect(
           .pipe(Effect.orDie)
         if (row) yield* bus.publish(ProjectSchema.Event.Updated, fromRow(row))
       }
-      if (!project.vcs) return project
+      // Every project owns its canonical directory, git or not: the worktree
+      // inventory is the source list for workspace creation and for the
+      // location picker, and a plain directory project would otherwise have
+      // no rows at all ("Worktree source not found" on create, empty picker).
       const directories: Array<{ projectID: ID; directory: AbsolutePath; strategy?: string }> = [
         { projectID: project.id, directory: project.canonical },
       ]
@@ -136,7 +139,7 @@ const layer = Layer.effect(
         directories.push({
           projectID: project.id,
           directory: project.directory,
-          strategy: project.vcs.type === "git" ? "git" : undefined,
+          strategy: project.vcs?.type === "git" ? "git" : undefined,
         })
       // A missing directory row means this directory's resolution is a new durable
       // fact. The row insert commits atomically with the event, so a crash between
