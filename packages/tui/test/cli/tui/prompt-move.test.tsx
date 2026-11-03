@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/solid */
 import { expect, test } from "bun:test"
-import { InputRenderable } from "@opentui/core"
+import { InputRenderable, TextareaRenderable } from "@opentui/core"
 import { testRender } from "@opentui/solid"
 import { usePromptMove } from "../../../src/component/prompt/move"
 import { ConfigProvider } from "../../../src/config"
@@ -196,6 +196,58 @@ test("choosing a directory recovers the session when its location is unavailable
   }
 })
 
+test("an empty worktree list still offers the project directory for recovery", async () => {
+  const fixture = await renderMove({
+    directory: clone,
+    unavailable: "location",
+    showMissingLocation: true,
+    emptyWorktrees: true,
+  })
+  try {
+    await fixture.data.project.sync()
+    await fixture.app.waitForFrame((frame) => frame.includes("Session location unavailable"))
+    fixture.app.mockInput.pressEnter()
+    // No worktrees are saved for the project, but its canonical checkout is a
+    // valid destination and must not leave the operator with an empty list.
+    await fixture.app.waitForFrame((frame) => frame.includes("Worktrees") && frame.includes(main))
+    await fixture.app.waitFor(() => fixture.app.renderer.currentFocusedEditor instanceof InputRenderable)
+    await fixture.app.mockInput.typeText("main")
+    fixture.app.mockInput.pressEnter()
+    await fixture.app.waitFor(() => fixture.moves.length === 1)
+
+    expect(fixture.moves).toEqual([{ directory: main }])
+    expect(fixture.requests).toEqual([])
+  } finally {
+    fixture.app.renderer.destroy()
+  }
+})
+
+test("entering a directory path recovers the session when no worktrees exist", async () => {
+  const fixture = await renderMove({
+    directory: clone,
+    unavailable: "location",
+    showMissingLocation: true,
+    emptyWorktrees: true,
+  })
+  try {
+    await fixture.app.waitForFrame((frame) => frame.includes("Session location unavailable"))
+    fixture.app.mockInput.pressEnter()
+    await fixture.app.waitForFrame((frame) => frame.includes("Worktrees"))
+    fixture.app.mockInput.pressKey("e", { ctrl: true })
+    await fixture.app.waitForFrame((frame) => frame.includes("Directory path"))
+    await fixture.app.waitFor(() => fixture.app.renderer.currentFocusedEditor instanceof TextareaRenderable)
+    await fixture.app.mockInput.typeText(linked)
+    fixture.app.mockInput.pressEnter()
+    await fixture.app.waitFor(() => fixture.moves.length === 1)
+
+    expect(fixture.moves).toEqual([{ directory: linked }])
+    expect(fixture.route.data).toEqual({ type: "session", sessionID: "ses_clone" })
+    expect(fixture.requests).toEqual([])
+  } finally {
+    fixture.app.renderer.destroy()
+  }
+})
+
 test("creating a worktree recovers the session without reading its removed location", async () => {
   const fixture = await renderMove({ directory: clone, unavailable: "location", showMissingLocation: true })
   try {
@@ -288,6 +340,7 @@ async function renderMove(input: {
   unavailable?: "session" | "location"
   showMissingLocation?: boolean
   moveFails?: boolean
+  emptyWorktrees?: boolean
 }) {
   const launch = input.launch ?? (input.home ? input.directory : main)
   const requests: unknown[] = []
@@ -335,6 +388,7 @@ async function renderMove(input: {
       if (request.method === "GET") {
         const projectID = url.searchParams.get("projectID") ?? ""
         reads.worktrees.push(projectID)
+        if (input.emptyWorktrees) return json([])
         return json(
           projectID === input.launchProjectID
             ? [{ directory: launch }]
