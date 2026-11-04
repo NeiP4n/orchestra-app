@@ -22,6 +22,15 @@ export type CheckResult =
 
 export const DEFAULT_UPDATE_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 
+/**
+ * The update policy when the user has not chosen one: updates install
+ * themselves (automation first). An explicit `update`/`autoupdate` choice in
+ * any config file still wins, including "notify" and "disable". Source
+ * checkouts are exempt — `inspect` reports them as "notify" regardless,
+ * because auto-pulling a working checkout could destroy local work.
+ */
+export const DEFAULT_POLICY: Policy = "auto"
+
 export interface VersionCacheEntry {
   readonly version: string
   readonly checkedAt: number
@@ -170,7 +179,7 @@ const make = Effect.gen(function* () {
         Effect.orElseSucceed(() => undefined),
       ),
     )
-    return values.findLast((value) => value !== undefined) ?? "notify"
+    return values.findLast((value) => value !== undefined) ?? DEFAULT_POLICY
   })
 
   const exec = Effect.fnUntraced(function* (command: string[], timeout: Duration.Input = "10 seconds") {
@@ -369,7 +378,7 @@ const make = Effect.gen(function* () {
     const failure = (detail: string, cause?: unknown) =>
       new UpgradeError(
         {
-          title: input.title ?? `${installNames[input.method]} could not install Orchestra`,
+          title: input.title ?? `${installNames[input.method]} could not install OpenCode`,
           detail,
           command: (input.displayCommand ?? input.command).join(" "),
           retry: input.retry ?? "Fix the issue above, then run orchestra upgrade again.",
@@ -554,7 +563,7 @@ const make = Effect.gen(function* () {
     const current = yield* Ref.get(installedVersion)
     yield* upgrade(detected, version)
     yield* Ref.set(installedVersion, version)
-    yield* Effect.logInfo("updated Orchestra", { from: current, to: version, method: detected })
+    yield* Effect.logInfo("updated OpenCode", { from: current, to: version, method: detected })
     return true
   })
 
