@@ -10,7 +10,7 @@ import {
   type RunTheme,
 } from "../../src/mini/theme"
 import { DEFAULT_THEMES, getOrchestraTheme, parseTheme } from "../../src/theme"
-import { generateSystem } from "../../src/theme/system"
+import { contrastRatio, generateSystem, terminalDefaultForegroundReadable } from "../../src/theme/system"
 import { tmpdir } from "../fixture/fixture"
 
 const tmp = await tmpdir()
@@ -186,6 +186,31 @@ test.each(["light", "dark"] as const)("shares the %s system scheme while retaini
     expect(rgba(theme.footer.surface).intent).toBe("rgb")
     expect(rgba(theme.entry.reasoning.body).intent).toBe("indexed")
     Object.values(theme.splash).forEach((color) => expect(rgba(color).intent).toBe("indexed"))
+  } finally {
+    theme.block.syntax?.destroy()
+  }
+})
+
+test.each([
+  ["dark", "#000000"],
+  ["light", "#ffffff"],
+] as const)("keeps mini text readable when the terminal reports %s on the same background", async (mode, background) => {
+  const colors = terminalColors({ defaultBackground: background, defaultForeground: background }, mode)
+  expect(terminalDefaultForegroundReadable(colors)).toBe(false)
+
+  const theme = await resolveRunTheme(renderer({ colors }), { name: "system", mode })
+  const surface = RGBA.fromHex(background)
+  try {
+    expect(rgba(theme.footer.text).intent).not.toBe("default")
+    expect(contrastRatio(rgba(theme.footer.text), surface)).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(rgba(theme.footer.muted), surface)).toBeGreaterThanOrEqual(3.5)
+    expect(contrastRatio(rgba(theme.entry.user.body), surface)).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(rgba(theme.entry.assistant.body), surface)).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(rgba(theme.entry.reasoning.body), surface)).toBeGreaterThanOrEqual(3.5)
+    expect(contrastRatio(rgba(theme.block.text), surface)).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(rgba(theme.block.muted), surface)).toBeGreaterThanOrEqual(3.5)
+    expect(contrastRatio(rgba(theme.splash.left), surface)).toBeGreaterThanOrEqual(3.5)
+    expect(contrastRatio(rgba(theme.splash.right), surface)).toBeGreaterThanOrEqual(4.5)
   } finally {
     theme.block.syntax?.destroy()
   }
