@@ -7,6 +7,7 @@ import { useProjects } from "../context/projects"
 import { useRoute } from "../context/route"
 import { useTheme } from "../context/theme"
 import type { DialogContext } from "../ui/dialog"
+import { hoverBackground } from "../ui/hover"
 import { useToast } from "../ui/toast"
 import { errorMessage } from "../util/error"
 import { useGroupT } from "../util/i18n-groups"
@@ -221,10 +222,20 @@ function Field(props: { label: string; children: JSX.Element }) {
 function Chip(props: { label: string; selected: boolean; onClick: () => void }) {
   const theme = useTheme().surface("dialog")
   const [hover, setHover] = createSignal(false)
-  const tone = () =>
-    hover() ? theme.text.formfield.hovered : props.selected ? theme.text.formfield.selected : theme.text.formfield.base
+  const tone = () => hover() ? theme.text.base : props.selected ? theme.text.formfield.selected : theme.text.formfield.base
   return (
-    <box flexShrink={0} onMouseOver={() => setHover(true)} onMouseOut={() => setHover(false)} onMouseUp={() => props.onClick()}>
+    <box
+      flexShrink={0}
+      paddingLeft={1}
+      paddingRight={1}
+      backgroundColor={hover() ? hoverBackground(theme) : props.selected ? theme.background.formfield.selected : undefined}
+      onMouseOver={() => setHover(true)}
+      onMouseOut={() => setHover(false)}
+      onMouseUp={(event) => {
+        event.stopPropagation()
+        props.onClick()
+      }}
+    >
       <text fg={tone()} wrapMode="none">
         {`${props.selected ? "■" : "□"} ${props.label}`}
       </text>
