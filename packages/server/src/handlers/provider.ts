@@ -1,4 +1,7 @@
 import { Provider } from "@orchestra/core/provider"
+import { Credential } from "@orchestra/core/credential"
+import { discoverModels, reachable } from "@orchestra/core/provider-discovery"
+import { Integration } from "@orchestra/schema/integration"
 import { ProviderNotFoundError } from "@orchestra/protocol/errors"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
@@ -42,6 +45,42 @@ export const ProviderHandler = HttpApiBuilder.group(Api, "server.provider", (han
               message: `Provider not found: ${ctx.params.providerID}`,
             })
           return yield* response(Effect.succeed(withoutSecrets(provider)))
+        }),
+      )
+      .handle(
+        "provider.discover",
+        Effect.fn(function* (ctx) {
+          const payload = ctx.payload
+          let apiKey = payload.apiKey
+          // No key in the request: resolve the endpoint's stored credential
+          // here, server-side. The key is used for this call only and is
+          // never part of the response.
+          if (!apiKey && payload.providerID) {
+            const credentials = yield* Credential.Service
+            const stored = yield* credentials.list(Integration.ID.make(payload.providerID))
+            // Credential listings order each integration's selected credential
+            // last, so the selected key is the last key credential in the list.
+            const key = [...stored].reverse().find((item) => item.value.type === "key")
+            if (key?.value.type === "key") apiKey = key.value.key
+          }
+          const result = yield* Effect.promise(() =>
+            discoverModels({ baseURL: payload.baseURL, apiKey, headers: payload.headers }),
+          )
+          return {
+            ok: result.ok,
+            reachable: reachable(result),
+            models: result.ok ? result.models : [],
+            ...(result.ok ? { latencyMs: result.latencyMs } : {}),
+            ...(result.ok
+              ? {}
+              : {
+                  error: {
+                    kind: result.error.kind,
+                    message: result.error.message,
+                    ...("status" in result.error ? { status: result.error.status } : {}),
+                  },
+                }),
+          }
         }),
       )
   }),

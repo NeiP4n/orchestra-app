@@ -21,6 +21,7 @@ import { Mcp } from "../mcp/index.js"
 import { Session } from "../session.js"
 import { PersistentPty } from "../persistent-pty.js"
 import { Provider } from "../provider.js"
+import { discoverModels, reachable } from "../provider-discovery.js"
 import { Reference } from "../reference.js"
 import { Rpc } from "../rpc.js"
 import { AbsolutePath, type DeepMutable } from "../schema.js"
@@ -52,6 +53,7 @@ export const make = Effect.fn("PluginHost.make")(function* (
   const agents = yield* Agent.Service
   const aisdk = yield* AISDK.Service
   const providers = yield* Provider.Service
+  const credentials = yield* Credential.Service
   const models = yield* Model.Service
   const commands = yield* Command.Service
   const bus = yield* Bus.Service
@@ -207,6 +209,37 @@ export const make = Effect.fn("PluginHost.make")(function* (
                 : response(Effect.succeed(provider)),
             ),
           ),
+      // Same discovery the HTTP handler exposes: a key typed by the user is
+      // used directly; otherwise the provider's stored credential is resolved
+      // here and never leaves the process.
+      discover: (input) =>
+        Effect.gen(function* () {
+          let apiKey = input.apiKey
+          if (!apiKey && input.providerID) {
+            const stored = yield* credentials.list(Integration.ID.make(input.providerID))
+            // Credential listings order each integration's selected credential last.
+            const key = [...stored].reverse().find((item) => item.value.type === "key")
+            if (key?.value.type === "key") apiKey = key.value.key
+          }
+          const result = yield* Effect.promise(() =>
+            discoverModels({ baseURL: input.baseURL, apiKey, headers: input.headers }),
+          )
+          return {
+            ok: result.ok,
+            reachable: reachable(result),
+            models: result.ok ? result.models : [],
+            ...(result.ok ? { latencyMs: result.latencyMs } : {}),
+            ...(result.ok
+              ? {}
+              : {
+                  error: {
+                    kind: result.error.kind,
+                    message: result.error.message,
+                    ...("status" in result.error ? { status: result.error.status } : {}),
+                  },
+                }),
+          }
+        }),
       reload: providers.reload,
       transform: (callback) =>
         providers.transform((editor) => {
@@ -592,6 +625,7 @@ export const requirements = LayerNode.group([
   App.node,
   Agent.node,
   AISDK.node,
+  Credential.node,
   Provider.node,
   Model.node,
   Command.node,

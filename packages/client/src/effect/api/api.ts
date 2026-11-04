@@ -1561,9 +1561,27 @@ export type ProviderGetInput = {
 export type ProviderGetOutput = { readonly location: Location.PublicRef; readonly data: Provider.Info }
 export type ProviderGetOperation<E = never> = (input: ProviderGetInput) => Effect.Effect<ProviderGetOutput, E>
 
+export type ProviderDiscoverInput = {
+  readonly baseURL: string
+  readonly apiKey?: string | undefined
+  readonly headers?: { readonly [x: string]: string } | undefined
+  readonly providerID?: Provider.ID | undefined
+}
+export type ProviderDiscoverOutput = {
+  readonly ok: boolean
+  readonly reachable: boolean
+  readonly models: ReadonlyArray<{ readonly id: string; readonly name?: string | undefined }>
+  readonly latencyMs?: number | undefined
+  readonly error?: { readonly kind: string; readonly message: string; readonly status?: number | undefined } | undefined
+}
+export type ProviderDiscoverOperation<E = never> = (
+  input: ProviderDiscoverInput,
+) => Effect.Effect<ProviderDiscoverOutput, E>
+
 export interface ProviderApi<E = never> {
   readonly list: ProviderListOperation<E>
   readonly get: ProviderGetOperation<E>
+  readonly discover: ProviderDiscoverOperation<E>
 }
 
 export type IntegrationListInput = { readonly location?: { readonly directory?: string | undefined } | undefined }
@@ -2496,6 +2514,101 @@ export type ConfigUpdateInput = {
   readonly shell?: string | null
   readonly model?: string | null
   readonly model_favorites?: ReadonlyArray<string> | null
+  readonly model_collections?: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly enabled: boolean
+    readonly models: ReadonlyArray<string>
+  }> | null
+  readonly providers?: {
+    readonly [x: string]: {
+      readonly canonical?: Provider.ID | undefined
+      readonly name?: string | undefined
+      readonly env?: ReadonlyArray<string> | undefined
+      readonly package?: string | undefined
+      readonly endpoint?: boolean | undefined
+      readonly settings?:
+        | ({
+            readonly timeout?: number | false | undefined
+            readonly headerTimeout?: number | false | undefined
+            readonly chunkTimeout?: number | false | undefined
+            readonly compaction?: Provider.Compaction | undefined
+            readonly transport?: Provider.Transport | undefined
+          } & { readonly [x: string]: Schema.Json | undefined })
+        | undefined
+      readonly headers?: { readonly [x: string]: string } | undefined
+      readonly body?: { readonly [x: string]: Schema.Json } | undefined
+      readonly models?:
+        | {
+            readonly [x: string]: {
+              readonly modelID?: Model.ID | undefined
+              readonly family?: Model.Family | undefined
+              readonly name?: string | undefined
+              readonly compatibility?: Model.Compatibility | undefined
+              readonly package?: string | undefined
+              readonly settings?:
+                | ({ readonly compaction?: Provider.Compaction | undefined } & {
+                    readonly [x: string]: Schema.Json | undefined
+                  })
+                | undefined
+              readonly headers?: { readonly [x: string]: string } | undefined
+              readonly body?: { readonly [x: string]: Schema.Json } | undefined
+              readonly capabilities?:
+                | {
+                    readonly tools?: boolean | undefined
+                    readonly input?: ReadonlyArray<string> | undefined
+                    readonly output?: ReadonlyArray<string> | undefined
+                  }
+                | undefined
+              readonly variants?:
+                | ReadonlyArray<{
+                    readonly id: Model.VariantID
+                    readonly settings?:
+                      | ({ readonly compaction?: Provider.Compaction | undefined } & {
+                          readonly [x: string]: Schema.Json | undefined
+                        })
+                      | undefined
+                    readonly headers?: { readonly [x: string]: string } | undefined
+                    readonly body?: { readonly [x: string]: Schema.Json } | undefined
+                  }>
+                | undefined
+              readonly cost?:
+                | {
+                    readonly tier?: { readonly type: "context"; readonly size: number } | undefined
+                    readonly input: number & Brand.Brand<"Money.USDPerMillionTokens">
+                    readonly output: number & Brand.Brand<"Money.USDPerMillionTokens">
+                    readonly cache?:
+                      | {
+                          readonly read?: (number & Brand.Brand<"Money.USDPerMillionTokens">) | undefined
+                          readonly write?: (number & Brand.Brand<"Money.USDPerMillionTokens">) | undefined
+                        }
+                      | undefined
+                  }
+                | ReadonlyArray<{
+                    readonly tier?: { readonly type: "context"; readonly size: number } | undefined
+                    readonly input: number & Brand.Brand<"Money.USDPerMillionTokens">
+                    readonly output: number & Brand.Brand<"Money.USDPerMillionTokens">
+                    readonly cache?:
+                      | {
+                          readonly read?: (number & Brand.Brand<"Money.USDPerMillionTokens">) | undefined
+                          readonly write?: (number & Brand.Brand<"Money.USDPerMillionTokens">) | undefined
+                        }
+                      | undefined
+                  }>
+                | undefined
+              readonly disabled?: boolean | undefined
+              readonly limit?:
+                | {
+                    readonly context?: number | undefined
+                    readonly input?: number | undefined
+                    readonly output?: number | undefined
+                  }
+                | undefined
+            }
+          }
+        | undefined
+    } | null
+  } | null
   readonly mcpServers?: { readonly [x: string]: Mcp.LocalConfig | Mcp.RemoteConfig | Mcp.StreamableHttpConfig | null }
   readonly proxy?: {
     readonly http?: string | undefined

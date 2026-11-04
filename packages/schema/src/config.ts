@@ -39,6 +39,9 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   model_favorites: ConfigModel.Favorites.pipe(optional).annotate({
     description: "Models pinned to the Feature section of the model picker, as provider/model without a variant",
   }),
+  model_collections: ConfigModel.Collections.pipe(optional).annotate({
+    description: "Named user collections of models (provider/model refs), shown as sections in the model picker",
+  }),
   default_agent: Schema.String.pipe(optional).annotate({
     description: "Default primary agent to use when no session agent is selected",
   }),
@@ -136,6 +139,15 @@ export const Patch = Schema.Struct({
   }),
   model_favorites: Schema.optionalKey(Schema.NullOr(ConfigModel.Favorites)).annotate({
     description: "Models pinned to the Feature section of the model picker, as provider/model without a variant; null clears it",
+  }),
+  model_collections: Schema.optionalKey(Schema.NullOr(ConfigModel.Collections)).annotate({
+    description: "Named model collections to store in the global config; null clears all collections",
+  }),
+  providers: Schema.optionalKey(
+    Schema.NullOr(Schema.Record(Schema.String, Schema.NullOr(ConfigProvider.Info))),
+  ).annotate({
+    description:
+      "Provider configurations (including custom endpoints) to add or replace by provider id; null removes one provider, or the whole section when the value itself is null",
   }),
   mcpServers: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(ConfigMCP.Server))).annotate({
     description: "MCP servers to add or replace under mcp.servers by name; null removes one",

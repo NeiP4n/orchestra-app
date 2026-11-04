@@ -119,6 +119,8 @@ import type {
   ProviderListOutput,
   ProviderGetInput,
   ProviderGetOutput,
+  ProviderDiscoverInput,
+  ProviderDiscoverOutput,
   IntegrationListInput,
   IntegrationListOutput,
   IntegrationGetInput,
@@ -1049,9 +1051,22 @@ const EndpointProviderGet = (raw: RawClient["server.provider"]) => (input: Provi
     ),
   )
 
+const EndpointProviderDiscover = (raw: RawClient["server.provider"]) => (input: ProviderDiscoverInput) =>
+  preserveEffect<ProviderDiscoverOutput>()(
+    raw["provider.discover"]({
+      payload: {
+        baseURL: input["baseURL"],
+        apiKey: input["apiKey"],
+        headers: input["headers"],
+        providerID: input["providerID"],
+      },
+    }).pipe(Effect.mapError(mapClientError)),
+  )
+
 const adaptGroupProvider = (raw: RawClient["server.provider"]) => ({
   list: EndpointProviderList(raw),
   get: EndpointProviderGet(raw),
+  discover: EndpointProviderDiscover(raw),
 })
 
 const EndpointIntegrationList = (raw: RawClient["server.integration"]) => (input?: IntegrationListInput) =>
@@ -1869,6 +1884,8 @@ const EndpointConfigUpdate = (raw: RawClient["server.config"]) => (input?: Confi
         shell: input?.["shell"],
         model: input?.["model"],
         model_favorites: input?.["model_favorites"],
+        model_collections: input?.["model_collections"],
+        providers: input?.["providers"],
         mcpServers: input?.["mcpServers"],
         proxy: input?.["proxy"],
         compatibilityEnabled: input?.["compatibilityEnabled"],

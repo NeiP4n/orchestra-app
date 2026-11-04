@@ -208,6 +208,7 @@ export function normalize(input: unknown): Result {
     proxy: Info.fields.proxy,
     default_agent: Info.fields.default_agent,
     model_favorites: Info.fields.model_favorites,
+    model_collections: Info.fields.model_collections,
     orchestra: Info.fields.orchestra,
     share: Info.fields.share,
     enterprise: Info.fields.enterprise,

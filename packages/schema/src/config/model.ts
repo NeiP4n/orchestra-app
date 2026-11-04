@@ -34,6 +34,25 @@ export const Favorites = Schema.Array(Schema.String.check(Schema.isPattern(/^[^/
   identifier: "Config.ModelFavorites",
 })
 
+/**
+ * A named, user-managed collection of models. Entries are "provider/model"
+ * refs (the favorites format), so a collection may span providers and
+ * custom endpoints. Collections live in the global config document and are
+ * resolved against the live provider registry at read time: an entry whose
+ * provider or model is currently unavailable simply does not resolve, and
+ * deleting a provider never rewrites the collection.
+ */
+export interface Collection extends Schema.Schema.Type<typeof Collection> {}
+export const Collection = Schema.Struct({
+  id: Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9-_]*$/)),
+  name: Schema.String,
+  enabled: Schema.Boolean,
+  models: Favorites,
+}).annotate({ identifier: "Config.ModelCollection" })
+
+export type Collections = Schema.Schema.Type<typeof Collections>
+export const Collections = Schema.Array(Collection).annotate({ identifier: "Config.ModelCollections" })
+
 function parse(input: string): Selection {
   const ref = Model.Ref.parse(input)
   return {

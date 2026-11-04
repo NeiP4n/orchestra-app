@@ -3,6 +3,7 @@ import { useLocal } from "../context/local"
 import { DialogSelect } from "../ui/dialog-select"
 import { useDialog } from "../ui/dialog"
 import { DialogIntegration } from "./dialog-integration"
+import { DialogModelCollections } from "./dialog-model-collections"
 import { DialogVariant } from "./dialog-variant"
 import * as fuzzysort from "fuzzysort"
 import { useConnected } from "./use-connected"
@@ -59,6 +60,15 @@ export function DialogModel(props: {
   const favoriteModels = createMemo(
     () => savedFavorites() ?? mergeModelFavorites(configFavorites() ?? [], local.model.favorite()),
   )
+  // Collections are shared through the same server config document as favorites:
+  // each enabled collection becomes its own picker section, resolved live against
+  // the model list (entries whose provider/model is gone simply do not render).
+  const configCollections = createMemo(() => {
+    const entry = data.location.config
+      .list(location.ref)
+      ?.findLast((entry) => entry.type === "document" && entry.info.model_collections !== undefined)
+    return entry?.type === "document" ? entry.info.model_collections : undefined
+  })
   const favoritePriority = createMemo(() => new Set(favoriteModels().map(modelPreferenceKey)))
   const [freebuffPricing, setFreebuffPricing] = createSignal<FreebuffPricing | undefined>()
 
@@ -142,12 +152,27 @@ export function DialogModel(props: {
     }
 
     const favoriteOptions = toOptions(favorites, "Feature")
+    // Enabled collections, in config order. A model already placed in Feature or an
+    // earlier collection is not repeated in a later section.
+    const placed = new Set(favorites.map(modelPreferenceKey))
+    const collectionOptions = (connected() ? (configCollections() ?? []) : []).flatMap((collection) => {
+      if (!collection.enabled) return []
+      const items: Array<{ providerID: string; modelID: string }> = []
+      for (const ref of collection.models) {
+        const slash = ref.indexOf("/")
+        if (slash <= 0) continue
+        const item = { providerID: ref.slice(0, slash), modelID: ref.slice(slash + 1) }
+        if (placed.has(modelPreferenceKey(item))) continue
+        placed.add(modelPreferenceKey(item))
+        items.push(item)
+      }
+      return toOptions(items, collection.name)
+    })
     const recentOptions = toOptions(
-      recents.filter(
-        (item) => !favorites.some((fav) => fav.providerID === item.providerID && fav.modelID === item.modelID),
-      ),
+      recents.filter((item) => !placed.has(modelPreferenceKey(item))),
       "Recent",
     )
+    recents.forEach((item) => placed.add(modelPreferenceKey(item)))
 
     const modelOptions = sortModelOptions(
       models()
@@ -179,17 +204,8 @@ export function DialogModel(props: {
         })
         .filter((option) => {
           if (!showSections) return true
-          if (
-            favorites.some(
-              (item) => item.providerID === option.value.providerID && item.modelID === option.value.modelID,
-            )
-          )
-            return false
-          if (
-            recents.some((item) => item.providerID === option.value.providerID && item.modelID === option.value.modelID)
-          )
-            return false
-          return true
+          // Anything already placed in Feature, a collection section or Recent is not repeated below.
+          return !placed.has(modelPreferenceKey(option.value))
         }),
       connected(),
     )
@@ -204,7 +220,7 @@ export function DialogModel(props: {
       )
     }
 
-    return [...favoriteOptions, ...recentOptions, ...modelOptions]
+    return [...favoriteOptions, ...collectionOptions, ...recentOptions, ...modelOptions]
   })
 
   const provider = createMemo(() => (props.providerID ? providers().get(props.providerID) : undefined))
@@ -275,6 +291,15 @@ export function DialogModel(props: {
           title: "Favorite",
           hidden: !connected(),
           onTrigger: (option) => toggleFavorite(option.value),
+        },
+        {
+          command: "model.dialog.collections",
+          title: "Model collections & endpoints",
+          selection: "none",
+          hidden: !connected(),
+          onTrigger() {
+            dialog.replace(() => <DialogModelCollections />)
+          },
         },
       ]}
       onFilter={setQuery}

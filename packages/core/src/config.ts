@@ -29,6 +29,7 @@ import { ConfigCompaction } from "@orchestra/schema/config/compaction"
 import { ConfigMCP } from "@orchestra/schema/config/mcp"
 import { ConfigAgent } from "@orchestra/schema/config/agent"
 import { ConfigCommand } from "@orchestra/schema/config/command"
+import { ConfigProvider } from "@orchestra/schema/config/provider"
 import { ConfigMedia } from "@orchestra/schema/config/media"
 import { ConfigPlugin } from "@orchestra/schema/config/plugin"
 import { ConfigProxy } from "@orchestra/schema/config/proxy"
@@ -597,6 +598,32 @@ export const layer = (options?: Options) =>
                   current,
                   modify(current, ["model_favorites"], patch.model_favorites ?? undefined, formatting),
                 )
+              }
+              if ("model_collections" in patch) {
+                current = applyEdits(
+                  current,
+                  modify(current, ["model_collections"], patch.model_collections ?? undefined, formatting),
+                )
+              }
+
+              // Providers: Record<string, ConfigProvider.Info | null> — per-key add/replace/remove,
+              // so the collections UI can manage custom endpoints without rewriting other providers.
+              if ("providers" in patch) {
+                if (patch.providers === null) {
+                  current = applyEdits(current, modify(current, ["providers"], undefined, formatting))
+                } else if (patch.providers !== undefined) {
+                  for (const [providerID, value] of Object.entries(patch.providers)) {
+                    current = applyEdits(
+                      current,
+                      modify(
+                        current,
+                        ["providers", providerID],
+                        value === null ? undefined : encodeValue(ConfigProvider.Info, value),
+                        formatting,
+                      ),
+                    )
+                  }
+                }
               }
 
               // 4. Nested structures: compaction

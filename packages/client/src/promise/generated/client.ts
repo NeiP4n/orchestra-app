@@ -113,6 +113,8 @@ import type {
   ProviderListOutput,
   ProviderGetInput,
   ProviderGetOutput,
+  ProviderDiscoverInput,
+  ProviderDiscoverOutput,
   IntegrationListInput,
   IntegrationListOutput,
   IntegrationGetInput,
@@ -1360,6 +1362,23 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
+      discover: (input: ProviderDiscoverInput, requestOptions?: RequestOptions) =>
+        request<ProviderDiscoverOutput>(
+          {
+            method: "POST",
+            path: `/api/provider/discover`,
+            body: {
+              baseURL: input["baseURL"],
+              apiKey: input["apiKey"],
+              headers: input["headers"],
+              providerID: input["providerID"],
+            },
+            successStatus: 200,
+            declaredStatuses: [400, 401, 404, 503],
+            empty: false,
+          },
+          requestOptions,
+        ),
     },
     integration: {
       list: (input?: IntegrationListInput, requestOptions?: RequestOptions) =>
@@ -2554,6 +2573,8 @@ export function make(options: ClientOptions) {
               shell: input?.["shell"],
               model: input?.["model"],
               model_favorites: input?.["model_favorites"],
+              model_collections: input?.["model_collections"],
+              providers: input?.["providers"],
               mcpServers: input?.["mcpServers"],
               proxy: input?.["proxy"],
               compatibilityEnabled: input?.["compatibilityEnabled"],

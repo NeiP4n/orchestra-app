@@ -95,6 +95,9 @@ export class Info extends Schema.Class<Info>("Config.Provider")({
   name: Schema.String.pipe(optional),
   env: Schema.String.pipe(Schema.Array, optional),
   package: Schema.String.pipe(optional),
+  endpoint: Schema.Boolean.pipe(optional).annotate({
+    description: "True when this entry is managed as a custom API endpoint by the model collections UI",
+  }),
   ...Overlays,
   models: Schema.Record(Schema.String, Model).pipe(optional),
 }) {}
