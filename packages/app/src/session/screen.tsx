@@ -357,7 +357,12 @@ function SessionScreenContent(props: {
 
       <Show when={composer.active()} keyed>
         {(model) => (
-          <ActiveSessionComposerRegion session={session} model={model} suggestionBoundary={timeline.scroller} />
+          <ActiveSessionComposerRegion
+            session={session}
+            model={model}
+            suggestionBoundary={timeline.scroller}
+            onFollowUp={composer.actions.timeline.sendPrompt}
+          />
         )}
       </Show>
       <Show when={!isDesktop() && !!session.identity.params.id && bottomMobileTabs()}>{mobileTabs()}</Show>
