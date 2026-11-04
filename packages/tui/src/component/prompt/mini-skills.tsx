@@ -511,7 +511,7 @@ function Chip(props: {
       }}
     >
       <text
-        fg={lit() ? neuralPalette(theme).signal : props.muted ? theme.text.muted : theme.text.base}
+        fg={lit() ? theme.text.action.primary.hovered : props.muted ? theme.text.muted : theme.text.base}
         // A chip is pressed and dragged, not read: a drag must not start a text selection.
         selectable={false}
         wrapMode="none"
