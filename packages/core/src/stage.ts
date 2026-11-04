@@ -312,3 +312,70 @@ export function render(stages: readonly Stage[]): string {
     ...lines,
   ].join("\n")
 }
+
+// ---------------------------------------------------------------------------
+// Acceptance verification — the evidence gate that used to live in the
+// retired Dream Team tools, integrated into the stage engine.
+//
+// The criteria are the caller's own (a task's acceptance criteria, or a
+// stage's criteria listed one per line) — there is no fixed universal
+// checklist. The gate cannot be gamed by its caller:
+// - a criterion counts as passed only with a "pass" item carrying non-empty
+//   evidence; a pass claimed without evidence does not count;
+// - duplicate items for one criterion count once (the first one wins);
+// - a criterion with no submitted item is a gap, not an omission;
+// - items outside the given criteria are ignored, never scored.
+
+export interface AcceptanceItem {
+  readonly criterion: string
+  readonly status: "pass" | "fail"
+  readonly evidence: string
+}
+
+export interface AcceptanceReport {
+  readonly total: number
+  readonly passed: number
+  readonly percent: number
+  readonly gaps: readonly AcceptanceItem[]
+  readonly report: string
+}
+
+export function verifyAcceptance(
+  criteria: readonly string[],
+  items: readonly AcceptanceItem[],
+): AcceptanceReport {
+  const expected = [...new Set(criteria.map((criterion) => criterion.trim()).filter(Boolean))]
+  const byCriterion = new Map<string, AcceptanceItem>()
+  for (const item of items) {
+    const key = item.criterion.trim()
+    if (key && !byCriterion.has(key)) byCriterion.set(key, item)
+  }
+  const scored = expected.map((criterion) => {
+    const item = byCriterion.get(criterion)
+    const hasEvidence = !!item && item.evidence.trim().length > 0
+    const pass = item?.status === "pass" && hasEvidence
+    const reason = !item
+      ? "(not checked)"
+      : item.status !== "pass"
+        ? item.evidence || "(none given)"
+        : "(pass claimed without evidence — does not count)"
+    return { criterion, status: pass ? ("pass" as const) : ("fail" as const), evidence: reason }
+  })
+  const total = scored.length
+  const passed = scored.filter((item) => item.status === "pass").length
+  const percent = total === 0 ? 0 : Math.round((passed / total) * 100)
+  const gaps = scored.filter((item) => item.status !== "pass")
+  const extras = items.filter((item) => !expected.some((criterion) => criterion === item.criterion.trim())).length
+  const report =
+    total === 0
+      ? "NOT DONE (0%): no acceptance criteria were given. State the criteria for this task, then verify each one with real evidence."
+      : percent === 100
+        ? "DONE (100%): every acceptance criterion passes with evidence. The task may be reported complete."
+        : [
+            `NOT DONE (${percent}%): ${passed} of ${total} criteria pass.`,
+            "Gaps — assign each gap to the worker that owns it, fix it, then verify again:",
+            ...gaps.map((gap) => `- ${gap.criterion} — evidence: ${gap.evidence}`),
+            ...(extras > 0 ? [`${extras} submitted item(s) outside the given criteria were ignored, not scored.`] : []),
+          ].join("\n")
+  return { total, passed, percent, gaps, report }
+}

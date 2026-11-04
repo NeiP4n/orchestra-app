@@ -225,7 +225,11 @@ describe("Plot", () => {
       const sessions = yield* Session.Service
       const orchestra = yield* Orchestra.Service
       const project = yield* orchestra.create({ name: "Team", directory: tmp.path, template: "bugfix" })
-      const [member] = yield* orchestra.sessions(project.id)
+      const member = yield* orchestra.createMember({
+        project,
+        title: "Developer",
+        agent: Orchestra.role("developer"),
+      })
       yield* orchestra.setAccess(member.id, "write")
       const stranger = yield* sessions.create({ location: { directory: AbsolutePath.make(tmp.path) } })
       const file = path.join(tmp.path, "src", "bug.ts")

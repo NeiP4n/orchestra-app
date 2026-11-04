@@ -26,7 +26,7 @@ export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
       OpenApi.annotations({
         identifier: "orchestra.template.list",
         summary: "List team templates",
-        description: "Ready-made AI teams a project can be created with: the role sessions each one opens.",
+        description: "Ready-made AI teams a project can be created with. A built-in template describes a type of work and recommends roles its Orchestrator may create lazily; an operator-saved template opens the roster it saved.",
       }),
     ),
   )
@@ -39,7 +39,7 @@ export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
       OpenApi.annotations({
         identifier: "orchestra.template.create",
         summary: "Create team template",
-        description: "Add the operator's own team: a name and the role sessions it opens.",
+        description: "Add the operator's own team: a name, its role recommendations and the member roster it opens.",
       }),
     ),
   )

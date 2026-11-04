@@ -4549,6 +4549,7 @@ export type OrchestraTemplateCreateInput = {
   readonly name: string
   readonly description: string
   readonly members: ReadonlyArray<Orchestra.Member>
+  readonly roles?: ReadonlyArray<string> | undefined
   readonly playbook?: string | undefined
 }
 export type OrchestraTemplateCreateOutput = Orchestra.Template
@@ -4561,6 +4562,7 @@ export type OrchestraTemplateUpdateInput = {
   readonly name: string
   readonly description: string
   readonly members: ReadonlyArray<Orchestra.Member>
+  readonly roles?: ReadonlyArray<string> | undefined
   readonly playbook?: string | undefined
 }
 export type OrchestraTemplateUpdateOutput = Orchestra.Template

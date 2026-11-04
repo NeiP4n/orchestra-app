@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { contains } from "../src/orchestra.js"
+import { contains, legacyTemplates, playbookOf, roles, templateByID, templates } from "../src/orchestra.js"
 
 describe("Orchestra.contains directory matching", () => {
   test("handles case-insensitive Windows drive paths", () => {
@@ -25,5 +25,84 @@ describe("Orchestra.contains directory matching", () => {
     expect(contains("/home/user/proj", "/home/user/proj/sub")).toBe(true)
     expect(contains("/home/user/proj", "/home/user/proj")).toBe(true)
     expect(contains("/home/user/proj", "/home/user/other")).toBe(false)
+  })
+})
+
+// Dynamic workflow templates: a built-in template describes a type of work.
+// Its roles are recommendations; nothing in a built-in fixes a team size or a
+// stage count. Removed built-ins survive only as legacy compatibility records.
+
+const REMOVED_TEMPLATES = ["full", "factory", "pro-engineers", "proof-driven"]
+const KEPT_TEMPLATES = [
+  "quick",
+  "feature",
+  "system",
+  "bugfix",
+  "ui",
+  "web-app",
+  "mobile-app",
+  "desktop-app",
+  "research",
+  "docs",
+  "security-audit",
+  "deep-audit",
+  "strategic-planning",
+  "release",
+  "opencode-core",
+]
+
+describe("built-in templates", () => {
+  test("removed built-ins no longer appear in the normal template list", () => {
+    for (const id of REMOVED_TEMPLATES) expect(templates.find((item) => item.id === id)).toBeUndefined()
+  })
+
+  test("the specialized templates remain, each with role recommendations", () => {
+    expect(templates.map((item) => item.id).toSorted()).toEqual([...KEPT_TEMPLATES].toSorted())
+    for (const template of templates) {
+      expect(template.roles?.length ?? 0).toBeGreaterThan(0)
+    }
+  })
+
+  test("every recommended role and every member resolves to a registered role", () => {
+    const ids = new Set(roles.map((item) => item.id))
+    for (const template of [...templates, ...legacyTemplates]) {
+      for (const id of template.roles ?? []) expect(ids.has(id)).toBe(true)
+      for (const member of template.members) expect(ids.has(member.agent.replace(/^team-/, ""))).toBe(true)
+    }
+  })
+
+  test("no built-in playbook prescribes a fixed stage count or a mandatory roster", () => {
+    for (const template of templates) {
+      const playbook = template.playbook ?? ""
+      expect(playbook).not.toMatch(/\bPhase \d/)
+      expect(playbook).not.toMatch(/\d+-stage\b/)
+      expect(playbook.toLowerCase()).not.toContain("always create")
+      expect(playbook.toLowerCase()).not.toContain("full factory")
+      expect(playbook.toLowerCase()).not.toContain("deploy the full")
+    }
+  })
+})
+
+describe("legacy template compatibility", () => {
+  test("removed built-ins are preserved as legacy records with their playbooks", () => {
+    expect(legacyTemplates.map((item) => item.id).toSorted()).toEqual([...REMOVED_TEMPLATES].toSorted())
+    for (const legacy of legacyTemplates) {
+      expect(legacy.playbook?.length ?? 0).toBeGreaterThan(80)
+      expect(legacy.members.length).toBeGreaterThan(0)
+    }
+  })
+
+  test("templateByID prefers a live template and falls back to the legacy record", () => {
+    const live = [{ id: "factory", name: "Mine", description: "", members: [], playbook: "My own factory." }]
+    expect(templateByID("factory", live)?.name).toBe("Mine")
+    expect(templateByID("factory", [])?.name).toBe("Software Factory")
+    expect(templateByID("feature", [])).toBeUndefined()
+    expect(templateByID("nope", [])).toBeUndefined()
+  })
+
+  test("playbookOf resolves a removed id's playbook for historical projects", () => {
+    expect(playbookOf({ id: "proof-driven" })).toContain("acceptance matrix")
+    expect(playbookOf({ id: "feature" })).toBe(templates.find((item) => item.id === "feature")?.playbook)
+    expect(playbookOf({ id: "nope" })).toBeUndefined()
   })
 })

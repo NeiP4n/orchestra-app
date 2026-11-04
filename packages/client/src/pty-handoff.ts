@@ -3,6 +3,7 @@ export * as PtyHandoff from "./pty-handoff.js"
 import type { PersistentPty } from "@orchestra/schema/persistent-pty"
 import { readFile, rename, rm, writeFile } from "node:fs/promises"
 import type { Info } from "./service.js"
+import { connectURL } from "./service-probe.js"
 
 type Sidecar = {
   readonly source: Pick<Info, "id" | "pid" | "url">
@@ -19,7 +20,7 @@ export async function prepare(file: string, info: Info, timeout: number) {
   if (existing !== undefined && existing.expiresAt > Date.now() && same(existing.source, info)) return
   const { OpenCode } = await import("./promise/index.js")
   const client = OpenCode.make({
-    baseUrl: info.url,
+    baseUrl: connectURL(info.url),
     headers:
       info.password === undefined
         ? undefined

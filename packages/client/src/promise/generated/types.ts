@@ -1989,6 +1989,7 @@ export type OrchestraTemplate = {
   name: string
   description: string
   members: Array<OrchestraMember>
+  roles?: Array<string> | undefined
   playbook?: string | undefined
   id: string
   origin: OrchestraOrigin
@@ -12303,24 +12304,35 @@ export type OrchestraTemplateCreateInput = {
     readonly name: string
     readonly description: string
     readonly members: ReadonlyArray<{ readonly agent: string; readonly title: string; readonly category: string }>
+    readonly roles?: ReadonlyArray<string> | undefined
     readonly playbook?: string | undefined
   }["name"]
   readonly description: {
     readonly name: string
     readonly description: string
     readonly members: ReadonlyArray<{ readonly agent: string; readonly title: string; readonly category: string }>
+    readonly roles?: ReadonlyArray<string> | undefined
     readonly playbook?: string | undefined
   }["description"]
   readonly members: {
     readonly name: string
     readonly description: string
     readonly members: ReadonlyArray<{ readonly agent: string; readonly title: string; readonly category: string }>
+    readonly roles?: ReadonlyArray<string> | undefined
     readonly playbook?: string | undefined
   }["members"]
+  readonly roles?: {
+    readonly name: string
+    readonly description: string
+    readonly members: ReadonlyArray<{ readonly agent: string; readonly title: string; readonly category: string }>
+    readonly roles?: ReadonlyArray<string> | undefined
+    readonly playbook?: string | undefined
+  }["roles"]
   readonly playbook?: {
     readonly name: string
     readonly description: string
     readonly members: ReadonlyArray<{ readonly agent: string; readonly title: string; readonly category: string }>
+    readonly roles?: ReadonlyArray<string> | undefined
     readonly playbook?: string | undefined
   }["playbook"]
 }
@@ -12333,24 +12345,35 @@ export type OrchestraTemplateUpdateInput = {
     readonly name: string
     readonly description: string
     readonly members: ReadonlyArray<{ readonly agent: string; readonly title: string; readonly category: string }>
+    readonly roles?: ReadonlyArray<string> | undefined
     readonly playbook?: string | undefined
   }["name"]
   readonly description: {
     readonly name: string
     readonly description: string
     readonly members: ReadonlyArray<{ readonly agent: string; readonly title: string; readonly category: string }>
+    readonly roles?: ReadonlyArray<string> | undefined
     readonly playbook?: string | undefined
   }["description"]
   readonly members: {
     readonly name: string
     readonly description: string
     readonly members: ReadonlyArray<{ readonly agent: string; readonly title: string; readonly category: string }>
+    readonly roles?: ReadonlyArray<string> | undefined
     readonly playbook?: string | undefined
   }["members"]
+  readonly roles?: {
+    readonly name: string
+    readonly description: string
+    readonly members: ReadonlyArray<{ readonly agent: string; readonly title: string; readonly category: string }>
+    readonly roles?: ReadonlyArray<string> | undefined
+    readonly playbook?: string | undefined
+  }["roles"]
   readonly playbook?: {
     readonly name: string
     readonly description: string
     readonly members: ReadonlyArray<{ readonly agent: string; readonly title: string; readonly category: string }>
+    readonly roles?: ReadonlyArray<string> | undefined
     readonly playbook?: string | undefined
   }["playbook"]
 }

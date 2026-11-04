@@ -107,7 +107,9 @@ export class SandboxError extends Schema.TaggedError<SandboxError>()("Orchestra.
 
 export interface Interface {
   readonly projects: () => Effect.Effect<ReadonlyArray<Project>>
-  // Always opens the project's main orchestrator; with a template, also opens one session per team member.
+  // Always opens the project's main orchestrator. A built-in template opens nothing else:
+  // its Orchestrator creates workers lazily. An operator-saved template (edited/custom)
+  // also opens one session per member of its saved roster.
   // With an isolation, `directory` is the git repository a new sandbox worktree is made from.
   readonly create: (input: {
     name: string
@@ -1729,6 +1731,14 @@ const layer: Layer.Layer<
           ...(isolated ? { sandbox: isolated.info } : {}),
         }
         if (template) {
+          yield* kv.set(PROJECT_TEMPLATE + record.id, template.id)
+        }
+        // Built-in templates describe a type of work, not a roster: a project created from one
+        // opens only its main Orchestrator session, and the Orchestrator creates workers lazily
+        // from the template's recommended roles when the actual task justifies them. An explicit
+        // roster is opened only for templates the operator saved (origin "edited"/"custom"),
+        // whose members are their deliberate choice, preserved exactly as saved.
+        if (template && template.origin !== "builtin") {
           const team = yield* roles()
           const plan = {
             created: record.created,
@@ -1751,7 +1761,6 @@ const layer: Layer.Layer<
           // Save the exact roster before making the project visible. A restart can recreate
           // every intended worker with the same IDs even if the original template is later edited.
           yield* kv.set(TEAM_PLAN + record.id, Schema.encodeSync(TeamPlan)(plan))
-          yield* kv.set(PROJECT_TEMPLATE + record.id, template.id)
         }
         const project = yield* save(record)
         // Serialize main initialization and the full team roster against project deletion or movement.
@@ -2236,8 +2245,10 @@ const layer: Layer.Layer<
         if (!role) return yield* new TeamError({ message: `Unknown role: ${id}` })
         // A built-in role is only reset, so it stays available to every team.
         if (role.origin === "custom") {
-          const users = (yield* templates()).filter((template) =>
-            template.members.some((member) => member.agent === role.agent),
+          const users = (yield* templates()).filter(
+            (template) =>
+              template.members.some((member) => member.agent === role.agent) ||
+              (template.roles ?? []).includes(id),
           )
           if (users.length > 0)
             return yield* new TeamError({
@@ -2264,7 +2275,10 @@ const layer: Layer.Layer<
       playbook: Effect.fn("Orchestra.playbook")(function* (id) {
         const templateID = yield* kv.get(PROJECT_TEMPLATE + id)
         if (typeof templateID !== "string") return undefined
-        const template = (yield* templates()).find((item) => item.id === templateID)
+        // A live template (built-in, edited or custom) wins; a removed built-in falls back to
+        // its legacy compatibility record, so historical projects keep the playbook they were
+        // created with and keep opening and running.
+        const template = Orchestra.templateByID(templateID, yield* templates())
         if (!template) return undefined
         const text = Orchestra.playbookOf(template)
         return text ? { name: template.name, text } : undefined
@@ -2508,11 +2522,15 @@ function requireTemplate(input: TemplateSpec, roles: ReadonlyArray<Role>) {
     return Effect.fail(new TeamError({ message: "Add at least one member", field: "members" }))
   const unknown = input.members.find((member) => !roles.some((role) => role.agent === member.agent))
   if (unknown) return Effect.fail(new TeamError({ message: `Unknown role: ${unknown.agent}`, field: "members" }))
+  const hints = [...new Set((input.roles ?? []).map((item) => item.trim()).filter(Boolean))]
+  const unknownHint = hints.find((item) => !roles.some((role) => role.id === item))
+  if (unknownHint) return Effect.fail(new TeamError({ message: `Unknown role: ${unknownHint}`, field: "roles" }))
   const playbook = input.playbook?.trim()
   return Effect.succeed({
     name,
     description: input.description.trim(),
     ...(playbook ? { playbook } : {}),
+    ...(hints.length > 0 ? { roles: hints } : {}),
     // Collapse exact duplicate rows while preserving legitimate parallel workers such as
     // "Developer 1" and "Developer 2" (different titles are distinct roster entries).
     members: uniqueMembers(input.members.map((member) => {

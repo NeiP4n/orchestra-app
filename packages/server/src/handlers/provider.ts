@@ -23,7 +23,12 @@ export const ProviderHandler = HttpApiBuilder.group(Api, "server.provider", (han
         "provider.list",
         Effect.fn(function* () {
           const providers = yield* Provider.Service
-          return yield* response(providers.available().map(withoutSecrets))
+          // available() returns an Effect of the provider list, not the list
+          // itself: yield it before mapping. Calling .map on the Effect was
+          // the defect behind every GET /api/provider returning 500
+          // ("providers.available().map is not a function").
+          const available = yield* providers.available()
+          return yield* response(Effect.succeed(available.map(withoutSecrets)))
         }),
       )
       .handle(

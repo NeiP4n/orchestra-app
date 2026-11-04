@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Mode } from "@orchestra/schema/mode"
-import { playbookOf, role, roles, templates, toolGroups } from "@orchestra/schema/orchestra"
+import { legacyTemplates, playbookOf, role, roles, templates, toolGroups } from "@orchestra/schema/orchestra"
 import { Hub } from "@orchestra/core/hub/index"
 import { PROMPT_ORCHESTRATOR, PROMPT_PRESIDENT } from "@orchestra/core/plugin/agent"
 import { roomGuard } from "@orchestra/core/plugin/room-rules"
@@ -165,10 +165,10 @@ describe("built-in Orchestra role contracts", () => {
     expect(memberAgents).not.toContain(role("counterexample-engineer"))
   })
 
-  test("offers a high-assurance template that explicitly includes counterexample analysis", () => {
-    const proofDriven = templates.find((item) => item.id === "proof-driven")
-    expect(proofDriven).toBeDefined()
-    if (!proofDriven) throw new Error("proof-driven template must be registered")
+  test("proof-driven is retired to the legacy records, with its roster preserved", () => {
+    expect(templates.find((item) => item.id === "proof-driven")).toBeUndefined()
+    const proofDriven = legacyTemplates.find((item) => item.id === "proof-driven")
+    if (!proofDriven) throw new Error("proof-driven must be preserved as a legacy template")
     const memberAgents = proofDriven.members.map((member) => member.agent)
     expect(memberAgents).toEqual([
       role("architect"),
@@ -177,6 +177,26 @@ describe("built-in Orchestra role contracts", () => {
       role("counterexample-engineer"),
       role("reviewer"),
     ])
+    // A bare reference to the removed id still resolves its playbook.
+    expect(playbookOf({ id: "proof-driven" })).toContain("acceptance matrix")
+  })
+
+  test("every built-in template's recommended roles resolve to registered roles", () => {
+    const ids = new Set(roles.map((item) => item.id))
+    for (const template of templates) {
+      expect(template.roles?.length ?? 0).toBeGreaterThan(0)
+      for (const id of template.roles ?? []) expect(ids.has(id)).toBe(true)
+    }
+  })
+
+  test("no built-in playbook prescribes a fixed team size or a fixed stage count", () => {
+    for (const template of templates) {
+      const playbook = playbookOf(template) ?? ""
+      expect(playbook).not.toMatch(/\bPhase \d/)
+      expect(playbook).not.toMatch(/\d+-stage\b/)
+      expect(playbook.toLowerCase()).not.toContain("always create")
+      expect(playbook.toLowerCase()).not.toContain("full factory")
+    }
   })
 
   test("every built-in team template references registered roles", () => {

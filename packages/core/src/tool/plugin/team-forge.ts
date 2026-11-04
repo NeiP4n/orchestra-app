@@ -101,12 +101,10 @@ export const Plugin = {
             `- ${role.id} (${role.name}, ${role.category}, ${role.origin}${role.readOnly ? ", read-only" : ""}${role.tools === undefined ? ", all tools" : `, tools ${role.tools.join(" ") || "none"}`}): ${role.description}`,
         ),
         "",
-        "Teams:",
+        "Teams (a template describes a type of work: its roles are recommendations the Orchestrator may draw on, not a roster to open; only operator-saved templates open their members as a roster):",
         ...templates.map(
           (template) =>
-            `- ${template.id} (${template.origin}) ${template.name}: ${template.description} [${template.members
-              .map((member) => roles.find((role) => role.agent === member.agent)?.id ?? member.agent)
-              .join(", ")}]`,
+            `- ${template.id} (${template.origin}) ${template.name}: ${template.description} [roles: ${(template.roles ?? template.members.map((member) => roles.find((role) => role.agent === member.agent)?.id ?? member.agent)).join(", ") || "none"}]`,
         ),
         "",
         `Tool groups: ${Orchestra.toolGroups.map((group) => `${group.id}=${group.actions.join("+")}`).join(", ")}`,
@@ -498,7 +496,7 @@ function groupPrompt(request: string) {
     "1. Read the registry once. Call workspace_forge action=list for the exact project, team-template and role ids. Call team_forge action=list only when the request needs a team or a role that you must choose or add; members that get only an Orchestrator need neither. Never invent an id or a path.",
     "2. Decide the members. A member is one project. For a member the operator names as a directory that already exists, the project is created here. For an existing project, reuse its exact project id. Do not add several role sessions of one team to a single project to imitate several projects: a team belongs to the project it was created for.",
     "3. Add a role or team only when the registry cannot serve the work. Reuse an existing role whenever it can do the job; add a role with action=role (description, concrete one-line rules, minimum tools) and a team with action=team (exact role ids, titles, playbook). At most two new roles per team. Never edit or delete an existing role or team during this run.",
-    "4. Create the whole federation in one call: workspace_forge action=create_group with the group name, the required mode, the ordered members and the sandbox choice. Each member is either {projectID} or {directory, name, team or role, sandbox}. Each new project gets its own Orchestrator and, with team, exactly one session per template role; the group then gets exactly one chat: Президент for lead, council for Общество. Pass link=false unless the operator explicitly asked to link every pair. Use this instead of creating sessions in the current project.",
+    "4. Create the whole federation in one call: workspace_forge action=create_group with the group name, the required mode, the ordered members and the sandbox choice. Each member is either {projectID} or {directory, name, team or role, sandbox}. Each new project gets its own Orchestrator; with a built-in team template that is the only session opened — workers are created lazily from the template's recommended roles (an operator-saved template still opens its saved roster); the group then gets exactly one chat: Президент for lead, council for Общество. Pass link=false unless the operator explicitly asked to link every pair. Use this instead of creating sessions in the current project.",
     "5. Only when every member project already exists may you use federation instead: action=group_create with the exact project ids in coordinator-first order and the mode, then action=group_chat for the same name. Changing the name, the mode or the first project unbinds the chat, so create it again afterwards. Never create a second chat for one group.",
     "6. Report what was done: the group name, mode, projects in coordinator-first order, each project's team and role sessions, the chat session id and title, and anything the operator still has to decide. State plainly any step that did not complete.",
     "",

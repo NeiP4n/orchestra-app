@@ -84,6 +84,7 @@ import { SocietyForgeTool } from "../tool/plugin/society-forge.js"
 import { SocietyPlanTool } from "../tool/plugin/society-plan.js"
 import { CommandForgeTool } from "../tool/plugin/command-forge.js"
 import { McpForgeTool } from "../tool/plugin/mcp-forge.js"
+import { McpManagerTool } from "../tool/plugin/mcp-manager.js"
 import { PluginForgeTool } from "../tool/plugin/plugin-forge.js"
 import { DesktopTool } from "../tool/plugin/desktop.js"
 import { McpCatalog } from "../mcp/catalog.js"
@@ -91,7 +92,6 @@ import { Orchestra } from "../orchestra.js"
 import { PeerTool } from "../tool/plugin/peer.js"
 import { BudgetTool } from "../tool/plugin/budget.js"
 import { MuseChatTool } from "../tool/plugin/muse-chat.js"
-import { DreamTeamTool } from "../tool/plugin/dream-team.js"
 import { CodegraphTool } from "../tool/plugin/codegraph.js"
 import { CheckpointTool } from "../tool/plugin/checkpoint.js"
 import { DesktopInspectTool } from "../tool/plugin/desktop-inspect.js"
@@ -321,6 +321,7 @@ const pre = [
   SocietyPlanTool.Plugin,
   CommandForgeTool.Plugin,
   McpForgeTool.Plugin,
+  McpManagerTool.Plugin,
   PluginForgeTool.Plugin,
   DesktopTool.Plugin,
   PlaytestTool.Plugin,
@@ -329,7 +330,6 @@ const pre = [
   DodTool.Plugin,
   BudgetTool.Plugin,
   MuseChatTool.Plugin,
-  DreamTeamTool.Plugin,
   CodegraphTool.Plugin,
   CheckpointTool.Plugin,
   DesktopInspectTool.Plugin,

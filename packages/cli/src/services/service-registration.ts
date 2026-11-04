@@ -23,7 +23,16 @@ export const register = Effect.fnUntraced(function* (options: {
   const info = {
     id: options.id,
     version: ORCHESTRA_VERSION,
-    url: HttpServer.formatAddress(options.address),
+    // Advertise a connectable URL. A service opened to the LAN binds the
+    // wildcard address, and formatAddress reports it verbatim
+    // (http://0.0.0.0:port) — but 0.0.0.0 is a bind address, not a connect
+    // address: Windows clients refuse to connect to it, so local discovery
+    // never saw this healthy service and ensure() timed out spawning
+    // contenders. Loopback reaches the same listener; LAN devices do not
+    // read this local file.
+    url: HttpServer.formatAddress(options.address)
+      .replace("://0.0.0.0", "://127.0.0.1")
+      .replace("://[::]", "://127.0.0.1"),
     pid: process.pid,
     password: options.password,
   }

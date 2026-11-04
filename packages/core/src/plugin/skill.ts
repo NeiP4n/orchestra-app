@@ -20,7 +20,7 @@ export const AutonomousDeveloperContent = autonomousDeveloperContent
 export const ProjectCreatorContent = projectCreatorContent
 
 const AUTONOMOUS_DEVELOPER_DESCRIPTION =
-  "Use for end-to-end autonomous engineering, complex feature architecture, automated DoD generation, dynamic MCP tool acquisition, and hands-off implementation from a simple user prompt."
+  "Use for end-to-end autonomous engineering with dynamic orchestration: sizing the team to the task (solo work for small tasks, workers only when justified), dynamic workflow stages, per-task MCP acquisition and assignment, and hands-off implementation from a simple user prompt."
 const PROJECT_CREATOR_DESCRIPTION =
   "Use when asked to scaffold, initialize, or bootstrap a new project, service, or repository from scratch with complete architecture and build setup."
 
@@ -30,7 +30,7 @@ export const HubContent = hubContent
 
 export const McpContent = mcpContent
 const MCP_DESCRIPTION =
-  "Use when the task involves an installed MCP server (browser, documentation, git, GitHub, memory, desktop, reverse engineering) or when the operator asks to add or remove one. Covers discovering servers and tool names that change over time, granting them to team roles by pattern, and embedding them in a team template without breaking when a server disappears."
+  "Use when the task involves an installed MCP server (browser, documentation, git, GitHub, memory, desktop, reverse engineering) or when the operator asks to add or remove one. Covers discovering servers and tool names that change over time, the autonomous MCP lifecycle (default-off, acquire, enable, disable, leases, operator-managed configuration), role ceilings, and explicit per-session MCP assignments with budgets — never confusing a globally enabled server with one assigned to a session."
 
 export const OpencodeDescription =
   "Use this skill for any question about Orchestra itself, including how Orchestra works, using or configuring it, migrating from V1 to V2, troubleshooting it, developing plugins or integrations, using the Orchestra SDK, clients, server, or API, and contributing to the Orchestra codebase. Also use it for Orchestra agents, commands, skills, tools, permissions, MCP servers, providers, models, themes, keybinds, formatters, the CLI, TUI, desktop app, and web app."

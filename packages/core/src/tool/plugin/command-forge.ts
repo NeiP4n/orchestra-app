@@ -75,7 +75,7 @@ export const kinds: readonly { id: string; use: string; example: Draft }[] = [
   },
   {
     id: "subagent",
-    use: "subagent: true runs the command in a background child session (here with the read-only explore agent), so long research does not fill the current conversation; its result comes back when it finishes.",
+    use: "subagent: true runs the command in a background child session, so long work does not fill the current conversation; its result comes back when it finishes. Choose the agent by fit for the task — a read-only research agent like explore for mapping and searching (as in this example), or another existing role when the work needs its specialty; do not name an agent by habit.",
     example: {
       name: "find-usages",
       description: "map where a feature is implemented and used [feature]",
@@ -110,24 +110,24 @@ export const kinds: readonly { id: string; use: string; example: Draft }[] = [
     example: {
       name: "typo",
       description: "fix spelling and grammar in a file [file]",
-      model: "opencode/gpt-5-nano",
       template: "Fix only spelling and grammar in $1. Do not change meaning, code or formatting. List the fixes.",
     },
   },
   {
     id: "workflow",
-    use: "A multi-step procedure with checks and a definition of done; the model loops until the checks pass.",
+    use: "A multi-step procedure the model plans dynamically: it inspects the project, creates only the stages the work needs, and finishes on evidence, not on a fixed pipeline.",
     example: {
       name: "green",
       description: "make the build and tests pass",
       template: [
         "Make this project's build, type check and tests pass.",
         "",
-        "1. Find the project's check commands (package.json scripts, Makefile, CI config).",
-        "2. Run them. For each failure: read the exact error, fix the cause (never skip or delete a test), rerun.",
-        "3. Stop after three rounds on the same failure and explain what blocks it.",
+        "1. Inspect first: find the project's own check commands (package.json scripts, Makefile, CI config) and run them to get the real failure list.",
+        "2. Plan from the evidence: one stage per independent failure group, ordered by what blocks what. Skip stages the failures do not need; add one when a new failure class appears.",
+        "3. Per stage: read the exact error, fix the cause (never skip, delete or soften a test to look green), rerun that stage's checks and keep the output as evidence.",
+        "4. Stop after three rounds on the same failure and explain what blocks it.",
         "",
-        "Done when every check passes. Report each command with PASS/FAIL.",
+        "Done when every check passes and the passing output is recorded. Report each command with PASS/FAIL and its evidence.",
       ].join("\n"),
     },
   },

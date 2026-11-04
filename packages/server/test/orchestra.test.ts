@@ -95,7 +95,7 @@ it.live("operator projects own the sessions under their directory and one main s
   }).pipe(Effect.scoped),
 )
 
-it.live("a team template opens the orchestra and its role sessions, and the orchestra keeps its role", () =>
+it.live("a built-in template opens only the orchestra, a saved template opens its roster, and the orchestra keeps its role", () =>
   Effect.gen(function* () {
     const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-team-")))
     const coreDirectory = path.join(tmp.path, "core")
@@ -135,15 +135,13 @@ it.live("a team template opens the orchestra and its role sessions, and the orch
       "team-reviewer",
     ])
 
-    const proofDriven = templates.find((item: { id: string }) => item.id === "proof-driven")
-    expect(proofDriven).toBeDefined()
-    expect(proofDriven.members.map((member: { agent: string }) => member.agent)).toEqual([
-      "team-architect",
-      "team-developer",
-      "team-tester",
-      "team-counterexample-engineer",
-      "team-reviewer",
-    ])
+    // Retired built-ins (full, factory, pro-engineers, proof-driven) are not offered anymore.
+    for (const retired of ["full", "factory", "pro-engineers", "proof-driven"]) {
+      expect(templates.find((item: { id: string }) => item.id === retired)).toBeUndefined()
+    }
+    // A kept built-in carries role recommendations, not a roster to open.
+    const featureTemplate = templates.find((item: { id: string }) => item.id === "feature")
+    expect(featureTemplate.roles).toEqual(["architect", "developer", "tester", "reviewer"])
 
     const feature = templates.find((item: { id: string }) => item.id === "feature")
     expect(
@@ -170,8 +168,32 @@ it.live("a team template opens the orchestra and its role sessions, and the orch
 
     const main = (yield* call(`/api/session/${project.main}`)).body.data
     expect(main.agent).toBe("orchestrator")
+    // A built-in template opens ONLY the Orchestrator: workers are created
+    // lazily by the Orchestrator when the work justifies them.
     const listed = (yield* call(`/api/orchestra/project/${project.id}/session`)).body
-    const members = listed.data
+    expect(listed.data).toEqual([])
+    expect(Object.values(listed.access)).toEqual([])
+
+    // An operator-saved template keeps its explicit roster: creating a
+    // project from it opens one session per saved member, as before.
+    const crew = (yield* call("/api/orchestra/template", "POST", {
+      name: "Crew",
+      description: "The operator's own fixed crew",
+      members: [
+        { agent: "team-architect", title: "Architect", category: "Planning" },
+        { agent: "team-developer", title: "Developer", category: "Build" },
+        { agent: "team-tester", title: "Tester", category: "Quality" },
+        { agent: "team-reviewer", title: "Reviewer", category: "Quality" },
+      ],
+    })).body
+    expect(crew.id).toBeDefined()
+    const crewProject = (yield* call("/api/orchestra/project", "POST", {
+      name: "Crew team",
+      directory: proofDirectory,
+      template: crew.id,
+    })).body
+    const crewListed = (yield* call(`/api/orchestra/project/${crewProject.id}/session`)).body
+    const members = crewListed.data
       .map((item: { title: string; agent: string }) => [item.title, item.agent])
       .toSorted(([a]: string[], [b]: string[]) => a.localeCompare(b))
     expect(members).toEqual([
@@ -180,51 +202,35 @@ it.live("a team template opens the orchestra and its role sessions, and the orch
       ["Reviewer", "team-reviewer"],
       ["Tester", "team-tester"],
     ])
-    expect(Object.values(listed.access)).toEqual(["full", "full", "full", "full"])
-    expect(Object.values(listed.category).toSorted()).toEqual(["Build", "Planning", "Quality", "Quality"])
+    expect(Object.values(crewListed.access)).toEqual(["full", "full", "full", "full"])
+    expect(Object.values(crewListed.category).toSorted()).toEqual(["Build", "Planning", "Quality", "Quality"])
+    const listed2 = crewListed
 
     // the operator regroups a session; an empty category removes it
-    const developer = listed.data.find((item: { title: string }) => item.title === "Developer")
+    const developer = listed2.data.find((item: { title: string }) => item.title === "Developer")
     expect((yield* call(`/api/orchestra/category/${developer.id}`, "PUT", { category: "Core" })).status).toBe(204)
-    expect((yield* call(`/api/orchestra/project/${project.id}/session`)).body.category[developer.id]).toBe("Core")
+    expect((yield* call(`/api/orchestra/project/${crewProject.id}/session`)).body.category[developer.id]).toBe("Core")
     expect((yield* call(`/api/orchestra/category/${developer.id}`, "PUT", { category: " " })).status).toBe(204)
-    expect((yield* call(`/api/orchestra/project/${project.id}/session`)).body.category[developer.id]).toBeUndefined()
+    expect((yield* call(`/api/orchestra/project/${crewProject.id}/session`)).body.category[developer.id]).toBeUndefined()
 
-    // The dedicated core template creates its specialized sessions through the same project workflow.
+    // The dedicated core template is a built-in too: it opens only its
+    // Orchestrator, which creates its specialists lazily.
     const coreProject = (yield* call("/api/orchestra/project", "POST", {
       name: "Orchestra Core",
       directory: coreDirectory,
       template: "opencode-core",
     })).body
     const coreListed = (yield* call(`/api/orchestra/project/${coreProject.id}/session`)).body
-    expect(
-      coreListed.data.map((item: { agent: string }) => item.agent).toSorted(),
-    ).toEqual([
-      "team-api-contract-engineer",
-      "team-architect",
-      "team-compatibility-engineer",
-      "team-core-maintainer",
-      "team-integration-engineer",
-      "team-reviewer",
-      "team-security-auditor",
-      "team-tester",
-    ])
-    expect(Object.values(coreListed.access).every((access) => access === "full")).toBe(true)
+    expect(coreListed.data).toEqual([])
 
-    const proofProject = (yield* call("/api/orchestra/project", "POST", {
-      name: "Proof-driven",
-      directory: proofDirectory,
-      template: "proof-driven",
-    })).body
-    const proofListed = (yield* call(`/api/orchestra/project/${proofProject.id}/session`)).body
-    expect(proofListed.data.map((item: { agent: string }) => item.agent).toSorted()).toEqual([
-      "team-architect",
-      "team-counterexample-engineer",
-      "team-developer",
-      "team-reviewer",
-      "team-tester",
-    ])
-    expect(Object.values(proofListed.access).every((access) => access === "full")).toBe(true)
+    // A retired template id can no longer create a project.
+    expect(
+      (yield* call("/api/orchestra/project", "POST", {
+        name: "Proof-driven",
+        directory: proofDirectory,
+        template: "proof-driven",
+      })).status,
+    ).toBe(400)
 
     // switching the orchestra to another agent is ignored
     expect((yield* call(`/api/session/${main.id}/agent`, "POST", { agent: "build" })).status).toBe(204)

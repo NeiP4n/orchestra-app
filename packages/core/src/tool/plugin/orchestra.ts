@@ -47,7 +47,7 @@ export const description = [
   "The 6-message rule binds you: after 6 of your own messages in a row without handing a task to a worker, your other tool calls are refused until you delegate with send or create. The roster in your context shows how many of the 6 you have used.",
   "MCP limits are yours to distribute: pass mcp on send or create to hand the worker its MCP budget for that one task (servers it may call, maxCalls in total, perServer caps). You may only tighten the role's own MCP ceiling, never widen it; a refused limit says what the role allows. The limit is stamped on the worker session and stated at the top of its task brief.",
   "MCP acquisition: action acquire_mcp makes a catalog MCP server actually usable. Pass server (an exact catalog id) or need (a capability in words, e.g. \"browser automation\") and it selects, installs, connects and verifies the server, reporting its real state and the tools actually discovered — a server counts as ready only when both hold. Pass role to check first that the server sits inside that role's MCP ceiling; outside it, acquisition is refused, not worked around. A needs_auth result names the credential variables the operator must provide; never invent a value. Installing is global and shared by the project, but it grants no role access by itself: role profiles and the per-task mcp limits still decide who may call the server, and removing one role's access never disconnects it for the others.",
-  "Workflow stages: for anything beyond a trivial task, record the plan with action plan (stages: each with a name, work categories, role ids, dependsOn stage ids, acceptance criteria and the MCP servers it needs). You decide how many stages the task needs: one for a small fix, many for a system audit. Categories describe kinds of work (Research, Security, Implementation); stages are execution units and one stage may span several categories. Action stages lists the current plan; action stage updates one stage (status, and result as the evidence). Replan by calling plan again when a discovery changes the work: completed stages are preserved exactly as recorded, and a stage may start only when every stage it depends on is completed. Mark a stage completed only with evidence in result — a report, a test run, a commit — never on a worker's claim alone. The overall task is complete only when every stage is completed or explicitly cancelled.",
+  "Workflow stages: for anything beyond a trivial task, record the plan with action plan (stages: each with a name, work categories, role ids, dependsOn stage ids, acceptance criteria and the MCP servers it needs). You decide how many stages the task needs: one for a small fix, many for a system audit. Categories describe kinds of work (Research, Security, Implementation); stages are execution units and one stage may span several categories. Action stages lists the current plan; action stage updates one stage (status, and result as the evidence). Replan by calling plan again when a discovery changes the work: completed stages are preserved exactly as recorded, and a stage may start only when every stage it depends on is completed. Mark a stage completed only with evidence in result — a report, a test run, a commit — never on a worker's claim alone. The overall task is complete only when every stage is completed or explicitly cancelled. Action verify scores a task's own acceptance criteria against real evidence (a pass without evidence does not count, a missing criterion is a gap) — use it as the completion gate instead of trusting a worker's claim.",
 ].join("\n")
 
 type WorkerRow = {
@@ -175,7 +175,10 @@ export function delegationStatus(streak: number) {
 // in two layers: servers outside the allowlist are denied for the worker
 // session through its permission rules, and the whole limit is stamped on
 // the session metadata under MCP_LIMIT_METADATA_KEY (with a fresh
-// `budgetEpoch` per hand-out) and stated at the top of the task brief. The
+// `budgetEpoch` per hand-out) and stated at the top of the task brief. Every
+// dispatch — with or without an explicit limit — also stamps the session's
+// MCP assignment record under MCP_ASSIGNMENT_METADATA_KEY, so the sidebar can
+// show what each session was actually granted for its current task. The
 // MCP runtime reads the stamp back in `MCP.callTool` and counts every call
 // against it through the budget gate in mcp/budget.ts — the allowlist, the
 // total maxCalls and the perServer caps are all enforced there, atomically,
@@ -183,6 +186,64 @@ export function delegationStatus(streak: number) {
 
 /** Session metadata key carrying the MCP limit the Orchestrator last handed the session. */
 export const MCP_LIMIT_METADATA_KEY = "orchestra:mcp-limit"
+/** Session metadata key carrying the session's current MCP assignment record. */
+export const MCP_ASSIGNMENT_METADATA_KEY = "orchestra:mcp-assignment"
+
+/**
+ * The explicit MCP assignment the Orchestrator gave one session for its current
+ * task. Stamped on the session metadata at every send/create dispatch that has
+ * a team role — including dispatches that pass no `mcp` field, which inherit
+ * the role's ceiling (explicit: false) — so a missing stamp unambiguously
+ * means "no task has been dispatched to this session yet", never "everything
+ * is assigned". An empty servers list is an explicit assignment of no MCP.
+ * This record is display truth for the sidebar; enforcement stays with the
+ * limit stamp (MCP_LIMIT_METADATA_KEY), the deny rules and the budget gate.
+ */
+export interface McpAssignment {
+  /** MCP server names granted to this task, or "all" when the role sets no boundary. */
+  readonly servers: ReadonlyArray<string> | "all"
+  /** Total MCP tool calls the task's limit allows (the role ceiling when inherited). */
+  readonly maxCalls: number
+  /** Per-server call caps of the task's limit. */
+  readonly perServer: Readonly<Record<string, number>>
+  /** True when the Orchestrator passed an explicit `mcp` field for this task. */
+  readonly explicit: boolean
+  /** The budget epoch of the task's limit stamp, or null when the assignment is inherited. */
+  readonly budgetEpoch: string | null
+  /** When this assignment was stamped (epoch milliseconds). */
+  readonly assignedAt: number
+}
+
+/** Read a session's MCP assignment record out of its metadata; undefined when never assigned. */
+export function mcpAssignmentOf(metadata: Record<string, unknown> | undefined): McpAssignment | undefined {
+  const raw = metadata?.[MCP_ASSIGNMENT_METADATA_KEY]
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined
+  const record = raw as Record<string, unknown>
+  const servers =
+    record.servers === "all"
+      ? "all"
+      : Array.isArray(record.servers) && record.servers.every((item) => typeof item === "string")
+        ? (record.servers as string[])
+        : undefined
+  if (servers === undefined) return undefined
+  if (typeof record.maxCalls !== "number" || !Number.isInteger(record.maxCalls) || record.maxCalls < 0) return undefined
+  if (typeof record.assignedAt !== "number") return undefined
+  const perServer: Record<string, number> = {}
+  if (record.perServer && typeof record.perServer === "object" && !Array.isArray(record.perServer)) {
+    for (const [server, cap] of Object.entries(record.perServer as Record<string, unknown>)) {
+      if (typeof cap !== "number" || !Number.isInteger(cap) || cap < 0) return undefined
+      perServer[server] = cap
+    }
+  }
+  return {
+    servers,
+    maxCalls: record.maxCalls,
+    perServer,
+    explicit: record.explicit === true,
+    budgetEpoch: typeof record.budgetEpoch === "string" ? record.budgetEpoch : null,
+    assignedAt: record.assignedAt,
+  }
+}
 /** Default per-task MCP call cap for a role that may change files. */
 export const MCP_CALLS_DEFAULT = 24
 /** Default per-task MCP call cap for a read-only role: lookups, not bulk work. */
@@ -344,7 +405,7 @@ const StageInput = Schema.Struct({
 })
 
 export const Input = Schema.Struct({
-  action: Schema.Literals(["list", "read", "send", "create", "set_mode", "stop", "answer", "plan", "stages", "stage", "acquire_mcp"]),
+  action: Schema.Literals(["list", "read", "send", "create", "set_mode", "stop", "answer", "plan", "stages", "stage", "verify", "acquire_mcp"]),
   sessionID: Schema.optionalKey(SessionSchema.ID).annotate({ description: "Target session for read, send and stop" }),
   text: Schema.optionalKey(Schema.String).annotate({
     description: "Message for send, or the first task for create",
@@ -408,6 +469,22 @@ export const Input = Schema.Struct({
   }),
   result: Schema.optionalKey(Schema.String).annotate({
     description: "For stage: the evidence for the new status — a report, test run or commit for completed; the blocker for blocked or failed",
+  }),
+  criteria: Schema.optionalKey(Schema.Array(Schema.String)).annotate({
+    description:
+      "For verify: the acceptance criteria to score — the task's own criteria, one per item. There is no fixed universal checklist; the criteria come from the task or the stage plan.",
+  }),
+  items: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        criterion: Schema.String,
+        status: Schema.Literals(["pass", "fail"]),
+        evidence: Schema.String,
+      }),
+    ),
+  ).annotate({
+    description:
+      "For verify: one item per criterion with its status and the real evidence (test run, build output, review). A pass without evidence does not count.",
   }),
   server: Schema.optionalKey(Schema.String).annotate({
     description: "For acquire_mcp: the exact MCP catalog id to make usable, e.g. playwright, context7, github",
@@ -850,20 +927,53 @@ export const Plugin = {
               // against the role's ceiling, enforced by appending deny rules for the
               // servers outside the allowlist to the session's ruleset (last match
               // wins), stamped on the session metadata, and returned so the caller
-              // can state it at the top of the task brief. No `mcp` field, no stamp.
+              // can state it at the top of the task brief. The assignment record is
+              // stamped on every dispatch; the limit stamp only with an `mcp` field.
               const distributeMcp = Effect.fnUntraced(function* (
                 sessionID: SessionSchema.ID,
                 role: Orchestra.Role | undefined,
               ) {
-                if (input.mcp === undefined) return undefined
-                if (!role)
-                  return yield* new ToolFailure({ message: "This session has no team role, so it has no MCP ceiling to distribute from; omit mcp" })
-                const resolution = resolveMcpLimit(role, input.mcp)
-                if (!resolution.ok) return yield* new ToolFailure({ message: resolution.message })
-                const limit = resolution.limit
+                if (!role) {
+                  if (input.mcp !== undefined)
+                    return yield* new ToolFailure({ message: "This session has no team role, so it has no MCP ceiling to distribute from; omit mcp" })
+                  return undefined
+                }
                 const session = yield* sessions
                   .get(sessionID)
                   .pipe(Effect.mapError(() => new ToolFailure({ message: `Session not found: ${sessionID}` })))
+                // Every dispatch records the session's explicit MCP assignment, with or
+                // without an `mcp` field: without one the assignment is the role's own
+                // ceiling, inherited (explicit: false) and enforced exactly as before —
+                // no limit stamp, no deny rules. The record exists so "what was this
+                // session granted?" always has a truthful answer, and a session with no
+                // record was simply never dispatched a task.
+                if (input.mcp === undefined) {
+                  const ceiling = defaultMcpLimit(role)
+                  yield* sessions
+                    .setMetadata({
+                      sessionID,
+                      metadata: {
+                        ...(session.metadata ?? {}),
+                        [MCP_ASSIGNMENT_METADATA_KEY]: {
+                          servers: ceiling.servers === "all" ? "all" : [...ceiling.servers],
+                          maxCalls: ceiling.maxCalls,
+                          perServer: {},
+                          explicit: false,
+                          budgetEpoch: null,
+                          assignedAt: Date.now(),
+                        } as Schema.Json,
+                      },
+                    })
+                    .pipe(
+                      Effect.mapError(
+                        (error) => new ToolFailure({ message: `Could not stamp the MCP assignment on ${sessionID}`, error }),
+                      ),
+                    )
+                  return undefined
+                }
+                const resolution = resolveMcpLimit(role, input.mcp)
+                if (!resolution.ok) return yield* new ToolFailure({ message: resolution.message })
+                const limit = resolution.limit
                 const deny = mcpDenyRules(limit, yield* knownServers())
                 if (deny.length > 0)
                   yield* sessions
@@ -873,6 +983,12 @@ export const Plugin = {
                         (error) => new ToolFailure({ message: `Could not apply the MCP limit to ${sessionID}`, error }),
                       ),
                     )
+                // A fresh epoch per hand-out: the budget gate restarts the session's
+                // counters when the epoch changes, so a new task never inherits the
+                // previous task's usage even when the limit values are identical. The
+                // assignment record carries the same epoch, tying the sidebar's view
+                // of the grant to the exact budget the gate enforces.
+                const budgetEpoch = crypto.randomUUID()
                 yield* sessions
                   .setMetadata({
                     sessionID,
@@ -880,11 +996,13 @@ export const Plugin = {
                       ...(session.metadata ?? {}),
                       [MCP_LIMIT_METADATA_KEY]: {
                         ...(JSON.parse(JSON.stringify(limit)) as Record<string, Schema.Json>),
-                        // A fresh epoch per hand-out: the budget gate restarts
-                        // the session's counters when the epoch changes, so a
-                        // new task never inherits the previous task's usage
-                        // even when the limit values are identical.
-                        budgetEpoch: crypto.randomUUID(),
+                        budgetEpoch,
+                      } as Schema.Json,
+                      [MCP_ASSIGNMENT_METADATA_KEY]: {
+                        ...(JSON.parse(JSON.stringify(limit)) as Record<string, Schema.Json>),
+                        explicit: true,
+                        budgetEpoch,
+                        assignedAt: Date.now(),
                       } as Schema.Json,
                     },
                   })
@@ -1114,6 +1232,17 @@ export const Plugin = {
                     .pipe(Effect.mapError((error) => new ToolFailure({ message: error.message, error })))
                   const current = yield* orchestra.stages(project.id)
                   return { output: `Stage updated: ${OrchestraStage.describe(current, updated)}` }
+                }
+                case "verify": {
+                  if (!input.criteria || input.criteria.length === 0)
+                    return yield* new ToolFailure({
+                      message: "Pass criteria: the acceptance criteria to score, one per item",
+                    })
+                  if (!input.items || input.items.length === 0)
+                    return yield* new ToolFailure({
+                      message: "Pass items: one entry per criterion, each with a status and its real evidence",
+                    })
+                  return { output: OrchestraStage.verifyAcceptance(input.criteria, input.items).report }
                 }
                 case "acquire_mcp": {
                   if (Option.isNone(mcp))

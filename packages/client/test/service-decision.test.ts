@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { decide, type LocalService } from "../src/service-probe"
+import { connectURL, decide, type LocalService } from "../src/service-probe"
 
 const protocolError =
   "Background service uses an incompatible health protocol. Update this client or explicitly restart the service."
@@ -51,4 +51,14 @@ test("a version mismatch replaces the service, handing off terminals only when i
     _tag: "replace",
     pty: "clear",
   })
+})
+
+test("connectURL rewrites a wildcard bind address to loopback and leaves connectable URLs alone", () => {
+  // A LAN-open service registers its wildcard bind address; Windows clients
+  // cannot connect to 0.0.0.0, so discovery must dial loopback instead.
+  expect(connectURL("http://0.0.0.0:49375")).toBe("http://127.0.0.1:49375")
+  expect(connectURL("http://[::]:49375")).toBe("http://127.0.0.1:49375")
+  expect(connectURL("http://127.0.0.1:4096")).toBe("http://127.0.0.1:4096")
+  expect(connectURL("http://192.168.1.10:4096")).toBe("http://192.168.1.10:4096")
+  expect(connectURL("https://example.com:4096")).toBe("https://example.com:4096")
 })

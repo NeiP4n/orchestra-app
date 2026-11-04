@@ -55,14 +55,26 @@ export function same(left: Info, right: Info) {
   return left.id === right.id && left.version === right.version && left.url === right.url && left.pid === right.pid
 }
 
+/**
+ * The URL a local client can actually connect to. A service opened to the LAN
+ * binds the wildcard address and its registration advertises it verbatim
+ * (http://0.0.0.0:port) — a bind address, not a connect address: Windows
+ * refuses connections to 0.0.0 outright, so discovery probes failed forever
+ * while a healthy service was registered, and ensure() spawned contender
+ * after contender until it timed out. Loopback reaches the same listener.
+ */
+export function connectURL(url: string) {
+  return url.replace("://0.0.0.0", "://127.0.0.1").replace("://[::]", "://127.0.0.1")
+}
+
 /** Ask a registered owner for its health and classify the answer. */
 export async function probeResult(info: Info, timeout = defaultEnsureTiming.requestTimeout) {
   const endpoint = {
-    url: info.url,
+    url: connectURL(info.url),
     auth: info.password === undefined ? undefined : { type: "basic", username: "opencode", password: info.password },
   } satisfies Endpoint
   const signal = AbortSignal.timeout(timeout)
-  const result = await fetch(new URL("/api/info", info.url), { headers: headers(endpoint), signal })
+  const result = await fetch(new URL("/api/info", endpoint.url), { headers: headers(endpoint), signal })
     .then(async (response) => ({
       response,
       body: response.status === 404 ? undefined : ((await response.json()) as unknown),

@@ -486,8 +486,8 @@ describe("Orchestra team", () => {
       const sessions = yield* Session.Service
       const project = yield* orchestra.create({ name: "Forgotten tasks", directory: tmp.path, template: "bugfix" })
       const other = yield* orchestra.create({ name: "Other project", directory: tmp.path, template: "bugfix" })
-      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
-      const otherWorker = (yield* orchestra.sessions(other.id)).find((session) => session.title === "Developer")!
+      const worker = yield* orchestra.createMember({ project: project, title: "Developer", agent: Orchestra.role("developer") })
+      const otherWorker = yield* orchestra.createMember({ project: other, title: "Developer", agent: Orchestra.role("developer") })
 
       // Keep both prompts queued so the test exercises cancellation before worker delivery.
       yield* Effect.acquireRelease(
@@ -622,6 +622,7 @@ describe("Orchestra team", () => {
       const sessions = yield* Session.Service
       const kv = yield* KV.Service
       const project = yield* orchestra.create({ name: "Move recovery", directory: source, template: "bugfix" })
+      yield* orchestra.createMember({ project, title: "Developer", agent: Orchestra.role("developer") })
       const members = yield* orchestra.sessions(project.id)
       const nested = yield* sessions.create({
         location: { directory: AbsolutePath.make(sourceNested) },
@@ -782,14 +783,17 @@ describe("Orchestra team", () => {
       expect(yield* Effect.promise(() => Bun.file(dodPath).exists())).toBe(true)
       expect(yield* Effect.promise(() => Bun.file(dodPath).text())).toContain("task_id: PROJECT-BOARD")
       const main = project.main!
+      // Built-in templates no longer open a roster: the Orchestrator creates
+      // the workers this task needs, as this test now does explicitly.
+      yield* orchestra.createMember({ project, title: "Debugger", agent: Orchestra.role("debugger") })
+      yield* orchestra.createMember({ project, title: "Developer", agent: Orchestra.role("developer") })
+      yield* orchestra.createMember({ project, title: "Tester", agent: Orchestra.role("tester") })
       const members = yield* orchestra.sessions(project.id)
       const byTitle = (title: string) => members.find((session) => session.title === title)!
 
-      expect(members.map((session) => session.agent)).toEqual([
-        Orchestra.role("debugger"),
-        Orchestra.role("developer"),
-        Orchestra.role("tester"),
-      ])
+      expect(members.map((session) => session.agent).toSorted()).toEqual(
+        [Orchestra.role("debugger"), Orchestra.role("developer"), Orchestra.role("tester")].toSorted(),
+      )
       expect(yield* orchestra.categories(members.map((session) => session.id))).toEqual({
         [byTitle("Debugger").id]: "Quality",
         [byTitle("Developer").id]: "Build",
@@ -810,6 +814,8 @@ describe("Orchestra team", () => {
 
       // a second project in the same directory brings its own orchestrator, which joins neither team
       const neighbour = yield* orchestra.create({ name: "Neighbour", directory: tmp.path, template: "docs" })
+      yield* orchestra.createMember({ project: neighbour, title: "Writer", agent: Orchestra.role("writer") })
+      yield* orchestra.createMember({ project: neighbour, title: "Reviewer", agent: Orchestra.role("reviewer") })
       const ownIDs = (yield* orchestra.sessions(project.id)).map((session) => session.id)
       expect(ownIDs).not.toContain(neighbour.main)
       expect((yield* orchestra.sessions(neighbour.id)).map((session) => session.id)).not.toContain(main)
@@ -849,9 +855,12 @@ describe("Orchestra team", () => {
       const bus = yield* Bus.Service
       const sessions = yield* Session.Service
       const project = yield* orchestra.create({ name: "Team", directory: tmp.path, template: "bugfix" })
-      const members = yield* orchestra.sessions(project.id)
-      const developer = members.find((session) => session.title === "Developer")!
-      const tester = members.find((session) => session.title === "Tester")!
+      const developer = yield* orchestra.createMember({
+        project,
+        title: "Developer",
+        agent: Orchestra.role("developer"),
+      })
+      const tester = yield* orchestra.createMember({ project, title: "Tester", agent: Orchestra.role("tester") })
       // Keep the task outstanding, as it is while the worker waits for an answer.
       deferTaskDelivery.add(developer.id)
       yield* Effect.addFinalizer(() => Effect.sync(() => deferTaskDelivery.delete(developer.id)))
@@ -916,7 +925,7 @@ describe("Orchestra team", () => {
       const sessions = yield* Session.Service
       const project = yield* orchestra.create({ name: "Report ledger", directory: tmp.path, template: "bugfix" })
       const oldMain = project.main!
-      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      const worker = yield* orchestra.createMember({ project: project, title: "Developer", agent: Orchestra.role("developer") })
 
       yield* orchestra.dispatch({ project, sessionID: worker.id, text: "Fix the bug" })
       const [original] = yield* reports(oldMain).pipe(
@@ -956,7 +965,7 @@ describe("Orchestra team", () => {
       const kv = yield* KV.Service
       const project = yield* orchestra.create({ name: "Report acknowledgement", directory: tmp.path, template: "bugfix" })
       const oldMain = project.main!
-      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      const worker = yield* orchestra.createMember({ project: project, title: "Developer", agent: Orchestra.role("developer") })
 
       yield* orchestra.dispatch({ project, sessionID: worker.id, text: "Fix the bug" })
       const [pendingReport] = yield* reports(oldMain).pipe(
@@ -1035,7 +1044,7 @@ describe("Orchestra team", () => {
       const sessions = yield* Session.Service
       const project = yield* orchestra.create({ name: "Main recovery", directory: tmp.path, template: "bugfix" })
       const oldMain = project.main!
-      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      const worker = yield* orchestra.createMember({ project: project, title: "Developer", agent: Orchestra.role("developer") })
       yield* Effect.acquireRelease(
         Effect.sync(() => suppressTerminalEvent.add(worker.id)),
         () => Effect.sync(() => suppressTerminalEvent.delete(worker.id)),
@@ -1070,7 +1079,7 @@ describe("Orchestra team", () => {
       const sessions = yield* Session.Service
       const bus = yield* Bus.Service
       const project = yield* orchestra.create({ name: "Durable terminal", directory: tmp.path, template: "bugfix" })
-      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      const worker = yield* orchestra.createMember({ project: project, title: "Developer", agent: Orchestra.role("developer") })
       yield* Effect.acquireRelease(
         Effect.sync(() => suppressTerminalEvent.add(worker.id)),
         () => Effect.sync(() => suppressTerminalEvent.delete(worker.id)),
@@ -1122,7 +1131,7 @@ describe("Orchestra team", () => {
       const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-long-turn-")))
       const orchestra = yield* Orchestra.Service
       const project = yield* orchestra.create({ name: "Long turn", directory: tmp.path, template: "bugfix" })
-      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      const worker = yield* orchestra.createMember({ project: project, title: "Developer", agent: Orchestra.role("developer") })
       const extraMessages = 65
       yield* Effect.acquireRelease(
         Effect.sync(() => suppressTerminalEvent.add(worker.id)),
@@ -1156,7 +1165,7 @@ describe("Orchestra team", () => {
       const orchestra = yield* Orchestra.Service
       const sessions = yield* Session.Service
       const project = yield* orchestra.create({ name: "Answer boundary", directory: tmp.path, template: "bugfix" })
-      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      const worker = yield* orchestra.createMember({ project: project, title: "Developer", agent: Orchestra.role("developer") })
       yield* Effect.acquireRelease(
         Effect.sync(() => suppressTerminalEvent.add(worker.id)),
         () => Effect.sync(() => suppressTerminalEvent.delete(worker.id)),
@@ -1197,7 +1206,7 @@ describe("Orchestra team", () => {
       const sessionStore = yield* SessionStore.Service
       const project = yield* orchestra.create({ name: "Recovery", directory: tmp.path, template: "bugfix" })
       const unrelated = yield* orchestra.create({ name: "Unrelated", directory: tmp.path, template: "docs" })
-      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      const worker = yield* orchestra.createMember({ project: project, title: "Developer", agent: Orchestra.role("developer") })
       yield* Effect.acquireRelease(
         Effect.sync(() => suppressTerminalEvent.add(worker.id)),
         () => Effect.sync(() => suppressTerminalEvent.delete(worker.id)),
@@ -1246,7 +1255,7 @@ describe("Orchestra team", () => {
       const kv = yield* KV.Service
       const bus = yield* Bus.Service
       const project = yield* orchestra.create({ name: "Provisional report", directory: tmp.path, template: "bugfix" })
-      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      const worker = yield* orchestra.createMember({ project: project, title: "Developer", agent: Orchestra.role("developer") })
       yield* Effect.acquireRelease(
         Effect.sync(() => suppressTerminalEvent.add(worker.id)),
         () => Effect.sync(() => suppressTerminalEvent.delete(worker.id)),
@@ -1295,7 +1304,7 @@ describe("Orchestra team", () => {
       const orchestra = yield* Orchestra.Service
       const kv = yield* KV.Service
       const project = yield* orchestra.create({ name: "Orphaned task", directory: tmp.path, template: "bugfix" })
-      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      const worker = yield* orchestra.createMember({ project: project, title: "Developer", agent: Orchestra.role("developer") })
       const messageID = SessionMessage.ID.create()
       const reportID = SessionMessage.ID.create()
       const taskKey = `orchestra/task/${worker.id}`
@@ -1326,7 +1335,7 @@ describe("Orchestra team", () => {
       const orchestra = yield* Orchestra.Service
       const sessions = yield* Session.Service
       const project = yield* orchestra.create({ name: "Deleted worker", directory: tmp.path, template: "bugfix" })
-      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      const worker = yield* orchestra.createMember({ project: project, title: "Developer", agent: Orchestra.role("developer") })
       yield* Effect.acquireRelease(
         Effect.sync(() => suppressTerminalEvent.add(worker.id)),
         () => Effect.sync(() => suppressTerminalEvent.delete(worker.id)),
@@ -1358,7 +1367,7 @@ describe("Orchestra team", () => {
       const sessions = yield* Session.Service
       const kv = yield* KV.Service
       const project = yield* orchestra.create({ name: "Report retry", directory: tmp.path, template: "bugfix" })
-      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      const worker = yield* orchestra.createMember({ project: project, title: "Developer", agent: Orchestra.role("developer") })
       yield* Effect.acquireRelease(
         Effect.sync(() => suppressTerminalEvent.add(worker.id)),
         () => Effect.sync(() => suppressTerminalEvent.delete(worker.id)),
@@ -1465,7 +1474,7 @@ describe("Orchestra team", () => {
       const orchestra = yield* Orchestra.Service
       const first = yield* orchestra.create({ name: "First", directory: tmp.path, template: "bugfix" })
       const second = yield* orchestra.create({ name: "Second", directory: tmp.path, template: "bugfix" })
-      const foreign = (yield* orchestra.sessions(second.id)).find((session) => session.title === "Developer")!
+      const foreign = yield* orchestra.createMember({ project: second, title: "Developer", agent: Orchestra.role("developer") })
       expect(yield* orchestra.owns(first, foreign)).toBe(false)
 
       const failure = yield* orchestra
@@ -1482,7 +1491,7 @@ describe("Orchestra team", () => {
       const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-stale-dispatch-")))
       const orchestra = yield* Orchestra.Service
       const project = yield* orchestra.create({ name: "Stale", directory: tmp.path, template: "bugfix" })
-      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      const worker = yield* orchestra.createMember({ project: project, title: "Developer", agent: Orchestra.role("developer") })
 
       const stale = { ...project, main: undefined }
       const staleFailure = yield* orchestra
@@ -1506,7 +1515,7 @@ describe("Orchestra team", () => {
       const orchestra = yield* Orchestra.Service
       const sessions = yield* Session.Service
       const project = yield* orchestra.create({ name: "Task tracking", directory: tmp.path, template: "bugfix" })
-      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      const worker = yield* orchestra.createMember({ project: project, title: "Developer", agent: Orchestra.role("developer") })
       yield* Effect.acquireRelease(
         Effect.sync(() => deferTaskDelivery.add(worker.id)),
         () => Effect.sync(() => deferTaskDelivery.delete(worker.id)),

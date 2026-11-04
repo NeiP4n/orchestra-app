@@ -282,19 +282,28 @@ export const Member = Schema.Struct({
 }).annotate({ identifier: "Orchestra.Member" })
 export interface Member extends Schema.Schema.Type<typeof Member> {}
 
-// `playbook` tells the project's Orchestrator how this team works: its phases, which role
-// does what, what may run in parallel and when the work is done. Projects opened from the
-// template carry it into every Orchestrator request, so each team really runs differently.
+// `playbook` tells the project's Orchestrator how this kind of work is done: what to
+// inspect first, which specializations may help, what may run in parallel and when the
+// work is done. Projects opened from the template carry it into every Orchestrator
+// request, so each kind of work really runs differently.
+//
+// `roles` are recommendations only — role ids the Orchestrator may draw on when the
+// actual task needs them. They never force worker creation. `members` is the legacy
+// explicit roster: it is authoritative only for templates the operator saved
+// (origin "edited"/"custom"); for built-ins it is retained data, not a roster to open.
 export const TemplateSpec = Schema.Struct({
   name: Schema.String,
   description: Schema.String,
   members: Schema.Array(Member),
+  roles: Schema.Array(Schema.String).pipe(Schema.optional),
   playbook: Schema.String.pipe(Schema.optional),
 }).annotate({ identifier: "Orchestra.TemplateSpec" })
 export interface TemplateSpec extends Schema.Schema.Type<typeof TemplateSpec> {}
 
-// A ready-made AI team: creating a project from it opens one session per member
-// next to the main session and gives the orchestra full access to them.
+// A ready-made AI team definition. Creating a project from a built-in template opens
+// only the main Orchestrator session, which creates workers lazily from the template's
+// recommended roles; creating one from an operator-saved template opens one session
+// per member of its explicit roster, as saved.
 export const Template = Schema.Struct({
   ...TemplateSpec.fields,
   id: Schema.String,
@@ -854,24 +863,33 @@ const member = (name: string, title: string): Member => ({
   category: roles.find((item) => item.id === name)?.category ?? "Team",
 })
 
-// The teams Orchestra ships with. Each playbook is what the Orchestrator follows for that team.
+// The teams Orchestra ships with. A built-in template describes a TYPE of work, not a roster:
+// its `roles` are recommendations the Orchestrator may draw on, and its legacy `members` list is
+// kept only so older data and displays keep working. Creating a project from a built-in template
+// opens only the main Orchestrator session; the Orchestrator creates worker sessions lazily, only
+// when the actual task justifies them, reuses suitable existing sessions, and plans as many
+// workflow stages as the work needs — no template fixes a team size or a stage count.
+// Custom templates saved by the operator keep their explicit members roster and still open
+// one session per member, exactly as saved.
 export const templates: readonly (TemplateSpec & { id: string })[] = [
   {
     id: "quick",
     name: "Quick task",
-    description: "Small, clear changes done fast by one developer with an optional review",
+    description: "Small, clear changes done fast, with as little coordination as the task allows",
+    roles: ["developer", "reviewer"],
     members: [member("developer", "Developer"), member("reviewer", "Reviewer")],
     playbook: [
       "Goal: speed. Use this for small, well-understood changes.",
-      "1. Send the whole task to developer in one message with the acceptance criteria and the check to run. Do not plan with other roles first.",
-      "2. When the report is DONE with evidence, send reviewer one review of the diff only if the change touches logic, data or security; skip it for text, config or trivial edits.",
-      "3. Route at most one round of fixes back to developer, and only for a defect that makes the change wrong; findings marked LOW or about style go into the report. Then report to the operator. If the task turns out large or unclear, say so and suggest the Feature team.",
+      "Work solo or with a single worker: for a trivial change, do it yourself or send the whole task to one developer in one message with the acceptance criteria and the check to run. Do not plan with other roles first.",
+      "Add a reviewer only when the change touches logic, data or security, and only for a review of the diff; skip review for text, config or trivial edits.",
+      "Route at most one round of fixes back, and only for a defect that makes the change wrong; findings marked LOW or about style go into the report. Then report to the operator. If the task turns out large or unclear, say so and replan with a broader template's guidance.",
     ].join("\n"),
   },
   {
     id: "feature",
     name: "Feature",
-    description: "Design, build, test and review a new feature",
+    description: "Design, build, test and review a new feature, with a team sized to the feature",
+    roles: ["architect", "developer", "tester", "reviewer"],
     members: [
       member("architect", "Architect"),
       member("developer", "Developer"),
@@ -879,13 +897,288 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
       member("reviewer", "Reviewer"),
     ],
     playbook: [
-      "1. Plan: send architect the request and ask for a plan with tasks, file scopes, acceptance criteria and check commands. For a small feature skip this and write the plan yourself.",
-      "2. Build: send developer the plan's implementation tasks in one message (it works through them in order).",
-      "3. Verify in parallel: after developer reports DONE, send tester the acceptance criteria and send reviewer the review of the diff in the same turn.",
-      "4. Fix: route failed checks and confirmed findings back to developer with the exact evidence, then re-run only the checks that failed.",
-      "Done when every acceptance criterion has a passing check and reviewer has no unresolved confirmed defect.",
+      "Goal: ship the feature with evidence. You decide how much team this feature needs.",
+      "Understand the request and inspect the existing code first. For a small feature, plan it yourself and work solo or with one developer; bring in an architect only when the design is genuinely uncertain or crosses module boundaries.",
+      "Plan the work as dynamic stages sized to the feature: create as many stages as the task actually needs, with dependencies from real technical requirements, and parallelize only work that is truly independent.",
+      "Create workers lazily: reuse a suitable existing session before creating a new one, and add a tester or reviewer when there is something concrete to verify or review — not by default.",
+      "Done when every acceptance criterion has a passing check as evidence and no confirmed defect is left unresolved. Replan when discoveries change the shape of the work.",
     ].join("\n"),
   },
+  {
+    id: "system",
+    name: "Whole system",
+    description:
+      "Work across the whole Orchestra monorepo: core and AI, schemas, protocol and generated client, server and CLI, web UI, desktop and TUI, integration, testing and review",
+    roles: [
+      "product-analyst",
+      "architect",
+      "designer",
+      "core-maintainer",
+      "api-contract-engineer",
+      "backend-developer",
+      "frontend-developer",
+      "desktop-developer",
+      "integration-engineer",
+      "tester",
+      "reviewer",
+    ],
+    members: [
+      member("product-analyst", "Product Analyst"),
+      member("architect", "Architect"),
+      member("designer", "UI/UX Designer"),
+      member("core-maintainer", "Core"),
+      member("api-contract-engineer", "Contracts"),
+      member("backend-developer", "Server and CLI"),
+      member("frontend-developer", "Web UI"),
+      member("desktop-developer", "Desktop and TUI"),
+      member("integration-engineer", "Integration"),
+      member("tester", "Tester"),
+      member("reviewer", "Reviewer"),
+    ],
+    playbook: [
+      "Goal: change the whole product without breaking a layer. The recommended roles are a map of the monorepo's ownership areas, not a roster: most changes touch a few packages and need only the owners of those packages.",
+      "Map the change before dispatching: name every package it touches (schema, protocol, client, core, server, cli, app, ui, session-ui, desktop, tui, theme, ai) and the dependency direction between them. Create workers only for the areas actually touched; one worker may cover several neighbouring areas.",
+      "Order stages by real dependency: contracts before their consumers, implementation before integration checks. Parallelize only disjoint file scopes.",
+      "When a package has no dedicated role, give it to the worker whose layer owns its contract and say so in the brief. Do not create another agent for it.",
+      "Verify the seams after the owners report: HTTP handlers, generated client, events, permissions and every consumer of a changed contract. Testing and review scale with the size of the combined diff.",
+      "Done when every touched package typechecks and its own tests pass, the generated client matches the protocol, and no confirmed defect is left unresolved.",
+    ].join("\n"),
+  },
+  {
+    id: "bugfix",
+    name: "Bug fix",
+    description: "Find the root cause, fix it and prove the fix",
+    roles: ["debugger", "developer", "tester"],
+    members: [
+      member("debugger", "Debugger"),
+      member("developer", "Developer"),
+      member("tester", "Tester"),
+    ],
+    playbook: [
+      "Goal: a proven root cause and a fix that cannot silently regress.",
+      "Reproduce first. If the operator already gave the exact cause, skip investigation and fix it yourself or with one developer. Otherwise investigate — yourself for a narrow symptom, or with a debugger worker when the search space is wide — and require a reproduction and a proven root cause, not a guess.",
+      "Fix within the smallest file scope the root cause allows, with a regression test that fails before the fix and passes after it.",
+      "Prove the fix independently when the bug is subtle or the blast radius is wide: rerun the reproduction and the nearby flows that could break. For an obvious one-line cause, your own rerun is enough.",
+      "If the bug cannot be reproduced, report what is missing to the operator instead of fixing blindly.",
+    ].join("\n"),
+  },
+  {
+    id: "ui",
+    name: "UI",
+    description: "Screens and interaction, built and checked",
+    roles: ["designer", "frontend-developer", "tester", "accessibility-auditor"],
+    members: [
+      member("designer", "Designer"),
+      member("frontend-developer", "Frontend Developer"),
+      member("tester", "Tester"),
+    ],
+    playbook: [
+      "Goal: an interface that works in every state, not only the happy path.",
+      "Start from the existing design system: reuse the components and semantic theme tokens already in the project instead of inventing new ones. For a small change, design and build it yourself or with one frontend worker; bring in a designer when layout or interaction is genuinely new.",
+      "Specify before building when the surface is non-trivial: layout, every state (loading, empty, error, disabled, selected), copy, and narrow and wide sizes.",
+      "Build for the actual surface: web, terminal or native UI each have their own constraints — pick workers whose specialty matches the surface instead of defaulting to web.",
+      "Check the states on the running UI at narrow and wide sizes. Add an accessibility pass for public-facing screens. Text must stay readable on its actual background in every theme and state.",
+    ].join("\n"),
+  },
+  {
+    id: "web-app",
+    name: "Web app",
+    description: "Full-stack web application: requirements, API, frontend, tests and review, scaled to the app",
+    roles: ["product-analyst", "architect", "backend-developer", "frontend-developer", "tester", "reviewer"],
+    members: [
+      member("product-analyst", "Product Analyst"),
+      member("architect", "Architect"),
+      member("backend-developer", "Backend Developer"),
+      member("frontend-developer", "Frontend Developer"),
+      member("tester", "Tester"),
+      member("reviewer", "Reviewer"),
+    ],
+    playbook: [
+      "Goal: a working full-stack app, verified end to end in the browser.",
+      "Clarify requirements only as far as the request is vague: a precise technical task needs no analyst. When architecture is undecided, settle the stack, project layout and the exact API contract (routes, shapes, errors, auth) before building; for work inside an existing app, follow its established patterns.",
+      "Split backend and frontend workers only when both sides have real, independent work; give both the same API contract, and let the frontend mock the API until the backend reports. One full-stack worker is better than two half-idle ones for small apps.",
+      "Integrate against the real API as soon as it exists, then verify the acceptance criteria against the running app — see the pages, do not trust code reading alone.",
+      "Add a security pass when there is auth, payments or user data. Done when the criteria pass on the running app and no confirmed defect is left unresolved.",
+    ].join("\n"),
+  },
+  {
+    id: "mobile-app",
+    name: "Mobile app",
+    description: "Android/iOS app: stack, screens, implementation and device checks, scaled to the app",
+    roles: ["product-analyst", "architect", "designer", "mobile-developer", "tester", "reviewer"],
+    members: [
+      member("product-analyst", "Product Analyst"),
+      member("architect", "Architect"),
+      member("designer", "Designer"),
+      member("mobile-developer", "Mobile Developer"),
+      member("tester", "Tester"),
+      member("reviewer", "Reviewer"),
+    ],
+    playbook: [
+      "Goal: an app that behaves correctly on real devices, across lifecycle and connectivity changes.",
+      "Detect the existing stack (Flutter, React Native/Expo, Kotlin, Swift) or, for a new app, recommend one with reasons; settle navigation, state management, storage, networking, target platforms and minimum OS versions before building. One mobile-developer can carry a small app alone — add workers only for genuinely parallel slices, and a backend-developer only when the app needs a new API (give both sides the same contract).",
+      "Design screens with every state: safe areas, dark mode, large fonts, offline, permissions denied, background/foreground transitions.",
+      "Build in feature slices sized to the app. Keep platform pitfalls in view: lifecycle, permissions, secrets in the bundle, offline behaviour and sync conflicts.",
+      "Verify on an emulator/simulator or device and report which platforms actually ran; check lifecycle, offline and permission-denied scenarios, not only the happy path. Release work (signing, store builds) only when the operator asks.",
+    ].join("\n"),
+  },
+  {
+    id: "desktop-app",
+    name: "Desktop app",
+    description: "Windows/macOS/Linux app: architecture, UI, implementation, packaging and checks, scaled to the app",
+    roles: ["architect", "designer", "desktop-developer", "devops", "tester", "reviewer"],
+    members: [
+      member("architect", "Architect"),
+      member("designer", "Designer"),
+      member("desktop-developer", "Desktop Developer"),
+      member("devops", "DevOps"),
+      member("tester", "Tester"),
+      member("reviewer", "Reviewer"),
+    ],
+    playbook: [
+      "Goal: a desktop app that installs, runs and behaves natively on its target OSes.",
+      "Detect the stack (Electron, Tauri, Qt, .NET/WPF/WinUI/Avalonia, Swift) or, for a new app, recommend one with reasons; define the process model (main/renderer/backend), a narrow IPC surface, storage location, target OSes and setup commands before building. A single desktop developer can carry a small app; add workers only for independent slices.",
+      "Design the main windows and flows with menus, shortcuts (Ctrl/Cmd), DPI scaling and every state.",
+      "Keep IPC narrow and long work off the UI thread. Review IPC and filesystem exposure as a security boundary.",
+      "Package only once the app builds; signing and auto-update only if the operator asks. Verify on the OSes that can actually run here and list the others as NOT RUN; check cross-platform parity when the app targets more than one OS.",
+    ].join("\n"),
+  },
+  {
+    id: "research",
+    name: "Research",
+    description: "Study a question and write up the findings, with sources",
+    roles: ["deep-researcher", "researcher", "writer"],
+    members: [member("deep-researcher", "Deep Researcher"), member("researcher", "Researcher"), member("writer", "Writer")],
+    playbook: [
+      "Goal: an answer the operator can rely on, with every load-bearing claim sourced.",
+      "Scope the question first: what the answer will be used for decides the depth. A narrow question needs one researcher — or your own search; a wide or contested one justifies deep parallel research.",
+      "Follow up only on the gaps the first pass names, or on the repository-side trace it could not settle. Do not repeat the whole question to a second worker.",
+      "If the operator wants a document, have it written from the evidence map for the named audience and file; otherwise summarize the findings yourself and keep every source link.",
+      "Done when each load-bearing question has a verified source or is named as an open gap. No code changes in this team unless the operator asks.",
+    ].join("\n"),
+  },
+  {
+    id: "docs",
+    name: "Docs",
+    description: "Write documentation and check it against the code",
+    roles: ["writer", "reviewer"],
+    members: [member("writer", "Writer"), member("reviewer", "Reviewer")],
+    playbook: [
+      "Goal: documentation that matches the code it describes.",
+      "For a small update, write it yourself. For a larger set, brief a writer with the audience, the files to write or update, and the behaviour to document — from the code, not from assumptions.",
+      "Check every command, path and example against the code before finishing; a separate reviewer is worth it when the docs are extensive or user-facing. Route corrections back once.",
+    ].join("\n"),
+  },
+  {
+    id: "security-audit",
+    name: "Security audit",
+    description: "Security, dependency and code review of an existing codebase without changing it",
+    roles: ["security-auditor", "dependency-auditor", "reviewer"],
+    members: [
+      member("security-auditor", "Security Auditor"),
+      member("dependency-auditor", "Dependency Auditor"),
+      member("reviewer", "Reviewer"),
+    ],
+    playbook: [
+      "Goal: one merged, severity-ordered picture of the real risks — read-only.",
+      "Split the audit by what the codebase actually contains: trust boundaries and sensitive flows, dependency manifests, code-quality hot spots. Run the areas in parallel only when they are independent; a small codebase needs one auditor, not three.",
+      "Merge the findings yourself into one list ordered by severity, duplicates removed, each finding with the evidence that proves it.",
+      "Read-only team: do not create implementers unless the operator asks for fixes.",
+    ].join("\n"),
+  },
+  {
+    id: "deep-audit",
+    name: "Deep Research and Vulnerability Audit",
+    description: "Extensive multi-source technical and security audit: dependencies, vulnerability intelligence, reachability and remediation planning",
+    roles: ["deep-researcher", "dependency-auditor", "security-auditor", "architect"],
+    members: [
+      member("deep-researcher", "Deep Web and Security Intelligence Researcher"),
+      member("dependency-auditor", "Dependency and Supply-Chain Auditor"),
+      member("security-auditor", "Codebase Threat and Call-Path Analyst"),
+      member("architect", "Upgrade and Remediation Architect"),
+    ],
+    playbook: [
+      "Goal: an exhaustive audit where every claim is cross-checked and every vulnerability is proven reachable or named theoretical.",
+      "Let the evidence decide the shape of the audit. Useful workstreams, to use as the material justifies — not as a fixed pipeline: cataloguing dependencies across every manifest (package.json files, Cargo.toml, lockfiles) with outdated, license and supply-chain risks; cross-referencing vulnerability intelligence across multiple databases (OSV.dev, GitHub Advisory Database, NVD, CVE, Snyk, upstream changelogs, vendor bulletins) with exact CVE IDs, CVSS vectors, affected and fixed version ranges — never from one source's summary alone; inspecting native binaries or obfuscated assets directly (REA tools) when they exist; and tracing whether vulnerable APIs are genuinely imported, invoked and reachable from untrusted input in this codebase.",
+      "Forge a dedicated tool only when existing tools genuinely cannot do a needed analysis (batch OSV queries, AST call-graph reachability, transitive taint tracing); a forged tool must be structured, typed and registered with a clean schema — never a shallow grep wrapper.",
+      "Finish with a prioritized remediation matrix (non-breaking patches vs breaking majors, migration steps, mitigations) and one merged report with verified sources, call-site evidence and CVSS ratings. Scale the team to the codebase: a small repository needs fewer auditors, run sequentially if needed.",
+    ].join("\n"),
+  },
+  {
+    id: "strategic-planning",
+    name: "Strategic Planning and Systems Architecture",
+    description: "Architecture, constraints and technical strategy: evidence, system modelling, adversarial testing of the plan, and a dependency-ordered blueprint",
+    roles: ["strategic-planner", "architect", "counterexample-engineer", "deep-researcher", "security-auditor", "reviewer"],
+    members: [
+      member("strategic-planner", "Lead Strategic Systems Architect"),
+      member("architect", "Software and Systems Architect"),
+      member("counterexample-engineer", "Adversarial Falsification Specialist"),
+      member("deep-researcher", "Empirical Intelligence Scout"),
+      member("security-auditor", "Threat Surface Analyst"),
+      member("reviewer", "Methodology and DoD Verifier"),
+    ],
+    playbook: [
+      "Goal: a strategy that survives contact with the real codebase and its constraints.",
+      "Build the plan from evidence: prior art and official specifications where they exist, and the actual repository topology — components, boundaries, data invariants — where the plan must land. Research depth scales with how novel the problem is; do not research what the codebase already answers.",
+      "Model the system at the level the decision needs: states, preconditions, postconditions and a dependency-ordered breakdown of the work with the critical path named. The model serves the decision; formality beyond that is waste.",
+      "Attack your own plan before finalizing: adversarial failure modelling (races, deadlocks, split-brain, scale bottlenecks, boundary cases) and a threat-surface pass over trust assumptions — each scaled to how costly a wrong plan would be. A routine plan needs one sceptical pass, not three specialists.",
+      "Every deliverable in the blueprint carries a deterministic verification method. Merge everything into one actionable blueprint the operator can execute or hand off.",
+    ].join("\n"),
+  },
+  {
+    id: "release",
+    name: "Release",
+    description: "Build, packaging and release verification",
+    roles: ["devops", "tester", "reviewer"],
+    members: [member("devops", "DevOps"), member("tester", "Tester"), member("reviewer", "Reviewer")],
+    playbook: [
+      "Goal: a release that is built, packaged and verified — and published only on the operator's explicit word.",
+      "Do the release work yourself or with a devops worker when packaging is non-trivial: build for the named platforms, produce the artifacts, and record exactly what was built from which commit.",
+      "Smoke-test the built artifacts, not the sources, and review the CI/build changes that produced them. Scale verification to the release's risk.",
+      "Nothing is published, tagged or deployed without the operator's explicit request.",
+    ].join("\n"),
+  },
+  {
+    // Legacy template id retained for persisted projects; the display name is Orchestra Core.
+    id: "opencode-core",
+    name: "Orchestra Core",
+    description: "Evolve the entire Orchestra monorepo: architecture, core implementation, cross-package contracts, platform parity, security, tests and independent review",
+    roles: [
+      "architect",
+      "core-maintainer",
+      "integration-engineer",
+      "api-contract-engineer",
+      "compatibility-engineer",
+      "security-auditor",
+      "tester",
+      "reviewer",
+    ],
+    members: [
+      member("architect", "Architect"),
+      member("core-maintainer", "Core Maintainer"),
+      member("integration-engineer", "Integration Engineer"),
+      member("api-contract-engineer", "API & Contract Engineer"),
+      member("compatibility-engineer", "Cross-platform Engineer"),
+      member("security-auditor", "Security Auditor"),
+      member("tester", "Tester"),
+      member("reviewer", "Reviewer"),
+    ],
+    playbook: [
+      "This project is the Orchestra monorepo (bun workspaces, Effect v4, packages schema/protocol/core/server/client/cli/tui/app). Every task you send must remind the worker to read the root and package AGENTS.md.",
+      "Repository rules to put into tasks when they apply: dependency direction Schema → Core/Protocol → Server, Client never imports Core or Server; after public Protocol/Server HttpApi changes run bun run generate in packages/client and never hand-edit generated files; run bun typecheck and bun test from the package directory, never from the root, never tsc directly; full check is bun run check at the root.",
+      "Work dynamically: most changes here are small — one core-maintainer task plus verification is often enough. Map the end-to-end path across packages before dispatching broader work, give contract changes (schema/protocol, generated client) to a contracts worker, wiring to an integration worker, and serialize work that touches the same package or generated files.",
+      "Add specialists only when the change touches their area: cross-platform behaviour, permissions/sessions/LAN/secrets, UI surfaces. Verify with the affected packages' own tests and typechecks, and review the combined diff for defects the checks would miss.",
+    ].join("\n"),
+  },
+]
+
+// Built-in templates removed from the normal selection because their fixed rosters and fixed
+// pipelines are superseded by dynamic orchestration. They are NOT offered for new projects and
+// do not appear in `templates`. They are retained here only as a compatibility record: a project
+// created from one of them keeps working and keeps the playbook it was created with, and an
+// operator's saved copy under the same id (origin "edited"/"custom") always wins over this record.
+// New code must not add entries here; retire templates by moving them here with their last playbook.
+export const legacyTemplates: readonly (TemplateSpec & { id: string })[] = [
   {
     id: "full",
     name: "Full team",
@@ -926,185 +1219,6 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
     ].join("\n"),
   },
   {
-    id: "system",
-    name: "Whole system",
-    description:
-      "One team for the whole Orchestra monorepo: core and AI, schemas, protocol and generated client, server and CLI, web UI, desktop and TUI, integration, testing and review",
-    members: [
-      member("product-analyst", "Product Analyst"),
-      member("architect", "Architect"),
-      member("designer", "UI/UX Designer"),
-      member("core-maintainer", "Core"),
-      member("api-contract-engineer", "Contracts"),
-      member("backend-developer", "Server and CLI"),
-      member("frontend-developer", "Web UI"),
-      member("desktop-developer", "Desktop and TUI"),
-      member("integration-engineer", "Integration"),
-      member("tester", "Tester"),
-      member("reviewer", "Reviewer"),
-    ],
-    playbook: [
-      "Goal: change the whole product without breaking a layer. Each member owns its packages and answers for them; the Orchestrator owns the split and the final check.",
-      "1. Map the change before dispatching: name every package it touches (schema, protocol, client, core, server, cli, app, ui, session-ui, desktop, tui, theme, ai) and the dependency direction between them.",
-      "2. Dispatch in dependency order, in parallel where scopes are disjoint: Contracts owns schema, protocol and the generated client; Core owns core and ai; Server and CLI owns server, cli and function; Web UI owns app, ui and session-ui; Desktop and TUI owns desktop, tui and theme.",
-      "3. When a package has no dedicated member, give it to the member whose layer owns its contract and say so in the brief. Do not create another agent for it.",
-      "4. Integration checks the seams after the owners report: HTTP handlers, generated client, events, permissions and every consumer of a changed contract.",
-      "5. Tester and Reviewer run in parallel on the combined diff: Tester runs the affected package checks and the user-visible flow, Reviewer reads the diff for defects the checks would miss.",
-      "Done when every touched package typechecks and its own tests pass, the generated client matches the protocol, and Reviewer has no unresolved confirmed defect.",
-    ].join("\n"),
-  },
-  {
-    id: "bugfix",
-    name: "Bug fix",
-    description: "Find the root cause, fix it and prove the fix",
-    members: [
-      member("debugger", "Debugger"),
-      member("developer", "Developer"),
-      member("tester", "Tester"),
-    ],
-    playbook: [
-      "1. Reproduce: send debugger the symptom, expected versus actual behavior and environment. Require a reproduction and a proven root cause, not a guess.",
-      "2. Fix: send developer the root cause, the proposed fix and its file scope; require a regression test that fails before the fix and passes after it.",
-      "3. Prove: send tester the reproduction steps and regression test to run independently, plus nearby flows that could break.",
-      "If debugger cannot reproduce, report what is missing to the operator instead of fixing blindly. Skip debugger when the operator already gave the exact cause.",
-    ].join("\n"),
-  },
-  {
-    id: "ui",
-    name: "UI",
-    description: "Screens and interaction, built and checked",
-    members: [
-      member("designer", "Designer"),
-      member("frontend-developer", "Frontend Developer"),
-      member("tester", "Tester"),
-    ],
-    playbook: [
-      "1. Design: send designer the request; require a spec with layout, every state, copy and the components and tokens to reuse.",
-      "2. Build: send frontend-developer the spec and file scope. For a terminal or native UI, create developer, mobile-developer or desktop-developer instead.",
-      "3. Check: send tester the spec's states to verify on the running UI at narrow and wide sizes. Create accessibility-auditor for public-facing screens.",
-    ].join("\n"),
-  },
-  {
-    id: "web-app",
-    name: "Web app",
-    description: "Full-stack web application: requirements, API, frontend, tests and review",
-    members: [
-      member("product-analyst", "Product Analyst"),
-      member("architect", "Architect"),
-      member("backend-developer", "Backend Developer"),
-      member("frontend-developer", "Frontend Developer"),
-      member("tester", "Tester"),
-      member("reviewer", "Reviewer"),
-    ],
-    playbook: [
-      "1. Requirements: send product-analyst the request; get scenarios, scope and acceptance criteria. Skip for a precise technical task.",
-      "2. Architecture: send architect the criteria. For a new app the plan must pick the stack, project layout, and the exact API contract (routes, shapes, errors, auth).",
-      "3. Build in parallel: send backend-developer the API and data work and frontend-developer the UI work in the same turn, both with the same API contract. Frontend may mock the API until the backend reports DONE.",
-      "4. Integrate: when both are DONE, have frontend-developer switch to the real API and run the app end-to-end.",
-      "5. Verify in parallel: tester runs the acceptance criteria against the running app (hub build.page-screenshot or the browser tool to see pages); reviewer reviews the diff. Add security-auditor when there is auth, payments or user data.",
-    ].join("\n"),
-  },
-  {
-    id: "mobile-app",
-    name: "Mobile app",
-    description: "Android/iOS app: requirements, stack choice, screens, implementation, device checks and review",
-    members: [
-      member("product-analyst", "Product Analyst"),
-      member("architect", "Architect"),
-      member("designer", "Designer"),
-      member("mobile-developer", "Mobile Developer"),
-      member("tester", "Tester"),
-      member("reviewer", "Reviewer"),
-    ],
-    playbook: [
-      "1. Requirements: send product-analyst the request; get scenarios (including offline, permissions denied, background/foreground), scope and acceptance criteria.",
-      "2. Architecture: send architect the criteria. It must detect the existing stack (Flutter, React Native/Expo, Kotlin, Swift) or, for a new app, recommend one with reasons and the exact project setup commands; plus navigation, state management, storage, networking and the target platforms and minimum OS versions.",
-      "3. Design (in parallel with step 2 when screens are known): send designer the scenarios; get screen specs with every state, safe areas, dark mode and large fonts.",
-      "4. Build: send mobile-developer the plan and screen specs, one feature slice per task. Create backend-developer when the app needs a new API, and give both the same API contract.",
-      "5. Verify in parallel: tester runs the stack's tests and checks the criteria on an emulator/simulator or device (hub mobile.* entries: devices, install, launch, logcat, screenshots) and reports which platforms it actually ran; reviewer reviews the diff with mobile pitfalls in mind (lifecycle, permissions, secrets in the bundle).",
-      "6. Release work (signing, store builds) only when the operator asks: create devops for it.",
-    ].join("\n"),
-  },
-  {
-    id: "desktop-app",
-    name: "Desktop app",
-    description: "Windows/macOS/Linux app: architecture, UI, implementation, packaging, tests and review",
-    members: [
-      member("architect", "Architect"),
-      member("designer", "Designer"),
-      member("desktop-developer", "Desktop Developer"),
-      member("devops", "DevOps"),
-      member("tester", "Tester"),
-      member("reviewer", "Reviewer"),
-    ],
-    playbook: [
-      "1. Architecture: send architect the request. It must detect the stack (Electron, Tauri, Qt, .NET/WPF/WinUI/Avalonia, Swift) or, for a new app, recommend one with reasons; define the process model (main/renderer/backend), IPC surface, storage location, target OSes and the setup commands.",
-      "2. Design: send designer the main windows and flows; get specs with menus, shortcuts (Ctrl/Cmd), DPI scaling and every state.",
-      "3. Build: send desktop-developer the plan and specs in feature slices. Keep IPC narrow and long work off the UI thread.",
-      "4. Package in parallel with verification: send devops the installer/packaging task (and signing, auto-update only if asked) once the app builds.",
-      "5. Verify in parallel: tester runs tests and checks the criteria on the OS it can run (the playtest tool drives the built app off-screen) and lists the others as NOT RUN; reviewer reviews the diff with IPC/filesystem security in mind. Create compatibility-engineer when Windows/macOS/Linux parity matters.",
-    ].join("\n"),
-  },
-  {
-    id: "research",
-    name: "Research",
-    description: "Study a question and write up the findings",
-    members: [member("deep-researcher", "Deep Researcher"), member("researcher", "Researcher"), member("writer", "Writer")],
-    playbook: [
-      "1. Send deep-researcher the question, what the answer will be used for, the depth needed and the questions you already suspect matter. It runs wide parallel research and returns a source-labelled brief.",
-      "2. Send researcher a focused follow-up only for the gaps deep-researcher names, or for the repository-side trace the brief could not settle. Do not repeat the whole question.",
-      "3. If the operator wants a document, send writer the evidence map, the target file and the audience; otherwise summarize the findings yourself and keep every source link.",
-      "Done when each load-bearing question has a verified source or is named as an open gap. No code changes in this team unless the operator asks.",
-    ].join("\n"),
-  },
-  {
-    id: "docs",
-    name: "Docs",
-    description: "Write documentation and check it against the code",
-    members: [member("writer", "Writer"), member("reviewer", "Reviewer")],
-    playbook: [
-      "1. Send writer the audience, the files to write or update, and the behavior to document.",
-      "2. Send reviewer the diff to check every command, path and example against the code.",
-      "3. Route corrections back to writer once.",
-    ].join("\n"),
-  },
-  {
-    id: "security-audit",
-    name: "Security audit",
-    description: "Security, dependency and code review of an existing codebase without changing it",
-    members: [
-      member("security-auditor", "Security Auditor"),
-      member("dependency-auditor", "Dependency Auditor"),
-      member("reviewer", "Reviewer"),
-    ],
-    playbook: [
-      "1. Send the three auditors their area in the same turn: security-auditor the trust boundaries and sensitive flows, dependency-auditor the manifests, reviewer the code quality hot spots.",
-      "2. Merge the findings yourself into one list ordered by severity, removing duplicates.",
-      "Read-only team: do not create implementers unless the operator asks for fixes.",
-    ].join("\n"),
-  },
-  {
-    id: "deep-audit",
-    name: "Deep Research and Vulnerability Audit",
-    description: "Deep multi-source web and codebase vulnerability research, dependency audit, CVE cross-referencing, REA reverse-engineering, and MCP-powered upgrade planning",
-    members: [
-      member("deep-researcher", "Deep Web and Security Intelligence Researcher"),
-      member("dependency-auditor", "Dependency and Supply-Chain Auditor"),
-      member("security-auditor", "Codebase Threat and Call-Path Analyst"),
-      member("architect", "Upgrade and Remediation Architect"),
-    ],
-    playbook: [
-      "Deep Vulnerability, Dependency Research, and Autonomous Tooling Protocol:",
-      "1. Phase 1 -- Supply-Chain & Manifest Cataloging: Send dependency-auditor to catalog all direct, dev, and transitive dependencies across every package manifest (packages/*/package.json, Cargo.toml, bun.lock, Cargo.lock). Run package audits, detect outdated versions, license risks, and candidate components.",
-      "2. Phase 2 -- Multi-Source Intelligence via MCP & Live Feeds: Send deep-researcher to scour multiple vulnerability databases (OSV.dev, GitHub Advisory Database, NVD, CVE, Snyk, upstream changelogs, and vendor security bulletins) using web search and MCP tools (mcp-docs_*, context7_*, fetch_*). Cross-reference exact CVE IDs, CVSS v3/v4 vectors, affected version ranges, and fixed versions across multiple sources -- never rely on superficial summaries.",
-      "3. Phase 3 -- Reverse Engineering & Binary Inspection via REA: For native binaries, prebuilt .node/.so/.dll modules, WASM bundles, or obfuscated assets, invoke REA tools (rea-anything_*, rea_*) to decompile, extract symbols, and inspect actual binaries. Verify native signatures and security boundaries directly rather than assuming behavior from metadata.",
-      "4. Phase 4 -- Autonomous Advanced Tool Synthesis via Forge: When existing off-the-shelf tools are insufficient for deep analysis (such as batch OSV queries, AST call-graph reachability, or transitive taint tracing), synthesize production-grade tools via mcp_forge (saving a self-contained, typed stdio MCP server) or command_forge. Trivial bash one-liners or shallow grep wrappers are strictly forbidden; forged tools must be structured, robust, and registered with clean schemas.",
-      "5. Phase 5 -- Codebase Reachability and Call-Path Analysis: Send security-auditor to trace actual usage of vulnerable APIs across the repository. Verify whether vulnerable methods, classes, or endpoints are genuinely imported, invoked, or reachable from untrusted external inputs, separating active exploitable vulnerabilities from theoretical warnings.",
-      "6. Phase 6 -- Upgrade and Remediation Matrix: Send architect to construct a prioritized update and remediation roadmap, detailing non-breaking patch updates vs breaking major versions, migration steps, and risk mitigation.",
-      "7. Phase 7 -- Orchestrator Synthesis: Merge all findings into an exhaustive, structured audit report with verified sources, call-site evidence, CVSS ratings, and actionable upgrade recommendations.",
-    ].join("\n"),
-  },
-  {
     id: "pro-engineers",
     name: "Elite Engineering Team",
     description: "Senior full-cycle software engineering team with elite toolchains (MCP, REA, Forge, CodeMode) for architectural evolution, high-assurance development, security hardening, and exhaustive testing",
@@ -1126,39 +1240,6 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
     ].join("\n"),
   },
   {
-    id: "strategic-planning",
-    name: "Grand Strategic Planning and Systems Architecture",
-    description: "High-assurance strategic planning team combining formal systems modeling, adversarial falsification, empirical intelligence, threat boundary analysis, and rigorous dependency DAG decomposition",
-    members: [
-      member("strategic-planner", "Lead Strategic Systems Architect"),
-      member("architect", "Software and Systems Architect"),
-      member("counterexample-engineer", "Adversarial Falsification Specialist"),
-      member("deep-researcher", "Empirical Intelligence Scout"),
-      member("security-auditor", "Threat Surface Analyst"),
-      member("reviewer", "Methodology and DoD Verifier"),
-    ],
-    playbook: [
-      "Grand Strategic Systems Planning Protocol:",
-      "1. Phase 1 -- Empirical Knowledge Acquisition: Send deep-researcher to scour upstream RFCs, official specifications, academic references, and open-source prior art via MCP documentation and web research to establish proven best practices and avoid reinventing established solutions.",
-      "2. Phase 2 -- Codebase Topology and Invariant Extraction: Send architect to map the current repository architecture, AST symbol call-paths, and boundary contracts, identifying concrete files, modules, and data invariants directly affected by the goal.",
-      "3. Phase 3 -- Formal System Modeling and Topological DAG: Send strategic-planner to synthesize requirements and empirical findings into a formal system model with state machines, preconditions, postconditions, and a topologically sorted dependency DAG with explicit critical-path scheduling.",
-      "4. Phase 4 -- Adversarial Falsification and Stress Testing: Send counterexample-engineer to subject the proposed architecture to adversarial failure modeling, probing for race conditions, deadlock scenarios, distributed split-brain conditions, scale bottlenecks, and boundary edge cases.",
-      "5. Phase 5 -- Threat Surface and Trust Boundary Audit: Send security-auditor to inspect trust assumptions, privilege escalation vectors, data leakages, and cryptographic integrity constraints within the proposed architecture.",
-      "6. Phase 6 -- Methodology Verification and DoD Hardening: Send reviewer to verify that all milestones adhere to the Definition of Done (DoD), ensuring every deliverable possesses an automated, deterministic verification command (no trivial file existence checks).",
-      "7. Phase 7 -- Orchestrator Synthesis and Actionable Handoff: Merge all outputs into a master strategic blueprint ready for deterministic multi-agent execution.",
-    ].join("\n"),
-  },
-  {
-    id: "release",
-    name: "Release",
-    description: "Build, CI and deployment",
-    members: [member("devops", "DevOps"), member("tester", "Tester"), member("reviewer", "Reviewer")],
-    playbook: [
-      "1. Send devops the release goal and the platforms; nothing is published, tagged or deployed without the operator's explicit request.",
-      "2. Send tester the built artifacts to smoke-test and reviewer the CI/build diff, in parallel.",
-    ].join("\n"),
-  },
-  {
     id: "proof-driven",
     name: "Proof-driven",
     description: "High-assurance work: design, implementation, independent acceptance tests, adversarial counterexamples and review",
@@ -1177,33 +1258,20 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
       "4. Resolve disagreements with a discriminating test, never by majority. Finish with an acceptance matrix: each criterion VERIFIED, PARTLY VERIFIED, BLOCKED or NOT RUN with its evidence.",
     ].join("\n"),
   },
-  {
-    // Legacy template id retained for persisted projects; the display name is Orchestra Core.
-    id: "opencode-core",
-    name: "Orchestra Core",
-    description: "Evolve the entire Orchestra monorepo: architecture, core implementation, cross-package contracts, platform parity, security, tests and independent review",
-    members: [
-      member("architect", "Architect"),
-      member("core-maintainer", "Core Maintainer"),
-      member("integration-engineer", "Integration Engineer"),
-      member("api-contract-engineer", "API & Contract Engineer"),
-      member("compatibility-engineer", "Cross-platform Engineer"),
-      member("security-auditor", "Security Auditor"),
-      member("tester", "Tester"),
-      member("reviewer", "Reviewer"),
-    ],
-    playbook: [
-      "This project is the Orchestra monorepo (bun workspaces, Effect v4, packages schema/protocol/core/server/client/cli/tui/app). Every task you send must remind the worker to read the root and package AGENTS.md.",
-      "Repository rules to put into tasks when they apply: dependency direction Schema → Core/Protocol → Server, Client never imports Core or Server; after public Protocol/Server HttpApi changes run bun run generate in packages/client and never hand-edit generated files; run bun typecheck and bun test from the package directory, never from the root, never tsc directly; full check is bun run check at the root.",
-      "1. Plan: architect maps the end-to-end path across packages and proposes tasks with disjoint file scopes.",
-      "2. Build: core-maintainer owns core/server/TUI implementation; api-contract-engineer owns schema/protocol and client generation; integration-engineer wires consumers. Serialize work that touches the same package or generated files.",
-      "3. Verify in parallel: tester runs package tests and typecheck, reviewer reviews the diff. Use compatibility-engineer for Windows/Linux behavior and security-auditor for permissions, sessions, LAN or secrets — only when the change touches them.",
-      "Do not dispatch every specialist for a small change: one core-maintainer task plus tester is often enough.",
-    ].join("\n"),
-  },
 ]
+
+// The template a project was created from, by id: a live template (built-in, edited or custom)
+// when one exists under that id, else the legacy compatibility record for a removed built-in.
+export function templateByID(id: string, live: readonly (TemplateSpec & { id: string })[]) {
+  return live.find((item) => item.id === id) ?? legacyTemplates.find((item) => item.id === id)
+}
 
 // What the Orchestrator follows for a team: the template's own playbook, else the built-in one of the same id.
 export function playbookOf(template: Pick<Template, "id" | "playbook">) {
-  return template.playbook?.trim() || templates.find((item) => item.id === template.id)?.playbook?.trim() || undefined
+  return (
+    template.playbook?.trim() ||
+    templates.find((item) => item.id === template.id)?.playbook?.trim() ||
+    legacyTemplates.find((item) => item.id === template.id)?.playbook?.trim() ||
+    undefined
+  )
 }
