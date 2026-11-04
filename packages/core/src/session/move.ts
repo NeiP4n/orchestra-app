@@ -17,6 +17,7 @@ import { NotFoundError } from "./error.js"
 import { SessionEvent } from "./event.js"
 import { SessionExecution } from "./execution.js"
 import { SessionInbox } from "./inbox.js"
+import { SessionModelTransport } from "./model-transport.js"
 import { SessionMessage } from "./message.js"
 import { SessionProjector } from "./projector.js"
 import { SessionRunner } from "./runner/index.js"
@@ -64,6 +65,7 @@ const layer = Layer.effect(
     const admission = yield* SessionInbox.Service
     const database = yield* Database.Service
     const bus = yield* Bus.Service
+    const transport = yield* SessionModelTransport.Service
 
     const get = Effect.fn("SessionMove.get")(function* (sessionID: Session.ID) {
       const session = yield* store.get(sessionID)
@@ -153,6 +155,15 @@ const layer = Layer.effect(
                 (item) => [SessionEvent.InboxCancelled, { sessionID: input.sessionID, inboxID: item.id }] as const,
               )
               const moved = [SessionEvent.Moved, { sessionID: input.sessionID, ...destination }] as const
+              // Mirror the runner's drain path: the session's model transport
+              // (WebSocket channel, HTTP-fallback pin, stream-failure count)
+              // belongs to the old location. Close it before Moved is
+              // published so the recovered session starts with a fresh
+              // transport instead of inheriting the fallback state that the
+              // transport itself documents as lasting "until restart or move".
+              // Only this applied branch closes; a queued move is closed by
+              // the runner when it drains, and an active session is not here.
+              yield* transport.close(input.sessionID)
               const first = cancellations[0]
               if (!first) return yield* bus.publish(...moved).pipe(Effect.asVoid)
               return yield* bus.publishAll([first, ...cancellations.slice(1), moved])
@@ -187,5 +198,6 @@ export const node = makeGlobalNode({
     Database.node,
     Bus.node,
     SessionProjector.node,
+    SessionModelTransport.node,
   ],
 })

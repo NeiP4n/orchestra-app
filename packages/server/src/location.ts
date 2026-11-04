@@ -4,7 +4,7 @@ import { LocationServiceMap } from "@orchestra/core/location-services"
 import { AbsolutePath } from "@orchestra/core/schema"
 import { Session } from "@orchestra/core/session"
 import { LocationNotFoundError, InvalidRequestError } from "@orchestra/protocol/errors"
-import { Effect, Layer, Schema } from "effect"
+import { Cause, Effect, Layer, Schema } from "effect"
 import { HttpServerRequest } from "effect/unstable/http"
 import { HttpApiMiddleware } from "effect/unstable/httpapi"
 import { missingSession } from "./handlers/session-error"
@@ -85,7 +85,23 @@ export const layer = Layer.effect(
     return LocationMiddleware.of((effect) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest
-        return yield* effect.pipe(Effect.provide(locations.get(requestRef(request))), locationErrors)
+        const ref = requestRef(request)
+        return yield* effect.pipe(
+          Effect.provide(locations.get(ref)),
+          locationErrors,
+          // A defect here (a location service dying while it builds or
+          // serves) reaches the client as a bare 500 with no body, which
+          // made real failures undiagnosable from the UI ("Session location
+          // unavailable / UnexpectedStatus: 500" for every directory).
+          // Log the full cause server-side, where the failing service is
+          // named; typed errors are control flow and stay unlogged. This
+          // only observes the failure — it changes no error the client sees.
+          Effect.onError((cause) =>
+            cause.reasons.some((reason) => Cause.isDieReason(reason))
+              ? Effect.logError("Location request failed with a defect", { cause, directory: ref.directory })
+              : Effect.void,
+          ),
+        )
       }),
     )
   }),
