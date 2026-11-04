@@ -262,8 +262,17 @@ function ensureReadable(resolved: ResolvedThemeTokens): ResolvedThemeTokens {
       top.b * top.a + under.b * (1 - top.a),
       1,
     )
-  const onSurface = (color: RGBA, surface: RGBA, floor: number) =>
-    surface.a >= 1 ? lift(color, surface, floor) : lift(color, composite(surface, base), floor)
+  const onSurface = (color: RGBA, surface: RGBA, floor: number) => {
+    if (surface.a >= 1) return lift(color, surface, floor)
+    // Translucent hover and feedback surfaces can sit on either the page or
+    // an elevated panel. Repair against both composites so the same control
+    // remains readable in the main view, sidebars and dialogs.
+    return lift(
+      lift(color, composite(surface, base), floor),
+      composite(surface, raised),
+      floor,
+    )
+  }
   const liftStates = (
     textStates: Readonly<Record<string, RGBA>>,
     bgStates: Readonly<Record<string, RGBA>>,
