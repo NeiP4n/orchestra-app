@@ -2,7 +2,7 @@ import { testRender } from "@opentui/solid"
 import { expect, test } from "bun:test"
 import { HoverAction } from "../../src/component/hover-action"
 import { ConfigProvider } from "../../src/config"
-import { ThemeProvider } from "../../src/context/theme"
+import { ThemeProvider, useTheme } from "../../src/context/theme"
 import { emptyThemeSource } from "../fixture/fixture"
 import { TestTuiContexts } from "../fixture/tui-environment"
 import { createTuiResolvedConfig } from "../fixture/tui-runtime"
@@ -89,4 +89,56 @@ test("HoverAction does not trigger when disabled", async () => {
   await app.renderOnce()
 
   expect(clicked).toBe(false)
+})
+
+test("HoverAction supports destructive hover surfaces and reports pointer state", async () => {
+  let hovered = false
+  let destructiveHover: number[] = []
+  function Probe() {
+    const theme = useTheme()
+    destructiveHover = theme.background.action.destructive.hovered.toInts()
+    return (
+      <HoverAction
+        id="destructive-action"
+        variant="destructive"
+        onHoverChange={(value) => (hovered = value)}
+      >
+        <text>Release resource</text>
+      </HoverAction>
+    )
+  }
+
+  const app = await testRender(
+    () => (
+      <TestTuiContexts>
+        <ConfigProvider config={createTuiResolvedConfig()}>
+          <ThemeProvider mode="dark" source={emptyThemeSource}>
+            <Probe />
+          </ThemeProvider>
+        </ConfigProvider>
+      </TestTuiContexts>
+    ),
+    { width: 40, height: 10, kittyKeyboard: true },
+  )
+
+  try {
+    app.renderer.start()
+    await app.waitForFrame((frame) => frame.includes("Release resource"))
+    const action = app.renderer.root.findDescendantById("destructive-action")!
+    await app.mockMouse.moveTo(action.x, action.y)
+    await app.renderOnce()
+
+    expect(hovered).toBe(true)
+    const span = app
+      .captureSpans()
+      .lines.flatMap((line) => line.spans)
+      .find((item) => item.text.includes("Release resource"))
+    expect(span?.bg.toInts()).toEqual(destructiveHover)
+
+    await app.mockMouse.moveTo(0, 9)
+    await app.renderOnce()
+    expect(hovered).toBe(false)
+  } finally {
+    app.renderer.destroy()
+  }
 })
