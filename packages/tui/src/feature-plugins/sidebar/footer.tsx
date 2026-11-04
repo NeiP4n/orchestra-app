@@ -122,6 +122,7 @@ function SidebarFooter(props: { context: Plugin.Context; sessionID: string }) {
         {(value) => (
           <box
             id="sidebar.footer.location"
+            backgroundColor={actions.hovered() ? hoverBackground(props.context.theme) : undefined}
             onMouseOver={actions.onMouseOver}
             onMouseOut={actions.onMouseOut}
             onMouseUp={actions.onMouseUp}
