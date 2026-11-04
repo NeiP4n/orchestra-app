@@ -1572,7 +1572,14 @@ export function Session(props: {
                   updateAwayFromBottom()
                 }}
               >
-                <TranscriptAxon sessionID={route.sessionID} />
+                <Show
+                  when={
+                    !disabled() &&
+                    !(session() && currentLocation.error?.location.directory === session()!.location.directory)
+                  }
+                >
+                  <TranscriptAxon sessionID={route.sessionID} />
+                </Show>
                 <For each={visibleRows()}>
                   {(row, index) => (
                     <SessionRowView
