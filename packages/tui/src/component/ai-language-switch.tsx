@@ -62,7 +62,7 @@ export function AiLanguageSwitch(props: { compact?: boolean }) {
                   active()
                     ? theme.text.action.primary.focused
                     : hovered() === item.value
-                      ? neuralPalette(theme).signal
+                      ? theme.text.action.primary.hovered
                       : theme.text.muted
                 }
               >
