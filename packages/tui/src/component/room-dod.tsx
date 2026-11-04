@@ -55,6 +55,7 @@ export function RoomDodRows(props: {
   const [open, setOpen] = createSignal(props.open ?? false)
   const indent = () => props.indent ?? 4
   const [armed, setArmed] = createSignal<string>()
+  const [nextHovered, setNextHovered] = createSignal(false)
   const [events, setEvents] = createSignal<readonly RoomEvent[]>([])
   const [status, setStatus] = createSignal<PanelState>({ type: "starting" })
   // Retain the last usable payload after a failed refresh, but never mark it as current.
@@ -261,6 +262,7 @@ export function RoomDodRows(props: {
               id={`${props.id}:dod:next`}
               onMouseEnter={() => props.setHover(`${props.id}:dod`)}
               onMouseLeave={() => props.setHover(`${props.id}:dod`)}
+              onHoverChange={setNextHovered}
               onClick={() =>
                 act(
                   () => props.take!(),
@@ -269,7 +271,7 @@ export function RoomDodRows(props: {
                 )
               }
             >
-              <text fg={theme.text.action.primary.base}>{` ${t("next")}`}</text>
+              <text fg={nextHovered() ? theme.text.base : theme.text.action.primary.base}>{` ${t("next")}`}</text>
             </HoverAction>
           </Show>
         </Row>
