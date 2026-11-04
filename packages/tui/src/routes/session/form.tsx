@@ -16,6 +16,7 @@ import type { FormAnswer, FormField, FormValue } from "@orchestra/client"
 import { useData, type FormWithLocation } from "../../context/data"
 import { useClipboard } from "../../context/clipboard"
 import { SplitBorder } from "../../ui/border"
+import { hoverBackground } from "../../ui/hover"
 import { useToast } from "../../ui/toast"
 import { Keymap } from "../../context/keymap"
 import { useInteractivity } from "../../context/interactivity"
@@ -812,12 +813,13 @@ export function FormPrompt(props: { form: FormWithLocation }) {
                   isTab()
                     ? theme.text.base
                     : tabHover() === index()
-                      ? theme.text.formfield.focused
+                      ? theme.text.base
                       : theme.text.muted
                 return (
                   <box
+                    paddingLeft={1}
                     paddingRight={2}
-                    backgroundColor={theme.background.raised.base}
+                    backgroundColor={tabHover() === index() && !isTab() ? hoverBackground(theme) : theme.background.raised.base}
                     onMouseOver={() => setTabHover(index())}
                     onMouseOut={() => setTabHover(null)}
                     onMouseUp={() => {
@@ -833,7 +835,9 @@ export function FormPrompt(props: { form: FormWithLocation }) {
               }}
             </For>
             <box
-              backgroundColor={theme.background.raised.base}
+              paddingLeft={1}
+              paddingRight={1}
+              backgroundColor={tabHover() === "confirm" && !confirm() ? hoverBackground(theme) : theme.background.raised.base}
               onMouseOver={() => setTabHover("confirm")}
               onMouseOut={() => setTabHover(null)}
               onMouseUp={() => {
@@ -846,7 +850,7 @@ export function FormPrompt(props: { form: FormWithLocation }) {
                   confirm()
                     ? theme.text.base
                     : tabHover() === "confirm"
-                      ? theme.text.formfield.focused
+                      ? theme.text.base
                       : theme.text.muted
                 }
                 attributes={confirm() ? TextAttributes.BOLD : undefined}
