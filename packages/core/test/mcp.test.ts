@@ -34,6 +34,12 @@ import { McpStdio } from "@orchestra/core/mcp/stdio"
 import { Permission } from "@orchestra/core/permission"
 import { AbsolutePath } from "@orchestra/core/schema"
 import { Session } from "@orchestra/core/session"
+import { SessionStore } from "@orchestra/core/session/store"
+import { KV } from "@orchestra/core/kv"
+import { Database } from "@orchestra/core/database/database"
+import { Project } from "@orchestra/core/project"
+import { ProjectTable } from "@orchestra/core/project/sql"
+import { SessionTable } from "@orchestra/core/session/sql"
 import { State } from "@orchestra/core/state"
 import { McpTool } from "@orchestra/core/tool/mcp"
 import { McpResourceTools } from "@orchestra/core/tool/plugin/mcp-resource"
@@ -281,6 +287,7 @@ function resourceMcpLayer(
     subscribe?: Bus.Interface["subscribe"]
     environment?: Layer.Layer<Environment.Service>
     published?: string[]
+    seed?: (database: Database.Interface) => Effect.Effect<void>
   },
 ) {
   const directory = AbsolutePath.make(import.meta.dir)
@@ -289,6 +296,10 @@ function resourceMcpLayer(
     Effect.gen(function* () {
       const bus = yield* Bus.Service
       const mcp = yield* Mcp.Service
+      // Runs inside the layer's own scope, where the compiled Database that
+      // backs SessionStore/KV is reachable; the outer test scope cannot see
+      // it (it is provided, not merged), so seeded rows must be written here.
+      if (overrides?.seed) yield* overrides.seed(yield* Database.Service)
       yield* State.batch(
         Effect.gen(function* () {
           yield* ConfigMcpPlugin.register(bus.subscribe())
@@ -301,6 +312,7 @@ function resourceMcpLayer(
     Layer.provideMerge(Form.layer),
     Layer.provide(
       Layer.mergeAll(
+        LayerNode.compile(LayerNode.group([Database.node, SessionStore.node, KV.node])),
         overrides?.managed ? Layer.succeed(ManagedPolicy.Service, overrides.managed) : ManagedPolicy.layer,
         overrides?.entries
           ? Layer.succeed(
@@ -2070,6 +2082,9 @@ const shutdownIt = testEffect(
       Form.node,
       Environment.node,
       Location.node,
+      SessionStore.node,
+      KV.node,
+      Database.node,
     ]),
     [
       Location.node.replace(
@@ -2865,4 +2880,133 @@ test("starts an identical local launcher one location at a time", async () => {
   )
 
   expect(events).toEqual(["spawn", "ready", "spawn", "ready"])
+})
+
+describe("MCP budget enforcement at dispatch", () => {
+  const budgetKey = "orchestra:mcp-limit"
+  const seedRows =
+    (rows: ReadonlyArray<{ id: Session.ID; metadata?: Record<string, Schema.Json> }>) =>
+    (database: Database.Interface) =>
+      Effect.gen(function* () {
+        yield* database.db
+          .insert(ProjectTable)
+          .values({ id: Project.ID.global, worktree: AbsolutePath.make("/tmp"), sandboxes: [] })
+          .run()
+          .pipe(Effect.orDie)
+        for (const row of rows)
+          yield* database.db
+            .insert(SessionTable)
+            .values({
+              id: row.id,
+              project_id: Project.ID.global,
+              directory: AbsolutePath.make("/tmp"),
+              slug: row.id,
+              version: "test",
+              ...(row.metadata ? { metadata: row.metadata } : {}),
+            })
+            .run()
+            .pipe(Effect.orDie)
+      })
+  const stamp = (limit: Record<string, unknown>, epoch: string) => ({
+    [budgetKey]: { ...limit, budgetEpoch: epoch },
+  })
+
+  test("a stamped session is cut off at its total cap and the server never sees the extra call", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const server = yield* resourceServer()
+          const sessionID = Session.ID.make("ses_budget_total")
+          yield* Effect.gen(function* () {
+            const service = yield* Mcp.Service
+            yield* service.callTool({ server: "resources", name: "echo", args: { n: 1 }, sessionID })
+            yield* service.callTool({ server: "resources", name: "echo", args: { n: 2 }, sessionID })
+            const error = yield* service
+              .callTool({ server: "resources", name: "echo", args: { n: 3 }, sessionID })
+              .pipe(Effect.flip)
+
+            expect(error._tag).toBe("MCP.ToolCallError")
+            if (error._tag === "MCP.ToolCallError") expect(error.message).toContain("MCP budget exhausted")
+            expect(server.state.toolCalls).toHaveLength(2)
+          }).pipe(
+            Effect.provide(
+              resourceMcpLayer(server.url, undefined, undefined, {
+                seed: seedRows([
+                  { id: sessionID, metadata: stamp({ servers: "all", maxCalls: 2, perServer: {} }, "epoch-total") },
+                ]),
+              }),
+            ),
+          )
+        }),
+      ),
+    )
+  })
+
+  test("allowlist and per-server denials never reach the server", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const server = yield* resourceServer()
+          const deniedID = Session.ID.make("ses_budget_allowlist")
+          const cappedID = Session.ID.make("ses_budget_perserver")
+          yield* Effect.gen(function* () {
+            const service = yield* Mcp.Service
+            const denied = yield* service
+              .callTool({ server: "resources", name: "echo", args: {}, sessionID: deniedID })
+              .pipe(Effect.flip)
+            if (denied._tag === "MCP.ToolCallError")
+              expect(denied.message).toContain("not in this task's MCP allowlist")
+            expect(server.state.toolCalls).toHaveLength(0)
+
+            yield* service.callTool({ server: "resources", name: "echo", args: { n: 1 }, sessionID: cappedID })
+            const capped = yield* service
+              .callTool({ server: "resources", name: "echo", args: { n: 2 }, sessionID: cappedID })
+              .pipe(Effect.flip)
+            if (capped._tag === "MCP.ToolCallError")
+              expect(capped.message).toContain('MCP budget exhausted for server "resources"')
+            expect(server.state.toolCalls).toHaveLength(1)
+          }).pipe(
+            Effect.provide(
+              resourceMcpLayer(server.url, undefined, undefined, {
+                seed: seedRows([
+                  {
+                    id: deniedID,
+                    metadata: stamp({ servers: ["other"], maxCalls: 10, perServer: {} }, "epoch-allowlist"),
+                  },
+                  {
+                    id: cappedID,
+                    metadata: stamp(
+                      { servers: "all", maxCalls: 10, perServer: { resources: 1 } },
+                      "epoch-perserver",
+                    ),
+                  },
+                ]),
+              }),
+            ),
+          )
+        }),
+      ),
+    )
+  })
+
+  test("an unstamped session is not gated", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const server = yield* resourceServer()
+          const sessionID = Session.ID.make("ses_budget_none")
+          yield* Effect.gen(function* () {
+            const service = yield* Mcp.Service
+            for (const n of [1, 2, 3])
+              yield* service.callTool({ server: "resources", name: "echo", args: { n }, sessionID })
+            expect(server.state.toolCalls).toHaveLength(3)
+          }).pipe(
+            Effect.provide(
+              resourceMcpLayer(server.url, undefined, undefined, { seed: seedRows([{ id: sessionID }]) }),
+            ),
+          )
+        }),
+      ),
+    )
+  })
 })

@@ -15,6 +15,10 @@ import { Form } from "../form.js"
 import { Integration } from "../integration.js"
 import { KeyedMutex } from "../effect/keyed-mutex.js"
 import { Location } from "../location.js"
+import { Database } from "../database/database.js"
+import { SessionStore } from "../session/store.js"
+import { SessionID } from "@orchestra/schema/session-id"
+import { McpBudget } from "./budget.js"
 import { waitForAbort } from "@orchestra/util/process"
 import { State } from "../state.js"
 import type { McpClient } from "./client.js"
@@ -162,10 +166,52 @@ export const layer = (options?: Options) =>
       const forms = yield* Form.Service
       const integration = yield* Integration.Service
       const credentials = yield* Credential.Service
+      const sessions = yield* SessionStore.Service
+      const database = yield* Database.Service
       const root = yield* Effect.scope
       const fork = yield* FiberSet.makeRuntime<never, void, never>()
 
       const entries = new Map<ServerName, ServerEntry>()
+      // The Orchestrator's per-task MCP budgets (see ./budget.ts) are enforced
+      // here, at the one dispatch point every MCP tool call passes through.
+      // The reservation is a transaction on the shared database, so the cap
+      // holds across fibers, service instances and processes; a store failure
+      // refuses the call rather than dispatching it unbudgeted.
+      const enforceBudget = Effect.fn("MCP.enforceBudget")(function* (sessionID: Session.ID, server: ServerName) {
+        const info = yield* sessions.get(sessionID)
+        const stamp = McpBudget.parseStamp(info?.metadata)
+        if (stamp.kind === "none") {
+          // No budget: drop any usage an earlier stamp left behind, so a
+          // finished task's record does not linger (bounded cleanup).
+          yield* McpBudget.removeUsage(database.db, sessionID).pipe(Effect.ignore)
+          return undefined
+        }
+        return yield* McpBudget.reserve(database.db, { sessionID, server, stamp }).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("MCP budget reservation failed; refusing the call", { cause, sessionID }).pipe(
+              Effect.as(
+                "The MCP budget store could not record this call, so it was refused: an unenforceable budget is never silently skipped.",
+              ),
+            ),
+          ),
+        )
+      })
+      // Bounded cleanup of budget usage records: at service start, drop rows
+      // whose session is gone, whose stamp was removed, or whose epoch no
+      // longer matches the session's current stamp. A row whose epoch still
+      // matches is an active task's live counter and is never touched.
+      // Best-effort and forked: it never blocks or fails service startup.
+      yield* Effect.gen(function* () {
+        for (const row of yield* McpBudget.listUsage(database.db)) {
+          const info = yield* sessions.get(SessionID.make(row.sessionID))
+          const stamp = McpBudget.parseStamp(info?.metadata)
+          if (!info || stamp.kind !== "limit" || stamp.epoch !== row.usage?.epoch)
+            yield* McpBudget.removeUsage(database.db, row.sessionID)
+        }
+      }).pipe(
+        Effect.catchCause((cause) => Effect.logWarning("MCP budget usage sweep failed", { cause })),
+        Effect.forkScoped({ startImmediately: true }),
+      )
       // Serializes lifecycle operations per server. Anything taking this lock from a connection
       // callback must stay forked: lifecycle operations close scopes while holding it, firing onClose.
       const locks = KeyedMutex.makeUnsafe<ServerName>()
@@ -696,6 +742,11 @@ export const layer = (options?: Options) =>
         }),
         callTool: Effect.fn("MCP.callTool")(function* (input) {
           const target = yield* requireServer(input.server)
+          if (input.sessionID) {
+            const denial = yield* enforceBudget(input.sessionID, target.name)
+            if (denial)
+              return yield* new ToolCallError({ server: target.name, tool: input.name, message: denial })
+          }
           yield* target.entry.startup.await
           if (!target.entry.client)
             return yield* new ToolCallError({
@@ -808,7 +859,16 @@ export function configured(options?: Options) {
   return makeLocationNode({
     service: Service,
     layer: layer(options),
-    deps: [Location.node, Environment.node, Bus.node, Form.node, Integration.node, Credential.node],
+    deps: [
+      Location.node,
+      Environment.node,
+      Bus.node,
+      Form.node,
+      Integration.node,
+      Credential.node,
+      SessionStore.node,
+      Database.node,
+    ],
   })
 }
 

@@ -7429,6 +7429,9 @@
                       },
                       {
                         "$ref": "#/components/schemas/Mcp.RemoteConfigEncoded"
+                      },
+                      {
+                        "$ref": "#/components/schemas/Mcp.StreamableHttpConfigEncoded"
                       }
                     ]
                   }
@@ -10435,6 +10438,21 @@
             "required": false
           },
           {
+            "name": "x-opencode-ticket",
+            "in": "header",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "required": false
+          },
+          {
             "name": "location",
             "in": "query",
             "schema": {
@@ -11313,6 +11331,21 @@
           },
           {
             "name": "x-orchestra-ticket",
+            "in": "header",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "required": false
+          },
+          {
+            "name": "x-opencode-ticket",
             "in": "header",
             "schema": {
               "anyOf": [
@@ -21819,6 +21852,565 @@
         }
       }
     },
+    "/api/orchestra/rules/{scope}": {
+      "get": {
+        "tags": ["orchestra"],
+        "operationId": "orchestra.rules.list",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "by": {
+                        "type": "string"
+                      },
+                      "at": {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "enum": ["Infinity", "-Infinity", "NaN"]
+                          }
+                        ]
+                      }
+                    },
+                    "required": ["id", "text", "by", "at"],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "The standing rules of one scope: global, project:<id> or society:<name>. The AIs of the scope follow them and may add to them.",
+        "summary": "List rules"
+      },
+      "post": {
+        "tags": ["orchestra"],
+        "operationId": "orchestra.rules.add",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "by": {
+                      "type": "string"
+                    },
+                    "at": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "enum": ["Infinity", "-Infinity", "NaN"]
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["id", "text", "by", "at"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Add an operator's rule to a scope. At most 20 short rules per scope.",
+        "summary": "Add a rule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": ["text"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/api/orchestra/rules/{scope}/{id}": {
+      "delete": {
+        "tags": ["orchestra"],
+        "operationId": "orchestra.rules.remove",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "<No Content>"
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Delete one rule from a scope.",
+        "summary": "Remove a rule"
+      }
+    },
+    "/api/orchestra/group/{name}/status": {
+      "get": {
+        "tags": ["orchestra"],
+        "operationId": "orchestra.group.status",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "held": {
+                      "type": "boolean"
+                    },
+                    "projects": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "done": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["Infinity", "-Infinity", "NaN"]
+                              }
+                            ]
+                          },
+                          "total": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["Infinity", "-Infinity", "NaN"]
+                              }
+                            ]
+                          },
+                          "blocked": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["Infinity", "-Infinity", "NaN"]
+                              }
+                            ]
+                          },
+                          "running": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": ["id", "name", "done", "total", "blocked", "running"],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["held", "projects"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Each member project's DoD progress and whether its AIs are working, read from the projects' own boards and sessions without any model call.",
+        "summary": "Society progress"
+      }
+    },
+    "/api/orchestra/hold": {
+      "get": {
+        "tags": ["orchestra"],
+        "operationId": "orchestra.group.holds",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Names of the Societies whose AIs are held: none of their sessions runs until the hold is released.",
+        "summary": "List held groups"
+      }
+    },
+    "/api/orchestra/group/{name}/hold": {
+      "put": {
+        "tags": ["orchestra"],
+        "operationId": "orchestra.group.hold",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "<No Content>"
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Hold a Society: whatever its sessions are doing stops and nothing of theirs starts, whatever wakes it, until it is released. Every Society is held when the server starts.",
+        "summary": "Hold or release a group",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "held": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["held"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/api/orchestra/society": {
+      "post": {
+        "tags": ["orchestra"],
+        "operationId": "orchestra.society.create",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "sessionID": {
+                      "type": "string",
+                      "pattern": "^ses"
+                    },
+                    "directory": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["name", "sessionID", "directory"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a Society: its own folder, a coordinator project inside it, the council group and its chat. Give a goal and the Society is named after it; the operator then sends the goal to the chat and the Society generates the projects and their sessions. Give a team template and its project is created at once with a team covering every layer of the system.",
+        "summary": "Create Society",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "goal": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "directory": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "team": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
     "/api/orchestra/link": {
       "post": {
         "tags": ["orchestra"],
@@ -21950,6 +22542,81 @@
         },
         "description": "The projects linked to this one.",
         "summary": "List linked projects"
+      }
+    },
+    "/api/quota/check": {
+      "post": {
+        "tags": ["quota"],
+        "operationId": "quota.check",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Specification and state of token quota for a given model.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Quota.TokenQuotaSpec"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Evaluate context window limit and calculate token quota status.",
+        "summary": "Check model token quota",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "modelID": {
+                    "type": "string"
+                  },
+                  "contextWindowLimit": {
+                    "type": "number"
+                  },
+                  "spentTokens": {
+                    "type": "number"
+                  },
+                  "warningThreshold": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["modelID", "contextWindowLimit", "spentTokens"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        }
       }
     }
   },
@@ -22187,6 +22854,55 @@
           }
         },
         "required": ["template"],
+        "additionalProperties": false
+      },
+      "Config.CompactionEncoded": {
+        "type": "object",
+        "properties": {
+          "auto": {
+            "type": "boolean"
+          },
+          "keep": {
+            "type": "object",
+            "properties": {
+              "tokens": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "buffer": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "threshold": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "threshold_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "keep_free_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          }
+        },
         "additionalProperties": false
       },
       "Config.Compatibility": {
@@ -22539,6 +23255,9 @@
               }
             ]
           },
+          "model_favorites": {
+            "$ref": "#/components/schemas/Config.ModelFavorites"
+          },
           "default_agent": {
             "type": "string"
           },
@@ -22752,6 +23471,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/Mcp.RemoteConfigEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Mcp.StreamableHttpConfigEncoded"
                     }
                   ]
                 }
@@ -22782,6 +23504,28 @@
               "threshold": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "threshold_percent": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "keep_free_percent": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
               }
             },
             "additionalProperties": false
@@ -22872,6 +23616,9 @@
               "portable_shell_scanner": {
                 "type": "boolean"
               },
+              "context_governor": {
+                "type": "boolean"
+              },
               "subagent_depth": {
                 "type": "integer",
                 "minimum": 0
@@ -22896,6 +23643,18 @@
                   "required": ["action", "resource", "effect"],
                   "additionalProperties": false
                 }
+              }
+            },
+            "additionalProperties": false
+          },
+          "jailbreak": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "prompt": {
+                "type": "string"
               }
             },
             "additionalProperties": false
@@ -22932,6 +23691,33 @@
           }
         },
         "required": ["command"],
+        "additionalProperties": false
+      },
+      "Config.MediaEncoded": {
+        "type": "object",
+        "properties": {
+          "image": {
+            "type": "object",
+            "properties": {
+              "auto_resize": {
+                "type": "boolean"
+              },
+              "max_width": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "max_height": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "max_base64_bytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              }
+            },
+            "additionalProperties": false
+          }
+        },
         "additionalProperties": false
       },
       "Config.Model.Capabilities": {
@@ -23107,6 +23893,13 @@
         },
         "additionalProperties": false
       },
+      "Config.ModelFavorites": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^[^/#]+\\/[^#]+$"
+        }
+      },
       "Config.ModelSelectionEncoded": {
         "anyOf": [
           {
@@ -23197,6 +23990,17 @@
             ],
             "description": "Default model for new sessions, as provider/model"
           },
+          "model_favorites": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Config.ModelFavorites"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Models pinned to the Feature section of the model picker, as provider/model without a variant; null clears it"
+          },
           "mcpServers": {
             "type": "object",
             "additionalProperties": {
@@ -23208,6 +24012,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/Mcp.RemoteConfigEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Mcp.StreamableHttpConfigEncoded"
                     }
                   ]
                 },
@@ -23238,6 +24045,242 @@
               }
             ],
             "description": "Turn reading other agent tools' folders on or off everywhere (compatibility.enabled); null clears it"
+          },
+          "contextGovernor": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Turn leaving old, bulky tool output out of model requests on or off (experimental.context_governor, on by default); null clears it"
+          },
+          "compaction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Config.CompactionEncoded"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Compaction settings, including default threshold for new sessions; null clears it"
+          },
+          "agent": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/Config.AgentEncoded"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Default agent name or named agent overrides; null clears it"
+          },
+          "default_agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Default primary agent to use when no session agent is selected; null clears it"
+          },
+          "agents": {
+            "type": "object",
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Config.AgentEncoded"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Named agent definitions to add or update; null removes one"
+          },
+          "skills": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Additional paths or URLs to discover skills from; null clears it"
+          },
+          "instructions": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Additional paths or URLs supplying ambient instructions; null clears it"
+          },
+          "permissions": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Permission.Ruleset"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ordered tool permission rules applied to agent tool use; null clears it"
+          },
+          "plugins": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Config.Plugin.EntryEncoded"
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ordered plugin enablement directives and external package declarations; null clears it"
+          },
+          "tool_output": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Config.ToolOutputEncoded"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tool output truncation thresholds; null clears it"
+          },
+          "commands": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Config.CommandEncoded"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Named slash command definitions to add or update; null removes command or whole section"
+          },
+          "warming": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Config.WarmingEncoded"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Keep recently active sessions warm with transient model requests; null clears it"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/Config.AgentEncoded"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Session mode override or legacy mode definitions; null clears it"
+          },
+          "update": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["disable", "notify", "auto"]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Disable updates, notify when one is available, or install updates automatically; null clears it"
+          },
+          "media": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Config.MediaEncoded"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Media processing configuration; null clears it"
           }
         },
         "additionalProperties": false
@@ -23402,6 +24445,20 @@
           }
         },
         "required": ["path"],
+        "additionalProperties": false
+      },
+      "Config.ToolOutputEncoded": {
+        "type": "object",
+        "properties": {
+          "max_lines": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "max_bytes": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          }
+        },
         "additionalProperties": false
       },
       "Config.WarmingEncoded": {
@@ -25384,6 +26441,14 @@
           },
           "protocol": {
             "$ref": "#/components/schemas/Mcp.Protocol"
+          },
+          "heartbeatInterval": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "streamTimeout": {
+            "type": "integer",
+            "exclusiveMinimum": 0
           }
         },
         "required": ["type", "url"],
@@ -25543,6 +26608,72 @@
           }
         },
         "required": ["status"],
+        "additionalProperties": false
+      },
+      "Mcp.StreamableHttpConfigEncoded": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["streamable-http"]
+          },
+          "url": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "oauth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Mcp.OAuthConfigEncoded"
+              },
+              {
+                "type": "boolean",
+                "enum": [false]
+              }
+            ]
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "codemode": {
+            "type": "boolean"
+          },
+          "timeout": {
+            "type": "object",
+            "properties": {
+              "startup": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "catalog": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "execution": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "protocol": {
+            "$ref": "#/components/schemas/Mcp.Protocol"
+          },
+          "heartbeatInterval": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "streamTimeout": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          }
+        },
+        "required": ["type", "url"],
         "additionalProperties": false
       },
       "McpServerNotFoundErrorEncoded": {
@@ -26109,6 +27240,16 @@
               }
             ]
           },
+          "variant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "tools": {
             "anyOf": [
               {
@@ -26216,6 +27357,16 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "variant": {
+            "anyOf": [
+              {
+                "type": "string"
               },
               {
                 "type": "null"
@@ -27426,6 +28577,58 @@
         },
         "required": ["ticket", "expires_in"],
         "additionalProperties": false
+      },
+      "Quota.QuotaStatus": {
+        "type": "string",
+        "enum": ["ok", "approaching_limit", "exceeded"],
+        "description": "Status of token quota relative to context window limit."
+      },
+      "Quota.TokenQuotaSpec": {
+        "type": "object",
+        "properties": {
+          "modelID": {
+            "type": "string"
+          },
+          "contextWindowLimit": {
+            "type": "number"
+          },
+          "spentTokens": {
+            "type": "number"
+          },
+          "remainingTokens": {
+            "type": "number"
+          },
+          "warningThreshold": {
+            "type": "number"
+          },
+          "status": {
+            "$ref": "#/components/schemas/Quota.QuotaStatus"
+          },
+          "utilization": {
+            "type": "number"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "modelID",
+          "contextWindowLimit",
+          "spentTokens",
+          "remainingTokens",
+          "warningThreshold",
+          "status",
+          "utilization"
+        ],
+        "additionalProperties": false,
+        "description": "Specification and state of token quota for a given model."
       },
       "Reference.GitSource": {
         "type": "object",
@@ -31812,6 +33015,9 @@
     {
       "name": "orchestra",
       "description": "Operator projects and their main sessions."
+    },
+    {
+      "name": "quota"
     }
   ]
 }
