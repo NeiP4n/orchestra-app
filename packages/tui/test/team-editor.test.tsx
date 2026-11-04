@@ -155,7 +155,15 @@ test("the team editor creates a role and a team made of it", async () => {
   setup.mockInput.pressTab()
   // tools: only reading files plus an MCP pattern, and the Orchestrator may narrow them
   setup.mockInput.pressArrow("right")
-  await setup.waitForFrame((frame) => frame.includes("□ read") && frame.includes("context7 (AI)"))
+  const toolsFrame = await setup.waitForFrame((frame) => frame.includes("□ read") && frame.includes("context7 (AI)"))
+  // Hovering a chip that is not the keyboard cursor must still produce a visible state.
+  const globPosition = cell(toolsFrame, "glob")
+  const globChip = (spans: ReturnType<typeof setup.captureSpans>) =>
+    spans.lines[globPosition.y].spans.find((span) => span.text.includes("glob"))!
+  const globIdle = globChip(setup.captureSpans()).bg.toString()
+  await setup.mockMouse.moveTo(globPosition.x + 1, globPosition.y)
+  await setup.flush({ maxPasses: 100 })
+  expect(globChip(setup.captureSpans()).bg.toString()).not.toBe(globIdle)
   setup.mockInput.pressTab()
   // each tool is its own chip: read, glob and grep are the first three
   setup.mockInput.pressKey(" ")
