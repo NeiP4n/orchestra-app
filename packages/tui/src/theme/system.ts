@@ -171,13 +171,16 @@ function generateGrayScale(bg: RGBA, isDark: boolean): Record<number, RGBA> {
   for (let i = 1; i <= 12; i++) {
     const factor = i / 12
 
-    if (isDark && luminance < 10) {
+    // Handle terminal extremes independently of the selected UI mode. A user may
+    // force light mode in a terminal whose actual background is black (or vice versa);
+    // dividing by a zero luminance in that case creates NaN surfaces and broken borders.
+    if (luminance < 10) {
       const gray = Math.floor(factor * 0.4 * 255)
       grays[i] = RGBA.fromInts(gray, gray, gray)
       continue
     }
 
-    if (!isDark && luminance > 245) {
+    if (luminance > 245) {
       const gray = Math.floor(255 - factor * 0.4 * 255)
       grays[i] = RGBA.fromInts(gray, gray, gray)
       continue
