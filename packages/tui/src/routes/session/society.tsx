@@ -5,6 +5,7 @@ import { Federation } from "@orchestra/schema/federation"
 import { DialogRules } from "../../component/dialog-rules"
 import { useClient } from "../../context/client"
 import { useDialog } from "../../ui/dialog"
+import { hoverBackground } from "../../ui/hover"
 import { useData } from "../../context/data"
 import { useProjects } from "../../context/projects"
 import { usePromptRef } from "../../context/prompt"
@@ -109,9 +110,13 @@ export function ReplyOptions(props: { options: ReadonlyArray<Federation.ReplyOpt
                 : theme.text.action.secondary.base
           return (
             <box
+              paddingLeft={1}
+              paddingRight={1}
+              backgroundColor={hover() && !locked() ? hoverBackground(theme, "secondary") : undefined}
               onMouseOver={() => setHover(true)}
               onMouseOut={() => setHover(false)}
-              onMouseUp={() => {
+              onMouseUp={(event) => {
+                event.stopPropagation()
                 if (locked()) return
                 setChosen(index())
                 send(option.send)
@@ -120,7 +125,6 @@ export function ReplyOptions(props: { options: ReadonlyArray<Federation.ReplyOpt
               <text
                 wrapMode="none"
                 fg={picked() ? theme.text.feedback.success.base : tone()}
-                bg={hover() && !locked() ? theme.background.action.secondary.hovered : undefined}
                 attributes={picked() ? TextAttributes.BOLD : undefined}
               >
                 {`${picked() ? "✓" : "▸"} ${option.label}`}
@@ -210,9 +214,13 @@ export function SocietyRoster(props: { sessionID: string }) {
       <box flexDirection="row" gap={1} paddingLeft={1} flexShrink={0}>
         {/* While held, no AI of this Society starts, whatever wakes it. The server holds every Society at start. */}
         <box
+          paddingLeft={1}
+          paddingRight={1}
+          backgroundColor={holdHover() ? hoverBackground(theme, "secondary") : undefined}
           onMouseOver={() => setHoldHover(true)}
           onMouseOut={() => setHoldHover(false)}
-          onMouseUp={() => {
+          onMouseUp={(event) => {
+            event.stopPropagation()
             const name = marker()?.groupName
             if (!name) return
             void client.api.orchestra.group
