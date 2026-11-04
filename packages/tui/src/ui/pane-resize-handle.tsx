@@ -1,5 +1,6 @@
 import { useTheme } from "../context/theme"
 import type { createPaneResize } from "./pane-resize"
+import { hoverBackground } from "./hover"
 
 export function PaneResizeHandle(props: {
   resize: ReturnType<typeof createPaneResize>
@@ -28,7 +29,7 @@ export function PaneResizeHandle(props: {
         height="100%"
         marginLeft={props.highlight === "right" ? 1 : 0}
         // Keep the resize affordance invisible at rest; its themed highlight appears on hover.
-        backgroundColor={props.resize.hovered() || props.resize.resizing() ? theme.background.raised.high : undefined}
+        backgroundColor={props.resize.hovered() || props.resize.resizing() ? hoverBackground(theme) : undefined}
       />
     </box>
   )
