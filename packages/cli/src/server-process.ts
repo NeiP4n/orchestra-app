@@ -14,6 +14,7 @@ import { HttpServer } from "effect/unstable/http"
 import { Env } from "./env"
 import { ServiceConfig } from "./services/service-config"
 import { RetainedImage } from "./services/retained-image"
+import { ServiceClaim } from "./services/service-claim"
 import { ServiceRegistration } from "./services/service-registration"
 import { WebUi } from "./services/web-ui"
 import { databasePath } from "./database-path"
@@ -70,6 +71,19 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
           ? Service.incumbent({ ...serviceOptions, url: serviceURL(hostname, port) })
           : undefined
       if (findIncumbent !== undefined && (yield* findIncumbent) !== undefined) return
+      if (serviceOptions !== undefined) {
+        // Only the claim holder starts; sibling contenders yield to it instead of
+        // overwriting its registration once it registers (see ServiceClaim).
+        const verdict = yield* ServiceClaim.acquire({
+          file: serviceOptions.file,
+          incumbent:
+            findIncumbent === undefined
+              ? undefined
+              : Effect.map(findIncumbent, (found) => found !== undefined),
+        })
+        if (verdict === "yield") return
+        yield* Effect.addFinalizer(() => ServiceClaim.release(serviceOptions.file))
+      }
       // Keep a package-manager or curl install replaceable while the service runs; Desktop updates its own copy.
       if (options.mode === "service" && process.platform === "win32" && RetainedImage.installed(global.home))
         yield* RetainedImage.retain(global.cache, "service")
