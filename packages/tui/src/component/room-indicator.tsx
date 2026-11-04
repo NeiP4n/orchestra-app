@@ -2,6 +2,7 @@ import { createMemo, createResource, createSignal, Show } from "solid-js"
 import { useClient } from "../context/client"
 import { useData } from "../context/data"
 import { useTheme } from "../context/theme"
+import { hoverBackground } from "../ui/hover"
 import { useDialog } from "../ui/dialog"
 import { roomGuests, roomListRevision } from "../util/room"
 import { DialogHost } from "./dialog-rooms"
@@ -41,9 +42,15 @@ export function MultiplayerBadge(props: { room: string; guests: number; onClick:
       id="session-room-indicator"
       flexShrink={1}
       minWidth={0}
+      paddingLeft={1}
+      paddingRight={1}
+      backgroundColor={hovered() ? hoverBackground(theme, "secondary") : undefined}
       onMouseOver={() => setHovered(true)}
       onMouseOut={() => setHovered(false)}
-      onMouseUp={props.onClick}
+      onMouseUp={(event) => {
+        event.stopPropagation()
+        props.onClick()
+      }}
     >
       <text
         fg={hovered() ? theme.text.action.secondary.hovered : theme.text.action.secondary.base}
