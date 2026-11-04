@@ -104,3 +104,28 @@ test("selects the requested secondary or destructive hover surface", () => {
   expect(hoverBackground(theme, "secondary")).toBe(secondary)
   expect(hoverBackground(theme, "destructive")).toBe(destructive)
 })
+
+function luminance(color: RGBA) {
+  const channel = (value: number) =>
+    value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  return 0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b)
+}
+
+function contrast(foreground: RGBA, background: RGBA) {
+  const a = luminance(foreground)
+  const b = luminance(background)
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+}
+
+test("neutral fallback preserves readable primary and muted text", () => {
+  const background = RGBA.fromHex("#101820")
+  const primary = RGBA.fromHex("#ffffff")
+  const muted = RGBA.fromHex("#808080")
+  const hover = hoverBackground({
+    background: { base: background, raised: { base: RGBA.clone(background), high: RGBA.clone(background) } },
+    text: { base: primary, muted },
+  })
+  expect(hover).toBeInstanceOf(RGBA)
+  expect(contrast(primary, hover as RGBA)).toBeGreaterThanOrEqual(3)
+  expect(contrast(muted, hover as RGBA)).toBeGreaterThanOrEqual(3)
+})
