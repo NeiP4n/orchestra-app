@@ -4,6 +4,7 @@ import type { Context } from "@orchestra/plugin/effect/plugin"
 import type { ServerConfig } from "@orchestra/schema/mcp"
 import { Effect } from "effect"
 import { Config } from "../config.js"
+import { McpRoleProfiles } from "./role-profiles.js"
 
 export type HealthStatus = "healthy" | "degraded" | "unhealthy"
 
@@ -360,7 +361,7 @@ export const forPlatform = (platform: NodeJS.Platform = process.platform) =>
 
 // Tells every session which installed AI tools it has and how to use them.
 export const Plugin = {
-  id: "orchestra.mcp.catalog",
+  id: "opencode.mcp.catalog",
   effect: Effect.fn("McpCatalog.Plugin")(function* (ctx: Context) {
     const config = yield* Config.Service
     yield* ctx.session.hook("context", (event) =>
@@ -393,13 +394,36 @@ export const Plugin = {
             (Object.keys(event.tools).some((tool) => tool.startsWith(`${entry.id}_`)) ||
               (event.tools.execute !== undefined && servers[entry.id]?.codemode !== false)),
         )
-        if (installed.length === 0) return
+        // The role profile (mcp/role-profiles) says which of these servers this session's role
+        // requires for its method, and which required ones it cannot reach right now; naming
+        // both keeps the model from either skipping a required instrument or calling a dead one.
+        const profile = McpRoleProfiles.forAgent(String(event.agent))
+        const required = new Set(
+          profile?.servers.filter((grant) => grant.access === "required").map((grant) => grant.server),
+        )
+        const unavailable = profile
+          ? profile.servers
+              .filter(
+                (grant) =>
+                  grant.access === "required" &&
+                  (servers[grant.server] === undefined || servers[grant.server]?.disabled === true || down.has(grant.server)),
+              )
+              .map((grant) => grant.server)
+          : []
+        if (installed.length === 0 && unavailable.length === 0) return
         event.system.push({
           type: "text",
           text: [
             "# Installed AI tools",
             'These MCP servers are installed from the Registry. Call a server\'s tools directly when your tool list has them as <server>_<tool>; otherwise run them through the execute tool under tools["<server>"]. Use them when they fit:',
-            ...installed.map((entry) => `- ${entry.id} (${entry.name}): ${entry.usage}`),
+            ...installed.map(
+              (entry) => `- ${entry.id} (${entry.name}): ${entry.usage}${required.has(entry.id) ? " (required for your role)" : ""}`,
+            ),
+            ...(unavailable.length === 0
+              ? []
+              : [
+                  `Required for your role but not available: ${unavailable.join(", ")}. Do not call them; fall back to native tools for those jobs.`,
+                ]),
           ].join("\n"),
         })
       }),
