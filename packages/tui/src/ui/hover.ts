@@ -45,8 +45,8 @@ function contrast(foreground: RGBA, background: RGBA) {
 function visibleFallback<T>(base: T, theme: HoverTheme<T>): T {
   if (base instanceof RGBA) {
     const foregrounds = [theme.text?.base, theme.text?.muted].filter(
-      (color): color is RGBA => color instanceof RGBA && color.a >= 1,
-    )
+      (color) => color instanceof RGBA && color.a >= 1,
+    ) as RGBA[]
     const candidates = [0, 1].flatMap((pole) =>
       Array.from({ length: 87 }, (_, index) => {
         const amount = (index + 14) / 100
