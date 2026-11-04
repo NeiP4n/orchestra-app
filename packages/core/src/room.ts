@@ -108,27 +108,30 @@ const layer = Layer.effect(
 
     const save = (room: Info) => kv.set(PREFIX + room.id, Schema.encodeSync(Info)(room)).pipe(Effect.as(room))
 
-    const scan = <A>(prefix: string, decodeEntry: (value: unknown) => Option.Option<A>) =>
-      kv
-        .scan({ prefix, limit: 1000 })
-        .pipe(Effect.map((result) => result.entries.flatMap((entry) => Option.toArray(decodeEntry(entry.value)))))
-
-    const members = (id: ID) => scan(`${MEMBERS}${id}/`, decodeMember)
-    const bans = (id: ID) => scan(`${BANS}${id}/`, decodeBan)
-
-    return Service.of({
-      list: Effect.fn("Room.list")(function* () {
-        const entries: { key: string; value: unknown }[] = []
+    // KV.scan caps one page at 1000 entries, and a room's stored rows are not
+    // bounded by the live member cap: bans accumulate over the room's whole
+    // life, so a first-page read silently drops older bans — they stop being
+    // recognised at join time and survive the room's removal in KV. Every
+    // per-room read therefore walks all pages.
+    const scanAll = <A>(prefix: string, decodeEntry: (value: unknown) => Option.Option<A>) =>
+      Effect.gen(function* () {
+        const entries: A[] = []
         let after: string | undefined
         for (;;) {
-          const page = yield* kv.scan({ prefix: PREFIX, limit: 1000, ...(after ? { after } : {}) })
-          entries.push(...page.entries)
+          const page = yield* kv.scan({ prefix, limit: 1000, ...(after ? { after } : {}) })
+          entries.push(...page.entries.flatMap((entry) => Option.toArray(decodeEntry(entry.value))))
           if (!page.next) break
           after = page.next
         }
         return entries
-          .flatMap((entry) => Option.toArray(decode(entry.value)))
-          .toSorted((a, b) => a.created - b.created)
+      })
+
+    const members = (id: ID) => scanAll(`${MEMBERS}${id}/`, decodeMember)
+    const bans = (id: ID) => scanAll(`${BANS}${id}/`, decodeBan)
+
+    return Service.of({
+      list: Effect.fn("Room.list")(function* () {
+        return (yield* scanAll(PREFIX, decode)).toSorted((a, b) => a.created - b.created)
       }),
       get,
       create: Effect.fn("Room.create")(function* (input: CreateInput) {
