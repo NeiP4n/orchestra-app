@@ -45,6 +45,14 @@ import type {
 } from "@orchestra/client"
 import { useLocal } from "../../context/local"
 import { Locale } from "../../util/locale"
+import {
+  barFill,
+  interactiveBlockOf,
+  interactiveResponseOf,
+  planProgress,
+  statusGlyph,
+  type InteractiveBlockView,
+} from "../../util/interactive"
 import { FilePath } from "../../ui/file-path"
 import {
   canonicalToolName,
@@ -2806,6 +2814,9 @@ function ToolPart(props: { part: SessionMessageAssistantTool; images?: boolean }
       <Match when={display() === "question"}>
         <Question {...toolprops} />
       </Match>
+      <Match when={display() === "interact"}>
+        <Interact {...toolprops} />
+      </Match>
       <Match when={display() === "skill"}>
         <Skill {...toolprops} />
       </Match>
@@ -3900,6 +3911,342 @@ function Question(props: ToolProps) {
         <InlineTool icon="→" pending="Asking questions…" complete={count()} part={props.part}>
           Asked {count()} question{count() !== 1 ? "s" : ""}
         </InlineTool>
+      </Match>
+    </Switch>
+  )
+}
+
+function Interact(props: ToolProps) {
+  const theme = useTheme()
+  const block = createMemo(
+    () => interactiveBlockOf(props.metadata.interactiveBlock) ?? interactiveBlockOf(props.input.block),
+  )
+  const response = createMemo(() => interactiveResponseOf(props.metadata.interactiveResponse))
+  const decided = createMemo(() => {
+    const by = recordValue(props.metadata.answeredBy)
+    const name = stringValue(by?.by)
+    return name ? { name, reason: stringValue(by?.reason) } : undefined
+  })
+  const titles: Record<InteractiveBlockView["type"], string> = {
+    decision: "# Decision",
+    comparison: "# Comparison",
+    approval: "# Approval",
+    plan: "# Plan",
+    visualization: "# Chart",
+  }
+  const pending: Record<InteractiveBlockView["type"], string> = {
+    decision: "Waiting for your decision…",
+    comparison: "Waiting for your pick…",
+    approval: "Waiting for your approval…",
+    plan: "Presenting plan…",
+    visualization: "Presenting chart…",
+  }
+
+  return (
+    <Switch>
+      <Match when={props.part.state.status === "error"}>
+        <InlineTool icon="✗" pending="Interactive block failed" complete={true} part={props.part}>
+          {block()?.title ?? "Interactive block"}
+        </InlineTool>
+      </Match>
+      <Match when={block() && props.part.state.status === "completed" ? block() : undefined}>
+        {(found) => (
+          <BlockTool title={titles[found().type]} part={props.part}>
+            <box gap={1}>
+              <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
+                {found().title}
+              </text>
+              <Show when={found().description}>
+                <text fg={theme.text.muted} wrapMode="word">
+                  {found().description}
+                </text>
+              </Show>
+              <Switch>
+                <Match when={found().type === "decision" ? (found() as Extract<InteractiveBlockView, { type: "decision" }>) : undefined}>
+                  {(decision) => (
+                    <box gap={1}>
+                      <For each={decision().options}>
+                        {(option) => {
+                          const chosen = () => (response()?.selected ?? []).includes(option.id)
+                          return (
+                            <box flexDirection="column">
+                              <text fg={chosen() ? theme.text.feedback.success.base : theme.text.base}>
+                                {chosen() ? "✓ " : "○ "}
+                                {option.label}
+                                {option.recommended ? " ★" : ""}
+                              </text>
+                              <Show when={option.description}>
+                                <text fg={theme.text.muted} wrapMode="word">
+                                  {option.description}
+                                </text>
+                              </Show>
+                              <InteractiveNotes label="Pros" items={option.pros} />
+                              <InteractiveNotes label="Cons" items={option.cons} />
+                              <InteractiveNotes label="Risks" items={option.risks} />
+                              <Show when={option.consequences}>
+                                <text fg={theme.text.muted} wrapMode="word">
+                                  Consequences: {option.consequences}
+                                </text>
+                              </Show>
+                              <Show when={option.cost}>
+                                <text fg={theme.text.muted}>Cost: {option.cost}</text>
+                              </Show>
+                            </box>
+                          )
+                        }}
+                      </For>
+                    </box>
+                  )}
+                </Match>
+                <Match when={found().type === "comparison" ? (found() as Extract<InteractiveBlockView, { type: "comparison" }>) : undefined}>
+                  {(comparison) => (
+                    <box gap={1}>
+                      <For each={comparison().items}>
+                        {(item) => {
+                          const chosen = () => (response()?.selected ?? []).includes(item.id)
+                          return (
+                            <box flexDirection="column">
+                              <text fg={chosen() ? theme.text.feedback.success.base : theme.text.base}>
+                                {chosen() ? "✓ " : "○ "}
+                                {item.name}
+                                {item.recommended ? " ★" : ""}
+                                {item.rating !== undefined ? ` · ${item.rating}/5` : ""}
+                              </text>
+                              <Show when={item.summary}>
+                                <text fg={theme.text.muted} wrapMode="word">
+                                  {item.summary}
+                                </text>
+                              </Show>
+                              <For each={Object.entries(item.attributes ?? {})}>
+                                {([key, value]) => (
+                                  <text fg={theme.text.muted}>
+                                    {key}: <span>{value}</span>
+                                  </text>
+                                )}
+                              </For>
+                              <InteractiveNotes label="Strengths" items={item.strengths} />
+                              <InteractiveNotes label="Weaknesses" items={item.weaknesses} />
+                            </box>
+                          )
+                        }}
+                      </For>
+                    </box>
+                  )}
+                </Match>
+                <Match when={found().type === "approval" ? (found() as Extract<InteractiveBlockView, { type: "approval" }>) : undefined}>
+                  {(approval) => (
+                    <box gap={1}>
+                      <Show when={approval().destructive}>
+                        <text fg={theme.text.feedback.error.base} attributes={TextAttributes.BOLD}>
+                          Destructive action
+                        </text>
+                      </Show>
+                      <text fg={theme.text.base} wrapMode="word">
+                        {approval().action}
+                      </text>
+                      <InteractiveNotes label="Consequences" items={approval().consequences} />
+                      <InteractiveNotes label="Risks" items={approval().risks} />
+                      <Show when={response()?.decision}>
+                        {(decision) => (
+                          <text
+                            fg={
+                              decision() === "approved"
+                                ? theme.text.feedback.success.base
+                                : decision() === "rejected"
+                                  ? theme.text.feedback.error.base
+                                  : theme.text.feedback.warning.base
+                            }
+                            attributes={TextAttributes.BOLD}
+                          >
+                            {decision() === "approved"
+                              ? "✓ Approved"
+                              : decision() === "rejected"
+                                ? "✗ Rejected"
+                                : "↺ Changes requested"}
+                          </text>
+                        )}
+                      </Show>
+                    </box>
+                  )}
+                </Match>
+                <Match when={found().type === "plan" ? (found() as Extract<InteractiveBlockView, { type: "plan" }>) : undefined}>
+                  {(plan) => {
+                    const progress = planProgress(plan())
+                    return (
+                      <box gap={1}>
+                        <text fg={theme.text.muted}>
+                          {progress.done}/{progress.total} completed
+                        </text>
+                        <For each={plan().phases}>
+                          {(phase) => (
+                            <box flexDirection="column">
+                              <Show when={phase.title}>
+                                <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
+                                  {phase.title}
+                                </text>
+                              </Show>
+                              <For each={phase.tasks}>
+                                {(task) => (
+                                  <box flexDirection="column">
+                                    <text fg={task.status === "completed" ? theme.text.feedback.success.base : theme.text.base}>
+                                      {statusGlyph(task.status)} {task.title}
+                                      {task.agent ? <span> · {task.agent}</span> : null}
+                                    </text>
+                                    <Show when={task.detail}>
+                                      <text fg={theme.text.muted} wrapMode="word">
+                                        {task.detail}
+                                      </text>
+                                    </Show>
+                                    <Show when={task.evidence}>
+                                      <text fg={theme.text.muted} wrapMode="word">
+                                        Evidence: {task.evidence}
+                                      </text>
+                                    </Show>
+                                  </box>
+                                )}
+                              </For>
+                            </box>
+                          )}
+                        </For>
+                      </box>
+                    )
+                  }}
+                </Match>
+                <Match when={found().type === "visualization" ? (found() as Extract<InteractiveBlockView, { type: "visualization" }>) : undefined}>
+                  {(viz) => <InteractiveChart chart={viz().chart} output={props.output} />}
+                </Match>
+              </Switch>
+              <Show when={response()?.comment}>
+                <text fg={theme.text.base} wrapMode="word">
+                  {response()?.comment}
+                </text>
+              </Show>
+              <Show when={decided()}>
+                {(decision) => (
+                  <box flexDirection="column" border={["left"]} borderColor={neuralPalette(theme).synapse} paddingLeft={1}>
+                    <text fg={neuralPalette(theme).synapse} attributes={TextAttributes.BOLD}>
+                      {`⚖ Decided by ${decision().name}`}
+                    </text>
+                    <Show when={decision().reason}>
+                      <text fg={theme.text.muted} wrapMode="word">
+                        {decision().reason}
+                      </text>
+                    </Show>
+                  </box>
+                )}
+              </Show>
+            </box>
+          </BlockTool>
+        )}
+      </Match>
+      <Match when={true}>
+        <InlineTool icon="→" pending={block() ? pending[block()!.type] : "Presenting…"} complete={block()?.title} part={props.part}>
+          {block()?.title ?? "Interactive block"}
+        </InlineTool>
+      </Match>
+    </Switch>
+  )
+}
+
+function InteractiveNotes(props: { label: string; items?: ReadonlyArray<string> }) {
+  const theme = useTheme()
+  return (
+    <Show when={props.items?.length}>
+      <text fg={theme.text.muted} wrapMode="word">
+        {props.label}: {props.items!.join("; ")}
+      </text>
+    </Show>
+  )
+}
+
+function InteractiveChart(props: { chart: Record<string, unknown>; output?: string }) {
+  const theme = useTheme()
+  const kind = stringValue(props.chart.kind)
+  const series = (Array.isArray(props.chart.series) ? props.chart.series : []).flatMap((entry) => {
+    const found = recordValue(entry)
+    if (!found) return []
+    const points = (Array.isArray(found.points) ? found.points : []).flatMap((point) => {
+      const item = recordValue(point)
+      const label = stringValue(item?.label)
+      const value = typeof item?.value === "number" ? item.value : undefined
+      return label !== undefined && value !== undefined ? [{ label, value }] : []
+    })
+    return [{ name: stringValue(found.name) ?? "", points }]
+  })
+  const metrics = (Array.isArray(props.chart.metrics) ? props.chart.metrics : []).flatMap((entry) => {
+    const found = recordValue(entry)
+    const label = stringValue(found?.label)
+    const value = stringValue(found?.value)
+    return label !== undefined && value !== undefined
+      ? [{ label, value, detail: stringValue(found?.detail) }]
+      : []
+  })
+
+  return (
+    <Switch>
+      <Match when={kind === "bar" || kind === "line" || kind === "pie"}>
+        <box flexDirection="column">
+          <For each={series}>
+            {(entry) => {
+              const max = Math.max(...entry.points.map((point) => point.value), 0)
+              const total = entry.points.reduce((sum, point) => sum + Math.max(0, point.value), 0)
+              return (
+                <box flexDirection="column">
+                  <Show when={entry.name}>
+                    <text fg={theme.text.muted}>{entry.name}</text>
+                  </Show>
+                  <For each={entry.points}>
+                    {(point) => (
+                      <text fg={theme.text.base}>
+                        {kind === "bar" ? (
+                          <>
+                            {point.label} {barFill(point.value, max, 20)}{" "}
+                          </>
+                        ) : (
+                          <>{point.label}: </>
+                        )}
+                        {point.value}
+                        {kind === "pie" && total > 0 ? ` (${Math.round((Math.max(0, point.value) / total) * 100)}%)` : ""}
+                      </text>
+                    )}
+                  </For>
+                </box>
+              )
+            }}
+          </For>
+        </box>
+      </Match>
+      <Match when={kind === "metrics"}>
+        <box flexDirection="column">
+          <For each={metrics}>
+            {(metric) => (
+              <text fg={theme.text.base}>
+                {metric.label}: <span>{metric.value}</span>
+                {metric.detail ? <span> ({metric.detail})</span> : null}
+              </text>
+            )}
+          </For>
+        </box>
+      </Match>
+      <Match when={kind === "progress"}>
+        {(() => {
+          const value = typeof props.chart.value === "number" ? props.chart.value : 0
+          const max = typeof props.chart.max === "number" ? props.chart.max : 0
+          const label = stringValue(props.chart.label) ?? ""
+          return (
+            <text fg={theme.text.base}>
+              {label}: {barFill(value, max, 24)} {max > 0 ? Math.round(Math.min(1, Math.max(0, value / max)) * 100) : 0}% ({value}/{max})
+            </text>
+          )
+        })()}
+      </Match>
+      <Match when={true}>
+        {/* Tables and anything unrecognized fall back to the tool's own text rendering. */}
+        <Show when={props.output}>
+          <text fg={theme.text.base} wrapMode="word">
+            {props.output}
+          </text>
+        </Show>
       </Match>
     </Switch>
   )

@@ -39,6 +39,7 @@ const toolDisplays = new Set([
   "execute",
   "patch",
   "question",
+  "interact",
   "skill",
   "note",
 ])

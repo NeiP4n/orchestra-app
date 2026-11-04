@@ -1,5 +1,5 @@
 import { createStore, unwrap } from "solid-js/store"
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { usePaste, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import {
   decodePasteBytes,
@@ -10,6 +10,7 @@ import {
   type TextareaRenderable,
 } from "@opentui/core"
 import { openUrl } from "@orchestra/util/open"
+import { interactiveBlockOf, type InteractiveBlockView } from "../../util/interactive"
 import { useTheme } from "../../context/theme"
 import type { FormAnswer, FormField, FormValue } from "@orchestra/client"
 import { useData, type FormWithLocation } from "../../context/data"
@@ -90,6 +91,9 @@ export function FormPrompt(props: { form: FormWithLocation }) {
   const [inputTarget, setInputTarget] = createSignal<TextareaRenderable>()
   let review: ScrollBoxRenderable | undefined
 
+  const interactive = createMemo(() =>
+    props.form.metadata?.["kind"] === "interactive" ? interactiveBlockOf(props.form.metadata["block"]) : undefined,
+  )
   const message = createMemo(() => {
     const value = props.form.metadata?.["message"]
     return typeof value === "string" ? value : undefined
@@ -780,6 +784,13 @@ export function FormPrompt(props: { form: FormWithLocation }) {
             <text fg={theme.text.base}>{message()}</text>
           </box>
         </Show>
+        <Show when={interactive()}>
+          {(block) => (
+            <box paddingLeft={1}>
+              <InteractiveFormDetails block={block()} />
+            </box>
+          )}
+        </Show>
         <Show when={!single() && !tabbed()}>
           <box flexDirection="row" gap={3} paddingLeft={1}>
             <text fg={theme.text.muted}>
@@ -1170,6 +1181,90 @@ export function FormPrompt(props: { form: FormWithLocation }) {
           <text fg={theme.text.feedback.error.base}>{store.error}</text>
         </Show>
       </box>
+    </box>
+  )
+}
+
+// The rich half of an interactive block (interact tool): the form's fields
+// below carry the validated answer, while this section shows the substance
+// the person is deciding about — trade-offs, risks, the exact action —
+// which the plain field descriptions only summarize.
+function InteractiveFormDetails(props: { block: InteractiveBlockView }) {
+  const theme = useTheme()
+  const notes = (label: string, items?: ReadonlyArray<string>) =>
+    items?.length ? (
+      <text fg={theme.text.muted} wrapMode="word">
+        {label}: {items.join("; ")}
+      </text>
+    ) : null
+  return (
+    <box flexDirection="column" gap={1}>
+      <Show when={props.block.description}>
+        <text fg={theme.text.muted} wrapMode="word">
+          {props.block.description}
+        </text>
+      </Show>
+      <Switch>
+        <Match when={props.block.type === "decision" ? (props.block as Extract<InteractiveBlockView, { type: "decision" }>) : undefined}>
+          {(decision) => (
+            <For each={decision().options}>
+              {(option) => (
+                <box flexDirection="column">
+                  <text fg={theme.text.base}>
+                    {option.label}
+                    {option.recommended ? " ★ Recommended" : ""}
+                  </text>
+                  {notes("Pros", option.pros)}
+                  {notes("Cons", option.cons)}
+                  {notes("Risks", option.risks)}
+                  {notes("Evidence", option.evidence)}
+                  <Show when={option.consequences}>
+                    <text fg={theme.text.muted} wrapMode="word">
+                      Consequences: {option.consequences}
+                    </text>
+                  </Show>
+                  <Show when={option.cost}>
+                    <text fg={theme.text.muted}>Cost: {option.cost}</text>
+                  </Show>
+                </box>
+              )}
+            </For>
+          )}
+        </Match>
+        <Match when={props.block.type === "comparison" ? (props.block as Extract<InteractiveBlockView, { type: "comparison" }>) : undefined}>
+          {(comparison) => (
+            <For each={comparison().items}>
+              {(item) => (
+                <box flexDirection="column">
+                  <text fg={theme.text.base}>
+                    {item.name}
+                    {item.recommended ? " ★ Recommended" : ""}
+                    {item.rating !== undefined ? ` · ${item.rating}/5` : ""}
+                  </text>
+                  {notes("Strengths", item.strengths)}
+                  {notes("Weaknesses", item.weaknesses)}
+                </box>
+              )}
+            </For>
+          )}
+        </Match>
+        <Match when={props.block.type === "approval" ? (props.block as Extract<InteractiveBlockView, { type: "approval" }>) : undefined}>
+          {(approval) => (
+            <box flexDirection="column">
+              <Show when={approval().destructive}>
+                <text fg={theme.text.feedback.error.base} attributes={TextAttributes.BOLD}>
+                  Destructive action
+                </text>
+              </Show>
+              <text fg={theme.text.base} wrapMode="word">
+                {approval().action}
+              </text>
+              {notes("Consequences", approval().consequences)}
+              {notes("Risks", approval().risks)}
+            </box>
+          )}
+        </Match>
+      </Switch>
     </box>
   )
 }

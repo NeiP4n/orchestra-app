@@ -106,6 +106,7 @@ import { Federation } from "../federation.js"
 import { Room } from "../room.js"
 import { RoomRulesPlugin } from "./room-rules.js"
 import { FederationTool } from "../tool/plugin/federation.js"
+import { InteractTool } from "../tool/plugin/interact.js"
 import { QuestionTool } from "../tool/plugin/question.js"
 import { ReadToolFileSystem } from "../tool/read-filesystem.js"
 import { ReadTool } from "../tool/plugin/read.js"
@@ -312,6 +313,7 @@ const pre = [
   OpenCodeTools.Plugin,
   McpResourceTools.Plugin,
   QuestionTool.Plugin,
+  InteractTool.Plugin,
   ReadTool.Plugin,
   HubTool.Plugin,
   OrchestraTool.Plugin,

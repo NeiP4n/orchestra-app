@@ -65,7 +65,10 @@ export function createSessionRequestModel() {
     if (websearch.request()) return
     const form = formRequest()
 
-    return form?.metadata?.kind === "question" ? form : undefined
+    // Interactive blocks (the interact tool) ride the same form channel and
+    // the same dock: their fields are ordinary form fields, so the generic
+    // renderer answers them identically; only the metadata kind differs.
+    return form?.metadata?.kind === "question" || form?.metadata?.kind === "interactive" ? form : undefined
   })
 
   const permissionRequest = createMemo((): PermissionRequest | undefined => {
