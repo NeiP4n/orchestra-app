@@ -1151,3 +1151,45 @@ test("a fetched message settles its prompt when the delivered echo never arrives
     setup.dispose()
   }
 })
+
+test("location sync tolerates failing catalogs but not a failing location identity", async () => {
+  const location = { directory: "/project", project: { id: "project", directory: "/project", canonical: "/project" } }
+  const make = (failIdentity: boolean) =>
+    OpenCode.make({
+      baseUrl: "http://opencode.local",
+      fetch: async (input, init) => {
+        const pathname = new URL((input instanceof Request ? input : new Request(input, init)).url).pathname
+        if (pathname === "/api/location")
+          return failIdentity ? new Response("boom", { status: 500 }) : Response.json(location)
+        // Every catalog endpoint fails: providers, models, VCS, shells, forms...
+        return new Response("boom", { status: 500 })
+      },
+    })
+  const setupWith = (failIdentity: boolean) =>
+    createRoot((dispose) => ({
+      data: createData({
+        api: () => make(failIdentity),
+        directory: "/project",
+        event: { on: () => () => {}, listen: () => () => {} },
+      }),
+      dispose,
+    }))
+
+  // Catalogs failing must not declare the location unavailable: the sync
+  // resolves and the location identity is published.
+  const tolerated = setupWith(false)
+  try {
+    await tolerated.data.location.sync()
+    expect(tolerated.data.location.info()?.directory).toBe("/project")
+  } finally {
+    tolerated.dispose()
+  }
+
+  // The identity check itself failing is what "location unavailable" means.
+  const rejected = setupWith(true)
+  try {
+    await expect(rejected.data.location.sync()).rejects.toThrow()
+  } finally {
+    rejected.dispose()
+  }
+})

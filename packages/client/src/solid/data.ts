@@ -1886,9 +1886,16 @@ export function createData(config: CreateDataInput) {
         })
       },
       async sync(ref?: LocationRef) {
+        // syncInfo is the identity check: if the location itself cannot be
+        // resolved, the location is unavailable and this rejects. The catalog
+        // fan-out below is best-effort — one failing catalog (a provider list
+        // dying on a network error, a broken VCS read) must not declare the
+        // whole location unavailable and lock the session; the affected
+        // catalog simply stays stale until a later refresh, the same way
+        // event-driven refreshes already tolerate failures.
         await result.location.syncInfo(ref)
         const location = ref ?? defaultLocation()
-        await Promise.all([
+        await Promise.allSettled([
           result.location.vcs.sync(location),
           result.location.agent.sync(location),
           result.location.command.sync(location),

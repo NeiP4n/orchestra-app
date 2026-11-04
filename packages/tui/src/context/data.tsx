@@ -27,8 +27,11 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       location: {
         ...data.location,
         async sync(ref?: LocationRef) {
+          // Only the identity check (syncInfo) may reject: it is what
+          // "location unavailable" means. Catalog and config syncs are
+          // best-effort and must not lock the session when one of them fails.
           await data.location.syncInfo(ref)
-          await Promise.all([data.location.sync(ref), data.location.config.sync(ref)])
+          await Promise.allSettled([data.location.sync(ref), data.location.config.sync(ref)])
         },
       },
       session: {
