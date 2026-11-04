@@ -1,6 +1,68 @@
 import { RGBA, type TerminalColors } from "@opentui/core"
 import { ansiToRgba, tint } from "./color"
 
+const PRIMARY_TEXT_CONTRAST = 4.5
+const MUTED_TEXT_CONTRAST = 3.5
+
+function luminance(color: RGBA) {
+  const channel = (value: number) =>
+    value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  return 0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b)
+}
+
+/** WCAG contrast ratio after compositing a translucent foreground over an opaque terminal background. */
+export function contrastRatio(foreground: RGBA, background: RGBA) {
+  const visible = RGBA.fromValues(
+    foreground.r * foreground.a + background.r * (1 - foreground.a),
+    foreground.g * foreground.a + background.g * (1 - foreground.a),
+    foreground.b * foreground.a + background.b * (1 - foreground.a),
+    1,
+  )
+  const fg = luminance(visible)
+  const bg = luminance(background)
+  return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05)
+}
+
+/** Keep the authored hue where possible; otherwise move the smallest distance toward black or white. */
+function readableColor(foreground: RGBA, background: RGBA, minimum: number) {
+  if (contrastRatio(foreground, background) >= minimum) return foreground
+
+  const base = {
+    r: foreground.r * foreground.a + background.r * (1 - foreground.a),
+    g: foreground.g * foreground.a + background.g * (1 - foreground.a),
+    b: foreground.b * foreground.a + background.b * (1 - foreground.a),
+  }
+  const toward = (pole: number) => {
+    for (let step = 1; step <= 100; step++) {
+      const amount = step / 100
+      const candidate = RGBA.fromValues(
+        base.r + (pole - base.r) * amount,
+        base.g + (pole - base.g) * amount,
+        base.b + (pole - base.b) * amount,
+        1,
+      )
+      if (contrastRatio(candidate, background) >= minimum) return { color: candidate, amount }
+    }
+  }
+
+  const dark = toward(0)
+  const light = toward(1)
+  if (dark && light) return dark.amount <= light.amount ? dark.color : light.color
+  if (dark ?? light) return (dark ?? light)!.color
+  return contrastRatio(RGBA.fromValues(0, 0, 0, 1), background) >=
+    contrastRatio(RGBA.fromValues(1, 1, 1, 1), background)
+    ? RGBA.fromValues(0, 0, 0, 1)
+    : RGBA.fromValues(1, 1, 1, 1)
+}
+
+/** Whether preserving the terminal's own foreground would leave normal text readable. */
+export function terminalDefaultForegroundReadable(colors: TerminalColors, minimum = PRIMARY_TEXT_CONTRAST) {
+  const background = colors.defaultBackground ?? colors.palette[0]
+  const foreground = colors.defaultForeground ?? colors.palette[7]
+  if (!background || !foreground) return false
+  return contrastRatio(RGBA.fromHex(foreground), RGBA.fromHex(background)) >= minimum
+}
+
 export function terminalMode(colors: TerminalColors): "dark" | "light" | undefined {
   const bg = colors.defaultBackground
   if (!bg) return
@@ -10,18 +72,19 @@ export function terminalMode(colors: TerminalColors): "dark" | "light" | undefin
 
 export function generateSystem(colors: TerminalColors, mode: "dark" | "light") {
   const bg = RGBA.fromHex(colors.defaultBackground ?? colors.palette[0]!)
-  const fg = RGBA.fromHex(colors.defaultForeground ?? colors.palette[7]!)
+  const terminalForeground = RGBA.fromHex(colors.defaultForeground ?? colors.palette[7]!)
+  const fg = readableColor(terminalForeground, bg, PRIMARY_TEXT_CONTRAST)
   const transparent = RGBA.fromValues(bg.r, bg.g, bg.b, 0)
   const isDark = mode === "dark"
 
   const col = (index: number) => {
     const value = colors.palette[index]
-    if (value) return RGBA.fromHex(value)
-    return ansiToRgba(index)
+    const color = value ? RGBA.fromHex(value) : ansiToRgba(index)
+    return readableColor(color, bg, PRIMARY_TEXT_CONTRAST)
   }
 
   const grays = generateGrayScale(bg, isDark)
-  const textMuted = generateMutedTextColor(bg, isDark)
+  const textMuted = readableColor(generateMutedTextColor(bg, isDark), bg, MUTED_TEXT_CONTRAST)
   const ansiColors = {
     red: col(1),
     green: col(2),
@@ -51,7 +114,7 @@ export function generateSystem(colors: TerminalColors, mode: "dark" | "light") {
       info: ansiColors.cyan,
       text: fg,
       textMuted,
-      selectedListItemText: bg,
+      selectedListItemText: readableColor(bg, ansiColors.cyan, PRIMARY_TEXT_CONTRAST),
       background: transparent,
       backgroundPanel: grays[2],
       backgroundElement: grays[3],
