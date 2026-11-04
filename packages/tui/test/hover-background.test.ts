@@ -50,3 +50,16 @@ test("prefers the semantic action hover token when the theme provides one", () =
   })
   expect(value).toBe(actionHover)
 })
+
+test("ignores a transparent action hover token and falls back to the raised surface", () => {
+  const base = RGBA.fromHex("#101010")
+  const raisedHigh = RGBA.fromHex("#262626")
+  const value = hoverBackground({
+    background: {
+      base,
+      raised: { base, high: raisedHigh },
+      action: { primary: { hovered: RGBA.fromInts(0, 0, 0, 0) } },
+    },
+  })
+  expect(value.equals(raisedHigh)).toBe(true)
+})
