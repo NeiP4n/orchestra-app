@@ -33,17 +33,15 @@ describe("TUI i18n", () => {
     expect(translate("ru", "Coordinator: {leader}", { leader: "node-1" })).toBe("Координатор: node-1")
   })
 
-  test("carries no translations for the removed proxy and WARP dialogs", () => {
-    for (const removed of [
-      "Setting up the Orchestra proxy…",
-      "Removing the Orchestra proxy…",
-      "Remove the Orchestra proxy",
-      "Orchestra now connects directly. Other apps' settings are unchanged.",
-      "Status, connect, reconnect and registration reset",
-      "Reset registration…",
-      "Only Orchestra",
-    ])
-      expect(translate("ru", removed)).toBe(removed)
+  test("translates the standardized dialog strings", () => {
+    expect(translate("ru", "Debug")).toBe("Отладка")
+    expect(translate("ru", "No MCP servers")).toBe("Нет MCP-серверов")
+    expect(translate("ru", "{count} MCP server(s)", { count: 2 })).toBe("MCP-серверов: 2")
+    expect(translate("ru", "Needs authentication: {error}", { error: "expired" })).toBe("Нужна авторизация: expired")
+    expect(translate("ru", "Reference: {ref}", { ref: "diag-1" })).toBe("Ссылка: diag-1")
+    expect(translate("ru", "Themes")).toBe("Темы")
+    expect(translate("ru", "Other")).toBe("Прочее")
+    expect(translate("en", "Debug")).toBe("Debug")
   })
 
   test("falls back safely for untranslated strings", () => {

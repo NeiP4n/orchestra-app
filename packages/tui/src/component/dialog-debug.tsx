@@ -1,4 +1,3 @@
-import { TextAttributes } from "@opentui/core"
 import { createMemo, createSignal, For } from "solid-js"
 import { Keymap } from "../context/keymap"
 import { useTheme } from "../context/theme"
@@ -9,6 +8,8 @@ import { useClipboard } from "../context/clipboard"
 import { useToast } from "../ui/toast"
 import { describeOS, describeTerminal } from "../util/system"
 import { useTuiApp } from "../context/runtime"
+import { DialogHeader, DialogShell } from "./dialog-standard"
+import { useT } from "../util/i18n"
 
 export function DialogDebug() {
   const theme = useTheme()
@@ -18,6 +19,7 @@ export function DialogDebug() {
   const clipboard = useClipboard()
   const toast = useToast()
   const app = useTuiApp()
+  const t = useT()
   const [copied, setCopied] = createSignal(false)
 
   dialog.setSize("large")
@@ -42,7 +44,7 @@ export function DialogDebug() {
       .write(text)
       .then(() => {
         setCopied(true)
-        toast.show({ message: "Debug info copied to clipboard", variant: "info" })
+        toast.show({ message: t("Debug info copied to clipboard"), variant: "info" })
       })
       .catch(toast.error)
   }
@@ -53,15 +55,8 @@ export function DialogDebug() {
   }))
 
   return (
-    <box paddingLeft={2} paddingRight={2} gap={1} paddingBottom={1}>
-      <box flexDirection="row" justifyContent="space-between">
-        <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
-          Debug
-        </text>
-        <text fg={theme.text.muted} onMouseUp={() => dialog.clear()}>
-          esc
-        </text>
-      </box>
+    <DialogShell>
+      <DialogHeader title={t("Debug")} />
       {/* No click-to-copy here: releasing a mouse selection must trigger the
           global copy-on-select so users can copy a single value, e.g. the session id. */}
       <box>
@@ -69,7 +64,7 @@ export function DialogDebug() {
           {(entry) => (
             <box flexDirection="row" gap={1}>
               <text flexShrink={0} fg={theme.text.muted}>
-                {entry.label.padEnd(10)}
+                {t(entry.label).padEnd(10)}
               </text>
               <text fg={theme.text.base} wrapMode="word">
                 {entry.value}
@@ -79,14 +74,14 @@ export function DialogDebug() {
         </For>
       </box>
       <box flexDirection="row" justifyContent="space-between">
-        <text fg={theme.text.muted}>Share this when reporting an issue.</text>
+        <text fg={theme.text.muted}>{t("Share this when reporting an issue.")}</text>
         <text onMouseUp={copy}>
           <span style={{ fg: copied() ? theme.text.feedback.success.base : theme.text.base }}>
-            <b>{copied() ? "✓ copied" : "copy"}</b>{" "}
+            <b>{copied() ? t("✓ copied") : t("copy")}</b>{" "}
           </span>
           <span style={{ fg: theme.text.muted }}>enter</span>
         </text>
       </box>
-    </box>
+    </DialogShell>
   )
 }
