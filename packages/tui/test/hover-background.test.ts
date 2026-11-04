@@ -86,3 +86,21 @@ test("synthesized hover surfaces retain readable primary and muted text", () => 
   expect(ratio(primary, value)).toBeGreaterThanOrEqual(3)
   expect(ratio(muted, value)).toBeGreaterThanOrEqual(3)
 })
+
+test("selects the requested secondary or destructive hover surface", () => {
+  const secondary = "#304050"
+  const destructive = "#6b2630"
+  const theme = {
+    background: {
+      base: "#101010",
+      raised: { base: "#181818", high: "#242424" },
+      action: {
+        primary: { hovered: "#303030" },
+        secondary: { hovered: secondary },
+        destructive: { hovered: destructive },
+      },
+    },
+  }
+  expect(hoverBackground(theme, "secondary")).toBe(secondary)
+  expect(hoverBackground(theme, "destructive")).toBe(destructive)
+})
