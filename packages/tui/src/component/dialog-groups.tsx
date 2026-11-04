@@ -222,13 +222,16 @@ function Field(props: { label: string; children: JSX.Element }) {
 function Chip(props: { label: string; selected: boolean; onClick: () => void }) {
   const theme = useTheme().surface("dialog")
   const [hover, setHover] = createSignal(false)
-  const tone = () => hover() ? theme.text.base : props.selected ? theme.text.formfield.selected : theme.text.formfield.base
+  const tone = () =>
+    hover() ? theme.text.base : props.selected ? theme.text.formfield.selected : theme.text.formfield.base
   return (
     <box
       flexShrink={0}
       paddingLeft={1}
       paddingRight={1}
-      backgroundColor={hover() ? hoverBackground(theme) : props.selected ? theme.background.formfield.selected : undefined}
+      backgroundColor={
+        hover() ? hoverBackground(theme) : props.selected ? theme.background.formfield.selected : undefined
+      }
       onMouseOver={() => setHover(true)}
       onMouseOut={() => setHover(false)}
       onMouseUp={(event) => {
