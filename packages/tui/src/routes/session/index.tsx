@@ -1535,7 +1535,15 @@ export function Session(props: {
         >
           <Show when={session()}>
             <SessionHeader sessionID={route.sessionID} />
-            <box flexGrow={1} minWidth={0} minHeight={0} position="relative">
+            <box
+              flexGrow={1}
+              minWidth={0}
+              minHeight={0}
+              position="relative"
+              // The absolute NeuralAxon lives in the transcript scrollbox. Clip it to the
+              // transcript viewport so it cannot paint into the composer, docks or recovery card.
+              overflow="hidden"
+            >
               <scrollbox
                 minWidth={0}
                 ref={(r) => {
