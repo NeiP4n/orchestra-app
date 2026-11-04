@@ -819,7 +819,9 @@ export function FormPrompt(props: { form: FormWithLocation }) {
                   <box
                     paddingLeft={1}
                     paddingRight={2}
-                    backgroundColor={tabHover() === index() && !isTab() ? hoverBackground(theme) : theme.background.raised.base}
+                    backgroundColor={
+                      tabHover() === index() && !isTab() ? hoverBackground(theme) : theme.background.raised.base
+                    }
                     onMouseOver={() => setTabHover(index())}
                     onMouseOut={() => setTabHover(null)}
                     onMouseUp={() => {
@@ -837,7 +839,9 @@ export function FormPrompt(props: { form: FormWithLocation }) {
             <box
               paddingLeft={1}
               paddingRight={1}
-              backgroundColor={tabHover() === "confirm" && !confirm() ? hoverBackground(theme) : theme.background.raised.base}
+              backgroundColor={
+                tabHover() === "confirm" && !confirm() ? hoverBackground(theme) : theme.background.raised.base
+              }
               onMouseOver={() => setTabHover("confirm")}
               onMouseOut={() => setTabHover(null)}
               onMouseUp={() => {
