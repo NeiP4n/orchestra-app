@@ -1,4 +1,4 @@
-import { createMemo, createResource, Show } from "solid-js"
+import { createMemo, createResource, createSignal, Show } from "solid-js"
 import { useTerminalDimensions } from "@opentui/solid"
 import { Orchestra } from "@orchestra/schema/orchestra"
 import { useClient } from "../context/client"
@@ -57,6 +57,8 @@ export function HomeProjectPanel(props: {
   const palette = () => neuralPalette(theme)
   const energy = useNeuralEnergy()
   const dimensions = useTerminalDimensions()
+  const [hideHovered, setHideHovered] = createSignal(false)
+  const [showHovered, setShowHovered] = createSignal(false)
   // The network window grows on tall screens and disappears on short ones.
   const fieldHeight = () => (dimensions().height >= 56 ? 12 : dimensions().height >= 44 ? 8 : dimensions().height >= 28 ? 4 : 0)
   const sessions = createMemo(() => data.session.list().filter((session) => !session.parentID))
@@ -77,21 +79,15 @@ export function HomeProjectPanel(props: {
           borderColor={theme.border.base}
           paddingTop={1}
         >
-          <box
-            id="home-project-panel-show"
-            width={3}
-            height={1}
-            flexShrink={0}
-            alignItems="center"
-            justifyContent="center"
-            backgroundColor={theme.background.raised.base}
-            onMouseDown={(event) => event.stopPropagation()}
-            onMouseUp={(event) => {
-              event.stopPropagation()
-              props.onShow?.()
-            }}
-          >
-            <text fg={theme.text.action.primary.base}>‹</text>
+          <box id="home-project-panel-show" width={3} height={1} flexShrink={0} alignItems="center" justifyContent="center">
+            <HoverAction
+              onHoverChange={setShowHovered}
+              onClick={() => props.onShow?.()}
+              paddingLeft={1}
+              paddingRight={1}
+            >
+              <text fg={showHovered() ? theme.text.action.primary.hovered : theme.text.action.primary.base}>‹</text>
+            </HoverAction>
           </box>
         </box>
       }
@@ -119,8 +115,14 @@ export function HomeProjectPanel(props: {
                 <b>{t("Project overview")}</b>
               </text>
               <Show when={props.onHide}>
-                <HoverAction id="home-project-panel-hide" paddingLeft={1} paddingRight={1} onClick={() => props.onHide?.()}>
-                  <text fg={palette().synapse} wrapMode="none">
+                <HoverAction
+                  id="home-project-panel-hide"
+                  onHoverChange={setHideHovered}
+                  paddingLeft={1}
+                  paddingRight={1}
+                  onClick={() => props.onHide?.()}
+                >
+                  <text fg={hideHovered() ? theme.text.action.primary.hovered : theme.text.action.primary.base} wrapMode="none">
                     ›
                   </text>
                 </HoverAction>
