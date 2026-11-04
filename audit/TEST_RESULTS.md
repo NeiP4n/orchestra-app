@@ -24,3 +24,15 @@ Known sandbox limitations (pre-existing, not caused by this branch): full
 `test/mcp.test.ts` runs can OOM in this sandbox even on clean main, so MCP
 tests were run with `-t` filters; TUI frame-based suites are timing-sensitive
 here. The TUI itself was never run (owner prohibition on standalone runs).
+
+## V3 (branch audit-v3)
+| Check | Where | Result |
+| --- | --- | --- |
+| MCP budget tests (rewritten) | packages/core test/mcp-budget.test.ts | 16/16 pass — parse, decide, reserve, epoch replacement, corruption fail-closed, cleanup primitives, one-connection fiber race, two-connection file-DB race + resume |
+| MCP dispatch integration (`-t budget`) | packages/core test/mcp.test.ts | 3/3 pass |
+| orchestrator-limits + ai-standard + room | packages/core | 28/28 pass |
+| Core typecheck | packages/core | 11 errors = clean-main baseline |
+| Client solid-data tests | packages/client | 30/30 pass (with catalog failure logging) |
+| Protocol check:generated | packages/protocol | PASS after regeneration (was failing on main) |
+| Client regeneration consistency | packages/client | no diff (client was never stale) |
+| Rust | crates/* | NOT RUN — no Rust toolchain in this environment |

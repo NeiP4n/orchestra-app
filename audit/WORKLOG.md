@@ -63,3 +63,20 @@ then the six investigation tracks in sequence.
   this worktree's links were rebuilt as forests pointing at its own sources
   before trusting generation/typecheck results.
 Next: final diff review, commits, push branch (no merge).
+
+## Audit V3 (2026-11-04, branch audit-v3 from forensic-audit @ 8598160)
+- Phase 1: budget gate redesigned — reservation is a single immediate DB
+  transaction over the same KV row; corrupted usage now fails closed (V2
+  treated it as zero); bounded cleanup (none-stamp delete + startup sweep).
+  16 unit tests (incl. two-connection race on a real file DB) + 3 dispatch
+  integration tests pass; core typecheck back to 11 baseline.
+- Phase 2: defect logging in the location middleware (no error-union change);
+  client catalog failures now logged by name. Owner's failing service still
+  unidentified — needs his server log, which will now contain the cause.
+- Phase 3: PTY outbox verified bounded (16 MiB / 8192 frames, 1013 resync);
+  Rust crates read-only inspected (no toolchain in sandbox — not compiled);
+  plugins and surfaces remain partial.
+- Phase 4: openapi.json regenerated in dedicated commit 4fb6d3e after hunk
+  analysis (delta fully legitimate, 0 operations removed); AGENTS.md default
+  branch corrected v2 → main (verified via ls-remote).
+Next: final checks, commits, push audit-v3.

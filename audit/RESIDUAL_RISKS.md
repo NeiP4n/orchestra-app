@@ -30,3 +30,16 @@
 6. **Unverified areas:** PTY/transport, Rust crates, app/desktop surfaces,
    plugins and performance were not inspected in this pass (see
    COVERAGE_MATRIX.md); no claims are made about them.
+
+## V3 updates
+- F-GEN-1 and F-DOC-1 are closed (see AUDIT_V3 Phase 4); the staleness
+  risk remains process-level: nothing in CI was changed by this audit,
+  so the snapshot can drift again unless check:generated is enforced.
+- MCP budget: under extreme cross-process contention a reservation can
+  hit SQLite's busy timeout; that path fails closed (the call is
+  refused and logged), never open. The startup sweep deletes corrupted
+  usage rows for still-stamped sessions at service start — the intended
+  recovery path, bounded to startup.
+- The owner's location 500: diagnostics are now in place on both sides
+  (server defect log with cause; client catalog names), but the failing
+  service is still unidentified until a log from his machine is seen.

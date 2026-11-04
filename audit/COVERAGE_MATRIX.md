@@ -21,3 +21,13 @@
 | Rust crates | NOT INSPECTED | Toolchain verification not run in this pass |
 | CI / release | PARTIAL | check.yml + root check composition read; pipelines not executed |
 | Performance / long-run | NOT INSPECTED | No measurements taken; no claims made |
+
+## V3 updates
+| Area | Status | Notes |
+| --- | --- | --- |
+| Core: MCP budgets | COMPLETE | Transactional reservation; concurrency + corruption + cleanup tested (AUDIT_V3 Phase 1) |
+| Server: PTY / persistent PTY | PARTIAL→INSPECTED | PtyOutbox bounded (16 MiB / 8192 frames), overflow closes 1013 + cursor resync; no defect confirmed |
+| Rust crates | INSPECTED (read-only) | No toolchain in this environment — not compiled or tested; kernel failover logic verified by reading |
+| Plugins | PARTIAL | Centralized hook registration verified; full lifecycle audit not completed |
+| Protocol / OpenAPI | COMPLETE | F-GEN-1 closed; check:generated passes; client generation consistent |
+| Performance | PARTIAL | Budget sweep bounded + forked; no measurements taken |

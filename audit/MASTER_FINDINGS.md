@@ -95,3 +95,20 @@ defect paths and explicitly partial elsewhere (see COVERAGE_MATRIX.md).
   was implemented and then reverted: widening the middleware error union broke
   handler type inference across the server package (117 typecheck errors vs an
   11-error clean baseline). See RESIDUAL_RISKS.md.
+
+## V3 updates (branch audit-v3)
+- F-MCP-1 HARDENED: the V2 in-memory gate + KV snapshot design had three
+  confirmed weaknesses under the stated invariant (same-snapshot double
+  reserve across processes, crash window between reservation and
+  persistence, corrupted usage silently zeroed = fail-open). Reservation
+  is now a single immediate DB transaction over the same KV row; corrupted
+  usage and store failures fail closed; bounded cleanup added (startup
+  sweep + stamp-removal deletion; active-task rows never touched).
+  Evidence and scenario verdicts: audit/AUDIT_V3.md, Phase 1.
+- F-GEN-1 FIXED: delta proven entirely legitimate staleness (8 existing
+  operations missing from the snapshot, current schemas, ticket headers,
+  declared errors; zero operations removed). Regenerated in dedicated
+  commit 4fb6d3e; check:generated passes.
+- F-DOC-1 FIXED: AGENTS.md default branch corrected to the verified `main`.
+- F-LOC-1 diagnostics added (no behavior change): location middleware logs
+  defects with cause + directory; client logs failed catalogs by name.
