@@ -20,6 +20,20 @@ Core runtime engine and domain services for Orchestra.
 - `src/tool/`: Core tool implementations and MCP bridging.
 - `src/instructions/`: Dynamic prompt assembly and instruction discovery.
 
+## The Single AI Standard
+
+The operator states the task and keeps a shortlist of favorite models; the
+system decides everything else. That standard lives in exactly one place —
+[`src/ai-standard.ts`](src/ai-standard.ts) (`AiStandard`) — and fixes, in
+priority order: a per-task explicit model wins; the agent and model are
+picked from the favorites, ranked for the work (depth vs. speed);
+unavailable favorites are skipped and, when all are down, the run falls back
+to the role model, then the worker policy, then the caller's model; MCP
+tools and rules are derived/applied automatically; the budget is automatic
+(`AiStandard.budgetFor`, applied through `Limits`). Zero configuration is a
+working state. Callers such as `Orchestra.workerModels` consume the standard
+and must not re-encode their own priority chain.
+
 ## Usage
 
 ```ts
