@@ -1,5 +1,5 @@
 import { useData } from "../../context/data"
-import { createMemo, Show } from "solid-js"
+import { createMemo, createSignal, Show } from "solid-js"
 import { useTheme } from "../../context/theme"
 import { useConfig } from "../../config"
 import { HoverAction } from "../../component/hover-action"
@@ -22,6 +22,7 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
   const layout = useCompactLayout()
   const width = () => props.width ?? layout.sidebarWidth()
   const running = () => data.session.status(props.sessionID) === "running"
+  const [hideHovered, setHideHovered] = createSignal(false)
   // The Session's network fills whatever the sidebar's content leaves empty below it.
   const empty = useEmptyRoom()
 
@@ -61,8 +62,14 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
             </title_shimmer>
           </box>
           <Show when={props.onHide}>
-            <HoverAction id="session.sidebar.hide" onClick={() => props.onHide?.()} paddingLeft={1} paddingRight={1}>
-              <text fg={theme.text.action.primary.base}>›</text>
+            <HoverAction
+              id="session.sidebar.hide"
+              onHoverChange={setHideHovered}
+              onClick={() => props.onHide?.()}
+              paddingLeft={1}
+              paddingRight={1}
+            >
+              <text fg={hideHovered() ? theme.text.action.primary.hovered : theme.text.action.primary.base}>›</text>
             </HoverAction>
           </Show>
         </box>
