@@ -1093,6 +1093,8 @@ export const dict = {
   "workspace.delete.button": "Delete worktree",
 
   "composer.miniSkills.title": "Mini skills",
+  "composer.miniSkills.hide": "Hide mini skills",
+  "composer.miniSkills.show": "Show mini skills",
   "composer.miniSkills.manage": "Customize mini skills",
   "composer.miniSkills.add": "Add mini skill",
   "composer.miniSkills.empty": "No mini skills yet. Add one to create a reusable prompt button.",
