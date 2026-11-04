@@ -273,8 +273,21 @@ function ensureReadable(resolved: ResolvedThemeTokens): ResolvedThemeTokens {
         const surface = bgStates[state]
         if (!(color instanceof RGBA) || !(surface instanceof RGBA)) return [state, color]
         const floor = state === "disabled" ? NEVER_DISAPPEAR : PRIMARY_TEXT
-        if (surface.a >= 1) return [state, lift(color, surface, floor)]
-        return [state, lift(lift(color, composite(surface, base), floor), composite(surface, raised), floor)]
+        const own = surface.a >= 1
+          ? lift(color, surface, floor)
+          : lift(lift(color, composite(surface, base), floor), composite(surface, raised), floor)
+        // Several compact controls keep their base foreground while their
+        // background changes on hover. Keep that pairing readable too; a
+        // custom theme may give the hovered surface a very different hue.
+        if (state !== "base") return [state, own]
+        const hovered = bgStates.hovered
+        if (!(hovered instanceof RGBA)) return [state, own]
+        return [
+          state,
+          hovered.a >= 1
+            ? lift(own, hovered, NEVER_DISAPPEAR)
+            : lift(own, composite(hovered, base), NEVER_DISAPPEAR),
+        ]
       }),
     )
   return {
