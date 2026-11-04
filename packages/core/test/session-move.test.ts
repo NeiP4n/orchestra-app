@@ -18,6 +18,7 @@ import { AbsolutePath } from "@orchestra/core/schema"
 import { Session } from "@orchestra/core/session"
 import { SessionEvent } from "@orchestra/core/session/event"
 import { SessionExecution } from "@orchestra/core/session/execution"
+import { SessionInbox } from "@orchestra/core/session/inbox"
 import { SessionMove } from "@orchestra/core/session/move"
 import { SessionProjector } from "@orchestra/core/session/projector"
 import { SessionRunner } from "@orchestra/core/session/runner/index"
@@ -588,6 +589,89 @@ describe("Session.move", () => {
             location: { directory: destination },
             subpath: undefined,
           })
+        }),
+      ),
+    ),
+  )
+})
+
+describe("location recovery (session location unavailable)", () => {
+  // The screenshot scenario end to end: a session whose directory vanishes
+  // is recovered by the exact action the recovery UI performs — session.move
+  // with the default (steer) delivery — and keeps its identity and history.
+  it.effect("recovers a session whose directory disappeared into a chosen directory", () =>
+    tmpdirScoped().pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const database = yield* Database.Service
+          const bus = yield* Bus.Service
+          const source = AbsolutePath.make(path.join(tmp.path, "source"))
+          const destination = AbsolutePath.make(path.join(tmp.path, "destination"))
+          yield* Effect.promise(() => Promise.all([mkdir(source), mkdir(destination)]))
+          const created = yield* session.create({ location: Location.Ref.make({ directory: source }) })
+
+          yield* session.prompt({ sessionID: created.id, text: "before the move", resume: false })
+          yield* SessionInbox.promote(database.db, bus, created.id, "steer")
+          const before = yield* session.messages({ sessionID: created.id })
+          expect(before.map((message) => message.type)).toEqual(["user"])
+
+          // The original directory becomes unavailable.
+          yield* Effect.promise(() => rm(source, { recursive: true }))
+
+          // The recovery action the UI performs after the user picks a directory.
+          yield* session.move({ sessionID: created.id, directory: destination })
+
+          const recovered = yield* session.get(created.id)
+          expect(recovered.id).toBe(created.id)
+          expect(recovered.location.directory).toBe(destination)
+
+          // History survived the relocation: the original message is intact
+          // and the move itself is recorded as a location-switched entry.
+          const after = yield* session.messages({ sessionID: created.id })
+          expect(after.map((message) => message.type).sort()).toEqual(["location-switched", "user"])
+          expect(after.map((message) => message.id)).toContain(before[0]!.id)
+
+          // New work lands in the same session at the new location.
+          yield* session.prompt({ sessionID: created.id, text: "after the move", resume: false })
+          yield* SessionInbox.promote(database.db, bus, created.id, "steer")
+          const final = yield* session.messages({ sessionID: created.id })
+          expect(final.map((message) => message.type).sort()).toEqual(["location-switched", "user", "user"])
+          expect(final.map((message) => message.id)).toContain(before[0]!.id)
+
+          // Reopening the session (fresh reads from the store) keeps the
+          // recovered location and the full history.
+          const reopened = yield* session.get(created.id)
+          expect(reopened.location.directory).toBe(destination)
+          expect((yield* session.messages({ sessionID: created.id })).map((message) => message.id)).toEqual(
+            final.map((message) => message.id),
+          )
+        }),
+      ),
+    ),
+  )
+
+  it.effect("rejects a move to a missing directory or a file without mutating the session", () =>
+    tmpdirScoped().pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const source = AbsolutePath.make(path.join(tmp.path, "source"))
+          yield* Effect.promise(() => mkdir(source))
+          const created = yield* session.create({ location: Location.Ref.make({ directory: source }) })
+
+          const missing = AbsolutePath.make(path.join(tmp.path, "does-not-exist"))
+          const missingError = yield* session.move({ sessionID: created.id, directory: missing }).pipe(Effect.flip)
+          expect(missingError._tag).toContain("NotFound")
+          expect((yield* session.get(created.id)).location.directory).toBe(source)
+
+          const file = path.join(tmp.path, "a-file")
+          yield* Effect.promise(() => Bun.write(file, "not a directory"))
+          const fileError = yield* session
+            .move({ sessionID: created.id, directory: AbsolutePath.make(file) })
+            .pipe(Effect.flip)
+          expect(fileError._tag).toBe("Session.DestinationNotDirectoryError")
+          expect((yield* session.get(created.id)).location.directory).toBe(source)
         }),
       ),
     ),
