@@ -279,6 +279,9 @@ export function RoomDodRows(props: {
             {(item) => {
               const mine = () => item.mine === true
               const free = () => !item.owner || item.stale === true
+              const [takeHovered, setTakeHovered] = createSignal(false)
+              const [submitHovered, setSubmitHovered] = createSignal(false)
+              const [releaseHovered, setReleaseHovered] = createSignal(false)
               return (
                 <box flexDirection="row" paddingLeft={indent() + 3} paddingRight={1}>
                   <text flexShrink={0} fg={color(item.state)}>
@@ -309,8 +312,14 @@ export function RoomDodRows(props: {
                       >
                         <Show when={props.take}>
                           {(take) => (
-                            <HoverAction id={`${actionId(item)}:take`} onClick={() => act(() => take()(item.id))}>
-                              <text fg={theme.text.action.primary.base}>{` ${t("take")}`}</text>
+                            <HoverAction
+                              id={`${actionId(item)}:take`}
+                              onHoverChange={setTakeHovered}
+                              onClick={() => act(() => take()(item.id))}
+                            >
+                              <text fg={takeHovered() ? theme.text.base : theme.text.action.primary.base}>
+                                {` ${t("take")}`}
+                              </text>
                             </HoverAction>
                           )}
                         </Show>
@@ -324,15 +333,20 @@ export function RoomDodRows(props: {
                       {(submit) => (
                         <HoverAction
                           id={`${actionId(item)}:submit`}
+                          onHoverChange={setSubmitHovered}
                           onClick={() => act(() => submit()(item.id), submitted(item.id))}
                         >
-                          <text fg={theme.text.action.primary.base}>{` ${t("submit")}`}</text>
+                          <text fg={submitHovered() ? theme.text.base : theme.text.action.primary.base}>
+                            {` ${t("submit")}`}
+                          </text>
                         </HoverAction>
                       )}
                     </Show>
                     <Show when={mine() || !props.take}>
                       <HoverAction
                         id={`${actionId(item)}:release`}
+                        variant="destructive"
+                        onHoverChange={setReleaseHovered}
                         onMouseLeave={() => setArmed()}
                         onClick={() => {
                           // Freeing another person's item needs a second click; giving back your own does not.
@@ -345,7 +359,9 @@ export function RoomDodRows(props: {
                           fg={
                             armed() === actionId(item)
                               ? theme.text.action.destructive.focused
-                              : theme.text.action.destructive.base
+                              : releaseHovered()
+                                ? theme.text.action.destructive.hovered
+                                : theme.text.action.destructive.base
                           }
                         >
                           {armed() === actionId(item) ? ` ${t("free?")}` : mine() ? ` ${t("release")}` : " ×"}
