@@ -1895,20 +1895,28 @@ export function createData(config: CreateDataInput) {
         // event-driven refreshes already tolerate failures.
         await result.location.syncInfo(ref)
         const location = ref ?? defaultLocation()
-        await Promise.allSettled([
-          result.location.vcs.sync(location),
-          result.location.agent.sync(location),
-          result.location.command.sync(location),
-          result.location.integration.sync(location),
-          result.location.mcp.server.sync(location),
-          result.location.mcp.resource.sync(location),
-          result.location.model.sync(location),
-          result.location.provider.sync(location),
-          result.location.reference.sync(location),
-          result.location.skill.sync(location),
-          result.shell.sync(location),
-          result.session.form.sync("global", location),
-        ])
+        const catalogs: ReadonlyArray<readonly [string, Promise<void>]> = [
+          ["vcs", result.location.vcs.sync(location)],
+          ["agent", result.location.agent.sync(location)],
+          ["command", result.location.command.sync(location)],
+          ["integration", result.location.integration.sync(location)],
+          ["mcp.server", result.location.mcp.server.sync(location)],
+          ["mcp.resource", result.location.mcp.resource.sync(location)],
+          ["model", result.location.model.sync(location)],
+          ["provider", result.location.provider.sync(location)],
+          ["reference", result.location.reference.sync(location)],
+          ["skill", result.location.skill.sync(location)],
+          ["shell", result.shell.sync(location)],
+          ["session.form", result.session.form.sync("global", location)],
+        ]
+        // Best-effort, but never silent: a failed catalog is logged with
+        // its name, so a chronically failing one is diagnosable from the
+        // client log instead of vanishing into the settled results.
+        const settled = await Promise.allSettled(catalogs.map(([, load]) => load))
+        settled.forEach((outcome, index) => {
+          if (outcome.status === "rejected")
+            console.error(`Failed to sync location catalog ${catalogs[index][0]}`, outcome.reason)
+        })
       },
       invalidate(ref?: LocationRef) {
         const location = ref ?? defaultLocation()
