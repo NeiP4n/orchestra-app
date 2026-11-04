@@ -1485,7 +1485,9 @@ function TabLabel(props: { active: boolean; onClick: () => void; children: strin
       }}
     >
       <text
-        fg={props.active ? theme.text.action.primary.selected : hovered() ? theme.text.action.secondary.hovered : theme.text.muted}
+        fg={
+          props.active ? theme.text.action.primary.selected : hovered() ? theme.text.action.secondary.hovered : theme.text.muted
+        }
         attributes={props.active || hovered() ? TextAttributes.UNDERLINE : undefined}
         wrapMode="none"
       >
