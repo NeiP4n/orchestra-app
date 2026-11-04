@@ -826,7 +826,17 @@ function Action(props: ParentProps<{ onClick: () => void; disabled?: boolean; ho
         if (!props.disabled) props.onClick()
       }}
     >
-      <text fg={props.disabled ? theme.text.muted : theme.text.action.primary.base}>{props.children}</text>
+      <text
+        fg={
+          props.disabled
+            ? theme.text.muted
+            : props.hoverBackground && hovered()
+              ? theme.text.base
+              : theme.text.action.primary.base
+        }
+      >
+        {props.children}
+      </text>
     </box>
   )
 }
