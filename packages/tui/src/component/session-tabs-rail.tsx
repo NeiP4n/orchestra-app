@@ -3,6 +3,7 @@ import type { RGBA } from "@opentui/core"
 import { Keymap } from "../context/keymap"
 import { useTheme } from "../context/theme"
 import { tint } from "../theme/color"
+import { hoverBackground } from "../ui/hover"
 import type { SessionTabsController } from "./session-tabs"
 
 export function SessionTabsRailControls(props: {
@@ -14,7 +15,7 @@ export function SessionTabsRailControls(props: {
   const keymap = Keymap.use()
   const [hovered, setHovered] = createSignal(false)
   const hoverColor = createMemo(() =>
-    tint(theme.background.raised.base, theme.background.raised.high, theme.background.raised.high.a),
+    tint(theme.background.raised.base, hoverBackground(theme), hoverBackground(theme).a),
   )
   let pressed = false
   const search = () => (props.tabs.search ? props.tabs.search() : keymap.dispatch("session.list"))
@@ -32,7 +33,7 @@ export function SessionTabsRailControls(props: {
         position="relative"
         flexDirection="row"
         justifyContent="center"
-        backgroundColor={hovered() ? theme.background.raised.high : undefined}
+        backgroundColor={hovered() ? hoverBackground(theme) : undefined}
         onMouseOver={() => setHovered(true)}
         onMouseOut={() => setHovered(false)}
         onMouseDown={(event) => {
