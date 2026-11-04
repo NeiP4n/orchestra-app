@@ -215,7 +215,7 @@ async function validateServer(root: string) {
   const result = await runBun(["--cwd", "packages/server", "run", "typecheck"], root, VALIDATION_TIMEOUT_MS)
   if (result.exitCode !== 0) {
     const detail = result.stderr.trim() || result.stdout.trim() || `Server typecheck exited with code ${result.exitCode}`
-    throw new Error(`OpenCode++ update validation failed:\n${detail}`)
+    throw new Error(`Orchestra update validation failed:\n${detail}`)
   }
 }
 

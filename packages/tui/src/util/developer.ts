@@ -4,7 +4,7 @@
 export const DEVELOPER_COMMANDS: ReadonlySet<string> = new Set([
   "app.debug",
   "app.console",
-  "opencode.debug",
+  "orchestra.debug",
   "service.restart",
   "location.reload",
   "server.pair",

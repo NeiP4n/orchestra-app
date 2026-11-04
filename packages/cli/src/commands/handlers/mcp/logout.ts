@@ -1,6 +1,6 @@
 import { EOL } from "node:os"
 import { Effect } from "effect"
-import { OpenCode } from "@orchestra/client"
+import { Orchestra } from "@orchestra/client"
 import { Commands } from "../../commands"
 import { Runtime } from "../../../framework/runtime"
 import { Service } from "@orchestra/client/effect/service"
@@ -13,7 +13,7 @@ export default Runtime.handler(
   Commands.commands.mcp.commands.logout,
   Effect.fn("cli.mcp.logout")(function* (input) {
     const { endpoint } = yield* ServerConnection.resolve()
-    const client = OpenCode.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
+    const client = Orchestra.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
 
     const integration = yield* resolveIntegration(client, input.name, location)
     if (!integration) {

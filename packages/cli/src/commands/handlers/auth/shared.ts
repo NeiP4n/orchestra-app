@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { OpenCode, type IntegrationInfo, type IntegrationMethod, type OrchestraClient } from "@orchestra/client"
+import { Orchestra, type IntegrationInfo, type IntegrationMethod, type OrchestraClient } from "@orchestra/client"
 import { Service } from "@orchestra/client/effect/service"
 import { ServerConnection } from "../../../services/server-connection"
 
@@ -7,7 +7,7 @@ export const location = { directory: process.cwd() }
 
 export const createClient = Effect.fn("cli.auth.client")(function* (input: ServerConnection.Args) {
   const server = yield* ServerConnection.resolve(input)
-  return OpenCode.make({ baseUrl: server.endpoint.url, headers: Service.headers(server.endpoint) })
+  return Orchestra.make({ baseUrl: server.endpoint.url, headers: Service.headers(server.endpoint) })
 })
 
 export function request<A>(run: (signal: AbortSignal) => Promise<A>) {

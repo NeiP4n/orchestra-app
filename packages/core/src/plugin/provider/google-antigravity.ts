@@ -393,7 +393,7 @@ function authorize(http: HttpClient.HttpClient) {
 }
 
 export const GoogleAntigravityPlugin = define({
-  id: "opencode.provider.google.antigravity",
+  id: "orchestra.provider.google.antigravity",
   effect: Effect.fn(function* (ctx) {
     const http = yield* HttpClient.HttpClient
 

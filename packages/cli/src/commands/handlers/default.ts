@@ -13,7 +13,7 @@ import { Npm } from "@orchestra/util/npm"
 import { ORCHESTRA_ARTIFACT, ORCHESTRA_CHANNEL, ORCHESTRA_VERSION } from "../../version"
 import { Env } from "../../env"
 import { Service } from "@orchestra/client/effect/service"
-import { OpenCode } from "@orchestra/client/promise"
+import { Orchestra } from "@orchestra/client/promise"
 import { findSession } from "../../session-target"
 import { errorMessage } from "../../util/error"
 
@@ -57,7 +57,7 @@ export default Runtime.handler(Commands, (input) =>
       session !== undefined &&
       (yield* Effect.tryPromise({
         try: () =>
-          findSession(OpenCode.make({ baseUrl: server.endpoint.url, headers: Service.headers(server.endpoint) }), session),
+          findSession(Orchestra.make({ baseUrl: server.endpoint.url, headers: Service.headers(server.endpoint) }), session),
         catch: (cause) => new Error(errorMessage(cause)),
       })) !== undefined
     const updater = yield* Updater.Service

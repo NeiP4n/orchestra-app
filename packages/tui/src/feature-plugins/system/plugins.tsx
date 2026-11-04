@@ -17,7 +17,7 @@ import { useDialog } from "../../ui/dialog"
 import { useConfig } from "../../config"
 import { errorMessage } from "../../util/error"
 
-const id = "opencode.plugins"
+const id = "orchestra.plugins"
 const ALL = "All"
 
 type Declaration = string | { readonly package: string }

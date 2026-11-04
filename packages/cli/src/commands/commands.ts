@@ -600,7 +600,7 @@ const Root = Spec.make(typeof ORCHESTRA_CLI_NAME === "string" ? ORCHESTRA_CLI_NA
           Flag.atLeast(0),
         ),
         roomApiUrl: Flag.string("room-api-url").pipe(
-          Flag.withDescription("Local OpenCode server URL for room-token authorization"),
+          Flag.withDescription("Local Orchestra server URL for room-token authorization"),
           Flag.optional,
         ),
         roomId: Flag.string("room-id").pipe(

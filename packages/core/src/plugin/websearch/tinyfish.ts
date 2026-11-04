@@ -30,7 +30,7 @@ const SearchResponse = Schema.fromJsonString(
 const decodeSearchResponse = Schema.decodeUnknownOption(SearchResponse)
 
 export const Plugin = define<HttpClient.HttpClient | Scope.Scope>({
-  id: "opencode.websearch.tinyfish",
+  id: "orchestra.websearch.tinyfish",
   effect: Effect.fn("WebSearchTinyFish.Plugin")(function* (ctx) {
     const http = yield* HttpClient.HttpClient
     yield* ctx.integration.transform((editor) => {

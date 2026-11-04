@@ -1,5 +1,5 @@
 import { Service, type Endpoint, type EnsureOptions } from "@orchestra/client/effect/service"
-import { ClientError, isUnauthorizedError, OpenCode } from "@orchestra/client/promise"
+import { ClientError, isUnauthorizedError, Orchestra } from "@orchestra/client/promise"
 import { ORCHESTRA_VERSION } from "../version"
 import { Effect, Redacted } from "effect"
 import { Env } from "../env"
@@ -28,7 +28,7 @@ export const resolve = Effect.fn("cli.server-connection.resolve")(function* (arg
       url: args.server,
       auth: password ? { type: "basic" as const, username: "opencode", password: Redacted.value(password) } : undefined,
     } satisfies Endpoint
-    const client = OpenCode.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
+    const client = Orchestra.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
     const health = yield* Effect.tryPromise({
       try: () => client.server.info({ signal: AbortSignal.timeout(5_000) }),
       catch: (cause) => connectError(endpoint, cause),
@@ -77,7 +77,7 @@ export const shutdownPersistentPty = Effect.fn("cli.server-connection.shutdown-p
 ) {
   const endpoint = yield* Service.discover({ ...options, version: undefined })
   if (!endpoint) return
-  const client = OpenCode.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
+  const client = Orchestra.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
 
   // Persistent-PTY shutdown is auxiliary cleanup. A wedged/dead server must never
   // block `service stop`/`service restart` before the actual process termination.

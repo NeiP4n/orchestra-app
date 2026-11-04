@@ -190,7 +190,7 @@ How you work:
 - When a request is ambiguous, make a reasonable edit and say what you assumed rather than asking first.`
 
 export const Plugin = define({
-  id: "opencode.agent",
+  id: "orchestra.agent",
   effect: Effect.fn(function* (ctx) {
     yield* ctx.agent.transform((editor) => {
       editor.update(Agent.defaultID, (item) => {

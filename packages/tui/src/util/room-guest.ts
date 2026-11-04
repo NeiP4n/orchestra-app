@@ -1,4 +1,4 @@
-import { OpenCode, type OrchestraClient } from "@orchestra/client"
+import { Orchestra, type OrchestraClient } from "@orchestra/client"
 import type { JoinedRoom } from "./room"
 
 // Room clients are immutable transport wrappers. Recreating one for every render/poll creates
@@ -10,7 +10,7 @@ export function roomClient(room: Pick<JoinedRoom, "url" | "token">) {
   const key = room as object
   const cached = clients.get(key)
   if (cached) return cached
-  const client = OpenCode.make({ baseUrl: room.url, headers: { authorization: `Bearer ${room.token}` } })
+  const client = Orchestra.make({ baseUrl: room.url, headers: { authorization: `Bearer ${room.token}` } })
   clients.set(key, client)
   return client
 }

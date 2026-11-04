@@ -20,7 +20,7 @@ import {
 import type { Patch } from "../../vcs/patch.js"
 
 export const Plugin = define({
-  id: "opencode.vcs.git",
+  id: "orchestra.vcs.git",
   effect: Effect.fn("VcsGitPlugin")(function* (ctx) {
     const location = yield* Location.Service
     // Markerless locations need this definition to initialize their first repository.

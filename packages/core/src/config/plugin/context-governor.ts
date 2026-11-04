@@ -8,7 +8,7 @@ import { SessionContextGovernor } from "../../session/context-governor.js"
 import { ConfigEntryObserver } from "./entry-observer.js"
 
 export const Plugin = define({
-  id: "opencode.config.context-governor",
+  id: "orchestra.config.context-governor",
   effect: Effect.fn(function* (ctx) {
     const config = yield* Config.Service
     const apply = (entries: readonly Entry[]) =>

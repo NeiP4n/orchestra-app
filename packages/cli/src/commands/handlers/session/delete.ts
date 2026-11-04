@@ -1,4 +1,4 @@
-import { OpenCode } from "@orchestra/client"
+import { Orchestra } from "@orchestra/client"
 import { Service } from "@orchestra/client/effect/service"
 import { Effect, Option } from "effect"
 import { EOL } from "node:os"
@@ -14,7 +14,7 @@ const handler = Effect.fn("cli.session.delete")(function* (
     server: Option.getOrUndefined(input.server),
     standalone: input.standalone,
   })
-  const client = OpenCode.make({ baseUrl: server.endpoint.url, headers: Service.headers(server.endpoint) })
+  const client = Orchestra.make({ baseUrl: server.endpoint.url, headers: Service.headers(server.endpoint) })
   yield* Effect.tryPromise({
     try: (signal) => client.session.remove({ sessionID: input.sessionID }, { signal }),
     catch: (cause) => cause,

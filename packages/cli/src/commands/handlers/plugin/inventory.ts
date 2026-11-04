@@ -1,6 +1,6 @@
 import { EOL } from "node:os"
 import { Cause, Effect, Exit } from "effect"
-import { OpenCode } from "@orchestra/client"
+import { Orchestra } from "@orchestra/client"
 import { Service } from "@orchestra/client/effect/service"
 import { Npm } from "@orchestra/util/npm"
 import { Config } from "../../../config"
@@ -17,7 +17,7 @@ export interface Item {
 
 export const inspect = Effect.fn("cli.plugin.inspect")(function* (selected?: string) {
   const { endpoint } = yield* ServerConnection.resolve()
-  const client = OpenCode.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
+  const client = Orchestra.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
   const location = { directory: process.cwd() }
   const listed = yield* Effect.promise(() => client.plugin.list({ location }))
   const serverTargets = new Set(

@@ -3,7 +3,7 @@ import { useConfig } from "../../config"
 
 // The mascot itself lives in the prompt; this registers the command that shows or hides it.
 export default Plugin.define({
-  id: "opencode.mascot",
+  id: "orchestra.mascot",
   setup(context) {
     context.ui.slot({
       append: "app",

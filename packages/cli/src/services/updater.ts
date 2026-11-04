@@ -369,7 +369,7 @@ const make = Effect.gen(function* () {
     const failure = (detail: string, cause?: unknown) =>
       new UpgradeError(
         {
-          title: input.title ?? `${installNames[input.method]} could not install OpenCode`,
+          title: input.title ?? `${installNames[input.method]} could not install Orchestra`,
           detail,
           command: (input.displayCommand ?? input.command).join(" "),
           retry: input.retry ?? "Fix the issue above, then run orchestra upgrade again.",
@@ -554,7 +554,7 @@ const make = Effect.gen(function* () {
     const current = yield* Ref.get(installedVersion)
     yield* upgrade(detected, version)
     yield* Ref.set(installedVersion, version)
-    yield* Effect.logInfo("updated OpenCode", { from: current, to: version, method: detected })
+    yield* Effect.logInfo("updated Orchestra", { from: current, to: version, method: detected })
     return true
   })
 

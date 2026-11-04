@@ -21,7 +21,7 @@ const instructions = [
 ].join(" ")
 
 export default Plugin.define({
-  id: "opencode.btw",
+  id: "orchestra.btw",
   setup(context) {
     const [pending, setPending] = createSignal(0)
 

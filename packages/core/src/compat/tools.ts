@@ -169,7 +169,7 @@ export function parseRule(
   if (!match) return { type: "unsupported", reason: `cannot parse permission rule ${JSON.stringify(rule)}` }
   const [, name, argument] = match
   const resolved = resolve(ecosystem, name)
-  if (!resolved) return { type: "unsupported", reason: `no OpenCode tool matches ${JSON.stringify(name)}` }
+  if (!resolved) return { type: "unsupported", reason: `no Orchestra tool matches ${JSON.stringify(name)}` }
   if (resolved.type === "mcp") {
     if (argument !== undefined)
       return { type: "unsupported", reason: `MCP rule ${JSON.stringify(rule)} takes no argument` }

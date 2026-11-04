@@ -34,7 +34,7 @@ const SearchResponse = Schema.fromJsonString(
 const decodeSearchResponse = Schema.decodeUnknownOption(SearchResponse)
 
 export const Plugin = define<HttpClient.HttpClient | Scope.Scope>({
-  id: "opencode.websearch.firecrawl",
+  id: "orchestra.websearch.firecrawl",
   effect: Effect.fn("WebSearchFirecrawl.Plugin")(function* (ctx) {
     const http = yield* HttpClient.HttpClient
     yield* ctx.integration.transform((editor) => {

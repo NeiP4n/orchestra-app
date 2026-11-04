@@ -116,8 +116,8 @@ function bootstrapScript(options: BootstrapOptions) {
 var TOKEN_URL=new URL(${scriptString(options.tokenPath)},window.location.origin).href;
 (function(){
   var card=document.getElementById("oc-card"),headline=document.getElementById("oc-headline"),message=document.getElementById("oc-message"),detail=document.getElementById("oc-detail"),footnote=document.getElementById("oc-footnote");
-  function fail(text){card.dataset.status="error";headline.textContent="Authorization failed";message.textContent=PROVIDER?("OpenCode couldn't finish connecting to "+PROVIDER+"."):"OpenCode couldn't complete authorization.";if(text){detail.textContent=text;detail.hidden=false}footnote.textContent="Close this window and try again from OpenCode."}
-  function ok(){card.dataset.status="success";headline.textContent="Authorization successful";message.textContent=PROVIDER?("OpenCode is now connected to "+PROVIDER+"."):"OpenCode is now authorized.";detail.hidden=true;footnote.textContent="You can close this window.";setTimeout(function(){try{window.close()}catch(e){}},2500)}
+  function fail(text){card.dataset.status="error";headline.textContent="Authorization failed";message.textContent=PROVIDER?("Orchestra couldn't finish connecting to "+PROVIDER+"."):"Orchestra couldn't complete authorization.";if(text){detail.textContent=text;detail.hidden=false}footnote.textContent="Close this window and try again from Orchestra."}
+  function ok(){card.dataset.status="success";headline.textContent="Authorization successful";message.textContent=PROVIDER?("Orchestra is now connected to "+PROVIDER+"."):"Orchestra is now authorized.";detail.hidden=true;footnote.textContent="You can close this window.";setTimeout(function(){try{window.close()}catch(e){}},2500)}
   try{
     var hash=new URLSearchParams((window.location.hash||"").slice(1));
     var search=new URLSearchParams(window.location.search||"");

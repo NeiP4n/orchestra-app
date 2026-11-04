@@ -49,7 +49,7 @@ function permissions(tools: readonly string[], source: string, skipped: ClaudeCo
   for (const tool of tools) {
     const resolved = CompatTools.resolve("claude", tool)
     if (resolved) allowed.add(resolved.action)
-    else skipped.push({ source, reason: `tool ${JSON.stringify(tool)} has no OpenCode counterpart` })
+    else skipped.push({ source, reason: `tool ${JSON.stringify(tool)} has no Orchestra counterpart` })
   }
   return [
     { action: "*", resource: "*", effect: "deny" as const },

@@ -17,7 +17,7 @@ type Loaded =
   | { readonly type: "unavailable" }
 
 export const Plugin = define({
-  id: "opencode.config.instruction",
+  id: "orchestra.config.instruction",
   effect: Effect.fn(function* () {
     const discovery = yield* InstructionDiscovery.Service
     // Nothing this plugin watches or loads can contribute when both scopes

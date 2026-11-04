@@ -39,7 +39,7 @@ declare module "@opentui/keymap" {
   }
 }
 
-const MODE = { key: "opencode.mode", base: "base" } as const
+const MODE = { key: "orchestra.mode", base: "base" } as const
 
 type OpenTuiKeymap = Parameters<typeof KeymapProvider>[0]["keymap"]
 type Mode = ReturnType<typeof createMode>

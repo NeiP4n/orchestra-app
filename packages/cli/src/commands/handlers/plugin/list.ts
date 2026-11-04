@@ -3,7 +3,7 @@ import path from "node:path"
 import { readFile } from "node:fs/promises"
 import { parse } from "jsonc-parser"
 import { Effect } from "effect"
-import { OpenCode, type PluginInfo } from "@orchestra/client"
+import { Orchestra, type PluginInfo } from "@orchestra/client"
 import { Service } from "@orchestra/client/effect/service"
 import { Commands } from "../../commands"
 import { Runtime } from "../../../framework/runtime"
@@ -21,7 +21,7 @@ export default Runtime.handler(
   Commands.commands.plugin.commands.list,
   Effect.fn("cli.plugin.list")(function* (input) {
     const { endpoint } = yield* ServerConnection.resolve()
-    const client = OpenCode.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
+    const client = Orchestra.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
     const response = yield* Effect.promise(() => client.plugin.list({ location: { directory: process.cwd() } }))
     const config = yield* Config.Service
     const global = yield* Global.Service

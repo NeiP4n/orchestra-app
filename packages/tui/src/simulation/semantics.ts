@@ -3,7 +3,7 @@ import type { SimulationProtocol } from "@orchestra/simulation/protocol"
 
 type Definition = Omit<SimulationProtocol.Frontend.SemanticNode, "id" | "element" | "parent">
 
-const key = Symbol.for("opencode.simulation.semantics")
+const key = Symbol.for("orchestra.simulation.semantics")
 
 const bind = (definition: () => Definition) => (renderable: Renderable) => {
   Object.defineProperty(renderable, key, { value: definition, configurable: true })

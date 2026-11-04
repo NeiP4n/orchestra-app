@@ -360,7 +360,7 @@ export const forPlatform = (platform: NodeJS.Platform = process.platform) =>
 
 // Tells every session which installed AI tools it has and how to use them.
 export const Plugin = {
-  id: "opencode.mcp.catalog",
+  id: "orchestra.mcp.catalog",
   effect: Effect.fn("McpCatalog.Plugin")(function* (ctx: Context) {
     const config = yield* Config.Service
     yield* ctx.session.hook("context", (event) =>

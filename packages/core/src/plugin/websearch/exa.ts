@@ -23,7 +23,7 @@ const McpOutput = Schema.Struct({
 })
 
 export const Plugin = define<HttpClient.HttpClient | Scope.Scope>({
-  id: "opencode.websearch.exa",
+  id: "orchestra.websearch.exa",
   effect: Effect.fn("WebSearchExa.Plugin")(function* (ctx) {
     const http = yield* HttpClient.HttpClient
     yield* ctx.integration.transform((editor) => {

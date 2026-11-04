@@ -378,9 +378,9 @@ const post = [
 // organization statements, so plugin remove operations skip these IDs.
 export const guarded: ReadonlySet<string> = new Set([
   OpencodePlugin.id,
-  "opencode.provider.opencode",
+  "orchestra.provider.opencode",
   ConfigPolicyPlugin.Plugin.id,
-  "opencode.config.policy",
+  "orchestra.config.policy",
 ])
 
 export const list = Effect.fn("PluginInternal.list")(function* () {

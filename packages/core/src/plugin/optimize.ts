@@ -19,14 +19,14 @@ import PROMPT_PRINCIPLES from "./system-prompt/principles.txt"
 import PROMPT_INTERACTIVE from "./system-prompt/interactive.txt"
 import PROMPT_AUTONOMY from "./system-prompt/autonomy.txt"
 
-export const OpenAIPlugin = make("opencode.prompt.openai", (model) => {
+export const OpenAIPlugin = make("orchestra.prompt.openai", (model) => {
   const id = model.id.toLowerCase()
   if (!id.includes("gpt")) return undefined
   return id.includes("astra") ? PROMPT_ASTRA : PROMPT_GPT
 })
 
 export const AnthropicPlugin = make(
-  "opencode.prompt.anthropic",
+  "orchestra.prompt.anthropic",
   (model) => {
     const id = model.id.toLowerCase()
     if (!id.includes("claude")) return undefined
@@ -38,7 +38,7 @@ export const AnthropicPlugin = make(
 // Both OpenAIToolsPlugin and AnthropicToolsPlugin are disabled intentionally until we can figure out a good ux for displaying
 // heavy grep/glob usage done via shell or other mechanisms
 
-export const OpenAIToolsPlugin = make("opencode.optimize.openai.tools", (model, tools) => {
+export const OpenAIToolsPlugin = make("orchestra.optimize.openai.tools", (model, tools) => {
   const ids = [model.id, model.modelID, model.family].join(" ").toLowerCase()
   if (!ids.includes("gpt")) return undefined
   delete tools.grep
@@ -46,7 +46,7 @@ export const OpenAIToolsPlugin = make("opencode.optimize.openai.tools", (model, 
   return undefined
 })
 
-export const AnthropicToolsPlugin = make("opencode.optimize.anthropic.tools", (model, tools) => {
+export const AnthropicToolsPlugin = make("orchestra.optimize.anthropic.tools", (model, tools) => {
   const ids = [model.id, model.modelID, model.family].join(" ").toLowerCase()
   if (!ids.includes("claude")) return undefined
   delete tools.grep
@@ -54,19 +54,19 @@ export const AnthropicToolsPlugin = make("opencode.optimize.anthropic.tools", (m
   return undefined
 })
 
-export const DeepSeekPlugin = make("opencode.prompt.deepseek", (model) => {
+export const DeepSeekPlugin = make("orchestra.prompt.deepseek", (model) => {
   const ids = [model.id, model.modelID, model.family].join(" ").toLowerCase()
   // The prompt only templates the model name, so MiniMax, which has none of its own, shares it.
   if (!ids.includes("deepseek") && !ids.includes("minimax")) return undefined
   return PROMPT_DEEPSEEK.replaceAll("{{MODEL_NAME}}", model.name)
 })
-export const KimiPlugin = make("opencode.prompt.kimi", (model) =>
+export const KimiPlugin = make("orchestra.prompt.kimi", (model) =>
   model.id.toLowerCase().includes("kimi") ? PROMPT_KIMI : undefined,
 )
-export const ArceePlugin = make("opencode.prompt.arcee", (model) =>
+export const ArceePlugin = make("orchestra.prompt.arcee", (model) =>
   model.id.toLowerCase().includes("trinity") ? PROMPT_TRINITY : undefined,
 )
-export const MetaPlugin = make("opencode.prompt.meta", (model) => {
+export const MetaPlugin = make("orchestra.prompt.meta", (model) => {
   if (!model.id.toLowerCase().includes("muse")) return undefined
   return PROMPT_META.replaceAll("{{MODEL_NAME}}", model.name)
 })
@@ -75,7 +75,7 @@ export const MetaPlugin = make("opencode.prompt.meta", (model) => {
 // shell chains instead of parallel reads, re-reading files, retrying a failed edit blind. This
 // short block reaches them even under an agent's own system prompt, which replaces the family one.
 export const WorkstylePlugin = define({
-  id: "opencode.prompt.workstyle",
+  id: "orchestra.prompt.workstyle",
   effect: Effect.fn("OptimizePlugin.workstyle")(function* (ctx) {
     yield* ctx.session.hook("context", (event) =>
       Effect.sync(() => {
@@ -89,7 +89,7 @@ export const WorkstylePlugin = define({
 
 // Trust boundaries and honest reporting that no family prompt carries; applies to every model.
 export const PrinciplesPlugin = define({
-  id: "opencode.prompt.principles",
+  id: "orchestra.prompt.principles",
   effect: Effect.fn("OptimizePlugin.principles")(function* (ctx) {
     yield* ctx.session.hook("context", (event) =>
       Effect.sync(() => {
@@ -101,7 +101,7 @@ export const PrinciplesPlugin = define({
 
 // Teaches every model the interactive elements the chat can draw (`@ui ... @end`).
 export const InteractivePlugin = define({
-  id: "opencode.prompt.interactive",
+  id: "orchestra.prompt.interactive",
   effect: Effect.fn("OptimizePlugin.interactive")(function* (ctx) {
     yield* ctx.session.hook("context", (event) =>
       Effect.sync(() => {
@@ -116,7 +116,7 @@ export const InteractivePlugin = define({
 // first piece of the task. While the user's latest word on it says autonomous, every request
 // repeats the rule and drops the question tool, so asking is not even an option.
 export const AutonomyPlugin = define({
-  id: "opencode.prompt.autonomy",
+  id: "orchestra.prompt.autonomy",
   effect: Effect.fn("OptimizePlugin.autonomy")(function* (ctx) {
     yield* ctx.session.hook("context", (event) =>
       Effect.sync(() => {

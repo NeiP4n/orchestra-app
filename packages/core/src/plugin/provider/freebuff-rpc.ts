@@ -3,7 +3,7 @@ import { Rpc } from "@orchestra/schema/rpc"
 
 /**
  * Contract between the core Freebuff plugin and its TUI companion
- * (`opencode.freebuff` in the TUI feature plugins). The TUI calls these
+ * (`orchestra.freebuff` in the TUI feature plugins). The TUI calls these
  * methods to render the balance dialog and manage several accounts.
  */
 /** One catalog row with the price a session on it costs. */
@@ -44,7 +44,7 @@ export const Account = Schema.Struct({
 })
 
 export const FreebuffRpc = Rpc.define({
-  id: "opencode.freebuff",
+  id: "orchestra.freebuff",
   methods: {
     /** Read-only balance lookup; never touches sessions. */
     status: { input: Schema.Struct({}), output: Status },

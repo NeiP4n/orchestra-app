@@ -22,7 +22,7 @@ function notify(
 }
 
 export default Plugin.define({
-  id: "opencode.notifications",
+  id: "orchestra.notifications",
   setup(context) {
     const errored = new Set<string>()
     const terminal = new Set<string>()
