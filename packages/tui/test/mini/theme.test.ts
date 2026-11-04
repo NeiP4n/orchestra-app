@@ -9,7 +9,7 @@ import {
   resolveRunTheme,
   type RunTheme,
 } from "../../src/mini/theme"
-import { DEFAULT_THEMES, getOpenCodeTheme, getOrchestraTheme, parseTheme } from "../../src/theme"
+import { DEFAULT_THEMES, getOrchestraTheme, parseTheme } from "../../src/theme"
 import { generateSystem } from "../../src/theme/system"
 import { tmpdir } from "../fixture/fixture"
 
@@ -140,7 +140,7 @@ test.each(["light", "dark"] as const)("uses shared %s defaults and named built-i
       name === undefined || name === "orchestra"
         ? getOrchestraTheme()
         : name === "opencode"
-          ? getOpenCodeTheme()
+          ? getOrchestraTheme()
           : parseTheme(DEFAULT_THEMES[name]),
       mode,
     )
@@ -194,7 +194,7 @@ test.each(["light", "dark"] as const)("shares the %s system scheme while retaini
 test.each(["light", "dark"] as const)(
   "loads complete %s custom theme files",
   async (mode) => {
-    const base = selectTheme(getOpenCodeTheme(), mode)
+    const base = selectTheme(getOrchestraTheme(), mode)
     const definition = {
       ...base,
       text: {
@@ -363,7 +363,7 @@ test.each(["system", "orchestra", "opencode"])(
         ? parseTheme(generateSystem(colors, "light"))
         : name === "orchestra"
           ? getOrchestraTheme()
-          : getOpenCodeTheme(),
+          : getOrchestraTheme(),
       "light",
     )
     const input = { colors, fail: false, themeMode: "dark" as "dark" | "light" }

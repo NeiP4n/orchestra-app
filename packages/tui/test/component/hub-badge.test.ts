@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test"
 import { hubBadge, hubBadgeColor } from "../../src/routes/session/index"
-import { getOpenCodeTheme, parseTheme } from "../../src/theme"
+import { getOrchestraTheme, parseTheme } from "../../src/theme"
 import { resolveThemeDocument } from "@orchestra/theme/tui"
 
-const theme = resolveThemeDocument(getOpenCodeTheme(), "dark")
+const theme = resolveThemeDocument(getOrchestraTheme(), "dark")
 
 test("badge names the entry and the backend that ran it", () => {
   expect(hubBadge("search.content", "nu")).toBe("HUB:search.content · nu")
@@ -34,7 +34,7 @@ test("an unknown or absent backend stays on the fallback", () => {
 test("a theme without the backend role falls back to muted for every backend", () => {
   // The role lives on the base tokens, so the role is dropped there — the same
   // shape as a theme file written before the role existed.
-  const document = getOpenCodeTheme()
+  const document = getOrchestraTheme()
   const { backend: _backend, ...text } = document.base.text
   const legacy = parseTheme(
     { ...document, base: { ...document.base, text } },

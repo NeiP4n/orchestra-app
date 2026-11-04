@@ -39,7 +39,17 @@ export function getOrchestraTheme() {
   return document
 }
 
-export const getOpenCodeTheme = getOrchestraTheme
+/**
+ * Built-in theme names retired by rename. A stored selection using one of these
+ * names migrates to its replacement instead of failing as an unknown theme.
+ * A custom theme file with the same name wins: migration applies only when no
+ * discovered theme provides the stored name.
+ */
+const LEGACY_THEME_NAMES: Record<string, string> = { opencode: "orchestra" }
+
+export function legacyThemeMigration(name: string): string | undefined {
+  return LEGACY_THEME_NAMES[name]
+}
 
 // The house theme: three colors (ink, cyan, amber), no fills, borders carry the structure.
 let sculkTheme: ThemeDocument | undefined
@@ -55,7 +65,6 @@ function listThemes(): Record<string, ThemeDocumentSource> {
   // Priority: defaults < custom files < generated system.
   const themes: Record<string, ThemeDocumentSource> = {
     ...DEFAULT_THEMES,
-    opencode: getOpenCodeTheme(),
     orchestra: getOrchestraTheme(),
     sculk: getSculkTheme(),
     ...customThemes,
