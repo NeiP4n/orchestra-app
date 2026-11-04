@@ -6,6 +6,7 @@ import { usePromptRef } from "../context/prompt"
 import { useTheme } from "../context/theme"
 import { usePlugin } from "../plugin/context"
 import { emptyPrompt } from "../prompt/history"
+import { hoverBackground } from "../ui/hover"
 import { useToast } from "../ui/toast"
 import { errorMessage } from "../util/error"
 import { useT } from "../util/i18n"
@@ -77,6 +78,9 @@ export function NoteQuickActions() {
         {(action) => (
           <box
             flexShrink={0}
+            paddingLeft={1}
+            paddingRight={1}
+            backgroundColor={hovered() === action.label ? hoverBackground(theme, "secondary") : undefined}
             onMouseOver={() => setHovered(action.label)}
             onMouseOut={() => setHovered()}
             onMouseUp={() => {
@@ -108,7 +112,9 @@ export function NoteChip(props: { sessionID: string; note: NoteInfo }) {
       id="session-note-chip"
       flexShrink={1}
       minWidth={0}
+      paddingLeft={1}
       paddingRight={2}
+      backgroundColor={hovered() ? hoverBackground(theme, "secondary") : undefined}
       onMouseOver={() => setHovered(true)}
       onMouseOut={() => setHovered(false)}
       onMouseUp={() => {
