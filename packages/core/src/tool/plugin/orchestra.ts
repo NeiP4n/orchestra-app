@@ -167,11 +167,15 @@ export function delegationStatus(streak: number) {
 // reach at all, and the call caps below bound how much of them one task may
 // burn. The Orchestrator distributes a per-task limit with the sessions
 // tool's `mcp` field; resolveMcpLimit guarantees it can only tighten the
-// ceiling, never widen it. The effective limit is applied at dispatch time:
-// servers outside the allowlist are denied for the worker session, and the
-// whole limit is stamped on the session metadata under
-// MCP_LIMIT_METADATA_KEY and stated at the top of the task brief, which is
-// the surface the MCP runtime (and the role profiles) read back.
+// ceiling, never widen it. The effective limit is applied at dispatch time,
+// in two layers: servers outside the allowlist are denied for the worker
+// session through its permission rules, and the whole limit is stamped on
+// the session metadata under MCP_LIMIT_METADATA_KEY (with a fresh
+// `budgetEpoch` per hand-out) and stated at the top of the task brief. The
+// MCP runtime reads the stamp back in `MCP.callTool` and counts every call
+// against it through the budget gate in mcp/budget.ts — the allowlist, the
+// total maxCalls and the perServer caps are all enforced there, atomically,
+// before dispatch.
 
 /** Session metadata key carrying the MCP limit the Orchestrator last handed the session. */
 export const MCP_LIMIT_METADATA_KEY = "orchestra:mcp-limit"
@@ -814,7 +818,14 @@ export const Plugin = {
                     sessionID,
                     metadata: {
                       ...(session.metadata ?? {}),
-                      [MCP_LIMIT_METADATA_KEY]: JSON.parse(JSON.stringify(limit)) as Schema.Json,
+                      [MCP_LIMIT_METADATA_KEY]: {
+                        ...(JSON.parse(JSON.stringify(limit)) as Record<string, Schema.Json>),
+                        // A fresh epoch per hand-out: the budget gate restarts
+                        // the session's counters when the epoch changes, so a
+                        // new task never inherits the previous task's usage
+                        // even when the limit values are identical.
+                        budgetEpoch: crypto.randomUUID(),
+                      } as Schema.Json,
                     },
                   })
                   .pipe(

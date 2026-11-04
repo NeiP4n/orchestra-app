@@ -15,6 +15,9 @@ import { Form } from "../form.js"
 import { Integration } from "../integration.js"
 import { KeyedMutex } from "../effect/keyed-mutex.js"
 import { Location } from "../location.js"
+import { KV } from "../kv.js"
+import { SessionStore } from "../session/store.js"
+import { McpBudget } from "./budget.js"
 import { waitForAbort } from "@orchestra/util/process"
 import { State } from "../state.js"
 import type { McpClient } from "./client.js"
@@ -162,10 +165,39 @@ export const layer = (options?: Options) =>
       const forms = yield* Form.Service
       const integration = yield* Integration.Service
       const credentials = yield* Credential.Service
+      const sessions = yield* SessionStore.Service
+      const kv = yield* KV.Service
       const root = yield* Effect.scope
       const fork = yield* FiberSet.makeRuntime<never, void, never>()
 
       const entries = new Map<ServerName, ServerEntry>()
+      // The Orchestrator's per-task MCP budgets (see ./budget.ts) are enforced
+      // here, at the one dispatch point every MCP tool call passes through.
+      const budgetGate = McpBudget.createGate()
+      const enforceBudget = Effect.fn("MCP.enforceBudget")(function* (sessionID: Session.ID, server: ServerName) {
+        const info = yield* sessions.get(sessionID)
+        const stamp = McpBudget.parseStamp(info?.metadata)
+        if (stamp.kind === "none") {
+          budgetGate.clear(sessionID)
+          return undefined
+        }
+        const persisted = McpBudget.parsePersistedUsage(
+          yield* kv.get(`${McpBudget.USAGE_KEY_PREFIX}${sessionID}`),
+        )
+        // No await between this reserve and the dispatch below it in
+        // callTool's synchronous segment: the check-and-increment inside the
+        // gate is what makes parallel calls from one session race-safe.
+        const denial = budgetGate.reserve({ sessionID, server, stamp, persisted })
+        if (denial) return denial
+        const counted = budgetGate.usage(sessionID)
+        if (counted)
+          yield* kv.set(`${McpBudget.USAGE_KEY_PREFIX}${sessionID}`, {
+            epoch: counted.epoch,
+            total: counted.usage.total,
+            perServer: counted.usage.perServer,
+          })
+        return undefined
+      })
       // Serializes lifecycle operations per server. Anything taking this lock from a connection
       // callback must stay forked: lifecycle operations close scopes while holding it, firing onClose.
       const locks = KeyedMutex.makeUnsafe<ServerName>()
@@ -696,6 +728,11 @@ export const layer = (options?: Options) =>
         }),
         callTool: Effect.fn("MCP.callTool")(function* (input) {
           const target = yield* requireServer(input.server)
+          if (input.sessionID) {
+            const denial = yield* enforceBudget(input.sessionID, target.name)
+            if (denial)
+              return yield* new ToolCallError({ server: target.name, tool: input.name, message: denial })
+          }
           yield* target.entry.startup.await
           if (!target.entry.client)
             return yield* new ToolCallError({
@@ -808,7 +845,16 @@ export function configured(options?: Options) {
   return makeLocationNode({
     service: Service,
     layer: layer(options),
-    deps: [Location.node, Environment.node, Bus.node, Form.node, Integration.node, Credential.node],
+    deps: [
+      Location.node,
+      Environment.node,
+      Bus.node,
+      Form.node,
+      Integration.node,
+      Credential.node,
+      SessionStore.node,
+      KV.node,
+    ],
   })
 }
 
