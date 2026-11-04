@@ -13,13 +13,13 @@ export function Row(props: {
   children: JSX.Element
 }) {
   const theme = useTheme()
+  // A selected row can contain ordinary body/muted text, not action-state text.
+  // Use the same neutral surface as hover instead of the focused action fill.
   return (
     <box
       flexDirection="row"
       paddingLeft={1}
       paddingRight={1}
-      // A selected row can contain ordinary body/muted text, not action-state text.
-      // Use the same neutral surface as hover instead of the focused action fill.
       backgroundColor={
         props.selected || props.hover() === props.id
           ? hoverBackground(theme)
