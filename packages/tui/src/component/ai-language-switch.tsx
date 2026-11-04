@@ -5,7 +5,6 @@ import { hoverBackground } from "../ui/hover"
 import { useToast } from "../ui/toast"
 import type { AiLanguage } from "../util/ai-language"
 import { useT } from "../util/i18n"
-import { neuralPalette } from "./neural"
 
 // Three small buttons beside the prompt: the AI thinks and answers in Russian, in English, or in
 // whatever language the conversation takes. What the user types is never restricted.
