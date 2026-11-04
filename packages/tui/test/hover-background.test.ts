@@ -38,3 +38,15 @@ test("creates a visible neutral hover surface when raised-high equals the panel 
   expect(value).toBeInstanceOf(RGBA)
   expect(value.equals(base)).toBe(false)
 })
+
+test("prefers the semantic action hover token when the theme provides one", () => {
+  const actionHover = "#27465a"
+  const value = hoverBackground({
+    background: {
+      base: "#101010",
+      raised: { base: "#181818", high: "#262626" },
+      action: { primary: { hovered: actionHover } },
+    },
+  })
+  expect(value).toBe(actionHover)
+})
