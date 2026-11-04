@@ -1,6 +1,6 @@
 import { createSignal, type ParentProps } from "solid-js"
 import { useTheme } from "../context/theme"
-import { hoverBackground } from "../ui/hover"
+import { hoverBackground, type HoverVariant } from "../ui/hover"
 
 type Props = ParentProps<{
   id?: string
@@ -17,6 +17,8 @@ type Props = ParentProps<{
   gap?: number
   flexDirection?: "row" | "column"
   justifyContent?: "flex-start" | "flex-end" | "center" | "space-between" | "space-around"
+  variant?: HoverVariant
+  onHoverChange?: (hovered: boolean) => void
   onMouseEnter?: () => void
   onMouseLeave?: () => void
 }>
@@ -42,13 +44,15 @@ export function HoverAction(props: Props) {
       gap={props.gap}
       flexDirection={props.flexDirection ?? "row"}
       justifyContent={props.justifyContent}
-      backgroundColor={hovered() && !props.disabled ? hoverBackground(theme) : undefined}
+      backgroundColor={hovered() && !props.disabled ? hoverBackground(theme, props.variant) : undefined}
       onMouseOver={() => {
         setHovered(true)
+        props.onHoverChange?.(true)
         props.onMouseEnter?.()
       }}
       onMouseOut={() => {
         setHovered(false)
+        props.onHoverChange?.(false)
         props.onMouseLeave?.()
       }}
       onMouseDown={(event: { stopPropagation(): void }) => {
