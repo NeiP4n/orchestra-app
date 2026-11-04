@@ -113,9 +113,7 @@ export const baseTranscript = (input: {
 }) => {
   const providerMetadataKey = input.model.model.route.providerMetadataKey ?? input.model.model.provider
   const systemPrompt = input.agent.system
-    ? input.agent.system.includes("# Truthfulness — no simulation")
-      ? input.agent.system
-      : `${input.agent.system}\n\n${SessionSystemPrompt.TRUTHFULNESS}\n`
+    ? SessionSystemPrompt.withGlobalContracts(input.agent.system)
     : SessionSystemPrompt.make(input.tools.definitions.map((tool) => tool.name))
   return {
     providerMetadataKey,
