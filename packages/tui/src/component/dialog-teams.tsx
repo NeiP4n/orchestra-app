@@ -663,7 +663,9 @@ function Chips(props: {
           const [hovered, setHovered] = createSignal(false)
           const selected = () => props.selected.includes(item.id)
           const focused = () => props.focused && index() === props.cursor
-          const state = () => (focused() ? "focused" : hovered() ? "hovered" : selected() ? "selected" : "base")
+          const state = () => (focused() ? "focused" : selected() ? "selected" : "base")
+          const foreground = () =>
+            focused() ? theme.text.formfield.focused : hovered() ? theme.text.base : theme.text.formfield[state()]
           return (
             <box
               flexDirection="row"
@@ -671,7 +673,13 @@ function Chips(props: {
               paddingLeft={1}
               paddingRight={1}
               backgroundColor={
-                focused() || hovered() || selected() ? theme.background.formfield[state()] : undefined
+                focused()
+                  ? theme.background.formfield.focused
+                  : hovered()
+                    ? hoverBackground(theme)
+                    : selected()
+                      ? theme.background.formfield.selected
+                      : undefined
               }
               onMouseOver={() => setHovered(true)}
               onMouseOut={() => setHovered(false)}
@@ -680,12 +688,10 @@ function Chips(props: {
                 props.onToggle(item.id)
               }}
             >
-              <text fg={selected() ? theme.text.formfield[state()] : theme.text.muted}>
+              <text fg={selected() ? foreground() : hovered() ? theme.text.base : theme.text.muted}>
                 {selected() ? "■" : "□"}
               </text>
-              <text fg={theme.text.formfield[state()]}>
-                {item.label}
-              </text>
+              <text fg={foreground()}>{item.label}</text>
             </box>
           )
         }}
@@ -697,7 +703,9 @@ function Chips(props: {
 function Toggle(props: { on: boolean; focused: boolean; onClick: () => void; children: string }) {
   const theme = useTheme().surface("dialog")
   const [hovered, setHovered] = createSignal(false)
-  const state = () => (props.focused ? "focused" : hovered() ? "hovered" : props.on ? "selected" : "base")
+  const state = () => (props.focused ? "focused" : props.on ? "selected" : "base")
+  const foreground = () =>
+    props.focused ? theme.text.formfield.focused : hovered() ? theme.text.base : theme.text.formfield[state()]
   return (
     <box
       flexDirection="row"
@@ -705,7 +713,15 @@ function Toggle(props: { on: boolean; focused: boolean; onClick: () => void; chi
       flexShrink={0}
       paddingLeft={1}
       paddingRight={1}
-      backgroundColor={props.focused || hovered() || props.on ? theme.background.formfield[state()] : undefined}
+      backgroundColor={
+        props.focused
+          ? theme.background.formfield.focused
+          : hovered()
+            ? hoverBackground(theme)
+            : props.on
+              ? theme.background.formfield.selected
+              : undefined
+      }
       onMouseOver={() => setHovered(true)}
       onMouseOut={() => setHovered(false)}
       onMouseUp={(event) => {
@@ -713,8 +729,8 @@ function Toggle(props: { on: boolean; focused: boolean; onClick: () => void; chi
         props.onClick()
       }}
     >
-      <text fg={props.on ? theme.text.formfield[state()] : theme.text.muted}>{props.on ? "■" : "□"}</text>
-      <text fg={theme.text.formfield[state()]}>{props.children}</text>
+      <text fg={props.on ? foreground() : hovered() ? theme.text.base : theme.text.muted}>{props.on ? "■" : "□"}</text>
+      <text fg={foreground()}>{props.children}</text>
     </box>
   )
 }
@@ -1416,7 +1432,9 @@ function TextInput(props: {
 function Choice(props: { selected: boolean; focused: boolean; onClick: () => void; children: string }) {
   const theme = useTheme().surface("dialog")
   const [hovered, setHovered] = createSignal(false)
-  const state = () => (props.focused && props.selected ? "focused" : hovered() ? "hovered" : props.selected ? "selected" : "base")
+  const state = () => (props.focused && props.selected ? "focused" : props.selected ? "selected" : "base")
+  const foreground = () =>
+    props.focused && props.selected ? theme.text.formfield.focused : hovered() ? theme.text.base : theme.text.formfield[state()]
   return (
     <box
       flexDirection="row"
@@ -1424,7 +1442,15 @@ function Choice(props: { selected: boolean; focused: boolean; onClick: () => voi
       flexShrink={0}
       paddingLeft={1}
       paddingRight={1}
-      backgroundColor={props.focused && props.selected ? theme.background.formfield.focused : hovered() || props.selected ? theme.background.formfield[state()] : undefined}
+      backgroundColor={
+        props.focused && props.selected
+          ? theme.background.formfield.focused
+          : hovered()
+            ? hoverBackground(theme)
+            : props.selected
+              ? theme.background.formfield.selected
+              : undefined
+      }
       onMouseOver={() => setHovered(true)}
       onMouseOut={() => setHovered(false)}
       onMouseUp={(event) => {
@@ -1432,8 +1458,10 @@ function Choice(props: { selected: boolean; focused: boolean; onClick: () => voi
         props.onClick()
       }}
     >
-      <text fg={props.selected ? theme.text.formfield[state()] : theme.text.muted}>{props.selected ? "●" : "○"}</text>
-      <text fg={theme.text.formfield[state()]}>{props.children}</text>
+      <text fg={props.selected ? foreground() : hovered() ? theme.text.base : theme.text.muted}>
+        {props.selected ? "●" : "○"}
+      </text>
+      <text fg={foreground()}>{props.children}</text>
     </box>
   )
 }
