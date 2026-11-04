@@ -1103,7 +1103,7 @@ export function NeuralChip(props: {
       }}
     >
       <Show when={props.icon}>
-        <text fg={props.active ? fg() : hovered() ? palette().signal : palette().synapse} wrapMode="none">
+        <text fg={props.active || hovered() ? fg() : palette().synapse} wrapMode="none">
           {`${props.icon} `}
         </text>
       </Show>
