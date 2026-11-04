@@ -46,13 +46,18 @@ export function assertSafePath(input: string): string {
  * Normalizes a location path safely while preserving platform-appropriate semantics.
  */
 export function normalizePath(input: string): string {
-  if (process.platform === "win32") {
-    if (/^[a-zA-Z]:[/\\]/.test(input) || /^[/\\]{2}/.test(input) || input.includes("\\")) {
-      return path.win32.normalize(input)
-    }
-    return path.posix.normalize(input)
+  const normalized =
+    process.platform === "win32" &&
+    (/^[a-zA-Z]:[/\\]/.test(input) || /^[/\\]{2}/.test(input) || input.includes("\\"))
+      ? path.win32.normalize(input)
+      : path.posix.normalize(input)
+  // posix/win32 normalize keep a trailing separator, so "/a/b/" and "/a/b"
+  // canonicalize to different location refs (and different service graphs)
+  // for the same directory. Strip it, except for roots ("/", "C:\\").
+  if (normalized.length > 1 && (normalized.endsWith("/") || normalized.endsWith("\\"))) {
+    if (!/^[a-zA-Z]:\\$/.test(normalized)) return normalized.slice(0, -1)
   }
-  return path.posix.normalize(input)
+  return normalized
 }
 
 export function sanitizePath(input: string): AbsolutePath {

@@ -1,6 +1,7 @@
 import type { FileSystem } from "@orchestra/core/filesystem"
 import { describe, expect } from "bun:test"
 import path from "path"
+import { homedir } from "os"
 import { chmod, mkdir, readdir, rm } from "fs/promises"
 import { Cause, Context, Deferred, Duration, Effect, Exit, Fiber, Layer, LayerMap, Queue } from "effect"
 import { Worktree } from "@orchestra/schema/worktree"
@@ -25,8 +26,8 @@ import { SessionRunner } from "@orchestra/core/session/runner/index"
 import { SessionStore } from "@orchestra/core/session/store"
 import { LayerNode } from "@orchestra/util/effect/layer-node"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
-import { Global } from "@orchestra/util/global"
 import { tempGlobalLayer } from "./fixture/global"
+import { Global } from "@orchestra/util/global"
 import { offlineModels } from "./fixture/models"
 import { tmpdirScoped } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
@@ -646,6 +647,47 @@ describe("location recovery (session location unavailable)", () => {
           expect((yield* session.messages({ sessionID: created.id })).map((message) => message.id)).toEqual(
             final.map((message) => message.id),
           )
+        }),
+      ),
+    ),
+  )
+
+it.effect("handles spaces, relative and home-relative destinations, and rejects foreign drive paths", () =>
+    tmpdirScoped().pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const source = AbsolutePath.make(path.join(tmp.path, "source"))
+          yield* Effect.promise(() => mkdir(source))
+          const created = yield* session.create({ location: Location.Ref.make({ directory: source }) })
+
+          // A destination with spaces recovers fine.
+          const spaced = AbsolutePath.make(path.join(tmp.path, "dest dir with spaces"))
+          yield* Effect.promise(() => mkdir(spaced))
+          yield* session.move({ sessionID: created.id, directory: spaced })
+          expect((yield* session.get(created.id)).location.directory).toBe(spaced)
+
+          // A relative destination resolves against the session's current
+          // directory (the move API's documented behavior).
+          const sub = AbsolutePath.make(path.join(spaced, "sub"))
+          yield* Effect.promise(() => mkdir(sub))
+          yield* session.move({ sessionID: created.id, directory: AbsolutePath.make("sub") })
+          expect((yield* session.get(created.id)).location.directory).toBe(sub)
+
+          // "~" expands to the user's home directory.
+          yield* session.move({ sessionID: created.id, directory: AbsolutePath.make("~") })
+          expect((yield* session.get(created.id)).location.directory).toBe(AbsolutePath.make(homedir()))
+
+          // A Windows drive path on a non-Windows host (and, on Windows, a
+          // path on an unavailable drive) is a typed rejection, never a
+          // crash or a partial mutation.
+          if (process.platform !== "win32") {
+            const error = yield* session
+              .move({ sessionID: created.id, directory: AbsolutePath.make("C:\\Users\\Isako\\project") })
+              .pipe(Effect.flip)
+            expect(error._tag).toBe("Session.DestinationNotFoundError")
+            expect((yield* session.get(created.id)).location.directory).toBe(AbsolutePath.make(homedir()))
+          }
         }),
       ),
     ),
