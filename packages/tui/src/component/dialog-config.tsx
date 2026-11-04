@@ -81,6 +81,15 @@ export const settings: Setting[] = [
     keywords: ["detail", "activity", "summary", "transcript"],
   },
   {
+    title: "Image previews",
+    category: "Chat",
+    description: "Show image attachment previews above the prompt input",
+    path: ["prompt", "image_preview"],
+    default: false,
+    ...toggle,
+    keywords: ["image preview", "images", "pictures", "attachments"],
+  },
+  {
     title: "Notifications",
     category: "Notifications",
     description: "System notification when the AI finishes or needs an answer",

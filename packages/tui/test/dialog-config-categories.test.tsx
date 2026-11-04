@@ -101,7 +101,9 @@ test("DialogConfig category tabs filter the visible options when clicked", async
 
   // Click on "Chat" in the rail
   await app.mockMouse.click(appCol + 2, catRow)
-  await app.waitForFrame((frame) => frame.includes("Verbosity"))
+  // "Verbosity" is visible in the unfiltered list too, so wait for the
+  // filtered state itself: a General option must be gone.
+  await app.waitForFrame((frame) => frame.includes("Verbosity") && !frame.includes("AI language"))
 
   const filteredFrame = app.captureCharFrame()
   expect(filteredFrame).toContain("Verbosity")
