@@ -11,6 +11,12 @@ type HoverTheme<T> = {
       primary?: {
         hovered?: T
       }
+      secondary?: {
+        hovered?: T
+      }
+      destructive?: {
+        hovered?: T
+      }
     }
   }
   text?: {
@@ -81,14 +87,17 @@ function visibleFallback<T>(base: T, theme: HoverTheme<T>): T {
  * themes leave either token transparent or identical to the panel background;
  * synthesize a subtle neutral highlight rather than making hover invisible.
  */
-export function hoverBackground<T>(theme: HoverTheme<T>): T {
+export type HoverVariant = "primary" | "secondary" | "destructive"
+
+export function hoverBackground<T>(theme: HoverTheme<T>, variant: HoverVariant = "primary"): T {
   const background = theme.background
   const raised = background?.raised
   const base = raised?.base ?? background?.base
 
-  // Prefer the semantic action-hover token, then the shared raised surface.
-  // Both are theme-owned; the fallback below is only for themes whose tokens collapse.
-  for (const candidate of [background?.action?.primary?.hovered, raised?.high]) {
+  // Prefer the requested semantic action state, then shared theme surfaces.
+  // A primary hover is the safe neutral fallback for variants a theme omits.
+  const action = background?.action?.[variant]?.hovered
+  for (const candidate of [action, raised?.high, background?.action?.primary?.hovered]) {
     if (candidate !== undefined && (base === undefined || distinctSurface(candidate, base))) return candidate
   }
 
