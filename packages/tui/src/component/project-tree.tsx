@@ -718,7 +718,12 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                           </box>
                         </Show>
                         <For each={group.sessions}>
-                          {(session) => (
+                          {(session) => {
+                            const [modeHovered, setModeHovered] = createSignal(false)
+                            const [categoryHovered, setCategoryHovered] = createSignal(false)
+                            const [accessHovered, setAccessHovered] = createSignal(false)
+                            const [deleteHovered, setDeleteHovered] = createSignal(false)
+                            return (
                             <Row
                               id={session.id}
                               hover={hover}
@@ -763,9 +768,10 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                                   id={`session-mode:${session.id}`}
                                   onMouseEnter={() => setHover(session.id)}
                                   onMouseLeave={() => setHover(session.id)}
+                                  onHoverChange={setModeHovered}
                                   onClick={() => DialogMode.show(dialog, session.id)}
                                 >
-                                  <text fg={theme.text.action.primary.base}>
+                                  <text fg={modeHovered() ? theme.text.action.primary.hovered : theme.text.action.primary.base}>
                                     {` ${Mode.fromMetadata(session.metadata)?.id ?? "auto"} `}
                                   </text>
                                 </HoverAction>
@@ -773,9 +779,10 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                                   id={`session-category:${session.id}`}
                                   onMouseEnter={() => setHover(session.id)}
                                   onMouseLeave={() => setHover(session.id)}
+                                  onHoverChange={setCategoryHovered}
                                   onClick={() => categorize(session.id)}
                                 >
-                                  <text fg={hover() === session.id ? theme.text.action.primary.base : theme.text.muted}>
+                                  <text fg={categoryHovered() ? theme.text.action.primary.hovered : theme.text.muted}>
                                     {" # "}
                                   </text>
                                 </HoverAction>
@@ -783,23 +790,35 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                                   id={`session-access:${session.id}`}
                                   onMouseEnter={() => setHover(session.id)}
                                   onMouseLeave={() => setHover(session.id)}
+                                  onHoverChange={setAccessHovered}
                                   onClick={() => cycle(session.id)}
                                 >
-                                  <text fg={theme.text.formfield.base}>{`[${access[session.id] ?? Orchestra.defaultAccess}]`}</text>
+                                  <text fg={accessHovered() ? theme.text.action.primary.hovered : theme.text.base}>{`[${access[session.id] ?? Orchestra.defaultAccess}]`}</text>
                                 </HoverAction>
                               </Show>
                               <HoverAction
                                 id={`session-delete:${session.id}`}
+                                variant="destructive"
                                 onMouseEnter={() => setHover(session.id)}
                                 onMouseLeave={() => setHover(session.id)}
+                                onHoverChange={setDeleteHovered}
                                 onClick={() => remove(session.id)}
                               >
-                                <text fg={armed() === session.id ? theme.text.feedback.error.base : theme.text.muted}>
+                                <text
+                                  fg={
+                                    deleteHovered()
+                                      ? theme.text.action.destructive.hovered
+                                      : armed() === session.id
+                                        ? theme.text.feedback.error.base
+                                        : theme.text.muted
+                                  }
+                                >
                                   {armed() === session.id ? ` ${t("delete?")}` : " ×"}
                                 </text>
                               </HoverAction>
                             </Row>
-                          )}
+                            )
+                          }}
                         </For>
                       </>
                     )}
