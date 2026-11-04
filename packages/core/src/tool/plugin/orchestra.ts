@@ -10,6 +10,7 @@ import { Tool } from "@orchestra/schema/tool"
 import { Effect, Option, Schema } from "effect"
 import { Form } from "../../form.js"
 import { McpAcquire } from "../../mcp/acquire.js"
+import { McpCatalog } from "../../mcp/catalog.js"
 import { Mcp } from "../../mcp/index.js"
 import { Model } from "../../model.js"
 import { Orchestra } from "../../orchestra.js"
@@ -46,6 +47,8 @@ export const description = [
   "Access per session is hidden < read < write < full: read allows list and read, write adds send, full adds stop. Sessions you create get full access.",
   "The 6-message rule binds you: after 6 of your own messages in a row without handing a task to a worker, your other tool calls are refused until you delegate with send or create. The roster in your context shows how many of the 6 you have used.",
   "MCP assignment is mandatory, and it is enforced, not advised: every send or create to a team session must pass mcp — the servers the worker may call for that task, maxCalls in total, perServer caps — and a dispatch without it is refused and sends nothing. When a task needs no MCP, say so explicitly: mcp with servers [] and maxCalls 0. You may only tighten the role's own MCP ceiling, never widen it; a refused limit says what the role allows. The limit is stamped on the worker session and stated at the top of its task brief.",
+  "The assignment must come from a survey, and that is enforced too: before the first dispatch in a session, call mcp_manager with action=inspect once — it lists the configured servers (status, discovered tools, leases) and the installable catalog. A dispatch before the survey is refused and sends nothing. Judge the assignment from what the survey shows: no catalog server fitting the task is a finding, and an explicit empty assignment after the survey is the right answer for native-tool work.",
+  "Worker models are a cost decision, so make it deliberately: pass model on create or send — the strongest model for design, hard debugging and review, a mid-tier or small model for mechanical implementation and routine checks. With no explicit model the role's own model or the worker policy applies, and failing those the worker inherits YOUR model, which is the expensive default, not a decision. The dispatch result names the model the worker will run and where it came from.",
   "MCP acquisition: action acquire_mcp makes a catalog MCP server actually usable. Pass server (an exact catalog id) or need (a capability in words, e.g. \"browser automation\") and it selects, installs, connects and verifies the server, reporting its real state and the tools actually discovered — a server counts as ready only when both hold. Pass role to check first that the server sits inside that role's MCP ceiling; outside it, acquisition is refused, not worked around. A needs_auth result names the credential variables the operator must provide; never invent a value. Installing is global and shared by the project, but it grants no role access by itself: role profiles and the per-task mcp limits still decide who may call the server, and removing one role's access never disconnects it for the others.",
   "Workflow stages: for anything beyond a trivial task, record the plan with action plan (stages: each with a name, work categories, role ids, dependsOn stage ids, acceptance criteria and the MCP servers it needs). You decide how many stages the task needs: one for a small fix, many for a system audit. Categories describe kinds of work (Research, Security, Implementation); stages are execution units and one stage may span several categories. Action stages lists the current plan; action stage updates one stage (status, and result as the evidence). Replan by calling plan again when a discovery changes the work: completed stages are preserved exactly as recorded, and a stage may start only when every stage it depends on is completed. Mark a stage completed only with evidence in result — a report, a test run, a commit — never on a worker's claim alone. The overall task is complete only when every stage is completed or explicitly cancelled. Action verify scores a task's own acceptance criteria against real evidence (a pass without evidence does not count, a missing criterion is a gap) — use it as the completion gate instead of trusting a worker's claim.",
 ].join("\n")
@@ -188,6 +191,8 @@ export function delegationStatus(streak: number) {
 export const MCP_LIMIT_METADATA_KEY = "orchestra:mcp-limit"
 /** Session metadata key carrying the session's current MCP assignment record. */
 export const MCP_ASSIGNMENT_METADATA_KEY = "orchestra:mcp-assignment"
+/** Session metadata key stamped on the Orchestrator's session by mcp_manager inspect: proof the fleet was surveyed before dispatching. */
+export const MCP_SURVEY_METADATA_KEY = "orchestra:mcp-survey"
 
 /**
  * The explicit MCP assignment the Orchestrator gave one session for its current
@@ -832,8 +837,61 @@ export const Plugin = {
           }
         }
 
+              // What the Orchestrator already read while orienting travels with the
+              // task: the worker starts from the same pages instead of paying for
+              // the same reconnaissance a second time. Only this cycle's reads are
+              // attached (the scan stops at the latest operator or wake-up
+              // message), the newest read of a file wins, and the section is
+              // capped so the brief stays a brief.
+              const reconBrief = Effect.fnUntraced(function* () {
+                const messages = yield* sessions
+                  .messages({ sessionID: context.sessionID, limit: 60, order: "desc" })
+                  .pipe(Effect.orElseSucceed((): SessionMessage.Info[] => []))
+                const seen = new Set<string>()
+                const chunks: string[] = []
+                let total = 0
+                for (const message of messages) {
+                  if (message.type === "user" || message.type === "synthetic") break
+                  if (message.type !== "assistant") continue
+                  for (const part of message.content) {
+                    if (part.type !== "tool" || part.name !== "read" || part.state.status !== "completed") continue
+                    const input = part.state.input as {
+                      files?: ReadonlyArray<{ path?: unknown }>
+                      filePath?: unknown
+                    }
+                    const paths = [
+                      ...(input.files ?? []).flatMap((file) => (typeof file?.path === "string" ? [file.path] : [])),
+                      ...(typeof input.filePath === "string" ? [input.filePath] : []),
+                    ]
+                    if (paths.length === 0 || paths.every((path) => seen.has(path))) continue
+                    const text = part.state.content
+                      .flatMap((item) => (item.type === "text" ? [item.text] : []))
+                      .join("\n")
+                    if (!text) continue
+                    paths.forEach((path) => seen.add(path))
+                    const chunk = text.length > 8000 ? `${text.slice(0, 8000)}\n…(read output truncated)` : text
+                    if (total + chunk.length > 24000) continue
+                    total += chunk.length
+                    chunks.push(chunk)
+                    if (chunks.length >= 6) break
+                  }
+                  if (chunks.length >= 6) break
+                }
+                if (chunks.length === 0) return undefined
+                return [
+                  "[Reconnaissance already gathered by the Orchestrator — the files below were read before this dispatch, so their current content is attached. Do not re-read them unless you need a different range or they changed after your edits.]",
+                  ...chunks.toReversed(),
+                ].join("\n\n")
+              })
               const dispatch = (sessionID: SessionSchema.ID, text: string) =>
-                orchestra.dispatch({ project, sessionID, text }).pipe(
+                Effect.gen(function* () {
+                  const recon = yield* reconBrief()
+                  return yield* orchestra.dispatch({
+                    project,
+                    sessionID,
+                    text: recon ? `${recon}\n\n${text}` : text,
+                  })
+                }).pipe(
                   Effect.mapError((error) => new ToolFailure({ message: `Could not send task: ${error.message}`, error })),
                 )
               const roles = yield* orchestra.roles()
@@ -943,6 +1001,24 @@ export const Plugin = {
                 const session = yield* sessions
                   .get(sessionID)
                   .pipe(Effect.mapError(() => new ToolFailure({ message: `Session not found: ${sessionID}` })))
+                // The assignment must be an informed decision, not a default filled in
+                // to satisfy the gate below: before the first dispatch in this session
+                // the Orchestrator has to survey the fleet once — mcp_manager inspect
+                // stamps this session when it runs. An empty assignment after the
+                // survey is a valid answer; the same assignment without one is a
+                // guess, so it is refused here, in code, the same way a missing
+                // assignment is. One survey covers the whole session.
+                if (Option.isSome(mcp)) {
+                  const self = yield* sessions.get(context.sessionID).pipe(Effect.orElseSucceed(() => undefined))
+                  if (!self?.metadata?.[MCP_SURVEY_METADATA_KEY]) {
+                    const configured = yield* mcp.value
+                      .servers()
+                      .pipe(Effect.map((infos) => infos.length), Effect.orElseSucceed(() => 0))
+                    return yield* new ToolFailure({
+                      message: `No MCP survey yet: before the first dispatch, call mcp_manager with action=inspect once — it lists the configured servers (status, discovered tools, leases) and the ${McpCatalog.all.length} installable catalog servers — then dispatch with an explicit mcp assignment based on what you saw (${configured} server(s) currently configured). An assignment of { servers: [], maxCalls: 0 } is valid after the survey; before it, it is a guess. Nothing was sent.`,
+                    })
+                  }
+                }
                 // The MCP assignment is a mandatory part of every dispatch to a role
                 // session — enforced here, in code, not left to the prompt: a dispatch
                 // without an `mcp` field is refused, so the Orchestrator must state the
@@ -999,6 +1075,11 @@ export const Plugin = {
                   )
                 return limit
               })
+              // Every dispatch result names the model the worker will run and where
+              // that choice came from, so an inherited flagship is visible as the
+              // default it is instead of passing as a decision.
+              const modelNote = (model: { providerID: string; id: string } | undefined, source: string) =>
+                model ? ` Model: ${model.providerID}/${model.id} (${source}).` : ""
               const busy = (sessionID: SessionSchema.ID) =>
                 Effect.gen(function* () {
                   if ((yield* orchestra.pending(sessionID)) === undefined) return
@@ -1028,20 +1109,18 @@ export const Plugin = {
                   yield* busy(session.id)
                   const role = roles.find((item) => item.agent === session.agent)
                   const mode = yield* requireMode(input.mode)
-                  yield* apply(
-                    session.id,
-                    yield* choose(
-                      role,
-                      input.text,
-                      mode ?? Mode.fromMetadata(session.metadata) ?? (role ? Mode.defaultForRole(role) : undefined),
-                    ),
+                  const choice = yield* choose(
+                    role,
+                    input.text,
+                    mode ?? Mode.fromMetadata(session.metadata) ?? (role ? Mode.defaultForRole(role) : undefined),
                   )
+                  yield* apply(session.id, choice)
                   yield* applyMode(session, role, mode)
                   const limit = yield* distributeMcp(session.id, role)
                   yield* dispatch(session.id, limit ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
                   return {
                     sessionID: session.id,
-                    output: `Sent to ${session.title ?? session.id}. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.`,
+                    output: `Sent to ${session.title ?? session.id}. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.${modelNote(choice.model ?? session.model, choice.model ? "your explicit choice" : "the session's existing model")}`,
                   }
                 }
                 case "create": {
@@ -1076,7 +1155,7 @@ export const Plugin = {
                         return {
                           sessionID: existing.id,
                           output: input.text?.trim()
-                            ? `Reused existing ${role.name} session ${existing.title ?? existing.id}; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.`
+                            ? `Reused existing ${role.name} session ${existing.title ?? existing.id}; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.${modelNote(choice.model ?? existing.model, choice.model ? "your explicit choice" : "the session's existing model")}`
                             : `Reused existing ${role.name} session ${existing.title ?? existing.id}. No new session was created; use action send to assign work.`,
                         }
                       }
@@ -1125,7 +1204,7 @@ export const Plugin = {
                     yield* dispatch(created.id, limit ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
                   return {
                     sessionID: created.id,
-                    output: `Created ${created.id}${input.text?.trim() ? "; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list." : ""}.`,
+                    output: `Created ${created.id}${input.text?.trim() ? "; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list." : ""}.${modelNote(created.model, choice.model ? "your explicit choice" : worker.model ? "the role/worker policy" : "inherited from your own session — pass model to choose otherwise")}`,
                   }
                 }
                 case "answer": {

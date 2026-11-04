@@ -4,9 +4,12 @@ import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { Effect, Option, Schema } from "effect"
 import { McpAcquire } from "../../mcp/acquire.js"
+import { McpCatalog } from "../../mcp/catalog.js"
 import { McpLifecycle } from "../../mcp/lifecycle.js"
 import { Orchestra } from "../../orchestra.js"
-import { acquireCeiling } from "./orchestra.js"
+import { Session } from "../../session.js"
+import { SessionSchema } from "../../session/schema.js"
+import { acquireCeiling, MCP_SURVEY_METADATA_KEY } from "./orchestra.js"
 
 export const name = "mcp_manager"
 
@@ -52,6 +55,7 @@ export const Plugin = {
   id: "orchestra.tool.mcp-manager",
   effect: Effect.fn("McpManagerTool.Plugin")(function* (ctx: Context) {
     const orchestra = yield* Orchestra.Service
+    const sessions = yield* Session.Service
     const access = yield* McpLifecycle.live().pipe(Effect.option)
 
     // Like the sessions tool, the manager only exists for a project's main
@@ -71,11 +75,11 @@ export const Plugin = {
         description,
         input: Input,
         output: Output,
-        execute: (input) => run(input).pipe(Effect.map((result) => ({ output: result, content: result.output }))),
+        execute: (input, context) => run(input, context).pipe(Effect.map((result) => ({ output: result, content: result.output }))),
       }),
     )
 
-    const run = (input: typeof Input.Type) =>
+    const run = (input: typeof Input.Type, context: { sessionID: SessionSchema.ID }) =>
       Effect.gen(function* () {
             if (Option.isNone(access))
               return yield* new ToolFailure({
@@ -105,7 +109,6 @@ export const Plugin = {
             switch (input.action) {
               case "inspect": {
                 const rows = yield* guard(McpLifecycle.inspect(lifecycle))
-                if (rows.length === 0) return { output: "No MCP servers are configured." }
                 const active = rows.filter((row) => row.status === "connected").length
                 const lines = rows.map((row) => {
                   const parts = [
@@ -122,10 +125,46 @@ export const Plugin = {
                   ].filter((part) => part !== undefined)
                   return parts.join(" · ")
                 })
+                // The survey covers both halves of the fleet: what is configured
+                // (above) and what could still be installed from the catalog.
+                const configured = new Set(rows.map((row) => row.name))
+                const installable = McpCatalog.all.filter(
+                  (entry) => !configured.has(entry.id) && !configured.has(entry.name),
+                )
+                // Running inspect is the session's MCP survey: the sessions tool
+                // refuses a first dispatch until this stamp exists, so an MCP
+                // assignment is always made after seeing the fleet, never by
+                // default. Best-effort: a stamp failure must not fail the survey.
+                yield* sessions
+                  .get(context.sessionID)
+                  .pipe(
+                    Effect.flatMap((self) =>
+                      sessions.setMetadata({
+                        sessionID: context.sessionID,
+                        metadata: {
+                          ...(self.metadata ?? {}),
+                          [MCP_SURVEY_METADATA_KEY]: {
+                            at: Date.now(),
+                            configured: rows.length,
+                            catalog: McpCatalog.all.length,
+                          },
+                        },
+                      }),
+                    ),
+                    Effect.ignore,
+                  )
                 return {
                   output: [
-                    `MCP fleet: ${active} active · ${rows.length - active} inactive of ${rows.length} configured.`,
+                    rows.length === 0
+                      ? "No MCP servers are configured."
+                      : `MCP fleet: ${active} active · ${rows.length - active} inactive of ${rows.length} configured.`,
                     ...lines,
+                    ...(installable.length > 0
+                      ? [
+                          `Installable from the catalog (${installable.length}, not configured):`,
+                          ...installable.map((entry) => `- ${entry.id}: ${entry.description}`),
+                        ]
+                      : []),
                   ].join("\n"),
                 }
               }

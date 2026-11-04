@@ -62,6 +62,10 @@ describe("mcpAssignmentOf", () => {
     expect(KEY).toBe("orchestra:mcp-assignment")
     expect(KEY).not.toBe(OrchestraTool.MCP_LIMIT_METADATA_KEY)
   })
+
+  test("the survey key is the stamp mcp_manager inspect writes and the dispatch gate reads", () => {
+    expect(OrchestraTool.MCP_SURVEY_METADATA_KEY).toBe("orchestra:mcp-survey")
+  })
 })
 
 describe("assignments never widen a role ceiling", () => {
