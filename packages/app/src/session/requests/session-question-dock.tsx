@@ -52,6 +52,8 @@ function Option(props: {
   onFocus?: VoidFunction
   onClick: VoidFunction
 }) {
+  const language = useLanguage()
+
   return (
     <button
       type="button"
@@ -71,7 +73,8 @@ function Option(props: {
       </span>
       <span data-slot="question-option-main">
         <span data-slot="question-option-eyebrow">
-          {String(props.index + 1).padStart(2, "0")} {props.multi ? "· SELECT" : "· OPTION"}
+          {String(props.index + 1).padStart(2, "0")} ·{" "}
+          {language.t(props.multi ? "session.question.optionMarker.select" : "session.question.optionMarker.option")}
         </span>
         <span data-slot="option-label">{props.label}</span>
         <Show when={props.description}>
@@ -581,7 +584,7 @@ export const SessionQuestionDock: Component<{ request: FormInfo; onSubmit: () =>
         header={
           <>
             <div data-slot="question-header-title">
-              <span data-slot="question-header-kicker"><Icon name="messages-square" size="small" /> INTERACTIVE RESPONSE</span>
+              <span data-slot="question-header-kicker"><Icon name="messages-square" size="small" /> {language.t("session.question.kicker")}</span>
               <span data-slot="question-header-progress-label">{summary()}</span>
             </div>
             <div data-slot="question-header-actions">
@@ -667,8 +670,8 @@ export const SessionQuestionDock: Component<{ request: FormInfo; onSubmit: () =>
         >
           <span data-slot="question-text-mark" aria-hidden="true"><Icon name="message-circle-question" size="large" /></span>
           <span data-slot="question-text-content">
-            <span data-slot="question-text-eyebrow">YOUR INPUT NEEDED</span>
-            <span data-slot="question-text-title">{question()?.header || "Choose an answer"}</span>
+            <span data-slot="question-text-eyebrow">{language.t("session.question.inputNeeded")}</span>
+            <span data-slot="question-text-title">{question()?.header || language.t("session.question.chooseAnswer")}</span>
             <span data-slot="question-text-description">{question()?.question}</span>
           </span>
         </div>
@@ -678,8 +681,8 @@ export const SessionQuestionDock: Component<{ request: FormInfo; onSubmit: () =>
           </Show>
         </Show>
         <div data-slot="question-choice-heading">
-          <span>{multi() ? "SELECT ALL THAT APPLY" : "CHOOSE ONE OPTION"}</span>
-          <span data-slot="question-choice-count">{options().length} {options().length === 1 ? "CHOICE" : "CHOICES"}</span>
+          <span>{language.t(multi() ? "session.question.selectAll" : "session.question.chooseOne")}</span>
+          <span data-slot="question-choice-count">{language.plural("session.question.choices", options().length)}</span>
         </div>
         <div
           ref={(el) => (optionsRef = el)}

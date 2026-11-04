@@ -28,6 +28,8 @@ import type { SessionTimelineInteraction } from "../timeline/interaction"
 import { createSessionRevert } from "../revert"
 import { SessionComposerRegion } from "./session-composer-region"
 import { createSessionComposerController, type SessionComposerController } from "./controller"
+import { SessionFollowUpBar } from "./follow-up-bar"
+import { lastFollowUpAnswer } from "./follow-up"
 import { SessionQueuePanel } from "./queue-panel"
 import { resolveSessionComposerSelection } from "./selection"
 import { createSessionRequestModel } from "../requests/model"
@@ -308,8 +310,10 @@ export function ActiveSessionComposerRegion(props: {
   session: SessionModel
   model: SessionComposerController
   suggestionBoundary: () => HTMLElement | undefined
+  onFollowUp?: (text: string) => Promise<void> | void
 }) {
   const location = useWorkspaceLocation()
+  const followUpAnswer = createMemo(() => lastFollowUpAnswer(props.session.history.messages()))
 
   // Only the server's LocationNotFoundError for the session's own Location replaces the composer.
   const missing = createMemo(() => {
@@ -331,6 +335,17 @@ export function ActiveSessionComposerRegion(props: {
           fallback={
             <div class="relative">
               <SessionQueuePanel queue={props.model.queue} />
+              <Show when={props.onFollowUp}>
+                {(onFollowUp) => (
+                  <SessionFollowUpBar
+                    answer={followUpAnswer()}
+                    working={props.session.data.working()}
+                    blocked={props.model.region.state.blocked()}
+                    child={props.model.region.child()}
+                    onSend={onFollowUp()}
+                  />
+                )}
+              </Show>
               <div class="relative z-10">
                 <Composer
                   model={props.model.composer}
