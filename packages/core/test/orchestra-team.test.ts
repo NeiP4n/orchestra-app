@@ -30,6 +30,8 @@ import { SessionInbox } from "@orchestra/core/session/inbox"
 import { SessionExecution } from "@orchestra/core/session/execution"
 import { SessionMessage } from "@orchestra/core/session/message"
 import { SessionStore } from "@orchestra/core/session/store"
+import { SessionTable } from "@orchestra/core/session/sql"
+import { eq } from "drizzle-orm"
 import { KV } from "@orchestra/core/kv"
 import { Form as FormService } from "@orchestra/core/form"
 import { tmpdir } from "./fixture/tmpdir"
@@ -1246,6 +1248,54 @@ describe("Orchestra team", () => {
       // Recovery is idempotent after the durable marker has been cleared.
       yield* orchestra.mainOf(project.main!)
       expect(yield* reports(project.main!)).toHaveLength(1)
+    }).pipe(Effect.scoped),
+  ),
+  it.live("recovers a task whose worker claim went stale without a terminal event", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-stale-claim-")))
+      const orchestra = yield* Orchestra.Service
+      const sessionStore = yield* SessionStore.Service
+      const database = yield* Database.Service
+      const project = yield* orchestra.create({ name: "Stale claim", directory: tmp.path, template: "bugfix" })
+      const worker = yield* orchestra.createMember({
+        project,
+        title: "Developer",
+        agent: Orchestra.role("developer"),
+      })
+      yield* Effect.acquireRelease(
+        Effect.sync(() => suppressTerminalEvent.add(worker.id)),
+        () => Effect.sync(() => suppressTerminalEvent.delete(worker.id)),
+      )
+
+      yield* orchestra.dispatch({ project, sessionID: worker.id, text: "Fix the bug" })
+      yield* Effect.sleep("50 millis")
+      expect(yield* reports(project.main!)).toHaveLength(0)
+      expect(yield* orchestra.pending(worker.id)).toBeNumber()
+
+      // The run died without a terminal event (provider failure, abnormal fiber
+      // death): its execution claim was never released and nothing has touched
+      // the session since. A fresh claim would belong to boot recovery, which
+      // resumes the run; this one is dead, so the task must be recovered with a
+      // report instead of the Orchestrator waiting forever.
+      yield* sessionStore.claim(worker.id)
+      yield* database.db
+        .update(SessionTable)
+        .set({ time_updated: Date.now() - 11 * 60 * 1000 })
+        .where(eq(SessionTable.id, worker.id))
+        .run()
+        .pipe(Effect.orDie)
+
+      yield* orchestra.mainOf(project.main!)
+      const recovered = yield* reports(project.main!).pipe(
+        Effect.filterOrFail((items) => items.length > 0),
+        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.timeout("2 seconds"),
+      )
+      expect(recovered).toHaveLength(1)
+      expect(recovered[0]).toContain('state="recovered"')
+      expect(recovered[0]).toContain("went stale")
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
+      expect(yield* sessionStore.listSuspended()).not.toContain(worker.id)
     }).pipe(Effect.scoped),
   ),
   it.live("replaces provisional recovery content when the real terminal event arrives", () =>

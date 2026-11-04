@@ -210,6 +210,12 @@ const ACCESS = "orchestra/access/"
 const CATEGORY = "orchestra/category/"
 const STAGE = "orchestra/stage/"
 const TASK = "orchestra/task/"
+// A worker holding an execution claim is skipped by task recovery: the claim promises
+// the run will settle or be resumed. That promise expires when the session is not
+// active in this process and nothing has touched it for this long — the run then died
+// without a terminal event (provider failure, abnormal fiber death) and no resume or
+// settlement will ever come, so the claim is dead and the task is recovered instead.
+const STALE_CLAIM_MS = 10 * 60 * 1000
 // Dispatch locks are process-wide, not service-instance-wide: one running session per process is the
 // invariant the dispatcher keeps, and recovery must never wait behind a run that is already in flight.
 export const dispatchLocks = KeyedMutex.makeUnsafe<SessionID>()
@@ -1302,7 +1308,18 @@ const layer: Layer.Layer<
             // project's worker just because an unrelated session was opened.
             if (mainID && task.value.main !== mainID) return
             const sessionID = SessionID.make(entry.key.slice(TASK.length))
-            if (active.has(sessionID) || suspended.has(sessionID)) return
+            if (active.has(sessionID)) return
+            let staleClaim = false
+            if (suspended.has(sessionID)) {
+              // A fresh claim belongs to boot recovery, which resumes the run; a
+              // stale one is dead (see STALE_CLAIM_MS). Release the dead claim and
+              // fall through to the normal recovery below, so the task ends with a
+              // report to the Orchestrator instead of silence forever.
+              const claimed = yield* sessions.get(sessionID).pipe(Effect.orElseSucceed(() => undefined))
+              if (!claimed || Date.now() - DateTime.toEpochMillis(claimed.time.updated) < STALE_CLAIM_MS) return
+              yield* sessionStore.release(sessionID)
+              staleClaim = true
+            }
             const session = yield* sessions.get(sessionID).pipe(Effect.orElseSucceed(() => undefined))
             if (!session) {
               yield* report(
@@ -1345,7 +1362,9 @@ const layer: Layer.Layer<
               terminal?.detail ??
                 (terminal
                   ? undefined
-                  : "Recovered a completed worker task after startup; its execution terminal event was not observed."),
+                  : staleClaim
+                    ? "The worker's run ended without a terminal event and its execution claim went stale, so the task was recovered from the transcript. Treat the outcome as unproven: inspect what is actually done before deciding the next step."
+                    : "Recovered a completed worker task after startup; its execution terminal event was not observed."),
             )
           }),
         { concurrency: "unbounded", discard: true },
