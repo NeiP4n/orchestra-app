@@ -226,6 +226,10 @@ export function applyPatch(
     }
     if (patch.status === "completed" && !next.result)
       return fail(`Stage "${id}" cannot be completed without a result note: state the evidence (what was verified, where the report or artifact is).`)
+    if (patch.status === "cancelled" && !next.result)
+      return fail(
+        `Stage "${id}" cannot be cancelled without a result note: a cancelled stage counts as an accepted limitation in the plan's progress, so record why the work is being dropped and who accepted it.`,
+      )
     next = {
       ...next,
       status: patch.status,

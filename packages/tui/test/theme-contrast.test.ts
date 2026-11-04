@@ -67,6 +67,102 @@ const subdued: Array<{ name: string; fg: (t: Resolved) => RGBA; bg: (t: Resolved
   { name: "feedback.info.muted on background.base", fg: (t) => t.text.feedback.info.muted, bg: (t) => t.background.base, floor: 3.0 },
 ]
 
+// State text (buttons, form controls, feedback banners) renders on its OWN
+// state background, not the page surface — the pairs the plain-surface lists
+// above cannot see. A translucent state background shows what is beneath the
+// control, so it is judged against the composited surface over the plain
+// backgrounds, exactly as the resolver repairs it.
+const statePairs: Array<{
+  name: string
+  fg: (t: Resolved) => RGBA | undefined
+  bg: (t: Resolved) => RGBA | undefined
+  floor: number
+}> = []
+for (const variant of ["primary", "secondary", "destructive"] as const)
+  for (const state of ["base", "hovered", "focused", "selected", "pressed", "disabled"] as const)
+    statePairs.push({
+      name: `action.${variant}.${state} on its background`,
+      fg: (t) => (t.text.action[variant] as unknown as Record<string, RGBA>)[state],
+      bg: (t) => (t.background.action[variant] as unknown as Record<string, RGBA>)[state],
+      floor: state === "disabled" ? 3.0 : 4.5,
+    })
+for (const state of ["base", "hovered", "focused", "selected", "pressed", "disabled"] as const)
+  statePairs.push({
+    name: `formfield.${state} on its background`,
+    fg: (t) => (t.text.formfield as unknown as Record<string, RGBA>)[state],
+    bg: (t) => (t.background.formfield as unknown as Record<string, RGBA>)[state],
+    floor: state === "disabled" ? 3.0 : 4.5,
+  })
+for (const kind of ["error", "warning", "success", "info"] as const) {
+  statePairs.push({
+    name: `feedback.${kind}.base on its background`,
+    fg: (t) => t.text.feedback[kind].base,
+    bg: (t) => t.background.feedback[kind].base,
+    floor: 4.5,
+  })
+  statePairs.push({
+    name: `feedback.${kind}.muted on its background`,
+    fg: (t) => t.text.feedback[kind].muted,
+    bg: (t) => t.background.feedback[kind].base,
+    floor: 3.0,
+  })
+}
+statePairs.push(
+  { name: "diff.lineNumber on added background", fg: (t) => t.diff.lineNumber.text, bg: (t) => t.diff.lineNumber.background.added, floor: 3.0 },
+  { name: "diff.lineNumber on removed background", fg: (t) => t.diff.lineNumber.text, bg: (t) => t.diff.lineNumber.background.removed, floor: 3.0 },
+  { name: "backend.bash on background.base", fg: (t) => t.text.backend?.bash, bg: (t) => t.background.base, floor: 3.0 },
+  { name: "backend.nu on background.base", fg: (t) => t.text.backend?.nu, bg: (t) => t.background.base, floor: 3.0 },
+  { name: "backend.pwsh on background.base", fg: (t) => t.text.backend?.pwsh, bg: (t) => t.background.base, floor: 3.0 },
+  { name: "neural.signal on background.base", fg: (t) => t.text.neural?.signal, bg: (t) => t.background.base, floor: 3.0 },
+  { name: "neural.synapse on background.base", fg: (t) => t.text.neural?.synapse, bg: (t) => t.background.base, floor: 3.0 },
+  { name: "neural.spark on background.base", fg: (t) => t.text.neural?.spark, bg: (t) => t.background.base, floor: 3.0 },
+  { name: "neural.dormant on background.base", fg: (t) => t.text.neural?.dormant, bg: (t) => t.background.base, floor: 3.0 },
+  { name: "markdown.codeBlock on raised.base", fg: (t) => t.markdown.codeBlock, bg: (t) => t.background.raised.base, floor: 4.5 },
+)
+
+function renderedSurfaces(theme: Resolved, background: RGBA): RGBA[] {
+  if (background.a >= 1) return [background]
+  // A transparent theme background defers to the terminal entirely; the
+  // resolver cannot repair against it and neither can this test judge it.
+  if (theme.background.base.a < 1) return []
+  const over = (under: RGBA) =>
+    ({
+      r: background.r * background.a + under.r * (1 - background.a),
+      g: background.g * background.a + under.g * (1 - background.a),
+      b: background.b * background.a + under.b * (1 - background.a),
+      a: 1,
+    }) as RGBA
+  return [over(theme.background.base), over(theme.background.raised.base)]
+}
+
+function surfaceRatio(foreground: RGBA, surface: RGBA) {
+  const fg = luminance(foreground, surface)
+  const bg = luminance(surface)
+  return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05)
+}
+
+test("every built-in theme resolves with readable state text in every mode", () => {
+  const failures: string[] = []
+  for (const [name, source] of Object.entries(allThemes())) {
+    if (name === "system") continue
+    const document = parseTheme(source as never, name)
+    for (const mode of themeModes(document)) {
+      const theme = resolveThemeDocument(document, mode)
+      for (const pair of statePairs) {
+        const foreground = pair.fg(theme)
+        const background = pair.bg(theme)
+        if (!foreground || !background) continue
+        for (const surface of renderedSurfaces(theme, background)) {
+          const value = surfaceRatio(foreground, surface)
+          if (value < pair.floor)
+            failures.push(`${name}/${mode}: ${pair.name} is ${value.toFixed(2)}:1, expected at least ${pair.floor}:1`)
+        }
+      }
+    }
+  }
+  expect(failures).toEqual([])
+})
+
 test("every built-in theme resolves with readable text in every mode", () => {
   const failures: string[] = []
   for (const [name, source] of Object.entries(allThemes())) {

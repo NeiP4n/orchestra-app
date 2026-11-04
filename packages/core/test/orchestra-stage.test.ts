@@ -91,6 +91,14 @@ describe("stage transitions", () => {
     expect(back.ok).toBe(true)
   })
 
+  test("cancellation requires a recorded reason: a cancelled stage counts as an accepted limitation", () => {
+    const bare = OrchestraStage.applyPatch(start, "research", { status: "cancelled" }, NOW)
+    expect(bare.ok).toBe(false)
+    if (!bare.ok) expect(bare.message).toContain("accepted limitation")
+    const reasoned = OrchestraStage.applyPatch(start, "research", { status: "cancelled", result: "dropped by the operator: out of scope" }, NOW)
+    expect(reasoned.ok).toBe(true)
+  })
+
   test("unknown stage ids are refused with the known ids listed", () => {
     const result = OrchestraStage.applyPatch(start, "nope", { status: "running" }, NOW)
     expect(result.ok).toBe(false)

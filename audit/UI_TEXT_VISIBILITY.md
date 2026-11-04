@@ -105,3 +105,27 @@ pairs deliberately.
   it is not a screenshot capture of a live terminal — the sandbox must not
   run the TUI standalone (standing operator constraint), so no live-render
   claim is made.
+
+## Addendum — review round (state tokens)
+
+The first pass measured text against the page surfaces; state text renders
+on its OWN state background, and that surface was unmeasured. Extending the
+measurement to all 42 state pairs (action primary/secondary/destructive ×
+base/hovered/focused/selected/pressed/disabled on their own backgrounds,
+formfield states, feedback text on feedback backgrounds, diff line
+numbers, backend/neural labels, codeBlock on raised) found **675 failing
+pairs** before the fix — destructive-button text sat at ~1.0–1.5:1 on its
+own red background in several themes. The resolver now repairs state text
+against its matching state background (interactive states at the 4.5
+floor, disabled at the 3.0 never-disappear floor); translucent state
+backgrounds are repaired against the composited surface over the plain
+backgrounds beneath the control, and opaque ones are never fought by a
+second lift against the page. Result: **0 failing pairs** across every
+theme and mode, guarded by a second registry test. Legacy themes that
+pre-date the backend/neural roles still resolve without them (the repair
+does not invent absent roles). Remaining honest limit, unchanged: actual
+component renders (selection rendering, ANSI output of a live terminal)
+cannot be screenshot-verified in this sandbox — the standing constraint
+forbids running the TUI standalone — so coverage is token-pair level
+through the production resolver, now including every state token pair the
+schema defines.

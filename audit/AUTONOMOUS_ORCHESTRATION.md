@@ -142,3 +142,22 @@ completed → (terminal, immutable)
   stages" — plan → gated start refused → evidence-less completion refused →
   completion → KV re-read → replan preservation → typed errors, against the
   real layer.
+
+## Addendum — review round (concurrency and cancellation semantics)
+
+- **Stage writes are serialized per project.** planStages and setStage are
+  read-modify-write over one KV record; both now run under a per-project
+  KeyedMutex (`stageLocks`, the same mechanism the service already uses for
+  project lifecycle state in `mainLocks`). Two concurrent calls can no
+  longer read the same snapshot and lose each other's updates; the outcome
+  of concurrent calls equals some sequential application. A service-level
+  test fires concurrent patches and a replan+patch race and asserts the
+  merged result. (Sandbox note: the KV round-trip is synchronous
+  in-process, so the harness cannot force the interleaving the lock guards
+  against; the lock removes the hazard structurally, matching the
+  service's established consistency model.)
+- **Cancellation is an accepted limitation, recorded.** A stage may only
+  enter `cancelled` with a result note stating why the work is dropped —
+  enforced in `applyPatch`, like completion evidence. That is what makes
+  `cancelled` counting toward settled progress a conscious decision rather
+  than a silent skip.

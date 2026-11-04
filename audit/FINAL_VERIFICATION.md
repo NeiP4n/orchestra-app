@@ -99,3 +99,26 @@ baselines): session-runner (36), plugin/optimize (4), TUI V2-resolver drift.
    work was executed solo and sequentially under the operator's standing
    order (a prior parallel swarm overloaded the platform), with each
    increment verified before the next.
+
+## Addendum — independent review round
+
+An external review of the pushed branch raised five points; all were
+worked and re-verified on the branch:
+
+| Point | Resolution |
+|---|---|
+| P0 stage writes not atomic (snapshot read-modify-write) | Per-project `stageLocks` (KeyedMutex, the service's own model) around planStages/setStage + a concurrency test asserting merged outcomes. Harness caveat stated in AUTONOMOUS_ORCHESTRATION.md |
+| P0 role bypass via acquisition | Traced and closed: pure unit-tested `acquireCeiling` guard; context advertisement is permission-narrowed; unlisted calls default to `ask` via the orchestrator's permission delegate; distributed limits hard-deny (see MCP_AUTOMATION.md addendum) |
+| P1 selection quality | Qualification rules (name hit / ≥2 tokens / score ≥4 / discriminating token), Unicode tokenization; tests pin the generic-word behavior against real catalog frequencies |
+| P1 swallowed connect errors | `connectError` preserved on the result and in the detail; degraded servers get one reconnect instead of a silent "reused" |
+| P1/P2 cancellation semantics, state-token contrast | Cancellation now requires a recorded reason (accepted limitation); state-pair coverage added — 675 failing pairs → 0, second registry test |
+
+**On CI evidence**: the repository's workflows explain the absence of
+runs for this branch — `test.yml` triggers on pushes to dev/v2/lan-rooms
+and on pull requests (any target); `check.yml` triggers on pushes to
+dev/v2/lan-rooms and PRs targeting those branches only. A branch push to
+`mcp-role-orchestration` triggers neither, by the repository's own
+configuration (the workflows predate main becoming the default branch).
+Independent CI reproduction happens when a PR is opened: `test.yml` will
+run on it. All results in this document remain local executions, listed
+with their commands' suites above.

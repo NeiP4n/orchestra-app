@@ -2014,4 +2014,51 @@ describe("Orchestra workflow stages", () => {
       expect(missing._tag).toBe("Orchestra.ProjectNotFoundError")
     }),
   )
+
+  it.live("concurrent stage updates never lose each other's writes", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-stages-race-")))
+      const orchestra = yield* Orchestra.Service
+      const project = yield* orchestra.create({ name: "Race", directory: tmp.path })
+      yield* orchestra.planStages(project.id, [
+        { id: "a", name: "A" },
+        { id: "b", name: "B" },
+        { id: "c", name: "C" },
+      ])
+
+      // Three patches racing on the same stored plan: each is a
+      // read-modify-write, so without per-project serialization the last
+      // writer would silently erase the other two.
+      yield* Effect.all(
+        [
+          orchestra.setStage(project.id, "a", { status: "running" }),
+          orchestra.setStage(project.id, "b", { status: "running" }),
+          orchestra.setStage(project.id, "c", { status: "running" }),
+        ],
+        { concurrency: "unbounded" },
+      )
+      const after = yield* orchestra.stages(project.id)
+      expect(after.map((stage) => stage.status)).toEqual(["running", "running", "running"])
+
+      // A replan racing a patch: the outcome must equal some sequential
+      // application — a structurally valid plan, the completed stage's
+      // evidence intact, and no stage silently resurrected or dropped.
+      yield* Effect.all(
+        [
+          orchestra.setStage(project.id, "a", { status: "completed", result: "evidence A" }),
+          orchestra.planStages(project.id, [
+            { id: "a", name: "A" },
+            { id: "b", name: "B" },
+            { id: "c", name: "C" },
+            { id: "d", name: "D", dependsOn: ["a"] },
+          ]),
+        ],
+        { concurrency: "unbounded" },
+      )
+      const final = yield* orchestra.stages(project.id)
+      expect(final.map((stage) => stage.id)).toEqual(["a", "b", "c", "d"])
+      expect(final.find((stage) => stage.id === "a")?.status).toBe("completed")
+      expect(final.find((stage) => stage.id === "a")?.result).toBe("evidence A")
+    }),
+  )
 })

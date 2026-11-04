@@ -114,3 +114,28 @@ deterministic selection, reuse without mutation, install+connect+verify,
 connect of a starting server, **no install when credentials are missing**,
 no re-enable of disabled, no retry of failed, honest `failed` after a bad
 install.
+
+## Addendum — review round (selection quality and honest failures)
+
+- **Selection is no longer a bare keyword hit.** An entry qualifies only
+  via a name/id hit, ≥2 distinct matched tokens, a weighted score ≥ 4, or a
+  *discriminating* token (present in at most a quarter of the catalog) in
+  the description or name. Ubiquitous words ("use" appears in 14 of 17
+  entries) never qualify an entry alone. Tokenization is Unicode-aware.
+- **Degraded is not "reused".** A connected server with no discovered
+  tools gets one reconnect (restart + fresh discovery); if it is still
+  toolless, the result reports `degraded` with the reconnect as the action.
+- **Connect errors are preserved.** `ensure()` captures the connect
+  attempt's failure and returns it as `connectError` (and inside the
+  detail) whenever the server does not end up healthy — diagnosis no
+  longer depends on re-reading service state after a swallowed error.
+- **The role guard is a pure, unit-tested function** (`acquireCeiling`):
+  acquisition for a role whose ceiling excludes the server is refused
+  before any install. The ceiling is derived from the role's own tool
+  list and is only read, never widened. Independent of acquisition, a
+  globally connected server reaches a session only through the existing
+  narrows: the catalog context lists servers whose tools survive the
+  session's permission-narrowed snapshot, unlisted tool calls evaluate to
+  `ask` (decided by the project orchestrator's permission delegate, never
+  a silent allow), and a distributed task limit turns out-of-profile
+  servers into hard denies under the budget gate.

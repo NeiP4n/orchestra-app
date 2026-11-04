@@ -1,7 +1,7 @@
 export * as McpAcquire from "./acquire.js"
 
 import type { ServerConfig } from "@orchestra/schema/mcp"
-import { Effect } from "effect"
+import { Cause, Effect } from "effect"
 import { which } from "../util/which.js"
 import { McpCatalog } from "./catalog.js"
 import type { Mcp } from "./index.js"
@@ -105,36 +105,57 @@ export interface Match {
 }
 
 const tokens = (text: string) =>
-  [...new Set(text.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 2))]
+  [...new Set(text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((token) => token.length > 2))]
 
 /**
  * Deterministic catalog search for a capability need ("browser automation",
  * "read GitHub issues"). Scores name/id matches above description and usage
  * text; ties break by id so the same need always selects the same server.
- * Returns only real matches (score > 0), best first.
+ *
+ * A single generic word is not evidence of a match. An entry qualifies when
+ * a token hits its name/id, when at least two distinct tokens match, when
+ * the weighted score reaches 4, or when a matched token is discriminating —
+ * it appears in at most a quarter of the catalog, so it actually picks out
+ * a topic ("browser") — in the description or name. A token spread across
+ * the whole catalog ("read", "work", "data") never qualifies an entry on
+ * its own. Tokenization is Unicode-aware, so needs phrased in other
+ * languages still tokenize correctly (matching itself is against the
+ * catalog's English text; a non-English need matches only where words
+ * coincide).
  */
 export function select(need: string, platform: NodeJS.Platform = process.platform): readonly Match[] {
   const wanted = tokens(need)
   if (wanted.length === 0) return []
-  return McpCatalog.forPlatform(platform)
+  const entries = McpCatalog.forPlatform(platform)
+  const frequency = new Map<string, number>()
+  for (const entry of entries)
+    for (const token of tokens(`${entry.id} ${entry.name} ${entry.description} ${entry.usage}`))
+      frequency.set(token, (frequency.get(token) ?? 0) + 1)
+  const discriminating = (token: string) => (frequency.get(token) ?? 0) <= Math.max(2, Math.ceil(entries.length / 4))
+  return entries
     .flatMap((entry) => {
-      const fields: ReadonlyArray<readonly [string, number]> = [
-        [`${entry.id} ${entry.name}`, 3],
-        [entry.description, 2],
-        [entry.usage, 1],
+      const fields: ReadonlyArray<readonly [string, number, boolean]> = [
+        [`${entry.id} ${entry.name}`, 3, true],
+        [entry.description, 2, false],
+        [entry.usage, 1, false],
       ]
       let score = 0
+      let named = false
+      let topical = false
       const reasons: string[] = []
       for (const token of wanted) {
-        for (const [text, weight] of fields) {
+        for (const [text, weight, isName] of fields) {
           if (tokens(text).includes(token)) {
             score += weight
+            if (isName) named = true
+            if (weight >= 2 && discriminating(token)) topical = true
             reasons.push(token)
             break
           }
         }
       }
-      return score > 0 ? [{ entry, score, reasons: [...new Set(reasons)] }] : []
+      const distinct = new Set(reasons).size
+      return named || topical || distinct >= 2 || score >= 4 ? [{ entry, score, reasons: [...new Set(reasons)] }] : []
     })
     .toSorted((a, b) => b.score - a.score || a.entry.id.localeCompare(b.entry.id))
 }
@@ -142,6 +163,8 @@ export function select(need: string, platform: NodeJS.Platform = process.platfor
 export interface Ensured extends Classification {
   /** What this call actually did: reused a healthy server, connected an installed one, installed a new one, or nothing. */
   readonly action: "reused" | "connected" | "installed" | "none"
+  /** The connect attempt's own failure, when it raised one and the server did not end up healthy. Never swallowed. */
+  readonly connectError?: string
 }
 
 const snapshot = Effect.fnUntraced(function* (access: Access, id: string) {
@@ -158,10 +181,17 @@ const snapshot = Effect.fnUntraced(function* (access: Access, id: string) {
  * reported, never silently retried or re-enabled: a disabled server is the
  * operator's decision, and a failed one needs its cause fixed first.
  */
-export const ensure = Effect.fn("McpAcquire.ensure")(function* (access: Access, id: string) {
+export const ensure: (access: Access, id: string) => Effect.Effect<Ensured> = Effect.fn("McpAcquire.ensure")(function* (
+  access: Access,
+  id: string,
+) {
   const before = yield* snapshot(access, id)
-  if (before.state === "healthy" || before.state === "degraded") return { ...before, action: "reused" as const }
-  if (before.state !== "configured" && before.state !== "not_installed") return { ...before, action: "none" as const }
+  if (before.state === "healthy") return { ...before, action: "reused" as const }
+  // A degraded server (connected, but no tools discovered) is NOT reused as
+  // if it worked: it gets one reconnect, which restarts it and re-runs tool
+  // discovery. If it is still toolless afterwards, the result says so.
+  if (before.state !== "configured" && before.state !== "not_installed" && before.state !== "degraded")
+    return { ...before, action: "none" as const }
 
   if (before.state === "not_installed") {
     const entry = McpCatalog.all.find((item) => item.id === id)!
@@ -174,7 +204,26 @@ export const ensure = Effect.fn("McpAcquire.ensure")(function* (access: Access, 
       }
     yield* access.add(id, entry.config)
   }
-  yield* access.connect(id).pipe(Effect.catchCause(() => Effect.void))
+  // The connect attempt's failure is captured, not swallowed: when the
+  // server does not end up healthy, the original cause travels with the
+  // result so the failure can be diagnosed from the report alone.
+  let connectError: string | undefined
+  yield* access.connect(id).pipe(
+    Effect.catchCause((cause) =>
+      Effect.sync(() => {
+        connectError = Cause.pretty(cause)
+      }),
+    ),
+  )
   const after = yield* snapshot(access, id)
-  return { ...after, action: before.state === "not_installed" ? ("installed" as const) : ("connected" as const) }
+  return {
+    ...after,
+    action: before.state === "not_installed" ? ("installed" as const) : ("connected" as const),
+    ...(connectError && after.state !== "healthy"
+      ? {
+          connectError,
+          detail: `${after.detail} The connect attempt itself reported: ${connectError}`,
+        }
+      : {}),
+  }
 })

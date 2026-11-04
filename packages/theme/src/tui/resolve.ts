@@ -246,6 +246,37 @@ function ensureReadable(resolved: ResolvedThemeTokens): ResolvedThemeTokens {
   const on = (color: RGBA, floor: number, surface: RGBA) => lift(color, surface, floor)
   const liftBase = (record: Readonly<Record<string, RGBA>>, floor: number, surface: RGBA) =>
     record?.base instanceof RGBA ? { ...record, base: lift(record.base, surface, floor) } : record
+  // State text (buttons, form controls) renders on its OWN state background,
+  // not on the page surface: lift every state against the matching background
+  // state. Interactive states hold the primary floor; the disabled state is
+  // intentionally subdued but must never disappear. An opaque state
+  // background is the whole story — lifting afterwards against the page
+  // surface would fight it (a light red button on a near-black page wants
+  // opposite poles). A translucent one shows what is beneath the control, so
+  // it is repaired against the composited surface over both plain
+  // backgrounds the control can sit on.
+  const composite = (top: RGBA, under: RGBA) =>
+    RGBA.fromValues(
+      top.r * top.a + under.r * (1 - top.a),
+      top.g * top.a + under.g * (1 - top.a),
+      top.b * top.a + under.b * (1 - top.a),
+      1,
+    )
+  const onSurface = (color: RGBA, surface: RGBA, floor: number) =>
+    surface.a >= 1 ? lift(color, surface, floor) : lift(color, composite(surface, base), floor)
+  const liftStates = (
+    textStates: Readonly<Record<string, RGBA>>,
+    bgStates: Readonly<Record<string, RGBA>>,
+  ): Readonly<Record<string, RGBA>> =>
+    Object.fromEntries(
+      Object.entries(textStates).map(([state, color]) => {
+        const surface = bgStates[state]
+        if (!(color instanceof RGBA) || !(surface instanceof RGBA)) return [state, color]
+        const floor = state === "disabled" ? NEVER_DISAPPEAR : PRIMARY_TEXT
+        if (surface.a >= 1) return [state, lift(color, surface, floor)]
+        return [state, lift(lift(color, composite(surface, base), floor), composite(surface, raised), floor)]
+      }),
+    )
   return {
     ...resolved,
     text: {
@@ -255,26 +286,59 @@ function ensureReadable(resolved: ResolvedThemeTokens): ResolvedThemeTokens {
       action: Object.fromEntries(
         Object.entries(resolved.text.action).map(([variant, states]) => [
           variant,
-          liftBase(states as Readonly<Record<string, RGBA>>, PRIMARY_TEXT, base),
+          liftStates(
+            states as Readonly<Record<string, RGBA>>,
+            resolved.background.action[variant as keyof typeof resolved.background.action] as Readonly<
+              Record<string, RGBA>
+            >,
+          ),
         ]),
       ) as ResolvedThemeTokens["text"]["action"],
-      formfield: liftBase(
-        resolved.text.formfield as Readonly<Record<string, RGBA>>,
-        PRIMARY_TEXT,
-        base,
-      ) as ResolvedThemeTokens["text"]["formfield"],
+      formfield: (() => {
+        const lifted = liftStates(
+          resolved.text.formfield as Readonly<Record<string, RGBA>>,
+          resolved.background.formfield as Readonly<Record<string, RGBA>>,
+        )
+        return liftBase(lifted, PRIMARY_TEXT, base)
+      })() as ResolvedThemeTokens["text"]["formfield"],
       feedback: Object.fromEntries(
         FeedbackKind.literals.map((kind) => {
           const entry = resolved.text.feedback[kind]
-          return [kind, { base: on(entry.base, PRIMARY_TEXT, base), muted: on(entry.muted, NEVER_DISAPPEAR, base) }]
+          const own = resolved.background.feedback[kind].base
+          return [
+            kind,
+            {
+              base: onSurface(on(entry.base, PRIMARY_TEXT, base), own, PRIMARY_TEXT),
+              muted: onSurface(on(entry.muted, NEVER_DISAPPEAR, base), own, NEVER_DISAPPEAR),
+            },
+          ]
         }),
       ) as ResolvedThemeTokens["text"]["feedback"],
+      // Both roles are optional in the document schema: a theme written
+      // before a role existed resolves without it, and the repair must not
+      // invent it (components fall back on their own).
+      backend: resolved.text.backend
+        ? (Object.fromEntries(
+            Object.entries(resolved.text.backend).map(([key, color]) => [
+              key,
+              color instanceof RGBA ? on(color, NEVER_DISAPPEAR, base) : color,
+            ]),
+          ) as ResolvedThemeTokens["text"]["backend"])
+        : resolved.text.backend,
+      neural: resolved.text.neural
+        ? (Object.fromEntries(
+            Object.entries(resolved.text.neural).map(([key, color]) => [
+              key,
+              color instanceof RGBA ? on(color, NEVER_DISAPPEAR, base) : color,
+            ]),
+          ) as ResolvedThemeTokens["text"]["neural"])
+        : resolved.text.neural,
     },
     markdown: {
       ...resolved.markdown,
       text: on(resolved.markdown.text, PRIMARY_TEXT, base),
       code: on(on(resolved.markdown.code, PRIMARY_TEXT, base), PRIMARY_TEXT, raised),
-      codeBlock: on(resolved.markdown.codeBlock, PRIMARY_TEXT, base),
+      codeBlock: on(on(resolved.markdown.codeBlock, PRIMARY_TEXT, base), PRIMARY_TEXT, raised),
       linkText: on(resolved.markdown.linkText, PRIMARY_TEXT, base),
       blockQuote: on(resolved.markdown.blockQuote, SUBDUED_TEXT, base),
       heading: on(resolved.markdown.heading, NEVER_DISAPPEAR, base),
@@ -310,7 +374,11 @@ function ensureReadable(resolved: ResolvedThemeTokens): ResolvedThemeTokens {
       },
       lineNumber: {
         ...resolved.diff.lineNumber,
-        text: on(resolved.diff.lineNumber.text, NEVER_DISAPPEAR, base),
+        text: onSurface(
+          onSurface(on(resolved.diff.lineNumber.text, NEVER_DISAPPEAR, base), resolved.diff.lineNumber.background.added, NEVER_DISAPPEAR),
+          resolved.diff.lineNumber.background.removed,
+          NEVER_DISAPPEAR,
+        ),
       },
     },
   }

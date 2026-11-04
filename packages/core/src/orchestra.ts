@@ -1698,6 +1698,11 @@ const layer: Layer.Layer<
     // publishes a UI approval request, so no human approval dialog races the decision.
     yield* permissionDelegates.set(decidePermission)
 
+    // Stage plans are a read-modify-write over one KV record per project:
+    // planStages and setStage serialize per project (the same model as
+    // mainLocks for the rest of the project state), so two concurrent calls
+    // can never read the same snapshot and lose each other's updates.
+    const stageLocks = KeyedMutex.makeUnsafe<ProjectID>()
     const readStages = Effect.fnUntraced(function* (id: ProjectID) {
       return Option.getOrElse(decodeStages(yield* kv.get(STAGE + id)), () => [] as ReadonlyArray<OrchestraStage.Stage>)
     })
@@ -2072,20 +2077,28 @@ const layer: Layer.Layer<
         return yield* readStages(id)
       }),
       planStages: Effect.fn("Orchestra.planStages")(function* (id, inputs) {
-        yield* get(id)
-        const merged = OrchestraStage.mergePlan(yield* readStages(id), inputs, Date.now(), () =>
-          `stage-${crypto.randomUUID().slice(0, 8)}`,
+        return yield* stageLocks.withLock(id)(
+          Effect.gen(function* () {
+            yield* get(id)
+            const merged = OrchestraStage.mergePlan(yield* readStages(id), inputs, Date.now(), () =>
+              `stage-${crypto.randomUUID().slice(0, 8)}`,
+            )
+            if (!merged.ok) return yield* new StageError({ message: merged.message })
+            yield* writeStages(id, merged.value)
+            return merged.value
+          }),
         )
-        if (!merged.ok) return yield* new StageError({ message: merged.message })
-        yield* writeStages(id, merged.value)
-        return merged.value
       }),
       setStage: Effect.fn("Orchestra.setStage")(function* (id, stageID, patch) {
-        yield* get(id)
-        const applied = OrchestraStage.applyPatch(yield* readStages(id), stageID, patch, Date.now())
-        if (!applied.ok) return yield* new StageError({ message: applied.message })
-        yield* writeStages(id, applied.value)
-        return applied.value.find((stage) => stage.id === stageID)!
+        return yield* stageLocks.withLock(id)(
+          Effect.gen(function* () {
+            yield* get(id)
+            const applied = OrchestraStage.applyPatch(yield* readStages(id), stageID, patch, Date.now())
+            if (!applied.ok) return yield* new StageError({ message: applied.message })
+            yield* writeStages(id, applied.value)
+            return applied.value.find((stage) => stage.id === stageID)!
+          }),
+        )
       }),
       dispatch: Effect.fn("Orchestra.dispatch")(function* (input) {
         // Lock ordering is project -> worker. Project deletion/migration and task admission must

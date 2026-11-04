@@ -226,6 +226,20 @@ export function mcpServersOf(role: RoleMcpShape): ReadonlyArray<string> | "all" 
   return [...servers].toSorted()
 }
 
+/**
+ * The acquisition ceiling check: may this role ever use that server? Returns
+ * the refusal message when the server sits outside the role's own MCP
+ * ceiling, undefined when acquisition for this role is legitimate. Pure, so
+ * the guard is testable without a live MCP service: acquiring for a role
+ * that cannot use the server is refused, never worked around — and the
+ * ceiling itself is only ever read here, never widened.
+ */
+export function acquireCeiling(role: RoleMcpShape, server: string): string | undefined {
+  const ceiling = mcpServersOf(role)
+  if (ceiling === "all" || ceiling.includes(server)) return undefined
+  return `${role.name ?? "This role"} may not use ${server}: its MCP ceiling is ${ceiling.length > 0 ? ceiling.join(", ") : "no MCP servers"}. Acquiring it would give this role nothing; the operator can widen the role if that is intended.`
+}
+
 /** The role's own MCP ceiling: what the Orchestrator may distribute from, and never exceed. */
 export function defaultMcpLimit(role: RoleMcpShape): McpLimit {
   const servers = mcpServersOf(role)
@@ -1127,11 +1141,8 @@ export const Plugin = {
                       return yield* new ToolFailure({
                         message: `Unknown role ${input.role}. Roles: ${roles.map((item) => item.id).join(", ")}`,
                       })
-                    const ceiling = mcpServersOf(role)
-                    if (ceiling !== "all" && !ceiling.includes(id))
-                      return yield* new ToolFailure({
-                        message: `${role.name} may not use ${id}: its MCP ceiling is ${ceiling.length > 0 ? ceiling.join(", ") : "no MCP servers"}. Acquiring it would give this role nothing; the operator can widen the role if that is intended.`,
-                      })
+                    const refusal = acquireCeiling(role, id)
+                    if (refusal) return yield* new ToolFailure({ message: refusal })
                   }
                   const ensured = yield* McpAcquire.ensure(mcp.value, id)
                   return {
