@@ -803,11 +803,7 @@ function RoomSidebar(props: {
     >
       <text
         fg={
-          tab() === id
-            ? theme.text.action.primary.selected
-            : hover() === `tab:${id}`
-              ? theme.text.action.secondary.hovered
-              : theme.text.muted
+          tab() === id || hover() === `tab:${id}` ? theme.text.base : theme.text.muted
         }
         attributes={tab() === id ? TextAttributes.BOLD | TextAttributes.UNDERLINE : undefined}
       >
