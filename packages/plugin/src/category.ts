@@ -35,7 +35,6 @@ export function categorizePlugin(id?: string, target?: string): PluginCategory {
   if (
     text.includes("provider") ||
     text.includes("models-dev") ||
-    text.includes("zen-models") ||
     text.includes("chatgpt") ||
     text.includes("openai") ||
     text.includes("anthropic") ||

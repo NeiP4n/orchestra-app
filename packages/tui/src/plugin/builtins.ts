@@ -36,7 +36,6 @@ export const builtins = [
   lazy("orchestra.sidebar.footer", () => import("../feature-plugins/sidebar/footer")),
   lazy("orchestra.notifications", () => import("../feature-plugins/system/notifications")),
   lazy("orchestra.plugins", () => import("../feature-plugins/system/plugins")),
-  lazy("orchestra.zen-models", () => import("../feature-plugins/system/zen-models")),
   lazy("orchestra.stats", () => import("../feature-plugins/system/stats")),
   lazy("orchestra.branch", () => import("../feature-plugins/system/branch")),
   lazy("orchestra.merman", () => import("@orchestra/merman/plugin")),

@@ -16,7 +16,6 @@ describe("categorizePlugin", () => {
     expect(categorizePlugin("opencode.provider.freebuff")).toBe("Providers & Models")
     expect(categorizePlugin("opencode.provider.azure")).toBe("Providers & Models")
     expect(categorizePlugin("models-dev")).toBe("Providers & Models")
-    expect(categorizePlugin("zen-models")).toBe("Providers & Models")
     expect(categorizePlugin("chatgpt-plugin")).toBe("Providers & Models")
     expect(categorizePlugin(undefined, "modal-provider")).toBe("Providers & Models")
   })
