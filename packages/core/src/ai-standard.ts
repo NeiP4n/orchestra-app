@@ -40,11 +40,16 @@ import { Model } from "./model.js"
 //    (`Rules`) is written by the crew as it learns and applies to every
 //    session automatically. The operator may read and edit it, but no run
 //    waits on rule setup.
-// 7. Budget is automatic. Orchestra imposes no operator-facing budget knobs:
-//    step ceilings come from `budgetFor` below (by effort class) and are
-//    applied through `Limits`, which stays off unless enforcement is turned
-//    on for the deployment — cost control is the system's problem (ranking
-//    prefers cheaper models for speed work), not a form the operator fills.
+// 7. Budget is a step ceiling, and it is not a spending cap. The standard
+//    supplies the default ceiling by effort class (`budgetFor`): the runner
+//    applies it through `stepCeilings` whenever the agent itself configures
+//    no steps, and never above a ceiling the agent or the mode configures.
+//    Whether ceilings bite at all is a deployment switch (`Limits`:
+//    ORCHESTRA_ENFORCE_LIMITS) — with enforcement off, no ceiling applies,
+//    including this one. Nothing here limits money: a step can cost cents
+//    or dollars, and no token or currency budget exists in the system.
+//    Cost pressure comes from ranking (speed work prefers cheaper models),
+//    not from a guaranteed cap. The operator still fills no budget form.
 // 8. When nothing at all is configured — no favorites, no role model, no
 //    policy — the run inherits the caller's model and the default agent
 //    (`build`, else the first selectable primary agent). Zero configuration
@@ -218,9 +223,30 @@ export interface Budget {
   readonly source: "standard"
 }
 
-// The standard's automatic budget: depth work gets room to think, speed work
-// is kept short. These are ceilings for `Limits.steps`, not operator-facing
-// settings — `Limits` decides whether enforcement is on for a deployment.
+// The standard's step budget: depth work gets room to think, speed work is
+// kept short. These are ceilings for `Limits.steps`, not operator-facing
+// settings — `Limits` decides whether enforcement is on for a deployment,
+// and a step ceiling is never a cap on spend (see point 7 above).
 const BudgetByEffort: Record<Effort, number> = { depth: 120, speed: 40 }
 
 export const budgetFor = (effort: Effort): Budget => ({ steps: BudgetByEffort[effort], source: "standard" })
+
+/**
+ * The step ceilings a run is judged against, in the runner's existing terms
+ * (the smallest defined ceiling wins, through `Limits.steps`): the agent's
+ * own configured steps, the mode's ceiling, and — only when the agent
+ * configures no steps of its own — the standard's budget for the work's
+ * effort class. An explicit agent ceiling is configuration, so the standard
+ * never lowers it; the standard only fills the gap where nobody set one.
+ */
+export function stepCeilings(input: {
+  readonly agentSteps?: number
+  readonly modeSteps?: number
+  readonly effort: Effort
+}): ReadonlyArray<number | undefined> {
+  return [
+    input.agentSteps,
+    input.modeSteps,
+    input.agentSteps === undefined ? budgetFor(input.effort).steps : undefined,
+  ]
+}

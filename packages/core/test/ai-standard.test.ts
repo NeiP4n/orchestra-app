@@ -189,6 +189,18 @@ describe("AiStandard.budgetFor", () => {
   })
 })
 
+describe("AiStandard.stepCeilings", () => {
+  test("an agent with no steps of its own gets the standard's budget for its effort class", () => {
+    expect(AiStandard.stepCeilings({ effort: "depth" })).toEqual([undefined, undefined, 120])
+    expect(AiStandard.stepCeilings({ effort: "speed", modeSteps: 25 })).toEqual([undefined, 25, 40])
+  })
+
+  test("a configured agent ceiling is never lowered by the standard", () => {
+    expect(AiStandard.stepCeilings({ agentSteps: 500, effort: "speed" })).toEqual([500, undefined, undefined])
+    expect(AiStandard.stepCeilings({ agentSteps: 10, modeSteps: 8, effort: "depth" })).toEqual([10, 8, undefined])
+  })
+})
+
 describe("Orchestra.workerModels under the standard", () => {
   test("skips a favorite whose provider refused it and runs the next favorite", () => {
     const choice = Orchestra.workerModels(undefined, undefined, {

@@ -10,6 +10,7 @@ import { and, desc, eq, sql } from "drizzle-orm"
 import { Cause, Effect, Exit, FiberMap, Layer } from "effect"
 import { Database } from "../../database/database.js"
 import { Bus } from "../../bus.js"
+import { AiStandard } from "../../ai-standard.js"
 import { LocationLifecycle } from "../../location-lifecycle.js"
 import { InstructionState } from "../instruction-state.js"
 import { SessionCompaction } from "../compaction.js"
@@ -233,9 +234,17 @@ const layer = Layer.effect(
           continue
         }
         // The agent's own ceiling and the mode's soft ceiling both apply; the smaller one wins.
+        // An agent with no steps of its own falls back to the single AI standard's budget for
+        // its effort class (AiStandard.stepCeilings); the standard never lowers a set ceiling.
         const agentSteps = loaded.agent.info.steps
         const modeSteps = Mode.stepsOf(loaded.session.metadata)
-        const stepLimit = Limits.steps([agentSteps, modeSteps])
+        const stepLimit = Limits.steps(
+          AiStandard.stepCeilings({
+            agentSteps,
+            modeSteps,
+            effort: AiStandard.effortFor(`${loaded.agent.info.id} ${loaded.agent.info.name}`),
+          }),
+        )
         const stepLimitReached = stepLimit !== undefined && step >= stepLimit
         const transcript = SessionModelRequest.baseTranscript({
           agent: loaded.agent.info,
