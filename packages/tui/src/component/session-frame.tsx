@@ -56,6 +56,8 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   const dialog = useDialog()
   const notes = useNotes()
   const theme = useTheme()
+  const [hideRightPaneHovered, setHideRightPaneHovered] = createSignal(false)
+  const [showRightPaneHovered, setShowRightPaneHovered] = createSignal(false)
   // Derive the frame's current width from live terminal and left-rail dimensions.
   // Cached width stayed at the note split size after switching back to Projects.
   // SessionFrame is already rendered to the right of the project tree. Measure its
@@ -560,8 +562,14 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
               justifyContent="flex-end"
               backgroundColor={theme.background.raised.base}
             >
-              <HoverAction id="right-pane.hide" onClick={hideRightPane} paddingLeft={1} paddingRight={1}>
-                <text fg={theme.text.action.primary.base}>›</text>
+              <HoverAction
+                id="right-pane.hide"
+                onHoverChange={setHideRightPaneHovered}
+                onClick={hideRightPane}
+                paddingLeft={1}
+                paddingRight={1}
+              >
+                <text fg={hideRightPaneHovered() ? theme.text.action.primary.hovered : theme.text.action.primary.base}>›</text>
               </HoverAction>
             </box>
           </Show>
@@ -636,11 +644,12 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
         >
           <HoverAction
             id="session.sidebar.show"
+            onHoverChange={setShowRightPaneHovered}
             onClick={showRightPane}
             paddingLeft={1}
             paddingRight={1}
           >
-            <text fg={theme.text.action.primary.base}>‹</text>
+            <text fg={showRightPaneHovered() ? theme.text.action.primary.hovered : theme.text.action.primary.base}>‹</text>
           </HoverAction>
         </box>
       </Show>
