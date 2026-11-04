@@ -1540,8 +1540,6 @@ export function Session(props: {
               minWidth={0}
               minHeight={0}
               position="relative"
-              // The absolute NeuralAxon lives in the transcript scrollbox. Clip it to the
-              // transcript viewport so it cannot paint into the composer, docks or recovery card.
               overflow="hidden"
             >
               <scrollbox
