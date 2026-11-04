@@ -347,13 +347,13 @@ function Action(props: {
   const [hovered, setHovered] = createSignal(false)
   const state = () => (hovered() ? "hovered" : "base")
   const color = () => {
-    if (props.tone === "formfield") return theme.text.formfield[state()]
+    if (props.tone === "formfield") return hovered() ? theme.text.base : theme.text.formfield.base
     if (props.tone === "destructive") return theme.text.action.destructive[state()]
     return theme.text.action.primary[state()]
   }
   const background = () => {
     if (props.tone === "plain") return undefined
-    if (props.tone === "formfield") return hovered() ? theme.background.formfield.hovered : undefined
+    if (props.tone === "formfield") return hovered() ? hoverBackground(theme) : undefined
     if (props.tone === "destructive")
       return hovered() ? hoverBackground(theme, "destructive") : theme.background.action.destructive.base
     return hovered() ? hoverBackground(theme, "primary") : undefined
@@ -397,7 +397,13 @@ function Segment(props: { id: string; selected: boolean; onClick: () => void; ch
       flexShrink={0}
       paddingLeft={1}
       paddingRight={1}
-      backgroundColor={props.selected || hovered() ? theme.background.formfield[state()] : undefined}
+      backgroundColor={
+        hovered()
+          ? hoverBackground(theme)
+          : props.selected
+            ? theme.background.formfield.selected
+            : undefined
+      }
       onMouseOver={() => setHovered(true)}
       onMouseOut={() => setHovered(false)}
       onMouseUp={(event) => {
@@ -406,7 +412,7 @@ function Segment(props: { id: string; selected: boolean; onClick: () => void; ch
       }}
     >
       <text
-        fg={theme.text.formfield[state()]}
+        fg={hovered() ? theme.text.base : theme.text.formfield[state()]}
         attributes={props.selected ? TextAttributes.BOLD : undefined}
         wrapMode="none"
       >
