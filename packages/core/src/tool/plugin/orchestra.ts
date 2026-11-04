@@ -856,12 +856,16 @@ export const Plugin = {
                   for (const part of message.content) {
                     if (part.type !== "tool" || part.name !== "read" || part.state.status !== "completed") continue
                     const input = part.state.input as {
-                      files?: ReadonlyArray<{ path?: unknown }>
+                      files?: ReadonlyArray<{ path?: unknown } | string>
                       filePath?: unknown
+                      path?: unknown
                     }
                     const paths = [
-                      ...(input.files ?? []).flatMap((file) => (typeof file?.path === "string" ? [file.path] : [])),
+                      ...(input.files ?? []).flatMap((file) =>
+                        typeof file === "string" ? [file] : typeof file?.path === "string" ? [file.path] : [],
+                      ),
                       ...(typeof input.filePath === "string" ? [input.filePath] : []),
+                      ...(typeof input.path === "string" ? [input.path] : []),
                     ]
                     if (paths.length === 0 || paths.every((path) => seen.has(path))) continue
                     const text = part.state.content
