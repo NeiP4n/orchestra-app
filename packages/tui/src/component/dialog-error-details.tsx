@@ -1,4 +1,4 @@
-import { TextAttributes, type ScrollBoxRenderable } from "@opentui/core"
+import { type ScrollBoxRenderable } from "@opentui/core"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createSignal, Show } from "solid-js"
 import { useConfig } from "../config"
@@ -13,6 +13,8 @@ import { dialogWidth, useDialog } from "../ui/dialog"
 import { FilePath } from "../ui/file-path"
 import { useToast } from "../ui/toast"
 import { errorDetails } from "../util/error-details"
+import { DialogHeader, DialogShell } from "./dialog-standard"
+import { useT } from "../util/i18n"
 
 export function DialogErrorDetails(props: {
   title: string
@@ -27,6 +29,7 @@ export function DialogErrorDetails(props: {
   const location = useLocation()
   const route = useRoute()
   const toast = useToast()
+  const t = useT()
   const theme = useTheme().surface("dialog")
   const dimensions = useTerminalDimensions()
   const config = useConfig().data
@@ -71,33 +74,22 @@ export function DialogErrorDetails(props: {
   })
 
   return (
-    <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
-      <box>
-        <box flexDirection="row" gap={2}>
-          <text
-            attributes={TextAttributes.BOLD}
-            fg={theme.text.base}
-            flexGrow={1}
-            minWidth={0}
-            wrapMode="none"
-            truncate
-          >
-            {props.title}
-          </text>
-          <text fg={theme.text.muted} flexShrink={0} onMouseUp={props.onBack}>
-            esc
-          </text>
-        </box>
-        <Show when={props.source}>
-          {(source) => (
-            <FilePath
-              value={source()}
-              maxWidth={Math.min(dialogWidth(dialog.size), dimensions().width - 2) - 4}
-              fg={theme.text.muted}
-            />
-          )}
-        </Show>
-      </box>
+    <DialogShell>
+      <DialogHeader
+        title={props.title}
+        onClose={props.onBack}
+        below={
+          <Show when={props.source}>
+            {(source) => (
+              <FilePath
+                value={source()}
+                maxWidth={Math.min(dialogWidth(dialog.size), dimensions().width - 2) - 4}
+                fg={theme.text.muted}
+              />
+            )}
+          </Show>
+        }
+      />
       <box>
         <scrollbox
           ref={(element: ScrollBoxRenderable) => (scroll = element)}
@@ -111,7 +103,7 @@ export function DialogErrorDetails(props: {
           </text>
         </scrollbox>
         <Show when={props.diagnosticRef}>
-          <text fg={theme.text.muted}>Reference: {props.diagnosticRef}</text>
+          <text fg={theme.text.muted}>{t("Reference: {ref}", { ref: props.diagnosticRef ?? "" })}</text>
         </Show>
       </box>
       <box flexDirection="row" gap={3} flexWrap="wrap">
@@ -123,12 +115,12 @@ export function DialogErrorDetails(props: {
         </text>
         <text onMouseUp={copy}>
           <span style={{ fg: copied() ? theme.text.feedback.success.base : theme.text.base }}>
-            <b>{copied() ? "✓ copied" : "c"}</b>
+            <b>{copied() ? t("✓ copied") : "c"}</b>
           </span>
-          <span style={{ fg: theme.text.muted }}>{copied() ? "" : " copy details"}</span>
+          <span style={{ fg: theme.text.muted }}>{copied() ? "" : t(" copy details")}</span>
         </text>
-        <text fg={theme.text.muted}>↑/↓ scroll</text>
+        <text fg={theme.text.muted}>{t("↑/↓ scroll")}</text>
       </box>
-    </box>
+    </DialogShell>
   )
 }

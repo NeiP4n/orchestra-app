@@ -6,6 +6,7 @@ import { useT } from "../util/i18n"
 import { useConfig } from "../config"
 import { listedCommand } from "../util/developer"
 import { DialogConfig, settingID, settings } from "./dialog-config"
+import { commandCategory, compareCommandCategories } from "./command-categories"
 
 function isSuggestedPaletteCommand(command: KeymapCommand) {
   const suggested = command.suggested
@@ -20,17 +21,27 @@ export function CommandPaletteDialog() {
   const t = useT()
   const config = useConfig()
   const options = createMemo(() =>
-    commands().flatMap((command) => {
+    // Canonical categories, canonical order: legacy group spellings collapse
+    // onto the standard list (command-categories.ts) and groups appear in the
+    // standard's task-first order in the palette's grouped view.
+    [...commands()]
+      .sort((a, b) =>
+        compareCommandCategories(
+          { group: a.group, label: t(a.title ?? a.id ?? "") },
+          { group: b.group, label: t(b.title ?? b.id ?? "") },
+        ),
+      )
+      .flatMap((command) => {
       if (!command.id || !command.palette || command.id === COMMAND_PALETTE_COMMAND) return []
       if (!listedCommand(command.id, config.data.developer)) return []
       const footer = shortcuts.all(command.id)
       return {
         title: t(command.title ?? command.id),
         description: command.description && t(command.description),
-        category: command.group && t(command.group),
+        category: command.group && t(commandCategory(command.group)),
         // The English title stays searchable when the palette reads in another language.
         searchText: [command.id, command.title, command.description].filter(Boolean).join(" "),
-        searchFooter: [command.group, footer].filter(Boolean).join(" · "),
+        searchFooter: [command.group && commandCategory(command.group), footer].filter(Boolean).join(" · "),
         footer,
         value: command.id,
         suggested: isSuggestedPaletteCommand(command),
