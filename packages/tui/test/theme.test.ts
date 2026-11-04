@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test"
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
-import type { TerminalColors } from "@opentui/core"
+import { RGBA, type TerminalColors } from "@opentui/core"
 import { allThemes, hasTheme, getOrchestraTheme, legacyThemeMigration, parseTheme, resolveTheme } from "../src/theme"
 import { resolveThemeDocument, themeModes } from "@orchestra/theme/tui"
 import { discoverThemes } from "../src/theme/discovery"
 import { configDirectories } from "../src/util/config-directories"
-import { terminalMode } from "../src/theme/system"
+import { contrastRatio, generateSystem, terminalDefaultForegroundReadable, terminalMode } from "../src/theme/system"
 import draculaSource from "../src/theme/assets/dracula.json" with { type: "json" }
 import type { ThemeV1Json } from "@orchestra/theme/tui/v1"
 import { tmpdir } from "./fixture/fixture"
@@ -125,6 +125,34 @@ test("terminalMode derives mode from refreshed background", () => {
 
 test("terminalMode does not derive mode from ANSI slot zero", () => {
   expect(terminalMode(terminalColors(null, ["#000000"]))).toBeUndefined()
+})
+
+test("generated system theme repairs terminal colors that would make text disappear", () => {
+  const cases = [
+    { mode: "dark", background: "#000000", foreground: "#000000" },
+    { mode: "light", background: "#ffffff", foreground: "#ffffff" },
+    { mode: "dark", background: "#111111", foreground: "#111111" },
+    { mode: "light", background: "#f5f5f5", foreground: "#f5f5f5" },
+  ] as const
+
+  for (const item of cases) {
+    const colors = {
+      ...terminalColors(item.background),
+      defaultBackground: item.background,
+      defaultForeground: item.foreground,
+    }
+    expect(terminalDefaultForegroundReadable(colors)).toBe(false)
+
+    const generated = generateSystem(colors, item.mode)
+    const theme = resolveThemeDocument(parseTheme(generated, `system-${item.mode}`), item.mode)
+    const background = RGBA.fromHex(item.background)
+
+    expect(contrastRatio(theme.text.base, background)).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(theme.text.muted, background)).toBeGreaterThanOrEqual(3.5)
+    expect(contrastRatio(theme.markdown.text, background)).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(theme.markdown.link, background)).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(generated.theme.selectedListItemText, generated.theme.primary)).toBeGreaterThanOrEqual(4.5)
+  }
 })
 
 test("custom theme precedence follows directory order", async () => {
