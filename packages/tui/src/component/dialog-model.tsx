@@ -91,7 +91,10 @@ export function DialogModel(props: {
     const entry = data.location.config
       .list(location.ref)
       ?.findLast((entry) => entry.type === "document" && entry.info.model_collections !== undefined)
-    return entry?.type === "document" ? entry.info.model_collections : undefined
+    if (entry?.type !== "document") return undefined
+    // Same legacy retrofit as the collections manager: an entry written before `enabled`
+    // existed reads as enabled, not as a hidden collection.
+    return entry.info.model_collections?.map((item) => ({ ...item, enabled: item.enabled ?? true }))
   })
   const favoritePriority = createMemo(() => new Set(favoriteModels().map(modelPreferenceKey)))
   const [freebuffPricing, setFreebuffPricing] = createSignal<FreebuffPricing | undefined>()

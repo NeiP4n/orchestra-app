@@ -63,7 +63,12 @@ export function DialogModelCollections() {
   )
   const configCollections = createMemo(() => {
     const entry = documents().findLast((entry) => entry.info.model_collections !== undefined)
-    return (entry?.info.model_collections ?? []) as Collection[]
+    const raw = (entry?.info.model_collections ?? []) as ReadonlyArray<Omit<Collection, "enabled"> & { enabled?: boolean }>
+    // Documents written before `enabled` existed (or by hand) carry entries without the
+    // key. The config schema requires it explicitly, so read them as enabled here: the
+    // collection stays visible, and the next save writes the key out in full instead of
+    // failing the whole PATCH on the legacy entry.
+    return raw.map((item) => ({ ...item, enabled: item.enabled ?? true }))
   })
   const [savedCollections, setSavedCollections] = createSignal<Collection[] | undefined>()
   const collections = createMemo(() => savedCollections() ?? configCollections())
