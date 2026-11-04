@@ -73,6 +73,9 @@ export function DiffViewerFileTree(props: DiffViewerFileTreeProps) {
             flexDirection="row"
             flexGrow={1}
             minWidth={0}
+            paddingLeft={1}
+            paddingRight={1}
+            backgroundColor={sourceHovered() && props.onSwitchSource ? hoverBackground(theme, "secondary") : undefined}
             onMouseOver={() => setSourceHovered(true)}
             onMouseOut={() => setSourceHovered(false)}
             onMouseUp={(event) => {
