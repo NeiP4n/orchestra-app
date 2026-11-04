@@ -257,7 +257,8 @@ export function WidgetBlock(props: { id: string; widget: Widget; width: number; 
                         const isSelected = () => isTargetSelected(props.widget, target)
                         const rowBg = () => {
                           if (isHover()) return hoverBackground(theme)
-                          if (isSelected()) return mine() ? theme.background.formfield.focused : theme.background.formfield.selected
+                          if (isSelected())
+                            return mine() ? theme.background.formfield.focused : theme.background.formfield.selected
                           return undefined
                         }
                         const spanFg = (span: Span) => {
@@ -323,12 +324,14 @@ export function WidgetBlock(props: { id: string; widget: Widget; width: number; 
                               const isSelected = () => isTargetSelected(props.widget, target)
                               const btnBg = () => {
                                 if (isHover()) return hoverBackground(theme)
-                                if (isSelected()) return mine() ? theme.background.formfield.focused : theme.background.formfield.selected
+                                if (isSelected())
+                                  return mine() ? theme.background.formfield.focused : theme.background.formfield.selected
                                 return theme.background.raised.base
                               }
                               const btnFg = () => {
                                 if (isHover()) return theme.text.base
-                                if (isSelected()) return mine() ? theme.text.formfield.focused : theme.text.formfield.selected
+                                if (isSelected())
+                                  return mine() ? theme.text.formfield.focused : theme.text.formfield.selected
                                 return theme.text.formfield.base
                               }
 
