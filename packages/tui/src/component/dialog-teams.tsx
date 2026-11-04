@@ -13,6 +13,7 @@ import { useConfig } from "../config"
 import { useClient } from "../context/client"
 import { Keymap } from "../context/keymap"
 import { useTheme } from "../context/theme"
+import { hoverBackground } from "../ui/hover"
 import type { DialogContext } from "../ui/dialog"
 import { errorMessage } from "../util/error"
 import { useT } from "../util/i18n"
@@ -1434,12 +1435,10 @@ function ListRow(props: {
       paddingLeft={1}
       paddingRight={1}
       backgroundColor={
-        props.selected
-          ? props.focused
-            ? theme.background.formfield.focused
-            : theme.background.formfield.hovered
-          : hovered()
-            ? theme.background.formfield.hovered
+        props.selected && props.focused
+          ? theme.background.formfield.focused
+          : props.selected || hovered()
+            ? hoverBackground(theme)
             : undefined
       }
       onMouseOver={() => setHovered(true)}
@@ -1448,7 +1447,7 @@ function ListRow(props: {
     >
       <box flexGrow={1} flexBasis={0} minWidth={0} paddingRight={1}>
         <text
-          fg={props.selected ? theme.text.formfield.focused : theme.text.formfield.base}
+          fg={props.selected && props.focused ? theme.text.formfield.focused : theme.text.base}
           wrapMode="none"
           truncate
         >
