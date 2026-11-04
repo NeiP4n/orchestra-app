@@ -348,6 +348,13 @@ export const Plugin = {
                 const resolved: Orchestra.Project[] = []
                 // Each new member team follows the operator's `orchestra.worker` policy.
                 const memberWorkerPolicy = yield* Orchestra.workerPolicy
+                // Federation members resolve models through the same Feature chain as every
+                // other dispatch: the operator's favorites lead, validated against the live
+                // catalog. Without this, group creation fell back to role/policy pins or the
+                // session default — an unknown model the operator never chose.
+                const favorites = yield* Orchestra.workerFavorites
+                const catalog = yield* Effect.serviceOption(Model.Service)
+                const available = Option.isNone(catalog) ? [] : yield* catalog.value.available()
                 for (const spec of specs) {
                   if (spec.kind === "existing") {
                     resolved.push(spec.project)
@@ -360,7 +367,7 @@ export const Plugin = {
                       ? {
                           template: spec.team,
                           workerModels: (role: Orchestra.Role | undefined) =>
-                            Orchestra.workerModels(memberWorkerPolicy, role),
+                            Orchestra.workerModels(memberWorkerPolicy, role, { favorites, catalog: available }),
                         }
                       : {}),
                     ...sandboxArgs(spec.sandbox),
@@ -377,7 +384,7 @@ export const Plugin = {
                   resolved.push(project)
                   if (spec.role) {
                     const role = spec.role
-                    const worker = Orchestra.workerModels(yield* Orchestra.workerPolicy, role)
+                    const worker = Orchestra.workerModels(yield* Orchestra.workerPolicy, role, { favorites, catalog: available })
                     yield* orchestra.createMember({
                       project,
                       agent: role.agent,
