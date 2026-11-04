@@ -30,6 +30,8 @@ export function PanelHost(props: {
         minWidth={0}
         minHeight={0}
         focusable
+        // Contain plugin-rendered canvases and decoration inside the panel bounds.
+        overflow="hidden"
         backgroundColor={background()}
         onMouseDown={props.onFocus}
       >
