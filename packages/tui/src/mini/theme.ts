@@ -3,7 +3,7 @@ import { generateSyntax, resolveThemeDocument, themeModes, type ResolvedTheme } 
 import { allThemes, getOrchestraTheme, isThemeSource, parseTheme, type ThemeDocumentSource } from "../theme"
 import { ansiToRgba } from "../theme/color"
 import { discoverThemes } from "../theme/discovery"
-import { generateSystem, terminalMode } from "../theme/system"
+import { generateSystem, terminalDefaultForegroundReadable, terminalMode } from "../theme/system"
 import { configDirectories } from "../util/config-directories"
 import { dedupeWith } from "effect/Array"
 import type { EntryKind, RunTuiConfig } from "./types"
@@ -113,10 +113,11 @@ function map(
   indexed: RGBA[],
   syntax?: SyntaxStyle,
   system = false,
+  preserveTerminalForeground = false,
 ): RunTheme {
-  // V1 system migration serializes colors; restore terminal defaults before quantizing scrollback.
+  // Keep native terminal colors only when its foreground already contrasts with its background.
   const exact = (color: RGBA) => {
-    if (system && color.equals(theme.text.base)) return RGBA.defaultForeground(color)
+    if (system && preserveTerminalForeground && color.equals(theme.text.base)) return RGBA.defaultForeground(color)
     if (system && color.equals(theme.background.base)) return RGBA.defaultBackground(color)
     return color
   }
@@ -124,10 +125,16 @@ function map(
     const value = exact(color)
     return value.a === 0 || value.intent !== "rgb" ? value : nearestIndexed(indexed, value)
   }
+  // If the terminal's default foreground is unsafe, keep corrected text as RGB.
+  // Quantizing it back to a broken ANSI palette could recreate black-on-black.
+  const scrollbackText = (color: RGBA) => {
+    if (system && !preserveTerminalForeground) return exact(color)
+    return scrollback(color)
+  }
   syntax?.getAllStyles().forEach((style, name) => {
     syntax.registerStyle(name, {
       ...style,
-      fg: style.fg && scrollback(style.fg),
+      fg: style.fg && scrollbackText(style.fg),
       bg: style.bg && scrollback(style.bg),
     })
   })
@@ -162,29 +169,29 @@ function map(
       line: exact(theme.background.raised.high),
     },
     entry: {
-      system: { body: scrollback(theme.text.muted) },
-      user: { body: scrollback(theme.text.base) },
-      assistant: { body: scrollback(theme.markdown.text) },
-      reasoning: { body: scrollback(theme.text.muted) },
-      tool: { body: scrollback(theme.text.muted), start: scrollback(theme.text.muted) },
-      error: { body: scrollback(theme.text.feedback.error.base) },
+      system: { body: scrollbackText(theme.text.muted) },
+      user: { body: scrollbackText(theme.text.base) },
+      assistant: { body: scrollbackText(theme.markdown.text) },
+      reasoning: { body: scrollbackText(theme.text.muted) },
+      tool: { body: scrollbackText(theme.text.muted), start: scrollbackText(theme.text.muted) },
+      error: { body: scrollbackText(theme.text.feedback.error.base) },
     },
     splash: {
-      left: nearestIndexed(indexed, theme.text.muted),
-      right: nearestIndexed(indexed, theme.text.base),
+      left: system && !preserveTerminalForeground ? exact(theme.text.muted) : nearestIndexed(indexed, theme.text.muted),
+      right: system && !preserveTerminalForeground ? exact(theme.text.base) : nearestIndexed(indexed, theme.text.base),
       leftShadow: nearestIndexed(indexed, theme.background.raised.base),
     },
     block: {
-      text: scrollback(theme.text.base),
-      muted: scrollback(theme.text.muted),
+      text: scrollbackText(theme.text.base),
+      muted: scrollbackText(theme.text.muted),
       syntax,
-      diffRemoved: scrollback(theme.diff.text.removed),
+      diffRemoved: scrollbackText(theme.diff.text.removed),
       diffAddedBg: scrollback(theme.diff.background.added),
       diffRemovedBg: scrollback(theme.diff.background.removed),
       diffContextBg: scrollback(theme.diff.background.context),
-      diffHighlightAdded: scrollback(theme.diff.highlight.added),
-      diffHighlightRemoved: scrollback(theme.diff.highlight.removed),
-      diffLineNumber: scrollback(theme.diff.lineNumber.text),
+      diffHighlightAdded: scrollbackText(theme.diff.highlight.added),
+      diffHighlightRemoved: scrollbackText(theme.diff.highlight.removed),
+      diffLineNumber: scrollbackText(theme.diff.lineNumber.text),
       diffAddedLineNumberBg: scrollback(theme.diff.lineNumber.background.added),
       diffRemovedLineNumberBg: scrollback(theme.diff.lineNumber.background.removed),
     },
@@ -297,7 +304,13 @@ export async function resolveRunTheme(
     ? ansiPalette.map((color, index) => (colors.palette[index] ? RGBA.fromIndex(index, colors.palette[index]!) : color))
     : ansiPalette
   return {
-    ...map(theme, indexed, generateSyntax(theme), name === "system" && resolved !== undefined),
+    ...map(
+      theme,
+      indexed,
+      generateSyntax(theme),
+      name === "system" && resolved !== undefined,
+      name === "system" && colors !== undefined && terminalDefaultForegroundReadable(colors),
+    ),
     background: RGBA.defaultBackground(colors?.defaultBackground ?? theme.background.base),
   }
 }
