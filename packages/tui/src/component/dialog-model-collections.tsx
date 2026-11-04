@@ -136,7 +136,7 @@ export function DialogModelCollections() {
         ]}
         actions={[
           {
-            command: "collections.new",
+            command: "dialog.collections.new",
             title: t("New collection"),
             selection: "none",
             onTrigger: () => {
@@ -157,7 +157,7 @@ export function DialogModelCollections() {
             },
           },
           {
-            command: "collections.new-endpoint",
+            command: "dialog.collections.endpoint",
             title: t("New endpoint"),
             selection: "none",
             onTrigger: () => endpointWizard(),
@@ -189,13 +189,13 @@ export function DialogModelCollections() {
         })}
         actions={[
           {
-            command: "collections.add-models",
+            command: "dialog.collections.add",
             title: t("Add models"),
             selection: "none",
             onTrigger: () => addModels(id),
           },
           {
-            command: "collections.remove-model",
+            command: "dialog.collections.remove",
             title: t("Remove model"),
             onTrigger: (option) => {
               saveCollections(
@@ -207,7 +207,7 @@ export function DialogModelCollections() {
             },
           },
           {
-            command: "collections.toggle",
+            command: "dialog.collections.toggle",
             title: collection.enabled ? t("Disable collection") : t("Enable collection"),
             selection: "none",
             onTrigger: () => {
@@ -218,7 +218,7 @@ export function DialogModelCollections() {
             },
           },
           {
-            command: "collections.rename",
+            command: "dialog.collections.rename",
             title: t("Rename"),
             selection: "none",
             onTrigger: () => {
@@ -238,7 +238,7 @@ export function DialogModelCollections() {
             },
           },
           {
-            command: "collections.delete",
+            command: "dialog.collections.delete",
             title: t("Delete collection"),
             selection: "none",
             onTrigger: () => {
@@ -255,7 +255,7 @@ export function DialogModelCollections() {
               ))
             },
           },
-          { command: "collections.back", title: t("Back"), selection: "none", onTrigger: root },
+          { command: "dialog.collections.back", title: t("Back"), selection: "none", onTrigger: root },
         ]}
         onFilter={() => undefined}
       />
@@ -290,7 +290,7 @@ export function DialogModelCollections() {
             }
           })}
         actions={[
-          { command: "collections.add-back", title: t("Done"), selection: "none", onTrigger: () => collectionDetail(collectionID) },
+          { command: "dialog.collections.done", title: t("Done"), selection: "none", onTrigger: () => collectionDetail(collectionID) },
         ]}
         onFilter={() => undefined}
       />
@@ -402,7 +402,7 @@ export function DialogModelCollections() {
         ]}
         actions={[
           {
-            command: "endpoint.test",
+            command: "dialog.endpoint.test",
             title: t("Test connection & fetch models"),
             selection: "none",
             onTrigger: () => {
@@ -455,7 +455,7 @@ export function DialogModelCollections() {
             },
           },
           {
-            command: "endpoint.add-model",
+            command: "dialog.endpoint.add",
             title: t("Add model manually"),
             selection: "none",
             onTrigger: () => {
@@ -475,7 +475,7 @@ export function DialogModelCollections() {
             },
           },
           {
-            command: "endpoint.remove-model",
+            command: "dialog.endpoint.remove",
             title: t("Remove model"),
             onTrigger: (option) => {
               if (!option.value.startsWith("model:")) return
@@ -486,7 +486,7 @@ export function DialogModelCollections() {
             },
           },
           {
-            command: "endpoint.delete",
+            command: "dialog.endpoint.delete",
             title: t("Delete endpoint"),
             selection: "none",
             onTrigger: () => {
@@ -513,7 +513,7 @@ export function DialogModelCollections() {
               ))
             },
           },
-          { command: "endpoint.back", title: t("Back"), selection: "none", onTrigger: root },
+          { command: "dialog.endpoint.back", title: t("Back"), selection: "none", onTrigger: root },
         ]}
         onFilter={() => undefined}
       />
