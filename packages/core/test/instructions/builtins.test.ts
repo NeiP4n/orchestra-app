@@ -137,4 +137,17 @@ describe("InstructionBuiltIns", () => {
       expect((yield* readUpdate(yield* context.load(), initialized)).changed).toBe(false)
     }),
   )
+
+  it.effect("advertises the skill catalog only when the session can call skill_catalog", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(timestamp)
+      const context = yield* InstructionBuiltIns.Service
+
+      const without = yield* readInitial(yield* context.load(["read", "edit"]))
+      expect(without.text).not.toContain("<skill-catalog>")
+
+      const withTool = yield* readInitial(yield* context.load(["read", "skill_catalog"]))
+      expect(withTool.text).toContain("<skill-catalog>")
+    }),
+  )
 })

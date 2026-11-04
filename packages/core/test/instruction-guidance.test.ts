@@ -67,6 +67,27 @@ describe("ToolGuidance instructions", () => {
   })
 })
 
+describe("ToolGuidance availability filtering", () => {
+  test("advertises only routes whose tools are actually available", () => {
+    const text = ToolGuidance.render(ToolGuidance.defaultRules, ["grep", "read"])
+    expect(text).toContain("Code search & AST navigation")
+    expect(text).not.toContain("Library documentation & external APIs")
+    expect(text).not.toContain("Live pages, web apps & browser flows")
+    expect(text).not.toContain("Binary analysis")
+  })
+
+  test("prefix patterns match installed MCP tool names", () => {
+    const text = ToolGuidance.render(ToolGuidance.defaultRules, ["playwright_chromium_navigate"])
+    expect(text).toContain("Live pages, web apps & browser flows")
+    expect(text).not.toContain("Code search & AST navigation")
+  })
+
+  test("no available tools renders no guidance at all", () => {
+    expect(ToolGuidance.render(ToolGuidance.defaultRules, [])).toBe("")
+    expect(ToolGuidance.render(ToolGuidance.defaultRules, ["no_such_tool"])).toBe("")
+  })
+})
+
 describe("ActionSnippets instructions", () => {
   test("renders default monorepo parameterized snippets", () => {
     const text = ActionSnippets.render()

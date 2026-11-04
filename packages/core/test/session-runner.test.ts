@@ -3025,7 +3025,10 @@ describe("SessionRunnerLLM", () => {
       Array.from({ length: 4 }, (_, index) => index),
       (index) => s.runPrompt(`Request ${index}: ${"x".repeat(8_000)}`),
     )
-    s.currentModel = testModel("smaller-history", { context: 7_000, output: 1_000 })
+    // The window leaves room for exactly the two newest exchanges beside the system prompt;
+    // it is calibrated to the prompt, so it grew with the capability-awareness contract
+    // (~627 estimated tokens) that every system prompt now carries.
+    s.currentModel = testModel("smaller-history", { context: 7_700, output: 1_000 })
     s.requests.length = 0
     yield* s.llm.push(TestLLM.text("## Objective\n- Recovered", "summary"))
     const compaction = yield* s.session.compact({ sessionID })
