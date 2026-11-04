@@ -1976,6 +1976,71 @@ describe("Orchestra team", () => {
   )
 })
 
+describe("Orchestra MCP assignment gate", () => {
+  it.live("refuses a dispatch to a role session without an explicit MCP assignment", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-mcp-gate-")))
+      const orchestra = yield* Orchestra.Service
+      const project = yield* orchestra.create({ name: "Gate", directory: tmp.path })
+      const worker = yield* orchestra.createMember({
+        project,
+        title: "Developer",
+        agent: Orchestra.role("developer"),
+      })
+      const tools = new Map<string, Tool.Info>()
+      yield* OrchestraTool.Plugin.effect(
+        host({
+          session: { hook: () => Effect.succeed({ dispose: Effect.void }) },
+          tool: {
+            transform: (callback) =>
+              Effect.sync(() => {
+                callback({
+                  list: () => [],
+                  get: () => undefined,
+                  namespace: () => {},
+                  add: (tool) => {
+                    tools.set(tool.name, tool)
+                  },
+                  update: () => {},
+                  remove: () => {},
+                })
+              }).pipe(Effect.as({ dispose: Effect.void })),
+            reload: () => Effect.void,
+            list: () => Effect.succeed([]),
+            hook: () => Effect.succeed({ dispose: Effect.void }),
+          },
+        }),
+      )
+      const sessionsTool = tools.get("sessions")
+      if (!sessionsTool) return yield* Effect.die("sessions tool was not registered")
+      const context = {
+        sessionID: project.main!,
+        agent: Orchestra.agent,
+        messageID: SessionMessage.ID.create(),
+        id: Tool.CallID.make("call_mcp_gate"),
+        progress: () => Effect.void,
+      }
+      // No mcp field: refused, nothing sent — the assignment must be stated, not inherited.
+      const refused = yield* sessionsTool
+        .execute({ action: "send", sessionID: worker.id, text: "do the task" }, context)
+        .pipe(Effect.flip)
+      expect(refused.message).toContain("No MCP assignment")
+      // An explicit no-MCP grant is a valid assignment: the dispatch goes through and the
+      // session carries the explicit record with a zero budget.
+      yield* sessionsTool.execute(
+        { action: "send", sessionID: worker.id, text: "do the task", mcp: { servers: [], maxCalls: 0 } },
+        context,
+      )
+      const sessionService = yield* Session.Service
+      const stamped = yield* sessionService.get(worker.id)
+      const assignment = OrchestraTool.mcpAssignmentOf(stamped?.metadata)
+      expect(assignment?.explicit).toBe(true)
+      expect(assignment?.servers).toEqual([])
+      expect(assignment?.maxCalls).toBe(0)
+    }),
+  )
+})
+
 describe("Orchestra workflow stages", () => {
   it.live("plans, transitions and replans stages persisted per project", () =>
     Effect.gen(function* () {

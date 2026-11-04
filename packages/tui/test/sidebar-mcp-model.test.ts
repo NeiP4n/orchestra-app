@@ -51,7 +51,7 @@ describe("this session", () => {
       { name: "playwright", status: "connected", usable: true },
       { name: "github", status: "needs_auth", usable: false },
     ])
-    expect(assignmentSummary(view)).toBe("2 assigned · 1 unavailable")
+    expect(assignmentSummary(view)).toBe("2 assigned · 1 unavailable · ≤12 calls")
   })
 
   test("a globally connected server that was not assigned is not shown as assigned", () => {
@@ -61,7 +61,7 @@ describe("this session", () => {
     )
     if (view.kind !== "assigned") throw new Error("expected assigned view")
     expect(view.rows.map((row) => row.name)).toEqual(["context7"])
-    expect(assignmentSummary(view)).toBe("1 assigned · 1 usable")
+    expect(assignmentSummary(view)).toBe("1 assigned · 1 usable · ≤12 calls")
   })
 
   test("an assigned server missing from the global list is not connected, not usable", () => {
@@ -108,8 +108,8 @@ describe("team assignments", () => {
   test("workers keep separate assignment lists and the viewed session is excluded", () => {
     const team = teamMcpView(sessions, "main", global)
     expect(team.map((worker) => worker.sessionID)).toEqual(["w1", "w2", "w3", "w4"])
-    expect(teamWorkerLine(team[0]!)).toBe("Researcher · 2 MCP")
-    expect(teamWorkerLine(team[1]!)).toBe("Tester · 1 MCP")
+    expect(teamWorkerLine(team[0]!)).toBe("Researcher · 2 MCP · ≤12 calls")
+    expect(teamWorkerLine(team[1]!)).toBe("Tester · 1 MCP · ≤12 calls")
     expect(teamWorkerLine(team[2]!)).toBe("Writer · 0 MCP")
     expect(teamWorkerLine(team[3]!)).toBe("Idle · not assigned")
     if (team[0]?.view.kind !== "assigned") throw new Error("expected assigned view")

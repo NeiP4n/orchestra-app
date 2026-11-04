@@ -726,6 +726,7 @@ test("preserves sibling catalogs through location preload, branch, shell, and we
         })
       if (pathname === "/api/websearch/provider")
         return Response.json({ location, data: [{ id: "search", name: "Search" }] })
+      if (pathname === "/api/form") return Response.json({ location, data: [] })
       throw new Error(`Unexpected request: ${pathname}`)
     },
   })
@@ -786,6 +787,7 @@ test("preserves sibling catalogs through location preload, branch, shell, and we
     expect(setup.data.shell.get(shell.id)).toBe(first)
     expect(setup.data.location.vcs.info()?.branch).toEqual({ current: "feature", default: "main" })
     expect(requests.toSorted()).toEqual([
+      "/api/form",
       "/api/location",
       "/api/project",
       "/api/reference",

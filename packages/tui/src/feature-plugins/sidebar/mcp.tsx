@@ -2,7 +2,6 @@ import { Plugin } from "@orchestra/plugin/tui"
 import { createEffect, createMemo, createResource, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
 import { Orchestra } from "@orchestra/schema/orchestra"
 import { DialogMcp } from "../../component/dialog-mcp"
-import { HoverAction } from "../../component/hover-action"
 import { useClient } from "../../context/client"
 import { useT } from "../../util/i18n"
 import { hoverBackground } from "../../ui/hover"
@@ -16,7 +15,7 @@ import { assignmentOf, assignmentSummary, sessionMcpView, teamMcpView, teamWorke
 // inventory. Rows are display only: clicking one opens the manager for that
 // server and never grants or changes any session's access.
 export function SidebarMcp(props: { context: Plugin.Context; sessionID: string }) {
-  const [view, updateView] = props.context.storage.store("view", { initial: { teamOpen: false } })
+  const [view, updateView] = props.context.storage.store("view", { initial: { teamOpen: true } })
   const theme = props.context.theme
   const t = useT()
   const client = useClient()
@@ -42,7 +41,11 @@ export function SidebarMcp(props: { context: Plugin.Context; sessionID: string }
   const team = createMemo(() => teamMcpView(teamSessions() ?? [], props.sessionID, global()))
   const myRows = createMemo(() => {
     const current = mine()
-    return current.kind === "assigned" ? current.rows : []
+    // An unrestricted grant ("all") is a summary, not a list: expanding it here
+    // would dump the whole global inventory under THIS SESSION and read as if
+    // every server were individually assigned. Rows are for finite grants —
+    // the servers the Orchestrator actually named for this session.
+    return current.kind === "assigned" && !current.unrestricted ? current.rows : []
   })
   const roleDefault = createMemo(() => {
     const current = mine()
@@ -123,12 +126,10 @@ export function SidebarMcp(props: { context: Plugin.Context; sessionID: string }
       </Show>
 
       <Show when={team().length > 0}>
-        <HoverAction
-          flexGrow={1}
-          paddingLeft={1}
-          paddingRight={1}
+        <box
+          flexDirection="row"
           gap={1}
-          onClick={() => {
+          onMouseDown={() => {
             void updateView((draft) => {
               draft.teamOpen = !draft.teamOpen
             }).catch((error) => console.error("Failed to persist MCP sidebar state", error))
@@ -141,7 +142,7 @@ export function SidebarMcp(props: { context: Plugin.Context; sessionID: string }
           <text fg={theme.text.muted} wrapMode="none">
             {t("{count} workers", { count: team().length })}
           </text>
-        </HoverAction>
+        </box>
         <Show when={view.teamOpen}>
           <For each={team()}>
             {(worker) => (
@@ -149,7 +150,7 @@ export function SidebarMcp(props: { context: Plugin.Context; sessionID: string }
                 <text fg={theme.text.base} wrapMode="none" truncate>
                   {teamWorkerLine(worker)}
                 </text>
-                <Show when={worker.view.kind === "assigned"}>
+                <Show when={worker.view.kind === "assigned" && !worker.view.unrestricted}>
                   <For each={worker.view.kind === "assigned" ? worker.view.rows : []}>
                     {(row) => (
                       <text fg={theme.text.muted} wrapMode="none" truncate>
@@ -173,13 +174,11 @@ export function SidebarMcp(props: { context: Plugin.Context; sessionID: string }
       </Show>
 
       <Show when={list().length > 0}>
-        <HoverAction
-          flexGrow={1}
-          paddingLeft={1}
-          paddingRight={1}
+        <box
+          flexDirection="row"
           justifyContent="space-between"
           gap={1}
-          onClick={() => props.context.ui.dialog.show(() => <DialogMcp />)}
+          onMouseUp={() => props.context.ui.dialog.show(() => <DialogMcp />)}
         >
           <text fg={theme.text.muted} flexShrink={0}>
             {t("All MCP servers")}
@@ -198,7 +197,7 @@ export function SidebarMcp(props: { context: Plugin.Context; sessionID: string }
               </span>
             </Show>
           </text>
-        </HoverAction>
+        </box>
       </Show>
     </box>
   )

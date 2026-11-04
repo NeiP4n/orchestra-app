@@ -626,6 +626,19 @@ export function createData(config: CreateDataInput) {
         )
         refresh(() => result.location.vcs.sync())
         refresh(() => result.project.sync())
+        // Forms and permissions are event-maintained after their first sync, so a
+        // settle event missed while disconnected (a server restart cancels every
+        // pending form server-side) leaves a phantom request in the store — and a
+        // phantom form or permission replaces the session's prompt indefinitely.
+        // Re-list every session that currently shows one; the server's list is the
+        // truth and drops what no longer exists.
+        refresh(() => result.session.form.sync("global", defaultLocation()))
+        for (const sessionID of result.session.form.sessions()) {
+          refresh(() => result.session.form.sync(sessionID))
+        }
+        for (const sessionID of result.session.permission.sessions()) {
+          refresh(() => result.session.permission.sync(sessionID))
+        }
         return
       }
       case "project.updated":

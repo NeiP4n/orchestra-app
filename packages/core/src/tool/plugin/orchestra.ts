@@ -45,7 +45,7 @@ export const description = [
   "Never pass a display title as a role ID: use an exact role id from the roles listed with your team.",
   "Access per session is hidden < read < write < full: read allows list and read, write adds send, full adds stop. Sessions you create get full access.",
   "The 6-message rule binds you: after 6 of your own messages in a row without handing a task to a worker, your other tool calls are refused until you delegate with send or create. The roster in your context shows how many of the 6 you have used.",
-  "MCP limits are yours to distribute: pass mcp on send or create to hand the worker its MCP budget for that one task (servers it may call, maxCalls in total, perServer caps). You may only tighten the role's own MCP ceiling, never widen it; a refused limit says what the role allows. The limit is stamped on the worker session and stated at the top of its task brief.",
+  "MCP assignment is mandatory, and it is enforced, not advised: every send or create to a team session must pass mcp — the servers the worker may call for that task, maxCalls in total, perServer caps — and a dispatch without it is refused and sends nothing. When a task needs no MCP, say so explicitly: mcp with servers [] and maxCalls 0. You may only tighten the role's own MCP ceiling, never widen it; a refused limit says what the role allows. The limit is stamped on the worker session and stated at the top of its task brief.",
   "MCP acquisition: action acquire_mcp makes a catalog MCP server actually usable. Pass server (an exact catalog id) or need (a capability in words, e.g. \"browser automation\") and it selects, installs, connects and verifies the server, reporting its real state and the tools actually discovered — a server counts as ready only when both hold. Pass role to check first that the server sits inside that role's MCP ceiling; outside it, acquisition is refused, not worked around. A needs_auth result names the credential variables the operator must provide; never invent a value. Installing is global and shared by the project, but it grants no role access by itself: role profiles and the per-task mcp limits still decide who may call the server, and removing one role's access never disconnects it for the others.",
   "Workflow stages: for anything beyond a trivial task, record the plan with action plan (stages: each with a name, work categories, role ids, dependsOn stage ids, acceptance criteria and the MCP servers it needs). You decide how many stages the task needs: one for a small fix, many for a system audit. Categories describe kinds of work (Research, Security, Implementation); stages are execution units and one stage may span several categories. Action stages lists the current plan; action stage updates one stage (status, and result as the evidence). Replan by calling plan again when a discovery changes the work: completed stages are preserved exactly as recorded, and a stage may start only when every stage it depends on is completed. Mark a stage completed only with evidence in result — a report, a test run, a commit — never on a worker's claim alone. The overall task is complete only when every stage is completed or explicitly cancelled. Action verify scores a task's own acceptance criteria against real evidence (a pass without evidence does not count, a missing criterion is a gap) — use it as the completion gate instead of trusting a worker's claim.",
 ].join("\n")
@@ -192,12 +192,14 @@ export const MCP_ASSIGNMENT_METADATA_KEY = "orchestra:mcp-assignment"
 /**
  * The explicit MCP assignment the Orchestrator gave one session for its current
  * task. Stamped on the session metadata at every send/create dispatch that has
- * a team role — including dispatches that pass no `mcp` field, which inherit
- * the role's ceiling (explicit: false) — so a missing stamp unambiguously
- * means "no task has been dispatched to this session yet", never "everything
- * is assigned". An empty servers list is an explicit assignment of no MCP.
- * This record is display truth for the sidebar; enforcement stays with the
- * limit stamp (MCP_LIMIT_METADATA_KEY), the deny rules and the budget gate.
+ * a team role. Since the assignment gate, a dispatch without an `mcp` field is
+ * refused, so records are explicit: true — except historical ones stamped
+ * before the gate, which inherited the role's ceiling (explicit: false). A
+ * missing stamp unambiguously means "no task has been dispatched to this
+ * session yet", never "everything is assigned". An empty servers list is an
+ * explicit assignment of no MCP. This record is display truth for the
+ * sidebar; enforcement stays with the limit stamp (MCP_LIMIT_METADATA_KEY),
+ * the deny rules and the budget gate.
  */
 export interface McpAssignment {
   /** MCP server names granted to this task, or "all" when the role sets no boundary. */
@@ -456,7 +458,7 @@ export const Input = Schema.Struct({
     }),
   ).annotate({
     description:
-      "For send and create: the MCP budget you distribute to this worker for this task. It can only tighten the role's own MCP ceiling (shown with the role in your context), never widen it.",
+      "For send and create: REQUIRED when the target session has a team role — the MCP budget you distribute to this worker for this task. It can only tighten the role's own MCP ceiling (shown with the role in your context), never widen it. A dispatch without it is refused; when the task needs no MCP, pass { servers: [], maxCalls: 0 }.",
   }),
   stages: Schema.optionalKey(Schema.Array(StageInput)).annotate({
     description:
@@ -927,8 +929,8 @@ export const Plugin = {
               // against the role's ceiling, enforced by appending deny rules for the
               // servers outside the allowlist to the session's ruleset (last match
               // wins), stamped on the session metadata, and returned so the caller
-              // can state it at the top of the task brief. The assignment record is
-              // stamped on every dispatch; the limit stamp only with an `mcp` field.
+              // can state it at the top of the task brief. A dispatch to a role
+              // session without an `mcp` field is refused (see the gate below).
               const distributeMcp = Effect.fnUntraced(function* (
                 sessionID: SessionSchema.ID,
                 role: Orchestra.Role | undefined,
@@ -941,35 +943,19 @@ export const Plugin = {
                 const session = yield* sessions
                   .get(sessionID)
                   .pipe(Effect.mapError(() => new ToolFailure({ message: `Session not found: ${sessionID}` })))
-                // Every dispatch records the session's explicit MCP assignment, with or
-                // without an `mcp` field: without one the assignment is the role's own
-                // ceiling, inherited (explicit: false) and enforced exactly as before —
-                // no limit stamp, no deny rules. The record exists so "what was this
-                // session granted?" always has a truthful answer, and a session with no
-                // record was simply never dispatched a task.
+                // The MCP assignment is a mandatory part of every dispatch to a role
+                // session — enforced here, in code, not left to the prompt: a dispatch
+                // without an `mcp` field is refused, so the Orchestrator must state the
+                // grant for every task, including "no MCP" (servers: [], maxCalls: 0).
+                // The earlier inherited-ceiling default let dispatches through with an
+                // implicit grant the operator never saw decided; that is exactly the
+                // failure this gate exists to make impossible. (Assignment records
+                // stamped before the gate may still carry explicit: false.)
                 if (input.mcp === undefined) {
-                  const ceiling = defaultMcpLimit(role)
-                  yield* sessions
-                    .setMetadata({
-                      sessionID,
-                      metadata: {
-                        ...(session.metadata ?? {}),
-                        [MCP_ASSIGNMENT_METADATA_KEY]: {
-                          servers: ceiling.servers === "all" ? "all" : [...ceiling.servers],
-                          maxCalls: ceiling.maxCalls,
-                          perServer: {},
-                          explicit: false,
-                          budgetEpoch: null,
-                          assignedAt: Date.now(),
-                        } as Schema.Json,
-                      },
-                    })
-                    .pipe(
-                      Effect.mapError(
-                        (error) => new ToolFailure({ message: `Could not stamp the MCP assignment on ${sessionID}`, error }),
-                      ),
-                    )
-                  return undefined
+                  return yield* new ToolFailure({
+                    message:
+                      "No MCP assignment: every dispatch to a team session must pass an explicit mcp object — the servers this task may use and maxCalls (the role's ceiling is in your context). If the task needs no MCP, pass mcp: { servers: [], maxCalls: 0 }. Nothing was sent.",
+                  })
                 }
                 const resolution = resolveMcpLimit(role, input.mcp)
                 if (!resolution.ok) return yield* new ToolFailure({ message: resolution.message })

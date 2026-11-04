@@ -83,11 +83,13 @@ export interface AssignedRow {
 
 export type SessionMcpView =
   | { readonly kind: "unassigned" }
-  | { readonly kind: "none"; readonly explicit: boolean; readonly assignedAt: number }
+  | { readonly kind: "none"; readonly explicit: boolean; readonly assignedAt: number; readonly maxCalls: number }
   | {
       readonly kind: "assigned"
       readonly explicit: boolean
       readonly assignedAt: number
+      /** The task's total MCP call budget under this assignment. */
+      readonly maxCalls: number
       /** True when the grant is the role's unbounded ceiling ("all"). */
       readonly unrestricted: boolean
       readonly rows: readonly AssignedRow[]
@@ -100,7 +102,7 @@ export type SessionMcpView =
 export function sessionMcpView(assignment: McpAssignment | undefined, global: readonly GlobalServer[]): SessionMcpView {
   if (!assignment) return { kind: "unassigned" }
   if (Array.isArray(assignment.servers) && assignment.servers.length === 0)
-    return { kind: "none", explicit: assignment.explicit, assignedAt: assignment.assignedAt }
+    return { kind: "none", explicit: assignment.explicit, assignedAt: assignment.assignedAt, maxCalls: assignment.maxCalls }
   const byName = new Map(global.map((server) => [server.name, server.status]))
   const names = assignment.servers === "all" ? global.map((server) => server.name) : [...assignment.servers]
   const rows = names.map((name) => {
@@ -112,6 +114,7 @@ export function sessionMcpView(assignment: McpAssignment | undefined, global: re
     kind: "assigned",
     explicit: assignment.explicit,
     assignedAt: assignment.assignedAt,
+    maxCalls: assignment.maxCalls,
     unrestricted: assignment.servers === "all",
     rows,
     assigned: rows.length,
@@ -124,10 +127,10 @@ export function sessionMcpView(assignment: McpAssignment | undefined, global: re
 export function assignmentSummary(view: SessionMcpView): string {
   if (view.kind === "unassigned") return "Not assigned yet"
   if (view.kind === "none") return "No MCP assigned"
-  if (view.unrestricted) return `All permitted · ${view.usable} usable`
+  if (view.unrestricted) return `All permitted · ${view.usable} usable · ≤${view.maxCalls} calls`
   return view.unavailable > 0
-    ? `${view.assigned} assigned · ${view.unavailable} unavailable`
-    : `${view.assigned} assigned · ${view.usable} usable`
+    ? `${view.assigned} assigned · ${view.unavailable} unavailable · ≤${view.maxCalls} calls`
+    : `${view.assigned} assigned · ${view.usable} usable · ≤${view.maxCalls} calls`
 }
 
 export interface TeamSessionLike {
@@ -165,9 +168,10 @@ export function teamMcpView(
     }))
 }
 
-/** Compact per-worker line for the collapsed team summary: "Researcher · 2 MCP". */
+/** Compact per-worker line for the team summary: "Researcher · 2 MCP · ≤12 calls". */
 export function teamWorkerLine(worker: TeamWorkerMcp): string {
   if (worker.view.kind === "unassigned") return `${worker.title} · not assigned`
   if (worker.view.kind === "none") return `${worker.title} · 0 MCP`
-  return `${worker.title} · ${worker.view.assigned} MCP`
+  if (worker.view.unrestricted) return `${worker.title} · all MCP · ≤${worker.view.maxCalls} calls`
+  return `${worker.title} · ${worker.view.assigned} MCP · ≤${worker.view.maxCalls} calls`
 }
