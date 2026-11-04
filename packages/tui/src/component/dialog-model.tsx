@@ -1,7 +1,10 @@
-import { createEffect, createMemo, createSignal, on, onMount } from "solid-js"
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js"
+import { TextAttributes } from "@opentui/core"
 import { useLocal } from "../context/local"
 import { DialogSelect } from "../ui/dialog-select"
+import { CategoryRail } from "../ui/category-rail"
 import { useDialog } from "../ui/dialog"
+import { useTheme } from "../context/theme"
 import { DialogIntegration } from "./dialog-integration"
 import { DialogModelCollections } from "./dialog-model-collections"
 import { DialogVariant } from "./dialog-variant"
@@ -30,6 +33,20 @@ interface FreebuffStatusResponse {
   readonly prices?: ReadonlyArray<{ readonly key: string; readonly price?: number }>
 }
 
+type ModelSearchOption = {
+  value: { providerID: string; modelID: string }
+  title: string
+  category?: string | undefined
+  releaseDate: string | number
+  footer?: string | undefined
+}
+
+const CATEGORY_ALL = "all"
+const CATEGORY_FEATURE = "feature"
+const CATEGORY_RECENT = "recent"
+const collectionCategoryID = (name: string) => `collection:${name}`
+const providerCategoryID = (providerID: string) => `provider:${providerID}`
+
 // With onPick the choice goes to the caller (the global default model) instead of the
 // current session's selection.
 export function DialogModel(props: {
@@ -44,7 +61,14 @@ export function DialogModel(props: {
   const client = useClient()
   const toast = useToast()
   const t = useT()
+  const theme = useTheme().surface("dialog")
   const [query, setQuery] = createSignal("")
+  const [selectedCategory, setSelectedCategory] = createSignal(CATEGORY_ALL)
+  // The categorized picker needs the room the rail takes, like Ctrl+P.
+  onMount(() => {
+    if (!props.providerID) dialog.setSize("large")
+  })
+  onCleanup(() => dialog.setSize("medium"))
   // Favorites are shared through the server config, so every client of the same server lists
   // the same models; this machine's model.json adds the ones pinned before the config existed.
   const configFavorites = createMemo(() => {
@@ -119,14 +143,17 @@ export function DialogModel(props: {
       .catch(() => undefined)
   })
 
-  const options = createMemo(() => {
-    const needle = query().trim()
-    const showSections = showExtra() && needle.length === 0
+  // The picker browses by category, like Ctrl+P and /settings: the rail picks
+  // the group (Feature, a collection, Recent, or one provider), the list beside
+  // it shows only that group, and search narrows within the selected category
+  // (All searches everything). This memo builds every group once; the options
+  // memo below picks what the current category and query show.
+  const parts = createMemo(() => {
     const favorites = connected() ? favoriteModels() : []
     const recents = local.model.recent()
 
     function toOptions(items: typeof favorites, category: string) {
-      if (!showSections) return []
+      if (!showExtra()) return []
       return items.flatMap((item) => {
         const model = models().find((model) => model.providerID === item.providerID && model.id === item.modelID)
         if (!model) return []
@@ -174,7 +201,7 @@ export function DialogModel(props: {
     )
     recents.forEach((item) => placed.add(modelPreferenceKey(item)))
 
-    const modelOptions = sortModelOptions(
+    const allModelOptions = sortModelOptions(
       models()
         .filter((model) => model.status !== "deprecated")
         .filter((model) => (props.providerID ? model.providerID === props.providerID : true))
@@ -201,26 +228,98 @@ export function DialogModel(props: {
               onSelect(model.providerID, model.id)
             },
           }
-        })
-        .filter((option) => {
-          if (!showSections) return true
-          // Anything already placed in Feature, a collection section or Recent is not repeated below.
-          return !placed.has(modelPreferenceKey(option.value))
         }),
       connected(),
     )
 
+    // In the All view a model already placed in Feature, a collection section
+    // or Recent is not repeated in its provider group. A provider category
+    // browses the provider's full list, so it reads allModelOptions instead.
+    const modelOptions = showExtra()
+      ? allModelOptions.filter((option) => !placed.has(modelPreferenceKey(option.value)))
+      : allModelOptions
+
+    return { favoriteOptions, collectionOptions, recentOptions, allModelOptions, modelOptions }
+  })
+
+  const categories = createMemo(() => {
+    if (!showExtra()) return []
+    const built = parts()
+    const items: Array<{ id: string; label: string; count: number }> = [
+      {
+        id: CATEGORY_ALL,
+        label: t("All"),
+        count:
+          built.favoriteOptions.length +
+          built.collectionOptions.length +
+          built.recentOptions.length +
+          built.modelOptions.length,
+      },
+    ]
+    if (built.favoriteOptions.length > 0)
+      items.push({ id: CATEGORY_FEATURE, label: t("Feature"), count: built.favoriteOptions.length })
+    const collectionCounts = new Map<string, number>()
+    for (const option of built.collectionOptions)
+      collectionCounts.set(option.category, (collectionCounts.get(option.category) ?? 0) + 1)
+    for (const [name, count] of collectionCounts) items.push({ id: collectionCategoryID(name), label: name, count })
+    if (built.recentOptions.length > 0)
+      items.push({ id: CATEGORY_RECENT, label: t("Recent"), count: built.recentOptions.length })
+    const providerCounts = new Map<string, { label: string; count: number }>()
+    for (const option of built.allModelOptions) {
+      const entry = providerCounts.get(option.providerID) ?? { label: option.providerName, count: 0 }
+      entry.count++
+      providerCounts.set(option.providerID, entry)
+    }
+    for (const [providerID, entry] of providerCounts)
+      items.push({ id: providerCategoryID(providerID), label: entry.label, count: entry.count })
+    return items
+  })
+
+  const activeCategory = createMemo(
+    () => categories().find((category) => category.id === selectedCategory()) ?? categories()[0],
+  )
+
+  function cycleCategory(direction: number) {
+    const cats = categories()
+    if (cats.length === 0) return
+    const idx = cats.findIndex((category) => category.id === activeCategory()?.id)
+    setSelectedCategory(cats[(idx + direction + cats.length) % cats.length].id)
+  }
+
+  function categorySubset(id: string, built: ReturnType<typeof parts>): ModelSearchOption[] {
+    if (id === CATEGORY_FEATURE) return built.favoriteOptions
+    if (id === CATEGORY_RECENT) return built.recentOptions
+    if (id.startsWith("collection:")) {
+      const name = id.slice("collection:".length)
+      return built.collectionOptions.filter((option) => option.category === name)
+    }
+    if (id.startsWith("provider:")) {
+      const providerID = id.slice("provider:".length)
+      return built.allModelOptions.filter((option) => option.providerID === providerID)
+    }
+    return built.allModelOptions
+  }
+
+  const options = createMemo(() => {
+    const needle = query().trim()
+    const built = parts()
+    const category = activeCategory()?.id ?? CATEGORY_ALL
+
     if (needle) {
+      const pool: ModelSearchOption[] =
+        !showExtra() || category === CATEGORY_ALL ? built.allModelOptions : categorySubset(category, built)
       return prioritizeFavorites(
         sortModelOptions(
-          fuzzysort.go(needle, modelOptions, { keys: ["title", "category"] }).map((item) => item.obj),
+          fuzzysort.go(needle, pool, { keys: ["title", "category"] }).map((item) => item.obj),
           false,
         ),
         favoritePriority(),
       )
     }
 
-    return [...favoriteOptions, ...collectionOptions, ...recentOptions, ...modelOptions]
+    if (!showExtra() || category === CATEGORY_ALL)
+      return [...built.favoriteOptions, ...built.collectionOptions, ...built.recentOptions, ...built.modelOptions]
+    return categorySubset(category, built)
   })
 
   const provider = createMemo(() => (props.providerID ? providers().get(props.providerID) : undefined))
@@ -268,7 +367,7 @@ export function DialogModel(props: {
     })
   }
 
-  return (
+  const select = (
     <DialogSelect<ReturnType<typeof options>[number]["value"]>
       options={options()}
       actions={[
@@ -306,9 +405,41 @@ export function DialogModel(props: {
       flat={true}
       skipFilter={true}
       title={title()}
+      titleView={
+        showExtra() ? (
+          <box flexDirection="row" gap={1} alignItems="center">
+            <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
+              {activeCategory()?.label ?? t("All")}
+            </text>
+            <text fg={theme.text.muted}>{`· ${options().length} ${t("options")}`}</text>
+            <text fg={theme.text.muted}>{`· tab ${t("category")} · shift+tab ${t("previous")}`}</text>
+          </box>
+        ) : undefined
+      }
+      bindings={
+        showExtra()
+          ? [
+              { bind: "tab", title: "Next category", group: "Dialog", run: () => cycleCategory(1) },
+              { bind: "shift+tab", title: "Previous category", group: "Dialog", run: () => cycleCategory(-1) },
+            ]
+          : undefined
+      }
       current={local.model.current()}
       focusCurrent={false}
     />
+  )
+
+  if (!showExtra()) return select
+
+  return (
+    <box flexDirection="row" flexGrow={1}>
+      <CategoryRail
+        items={categories()}
+        selected={activeCategory()?.id ?? CATEGORY_ALL}
+        onSelect={setSelectedCategory}
+      />
+      {select}
+    </box>
   )
 }
 
