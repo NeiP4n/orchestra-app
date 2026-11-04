@@ -8,6 +8,11 @@ type HoverTheme<T> = {
       base?: T
       high?: T
     }
+    action?: {
+      primary?: {
+        hovered?: T
+      }
+    }
   }
   text?: {
     base?: T
@@ -42,9 +47,10 @@ export function hoverBackground<T>(theme: HoverTheme<T>): T {
   const raised = background?.raised
   const base = raised?.base ?? background?.base
 
-  if (raised?.high !== undefined) {
-    if (base === undefined || distinctSurface(raised.high, base)) return raised.high
-    return visibleFallback(base, theme)
+  // Prefer the semantic action-hover token, then the shared raised surface.
+  // Both are theme-owned; the fallback below is only for themes whose tokens collapse.
+  for (const candidate of [background?.action?.primary?.hovered, raised?.high]) {
+    if (candidate !== undefined && (base === undefined || distinctSurface(candidate, base))) return candidate
   }
 
   if (base !== undefined) {
