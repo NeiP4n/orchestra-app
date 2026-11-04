@@ -1121,7 +1121,16 @@ function Tab(props: {
       }}
     >
       {/* On the filled active half the icon takes the label's color, or it vanishes into the fill. */}
-      <text fg={active() ? theme.text.action.primary.focused : palette().synapse} wrapMode="none">
+      <text
+        fg={
+          active()
+            ? theme.text.action.primary.focused
+            : props.hover() === id
+              ? theme.text.action.primary.hovered
+              : palette().synapse
+        }
+        wrapMode="none"
+      >
         {props.label ? `${props.icon} ` : props.icon}
       </text>
       <text
