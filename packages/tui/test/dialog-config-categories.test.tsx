@@ -13,18 +13,11 @@ import { TestTuiContexts } from "./fixture/tui-environment"
 import { createTuiResolvedConfig } from "./fixture/tui-runtime"
 import { createApi, createEventStream, createFetch, json } from "./fixture/tui-client"
 
-type Call = { method: string; path: string; body?: unknown }
-
-// The settings dialog also reads and writes the server's own config.
-const serverApi = (calls: Call[] = [], governor?: boolean) =>
+// The dialog writes only the interface config; the client stub serves an empty server config.
+const serverApi = () =>
   createApi(
-    createFetch(async (url, request) => {
-      if (url.pathname === "/api/config")
-        return json(governor === undefined ? [] : [{ type: "document", info: { experimental: { context_governor: governor } } }])
-      if (url.pathname === "/api/experimental/config") {
-        calls.push({ method: request.method, path: url.pathname, body: await request.json() })
-        return new Response(null, { status: 204 })
-      }
+    createFetch(async (url) => {
+      if (url.pathname === "/api/config") return json([])
     }, createEventStream()).fetch,
   )
 
@@ -65,7 +58,7 @@ test("DialogConfig sets dialog size to large and renders categorized navigation 
 
   const frame = app.captureCharFrame()
   // Verify category tabs are rendered
-  for (const category of ["All", "General", "Appearance", "Chat", "Agent", "Workspace", "Notifications", "Input", "Developer"])
+  for (const category of ["All", "General", "Chat", "Agent", "Notifications", "Developer"])
     expect(frame).toContain(category)
 
   // Verify rich footer card metadata is rendered: the default stays, the internal config
@@ -100,59 +93,26 @@ test("DialogConfig category tabs filter the visible options when clicked", async
   app.renderer.start()
   await app.waitForFrame((frame) => frame.includes("Settings") && frame.includes("General"))
 
-  // Find position of the "Appearance" entry in the category rail
+  // Find position of the "Chat" entry in the category rail
   const lines = app.captureCharFrame().split("\n")
-  const catRow = lines.findIndex((l) => l.includes("Appearance"))
+  const catRow = lines.findIndex((l) => l.includes("Chat"))
   expect(catRow).toBeGreaterThanOrEqual(0)
-  const appCol = lines[catRow].indexOf("Appearance")
+  const appCol = lines[catRow].indexOf("Chat")
 
-  // Click on "Appearance" in the rail
+  // Click on "Chat" in the rail
   await app.mockMouse.click(appCol + 2, catRow)
-  await app.waitForFrame((frame) => frame.includes("Animations") && frame.includes("Mascot"))
+  await app.waitForFrame((frame) => frame.includes("Verbosity"))
 
   const filteredFrame = app.captureCharFrame()
-  expect(filteredFrame).toContain("Animations")
-  expect(filteredFrame).toContain("Mascot")
+  expect(filteredFrame).toContain("Verbosity")
   expect(filteredFrame).not.toContain("AI language")
 })
 
-test("the Context governor setting is a button that writes the server's config", async () => {
-  const calls: Call[] = []
+test("decluttered tuning knobs are not listed even with Developer mode on", async () => {
   const app = await testRender(
     () => (
       <TestTuiContexts>
         <ConfigProvider config={createTuiResolvedConfig({ developer: true, theme: { name: "opencode", mode: "dark" } })}>
-          <ClientProvider api={serverApi(calls, false)}>
-            <ThemeProvider mode="dark" source={emptyThemeSource}>
-              <Keymap.Provider>
-                <ToastProvider>
-                  <DialogProvider>
-                    <DialogConfig />
-                  </DialogProvider>
-                </ToastProvider>
-              </Keymap.Provider>
-            </ThemeProvider>
-          </ClientProvider>
-        </ConfigProvider>
-      </TestTuiContexts>
-    ),
-    { width: 120, height: 45 },
-  )
-  app.renderer.start()
-  await app.waitForFrame((frame) => frame.includes("Context governor"))
-
-  const lines = app.captureCharFrame().split("\n")
-  const row = lines.findIndex((line) => line.includes("Context governor"))
-  await app.mockMouse.click(lines[row].indexOf("Context governor") + 2, row)
-  await app.waitFor(() => calls.length > 0)
-  expect(calls).toEqual([{ method: "PATCH", path: "/api/experimental/config", body: { contextGovernor: true } }])
-})
-
-test("advanced settings stay out of the list until Developer mode is on", async () => {
-  const app = await testRender(
-    () => (
-      <TestTuiContexts>
-        <ConfigProvider config={createTuiResolvedConfig({ theme: { name: "opencode", mode: "dark" } })}>
           <ClientProvider api={serverApi()}>
             <ThemeProvider mode="dark" source={emptyThemeSource}>
               <Keymap.Provider>
@@ -170,10 +130,11 @@ test("advanced settings stay out of the list until Developer mode is on", async 
     { width: 120, height: 45 },
   )
   app.renderer.start()
-  await app.waitForFrame((frame) => frame.includes("Settings") && frame.includes("Auto-compact"))
+  await app.waitForFrame((frame) => frame.includes("Settings") && frame.includes("Permissions"))
 
-  // Rows around it are listed, so the advanced row is hidden rather than scrolled away.
+  // The whole list fits in the frame, so missing rows are removed, not scrolled away.
   const frame = app.captureCharFrame()
   expect(frame).toContain("Permissions")
-  expect(frame).not.toContain("Context governor")
+  for (const removed of ["Context governor", "Auto-compact", "Developer tools", "Animations", "Mascot", "Tabs", "Mouse"])
+    expect(frame).not.toContain(removed)
 })

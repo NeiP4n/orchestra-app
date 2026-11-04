@@ -33,6 +33,19 @@ describe("TUI i18n", () => {
     expect(translate("ru", "Coordinator: {leader}", { leader: "node-1" })).toBe("Координатор: node-1")
   })
 
+  test("carries no translations for the removed proxy and WARP dialogs", () => {
+    for (const removed of [
+      "Setting up the Orchestra proxy…",
+      "Removing the Orchestra proxy…",
+      "Remove the Orchestra proxy",
+      "Orchestra now connects directly. Other apps' settings are unchanged.",
+      "Status, connect, reconnect and registration reset",
+      "Reset registration…",
+      "Only Orchestra",
+    ])
+      expect(translate("ru", removed)).toBe(removed)
+  })
+
   test("falls back safely for untranslated strings", () => {
     const source = "A newly added English label"
     expect(translate("ru", source)).toBe(source)
