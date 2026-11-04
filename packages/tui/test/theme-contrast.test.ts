@@ -95,6 +95,13 @@ for (const state of ["base", "hovered", "focused", "selected", "pressed", "disab
     bg: (t) => (t.background.formfield as unknown as Record<string, RGBA>)[state],
     floor: state === "disabled" ? 3.0 : 4.5,
   })
+for (const variant of ["primary", "secondary", "destructive"] as const)
+  statePairs.push({
+    name: `action.${variant}.base on its hovered background`,
+    fg: (t) => (t.text.action[variant] as unknown as Record<string, RGBA>).base,
+    bg: (t) => (t.background.action[variant] as unknown as Record<string, RGBA>).hovered,
+    floor: 3.0,
+  })
 for (const kind of ["error", "warning", "success", "info"] as const) {
   statePairs.push({
     name: `feedback.${kind}.base on its background`,
