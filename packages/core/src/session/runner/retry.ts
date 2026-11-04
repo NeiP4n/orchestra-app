@@ -67,7 +67,8 @@ export const policy = (sessionID: SessionSchema.ID) =>
           error: input.error,
           attempt,
           // Another attempt from an address that spent its free-tier day is wasted, so the step stops
-          // at once; Auto IP resumes the chat after it has moved OpenCode to another address.
+          // at once instead of retrying a spent address; the work is picked up again from the
+          // durable session state on the next prompt or a restart, not by waiting out the cap here.
           decision:
             input.retry && timeouts <= MAX_TIMEOUT_RETRIES && !isFreeTierAddressCap(input.cause)
               ? { retry: true, delay }
