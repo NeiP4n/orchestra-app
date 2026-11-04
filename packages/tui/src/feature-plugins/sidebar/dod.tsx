@@ -441,7 +441,7 @@ export function SidebarDodPanel(props: { context: Plugin.Context; panel: PanelIn
           progress line would be drawn over the close control and it could not be clicked. */}
       <box flexDirection="row" alignItems="flex-start" gap={1} flexShrink={0}>
         <box flexGrow={1} minWidth={0} gap={1}>
-          <text fg={theme.text.base}>
+          <text fg={theme.text.base} wrapMode="none" truncate>
             <b>{t("Project DoD")}</b>
           </text>
           <Show when={boardRoot()}>
@@ -459,7 +459,7 @@ export function SidebarDodPanel(props: { context: Plugin.Context; panel: PanelIn
               flexShrink={0}
               paddingLeft={1}
               paddingRight={1}
-              backgroundColor={deleteHovered() ? theme.background.action.destructive.hovered : undefined}
+              backgroundColor={deleteHovered() ? hoverBackground(theme, "destructive") : undefined}
               onMouseOver={() => setDeleteHovered(true)}
               onMouseOut={() => setDeleteHovered(false)}
               onMouseUp={(event) => {
