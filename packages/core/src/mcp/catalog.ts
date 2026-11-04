@@ -182,10 +182,9 @@ export type Entry = {
 const local = (command: string[]): ServerConfig => ({ type: "local", command }) as ServerConfig
 const remote = (url: string): ServerConfig => ({ type: "remote", url }) as ServerConfig
 
-// Both browser servers default to Google Chrome stable, which many Windows machines lack; Edge ships
-// with Windows and speaks the same protocol, so point them at it there.
+// Playwright defaults to Google Chrome stable, which many Windows machines lack; Edge ships
+// with Windows and speaks the same protocol, so point it at Edge there.
 const windows = process.platform === "win32"
-const edge = `${process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)"}\\Microsoft\\Edge\\Application\\msedge.exe`
 
 export const all: readonly Entry[] = [
   {
@@ -196,6 +195,16 @@ export const all: readonly Entry[] = [
       "Before using a library API you are not sure about, resolve the library id, then fetch its docs for the exact version and topic.",
     runtime: "npx",
     config: local(["npx", "-y", "@upstash/context7-mcp"]),
+  },
+  {
+    id: "serena",
+    name: "Serena",
+    description:
+      "Semantic code intelligence at symbol level via language servers: find symbols and references, rename and edit precisely across 40+ languages.",
+    usage:
+      "Serena speaks through a session REPL, not flat tools: call initial_instructions first and keep the session id it returns, activate the project once, then drive the facades through serena_repl (s.lsp for declarations, references, implementations and rename; s.fs and s.edit for reading and precise edits). Needs uvx (the uv toolchain) on PATH. Prefer it over grep-and-read for cross-file questions; fall back to native symbols/grep when it is unavailable.",
+    runtime: "uvx",
+    config: local(["uvx", "--from", "serena-agent", "serena", "start-mcp-server", "--context", "desktop-app"]),
   },
   {
     id: "rea-anything",
@@ -218,68 +227,14 @@ export const all: readonly Entry[] = [
     config: local(["npx", "-y", "@playwright/mcp@latest", ...(windows ? ["--browser", "msedge"] : [])]),
   },
   {
-    id: "chrome-devtools",
-    name: "Chrome DevTools",
-    description: "Inspect Chrome pages, console errors, network requests, DOM state, and performance traces.",
+    id: "agent-desktop",
+    name: "Agent Desktop",
+    description:
+      "Computer use for desktop apps on macOS, Windows, and Linux: see and operate them through the OS accessibility tree, with a ref for every element.",
     usage:
-      "Use it to debug browser failures, inspect network/API calls, investigate console errors, and profile slow pages.",
+      "Use to operate a desktop app: snapshot it first, act on element refs (click, type, set-value), then snapshot again to verify the result. Actions are headless by default.",
     runtime: "npx",
-    config: local(["npx", "-y", "chrome-devtools-mcp@latest", ...(windows ? ["--executablePath", edge] : [])]),
-  },
-  {
-    id: "desktop-commander",
-    name: "Desktop Commander",
-    description: "Long-running terminal sessions, process management, fast file search, and edits across the computer.",
-    usage:
-      "Use for interactive or long-running programs: start a process, inspect its output later, send input, search files, or manage processes.",
-    runtime: "npx",
-    config: local(["npx", "-y", "@wonderwhy-er/desktop-commander"]),
-  },
-  {
-    id: "windows",
-    name: "Windows MCP",
-    description: "Windows UI automation by accessible element name: inspect windows, click controls, and type text.",
-    usage:
-      "Use on Windows for reliable desktop automation by inspecting controls and operating them by semantic names instead of screen coordinates.",
-    runtime: "uvx",
-    platforms: ["win32"],
-    config: local(["uvx", "windows-mcp"]),
-  },
-  {
-    id: "sequential-thinking",
-    name: "Sequential Thinking",
-    description: "Structured step-by-step problem solving with revisions and branches.",
-    usage:
-      "Use only for genuinely difficult planning, architecture, debugging, or analysis where explicit revision of intermediate hypotheses helps.",
-    runtime: "npx",
-    config: local(["npx", "-y", "@modelcontextprotocol/server-sequential-thinking"]),
-  },
-  {
-    id: "memory",
-    name: "Memory",
-    description: "Persistent knowledge graph for storing and recalling useful facts across sessions.",
-    usage:
-      "Store durable project facts, decisions, entities, and relationships; retrieve them before asking the user for information already recorded.",
-    runtime: "npx",
-    config: local(["npx", "-y", "@modelcontextprotocol/server-memory"]),
-  },
-  {
-    id: "filesystem",
-    name: "Filesystem",
-    description: "Secure file and directory operations with search and access control.",
-    usage:
-      "Use for file operations when direct tools are insufficient; prefer narrow project roots and never grant access to secrets or unrelated personal directories.",
-    runtime: "npx",
-    config: local(["npx", "-y", "@modelcontextprotocol/server-filesystem"]),
-  },
-  {
-    id: "git",
-    name: "Git",
-    description: "Inspect Git status, diffs, history, branches, and repository state through MCP.",
-    usage:
-      "Use for repository-aware Git inspection and safe version-control operations. Prefer read-only inspection before modifying history or pushing changes.",
-    runtime: "uvx",
-    config: local(["uvx", "mcp-server-git"]),
+    config: local(["npx", "-y", "agent-desktop", "mcp"]),
   },
   {
     id: "github",
@@ -299,25 +254,6 @@ export const all: readonly Entry[] = [
     config: remote("https://mcp.deepwiki.com/mcp"),
   },
   {
-    id: "fetch",
-    name: "Fetch",
-    description: "Fetch web pages and convert their contents into model-friendly text.",
-    usage:
-      "Use to read documentation, articles, changelogs, and other web pages when direct web retrieval is unavailable or when a plain MCP resource is preferable.",
-    runtime: "uvx",
-    config: local(["uvx", "mcp-server-fetch"]),
-  },
-  {
-    id: "brave-search",
-    name: "Brave Search",
-    description: "Web, news, image, video, local, and place search through the Brave Search API.",
-    usage:
-      "Use when current web search is required and a Brave API key is configured. Prefer narrow queries and only enable the search tools actually needed.",
-    runtime: "npx",
-    requires: ["BRAVE_API_KEY"],
-    config: local(["npx", "-y", "@brave/brave-search-mcp-server", "--transport", "stdio"]),
-  },
-  {
     id: "sentry",
     name: "Sentry",
     description: "Inspect application errors, events, performance data, and debugging context from Sentry.",
@@ -327,26 +263,10 @@ export const all: readonly Entry[] = [
     requires: ["SENTRY_ACCESS_TOKEN"],
     config: local(["npx", "-y", "@sentry/mcp-server"]),
   },
-  {
-    id: "time",
-    name: "Time",
-    description: "Current time and timezone conversion using IANA timezone names.",
-    usage: "Use when a task depends on the current time, date, timezone, or converting a time between locations.",
-    runtime: "uvx",
-    config: local(["uvx", "mcp-server-time"]),
-  },
-  {
-    id: "mcp-docs",
-    name: "MCP Documentation",
-    description: "Official Model Context Protocol documentation exposed as a remote MCP server.",
-    usage:
-      "Use when implementing or debugging MCP clients, servers, transports, schemas, authentication, or protocol behavior.",
-    config: remote("https://modelcontextprotocol.io/mcp"),
-  },
 ]
 
 // The variables a catalog server exits without that neither its config nor the host provides. A key
-// passed as a command-line flag instead (--brave-api-key, --access-token) counts as provided.
+// passed as a command-line flag instead (--api-key, --access-token) counts as provided.
 export function missing(name: string, config: ServerConfig) {
   if (config.type !== "local") return []
   const flagged = config.command.some((arg) => /^--[\w-]*(key|token)/i.test(arg))

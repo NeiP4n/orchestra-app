@@ -74,12 +74,12 @@ describe("MCP limits the Orchestrator distributes", () => {
   const role = { name: "Developer", tools: ["read", "edit", "context7_*", "playwright_*"], readOnly: false }
 
   test("a role's ceiling comes from its own tool list", () => {
-    // withImplied expands the list first: `edit` implies the filesystem MCP server.
-    expect(OrchestraTool.mcpServersOf(role)).toEqual(["context7", "filesystem", "playwright"])
+    // withImplied expands the list first: `read` implies the serena MCP server.
+    expect(OrchestraTool.mcpServersOf(role)).toEqual(["context7", "playwright", "serena"])
     expect(OrchestraTool.mcpServersOf({ tools: ["mcp_*"] })).toBe("all")
     expect(OrchestraTool.mcpServersOf({})).toBe("all")
     expect(OrchestraTool.defaultMcpLimit(role)).toEqual({
-      servers: ["context7", "filesystem", "playwright"],
+      servers: ["context7", "playwright", "serena"],
       maxCalls: 24,
       perServer: {},
     })

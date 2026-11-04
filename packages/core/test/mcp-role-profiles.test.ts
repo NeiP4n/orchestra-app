@@ -12,13 +12,13 @@ describe("MCP role profiles", () => {
 
   test("derives a role's servers from its tool list, implied tools included", () => {
     const developer = forRole("developer")!
-    for (const server of ["context7", "deepwiki", "git", "github", "sequential-thinking", "rea-anything", "memory", "filesystem"])
+    for (const server of ["context7", "deepwiki", "github", "rea-anything", "serena", "playwright", "agent-desktop"])
       expect(allows(developer, server)).toBe(true)
     // The tester may edit test files but its profile still comes from the same derivation.
-    expect(serversOf(["webfetch"])).toEqual(["context7", "deepwiki", "fetch", "mcp-docs"])
-    expect(serversOf(["read"])).toContain("filesystem")
+    expect(serversOf(["webfetch"])).toEqual(["context7", "deepwiki"])
+    expect(serversOf(["read"])).toContain("serena")
     // `mcp_*` is the management toolset, not a server; bare actions name no server.
-    expect(serversOf(["mcp_*", "mcp_forge", "read"])).toEqual(["filesystem"])
+    expect(serversOf(["mcp_*", "mcp_forge", "read"])).toEqual(["serena"])
   })
 
   test("servers a role's own rules name are required, the rest allowed", () => {
@@ -26,19 +26,18 @@ describe("MCP role profiles", () => {
     const access = new Map(deep.servers.map((grant) => [grant.server, grant.access]))
     expect(access.get("context7")).toBe("required")
     expect(access.get("deepwiki")).toBe("required")
-    expect(access.get("mcp-docs")).toBe("required")
     expect(access.get("playwright")).toBe("required")
     expect(access.get("rea-anything")).toBe("required")
-    // Its rules send it to git/github for issues and commits, so those are required too;
-    // memory only rides along with the notes tools and stays allowed.
-    expect(access.get("git")).toBe("required")
-    expect(access.get("memory")).toBe("allowed")
+    // Its rules send it to github for issues and commits, so that is required too;
+    // serena only rides along with the read tools and stays allowed.
+    expect(access.get("github")).toBe("required")
+    expect(access.get("serena")).toBe("allowed")
 
     const auditor = forRole("security-auditor")!
     expect(auditor.servers.find((grant) => grant.server === "rea-anything")?.access).toBe("required")
 
     const writer = forRole("writer")!
-    expect(allows(writer, "sequential-thinking")).toBe(false)
+    expect(allows(writer, "rea-anything")).toBe(false)
     expect(allows(writer, "context7")).toBe(true)
   })
 
@@ -50,7 +49,7 @@ describe("MCP role profiles", () => {
 
     const analyst = forRole("product-analyst")!
     expect(allows(analyst, "playwright")).toBe(false)
-    expect(allows(analyst, "desktop-commander")).toBe(false)
+    expect(allows(analyst, "agent-desktop")).toBe(false)
   })
 
   test("mobile roles get the android_helper server, which is not a catalog entry", () => {
@@ -74,8 +73,8 @@ describe("MCP role profiles", () => {
   test("standalone agents match the access their permission rules leave them", () => {
     const orchestrator = forAgent("orchestrator")!
     expect(orchestrator.unrestricted).toBe(true)
-    expect(missingRequired(orchestrator, [])).toEqual(["sequential-thinking", "memory"])
-    expect(missingRequired(orchestrator, ["sequential-thinking", "memory"])).toEqual([])
+    expect(orchestrator.servers).toEqual([])
+    expect(missingRequired(orchestrator, [])).toEqual([])
 
     const president = forAgent("president")!
     expect(president.servers).toEqual([])
@@ -83,13 +82,13 @@ describe("MCP role profiles", () => {
 
     const explore = forAgent("explore")!
     expect(allows(explore, "context7")).toBe(true)
-    expect(allows(explore, "fetch")).toBe(true)
+    expect(allows(explore, "deepwiki")).toBe(true)
     expect(allows(explore, "playwright")).toBe(false)
 
     for (const id of ["notes", "title", "summary", "compaction"]) {
       const profile = forAgent(id)!
       expect(profile.servers).toEqual([])
-      expect(allows(profile, "memory")).toBe(false)
+      expect(allows(profile, "context7")).toBe(false)
     }
     expect(forAgent("no-such-agent")).toBeUndefined()
   })
@@ -112,7 +111,7 @@ describe("MCP role profiles", () => {
     expect(profile.agent).toBe("team-docs-scout")
     expect(profile.servers).toEqual([
       { server: "context7", access: "required" },
-      { server: "filesystem", access: "allowed" },
+      { server: "serena", access: "allowed" },
     ])
     // A role with no tool list is unrestricted by the role contract, and says so.
     const open = fromRole({

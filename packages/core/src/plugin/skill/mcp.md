@@ -24,13 +24,12 @@ Only (4) lets a worker use a server for its task, and (4) can never exceed (3). 
 | Work | Stable patterns |
 | --- | --- |
 | Documentation and library APIs | `context7_*`, `deepwiki_*` |
-| Live pages, web apps, screenshots, clicking | `playwright_*`, `chrome-devtools_*` |
-| Terminal sessions, long-running processes | `desktop-commander_*` |
-| Windows desktop controls | `windows_*` |
-| Git history and repository state | `git_*` |
+| Live pages, web apps, screenshots, clicking | `playwright_*` |
+| Cross-file code navigation and refactors | `serena_*` |
+| Desktop apps on macOS, Windows, Linux | `agent-desktop_*` |
+| Git history and repository state | shell git, hub recipes |
 | GitHub repos, issues, PRs, Actions | `github_*` |
-| Durable facts across sessions | `memory_*` |
-| Hard planning and hypothesis revision | `sequential-thinking_*` |
+| Durable facts across sessions | native `note`, `idea_bank`, `plots` |
 | Binary, JS/Electron, APK, .NET analysis | `rea-anything_*` |
 
 Prefer the broad group pattern (`playwright_*`) over one tool name. A pattern keeps working when the server updates, and an absent server simply stays unused.

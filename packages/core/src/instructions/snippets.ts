@@ -55,10 +55,10 @@ export const defaultSnippets: ReadonlyArray<Snippet> = [
   },
   {
     name: "bg-process",
-    template: "tools['desktop-commander'].start_process({ command, workdir }) -> read_process_output({ session_id })",
-    description: "Execute interactive or long-running command asynchronously",
-    requiredTool: "desktop-commander",
-    stack: ["desktop-commander", "process"],
+    template: "shell({ command, workdir, background: true }) -> output streams to the file named in the result; completion arrives as a notification",
+    description: "Execute a long-running command asynchronously with the native shell tool",
+    requiredTool: "shell",
+    stack: ["shell", "process"],
     tags: ["process", "async", "terminal"],
   },
   {

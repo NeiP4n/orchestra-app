@@ -30,7 +30,7 @@ describe("role tool limits", () => {
     expect(toolAllowed(["read", "webfetch"], "deepwiki_ask_question")).toBe(true)
     expect(toolAllowed(["read", "webfetch"], "playwright_navigate")).toBe(false)
     expect(toolAllowed(["read", "browser"], "playwright_navigate")).toBe(true)
-    expect(toolAllowed(["read", "browser"], "chrome-devtools_take_screenshot")).toBe(true)
+    expect(toolAllowed(["read", "desktop"], "agent-desktop_snapshot")).toBe(true)
     expect(toolAllowed(["read"], "context7_query-docs")).toBe(false)
     expect(Permission.evaluate("context7_query-docs", "*", toolRules(["read", "websearch", "webfetch"])).effect).toBe("allow")
   })
@@ -93,8 +93,7 @@ describe("built-in role toolkits", () => {
       expect(roleItem).toBeDefined()
       expect(roleItem?.tools).toContain("context7_*")
       expect(roleItem?.tools).toContain("deepwiki_*")
-      expect(roleItem?.tools).toContain("fetch_*")
-      expect(roleItem?.tools).toContain("mcp-docs_*")
+      expect(roleItem?.tools).toContain("serena_*")
     }
   })
 

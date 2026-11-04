@@ -7,22 +7,21 @@ import { OrchestraTool } from "../src/tool/plugin/orchestra"
 const info = (name: string, status: Mcp.Status): Mcp.ServerInfo => ({ name, status }) as Mcp.ServerInfo
 const tool = (server: string, name: string) => ({ server, name }) as unknown as Mcp.Tool
 
-const saved = { brave: process.env["BRAVE_API_KEY"], sentry: process.env["SENTRY_ACCESS_TOKEN"] }
+const saved = { sentry: process.env["SENTRY_ACCESS_TOKEN"] }
 afterEach(() => {
-  if (saved.brave === undefined) delete process.env["BRAVE_API_KEY"]
-  else process.env["BRAVE_API_KEY"] = saved.brave
   if (saved.sentry === undefined) delete process.env["SENTRY_ACCESS_TOKEN"]
   else process.env["SENTRY_ACCESS_TOKEN"] = saved.sentry
 })
 
 describe("classify", () => {
-  test("distinguishes unknown, wrong-platform, missing-credential and not-installed servers", () => {
-    delete process.env["BRAVE_API_KEY"]
+  test("distinguishes unknown, missing-credential and not-installed servers", () => {
+    delete process.env["SENTRY_ACCESS_TOKEN"]
     expect(McpAcquire.classify("nope", undefined, []).state).toBe("unavailable")
-    expect(McpAcquire.classify("windows", undefined, [], "linux").state).toBe("unavailable")
-    const auth = McpAcquire.classify("brave-search", undefined, [])
+    // No catalog entry is platform-gated: a cross-platform entry classifies the same everywhere.
+    expect(McpAcquire.classify("agent-desktop", undefined, [], "linux").state).toBe("not_installed")
+    const auth = McpAcquire.classify("sentry", undefined, [])
     expect(auth.state).toBe("needs_auth")
-    expect(auth.missing).toEqual(["BRAVE_API_KEY"])
+    expect(auth.missing).toEqual(["SENTRY_ACCESS_TOKEN"])
     expect(McpAcquire.classify("context7", undefined, []).state).toBe("not_installed")
   })
 
@@ -58,7 +57,7 @@ describe("select", () => {
   })
 
   test("one generic word is not a match; unicode needs tokenize safely", () => {
-    // "use" appears in 14 of the 17 catalog entries (every usage line), so
+    // "use" appears in most catalog entries' usage lines, so
     // it discriminates nothing and must not drag a server in on its own.
     // A rare word may qualify alone: "browser" appears in only 2 entries.
     expect(McpAcquire.select("use")).toEqual([])
@@ -77,8 +76,8 @@ describe("acquire ceiling (the role guard in front of acquisition)", () => {
     expect(OrchestraTool.acquireCeiling(researcher, "context7")).toBeUndefined()
     const refusal = OrchestraTool.acquireCeiling(researcher, "sentry")
     expect(refusal).toContain("may not use sentry")
-    // `read` in the tool list implies the filesystem server (implied tools).
-    expect(refusal).toContain("context7, filesystem, playwright")
+    // `read` in the tool list implies the serena server (implied tools).
+    expect(refusal).toContain("context7, playwright, serena")
     // A role without a tool boundary is unrestricted; a role with no MCP
     // tools at all is refused everything.
     expect(OrchestraTool.acquireCeiling({ name: "Open" }, "sentry")).toBeUndefined()
@@ -141,12 +140,12 @@ describe("ensure", () => {
   })
 
   test("never installs a server whose credentials are missing", async () => {
-    delete process.env["BRAVE_API_KEY"]
+    delete process.env["SENTRY_ACCESS_TOKEN"]
     const { access, calls } = fake()
-    const result = await Effect.runPromise(McpAcquire.ensure(access, "brave-search"))
+    const result = await Effect.runPromise(McpAcquire.ensure(access, "sentry"))
     expect(result.state).toBe("needs_auth")
     expect(result.action).toBe("none")
-    expect(result.missing).toEqual(["BRAVE_API_KEY"])
+    expect(result.missing).toEqual(["SENTRY_ACCESS_TOKEN"])
     expect(calls).toEqual([])
   })
 

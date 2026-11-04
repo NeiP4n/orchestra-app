@@ -20,8 +20,14 @@ export const defaultRules: ReadonlyArray<GuidanceRule> = [
   },
   {
     intent: "Git & VCS operations",
-    tools: ["git_*", "hub"],
-    guidance: "Prefer dedicated MCP git tools or hub recipes over hand-written shell pipelines.",
+    tools: ["hub"],
+    guidance: "Prefer hub recipes over hand-written shell pipelines for registry-provided git work; plain shell git covers the rest.",
+  },
+  {
+    intent: "Cross-file code navigation & refactors",
+    tools: ["serena_*"],
+    guidance:
+      "Serena works through a session REPL: call its initial_instructions first, activate the project, then use the lsp facade (declarations, references, implementations, rename) through serena_repl for cross-file questions instead of grep-and-read; fall back to native symbols/grep when Serena is unavailable.",
   },
   {
     intent: "Library documentation & external APIs",
@@ -30,18 +36,8 @@ export const defaultRules: ReadonlyArray<GuidanceRule> = [
       "Query context7 (resolve-library-id -> query-docs) instead of assuming obsolete API signatures. Mandatory Freshness: never write code from memory relying on outdated knowledge cutoff; verify current documentation before implementation.",
   },
   {
-    intent: "Complex reasoning & architecture design",
-    tools: ["sequential-thinking", "memory"],
-    guidance: "Structure hypotheses, step-by-step falsifications, and persist durable decisions in memory.",
-  },
-  {
-    intent: "Background processes & long-running jobs",
-    tools: ["desktop-commander"],
-    guidance: "Use desktop-commander (start_process, read_process_output, interact_with_process, force_terminate) instead of blocking commands.",
-  },
-  {
     intent: "Live pages, web apps & browser flows",
-    tools: ["browser", "playwright_*", "chrome-devtools_*", "puppeteer_*"],
+    tools: ["browser", "playwright_*"],
     guidance: "Drive the page with these instead of reconstructing it from a fetch or curl: open the URL, read the accessibility tree or DOM, act, then assert on the result. A rendered page is evidence; a guessed one is not. When the answer needs another assistant's knowledge, open its chat (Gemini, ChatGPT, DeepSeek, Qwen) in the browser, ask it there, and cite the URL you used instead of paraphrasing from memory.",
   },
   {

@@ -106,10 +106,7 @@ const agentProfile = (
 // note chat (deny-all except note/read/question) reach no MCP server at all; the President
 // runs under the group supervisor ruleset, which denies everything but federation/questions.
 export const standalone: readonly Profile[] = [
-  agentProfile("orchestrator", "orchestrator", true, [
-    { server: "sequential-thinking", access: "required" },
-    { server: "memory", access: "required" },
-  ], "Unrestricted: it inspects the connected servers and allocates them to roles. Planning and durable team facts make sequential-thinking and memory its own required pair.", String(Orchestra.agent)),
+  agentProfile("orchestrator", "orchestrator", true, [], "Unrestricted: it inspects the connected servers and allocates them to roles; its planning and durable team facts live in the native board and notes, so no MCP server is required.", String(Orchestra.agent)),
   agentProfile("president", "supervisor", false, [], "Group supervisor ruleset denies tools; a group chat coordinates, it does not call MCP servers.", String(Orchestra.president)),
   agentProfile("build", "agent", true, [], "The default agent carries no MCP narrowing of its own; configured permissions decide."),
   agentProfile("general", "agent", true, [], "General-purpose subagent with no MCP narrowing of its own; configured permissions decide."),

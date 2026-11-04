@@ -238,10 +238,9 @@ export const toolGroups: readonly { id: string; name: string; actions: readonly 
   { id: "notes", name: "Notes", actions: ["note", "idea_bank", "plots"] },
   { id: "android", name: "Android devices", actions: ["android_helper_*"] },
   { id: "reverse", name: "Reverse engineering", actions: ["rea-anything_*", "rea_*"] },
-  { id: "reasoning", name: "Reasoning", actions: ["sequential-thinking_*"] },
-  { id: "vcs", name: "Version control", actions: ["git_*", "github_*"] },
+  { id: "vcs", name: "Version control", actions: ["github_*"] },
   { id: "forge", name: "Tool & MCP Forge", actions: ["mcp_forge", "command_forge", "plugin_forge"] },
-  { id: "mcp", name: "MCP Servers", actions: ["mcp_*", "context7_*", "deepwiki_*", "mcp-docs_*", "fetch_*"] },
+  { id: "mcp", name: "MCP Servers", actions: ["mcp_*", "context7_*", "deepwiki_*", "serena_*", "sentry_*"] },
 ]
 
 // Tools added to a group after roles were saved with it: a saved role that has the first
@@ -249,14 +248,12 @@ export const toolGroups: readonly { id: string; name: string; actions: readonly 
 // MCP servers follow the built-in tool that does the same kind of work: documentation lookups come with web
 // access, browser automation with the browser. Without this a role limited to a tool list can never call them.
 export const impliedTools: Readonly<Record<string, readonly string[]>> = {
-  read: ["symbols", "file-diff", "filesystem_*"],
+  read: ["symbols", "file-diff", "serena_*"],
   edit: ["patch", "write"],
-  desktop: ["playtest", "windows_*"],
-  webfetch: ["context7_*", "deepwiki_*", "fetch_*", "mcp-docs_*"],
-  websearch: ["brave-search_*"],
-  browser: ["playwright_*", "chrome-devtools_*"],
-  note: ["memory_*", "idea_bank", "plots"],
-  shell: ["desktop-commander_*", "sentry_*", "time_*"],
+  desktop: ["playtest", "agent-desktop_*"],
+  webfetch: ["context7_*", "deepwiki_*"],
+  browser: ["playwright_*"],
+  note: ["idea_bank", "plots"],
   mcp_forge: ["mcp_*"],
 }
 
@@ -391,7 +388,7 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     rules: [
       "Mission: answer a research question completely, with sources, not from memory. You are read-only and must not alter project files.",
       "Turn the request into 3-6 concrete questions before collecting anything. Say which are load-bearing and which are nice to know; stop collecting once each load-bearing question has evidence.",
-      "Leverage the full spectrum of MCP servers and tools (context7/deepwiki for repository and library docs, mcp-docs for API specifications, playwright or browser tools for dynamic web apps, git/github for issues and commits).",
+      "Leverage the full spectrum of MCP servers and tools (context7/deepwiki for repository and library docs, playwright or browser tools for dynamic web apps, github for issues and commits).",
       "For binary analysis, native bindings, and compiled packages, employ REA decompilation and symbol inspection (rea-anything_*, rea_*) instead of guessing native signatures.",
       "Dynamic Tool Synthesis: When required capabilities are missing (e.g. bulk CVE correlation, AST analysis, security feed aggregation), synthesize and register production-grade MCP servers using mcp_forge (action=save). Never fall back to naive one-liner scripts or shallow grep wrappers -- forged tools must have robust schemas and error handling.",
       "Prefer primary sources over summaries: official docs, source code, changelogs, the actual page or API response. Date every version-sensitive fact and say which version it applies to.",
@@ -766,12 +763,14 @@ const SCREEN = ["browser", "desktop", "playtest"]
 const SKILLS = ["skill", "skill_catalog"]
 const NOTES = ["note", "idea_bank", "plots"]
 const REVERSE = ["rea-anything_*", "rea_*"]
-const REASONING = ["sequential-thinking_*"]
-const VCS = ["git_*", "github_*"]
+const VCS = ["github_*"]
 const FORGE = ["mcp_forge", "command_forge", "plugin_forge"]
 // The android_helper MCP server drives adb devices and emulators, so only roles that touch mobile builds get it.
 const ANDROID = ["android_helper_*"]
-const MCP = ["mcp_*", "context7_*", "deepwiki_*", "mcp-docs_*", "fetch_*"]
+const MCP = ["mcp_*", "context7_*", "deepwiki_*", "serena_*"]
+// Production error data exists only where the team runs Sentry, so only the roles that
+// investigate production failures carry it by default; the editor can add it anywhere.
+const SENTRY = ["sentry_*"]
 const kit = (...groups: readonly string[][]) => [...new Set(groups.flat())]
 // Read-only roles still run commands and use the Registry to gather evidence (git history,
 // running tests, reproductions, log and dependency inspection); what they must not do is
@@ -786,69 +785,69 @@ const SERVER = [...CODE, "data", "docker", "network", "process", "system"]
 // with its own instruments instead of every tool at once. The operator changes them in the
 // team editor (a saved role keeps exactly what was saved); absent `hub` means every category.
 const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
-  generalist: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP) },
-  "product-analyst": { tools: kit(READ, WEB, SKILLS, NOTES, REASONING, VCS), hub: ["search", "files", "text", "json", "data"] },
-  architect: { tools: kit(READ, PROBE, WEB, REASONING, VCS, REVERSE, SKILLS, NOTES, FORGE, MCP), hub: [...CODE, "github", "data", "security"] },
+  generalist: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP) },
+  "product-analyst": { tools: kit(READ, WEB, SKILLS, NOTES, VCS), hub: ["search", "files", "text", "json", "data"] },
+  architect: { tools: kit(READ, PROBE, WEB, VCS, REVERSE, SKILLS, NOTES, FORGE, MCP), hub: [...CODE, "github", "data", "security"] },
   // A researcher must be able to reach a live page, not only fetch it: signed-in or interactive
   // sources (documentation portals, provider consoles, web AI chats) need the browser.
-  researcher: { tools: kit(READ, PROBE, WEB, ["browser"], SKILLS, NOTES, REASONING, VCS, REVERSE, FORGE, MCP), hub: [...CODE, "github", "data", "network", "security"] },
+  researcher: { tools: kit(READ, PROBE, WEB, ["browser"], SKILLS, NOTES, VCS, REVERSE, FORGE, MCP), hub: [...CODE, "github", "data", "network", "security"] },
   "deep-researcher": {
-    tools: kit(READ, PROBE, WEB, SCREEN, REASONING, VCS, REVERSE, SKILLS, NOTES, FORGE, MCP),
+    tools: kit(READ, PROBE, WEB, SCREEN, VCS, REVERSE, SKILLS, NOTES, FORGE, MCP),
     hub: [...SERVER, "github", "security"],
   },
   "strategic-planner": {
-    tools: kit(READ, PROBE, WEB, SKILLS, NOTES, REASONING, VCS, REVERSE, FORGE, MCP),
+    tools: kit(READ, PROBE, WEB, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP),
     hub: [...CODE, "github", "data", "security"],
   },
-  designer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING), hub: CODE },
-  developer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP) },
+  designer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS), hub: CODE },
+  developer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP) },
   "frontend-developer": {
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, MCP),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, MCP),
     hub: [...CODE, "network", "process"],
   },
-  "backend-developer": { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING, REVERSE, MCP), hub: SERVER },
+  "backend-developer": { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REVERSE, MCP), hub: SERVER },
   "mobile-developer": {
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, ANDROID),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, ANDROID),
     hub: [...CODE, "mobile", "process"],
   },
   "desktop-developer": {
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, MCP),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, MCP),
     hub: [...CODE, "process", "system", "windows"],
   },
-  "database-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, REASONING, MCP), hub: SERVER },
+  "database-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, MCP), hub: SERVER },
   writer: { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS), hub: ["search", "files", "text", "json", "git"] },
-  devops: { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], VCS, SKILLS, NOTES, REASONING), hub: [...SERVER, "github", "windows", "mobile"] },
+  devops: { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], VCS, SKILLS, NOTES, SENTRY), hub: [...SERVER, "github", "windows", "mobile"] },
   debugger: {
-    tools: kit(READ, PROBE, WEB, SCREEN, REASONING, REVERSE, VCS, SKILLS, NOTES, ANDROID),
+    tools: kit(READ, PROBE, WEB, SCREEN, REVERSE, VCS, SKILLS, NOTES, ANDROID),
     hub: [...SERVER, "mobile"],
   },
   "adaptive-ui-tester": {
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP, ANDROID),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP, ANDROID),
     hub: [...CODE, "data", "network", "process", "mobile", "windows"],
   },
   tester: {
     // The tester drives apps through playtest, browser, and desktop automation; git for checking diffs.
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP, ANDROID),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP, ANDROID),
     hub: [...CODE, "data", "network", "process", "mobile"],
   },
-  reviewer: { tools: kit(READ, PROBE, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP), hub: [...CODE, "github"] },
-  "counterexample-engineer": { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, REASONING, VCS), hub: [...CODE, "data", "process"] },
+  reviewer: { tools: kit(READ, PROBE, WEB, ["browser"], SKILLS, NOTES, VCS, REVERSE, FORGE, MCP), hub: [...CODE, "github"] },
+  "counterexample-engineer": { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, VCS), hub: [...CODE, "data", "process"] },
   "security-auditor": {
-    tools: kit(READ, PROBE, WEB, REVERSE, REASONING, VCS, SKILLS, NOTES, FORGE, MCP),
+    tools: kit(READ, PROBE, WEB, REVERSE, VCS, SKILLS, NOTES, FORGE, MCP),
     hub: [...SERVER, "github", "security"],
   },
-  "accessibility-auditor": { tools: kit(READ, PROBE, WEB, SCREEN, SKILLS, NOTES, REASONING, VCS), hub: CODE },
-  "performance-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, MCP), hub: SERVER },
-  "dependency-auditor": { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP), hub: [...CODE, "github", "security"] },
-  "compatibility-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE) },
-  "data-migration-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, REASONING), hub: SERVER },
-  "reliability-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, REASONING), hub: [...SERVER, "systemd"] },
-  "core-maintainer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP) },
+  "accessibility-auditor": { tools: kit(READ, PROBE, WEB, SCREEN, SKILLS, NOTES, VCS), hub: CODE },
+  "performance-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, MCP), hub: SERVER },
+  "dependency-auditor": { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP), hub: [...CODE, "github", "security"] },
+  "compatibility-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE) },
+  "data-migration-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS), hub: SERVER },
+  "reliability-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, SENTRY), hub: [...SERVER, "systemd"] },
+  "core-maintainer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP) },
   "integration-engineer": {
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REASONING, REVERSE, FORGE, MCP),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP),
     hub: [...CODE, "github", "network", "docker"],
   },
-  "api-contract-engineer": { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REASONING, REVERSE), hub: [...CODE, "network"] },
+  "api-contract-engineer": { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REVERSE), hub: [...CODE, "network"] },
 };
 
 export const roles: readonly (RoleSpec & { id: string })[] = baseRoles.map((role) => ({

@@ -7,37 +7,30 @@ describe("useful MCP registry entries", () => {
 
     for (const id of [
       "context7",
+      "serena",
       "rea-anything",
       "playwright",
-      "chrome-devtools",
-      "filesystem",
-      "git",
+      "agent-desktop",
       "github",
       "deepwiki",
-      "fetch",
-      "memory",
-      "sequential-thinking",
-      "brave-search",
       "sentry",
-      "time",
-      "mcp-docs",
     ]) {
       expect(ids.has(id)).toBe(true)
     }
   })
 
-  test("Windows-only entries stay hidden on non-Windows platforms", () => {
-    expect(forPlatform("win32").some((entry) => entry.id === "windows")).toBe(true)
-    expect(forPlatform("linux").some((entry) => entry.id === "windows")).toBe(false)
-    expect(forPlatform("darwin").some((entry) => entry.id === "windows")).toBe(false)
+  test("no platform-restricted entries ship: the catalog lists the same set on every platform", () => {
+    const everywhere = all.map((entry) => entry.id)
+    expect(forPlatform("win32").map((entry) => entry.id)).toEqual(everywhere)
+    expect(forPlatform("linux").map((entry) => entry.id)).toEqual(everywhere)
+    expect(forPlatform("darwin").map((entry) => entry.id)).toEqual(everywhere)
   })
 
   test("entries that exit without a secret say which environment variable they need", () => {
     const requires = Object.fromEntries(all.map((entry) => [entry.id, entry.requires]))
 
-    expect(requires["brave-search"]).toEqual(["BRAVE_API_KEY"])
     expect(requires["sentry"]).toEqual(["SENTRY_ACCESS_TOKEN"])
     expect(requires["context7"]).toBeUndefined()
-    expect(requires["memory"]).toBeUndefined()
+    expect(requires["serena"]).toBeUndefined()
   })
 })

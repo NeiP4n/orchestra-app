@@ -34,17 +34,17 @@ describe("MCP registry catalog", () => {
   })
 
   test("names the keys a catalog server cannot start without", () => {
-    const brave = all.find((entry) => entry.id === "brave-search")!.config
-    const previous = process.env.BRAVE_API_KEY
-    delete process.env.BRAVE_API_KEY
+    const sentry = all.find((entry) => entry.id === "sentry")!.config
+    const previous = process.env.SENTRY_ACCESS_TOKEN
+    delete process.env.SENTRY_ACCESS_TOKEN
     try {
-      expect(missing("brave-search", brave)).toEqual(["BRAVE_API_KEY"])
-      expect(missing("brave-search", { ...brave, environment: { BRAVE_API_KEY: "k" } } as ServerConfig)).toEqual([])
-      if (brave.type === "local")
-        expect(missing("brave-search", { ...brave, command: [...brave.command, "--brave-api-key=k"] })).toEqual([])
-      expect(missing("my-own-server", brave)).toEqual([])
+      expect(missing("sentry", sentry)).toEqual(["SENTRY_ACCESS_TOKEN"])
+      expect(missing("sentry", { ...sentry, environment: { SENTRY_ACCESS_TOKEN: "k" } } as ServerConfig)).toEqual([])
+      if (sentry.type === "local")
+        expect(missing("sentry", { ...sentry, command: [...sentry.command, "--access-token=k"] })).toEqual([])
+      expect(missing("my-own-server", sentry)).toEqual([])
     } finally {
-      if (previous !== undefined) process.env.BRAVE_API_KEY = previous
+      if (previous !== undefined) process.env.SENTRY_ACCESS_TOKEN = previous
     }
   })
 
