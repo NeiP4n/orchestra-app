@@ -209,23 +209,36 @@ export function RoomDodRows(props: {
             : theme.text.muted
   const actionId = (item: RoomDodItem) => `${props.id}:dod:${item.id}`
 
+  // compact: composed as one truncated line in the board's own row style (every other
+  // row of the panel is a single truncated line); the standalone form wraps in full.
+  const StatusBox = (boxProps: { pad: number; compact?: boolean }) => (
+    <Show when={statusText()}>
+      {(message) => (
+        <box paddingLeft={boxProps.pad} paddingRight={1}>
+          <text
+            fg={
+              status().type === "starting" || status().type === "disabled"
+                ? theme.text.muted
+                : theme.text.feedback.error.base
+            }
+            wrapMode={boxProps.compact ? "none" : "word"}
+            truncate={boxProps.compact}
+          >
+            {message()}
+          </text>
+        </box>
+      )}
+    </Show>
+  )
+
   return (
     <>
-      <Show when={statusText()}>
-        {(message) => (
-          <box paddingLeft={indent() + 1}>
-            <text
-              fg={
-                status().type === "starting" || status().type === "disabled"
-                  ? theme.text.muted
-                  : theme.text.feedback.error.base
-              }
-              wrapMode="word"
-            >
-              {message()}
-            </text>
-          </box>
-        )}
+      {/* Without a board there is no DoD row to attach the state to, so it stands alone.
+          With a board, the state belongs UNDER the DoD header row (rendered inside
+          showBoard below): above the header it reads as an error of the room section
+          that hosts this component, not of the DoD. */}
+      <Show when={!showBoard()}>
+        <StatusBox pad={indent() + 1} />
       </Show>
       <Show when={showBoard()}>
         <Row id={`${props.id}:dod`} hover={props.hover} setHover={props.setHover} onClick={() => setOpen(!open())}>
@@ -260,6 +273,7 @@ export function RoomDodRows(props: {
             </HoverAction>
           </Show>
         </Row>
+        <StatusBox pad={indent() + 3} compact />
         <Show when={open()}>
           <For each={remaining()}>
             {(item) => {
