@@ -294,15 +294,15 @@ function ensureReadable(resolved: ResolvedThemeTokens): ResolvedThemeTokens {
     ...resolved,
     text: {
       ...resolved.text,
-      base: on(
+      base: onSurface(
         on(on(on(resolved.text.base, PRIMARY_TEXT, base), PRIMARY_TEXT, raised), NEVER_DISAPPEAR, high),
-        NEVER_DISAPPEAR,
         resolved.background.action.primary.hovered,
+        NEVER_DISAPPEAR,
       ),
-      muted: on(
+      muted: onSurface(
         on(on(on(resolved.text.muted, PRIMARY_TEXT, base), PRIMARY_TEXT, raised), NEVER_DISAPPEAR, high),
-        NEVER_DISAPPEAR,
         resolved.background.action.primary.hovered,
+        NEVER_DISAPPEAR,
       ),
       action: Object.fromEntries(
         Object.entries(resolved.text.action).map(([variant, states]) => [
