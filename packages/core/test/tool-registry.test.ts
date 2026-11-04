@@ -663,7 +663,7 @@ describe("Tool", () => {
       const renamed = new Map(snapshot.definitions.filter((tool) => tool.name === "shell").map((tool) => ["run", tool]))
       expect((yield* snapshot.execute({ ...call("Bash"), definitions: renamed })).output).toEqual({ text: "ran shell" })
       expect((yield* snapshot.execute({ ...call("read"), definitions: renamed }).pipe(Effect.flip)).message).toBe(
-        "Tool is not available for this request: read",
+        "Tool is not available for this request: read. Tools available in this session: run",
       )
     }),
   )

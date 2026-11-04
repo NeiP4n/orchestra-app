@@ -329,7 +329,9 @@ const layer = Layer.effect(
                 input.definitions &&
                 (direct.has(event.tool) || codeModeTools.has(event.tool) || codeModeTool?.name === event.tool)
               )
-                return yield* new Tool.Error({ message: `Tool is not available for this request: ${event.tool}` })
+                return yield* new Tool.Error({
+                  message: `Tool is not available for this request: ${event.tool}. Tools available in this session: ${Array.from(available.keys()).toSorted().join(", ")}`,
+                })
               const name = requested?.name ?? event.tool
               if (name === "execute" && codeModeTool)
                 return yield* executeTool(codeModeTool, name, event.input, context)
