@@ -61,7 +61,8 @@ export function Dialog(
         paddingTop={props.centered ? 0 : dimensions().height / 4}
         left={0}
         top={0}
-        backgroundColor={RGBA.fromValues(theme.background.base.r, theme.background.base.g, theme.background.base.b, 0.6)}
+        // Keep decorative transcript canvases and panel rails from bleeding through the modal backdrop.
+        backgroundColor={RGBA.fromValues(theme.background.base.r, theme.background.base.g, theme.background.base.b, 0.92)}
       >
         <box
           onMouseDown={(e: { stopPropagation(): void }) => {
