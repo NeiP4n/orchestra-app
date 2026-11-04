@@ -3,7 +3,7 @@ import { generateSyntax, resolveThemeDocument, themeModes, type ResolvedTheme } 
 import { allThemes, getOrchestraTheme, isThemeSource, parseTheme, type ThemeDocumentSource } from "../theme"
 import { ansiToRgba } from "../theme/color"
 import { discoverThemes } from "../theme/discovery"
-import { generateSystem, terminalDefaultForegroundReadable, terminalMode } from "../theme/system"
+import { contrastRatio, generateSystem, terminalDefaultForegroundReadable, terminalMode } from "../theme/system"
 import { configDirectories } from "../util/config-directories"
 import { dedupeWith } from "effect/Array"
 import type { EntryKind, RunTuiConfig } from "./types"
@@ -114,6 +114,7 @@ function map(
   syntax?: SyntaxStyle,
   system = false,
   preserveTerminalForeground = false,
+  terminalBackground?: RGBA,
 ): RunTheme {
   // Keep native terminal colors only when its foreground already contrasts with its background.
   const exact = (color: RGBA) => {
@@ -127,9 +128,13 @@ function map(
   }
   // If the terminal's default foreground is unsafe, keep corrected text as RGB.
   // Quantizing it back to a broken ANSI palette could recreate black-on-black.
-  const scrollbackText = (color: RGBA) => {
-    if (system && !preserveTerminalForeground) return exact(color)
-    return scrollback(color)
+  const scrollbackText = (color: RGBA, minimum = 4.5) => {
+    if (!system) return scrollback(color)
+    const value = exact(color)
+    if (!preserveTerminalForeground || !terminalBackground) return value
+    const mapped = scrollback(color)
+    if (mapped.intent === "default" || contrastRatio(mapped, terminalBackground) >= minimum) return mapped
+    return value
   }
   syntax?.getAllStyles().forEach((style, name) => {
     syntax.registerStyle(name, {
@@ -169,21 +174,21 @@ function map(
       line: exact(theme.background.raised.high),
     },
     entry: {
-      system: { body: scrollbackText(theme.text.muted) },
+      system: { body: scrollbackText(theme.text.muted, 3.5) },
       user: { body: scrollbackText(theme.text.base) },
       assistant: { body: scrollbackText(theme.markdown.text) },
-      reasoning: { body: scrollbackText(theme.text.muted) },
-      tool: { body: scrollbackText(theme.text.muted), start: scrollbackText(theme.text.muted) },
+      reasoning: { body: scrollbackText(theme.text.muted, 3.5) },
+      tool: { body: scrollbackText(theme.text.muted, 3.5), start: scrollbackText(theme.text.muted, 3.5) },
       error: { body: scrollbackText(theme.text.feedback.error.base) },
     },
     splash: {
-      left: system && !preserveTerminalForeground ? exact(theme.text.muted) : nearestIndexed(indexed, theme.text.muted),
-      right: system && !preserveTerminalForeground ? exact(theme.text.base) : nearestIndexed(indexed, theme.text.base),
+      left: scrollbackText(theme.text.muted, 3.5),
+      right: scrollbackText(theme.text.base),
       leftShadow: nearestIndexed(indexed, theme.background.raised.base),
     },
     block: {
       text: scrollbackText(theme.text.base),
-      muted: scrollbackText(theme.text.muted),
+      muted: scrollbackText(theme.text.muted, 3.5),
       syntax,
       diffRemoved: scrollbackText(theme.diff.text.removed),
       diffAddedBg: scrollback(theme.diff.background.added),
@@ -191,7 +196,7 @@ function map(
       diffContextBg: scrollback(theme.diff.background.context),
       diffHighlightAdded: scrollbackText(theme.diff.highlight.added),
       diffHighlightRemoved: scrollbackText(theme.diff.highlight.removed),
-      diffLineNumber: scrollbackText(theme.diff.lineNumber.text),
+      diffLineNumber: scrollbackText(theme.diff.lineNumber.text, 3.5),
       diffAddedLineNumberBg: scrollback(theme.diff.lineNumber.background.added),
       diffRemovedLineNumberBg: scrollback(theme.diff.lineNumber.background.removed),
     },
@@ -310,6 +315,9 @@ export async function resolveRunTheme(
       generateSyntax(theme),
       name === "system" && resolved !== undefined,
       name === "system" && colors !== undefined && terminalDefaultForegroundReadable(colors),
+      name === "system" && colors !== undefined
+        ? RGBA.fromHex(colors.defaultBackground ?? colors.palette[0]!)
+        : undefined,
     ),
     background: RGBA.defaultBackground(colors?.defaultBackground ?? theme.background.base),
   }
