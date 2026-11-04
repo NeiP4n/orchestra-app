@@ -18,12 +18,12 @@ export function Row(props: {
       flexDirection="row"
       paddingLeft={1}
       paddingRight={1}
+      // A selected row can contain ordinary body/muted text, not action-state text.
+      // Use the same neutral surface as hover instead of the focused action fill.
       backgroundColor={
-        props.selected
-          ? theme.background.action.primary.focused
-          : props.hover() === props.id
-            ? hoverBackground(theme)
-            : undefined
+        props.selected || props.hover() === props.id
+          ? hoverBackground(theme)
+          : undefined
       }
       onMouseOver={() => props.setHover(props.id)}
       onMouseOut={() => props.setHover(undefined)}
