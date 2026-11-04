@@ -7,6 +7,7 @@ import { useClient } from "../context/client"
 import { Keymap } from "../context/keymap"
 import { useLocation } from "../context/location"
 import { useTheme } from "../context/theme"
+import { hoverBackground } from "../ui/hover"
 import type { DialogContext } from "../ui/dialog"
 import { errorMessage } from "../util/error"
 import { useT } from "../util/i18n"
@@ -383,8 +384,10 @@ function TeamOption(props: { selected: boolean; focused: boolean; name: string; 
         props.selected && props.focused
           ? theme.background.formfield.focused
           : hovered()
-            ? theme.background.formfield.hovered
-            : undefined
+            ? hoverBackground(theme)
+            : props.selected
+              ? theme.background.formfield.selected
+              : undefined
       }
       onMouseOver={() => setHovered(true)}
       onMouseOut={() => setHovered(false)}
@@ -397,7 +400,7 @@ function TeamOption(props: { selected: boolean; focused: boolean; name: string; 
             props.selected && props.focused
               ? theme.text.formfield.focused
               : hovered()
-                ? theme.text.formfield.hovered
+                ? theme.text.base
                 : props.selected
                   ? theme.text.formfield.selected
                   : theme.text.muted
@@ -423,7 +426,7 @@ function TeamOption(props: { selected: boolean; focused: boolean; name: string; 
         </text>
       </box>
       <box paddingLeft={2} minWidth={0}>
-        <text fg={hovered() ? theme.text.formfield.hovered : theme.text.muted} wrapMode="word">
+        <text fg={hovered() ? theme.text.base : theme.text.muted} wrapMode="word">
           {props.detail}
         </text>
       </box>
