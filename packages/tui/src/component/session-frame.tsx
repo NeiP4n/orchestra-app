@@ -675,7 +675,14 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
           right={0}
           bottom={0}
           alignItems="flex-end"
-          backgroundColor={RGBA.fromInts(0, 0, 0, 70)}
+          // Use the active theme and an opaque scrim: a transparent black overlay lets
+          // the transcript's animated axon show through the open sidebar.
+          backgroundColor={RGBA.fromValues(
+            theme.background.raised.base.r,
+            theme.background.raised.base.g,
+            theme.background.raised.base.b,
+            0.94,
+          )}
         >
           <Sidebar sessionID={props.sessionID} onHide={hideRightPane} />
         </box>
