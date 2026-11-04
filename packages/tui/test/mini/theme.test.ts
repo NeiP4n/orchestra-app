@@ -216,6 +216,27 @@ test.each([
   }
 })
 
+test("does not quantize readable mini text into a black ANSI palette", async () => {
+  const colors = terminalColors({
+    defaultBackground: "#000000",
+    defaultForeground: "#ffffff",
+    palette: Array.from({ length: 256 }, () => "#000000"),
+  })
+  expect(terminalDefaultForegroundReadable(colors)).toBe(true)
+
+  const theme = await resolveRunTheme(renderer({ colors }), { name: "system", mode: "dark" })
+  const surface = RGBA.fromHex("#000000")
+  try {
+    expect(rgba(theme.entry.user.body).intent).toBe("default")
+    expect(contrastRatio(rgba(theme.entry.user.body), surface)).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(rgba(theme.entry.reasoning.body), surface)).toBeGreaterThanOrEqual(3.5)
+    expect(contrastRatio(rgba(theme.splash.left), surface)).toBeGreaterThanOrEqual(3.5)
+    expect(contrastRatio(rgba(theme.splash.right), surface)).toBeGreaterThanOrEqual(4.5)
+  } finally {
+    theme.block.syntax?.destroy()
+  }
+})
+
 test.each(["light", "dark"] as const)(
   "loads complete %s custom theme files",
   async (mode) => {
