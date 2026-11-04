@@ -179,6 +179,7 @@ const DUTY = [
   "You are responsible for this board. Keep it true to the work, using the `dod` tool:",
   "- Before working on something the board lists, take that item (`dod take`, or `dod next` for the next ready one).",
   "- When the user asks for multi-step work the board does not list, add it first (`dod add`) with checkable steps and, when one exists, a verification command.",
+  "- Proportionality: a single small change that one worker finishes in one pass is not board work — do not add an item for it or split it into steps. The board is for work that spans stages, workers or sessions; an item whose ceremony costs more than the change is noise.",
   "- Check each step (`dod check`) as soon as it is really done, not in bulk at the end.",
   "- An item becomes DONE only through `dod verify`, which runs its verification.command and records the evidence. Never write DONE into dod.yaml by hand; without a command, ask the user to accept the item.",
   "- When stuck, mark the item with `dod block` and the reason instead of leaving it IN_PROGRESS.",
