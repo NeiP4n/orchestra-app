@@ -3,6 +3,7 @@ import type { Plugin } from "@orchestra/plugin/tui"
 import { BoxRenderable, MouseButton } from "@opentui/core"
 import { Portal, useTerminalDimensions } from "@opentui/solid"
 import { createSignal, onCleanup } from "solid-js"
+import { hoverBackground } from "../../ui/hover"
 
 export function DiffFileMenu(props: {
   context: Plugin.Context
@@ -63,7 +64,7 @@ export function DiffFileMenu(props: {
           height={1}
           paddingLeft={1}
           paddingRight={1}
-          backgroundColor={hovered() ? theme.background.action.primary.hovered : theme.background.raised.high}
+          backgroundColor={hovered() ? hoverBackground(theme) : theme.background.raised.high}
           onMouseOver={() => setHovered(true)}
           onMouseOut={() => setHovered(false)}
           onMouseDown={(event) => {
