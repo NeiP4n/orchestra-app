@@ -127,6 +127,33 @@ test("terminalMode does not derive mode from ANSI slot zero", () => {
   expect(terminalMode(terminalColors(null, ["#000000"]))).toBeUndefined()
 })
 
+test("system theme keeps grayscale surfaces finite when the UI mode disagrees with the terminal", () => {
+  const cases = [
+    { mode: "light" as const, background: "#000000", foreground: "#ffffff" },
+    { mode: "dark" as const, background: "#ffffff", foreground: "#000000" },
+  ]
+  for (const item of cases) {
+    const colors = {
+      ...terminalColors(item.background),
+      defaultBackground: item.background,
+      defaultForeground: item.foreground,
+    }
+    const generated = generateSystem(colors, item.mode)
+    for (const color of [
+      generated.theme.backgroundPanel,
+      generated.theme.backgroundElement,
+      generated.theme.backgroundMenu,
+      generated.theme.borderSubtle,
+      generated.theme.border,
+      generated.theme.borderActive,
+    ]) {
+      expect(Number.isFinite(color.r)).toBe(true)
+      expect(Number.isFinite(color.g)).toBe(true)
+      expect(Number.isFinite(color.b)).toBe(true)
+    }
+  }
+})
+
 test("generated system theme repairs terminal colors that would make text disappear", () => {
   const cases = [
     { mode: "dark", background: "#000000", foreground: "#000000" },
