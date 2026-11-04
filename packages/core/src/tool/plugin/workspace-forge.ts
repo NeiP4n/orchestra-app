@@ -5,8 +5,9 @@ import { readdir } from "node:fs/promises"
 import path from "node:path"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { Federation as FederationSchema } from "@orchestra/schema/federation"
-import { Effect, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 import { Federation } from "../../federation.js"
+import { Model } from "../../model.js"
 import { Orchestra } from "../../orchestra.js"
 import { Permission } from "../../permission.js"
 
@@ -220,6 +221,9 @@ export const Plugin = {
                 // A team's workers follow the operator's `orchestra.worker` policy unless their role
                 // sets its own model; the policy is read here, where the Location config lives.
                 const workerPolicy = team ? yield* Orchestra.workerPolicy : undefined
+                const favorites = yield* Orchestra.workerFavorites
+                const catalog = yield* Effect.serviceOption(Model.Service)
+                const available = Option.isNone(catalog) ? [] : yield* catalog.value.available()
                 const created = yield* orchestra.create({
                   name: input.name?.trim() ?? "",
                   directory,
@@ -227,7 +231,7 @@ export const Plugin = {
                     ? {
                         template: team,
                         workerModels: (role: Orchestra.Role | undefined) =>
-                          Orchestra.workerModels(workerPolicy, role),
+                          Orchestra.workerModels(workerPolicy, role, { favorites, catalog: available }),
                       }
                     : {}),
                   ...sandboxArgs(sandbox),
@@ -240,7 +244,7 @@ export const Plugin = {
                 const selectedTeam = team ? templates.find((template) => template.id === team) : undefined
                 let workerSessionID: string | undefined
                 if (selectedRole) {
-                  const choice = Orchestra.workerModels(yield* Orchestra.workerPolicy, selectedRole)
+                  const choice = Orchestra.workerModels(yield* Orchestra.workerPolicy, selectedRole, { favorites, catalog: available })
                   const worker = yield* orchestra.createMember({
                     project: created,
                     agent: selectedRole.agent,

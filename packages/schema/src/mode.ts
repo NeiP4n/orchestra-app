@@ -281,9 +281,9 @@ export function defaultForRole(role: {
   if (role.id === "researcher" || role.id === "deep-researcher") return of("research")
   if (role.id === "tester") return of("test")
   if (role.id === "architect") return of("architecture")
-  if (role.id === "designer") return of("design")
-  if (role.id === "debugger") return of("debug")
-  if (role.id === "devops" || role.id === "reliability-engineer") return of("ops")
+  if (role.id === "designer" || role.id === "game-designer") return of("design")
+  if (role.id === "debugger" || role.id === "support-engineer") return of("debug")
+  if (role.id === "devops" || role.id === "reliability-engineer" || role.id === "system-administrator") return of("ops")
   // A default mode must never remove a permission the role already has. Read-only roles get
   // the read-only modes; a tester or performance engineer that may edit test files keeps coding.
   if (role.category === "Planning") return role.readOnly ? of("planning") : of("coding")

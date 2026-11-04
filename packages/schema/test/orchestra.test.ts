@@ -49,6 +49,8 @@ const KEPT_TEMPLATES = [
   "strategic-planning",
   "release",
   "opencode-core",
+  "game-prototype",
+  "marketing-launch",
 ]
 
 describe("built-in templates", () => {

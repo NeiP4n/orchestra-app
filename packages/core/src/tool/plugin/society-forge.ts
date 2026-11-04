@@ -7,6 +7,7 @@ import { Effect, Option, Result, Schema } from "effect"
 import path from "node:path"
 import { KeyedMutex } from "../../effect/keyed-mutex.js"
 import { Federation } from "../../federation.js"
+import { Model } from "../../model.js"
 import { Orchestra } from "../../orchestra.js"
 import { Session } from "../../session.js"
 
@@ -188,9 +189,12 @@ export const Plugin = {
               }
 
               const workerPolicy = yield* Orchestra.workerPolicy
+              const favorites = yield* Orchestra.workerFavorites
+              const catalog = yield* Effect.serviceOption(Model.Service)
+              const available = Option.isNone(catalog) ? [] : yield* catalog.value.available()
               const root = yield* federation.societyRoot(group.name)
               const workerOf = (project: Orchestra.Project, role: Orchestra.Role) => {
-                const choice = Orchestra.workerModels(workerPolicy, role)
+                const choice = Orchestra.workerModels(workerPolicy, role, { favorites, catalog: available })
                 return orchestra.createMember({
                   project,
                   agent: role.agent,
@@ -265,6 +269,9 @@ export const Plugin = {
                         continue
                       }
                       const directory = yield* federation.societyFolder({ society: group.name, project: spec.name })
+                      const teamFavorites = yield* Orchestra.workerFavorites
+                      const teamCatalog = yield* Effect.serviceOption(Model.Service)
+                      const teamAvailable = Option.isNone(teamCatalog) ? [] : yield* teamCatalog.value.available()
                       const project = yield* orchestra.create({
                         name: spec.name,
                         directory,
@@ -272,7 +279,7 @@ export const Plugin = {
                           ? {
                               template: spec.team,
                               workerModels: (role: Orchestra.Role | undefined) =>
-                                Orchestra.workerModels(workerPolicy, role),
+                                Orchestra.workerModels(workerPolicy, role, { favorites: teamFavorites, catalog: teamAvailable }),
                             }
                           : {}),
                       })

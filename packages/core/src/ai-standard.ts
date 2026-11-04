@@ -65,7 +65,7 @@ export type Effort = "depth" | "speed"
 // Planning, review and architecture work needs depth; build, test and quick fixes need speed.
 // The role's category and name say which side of that line it sits on.
 export const effortFor = (hint: string | undefined): Effort =>
-  hint !== undefined && /plan|architect|review|strateg|analys|audit|design|debug/i.test(hint) ? "depth" : "speed"
+  hint !== undefined && /plan|architect|review|strateg|analys|audit|design|debug|admin/i.test(hint) ? "depth" : "speed"
 
 /** The stable identity of a model choice, ignoring which variant runs. */
 export const keyOf = (model: Model.Ref) => `${model.providerID}/${model.id}`
