@@ -1,7 +1,7 @@
 import { EOL } from "os"
 import { Effect, Option } from "effect"
 import { Service } from "@orchestra/client/effect/service"
-import { OpenCode } from "@orchestra/client/promise"
+import { Orchestra } from "@orchestra/client/promise"
 import { renderUnicodeCompact } from "uqr"
 import { Commands } from "../commands"
 import { Runtime } from "../../framework/runtime"
@@ -15,7 +15,7 @@ export default Runtime.handler(
         new Error("Pairing requires the background service; run `orchestra service unset disabled` first"),
       )
     const endpoint = yield* Service.ensure(yield* ServiceConfig.options())
-    const client = OpenCode.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
+    const client = Orchestra.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
     const urls = Option.isSome(input.url)
       ? [input.url.value]
       : (yield* Effect.tryPromise(() => client.server.info())).urls

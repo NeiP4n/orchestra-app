@@ -180,7 +180,7 @@ function StatsPage(props: { context: Plugin.Context; onClose: () => void }) {
 }
 
 export default Plugin.define({
-  id: "opencode.stats",
+  id: "orchestra.stats",
   setup(context) {
     const [previous, setPrevious] = createSignal({ ...context.ui.router.current() })
     context.ui.router.register({

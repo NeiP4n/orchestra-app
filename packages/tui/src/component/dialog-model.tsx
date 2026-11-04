@@ -22,7 +22,7 @@ import {
 // Freebuff charges freebucks per session, so the picker has to show the price of a
 // model and the balance left before the user picks one. The core plugin resolves the
 // catalog rows to the account's price table and answers with both.
-const FREEBUFF_RPC_ID = "opencode.freebuff"
+const FREEBUFF_RPC_ID = "orchestra.freebuff"
 
 interface FreebuffStatusResponse {
   readonly balance?: number

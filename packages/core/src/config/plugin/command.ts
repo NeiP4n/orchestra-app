@@ -21,7 +21,7 @@ import { ConfigMarkdown } from "../markdown.js"
 const decodeCommand = Schema.decodeUnknownOption(ConfigCommand.Info)
 
 export const Plugin = define({
-  id: "opencode.config.command",
+  id: "orchestra.config.command",
   effect: Effect.fn(function* (ctx) {
     const config = yield* Config.Service
     const fs = yield* FSUtil.Service

@@ -95,7 +95,7 @@ export function parse(text: string, source: string, context: ClaudeContext.Conte
   const model = ClaudeModel.resolve(data.model)
   if (model.type === "unsupported") skipped.push({ source, reason: model.reason })
   if (isRecord(data.env) && Object.keys(data.env).length)
-    skipped.push({ source, reason: "env has no OpenCode equivalent yet" })
+    skipped.push({ source, reason: "env has no Orchestra equivalent yet" })
   const hooks = ClaudeHookConfig.parse(data.hooks, source, context)
   skipped.push(...hooks.skipped)
 

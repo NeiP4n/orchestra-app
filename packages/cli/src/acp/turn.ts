@@ -1,5 +1,5 @@
 import type { CancelNotification, PromptRequest, PromptResponse, RequestError } from "@agentclientprotocol/sdk"
-import type { OrchestraClient, OpenCodeEvent } from "@orchestra/client/effect"
+import type { OrchestraClient, OrchestraEvent } from "@orchestra/client/effect"
 import { TokenUsage } from "@orchestra/schema/token-usage"
 import {
   Cause,
@@ -43,7 +43,7 @@ export const CancelDrainTimeout = Context.Reference<Duration.Input>("@orchestra/
 
 type Subscription = {
   readonly scope: Scope.Closeable
-  readonly events: Queue.Dequeue<OpenCodeEvent, unknown>
+  readonly events: Queue.Dequeue<OrchestraEvent, unknown>
   readonly askQueue: Queue.Queue<Effect.Effect<void, ACPError.Error | RequestError>>
   readonly settled: Map<string, Deferred.Deferred<void>>
 }

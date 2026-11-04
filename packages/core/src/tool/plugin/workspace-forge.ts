@@ -53,7 +53,7 @@ export const Input = Schema.Struct({
     description: "Exact individual AI role ID from list. Creates one worker session alongside the project Orchestrator. Mutually exclusive with team.",
   }),
   sandbox: Schema.optionalKey(SandboxMode).annotate({
-    description: "none works directly in the selected directory; environment uses an isolated git worktree and separate OpenCode environment; strict adds bubblewrap confinement. Defaults to environment for create_session and to none for create_group members.",
+    description: "none works directly in the selected directory; environment uses an isolated git worktree and separate Orchestra environment; strict adds bubblewrap confinement. Defaults to environment for create_session and to none for create_group members.",
   }),
   members: Schema.optionalKey(Schema.Array(GroupMember)).annotate({
     description: "For create_group: at least two ordered members. Each member is an existing projectID or a new project with directory and optional name/team/sandbox. The first project coordinates the group.",
@@ -107,7 +107,7 @@ const projectLine = (project: Orchestra.Project) =>
 const guide = [
   "Call action=list first for exact project IDs, team-template IDs and roles. An AI team is an Orchestra team template of role-based sessions. A federated group is a set of projects with one group-bound chat: Президент in lead mode or Общество in council mode. When the operator asks to create a Society (общество) for a goal, do not build it here: call society_forge action=found with their goal; it needs no members, name or folder and the Society plans its own projects.",
   "create_session creates a project/workspace and its main Orchestrator session. Choose one exact team-template ID to create every role session in that team, or one exact role ID to create a single worker session; team and role are mutually exclusive. Omit both for an Orchestrator-only project. directory must already exist.",
-  "Sandbox modes: none uses the selected directory directly; environment (default) uses a separate git worktree and OpenCode data/config/state; strict adds bubblewrap confinement. Sandbox modes require a git repository; strict also requires bwrap.",
+  "Sandbox modes: none uses the selected directory directly; environment (default) uses a separate git worktree and Orchestra data/config/state; strict adds bubblewrap confinement. Sandbox modes require a git repository; strict also requires bwrap.",
   "create_group creates a whole federation in one call: at least two ordered members, each an existing projectID or a new project (directory, optional name, one role or team, and sandbox). Each new member gets its own Orchestrator and, with team, exactly one session per template role. The first project coordinates the group. Then the group is registered and gets exactly one chat for the required mode. Linking defaults on and requires operator approval.",
 ].join("\n")
 
@@ -123,7 +123,7 @@ export const Plugin = {
         name,
         options: { codemode: false, guide, triggers: ["workspace|воркспейс|рабоч\\S+ (пространств|област)"] },
         description: [
-          "Create OpenCode++ workspaces and federated groups. Available only to a project's main Orchestrator; workers should ask their Orchestrator to do this. Actions: list, create_session, create_group.",
+          "Create Orchestra workspaces and federated groups. Available only to a project's main Orchestrator; workers should ask their Orchestrator to do this. Actions: list, create_session, create_group.",
           "Never invent paths or IDs, and never emulate a team by creating extra worker sessions in the current project: a project's team comes only from its own template. A group chat only uses sanitized federation status and permission-checked tickets; it must not access other projects' files or sessions. Never silently fall back to no sandbox.",
         ].join("\n"),
         input: Input,

@@ -40,7 +40,7 @@ export const HubDescription =
   "Use when choosing how to run a search, file discovery, JSON or YAML, tabular data, git, docker, systemd, process or network inspection task. Covers picking a Universal Tool Hub catalog entry and its fast modern CLI over hand-written shell."
 
 export const Plugin = define({
-  id: "opencode.skill",
+  id: "orchestra.skill",
   effect: Effect.fn(function* (ctx) {
     const reportContent = yield* reportContentWithDiagnostics(ctx.app)
     yield* ctx.skill.transform((editor) => {

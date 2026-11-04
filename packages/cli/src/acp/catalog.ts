@@ -1,4 +1,4 @@
-import type { OrchestraClient, OpenCodeEvent } from "@orchestra/client/effect"
+import type { OrchestraClient, OrchestraEvent } from "@orchestra/client/effect"
 import type { Agent } from "@orchestra/schema/agent"
 import type { Command } from "@orchestra/schema/command"
 import type { Model } from "@orchestra/schema/model"
@@ -36,7 +36,7 @@ type Entry = {
   loadedGeneration: number
 }
 
-const reloadOn = new Set<OpenCodeEvent["type"]>(["model.updated", "agent.updated", "command.updated"])
+const reloadOn = new Set<OrchestraEvent["type"]>(["model.updated", "agent.updated", "command.updated"])
 
 export const make = Effect.fnUntraced(function* (client: OrchestraClient) {
   const scope = yield* Effect.scope

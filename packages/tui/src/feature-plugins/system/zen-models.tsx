@@ -125,7 +125,7 @@ function Panel(props: {
 }
 
 export default Plugin.define({
-  id: "opencode.zen-models",
+  id: "orchestra.zen-models",
   setup(context) {
     // Network and model tools start folded: their title row keeps the status that matters.
     const [fold, updateFold] = context.storage.store("fold", { initial: { open: false } })

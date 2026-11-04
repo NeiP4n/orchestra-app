@@ -1,5 +1,5 @@
 import type { SessionUpdate } from "@agentclientprotocol/sdk"
-import type { OpenCodeEvent } from "@orchestra/client/effect"
+import type { OrchestraEvent } from "@orchestra/client/effect"
 import type { SessionError } from "@orchestra/schema/session-error"
 import { SessionMessage } from "@orchestra/schema/session-message"
 
@@ -25,7 +25,7 @@ type Compaction =
 export type Tracked = ReadonlyMap<string, Started>
 
 type LifecycleEvent = Extract<
-  OpenCodeEvent,
+  OrchestraEvent,
   { readonly type: "session.compaction.started" | "session.compaction.ended" | "session.compaction.failed" }
 >
 type OpeningEvent = Extract<

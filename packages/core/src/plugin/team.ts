@@ -152,7 +152,7 @@ export function toolkit(role: Orchestra.Role, tools: readonly string[]) {
 // Registers every team role, built-in or the operator's own, as a "team-" agent.
 // The operator edits roles at runtime, so the agents are rebuilt on every change.
 export const Plugin = define({
-  id: "opencode.team",
+  id: "orchestra.team",
   effect: Effect.fn(function* (ctx) {
     const orchestra = yield* Orchestra.Service
     const federation = yield* Federation.Service

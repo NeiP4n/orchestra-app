@@ -1,6 +1,6 @@
 import { EOL } from "node:os"
 import { Effect, Option } from "effect"
-import { OpenCode, type ConfigCompatibilityReport, type ConfigCompatibilityUpdateInput } from "@orchestra/client"
+import { Orchestra, type ConfigCompatibilityReport, type ConfigCompatibilityUpdateInput } from "@orchestra/client"
 import { Service } from "@orchestra/client/effect/service"
 import { ServerConnection } from "../../../services/server-connection"
 
@@ -14,7 +14,7 @@ export const client = Effect.fn("cli.compat.client")(function* (input: ServerInp
     server: Option.getOrUndefined(input.server),
     standalone: input.standalone,
   })
-  return OpenCode.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
+  return Orchestra.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
 })
 
 export const change = Effect.fn("cli.compat.change")(function* (

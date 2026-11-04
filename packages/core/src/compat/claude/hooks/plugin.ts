@@ -33,7 +33,7 @@ import { ClaudeHookTools } from "./tools.js"
 const MAX_STOP_CONTINUATIONS = 8
 
 export const Plugin = define({
-  id: "opencode.compat.claude.hooks",
+  id: "orchestra.compat.claude.hooks",
   effect: Effect.fn(function* (ctx) {
     const config = yield* Config.Service
     const location = ctx.location
@@ -282,7 +282,7 @@ export const Plugin = define({
               })
             case "permission.asked":
               return runAll(select("Notification", "permission_prompt"), "Notification", event.data.sessionID, {
-                message: `OpenCode needs your permission to use ${event.data.action}`,
+                message: `Orchestra needs your permission to use ${event.data.action}`,
                 notification_type: "permission_prompt",
               })
             default:

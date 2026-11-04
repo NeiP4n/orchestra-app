@@ -22,7 +22,7 @@ export const LEGACY_FILE = ProjectDirs.legacy("dod.yaml")
 // A new project gets a real, parseable board immediately. It starts empty on purpose:
 // a placeholder task must never be mistaken for the user's actual work.
 const STARTER = [
-  "# OpenCode++ Definition of Done (DoD)",
+  "# Orchestra Definition of Done (DoD)",
   "# Project-scoped task board. Add real tasks under leaves; an empty board is not completion.",
   "# Each task should list checkable steps and, where possible, verification.command.",
   "task_id: PROJECT-BOARD",

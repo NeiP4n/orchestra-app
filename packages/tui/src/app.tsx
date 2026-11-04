@@ -3,7 +3,7 @@ import { registerOrchestraSpinner } from "./component/register-spinner"
 import { setMaxListeners } from "node:events"
 import { Effect, Latch } from "effect"
 import { Service, type Endpoint } from "@orchestra/client/effect/service"
-import { OpenCode, type SessionInfo } from "@orchestra/client"
+import { Orchestra, type SessionInfo } from "@orchestra/client"
 import { Global } from "@orchestra/util/global"
 import { onParentExit } from "@orchestra/util/parent-exit"
 import { ClipboardProvider, useClipboard } from "./context/clipboard"
@@ -188,13 +188,13 @@ const appBindingCommands = [
   "variant.cycle",
   "variant.list",
   "provider.connect",
-  "opencode.settings",
-  "opencode.status",
-  "opencode.update",
+  "orchestra.settings",
+  "orchestra.status",
+  "orchestra.update",
   "server.pair",
   "service.restart",
   "location.reload",
-  "opencode.debug",
+  "orchestra.debug",
   "theme.switch",
   "theme.switch_mode",
   "theme.mode.lock",
@@ -244,7 +244,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
     terminalSuspend: process.platform !== "win32",
   })
   const options = { baseUrl: input.server.endpoint.url, headers: Service.headers(input.server.endpoint) }
-  const api = OpenCode.make(options)
+  const api = Orchestra.make(options)
   const location = yield* Effect.tryPromise(() => api.file.list({ location: { directory: process.cwd() } })).pipe(
     Effect.map((response) => response.location),
     Effect.catch(() => Effect.tryPromise(() => api.location.get())),
@@ -258,7 +258,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
         reconnect: async (signal: AbortSignal) => {
           const endpoint = await managed.reconnect(signal)
           const next = { baseUrl: endpoint.url, headers: Service.headers(endpoint) }
-          return { api: OpenCode.make(next), url: endpoint.url }
+          return { api: Orchestra.make(next), url: endpoint.url }
         },
         restart: managed.restart,
         openToNetwork: managed.openToNetwork,
@@ -403,7 +403,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                   initialRoute: process.env.ORCHESTRA_STORY
                                     ? {
                                         type: "plugin",
-                                        id: "opencode.storybook",
+                                        id: "orchestra.storybook",
                                         name: "storybook",
                                         // ORCHESTRA_STORY=1 opens the index; any other value opens that story.
                                         data:
@@ -1231,7 +1231,7 @@ function App() {
         category: "Multiplayer",
       },
       {
-        name: "opencode.settings",
+        name: "orchestra.settings",
         title: "Open settings",
         suggested: true,
         slash: { name: "settings" },
@@ -1241,7 +1241,7 @@ function App() {
         category: "System",
       },
       {
-        name: "opencode.status",
+        name: "orchestra.status",
         title: "View status",
         slash: { name: "status" },
         run: () => {
@@ -1252,7 +1252,7 @@ function App() {
       ...(updater.open
         ? [
             {
-              name: "opencode.update",
+              name: "orchestra.update",
               title: "Update Orchestra",
               slash: { name: "upgrade" },
               run: () => updater.open?.("manual"),
@@ -1307,7 +1307,7 @@ function App() {
         category: "System",
       },
       {
-        name: "opencode.debug",
+        name: "orchestra.debug",
         title: "View debug info",
         slash: { name: "debug" },
         run: () => {
@@ -1810,7 +1810,7 @@ function App() {
           />
         </Show>
       </box>
-      <Show when={devtools() && !(route.data.type === "plugin" && route.data.id === "opencode.stats")}>
+      <Show when={devtools() && !(route.data.type === "plugin" && route.data.id === "orchestra.stats")}>
         {/* The network's pulse runs along the top of the bar, faster while agents work. */}
         <Show when={dimensions().height >= 20}>
           <NeuralLine energy={neuralEnergy()} seed={2} />

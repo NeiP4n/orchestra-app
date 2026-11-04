@@ -1,5 +1,5 @@
 import type { PermissionOption, SessionUpdate } from "@agentclientprotocol/sdk"
-import type { OrchestraClient, OpenCodeEvent } from "@orchestra/client/effect"
+import type { OrchestraClient, OrchestraEvent } from "@orchestra/client/effect"
 import { FileDiff } from "@orchestra/schema/file-diff"
 import type { Permission } from "@orchestra/schema/permission"
 import type { Session } from "@orchestra/schema/session"
@@ -21,7 +21,7 @@ import {
   type ToolInput,
 } from "./tool"
 
-type PermissionEvent = Extract<OpenCodeEvent, { type: "permission.asked" }>
+type PermissionEvent = Extract<OrchestraEvent, { type: "permission.asked" }>
 type Tool = { readonly id: string; readonly name: string; readonly input: ToolInput }
 type Preview = ReturnType<typeof diff>
 

@@ -8,7 +8,7 @@ import { stringWidth } from "../../util/string-width"
 import { dialogWidth } from "../../ui/dialog"
 
 // Mirrors the core contract in `@orchestra/core/plugin/provider/freebuff-rpc`.
-const RPC_ID = "opencode.freebuff"
+const RPC_ID = "orchestra.freebuff"
 
 /**
  * The price table needs more room than a medium dialog gives: the catalog
@@ -262,7 +262,7 @@ function StatusDialog(props: {
 }
 
 export default Plugin.define({
-  id: "opencode.freebuff",
+  id: "orchestra.freebuff",
   setup(context) {
     const request = <Output,>(method: string, input: JsonValue) => call<Output>(context, method, input)
 

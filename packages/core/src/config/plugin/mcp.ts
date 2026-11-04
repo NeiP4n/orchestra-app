@@ -8,7 +8,7 @@ import { Config } from "../../config.js"
 import { Mcp } from "../../mcp/index.js"
 
 export const Plugin = define({
-  id: "opencode.config.mcp",
+  id: "orchestra.config.mcp",
   effect: Effect.fn(function* (ctx) {
     yield* register(ctx.event.subscribe())
   }),

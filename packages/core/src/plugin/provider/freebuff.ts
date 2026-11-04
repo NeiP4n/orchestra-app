@@ -658,7 +658,7 @@ export const FreebuffPlugin = define({
       return { url: attempt.data?.url }
     })
 
-    // The TUI companion plugin (`opencode.freebuff`) renders dialogs on top of
+    // The TUI companion plugin (`orchestra.freebuff`) renders dialogs on top of
     // these methods; nothing is fetched in the background, so the plugin never
     // interferes with the official CLI session on the server.
     yield* ctx.rpc

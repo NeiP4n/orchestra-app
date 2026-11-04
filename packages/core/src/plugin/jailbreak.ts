@@ -22,7 +22,7 @@ type Catalog = {
  * leave them, and the base prompt, alone.
  */
 export const Plugin = define({
-  id: "opencode.jailbreak",
+  id: "orchestra.jailbreak",
   effect: Effect.fn("JailbreakPlugin")(function* (ctx) {
     const config = yield* Config.Service
 

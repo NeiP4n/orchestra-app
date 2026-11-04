@@ -13,7 +13,7 @@ import { CompatStore } from "../../compat/store.js"
 import { InstructionDiscovery } from "../../instruction-discovery.js"
 
 export const Plugin = define({
-  id: "opencode.config.compatibility",
+  id: "orchestra.config.compatibility",
   effect: Effect.fn(function* (ctx) {
     const config = yield* Config.Service
     const fs = yield* FSUtil.Service

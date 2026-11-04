@@ -1,4 +1,4 @@
-import { ClientError, OpenCode, type SessionStatsInfo } from "@orchestra/client"
+import { ClientError, Orchestra, type SessionStatsInfo } from "@orchestra/client"
 import { Service } from "@orchestra/client/effect/service"
 import { TokenUsage } from "@orchestra/schema/token-usage"
 import { activityCalendar } from "@orchestra/util/activity-calendar"
@@ -20,7 +20,7 @@ const handler = Effect.fn("cli.stats")(function* (input: Runtime.Input<typeof Co
     server: Option.getOrUndefined(input.server),
     standalone: input.standalone,
   })
-  const client = OpenCode.make({ baseUrl: server.endpoint.url, headers: Service.headers(server.endpoint) })
+  const client = Orchestra.make({ baseUrl: server.endpoint.url, headers: Service.headers(server.endpoint) })
   const range = statsRange({ days, year, all: input.all })
   const projectID =
     project === "."

@@ -1,5 +1,5 @@
 import { Service, type Endpoint } from "@orchestra/client/effect/service"
-import { OpenCode, type SessionMessageAssistantTool } from "@orchestra/client/promise"
+import { Orchestra, type SessionMessageAssistantTool } from "@orchestra/client/promise"
 import { FSUtil } from "@orchestra/util/fs-util"
 import { open } from "node:fs/promises"
 import path from "node:path"
@@ -84,7 +84,7 @@ async function run(input: RunCommandInput, options: ExecutionOptions) {
 }
 
 async function execute(input: RunCommandInput, prepared: Prepared, endpoint: Endpoint, options: ExecutionOptions) {
-  const client = OpenCode.make({
+  const client = Orchestra.make({
     baseUrl: endpoint.url,
     headers: Service.headers(endpoint),
     // Bun's default five-minute deadline terminates the event stream used by long-running sessions.

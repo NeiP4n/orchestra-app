@@ -32,7 +32,7 @@ const pathActions = ["external_directory", "read", "edit"] as const satisfies re
 const agentKeys = new Set(["variant", ...Object.keys(ConfigAgent.Info.fields)])
 
 export const Plugin = define({
-  id: "opencode.config.agent",
+  id: "orchestra.config.agent",
   effect: Effect.fn(function* (ctx) {
     const config = yield* Config.Service
     const fs = yield* FSUtil.Service

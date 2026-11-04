@@ -1,4 +1,4 @@
-import type { OrchestraClient, OpenCodeEvent } from "@orchestra/client"
+import type { OrchestraClient, OrchestraEvent } from "@orchestra/client"
 import { createClientConnection, createPersistentPtyClient } from "@orchestra/client/solid"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { onCleanup } from "solid-js"
@@ -11,7 +11,7 @@ type ManagedService = {
   openToNetwork?: () => Promise<void>
 }
 
-type ClientEventMap = { [Type in OpenCodeEvent["type"]]: Extract<OpenCodeEvent, { type: Type }> }
+type ClientEventMap = { [Type in OrchestraEvent["type"]]: Extract<OrchestraEvent, { type: Type }> }
 
 export const { use: useClient, provider: ClientProvider } = createSimpleContext({
   name: "Client",

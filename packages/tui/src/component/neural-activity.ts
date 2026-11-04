@@ -1,4 +1,4 @@
-import type { OpenCodeEvent } from "@orchestra/client"
+import type { OrchestraEvent } from "@orchestra/client"
 import { createSignal } from "solid-js"
 import { useClient } from "../context/client"
 
@@ -54,8 +54,8 @@ const WEIGHT = {
   "session.execution.started": 1.5,
   "session.inbox.enqueued": 2,
   "session.compaction.started": 2,
-} satisfies Partial<Record<OpenCodeEvent["type"], number>>
-type Weighted = Extract<OpenCodeEvent, { type: keyof typeof WEIGHT }>
+} satisfies Partial<Record<OrchestraEvent["type"], number>>
+type Weighted = Extract<OrchestraEvent, { type: keyof typeof WEIGHT }>
 
 export class NeuralActivity {
   private heat = 0
@@ -109,7 +109,7 @@ export class NeuralActivity {
     this.push({ kind: "select", sessionID })
   }
 
-  take(event: OpenCodeEvent) {
+  take(event: OrchestraEvent) {
     const decision = this.decision(event)
     if (decision) return this.push(decision)
     if (!weighted(event)) return
@@ -137,7 +137,7 @@ export class NeuralActivity {
   }
 
   // A decision waiting for the user, and its resolution, whichever way it was asked.
-  private decision(event: OpenCodeEvent): Omit<NeuralSignal, "seq"> | undefined {
+  private decision(event: OrchestraEvent): Omit<NeuralSignal, "seq"> | undefined {
     switch (event.type) {
       case "form.created":
         return { kind: "ask", sessionID: event.data.form.sessionID }
@@ -196,7 +196,7 @@ export class NeuralActivity {
   }
 }
 
-function weighted(event: OpenCodeEvent): event is Weighted {
+function weighted(event: OrchestraEvent): event is Weighted {
   return event.type in WEIGHT
 }
 

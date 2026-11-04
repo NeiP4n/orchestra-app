@@ -1,4 +1,4 @@
-import { OpenCode } from "@orchestra/client"
+import { Orchestra } from "@orchestra/client"
 import { Service } from "@orchestra/client/effect/service"
 import { Effect, Option } from "effect"
 import { EOL } from "node:os"
@@ -13,7 +13,7 @@ export default Runtime.handler(
       server: Option.getOrUndefined(input.server),
       standalone: input.standalone,
     })
-    const client = OpenCode.make({
+    const client = Orchestra.make({
       baseUrl: server.endpoint.url,
       headers: Service.headers(server.endpoint),
     })

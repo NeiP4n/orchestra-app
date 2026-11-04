@@ -1,5 +1,5 @@
 import type { PromptResponse, SessionUpdate } from "@agentclientprotocol/sdk"
-import type { OpenCodeEvent } from "@orchestra/client/effect"
+import type { OrchestraEvent } from "@orchestra/client/effect"
 import type { Session } from "@orchestra/schema/session"
 import type { SessionError } from "@orchestra/schema/session-error"
 import type { SessionMessage } from "@orchestra/schema/session-message"
@@ -58,9 +58,9 @@ export type TurnState = {
   readonly executionError?: { readonly type: string; readonly message: string }
 }
 
-type PermissionEvent = Extract<OpenCodeEvent, { type: "permission.asked" }>
-type FormEvent = Extract<OpenCodeEvent, { type: "form.created" }>
-type CreatedEvent = Extract<OpenCodeEvent, { type: "session.created" }>
+type PermissionEvent = Extract<OrchestraEvent, { type: "permission.asked" }>
+type FormEvent = Extract<OrchestraEvent, { type: "form.created" }>
+type CreatedEvent = Extract<OrchestraEvent, { type: "session.created" }>
 
 export type Output =
   | { readonly _tag: "SessionUpdate"; readonly update: SessionUpdate; readonly diff?: DiffSource }
@@ -90,7 +90,7 @@ export const initial: TurnState = {
   asks: new Set(),
 }
 
-export function fold(state: TurnState, event: OpenCodeEvent, ctx: TurnContext): Folded {
+export function fold(state: TurnState, event: OrchestraEvent, ctx: TurnContext): Folded {
   if (event.type === "session.created") return childCreated(state, event, ctx)
 
   const sessionID = sessionIDFromEvent(event)
@@ -129,7 +129,7 @@ export function fold(state: TurnState, event: OpenCodeEvent, ctx: TurnContext): 
   return child ? childEvent(state, event, ctx, child) : rootEvent(state, event, ctx)
 }
 
-export function fromTrackedChild(state: TurnState, event: OpenCodeEvent) {
+export function fromTrackedChild(state: TurnState, event: OrchestraEvent) {
   const sessionID = event.type === "session.created" ? event.data.parentID : sessionIDFromEvent(event)
   return sessionID !== undefined && state.children.has(sessionID)
 }
@@ -213,7 +213,7 @@ function childCreated(state: TurnState, event: CreatedEvent, ctx: TurnContext): 
   }
 }
 
-function rootEvent(state: TurnState, event: OpenCodeEvent, ctx: TurnContext): Folded {
+function rootEvent(state: TurnState, event: OrchestraEvent, ctx: TurnContext): Folded {
   switch (event.type) {
     case "session.step.started":
       return sessionEvent({ ...state, stepError: undefined }, event, ctx, undefined)
@@ -234,7 +234,7 @@ function rootEvent(state: TurnState, event: OpenCodeEvent, ctx: TurnContext): Fo
   }
 }
 
-function childEvent(state: TurnState, event: OpenCodeEvent, ctx: TurnContext, child: ACPChild.Session): Folded {
+function childEvent(state: TurnState, event: OrchestraEvent, ctx: TurnContext, child: ACPChild.Session): Folded {
   switch (event.type) {
     case "session.execution.started":
       return { state, outputs: childStatus(ctx, child, { type: "status", status: "running" }) }
@@ -251,7 +251,7 @@ function childEvent(state: TurnState, event: OpenCodeEvent, ctx: TurnContext, ch
 
 function sessionEvent(
   state: TurnState,
-  event: OpenCodeEvent,
+  event: OrchestraEvent,
   ctx: TurnContext,
   child: ACPChild.Session | undefined,
 ): Folded {
@@ -457,7 +457,7 @@ function without<K, V>(map: ReadonlyMap<K, V>, key: K) {
   return next
 }
 
-function sessionIDFromEvent(event: OpenCodeEvent) {
+function sessionIDFromEvent(event: OrchestraEvent) {
   if ("sessionID" in event.data && typeof event.data.sessionID === "string") return event.data.sessionID
   if (event.type === "form.created") return event.data.form.sessionID
   return undefined

@@ -330,7 +330,13 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
       }
 
       const selected = [...desired.values()].filter((item) => matches(target, item.plugin.id))
-      if (selected.length || target === "*" || target.endsWith(".*") || target.startsWith("opencode.")) {
+      if (
+        selected.length ||
+        target === "*" ||
+        target.endsWith(".*") ||
+        target.startsWith("orchestra.") ||
+        target.startsWith("opencode.")
+      ) {
         for (const item of selected) item.enabled = true
         continue
       }
@@ -681,7 +687,18 @@ async function setup(plugin: Plugin.Definition, context: Plugin.Context, owned: 
 }
 
 function matches(selector: string, id: string) {
-  return selector === "*" || selector === id || (selector.endsWith(".*") && id.startsWith(selector.slice(0, -1)))
+  if (selector === "*" || selector === id) return true
+  // Builtin plugin ids were renamed from the legacy `opencode.` prefix to
+  // `orchestra.`; selectors in existing user configuration may use either.
+  if (selector.startsWith("opencode.") && id === `orchestra.${selector.slice(9)}`) return true
+  if (selector.startsWith("orchestra.") && id === `opencode.${selector.slice(10)}`) return true
+  if (selector.endsWith(".*")) {
+    const prefix = selector.slice(0, -1)
+    if (id.startsWith(prefix)) return true
+    if (prefix.startsWith("opencode.") && id.startsWith(`orchestra.${prefix.slice(9)}`)) return true
+    if (prefix.startsWith("orchestra.") && id.startsWith(`opencode.${prefix.slice(10)}`)) return true
+  }
+  return false
 }
 
 async function resolvePlugin(

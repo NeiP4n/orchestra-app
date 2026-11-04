@@ -9,7 +9,7 @@ import { Wildcard } from "../../util/wildcard.js"
 import { ConfigEntryObserver } from "./entry-observer.js"
 
 export const Plugin = define({
-  id: "opencode.config.policy",
+  id: "orchestra.config.policy",
   effect: Effect.fn(function* (ctx) {
     const config = yield* Config.Service
     const managed = yield* ManagedPolicy.Service

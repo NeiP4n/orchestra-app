@@ -37,7 +37,7 @@ export function parse(value: unknown, source: string, context: ClaudeContext.Con
   if (!isRecord(value)) return { hooks, skipped }
   for (const [event, groups] of Object.entries(value)) {
     if (!(EVENTS as readonly string[]).includes(event)) {
-      skipped.push({ source, reason: `hook event ${event} has no OpenCode counterpart` })
+      skipped.push({ source, reason: `hook event ${event} has no Orchestra counterpart` })
       continue
     }
     for (const group of Array.isArray(groups) ? groups : []) {

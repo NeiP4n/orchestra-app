@@ -27,7 +27,7 @@ You are NO LONGER in Plan mode. The previous Plan restrictions no longer apply. 
 </system-reminder>`
 
 export const Plugin = define({
-  id: "opencode.plan",
+  id: "orchestra.plan",
   effect: Effect.fn(function* (ctx) {
     const global = yield* Global.Service
     const directory = path.join(global.config, "plan")

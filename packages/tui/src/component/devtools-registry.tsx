@@ -573,7 +573,7 @@ function PluginTools(props: {
   const [busy, setBusy] = createSignal<string>()
 
   const entries = createMemo<RegistryPluginRow[]>(() => {
-    const registered = props.plugins.registered().filter((item) => item.id !== "opencode.plugins")
+    const registered = props.plugins.registered().filter((item) => item.id !== "orchestra.plugins")
     const known = new Set(registered.map((item) => item.id))
     const states = props.plugins.list()
     const managed: RegistryPluginRow[] = registered.map((item) => {
@@ -588,7 +588,7 @@ function PluginTools(props: {
     })
     const failed: RegistryPluginRow[] = states.flatMap((state) => {
       const id = state.id ?? state.target
-      if (state.status !== "failed" || id === "opencode.plugins" || (state.id && known.has(state.id))) return []
+      if (state.status !== "failed" || id === "orchestra.plugins" || (state.id && known.has(state.id))) return []
       return [{
         id,
         source: "external" as const,
@@ -610,7 +610,7 @@ function PluginTools(props: {
   const selected = () => rows()[Math.max(0, Math.min(cursor(), rows().length - 1))]
 
   createEffect(() => {
-    const total = props.plugins.registered().filter((item) => item.id !== "opencode.plugins")
+    const total = props.plugins.registered().filter((item) => item.id !== "orchestra.plugins")
     props.onCount(`${total.filter((item) => item.active).length}/${total.length}`)
   })
   createEffect(() => {

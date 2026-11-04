@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util"
 import type { McpServer, SessionConfigOption } from "@agentclientprotocol/sdk"
-import type { OrchestraClient, OpenCodeEvent } from "@orchestra/client/effect"
+import type { OrchestraClient, OrchestraEvent } from "@orchestra/client/effect"
 import { Mcp } from "@orchestra/schema/mcp"
 import type { Session } from "@orchestra/schema/session"
 import { Cause, Deferred, Effect, Exit, Queue, Ref, Scope, Stream } from "effect"
@@ -37,7 +37,7 @@ type Entry = {
   readonly selected: Queue.Queue<Change>
 }
 
-type SelectedEvent = Extract<OpenCodeEvent, { type: "session.model.selected" | "session.agent.selected" }>
+type SelectedEvent = Extract<OrchestraEvent, { type: "session.model.selected" | "session.agent.selected" }>
 
 export const make = Effect.fnUntraced(function* (input: {
   readonly client: OrchestraClient

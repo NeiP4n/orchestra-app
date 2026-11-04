@@ -1,5 +1,5 @@
 import { Service, type Endpoint } from "@orchestra/client/effect/service"
-import { ClientError, OpenCode, type OrchestraClient } from "@orchestra/client/promise"
+import { ClientError, Orchestra, type OrchestraClient } from "@orchestra/client/promise"
 import type { MiniFrontendInput } from "@orchestra/tui/mini"
 import { setTimeout } from "node:timers/promises"
 import { readStdin } from "./util/io"
@@ -137,7 +137,7 @@ export async function runMini(input: MiniCommandInput) {
 /** @internal Exported for CLI boundary tests. */
 export function createMiniConnection(input: MiniCommandInput["server"]) {
   const make = (endpoint: Endpoint) =>
-    OpenCode.make({
+    Orchestra.make({
       baseUrl: endpoint.url,
       headers: Service.headers(endpoint),
     })

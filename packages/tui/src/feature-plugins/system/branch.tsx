@@ -4,7 +4,7 @@ import { hasGithubDirectory } from "../../util/github"
 
 // Switching branches is offered for projects that carry a `.github` folder, the mark of a GitHub project.
 export default Plugin.define({
-  id: "opencode.branch",
+  id: "orchestra.branch",
   setup(context) {
     const text = (en: string, ru: string) => (context.ui.language() === "ru" ? ru : en)
 
@@ -66,7 +66,7 @@ export default Plugin.define({
           commands: github()
             ? [
                 {
-                  id: "opencode.branch.switch",
+                  id: "orchestra.branch.switch",
                   title: text("Switch branch", "Сменить ветку"),
                   group: "Git",
                   slash: { name: "branch" },

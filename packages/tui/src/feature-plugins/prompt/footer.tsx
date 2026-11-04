@@ -9,7 +9,7 @@ import { formatMoney } from "../../util/money"
 
 // The status call reaches Freebuff's API, so refresh slowly and let the local clock
 // move the countdowns in between.
-const FREEBUFF_RPC = "opencode.freebuff"
+const FREEBUFF_RPC = "orchestra.freebuff"
 const FREEBUFF_REFRESH_MS = 20_000
 const FREEBUFF_BAR_WIDTH = 10
 
@@ -291,7 +291,7 @@ export function PromptFooter(props: {
 }
 
 export default Plugin.define({
-  id: "opencode.prompt.footer",
+  id: "orchestra.prompt.footer",
   setup(context) {
     context.ui.slot({
       append: "prompt.footer",

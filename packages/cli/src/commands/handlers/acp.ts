@@ -1,5 +1,5 @@
 import { MessageTooLargeError, ndJsonStream } from "@agentclientprotocol/sdk"
-import { OpenCode } from "@orchestra/client/effect"
+import { Orchestra } from "@orchestra/client/effect"
 import { Service } from "@orchestra/client/effect/service"
 import { CrossSpawnSpawner } from "@orchestra/util/cross-spawn-spawner"
 import { Effect, Option } from "effect"
@@ -25,7 +25,7 @@ export default Runtime.handler(
     }
     process.env.ORCHESTRA_CLIENT = "acp"
     const endpoint = yield* Standalone.start()
-    const client = yield* OpenCode.make({ baseUrl: endpoint.url }).pipe(
+    const client = yield* Orchestra.make({ baseUrl: endpoint.url }).pipe(
       Effect.provideServiceEffect(
         HttpClient.HttpClient,
         HttpClient.HttpClient.pipe(

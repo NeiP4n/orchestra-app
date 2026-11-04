@@ -16,7 +16,7 @@ const posthog = /^mcp(?:-eu|\.us|\.eu)?\.posthog\.com$/
 const mode = "x-posthog-mcp-mode"
 
 export const Plugin = define({
-  id: "opencode.mcp.codemode.defaults",
+  id: "orchestra.mcp.codemode.defaults",
   effect: Effect.fn(function* (ctx) {
     yield* ctx.mcp.transform((editor) => {
       for (const [, server] of editor.list()) {

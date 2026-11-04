@@ -40,7 +40,7 @@ export function roomGuard(room: { name: string; hostName?: string | undefined },
 }
 
 export const Plugin = define({
-  id: "opencode.room-rules",
+  id: "orchestra.room-rules",
   effect: Effect.fn(function* (ctx) {
     const rooms = yield* Room.Service
     const sessions = yield* Session.Service

@@ -10,7 +10,7 @@ import { Orchestra } from "../orchestra.js"
 // own opencode roots, so a nested `opencode` reads the sandbox's empty service registration and
 // database instead of reaching the live service. Strict isolation also runs it under bubblewrap.
 export const Plugin = define({
-  id: "opencode.sandbox",
+  id: "orchestra.sandbox",
   effect: Effect.fn(function* (ctx) {
     const orchestra = yield* Orchestra.Service
     yield* ctx.shell.hook("create.before", (event) =>

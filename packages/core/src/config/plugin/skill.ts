@@ -17,7 +17,7 @@ import { SkillFile } from "./skill-file.js"
 type Source = Skill.DirectorySource | Skill.UrlSource
 
 export const Plugin = define({
-  id: "opencode.config.skill",
+  id: "orchestra.config.skill",
   effect: Effect.fn(function* (ctx) {
     const config = yield* Config.Service
     const discovery = yield* SkillDiscovery.Service

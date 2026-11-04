@@ -8,7 +8,7 @@ import { useT } from "../../util/i18n"
 import { hoverBackground } from "../../ui/hover"
 import { useTheme } from "../../context/theme"
 
-export const DOD_PANEL = "opencode.sidebar.dod"
+export const DOD_PANEL = "orchestra.sidebar.dod"
 const FILE = path.join(".orchestra", "dod.yaml")
 const LEGACY_FILE = path.join(".opencode", "dod.yaml")
 const FINISHED = new Set(["DONE", "OUT_OF_SCOPE"])
