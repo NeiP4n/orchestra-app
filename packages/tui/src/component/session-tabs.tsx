@@ -38,6 +38,7 @@ import {
   type SessionTabUnread,
 } from "../context/session-tabs-model"
 import { createAnimatable, spring, tween } from "../ui/animation"
+import { hoverBackground } from "../ui/hover"
 import { Locale } from "../util/locale"
 import { TabPulse, unreadGlowIntensity } from "./tab-pulse"
 import { tint } from "../theme/color"
@@ -483,7 +484,7 @@ function TabContextMenu(props: { state: TabContextMenuState; tabs: SessionTabsCo
   const dimensions = useTerminalDimensions()
   const theme = useTheme()
   const background = () => theme.background.raised.base
-  const actionHovered = () => theme.background.raised.high
+  const actionHovered = () => hoverBackground(theme)
   const dialog = useDialog()
   const clipboard = useClipboard()
   const toast = useToast()
@@ -665,8 +666,8 @@ function VerticalSessionTabs(props: {
   const renderer = useRenderer()
   const theme = useTheme()
   const background = () => theme.background.raised.base
-  const actionSelected = () => theme.background.action.primary.selected
-  const actionHovered = () => theme.background.raised.high
+  const actionSelected = () => hoverBackground(theme)
+  const actionHovered = () => hoverBackground(theme)
   const base = useTheme()
   const config = useConfig().data
   const animations = () => props.animations ?? config.animations ?? true
@@ -1698,7 +1699,7 @@ function HorizontalSessionTabs(props: {
           const dragged = () => dragging() === tab.sessionID
           const background = createMemo(() => {
             const lifted = (hovered() === tab.sessionID || dragged()) && !selected()
-            const base = lifted ? theme.background.action.primary.hovered : theme.background.base
+            const base = lifted ? hoverBackground(theme) : theme.background.base
             // A dragged tab lifts to full selected elevation while it is held.
             return tint(base, theme.decrease(theme.background.raised.base), dragged() ? 1 : selection())
           })
@@ -1903,7 +1904,7 @@ function HorizontalSessionTabs(props: {
         <text
           width={ADD_TAB_WIDTH}
           fg={addHovered() ? theme.text.base : theme.text.muted}
-          bg={addHovered() ? theme.background.action.primary.hovered : undefined}
+          bg={addHovered() ? hoverBackground(theme) : undefined}
           selectable={false}
           onMouseOver={() => setAddHovered(true)}
           onMouseOut={() => setAddHovered(false)}
