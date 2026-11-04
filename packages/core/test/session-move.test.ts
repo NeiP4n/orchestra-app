@@ -351,7 +351,7 @@ describe("Session.move", () => {
         const created = yield* fixture.session.create({ location: Location.Ref.make({ directory: fixture.source }) })
         const pending = yield* fixture.session.synthetic({ sessionID: created.id, text: "Keep pending", resume: false })
         const moving = yield* fixture.session
-          .move({ sessionID: created.id, directory: fixture.destination })
+          .move({ sessionID: created.id, directory: fixture.destination, delivery: "queue" })
           .pipe(Effect.forkScoped)
         const release = yield* Queue.take(fixture.probes)
 
@@ -371,7 +371,7 @@ describe("Session.move", () => {
       const fixture = yield* sourceProbe({ execution: true })
       const created = yield* fixture.session.create({ location: Location.Ref.make({ directory: fixture.source }) })
       const moving = yield* fixture.session
-        .move({ sessionID: created.id, directory: fixture.destination })
+        .move({ sessionID: created.id, directory: fixture.destination, delivery: "queue" })
         .pipe(Effect.forkScoped)
       const release = yield* Queue.take(fixture.probes)
 
@@ -383,7 +383,7 @@ describe("Session.move", () => {
       yield* Fiber.join(moving)
 
       expect((yield* fixture.session.get(created.id)).location.directory).toBe(fixture.source)
-      expect(yield* fixture.session.inbox(created.id)).toMatchObject([{ type: "move", delivery: "steer" }])
+      expect(yield* fixture.session.inbox(created.id)).toMatchObject([{ type: "move", delivery: "queue" }])
       expect(yield* fixture.execution.isActive(created.id)).toBe(true)
       yield* fixture.execution.interrupt(created.id)
       yield* fixture.execution.awaitIdle(created.id)
@@ -422,7 +422,7 @@ describe("Session.move", () => {
           resume: false,
         })
         const moving = yield* fixture.session
-          .move({ sessionID: created.id, directory: fixture.destination })
+          .move({ sessionID: created.id, directory: fixture.destination, delivery: "queue" })
           .pipe(Effect.exit, Effect.forkScoped)
         const release = yield* Queue.take(fixture.probes)
 
@@ -472,7 +472,7 @@ describe("Session.move", () => {
     ),
   )
 
-  it.effect("applies a move immediately when the source directory no longer exists", () =>
+  it.effect("applies a steer move immediately, and a queue move once its source is gone", () =>
     tmpdirScoped().pipe(
       Effect.flatMap((tmp) =>
         Effect.gen(function* () {
@@ -484,33 +484,41 @@ describe("Session.move", () => {
             location: Location.Ref.make({ directory: AbsolutePath.make(source) }),
           })
 
+          // A steer move (the default) for an idle session lands at once,
+          // even though the source exists: the recovery path must not depend
+          // on the source location being able to run a drain. Execution is a
+          // no-op in this harness, so a queued move would never be applied.
           yield* session.move({ sessionID: created.id, directory: destination })
-          expect((yield* session.get(created.id)).location.directory).toBe(AbsolutePath.make(source))
-          expect(yield* session.inbox(created.id)).toHaveLength(1)
+          expect((yield* session.get(created.id)).location.directory).toBe(destination)
+          expect(yield* session.inbox(created.id)).toEqual([])
+
+          // A queue move keeps its ordering contract while the source is
+          // usable: it waits in the inbox behind earlier queued work.
+          yield* Effect.promise(() => mkdir(path.join(tmp.path, "other")))
+          const queued = yield* session.create({
+            location: Location.Ref.make({ directory: AbsolutePath.make(path.join(tmp.path, "other")) }),
+          })
           const pending = yield* session.synthetic({
-            sessionID: created.id,
+            sessionID: queued.id,
             text: "Keep queued",
             delivery: "queue",
             resume: false,
           })
-          yield* session.move({ sessionID: created.id, directory: destination, delivery: "queue" })
-          expect(yield* session.inbox(created.id)).toHaveLength(3)
+          yield* session.move({ sessionID: queued.id, directory: destination, delivery: "queue" })
+          expect((yield* session.get(queued.id)).location.directory).toBe(
+            AbsolutePath.make(path.join(tmp.path, "other")),
+          )
+          expect(yield* session.inbox(queued.id)).toMatchObject([
+            { type: "synthetic" },
+            { type: "move", delivery: "queue" },
+          ])
 
-          yield* Effect.promise(() => rm(source, { recursive: true }))
-          yield* session.move({ sessionID: created.id, directory: destination })
-
-          expect((yield* session.get(created.id)).location.directory).toBe(destination)
-          expect(yield* session.inbox(created.id)).toEqual([pending])
-
-          yield* session.move({ sessionID: created.id, directory: destination })
-          expect(yield* session.inbox(created.id)).toHaveLength(2)
-
-          yield* Effect.promise(() => mkdir(path.join(tmp.path, "other")))
-          const steered = yield* session.create({
-            location: Location.Ref.make({ directory: AbsolutePath.make(path.join(tmp.path, "other")) }),
-          })
-          yield* session.move({ sessionID: steered.id, directory: destination, delivery: "queue" })
-          expect(yield* session.inbox(steered.id)).toMatchObject([{ type: "move", delivery: "queue" }])
+          // Once the source directory is gone, even a queue move recovers
+          // immediately, cancelling queued moves but keeping queued prompts.
+          yield* Effect.promise(() => rm(path.join(tmp.path, "other"), { recursive: true }))
+          yield* session.move({ sessionID: queued.id, directory: destination, delivery: "queue" })
+          expect((yield* session.get(queued.id)).location.directory).toBe(destination)
+          expect(yield* session.inbox(queued.id)).toEqual([pending])
         }),
       ),
     ),

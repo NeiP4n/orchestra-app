@@ -119,12 +119,24 @@ const layer = Layer.effect(
       move: Effect.fn("SessionMove.move")(function* (input) {
         const session = yield* get(input.sessionID)
         const destination = yield* resolveDestination(session, input)
+        const delivery = input.delivery ?? "steer"
+        // A steer move (the default, and what the session-recovery UI sends)
+        // for a session that is not running must land immediately: queueing
+        // it for the drain makes the rescue depend on the source location
+        // being able to run, which is exactly what is broken when a location
+        // fails at request time (a VCS or provider call, plugin activation)
+        // while its directory still exists and its runner layer still
+        // builds — the old probe called that source "available", the queued
+        // move was never drained, and the session stayed locked on the
+        // location-unavailable screen no matter how often the user picked a
+        // new directory. A queue move keeps its ordering contract, so it is
+        // admitted unless the probed source is unavailable.
         // Probe outside the inbox lock so cancellation remains available during initialization.
-        const unavailable = yield* sourceUnavailable(session)
+        const unavailable = delivery === "steer" ? true : yield* sourceUnavailable(session)
         const item = SessionInbox.Item.make({
           type: "move",
           payload: destination,
-          delivery: input.delivery ?? "steer",
+          delivery,
         })
         yield* SessionInbox.serialized(
           input.sessionID,
