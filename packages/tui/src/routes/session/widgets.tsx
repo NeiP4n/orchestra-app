@@ -6,6 +6,7 @@ import { useClipboard } from "../../context/clipboard"
 import { neuralPalette } from "../../component/neural"
 import { useTheme } from "../../context/theme"
 import { useToast } from "../../ui/toast"
+import { hoverBackground } from "../../ui/hover"
 import { usePromptRef } from "../../context/prompt"
 import { activate, needsAnswer, press, reply, type Key, type Outcome } from "../../widgets/press"
 import { render, type Focus, type Span, type Tone } from "../../widgets/render"
@@ -255,12 +256,12 @@ export function WidgetBlock(props: { id: string; widget: Widget; width: number; 
                         const isHover = () => props.live && hoveredTarget() === target
                         const isSelected = () => isTargetSelected(props.widget, target)
                         const rowBg = () => {
-                          if (isHover()) return theme.background.formfield.hovered ?? theme.background.formfield.selected
+                          if (isHover()) return hoverBackground(theme)
                           if (isSelected()) return mine() ? theme.background.formfield.focused : theme.background.formfield.selected
                           return undefined
                         }
                         const spanFg = (span: Span) => {
-                          if (isHover()) return theme.text.formfield.hovered ?? theme.text.formfield.selected
+                          if (isHover()) return theme.text.base
                           if (isSelected()) return mine() ? theme.text.formfield.focused : theme.text.formfield.selected
                           return color(span.tone)
                         }
@@ -321,12 +322,12 @@ export function WidgetBlock(props: { id: string; widget: Widget; width: number; 
                               const isHover = () => props.live && hoveredTarget() === target
                               const isSelected = () => isTargetSelected(props.widget, target)
                               const btnBg = () => {
-                                if (isHover()) return theme.background.formfield.hovered ?? theme.background.formfield.selected
+                                if (isHover()) return hoverBackground(theme)
                                 if (isSelected()) return mine() ? theme.background.formfield.focused : theme.background.formfield.selected
                                 return theme.background.raised.base
                               }
                               const btnFg = () => {
-                                if (isHover()) return theme.text.formfield.hovered ?? theme.text.formfield.selected
+                                if (isHover()) return theme.text.base
                                 if (isSelected()) return mine() ? theme.text.formfield.focused : theme.text.formfield.selected
                                 return theme.text.formfield.base
                               }
