@@ -13,6 +13,7 @@ import { Orchestra } from "@orchestra/schema/orchestra"
 import { Keymap } from "../context/keymap"
 import { useRoute } from "../context/route"
 import { useTheme } from "../context/theme"
+import { createSignal } from "solid-js"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { errorMessage } from "../util/error"
@@ -44,19 +45,46 @@ function MultiplayerModeSelector(props: {
 }) {
   const theme = useTheme().surface("dialog")
   const t = useT()
+  const [hovered, setHovered] = createSignal<MultiplayerMode>()
   return (
     <box flexDirection="row" gap={1}>
-      <HoverAction onClick={() => props.onChange("host")} paddingLeft={1} paddingRight={1} paddingTop={0} paddingBottom={0}>
+      <HoverAction
+        onHoverChange={(value) => setHovered(value ? "host" : undefined)}
+        onClick={() => props.onChange("host")}
+        paddingLeft={1}
+        paddingRight={1}
+        paddingTop={0}
+        paddingBottom={0}
+      >
         <text
-          fg={props.value === "host" ? theme.text.action.primary.selected : theme.text.action.primary.base}
+          fg={
+            props.value === "host"
+              ? theme.text.action.primary.selected
+              : hovered() === "host"
+                ? theme.text.action.primary.hovered
+                : theme.text.action.primary.base
+          }
           attributes={props.value === "host" ? TextAttributes.BOLD | TextAttributes.UNDERLINE : undefined}
         >
           {t("Host")}
         </text>
       </HoverAction>
-      <HoverAction onClick={() => props.onChange("mesh")} paddingLeft={1} paddingRight={1} paddingTop={0} paddingBottom={0}>
+      <HoverAction
+        onHoverChange={(value) => setHovered(value ? "mesh" : undefined)}
+        onClick={() => props.onChange("mesh")}
+        paddingLeft={1}
+        paddingRight={1}
+        paddingTop={0}
+        paddingBottom={0}
+      >
         <text
-          fg={props.value === "mesh" ? theme.text.action.primary.selected : theme.text.action.primary.base}
+          fg={
+            props.value === "mesh"
+              ? theme.text.action.primary.selected
+              : hovered() === "mesh"
+                ? theme.text.action.primary.hovered
+                : theme.text.action.primary.base
+          }
           attributes={props.value === "mesh" ? TextAttributes.BOLD | TextAttributes.UNDERLINE : undefined}
         >
           {t("Mesh")}
