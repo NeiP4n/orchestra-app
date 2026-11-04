@@ -91,21 +91,43 @@ test("resolves automatic tabs from the terminal environment", () => {
   ).toMatchObject({ mode: "on", enabled: true })
 })
 
-test("shows resolved tab defaults in settings", () => {
-  expect(settings.find((setting) => setting.path.join(".") === "tabs.mode")).toMatchObject({
-    default: "auto",
-    values: ["off", "on", "auto"],
-  })
+test("settings dialog lists only the choices a person makes themselves", () => {
+  expect(settings.map((setting) => setting.path.join("."))).toEqual([
+    "language",
+    "ai_language",
+    "theme.name",
+    "session.permissions",
+    "session.verbosity",
+    "attention.notifications",
+    "developer",
+  ])
 })
 
-test("shows the new session location default in settings", () => {
-  expect(settings.find((setting) => setting.path.join(".") === "session.new_location")?.default).toBe("launch")
-})
+test("decluttered settings keep their resolved defaults without a dialog entry", () => {
+  for (const path of [
+    "tabs.mode",
+    "session.new_location",
+    "session.tps",
+    "session.thinking",
+    "session.sidebar",
+    "layout",
+    "animations",
+    "mascot",
+    "mouse",
+    "terminal.copy",
+    "attention.sound",
+    "diffs.source",
+    "compaction.auto",
+    "experimental.context_governor",
+    "debug.devtools",
+  ])
+    expect(settings.some((setting) => setting.path.join(".") === path)).toBe(false)
 
-test("shows the TPS default in chat settings", () => {
-  const setting = settings.find((setting) => setting.path.join(".") === "session.tps")
-  expect(setting?.category).toBe("Chat")
-  expect(setting?.default).toBe(true)
+  const config = resolve({}, { terminalSuspend: true, environment: {} })
+  expect(config.tabs.mode).toBe("auto")
+  expect(config.session.new_location).toBe("launch")
+  expect(config.session.tps).toBe(true)
+  expect(config.mouse).toBe(true)
 })
 
 test("shows transcript verbosity in chat settings", () => {
@@ -121,9 +143,8 @@ test("validates terminal copy behavior", () => {
   expect(decodeInfo({ terminal: { copy: "select" } })).toEqual({ terminal: { copy: "select" } })
   expect(() => decodeInfo({ terminal: { copy: "always" } })).toThrow()
 
-  const setting = settings.find((setting) => setting.path.join(".") === "terminal.copy")
-  expect(setting?.values).toEqual(["manual", "select"])
-  expect(setting?.default).toBe(process.platform === "win32" ? "manual" : "select")
+  // Copy behavior is not asked in the dialog anymore; the platform default applies.
+  expect(settings.some((setting) => setting.path.join(".") === "terminal.copy")).toBe(false)
 })
 
 test("uses command IDs as keybind keys", () => {
@@ -265,8 +286,8 @@ test("uses ctrl+z for input undo when terminal suspend is unavailable", () => {
   expect(overridden.keybinds.get("input.undo")).toMatchObject([{ key: "ctrl+u" }])
 })
 
-test("keeps turn token usage inside developer tools", () => {
-  expect(settings.find((setting) => setting.path.join(".") === "debug.devtools")?.title).toBe("Developer tools")
+test("keeps developer diagnostics out of the settings dialog", () => {
+  expect(settings.some((setting) => setting.path.join(".") === "debug.devtools")).toBe(false)
   expect(settings.some((setting) => setting.path.join(".") === "debug.turn_tokens")).toBe(false)
 })
 

@@ -1,8 +1,7 @@
-import { createMemo, createResource, createSignal, onCleanup, onMount, Show } from "solid-js"
+import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js"
 import { TextAttributes } from "@opentui/core"
 import { useDialog } from "../ui/dialog"
 import { useConfig } from "../config"
-import { useClient } from "../context/client"
 import { useTheme, useThemes } from "../context/theme"
 import { DialogSelect } from "../ui/dialog-select"
 import { useToast } from "../ui/toast"
@@ -18,25 +17,21 @@ type Setting = {
   default: unknown
   values?: readonly unknown[]
   labels?: readonly string[]
-  step?: number
-  min?: number
-  max?: number
-  format?: (value: unknown) => string
   keywords?: readonly string[]
-  // Tuning knob for whoever runs the server, not a choice a user makes while working:
-  // the dialog lists it only after Developer mode is on.
-  advanced?: boolean
-  // Lives in the server's config, not the interface's: read from its config entries and written through its API.
-  remote?: {
-    read: (entries: readonly any[]) => unknown
-    write: (client: ReturnType<typeof useClient>, value: unknown) => Promise<unknown>
-  }
 }
 
 const toggle = { values: [false, true], labels: ["off", "on"] } as const
 
-// Ordered by how often a setting is reached for: General holds what most
-// people change once after installing, Advanced what only tuning needs.
+// Only choices a person must make themselves belong here: language, look,
+// safety, how much detail they read, and whether they want to be interrupted.
+// Everything else the interface used to ask about now lives on its resolved
+// default in `../config` (animations and the mascot on, sidebar and tabs on
+// auto, auto-compact and the context governor on, mouse on, platform copy
+// behavior, launch-directory sessions, branch diffs). Those config keys stay
+// readable from the config file for anyone who goes looking; they are not
+// questions the dialog asks. In-session controls keep their own toggles
+// (thinking visibility has a session command, the diff viewer picks its
+// own source, the DevTools bar follows Developer mode and the channel).
 export const settings: Setting[] = [
   {
     title: "Language",
@@ -67,15 +62,6 @@ export const settings: Setting[] = [
     keywords: ["color scheme", "colors"],
   },
   {
-    title: "Layout",
-    category: "Appearance",
-    description: "Compact narrows the project panel and docks the sidebar beside the chat; mobile fits a phone screen",
-    path: ["layout"],
-    default: "auto",
-    values: ["auto", "compact", "full", "mobile"],
-    keywords: ["panels", "laptop", "narrow", "phone", "termux"],
-  },
-  {
     title: "Permissions",
     category: "Agent",
     description: "Ask before the AI runs commands and edits files, or accept automatically",
@@ -84,52 +70,6 @@ export const settings: Setting[] = [
     values: ["prompt", "autoaccept"],
     labels: ["prompt", "auto accept"],
     keywords: ["approve", "accept", "permission requests", "yolo"],
-  },
-  {
-    title: "New session location",
-    category: "Agent",
-    description: "Start new sessions in the launch directory or in the active session's directory",
-    path: ["session", "new_location"],
-    default: "launch",
-    values: ["launch", "inherit"],
-    labels: ["launch directory", "active session"],
-    keywords: ["directory", "cwd", "inherit"],
-  },
-  {
-    title: "Animations",
-    category: "Appearance",
-    description: "Spinners, shimmer and other motion",
-    path: ["animations"],
-    default: true,
-    ...toggle,
-    keywords: ["motion", "effects"],
-  },
-  {
-    title: "Mascot",
-    category: "Appearance",
-    description: "The Orchestra mascot beside the prompt",
-    path: ["mascot"],
-    default: true,
-    ...toggle,
-    keywords: ["character", "sprite"],
-  },
-  {
-    title: "Sidebar",
-    category: "Appearance",
-    description: "Session sidebar with context, todos and MCP; auto shows it when there is room",
-    path: ["session", "sidebar"],
-    default: "auto",
-    values: ["hide", "auto"],
-    keywords: ["side panel"],
-  },
-  {
-    title: "Thinking",
-    category: "Chat",
-    description: "Show the model's reasoning in the transcript",
-    path: ["session", "thinking"],
-    default: "hide",
-    values: ["hide", "show"],
-    keywords: ["reasoning", "chain of thought"],
   },
   {
     title: "Verbosity",
@@ -141,69 +81,6 @@ export const settings: Setting[] = [
     keywords: ["detail", "activity", "summary", "transcript"],
   },
   {
-    title: "TPS",
-    category: "Chat",
-    description: "Show average tokens per second of the model",
-    path: ["session", "tps"],
-    default: true,
-    advanced: true,
-    ...toggle,
-    keywords: ["tokens per second", "throughput", "speed"],
-  },
-  {
-    title: "Auto-compact",
-    category: "Agent",
-    description: "Compress the conversation automatically when it nears the context limit",
-    path: ["compaction", "auto"],
-    default: true,
-    ...toggle,
-    keywords: ["auto compact", "summarize", "context", "compaction", "compress"],
-  },
-  {
-    title: "Context governor",
-    category: "Agent",
-    description:
-      "Leave old, bulky tool output out of requests to save tokens. The saved conversation keeps everything",
-    path: ["experimental", "context_governor"],
-    default: true,
-    advanced: true,
-    ...toggle,
-    keywords: ["tokens", "context", "cost", "save", "experimental", "токены", "контекст", "экономия"],
-    remote: {
-      read: (entries) =>
-        entries.findLast((entry) => entry?.type === "document" && entry.info?.experimental?.context_governor !== undefined)
-          ?.info.experimental.context_governor,
-      write: (client, value) => client.api.config.update({ contextGovernor: value === undefined ? null : Boolean(value) }),
-    },
-  },
-  {
-    title: "Tabs",
-    category: "Workspace",
-    description: "Session tabs: always, never, or when the terminal supports them",
-    path: ["tabs", "mode"],
-    default: "auto",
-    values: ["off", "on", "auto"],
-  },
-  {
-    title: "Diff source",
-    category: "Workspace",
-    description: "What /diff opens with: branch changes, working tree, commits or the last turn",
-    path: ["diffs", "source"],
-    default: "branch",
-    values: ["branch", "working", "committed", "turn"],
-    labels: ["branch", "uncommitted", "committed", "last turn"],
-    keywords: ["diff source", "changes", "turn"],
-  },
-  {
-    title: "Mouse",
-    category: "Input",
-    description: "Clicks and scrolling with the mouse; off leaves selection to the terminal",
-    path: ["mouse"],
-    default: true,
-    ...toggle,
-    keywords: ["mouse capture"],
-  },
-  {
     title: "Notifications",
     category: "Notifications",
     description: "System notification when the AI finishes or needs an answer",
@@ -211,24 +88,6 @@ export const settings: Setting[] = [
     default: false,
     ...toggle,
     keywords: ["system notifications", "desktop notifications", "alerts"],
-  },
-  {
-    title: "Sounds",
-    category: "Notifications",
-    description: "Play a sound when the AI finishes or needs an answer",
-    path: ["attention", "sound"],
-    default: false,
-    ...toggle,
-    keywords: ["audio", "sound effects", "alerts"],
-  },
-  {
-    title: "Copy behavior",
-    category: "Input",
-    description: "Copy as soon as text is selected, or only on request",
-    path: ["terminal", "copy"],
-    default: process.platform === "win32" ? "manual" : "select",
-    values: ["manual", "select"],
-    keywords: ["selection", "clipboard"],
   },
   {
     title: "Developer mode",
@@ -239,16 +98,6 @@ export const settings: Setting[] = [
     ...toggle,
     keywords: ["developer", "debug commands", "разработчик"],
   },
-  {
-    title: "Developer tools",
-    category: "Developer",
-    description: "Bottom bar with server, UI, Tools and Registry",
-    path: ["debug", "devtools"],
-    default: false,
-    advanced: true,
-    ...toggle,
-    keywords: ["debug bar", "developer tools"],
-  },
 ]
 
 export function settingID(setting: Setting) {
@@ -257,10 +106,8 @@ export function settingID(setting: Setting) {
 
 export function DialogConfig(props: { current?: string }) {
   const config = useConfig()
-  const client = useClient()
   const toast = useToast()
   const themes = useThemes()
-  const [remote, { refetch }] = createResource(() => client.api.config.get().catch(() => undefined))
   const theme = useTheme().surface("dialog")
   const dialog = useDialog()
   const t = useT()
@@ -273,9 +120,7 @@ export function DialogConfig(props: { current?: string }) {
     dialog.setSize("medium")
   })
 
-  // Everyday settings only; server-tuning knobs appear once Developer mode is on.
-  const listed = createMemo(() => settings.filter((setting) => !setting.advanced || config.data.developer))
-  const categories = createMemo(() => ["All", ...Array.from(new Set(listed().map((s) => s.category)))])
+  const categories = createMemo(() => ["All", ...Array.from(new Set(settings.map((s) => s.category)))])
   const [selectedCategory, setSelectedCategory] = createSignal("All")
 
   function cycleCategory(direction: number) {
@@ -287,19 +132,17 @@ export function DialogConfig(props: { current?: string }) {
 
   const current = Math.max(
     0,
-    listed().findIndex((setting) => settingID(setting) === props.current),
+    settings.findIndex((setting) => settingID(setting) === props.current),
   )
   const [selected, setSelected] = createSignal(current)
-  const currentSetting = createMemo(() => listed()[selected()])
+  const currentSetting = createMemo(() => settings[selected()])
   const [saving, setSaving] = createSignal(false)
   const [vibrating, setVibrating] = createSignal(false)
   let settle: ReturnType<typeof setTimeout> | undefined
   onCleanup(() => clearTimeout(settle))
 
   const stored = (setting: Setting) =>
-    setting.remote
-      ? setting.remote.read(Array.isArray(remote()) ? (remote() as any[]) : [])
-      : setting.path.reduce<unknown>((result, key) => {
+    setting.path.reduce<unknown>((result, key) => {
       if (!result || typeof result !== "object") return undefined
       return (result as Record<string, unknown>)[key]
     }, config.data)
@@ -313,7 +156,6 @@ export function DialogConfig(props: { current?: string }) {
       : setting.values
   const display = (setting: Setting) => {
     const current = value(setting)
-    if (setting.format) return setting.format(current)
     const index = setting.values?.indexOf(current)
     return t(index === undefined || index < 0 ? String(current) : (setting.labels?.[index] ?? String(current)))
   }
@@ -321,12 +163,12 @@ export function DialogConfig(props: { current?: string }) {
 
   const filteredSettings = createMemo(() => {
     const cat = selectedCategory()
-    return cat === "All" ? listed() : listed().filter((s) => s.category === cat)
+    return cat === "All" ? settings : settings.filter((s) => s.category === cat)
   })
 
   const options = createMemo(() =>
     filteredSettings().map((setting) => {
-      const globalIndex = listed().indexOf(setting)
+      const globalIndex = settings.indexOf(setting)
       return {
         title: t(setting.title),
         category: selectedCategory() === "All" ? t(setting.category) : undefined,
@@ -340,18 +182,17 @@ export function DialogConfig(props: { current?: string }) {
   )
 
   async function write(next: unknown, index: number) {
-    const setting = listed()[index]
+    const setting = settings[index]
     setSaving(true)
-    await (setting.remote
-      ? setting.remote.write(client, next).then(() => refetch())
-      : config.update((draft) => {
+    await config
+      .update((draft) => {
         const parent = setting.path.slice(0, -1).reduce<Record<string, unknown>>((result, key) => {
           if (!result[key] || typeof result[key] !== "object") result[key] = {}
           return result[key] as Record<string, unknown>
         }, draft)
         if (next === undefined) delete parent[setting.path.at(-1)!]
         else parent[setting.path.at(-1)!] = next
-      }))
+      })
       .then(() => {
         setVibrating(true)
         clearTimeout(settle)
@@ -363,13 +204,12 @@ export function DialogConfig(props: { current?: string }) {
 
   function change(direction: number, index = selected()) {
     if (saving()) return
-    const setting = listed()[index]
+    const setting = settings[index]
     if (!setting) return
     const current = value(setting)
     const choices = values(setting)
-    const next = choices
-      ? choices[(choices.indexOf(current) + direction + choices.length) % choices.length]
-      : Math.min(setting.max!, Math.max(setting.min!, Number(current) + direction * setting.step!))
+    if (!choices) return
+    const next = choices[(choices.indexOf(current) + direction + choices.length) % choices.length]
     if (next === current) return
     return write(next, index)
   }
@@ -377,7 +217,7 @@ export function DialogConfig(props: { current?: string }) {
   // Removing the key, rather than writing the default, keeps the config file
   // free of values the user never chose and follows future default changes.
   function reset(index = selected()) {
-    if (saving() || stored(listed()[index]) === undefined) return
+    if (saving() || stored(settings[index]) === undefined) return
     return write(undefined, index)
   }
 
@@ -385,7 +225,7 @@ export function DialogConfig(props: { current?: string }) {
     categories().map((id) => ({
       id,
       label: t(id),
-      count: id === "All" ? listed().length : listed().filter((setting) => setting.category === id).length,
+      count: id === "All" ? settings.length : settings.filter((setting) => setting.category === id).length,
     })),
   )
 
