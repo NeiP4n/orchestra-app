@@ -84,7 +84,7 @@ export function NotesPanel(props: {
                 props.onPickProject(project.id)
               }}
             >
-              <text fg={theme.text.formfield.base} wrapMode="none" truncate>
+              <text fg={theme.text.base} wrapMode="none" truncate>
                 {`    ${project.name}`}
               </text>
             </Row>
