@@ -9,9 +9,11 @@ import type { Permission } from "@orchestra/schema/permission"
 import { Tool } from "@orchestra/schema/tool"
 import { Effect, Option, Schema } from "effect"
 import { Form } from "../../form.js"
+import { McpAcquire } from "../../mcp/acquire.js"
 import { Mcp } from "../../mcp/index.js"
 import { Model } from "../../model.js"
 import { Orchestra } from "../../orchestra.js"
+import { OrchestraStage } from "../../stage.js"
 import { ModelRouter } from "../../session/model-router.js"
 import { Token } from "../../util/token.js"
 import { FormDecision } from "../../form-decision.js"
@@ -44,6 +46,8 @@ export const description = [
   "Access per session is hidden < read < write < full: read allows list and read, write adds send, full adds stop. Sessions you create get full access.",
   "The 6-message rule binds you: after 6 of your own messages in a row without handing a task to a worker, your other tool calls are refused until you delegate with send or create. The roster in your context shows how many of the 6 you have used.",
   "MCP limits are yours to distribute: pass mcp on send or create to hand the worker its MCP budget for that one task (servers it may call, maxCalls in total, perServer caps). You may only tighten the role's own MCP ceiling, never widen it; a refused limit says what the role allows. The limit is stamped on the worker session and stated at the top of its task brief.",
+  "MCP acquisition: action acquire_mcp makes a catalog MCP server actually usable. Pass server (an exact catalog id) or need (a capability in words, e.g. \"browser automation\") and it selects, installs, connects and verifies the server, reporting its real state and the tools actually discovered — a server counts as ready only when both hold. Pass role to check first that the server sits inside that role's MCP ceiling; outside it, acquisition is refused, not worked around. A needs_auth result names the credential variables the operator must provide; never invent a value. Installing is global and shared by the project, but it grants no role access by itself: role profiles and the per-task mcp limits still decide who may call the server, and removing one role's access never disconnects it for the others.",
+  "Workflow stages: for anything beyond a trivial task, record the plan with action plan (stages: each with a name, work categories, role ids, dependsOn stage ids, acceptance criteria and the MCP servers it needs). You decide how many stages the task needs: one for a small fix, many for a system audit. Categories describe kinds of work (Research, Security, Implementation); stages are execution units and one stage may span several categories. Action stages lists the current plan; action stage updates one stage (status, and result as the evidence). Replan by calling plan again when a discovery changes the work: completed stages are preserved exactly as recorded, and a stage may start only when every stage it depends on is completed. Mark a stage completed only with evidence in result — a report, a test run, a commit — never on a worker's claim alone. The overall task is complete only when every stage is completed or explicitly cancelled.",
 ].join("\n")
 
 type WorkerRow = {
@@ -222,6 +226,20 @@ export function mcpServersOf(role: RoleMcpShape): ReadonlyArray<string> | "all" 
   return [...servers].toSorted()
 }
 
+/**
+ * The acquisition ceiling check: may this role ever use that server? Returns
+ * the refusal message when the server sits outside the role's own MCP
+ * ceiling, undefined when acquisition for this role is legitimate. Pure, so
+ * the guard is testable without a live MCP service: acquiring for a role
+ * that cannot use the server is refused, never worked around — and the
+ * ceiling itself is only ever read here, never widened.
+ */
+export function acquireCeiling(role: RoleMcpShape, server: string): string | undefined {
+  const ceiling = mcpServersOf(role)
+  if (ceiling === "all" || ceiling.includes(server)) return undefined
+  return `${role.name ?? "This role"} may not use ${server}: its MCP ceiling is ${ceiling.length > 0 ? ceiling.join(", ") : "no MCP servers"}. Acquiring it would give this role nothing; the operator can widen the role if that is intended.`
+}
+
 /** The role's own MCP ceiling: what the Orchestrator may distribute from, and never exceed. */
 export function defaultMcpLimit(role: RoleMcpShape): McpLimit {
   const servers = mcpServersOf(role)
@@ -301,8 +319,32 @@ export function mcpBriefLine(limit: McpLimit): string {
   return `[MCP limit for this task, set by the Orchestrator: at most ${limit.maxCalls} MCP tool call(s) in total; servers allowed: ${servers}${per ? `; per server: ${per}` : ""}. Stay inside it; if the task cannot be done within it, say so in your report instead of exceeding it.]`
 }
 
+const StageInput = Schema.Struct({
+  id: Schema.optionalKey(Schema.String).annotate({
+    description: "Stable stage id, referenced by other stages' dependsOn. Omit to have one generated.",
+  }),
+  name: Schema.String,
+  description: Schema.optionalKey(Schema.String),
+  categories: Schema.optionalKey(Schema.Array(Schema.String)).annotate({
+    description: "Work categories this stage covers, e.g. Research, Security, Implementation",
+  }),
+  roles: Schema.optionalKey(Schema.Array(Schema.String)).annotate({ description: "Role ids assigned to this stage" }),
+  sessionIDs: Schema.optionalKey(Schema.Array(Schema.String)).annotate({
+    description: "Worker session ids doing this stage's work",
+  }),
+  dependsOn: Schema.optionalKey(Schema.Array(Schema.String)).annotate({
+    description: "Stage ids that must be completed before this stage may run",
+  }),
+  mcp: Schema.optionalKey(Schema.Array(Schema.String)).annotate({
+    description: "MCP servers this stage requires; per-task budgets still go through the mcp field of send/create",
+  }),
+  acceptance: Schema.optionalKey(Schema.String).annotate({
+    description: "Acceptance criteria: what evidence completes this stage",
+  }),
+})
+
 export const Input = Schema.Struct({
-  action: Schema.Literals(["list", "read", "send", "create", "set_mode", "stop", "answer"]),
+  action: Schema.Literals(["list", "read", "send", "create", "set_mode", "stop", "answer", "plan", "stages", "stage", "acquire_mcp"]),
   sessionID: Schema.optionalKey(SessionSchema.ID).annotate({ description: "Target session for read, send and stop" }),
   text: Schema.optionalKey(Schema.String).annotate({
     description: "Message for send, or the first task for create",
@@ -354,6 +396,24 @@ export const Input = Schema.Struct({
   ).annotate({
     description:
       "For send and create: the MCP budget you distribute to this worker for this task. It can only tighten the role's own MCP ceiling (shown with the role in your context), never widen it.",
+  }),
+  stages: Schema.optionalKey(Schema.Array(StageInput)).annotate({
+    description:
+      "For plan: the full workflow plan as stage definitions. Replaces the open part of the current plan; completed stages are preserved exactly as recorded.",
+  }),
+  stage: Schema.optionalKey(Schema.String).annotate({ description: "For stage: the id of the stage to update" }),
+  status: Schema.optionalKey(OrchestraStage.Status).annotate({
+    description:
+      "For stage: the new stage status. A stage may run only when all its dependencies are completed; completed requires result evidence.",
+  }),
+  result: Schema.optionalKey(Schema.String).annotate({
+    description: "For stage: the evidence for the new status — a report, test run or commit for completed; the blocker for blocked or failed",
+  }),
+  server: Schema.optionalKey(Schema.String).annotate({
+    description: "For acquire_mcp: the exact MCP catalog id to make usable, e.g. playwright, context7, github",
+  }),
+  need: Schema.optionalKey(Schema.String).annotate({
+    description: "For acquire_mcp: the capability needed, in words; the best-matching catalog server is selected and acquired",
   }),
 })
 
@@ -1031,6 +1091,64 @@ export const Plugin = {
                   const stopped = yield* sessions.interrupt(session.id)
                   return { sessionID: session.id, output: stopped ? "Stopped." : "The session was not running." }
                 }
+                case "plan": {
+                  if (!input.stages || input.stages.length === 0)
+                    return yield* new ToolFailure({ message: "Pass stages: the plan as a list of stage definitions" })
+                  const planned = yield* orchestra
+                    .planStages(project.id, input.stages)
+                    .pipe(Effect.mapError((error) => new ToolFailure({ message: error.message, error })))
+                  return { output: `Plan saved.\n\n${OrchestraStage.render(planned)}` }
+                }
+                case "stages": {
+                  return { output: OrchestraStage.render(yield* orchestra.stages(project.id)) }
+                }
+                case "stage": {
+                  if (!input.stage) return yield* new ToolFailure({ message: "Pass stage: the id of the stage to update" })
+                  if (input.status === undefined && input.result === undefined)
+                    return yield* new ToolFailure({ message: "Pass status and/or result for the stage update" })
+                  const updated = yield* orchestra
+                    .setStage(project.id, input.stage, {
+                      ...(input.status ? { status: input.status } : {}),
+                      ...(input.result !== undefined ? { result: input.result } : {}),
+                    })
+                    .pipe(Effect.mapError((error) => new ToolFailure({ message: error.message, error })))
+                  const current = yield* orchestra.stages(project.id)
+                  return { output: `Stage updated: ${OrchestraStage.describe(current, updated)}` }
+                }
+                case "acquire_mcp": {
+                  if (Option.isNone(mcp))
+                    return yield* new ToolFailure({
+                      message: "The MCP service is not available in this location, so no server can be acquired.",
+                    })
+                  let id = input.server?.trim()
+                  let considered = ""
+                  if (!id) {
+                    if (!input.need?.trim())
+                      return yield* new ToolFailure({
+                        message: "Pass server (an exact catalog id) or need (a capability in words, e.g. \"browser automation\")",
+                      })
+                    const matches = McpAcquire.select(input.need)
+                    if (matches.length === 0)
+                      return {
+                        output: `No MCP catalog entry matches "${input.need}". Native tools may already cover it; only when the capability is genuinely absent should a custom server be built with mcp_forge.`,
+                      }
+                    id = matches[0]!.entry.id
+                    considered = ` Selected from the catalog (matched: ${matches[0]!.reasons.join(", ")}); other matches: ${matches.slice(1, 4).map((match) => match.entry.id).join(", ") || "none"}.`
+                  }
+                  if (input.role) {
+                    const role = roles.find((item) => item.id === input.role)
+                    if (!role)
+                      return yield* new ToolFailure({
+                        message: `Unknown role ${input.role}. Roles: ${roles.map((item) => item.id).join(", ")}`,
+                      })
+                    const refusal = acquireCeiling(role, id)
+                    if (refusal) return yield* new ToolFailure({ message: refusal })
+                  }
+                  const ensured = yield* McpAcquire.ensure(mcp.value, id)
+                  return {
+                    output: `${ensured.detail} [state: ${ensured.state}; action: ${ensured.action}]${ensured.tools.length > 0 ? ` Tools: ${ensured.tools.join(", ")}.` : ""}${considered}`,
+                  }
+                }
               }
             }).pipe(
               Effect.map((output) => ({
@@ -1106,6 +1224,24 @@ export const Plugin = {
             ...roles.map((role) => `- ${role.id} (${role.name}, ${role.category}${role.readOnly ? ", read-only" : ""}): ${role.description}${setup(role)}`),
           ].join("\n"),
         })
+        // The workflow stages ride in their own block for the same reason as the
+        // delegation status below: stage state changes during a turn, so it must
+        // not destabilize the cacheable roster block above.
+        const stages = yield* orchestra.stages(project.id)
+        if (stages.length > 0)
+          event.system.push({
+            type: "text",
+            text: [
+              "# Workflow stages",
+              OrchestraStage.render(stages),
+              "",
+              "Stage rules (mandatory):",
+              "- Start a stage only when it is ready (every stage it depends on completed): mark it running with action stage when you dispatch its work.",
+              "- Complete a stage only with evidence: action stage with status completed requires result naming the evidence (a report, a test run, a commit). A worker's claim alone is not evidence.",
+              "- When a discovery changes the plan, replan with action plan. Completed stages are preserved exactly as recorded; never rewrite their history.",
+              "- The overall task is complete only when every stage is completed or explicitly cancelled and the combined result has been checked against the goal.",
+            ].join("\n"),
+          })
         // The 6-message rule status rides in its own block so the roster above
         // stays stable and cacheable; only this small tail changes per request.
         const history = yield* sessions

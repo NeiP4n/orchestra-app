@@ -4,6 +4,7 @@ import { expandTheme, mergeTheme } from "./expand.js"
 import {
   ActionState,
   ActionVariant,
+  FeedbackKind,
   HueStep,
   SurfaceName,
   ThemeDefinition,
@@ -137,7 +138,7 @@ function resolveView(
   hueSteps: Pick<ResolvedThemeTokens, "source" | "increase" | "decrease">,
 ): ResolvedThemeTokens {
   const source: Record<string, unknown> = { hue, ...definition }
-  const resolved = createResolver(source)(source, "theme") as ResolvedThemeTokens
+  const resolved = ensureReadable(createResolver(source)(source, "theme") as ResolvedThemeTokens)
   return {
     ...resolved,
     hue,
@@ -153,6 +154,233 @@ function resolveView(
       formfield: statefulColor(resolved.background.formfield),
     },
     ...hueSteps,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Readability floor.
+//
+// A theme may subdue secondary text for hierarchy, but text that carries
+// information must stay readable on the surface it renders on. Several shipped
+// themes resolved far below that — light variants of dark-first palettes put
+// body text near 1.2:1 and inline code near 1.1:1, which is functionally
+// invisible. Resolution therefore repairs any text token that falls under its
+// floor by blending it away from its background until the floor is met. A
+// theme that already meets the floors resolves with its exact authored
+// colors; the repair replaces only the offending token's value and never
+// mutates the shared hue scales, so hue steps and increase/decrease keep
+// referring to the authored palette.
+//
+// Floors (WCAG ratios): primary text 4.5 (normal text), subdued-but-read
+// roles 3.5, and a 3.0 never-disappear floor for muted variants and for any
+// text on the raised overlay surface, where themes legitimately compress
+// the range.
+
+const PRIMARY_TEXT = 4.5
+const SUBDUED_TEXT = 3.5
+const NEVER_DISAPPEAR = 3.0
+
+function luminance(color: RGBA, over?: RGBA) {
+  let [r, g, b] = [color.r, color.g, color.b]
+  if (over && color.a < 1) {
+    r = r * color.a + over.r * (1 - color.a)
+    g = g * color.a + over.g * (1 - color.a)
+    b = b * color.a + over.b * (1 - color.a)
+  }
+  const channel = (value: number) => (value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4))
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+}
+
+/** WCAG contrast ratio, or undefined when the background is translucent and the ratio is unknowable. */
+function contrast(foreground: RGBA, background: RGBA) {
+  if (background.a < 1) return undefined
+  const fg = luminance(foreground, background)
+  const bg = luminance(background)
+  return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05)
+}
+
+/** The foreground blended away from the background until it reaches the floor; untouched when it already does. */
+function lift(foreground: RGBA, background: RGBA, floor: number): RGBA {
+  const ratio = contrast(foreground, background)
+  if (ratio === undefined || ratio >= floor) return foreground
+  const base = {
+    r: foreground.r * foreground.a + background.r * (1 - foreground.a),
+    g: foreground.g * foreground.a + background.g * (1 - foreground.a),
+    b: foreground.b * foreground.a + background.b * (1 - foreground.a),
+  }
+  // Blend toward the pole — black or white — that reaches the floor with the
+  // smallest change. Picking by the foreground's current side fails when a
+  // light theme authors white text on a near-white surface (and vice versa):
+  // blending further toward that pole only collapses the ratio. And when a
+  // token is checked against several surfaces in sequence, the smallest fix
+  // keeps the earlier surfaces' floors intact instead of overshooting to the
+  // far pole.
+  const toward = (pole: number) => {
+    for (let step = 1; step <= 20; step++) {
+      const t = step / 20
+      const candidate = RGBA.fromValues(
+        base.r + (pole - base.r) * t,
+        base.g + (pole - base.g) * t,
+        base.b + (pole - base.b) * t,
+        1,
+      )
+      if ((contrast(candidate, background) ?? 0) >= floor) return { candidate, t }
+    }
+    return undefined
+  }
+  const dark = toward(0)
+  const light = toward(1)
+  if (dark && light) return dark.t <= light.t ? dark.candidate : light.candidate
+  if (dark ?? light) return (dark ?? light)!.candidate
+  // A mid-luminance background can make the floor unreachable from either
+  // pole; land on the pole with the better ratio rather than the authored one.
+  return (contrast(RGBA.fromValues(0, 0, 0, 1), background) ?? 0) >= (contrast(RGBA.fromValues(1, 1, 1, 1), background) ?? 0)
+    ? RGBA.fromValues(0, 0, 0, 1)
+    : RGBA.fromValues(1, 1, 1, 1)
+}
+
+function ensureReadable(resolved: ResolvedThemeTokens): ResolvedThemeTokens {
+  const base = resolved.background.base
+  const raised = resolved.background.raised.base
+  const high = resolved.background.raised.high
+  const on = (color: RGBA, floor: number, surface: RGBA) => lift(color, surface, floor)
+  const liftBase = (record: Readonly<Record<string, RGBA>>, floor: number, surface: RGBA) =>
+    record?.base instanceof RGBA ? { ...record, base: lift(record.base, surface, floor) } : record
+  // State text (buttons, form controls) renders on its OWN state background,
+  // not on the page surface: lift every state against the matching background
+  // state. Interactive states hold the primary floor; the disabled state is
+  // intentionally subdued but must never disappear. An opaque state
+  // background is the whole story — lifting afterwards against the page
+  // surface would fight it (a light red button on a near-black page wants
+  // opposite poles). A translucent one shows what is beneath the control, so
+  // it is repaired against the composited surface over both plain
+  // backgrounds the control can sit on.
+  const composite = (top: RGBA, under: RGBA) =>
+    RGBA.fromValues(
+      top.r * top.a + under.r * (1 - top.a),
+      top.g * top.a + under.g * (1 - top.a),
+      top.b * top.a + under.b * (1 - top.a),
+      1,
+    )
+  const onSurface = (color: RGBA, surface: RGBA, floor: number) =>
+    surface.a >= 1 ? lift(color, surface, floor) : lift(color, composite(surface, base), floor)
+  const liftStates = (
+    textStates: Readonly<Record<string, RGBA>>,
+    bgStates: Readonly<Record<string, RGBA>>,
+  ): Readonly<Record<string, RGBA>> =>
+    Object.fromEntries(
+      Object.entries(textStates).map(([state, color]) => {
+        const surface = bgStates[state]
+        if (!(color instanceof RGBA) || !(surface instanceof RGBA)) return [state, color]
+        const floor = state === "disabled" ? NEVER_DISAPPEAR : PRIMARY_TEXT
+        if (surface.a >= 1) return [state, lift(color, surface, floor)]
+        return [state, lift(lift(color, composite(surface, base), floor), composite(surface, raised), floor)]
+      }),
+    )
+  return {
+    ...resolved,
+    text: {
+      ...resolved.text,
+      base: on(on(on(resolved.text.base, PRIMARY_TEXT, base), PRIMARY_TEXT, raised), NEVER_DISAPPEAR, high),
+      muted: on(on(on(resolved.text.muted, PRIMARY_TEXT, base), PRIMARY_TEXT, raised), NEVER_DISAPPEAR, high),
+      action: Object.fromEntries(
+        Object.entries(resolved.text.action).map(([variant, states]) => [
+          variant,
+          liftStates(
+            states as Readonly<Record<string, RGBA>>,
+            resolved.background.action[variant as keyof typeof resolved.background.action] as Readonly<
+              Record<string, RGBA>
+            >,
+          ),
+        ]),
+      ) as ResolvedThemeTokens["text"]["action"],
+      formfield: (() => {
+        const lifted = liftStates(
+          resolved.text.formfield as Readonly<Record<string, RGBA>>,
+          resolved.background.formfield as Readonly<Record<string, RGBA>>,
+        )
+        return liftBase(lifted, PRIMARY_TEXT, base)
+      })() as ResolvedThemeTokens["text"]["formfield"],
+      feedback: Object.fromEntries(
+        FeedbackKind.literals.map((kind) => {
+          const entry = resolved.text.feedback[kind]
+          const own = resolved.background.feedback[kind].base
+          return [
+            kind,
+            {
+              base: onSurface(on(entry.base, PRIMARY_TEXT, base), own, PRIMARY_TEXT),
+              muted: onSurface(on(entry.muted, NEVER_DISAPPEAR, base), own, NEVER_DISAPPEAR),
+            },
+          ]
+        }),
+      ) as ResolvedThemeTokens["text"]["feedback"],
+      // Both roles are optional in the document schema: a theme written
+      // before a role existed resolves without it, and the repair must not
+      // invent it (components fall back on their own).
+      backend: resolved.text.backend
+        ? (Object.fromEntries(
+            Object.entries(resolved.text.backend).map(([key, color]) => [
+              key,
+              color instanceof RGBA ? on(color, NEVER_DISAPPEAR, base) : color,
+            ]),
+          ) as ResolvedThemeTokens["text"]["backend"])
+        : resolved.text.backend,
+      neural: resolved.text.neural
+        ? (Object.fromEntries(
+            Object.entries(resolved.text.neural).map(([key, color]) => [
+              key,
+              color instanceof RGBA ? on(color, NEVER_DISAPPEAR, base) : color,
+            ]),
+          ) as ResolvedThemeTokens["text"]["neural"])
+        : resolved.text.neural,
+    },
+    markdown: {
+      ...resolved.markdown,
+      text: on(resolved.markdown.text, PRIMARY_TEXT, base),
+      code: on(on(resolved.markdown.code, PRIMARY_TEXT, base), PRIMARY_TEXT, raised),
+      codeBlock: on(on(resolved.markdown.codeBlock, PRIMARY_TEXT, base), PRIMARY_TEXT, raised),
+      linkText: on(resolved.markdown.linkText, PRIMARY_TEXT, base),
+      blockQuote: on(resolved.markdown.blockQuote, SUBDUED_TEXT, base),
+      heading: on(resolved.markdown.heading, NEVER_DISAPPEAR, base),
+      link: on(resolved.markdown.link, NEVER_DISAPPEAR, base),
+      emphasis: on(resolved.markdown.emphasis, NEVER_DISAPPEAR, base),
+      strong: on(resolved.markdown.strong, NEVER_DISAPPEAR, base),
+      horizontalRule: on(resolved.markdown.horizontalRule, NEVER_DISAPPEAR, base),
+      listItem: on(resolved.markdown.listItem, NEVER_DISAPPEAR, base),
+      listEnumeration: on(resolved.markdown.listEnumeration, NEVER_DISAPPEAR, base),
+      image: on(resolved.markdown.image, NEVER_DISAPPEAR, base),
+      imageText: on(resolved.markdown.imageText, NEVER_DISAPPEAR, base),
+    },
+    syntax: {
+      ...resolved.syntax,
+      comment: on(resolved.syntax.comment, SUBDUED_TEXT, base),
+      punctuation: on(resolved.syntax.punctuation, PRIMARY_TEXT, base),
+      keyword: on(resolved.syntax.keyword, NEVER_DISAPPEAR, base),
+      function: on(resolved.syntax.function, NEVER_DISAPPEAR, base),
+      variable: on(resolved.syntax.variable, NEVER_DISAPPEAR, base),
+      string: on(resolved.syntax.string, NEVER_DISAPPEAR, base),
+      number: on(resolved.syntax.number, NEVER_DISAPPEAR, base),
+      type: on(resolved.syntax.type, NEVER_DISAPPEAR, base),
+      operator: on(resolved.syntax.operator, NEVER_DISAPPEAR, base),
+    },
+    diff: {
+      ...resolved.diff,
+      text: {
+        ...resolved.diff.text,
+        added: on(resolved.diff.text.added, PRIMARY_TEXT, resolved.diff.background.added),
+        removed: on(resolved.diff.text.removed, PRIMARY_TEXT, resolved.diff.background.removed),
+        context: on(resolved.diff.text.context, PRIMARY_TEXT, resolved.diff.background.context),
+        hunkHeader: on(resolved.diff.text.hunkHeader, SUBDUED_TEXT, resolved.diff.background.context),
+      },
+      lineNumber: {
+        ...resolved.diff.lineNumber,
+        text: onSurface(
+          onSurface(on(resolved.diff.lineNumber.text, NEVER_DISAPPEAR, base), resolved.diff.lineNumber.background.added, NEVER_DISAPPEAR),
+          resolved.diff.lineNumber.background.removed,
+          NEVER_DISAPPEAR,
+        ),
+      },
+    },
   }
 }
 

@@ -1966,3 +1966,99 @@ describe("Orchestra team", () => {
     }).pipe(Effect.scoped),
   )
 })
+
+describe("Orchestra workflow stages", () => {
+  it.live("plans, transitions and replans stages persisted per project", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-stages-")))
+      const orchestra = yield* Orchestra.Service
+      const project = yield* orchestra.create({ name: "Stages", directory: tmp.path })
+
+      const planned = yield* orchestra.planStages(project.id, [
+        { id: "research", name: "Research", categories: ["Research"], acceptance: "sources cited" },
+        { id: "build", name: "Build", dependsOn: ["research"] },
+      ])
+      expect(planned.map((stage) => stage.status)).toEqual(["planned", "planned"])
+
+      // A dependent stage cannot start before its dependency completes.
+      const early = yield* orchestra.setStage(project.id, "build", { status: "running" }).pipe(Effect.flip)
+      expect(early._tag).toBe("Orchestra.StageError")
+      expect(early.message).toContain("dependencies not completed")
+
+      yield* orchestra.setStage(project.id, "research", { status: "running" })
+      // Completion without evidence is refused.
+      const bare = yield* orchestra.setStage(project.id, "research", { status: "completed" }).pipe(Effect.flip)
+      expect(bare.message).toContain("result")
+      const done = yield* orchestra.setStage(project.id, "research", { status: "completed", result: "report attached" })
+      expect(done.completed).toBeTypeOf("number")
+
+      // State survives a fresh read through the KV store.
+      const stored = yield* orchestra.stages(project.id)
+      expect(stored.find((stage) => stage.id === "research")?.result).toBe("report attached")
+
+      // Replanning preserves the completed stage exactly and admits new work.
+      const replanned = yield* orchestra.planStages(project.id, [
+        { id: "research", name: "Research REDEFINED" },
+        { id: "build", name: "Build" },
+        { id: "verify", name: "Verify", dependsOn: ["build"] },
+      ])
+      expect(replanned.find((stage) => stage.id === "research")?.name).toBe("Research")
+      expect(replanned.map((stage) => stage.id)).toEqual(["research", "build", "verify"])
+
+      // Unknown projects fail typed, stages of a fresh project are empty.
+      const other = yield* orchestra.create({ name: "Empty", directory: tmp.path })
+      expect(yield* orchestra.stages(other.id)).toEqual([])
+      const missing = yield* orchestra
+        .planStages(Orchestra.ProjectID.make("prj_nonexistent"), [{ name: "X" }])
+        .pipe(Effect.flip)
+      expect(missing._tag).toBe("Orchestra.ProjectNotFoundError")
+    }),
+  )
+
+  it.live("concurrent stage updates never lose each other's writes", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-stages-race-")))
+      const orchestra = yield* Orchestra.Service
+      const project = yield* orchestra.create({ name: "Race", directory: tmp.path })
+      yield* orchestra.planStages(project.id, [
+        { id: "a", name: "A" },
+        { id: "b", name: "B" },
+        { id: "c", name: "C" },
+      ])
+
+      // Three patches racing on the same stored plan: each is a
+      // read-modify-write, so without per-project serialization the last
+      // writer would silently erase the other two.
+      yield* Effect.all(
+        [
+          orchestra.setStage(project.id, "a", { status: "running" }),
+          orchestra.setStage(project.id, "b", { status: "running" }),
+          orchestra.setStage(project.id, "c", { status: "running" }),
+        ],
+        { concurrency: "unbounded" },
+      )
+      const after = yield* orchestra.stages(project.id)
+      expect(after.map((stage) => stage.status)).toEqual(["running", "running", "running"])
+
+      // A replan racing a patch: the outcome must equal some sequential
+      // application — a structurally valid plan, the completed stage's
+      // evidence intact, and no stage silently resurrected or dropped.
+      yield* Effect.all(
+        [
+          orchestra.setStage(project.id, "a", { status: "completed", result: "evidence A" }),
+          orchestra.planStages(project.id, [
+            { id: "a", name: "A" },
+            { id: "b", name: "B" },
+            { id: "c", name: "C" },
+            { id: "d", name: "D", dependsOn: ["a"] },
+          ]),
+        ],
+        { concurrency: "unbounded" },
+      )
+      const final = yield* orchestra.stages(project.id)
+      expect(final.map((stage) => stage.id)).toEqual(["a", "b", "c", "d"])
+      expect(final.find((stage) => stage.id === "a")?.status).toBe("completed")
+      expect(final.find((stage) => stage.id === "a")?.result).toBe("evidence A")
+    }),
+  )
+})
