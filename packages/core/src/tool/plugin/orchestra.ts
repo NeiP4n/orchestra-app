@@ -4,9 +4,12 @@ import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import type { SessionHooks } from "@orchestra/plugin/effect/session"
 import { Mode } from "@orchestra/schema/mode"
+import { Orchestra as SchemaOrchestra } from "@orchestra/schema/orchestra"
 import type { Permission } from "@orchestra/schema/permission"
+import { Tool } from "@orchestra/schema/tool"
 import { Effect, Option, Schema } from "effect"
 import { Form } from "../../form.js"
+import { Mcp } from "../../mcp/index.js"
 import { Model } from "../../model.js"
 import { Orchestra } from "../../orchestra.js"
 import { ModelRouter } from "../../session/model-router.js"
@@ -39,6 +42,8 @@ export const description = [
   `Modes: ${MODE_IDS}. A mode changes how a session works and may make it read-only; it never widens the role's permissions. Pass mode to send or create, or use action set_mode. Use fast for trivial work, planning or research before building, coding for implementation, architecture for parallel-safe design, test to verify, review or debug for checks, and self-improvement for work on the product itself. A planner in coding mode still cannot edit files.`,
   "Never pass a display title as a role ID: use an exact role id from the roles listed with your team.",
   "Access per session is hidden < read < write < full: read allows list and read, write adds send, full adds stop. Sessions you create get full access.",
+  "The 6-message rule binds you: after 6 of your own messages in a row without handing a task to a worker, your other tool calls are refused until you delegate with send or create. The roster in your context shows how many of the 6 you have used.",
+  "MCP limits are yours to distribute: pass mcp on send or create to hand the worker its MCP budget for that one task (servers it may call, maxCalls in total, perServer caps). You may only tighten the role's own MCP ceiling, never widen it; a refused limit says what the role allows. The limit is stamped on the worker session and stated at the top of its task brief.",
 ].join("\n")
 
 type WorkerRow = {
@@ -60,6 +65,236 @@ export function reusableWorker<T extends WorkerRow>(
     writable,
     session: writable.find((row) => !pending.has(row.session.id)),
   }
+}
+
+// ---------------------------------------------------------------------------
+// The 6-message rule.
+//
+// The Orchestrator leads the team; it is not a worker. After
+// ORCHESTRATOR_MESSAGE_LIMIT of its own messages in a row without handing a
+// task to a team session, it must delegate: the gate below refuses its other
+// tool calls until a sessions send/create carrying a task goes through.
+// Counting is by assistant message, not by tool call — one message may call
+// several tools and still counts once — and only a real delegation resets
+// the count: listing or reading the team is management, not distribution,
+// and asking the operator a question is neither counted nor blocked (the
+// operator may be the only one who can decide). A new incoming prompt (the
+// operator, or a <team-report> waking the Orchestrator) starts a new cycle.
+// This complements the older explore-call gate in the team plugin, which
+// counts read/grep/glob/shell calls only; this one counts every own message.
+export const ORCHESTRATOR_MESSAGE_LIMIT = 6
+
+export interface DelegationGate {
+  /** Message IDs of the Orchestrator's own messages counted in this cycle, oldest first. */
+  readonly counted: ReadonlyArray<string>
+  /** True when this call belongs to a new own message past the limit and must be refused. */
+  readonly blocked: boolean
+  /** True when this call was a delegation and reset the count. */
+  readonly reset: boolean
+}
+
+const isDelegationCall = (tool: string, action: string | undefined, text: string | undefined) =>
+  tool === name && (action === "send" || action === "create") && !!text?.trim()
+
+export function delegationGate(
+  counted: ReadonlyArray<string>,
+  input: { tool: string; messageID: string; action?: string; text?: string },
+): DelegationGate {
+  if (isDelegationCall(input.tool, input.action, input.text)) return { counted: [], blocked: false, reset: true }
+  // Team management and asking the operator are always available and never
+  // count as the Orchestrator doing the work itself.
+  if (input.tool === name || input.tool === "question") return { counted, blocked: false, reset: false }
+  if (counted.includes(input.messageID)) return { counted, blocked: false, reset: false }
+  if (counted.length >= ORCHESTRATOR_MESSAGE_LIMIT) return { counted, blocked: true, reset: false }
+  return { counted: [...counted, input.messageID], blocked: false, reset: false }
+}
+
+/** Whether a finished assistant message handed a task to a team session. */
+export function isDelegation(message: SessionMessage.Info): boolean {
+  if (message.type !== "assistant") return false
+  return message.content.some(
+    (part) =>
+      part.type === "tool" &&
+      part.name === name &&
+      part.state.status === "completed" &&
+      isDelegationCall(part.name, part.state.input.action as string | undefined, part.state.input.text as string | undefined),
+  )
+}
+
+/**
+ * How many of the Orchestrator's own messages in a row, in chronological
+ * order, came after the last delegation or the last incoming message (the
+ * operator's, or a synthetic wake-up such as a <team-report>).
+ */
+export function ownMessageStreak(messages: ReadonlyArray<SessionMessage.Info>): number {
+  let streak = 0
+  for (const message of messages) {
+    if (message.type === "user" || message.type === "synthetic") {
+      streak = 0
+      continue
+    }
+    if (message.type !== "assistant") continue
+    streak = isDelegation(message) ? 0 : streak + 1
+  }
+  return streak
+}
+
+export function delegationStatus(streak: number) {
+  const limit = ORCHESTRATOR_MESSAGE_LIMIT
+  const mustDelegate = streak >= limit
+  return {
+    limit,
+    streak,
+    remaining: Math.max(0, limit - streak),
+    mustDelegate,
+    text: mustDelegate
+      ? [
+          "# 6-message rule — limit reached",
+          `You have sent ${streak} of your own messages in a row without handing a task to a team session (limit ${limit}). Your next action MUST be sessions action send or create with the task; your other tool calls are refused until you delegate. Do not keep investigating, editing around it or writing a longer report instead.`,
+        ].join("\n")
+      : [
+          "# 6-message rule",
+          `You have sent ${streak} of your ${limit} own messages in a row since the last task you handed to the team; ${Math.max(0, limit - streak)} remain before you must delegate. After ${limit} own messages you hand tasks to team sessions (sessions send/create) instead of continuing yourself, and other tool calls are refused until you do.`,
+        ].join("\n"),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MCP limits per role, distributed by the Orchestrator.
+//
+// A role's own toolkit is its MCP ceiling: the namespaced tool patterns in
+// its tool list (context7_*, playwright_*, ...) name the MCP servers it may
+// reach at all, and the call caps below bound how much of them one task may
+// burn. The Orchestrator distributes a per-task limit with the sessions
+// tool's `mcp` field; resolveMcpLimit guarantees it can only tighten the
+// ceiling, never widen it. The effective limit is applied at dispatch time:
+// servers outside the allowlist are denied for the worker session, and the
+// whole limit is stamped on the session metadata under
+// MCP_LIMIT_METADATA_KEY and stated at the top of the task brief, which is
+// the surface the MCP runtime (and the role profiles) read back.
+
+/** Session metadata key carrying the MCP limit the Orchestrator last handed the session. */
+export const MCP_LIMIT_METADATA_KEY = "orchestra:mcp-limit"
+/** Default per-task MCP call cap for a role that may change files. */
+export const MCP_CALLS_DEFAULT = 24
+/** Default per-task MCP call cap for a read-only role: lookups, not bulk work. */
+export const MCP_CALLS_READ_ONLY = 12
+
+export interface McpLimit {
+  /** MCP server names the worker may call, or "all" when the role sets no boundary. */
+  readonly servers: ReadonlyArray<string> | "all"
+  /** Total MCP tool calls allowed for the task. */
+  readonly maxCalls: number
+  /** Per-server call caps, for servers in the effective allowlist. */
+  readonly perServer: Readonly<Record<string, number>>
+}
+
+/** What the Orchestrator asks for in the sessions tool's `mcp` field. */
+export interface McpLimitRequest {
+  readonly servers?: ReadonlyArray<string>
+  readonly maxCalls?: number
+  readonly perServer?: Readonly<Record<string, number>>
+}
+
+type RoleMcpShape = {
+  readonly name?: string
+  readonly tools?: ReadonlyArray<string>
+  readonly readOnly?: boolean
+}
+
+/**
+ * The MCP servers a role may reach at all, from its tool list: a namespaced
+ * pattern (`context7_*`) names its server, and `mcp_*` (or no tool list at
+ * all) means the role never drew a boundary, so every server is allowed.
+ */
+export function mcpServersOf(role: RoleMcpShape): ReadonlyArray<string> | "all" {
+  if (!role.tools) return "all"
+  const servers = new Set<string>()
+  for (const tool of SchemaOrchestra.withImplied(role.tools)) {
+    if (tool === "*" || tool === "mcp_*") return "all"
+    const match = /^(.+)_\*$/.exec(tool)
+    if (match) servers.add(match[1])
+  }
+  return [...servers].toSorted()
+}
+
+/** The role's own MCP ceiling: what the Orchestrator may distribute from, and never exceed. */
+export function defaultMcpLimit(role: RoleMcpShape): McpLimit {
+  const servers = mcpServersOf(role)
+  const maxCalls = servers !== "all" && servers.length === 0 ? 0 : role.readOnly ? MCP_CALLS_READ_ONLY : MCP_CALLS_DEFAULT
+  return { servers, maxCalls, perServer: {} }
+}
+
+export type McpLimitResolution = { readonly ok: true; readonly limit: McpLimit } | { readonly ok: false; readonly message: string }
+
+/**
+ * The Orchestrator's per-task MCP limit for a role, checked against the
+ * role's ceiling: servers must come from the role's own list, and no cap may
+ * exceed the ceiling. Anything the Orchestrator leaves open takes the
+ * ceiling's value, so passing a partial limit only tightens what it names.
+ */
+export function resolveMcpLimit(role: RoleMcpShape, requested?: McpLimitRequest): McpLimitResolution {
+  const ceiling = defaultMcpLimit(role)
+  const who = role.name ?? "This role"
+  const servers =
+    requested?.servers === undefined
+      ? ceiling.servers
+      : [...new Set(requested.servers.map((server) => server.trim()).filter(Boolean))]
+  if (ceiling.servers !== "all" && Array.isArray(servers)) {
+    const outside = servers.filter((server) => !ceiling.servers.includes(server))
+    if (outside.length > 0)
+      return {
+        ok: false,
+        message: `${who} may not use MCP server(s) ${outside.join(", ")}; its servers are ${ceiling.servers.join(", ") || "none"}. The Orchestrator distributes limits inside the role's own ceiling, it does not widen it.`,
+      }
+  }
+  if (Array.isArray(servers) && servers.length === 0 && requested?.maxCalls !== undefined && requested.maxCalls > 0)
+    return { ok: false, message: "An empty MCP server list forbids MCP for this task, so maxCalls must be 0 or omitted." }
+  const maxCalls = Array.isArray(servers) && servers.length === 0 ? 0 : (requested?.maxCalls ?? ceiling.maxCalls)
+  if (!Number.isInteger(maxCalls) || maxCalls < 0)
+    return { ok: false, message: `MCP maxCalls must be a whole number of 0 or more, got ${maxCalls}.` }
+  if (maxCalls > ceiling.maxCalls)
+    return {
+      ok: false,
+      message: `${who}'s MCP ceiling is ${ceiling.maxCalls} call(s) per task; ${maxCalls} would widen it. The Orchestrator may tighten a role's limit, not raise it.`,
+    }
+  const perServer = requested?.perServer ?? {}
+  for (const [server, cap] of Object.entries(perServer)) {
+    if (Array.isArray(servers) && !servers.includes(server))
+      return { ok: false, message: `perServer names ${server}, which is not in this task's MCP server list (${servers.join(", ") || "none"}).` }
+    if (!Number.isInteger(cap) || cap < 0)
+      return { ok: false, message: `The per-server MCP cap for ${server} must be a whole number of 0 or more, got ${cap}.` }
+    if (cap > maxCalls)
+      return { ok: false, message: `The per-server MCP cap for ${server} (${cap}) exceeds the task's total MCP limit (${maxCalls}).` }
+  }
+  return { ok: true, limit: { servers, maxCalls, perServer } }
+}
+
+/**
+ * Permission rules denying every known MCP server outside the limit's
+ * allowlist. Rules are evaluated last-match-wins, so appending these to a
+ * session's ruleset closes the servers it names without touching anything
+ * else. A server nobody knows about cannot be named here; the numeric caps
+ * and any server discovered later are the MCP runtime's side of the limit,
+ * read from the session metadata stamp.
+ */
+export function mcpDenyRules(limit: McpLimit, knownServers: ReadonlyArray<string>): Permission.Ruleset {
+  if (limit.servers === "all") return []
+  const allowed = new Set(limit.servers)
+  return [...new Set(knownServers)]
+    .filter((server) => !allowed.has(server))
+    .toSorted()
+    .map((server) => ({ action: `${server}_*`, resource: "*", effect: "deny" as const }))
+}
+
+/** The one line at the top of a worker's task brief stating the MCP limit it was handed. */
+export function mcpBriefLine(limit: McpLimit): string {
+  const servers =
+    limit.servers === "all" ? "any connected MCP server" : limit.servers.length > 0 ? limit.servers.join(", ") : "none"
+  const per = Object.entries(limit.perServer)
+    .map(([server, cap]) => `${server} at most ${cap}`)
+    .join(", ")
+  return `[MCP limit for this task, set by the Orchestrator: at most ${limit.maxCalls} MCP tool call(s) in total; servers allowed: ${servers}${per ? `; per server: ${per}` : ""}. Stay inside it; if the task cannot be done within it, say so in your report instead of exceeding it.]`
 }
 
 export const Input = Schema.Struct({
@@ -99,6 +334,22 @@ export const Input = Schema.Struct({
   mode: Schema.optionalKey(Schema.String).annotate({
     description:
       "For send, create and set_mode: a work mode id (auto, fast, coding, research, planning, review, debug, design, ops). A mode changes how the worker works and may make it read-only; it never widens the role's permissions. Use auto to clear the override.",
+  }),
+  mcp: Schema.optionalKey(
+    Schema.Struct({
+      servers: Schema.optionalKey(Schema.Array(Schema.String)).annotate({
+        description: "MCP server names the worker may call for this task; a subset of the role's own servers. An empty list forbids MCP for this task.",
+      }),
+      maxCalls: Schema.optionalKey(Schema.Int).annotate({
+        description: "Total MCP tool calls the worker may make for this task; at most the role's own ceiling.",
+      }),
+      perServer: Schema.optionalKey(Schema.Record(Schema.String, Schema.Int)).annotate({
+        description: "MCP call caps per server name, for servers in the effective allowlist.",
+      }),
+    }),
+  ).annotate({
+    description:
+      "For send and create: the MCP budget you distribute to this worker for this task. It can only tighten the role's own MCP ceiling (shown with the role in your context), never widen it.",
   }),
 })
 
@@ -188,6 +439,7 @@ export const Plugin = {
     const orchestra = yield* Orchestra.Service
     const forms = yield* Form.Service
     const catalog = yield* Effect.serviceOption(Model.Service)
+    const mcp = yield* Effect.serviceOption(Mcp.Service)
 
     // A role the operator gave a model list keeps to that list and a pinned model is never overridden;
     // any other role may run on any model the catalog has, so the Orchestrator can honour a request for
@@ -353,6 +605,45 @@ export const Plugin = {
       )
     })
 
+    // The 6-message rule, enforced: in a project's main session, after
+    // ORCHESTRATOR_MESSAGE_LIMIT of the Orchestrator's own messages in a row
+    // without a delegation, every other tool call is refused until a sessions
+    // send/create carrying a task goes through. The count lives in memory per
+    // session and is seeded from history on first sight, so a restart does
+    // not hand back spent messages. Sessions that are not a project main are
+    // never gated.
+    const gateCounted = new Map<string, string[]>()
+    yield* ctx.tool.hook("execute.before", (event) =>
+      Effect.gen(function* () {
+        const project = yield* orchestra.mainOf(event.sessionID).pipe(Effect.orElseSucceed(() => undefined))
+        if (!project || project.main !== event.sessionID) return
+        let counted = gateCounted.get(event.sessionID)
+        if (!counted) {
+          const history = yield* sessions
+            .messages({ sessionID: event.sessionID, limit: 100, order: "asc" })
+            .pipe(Effect.orElseSucceed(() => [] as SessionMessage.Info[]))
+          const streak = Math.min(ownMessageStreak(history), ORCHESTRATOR_MESSAGE_LIMIT)
+          counted = Array.from({ length: streak }, (_, index) => `history-${index}`)
+          gateCounted.set(event.sessionID, counted)
+        }
+        const input =
+          event.tool === name && typeof event.input === "object" && event.input !== null
+            ? (event.input as { action?: string; text?: string })
+            : {}
+        const gate = delegationGate(counted, {
+          tool: event.tool,
+          messageID: String(event.messageID),
+          action: input.action,
+          text: input.text,
+        })
+        gateCounted.set(event.sessionID, [...gate.counted])
+        if (gate.blocked)
+          return yield* new Tool.Error({
+            message: `6-message rule: you have sent ${ORCHESTRATOR_MESSAGE_LIMIT} of your own messages in a row without handing a task to a team session, so this call is refused. Delegate now with the sessions tool (action send or create, with the task as text) — that call is always allowed and resets the count.`,
+          })
+      }),
+    )
+
     yield* ctx.tool
       .transform((editor) =>
         editor.add({
@@ -477,6 +768,62 @@ export const Plugin = {
                     Effect.mapError((error) => new ToolFailure({ message: `Could not set permissions for ${sessionID}`, error })),
                   )
               })
+              // The servers anyone can name for deny rules: the roles' own lists plus
+              // whatever the MCP service currently knows (configured or discovered).
+              const knownServers = Effect.fnUntraced(function* () {
+                const fromRoles = roles.flatMap((role) => {
+                  const servers = mcpServersOf(role)
+                  return servers === "all" ? [] : [...servers]
+                })
+                if (Option.isNone(mcp)) return [...new Set(fromRoles)].toSorted()
+                const infos = yield* mcp.value.servers().pipe(Effect.orElseSucceed(() => [] as Mcp.ServerInfo[]))
+                const tools = yield* mcp.value.tools().pipe(Effect.orElseSucceed(() => [] as Mcp.Tool[]))
+                return [
+                  ...new Set([...fromRoles, ...infos.map((info) => String(info.name)), ...tools.map((tool) => String(tool.server))]),
+                ].toSorted()
+              })
+              // Distribute the MCP limit the Orchestrator passed for this task: checked
+              // against the role's ceiling, enforced by appending deny rules for the
+              // servers outside the allowlist to the session's ruleset (last match
+              // wins), stamped on the session metadata, and returned so the caller
+              // can state it at the top of the task brief. No `mcp` field, no stamp.
+              const distributeMcp = Effect.fnUntraced(function* (
+                sessionID: SessionSchema.ID,
+                role: Orchestra.Role | undefined,
+              ) {
+                if (input.mcp === undefined) return undefined
+                if (!role)
+                  return yield* new ToolFailure({ message: "This session has no team role, so it has no MCP ceiling to distribute from; omit mcp" })
+                const resolution = resolveMcpLimit(role, input.mcp)
+                if (!resolution.ok) return yield* new ToolFailure({ message: resolution.message })
+                const limit = resolution.limit
+                const session = yield* sessions
+                  .get(sessionID)
+                  .pipe(Effect.mapError(() => new ToolFailure({ message: `Session not found: ${sessionID}` })))
+                const deny = mcpDenyRules(limit, yield* knownServers())
+                if (deny.length > 0)
+                  yield* sessions
+                    .setPermissions({ sessionID, permissions: [...(session.permissions ?? []), ...deny] })
+                    .pipe(
+                      Effect.mapError(
+                        (error) => new ToolFailure({ message: `Could not apply the MCP limit to ${sessionID}`, error }),
+                      ),
+                    )
+                yield* sessions
+                  .setMetadata({
+                    sessionID,
+                    metadata: {
+                      ...(session.metadata ?? {}),
+                      [MCP_LIMIT_METADATA_KEY]: JSON.parse(JSON.stringify(limit)) as Schema.Json,
+                    },
+                  })
+                  .pipe(
+                    Effect.mapError(
+                      (error) => new ToolFailure({ message: `Could not stamp the MCP limit on ${sessionID}`, error }),
+                    ),
+                  )
+                return limit
+              })
               const busy = (sessionID: SessionSchema.ID) =>
                 Effect.gen(function* () {
                   if ((yield* orchestra.pending(sessionID)) === undefined) return
@@ -515,7 +862,8 @@ export const Plugin = {
                     ),
                   )
                   yield* applyMode(session, role, mode)
-                  yield* dispatch(session.id, input.text)
+                  const limit = yield* distributeMcp(session.id, role)
+                  yield* dispatch(session.id, limit ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
                   return {
                     sessionID: session.id,
                     output: `Sent to ${session.title ?? session.id}. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.`,
@@ -547,7 +895,9 @@ export const Plugin = {
                         const existing = reusable.session.session
                         yield* apply(existing.id, choice)
                         yield* applyMode(existing, role, mode)
-                        if (input.text?.trim()) yield* dispatch(existing.id, input.text)
+                        const limit = yield* distributeMcp(existing.id, role)
+                        if (input.text?.trim())
+                          yield* dispatch(existing.id, limit ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
                         return {
                           sessionID: existing.id,
                           output: input.text?.trim()
@@ -595,7 +945,9 @@ export const Plugin = {
                       ),
                     )
                   yield* applyMode(created, role, mode)
-                  if (input.text?.trim()) yield* dispatch(created.id, input.text)
+                  const limit = yield* distributeMcp(created.id, role)
+                  if (input.text?.trim())
+                    yield* dispatch(created.id, limit ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
                   return {
                     sessionID: created.id,
                     output: `Created ${created.id}${input.text?.trim() ? "; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list." : ""}.`,
@@ -743,6 +1095,12 @@ export const Plugin = {
             ...roles.map((role) => `- ${role.id} (${role.name}, ${role.category}${role.readOnly ? ", read-only" : ""}): ${role.description}${setup(role)}`),
           ].join("\n"),
         })
+        // The 6-message rule status rides in its own block so the roster above
+        // stays stable and cacheable; only this small tail changes per request.
+        const history = yield* sessions
+          .messages({ sessionID: event.sessionID, limit: 100, order: "asc" })
+          .pipe(Effect.orElseSucceed(() => [] as SessionMessage.Info[]))
+        event.system.push({ type: "text", text: delegationStatus(ownMessageStreak(history)).text })
       }),
     )
     yield* ctx.session.hook("compaction", hook)
