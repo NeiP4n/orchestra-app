@@ -2,6 +2,7 @@ import { Plugin } from "@orchestra/plugin/tui"
 import { createEffect, createMemo, createResource, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
 import { Orchestra } from "@orchestra/schema/orchestra"
 import { DialogMcp } from "../../component/dialog-mcp"
+import { HoverAction } from "../../component/hover-action"
 import { useClient } from "../../context/client"
 import { useT } from "../../util/i18n"
 import { hoverBackground } from "../../ui/hover"
@@ -122,10 +123,12 @@ export function SidebarMcp(props: { context: Plugin.Context; sessionID: string }
       </Show>
 
       <Show when={team().length > 0}>
-        <box
-          flexDirection="row"
+        <HoverAction
+          flexGrow={1}
+          paddingLeft={1}
+          paddingRight={1}
           gap={1}
-          onMouseDown={() => {
+          onClick={() => {
             void updateView((draft) => {
               draft.teamOpen = !draft.teamOpen
             }).catch((error) => console.error("Failed to persist MCP sidebar state", error))
@@ -138,7 +141,7 @@ export function SidebarMcp(props: { context: Plugin.Context; sessionID: string }
           <text fg={theme.text.muted} wrapMode="none">
             {t("{count} workers", { count: team().length })}
           </text>
-        </box>
+        </HoverAction>
         <Show when={view.teamOpen}>
           <For each={team()}>
             {(worker) => (
@@ -170,11 +173,13 @@ export function SidebarMcp(props: { context: Plugin.Context; sessionID: string }
       </Show>
 
       <Show when={list().length > 0}>
-        <box
-          flexDirection="row"
+        <HoverAction
+          flexGrow={1}
+          paddingLeft={1}
+          paddingRight={1}
           justifyContent="space-between"
           gap={1}
-          onMouseUp={() => props.context.ui.dialog.show(() => <DialogMcp />)}
+          onClick={() => props.context.ui.dialog.show(() => <DialogMcp />)}
         >
           <text fg={theme.text.muted} flexShrink={0}>
             {t("All MCP servers")}
@@ -193,7 +198,7 @@ export function SidebarMcp(props: { context: Plugin.Context; sessionID: string }
               </span>
             </Show>
           </text>
-        </box>
+        </HoverAction>
       </Show>
     </box>
   )
