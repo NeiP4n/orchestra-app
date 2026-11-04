@@ -680,12 +680,14 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   function FooterAction(action: { item: VisibleAction }) {
     if (!isActionItem(action.item))
       return (
-        <box flexDirection="row" gap={1} alignItems="center">
-          <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
+        <box flexDirection="row" gap={1} alignItems="center" flexShrink={0}>
+          <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="none">
             {action.item.title}
           </text>
           <box backgroundColor={theme.background.raised.base} paddingLeft={1} paddingRight={1}>
-            <text fg={theme.text.muted}>{action.item.label}</text>
+            <text fg={theme.text.muted} wrapMode="none">
+              {action.item.label}
+            </text>
           </box>
         </box>
       )
@@ -697,6 +699,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
         flexDirection="row"
         gap={1}
         alignItems="center"
+        flexShrink={0}
         backgroundColor={active() ? theme.background.action.primary.focused : theme.background.action.primary.base}
         onMouseUp={() => trigger(item)}
       >
@@ -709,6 +712,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                 : theme.text.base
           }
           attributes={active() ? TextAttributes.BOLD : undefined}
+          wrapMode="none"
         >
           {item.title}
         </text>
@@ -725,6 +729,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                   ? theme.text.action.primary.focused
                   : theme.text.muted
             }
+            wrapMode="none"
           >
             {item.label}
           </text>
