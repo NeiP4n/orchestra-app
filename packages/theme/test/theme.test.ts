@@ -3,7 +3,7 @@ import { migrateV1, parseThemeDocument, resolveThemeDocument } from "../src/tui/
 import type { ThemeV1Json } from "../src/tui/v1.js"
 
 const source: ThemeV1Json = await Bun.file(
-  new URL("../../tui/src/theme/assets/opencode.json", import.meta.url),
+  new URL("../../tui/src/theme/assets/orchestra.json", import.meta.url),
 ).json()
 const document = migrateV1(source)
 

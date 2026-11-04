@@ -1966,3 +1966,52 @@ describe("Orchestra team", () => {
     }).pipe(Effect.scoped),
   )
 })
+
+describe("Orchestra workflow stages", () => {
+  it.live("plans, transitions and replans stages persisted per project", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-stages-")))
+      const orchestra = yield* Orchestra.Service
+      const project = yield* orchestra.create({ name: "Stages", directory: tmp.path })
+
+      const planned = yield* orchestra.planStages(project.id, [
+        { id: "research", name: "Research", categories: ["Research"], acceptance: "sources cited" },
+        { id: "build", name: "Build", dependsOn: ["research"] },
+      ])
+      expect(planned.map((stage) => stage.status)).toEqual(["planned", "planned"])
+
+      // A dependent stage cannot start before its dependency completes.
+      const early = yield* orchestra.setStage(project.id, "build", { status: "running" }).pipe(Effect.flip)
+      expect(early._tag).toBe("Orchestra.StageError")
+      expect(early.message).toContain("dependencies not completed")
+
+      yield* orchestra.setStage(project.id, "research", { status: "running" })
+      // Completion without evidence is refused.
+      const bare = yield* orchestra.setStage(project.id, "research", { status: "completed" }).pipe(Effect.flip)
+      expect(bare.message).toContain("result")
+      const done = yield* orchestra.setStage(project.id, "research", { status: "completed", result: "report attached" })
+      expect(done.completed).toBeTypeOf("number")
+
+      // State survives a fresh read through the KV store.
+      const stored = yield* orchestra.stages(project.id)
+      expect(stored.find((stage) => stage.id === "research")?.result).toBe("report attached")
+
+      // Replanning preserves the completed stage exactly and admits new work.
+      const replanned = yield* orchestra.planStages(project.id, [
+        { id: "research", name: "Research REDEFINED" },
+        { id: "build", name: "Build" },
+        { id: "verify", name: "Verify", dependsOn: ["build"] },
+      ])
+      expect(replanned.find((stage) => stage.id === "research")?.name).toBe("Research")
+      expect(replanned.map((stage) => stage.id)).toEqual(["research", "build", "verify"])
+
+      // Unknown projects fail typed, stages of a fresh project are empty.
+      const other = yield* orchestra.create({ name: "Empty", directory: tmp.path })
+      expect(yield* orchestra.stages(other.id)).toEqual([])
+      const missing = yield* orchestra
+        .planStages(Orchestra.ProjectID.make("prj_nonexistent"), [{ name: "X" }])
+        .pipe(Effect.flip)
+      expect(missing._tag).toBe("Orchestra.ProjectNotFoundError")
+    }),
+  )
+})

@@ -27,6 +27,7 @@ import { SessionEvent } from "@orchestra/schema/session-event"
 import { SessionMessage } from "./session/message.js"
 import { SessionInbox } from "./session/inbox.js"
 import { Dod } from "./dod.js"
+import { OrchestraStage } from "./stage.js"
 import { AiStandard } from "./ai-standard.js"
 import { Config } from "./config.js"
 import { Project as CoreProject } from "./project.js"
@@ -76,6 +77,10 @@ export class TemplateNotFoundError extends Schema.TaggedError<TemplateNotFoundEr
 export class TeamError extends Schema.TaggedError<TeamError>()("Orchestra.TeamError", {
   message: Schema.String,
   field: Schema.String.pipe(Schema.optional),
+}) {}
+
+export class StageError extends Schema.TaggedError<StageError>()("Orchestra.StageError", {
+  message: Schema.String,
 }) {}
 
 export class DispatchError extends Schema.TaggedError<DispatchError>()("Orchestra.DispatchError", {
@@ -151,6 +156,19 @@ export interface Interface {
   // Categories group a project's sessions ("Planning", "Build", ...); free text, empty clears it.
   readonly categories: (sessionIDs: ReadonlyArray<SessionID>) => Effect.Effect<Record<string, string>>
   readonly setCategory: (sessionID: SessionID, category: string) => Effect.Effect<void>
+  // The project's dynamic workflow stages (see stage.ts): the Orchestrator's plan of execution
+  // units with dependencies, assignments and acceptance criteria. Sessions do the work; stages
+  // record the plan and its state. Replanning preserves completed stages exactly as recorded.
+  readonly stages: (id: ProjectID) => Effect.Effect<ReadonlyArray<OrchestraStage.Stage>>
+  readonly planStages: (
+    id: ProjectID,
+    inputs: ReadonlyArray<OrchestraStage.StageInput>,
+  ) => Effect.Effect<ReadonlyArray<OrchestraStage.Stage>, ProjectNotFoundError | StageError>
+  readonly setStage: (
+    id: ProjectID,
+    stageID: string,
+    patch: OrchestraStage.StagePatch,
+  ) => Effect.Effect<OrchestraStage.Stage, ProjectNotFoundError | StageError>
   // Sends a task from the project's main session to a team session. When that
   // session's run ends, its final answer is delivered back to the main session
   // as a <team-report> and wakes it, so the orchestrator never has to poll.
@@ -188,6 +206,7 @@ export class Service extends Context.Service<Service, Interface>()("@orchestra/O
 const PROJECT = "orchestra/project/"
 const ACCESS = "orchestra/access/"
 const CATEGORY = "orchestra/category/"
+const STAGE = "orchestra/stage/"
 const TASK = "orchestra/task/"
 // Dispatch locks are process-wide, not service-instance-wide: one running session per process is the
 // invariant the dispatcher keeps, and recovery must never wait behind a run that is already in flight.
@@ -210,6 +229,7 @@ const REPORT_LIMIT = 16_000
 // How many recent top-level sessions are scanned when listing a project.
 const SCAN_LIMIT = 500
 const decodeProject = Schema.decodeUnknownOption(Project)
+const decodeStages = Schema.decodeUnknownOption(Schema.Array(OrchestraStage.Stage))
 const decodeAccess = Schema.decodeUnknownOption(Access)
 const decodeProjectID = Schema.decodeUnknownOption(ProjectID)
 const decodeSessionID = Schema.decodeUnknownOption(SessionID)
@@ -1678,6 +1698,15 @@ const layer: Layer.Layer<
     // publishes a UI approval request, so no human approval dialog races the decision.
     yield* permissionDelegates.set(decidePermission)
 
+    const readStages = Effect.fnUntraced(function* (id: ProjectID) {
+      return Option.getOrElse(decodeStages(yield* kv.get(STAGE + id)), () => [] as ReadonlyArray<OrchestraStage.Stage>)
+    })
+    const writeStages = Effect.fnUntraced(function* (id: ProjectID, stages: ReadonlyArray<OrchestraStage.Stage>) {
+      // A JSON round-trip drops the explicit undefined fields the pure model
+      // produces when it clears an optional, which the stored schema rejects.
+      yield* kv.set(STAGE + id, JSON.parse(JSON.stringify(stages)) as Schema.Json)
+    })
+
     return Service.of({
       projects,
       create: Effect.fn("Orchestra.create")(function* (input) {
@@ -2038,6 +2067,25 @@ const layer: Layer.Layer<
         const name = category.trim()
         if (!name) return yield* kv.remove(CATEGORY + sessionID)
         yield* kv.set(CATEGORY + sessionID, name)
+      }),
+      stages: Effect.fn("Orchestra.stages")(function* (id) {
+        return yield* readStages(id)
+      }),
+      planStages: Effect.fn("Orchestra.planStages")(function* (id, inputs) {
+        yield* get(id)
+        const merged = OrchestraStage.mergePlan(yield* readStages(id), inputs, Date.now(), () =>
+          `stage-${crypto.randomUUID().slice(0, 8)}`,
+        )
+        if (!merged.ok) return yield* new StageError({ message: merged.message })
+        yield* writeStages(id, merged.value)
+        return merged.value
+      }),
+      setStage: Effect.fn("Orchestra.setStage")(function* (id, stageID, patch) {
+        yield* get(id)
+        const applied = OrchestraStage.applyPatch(yield* readStages(id), stageID, patch, Date.now())
+        if (!applied.ok) return yield* new StageError({ message: applied.message })
+        yield* writeStages(id, applied.value)
+        return applied.value.find((stage) => stage.id === stageID)!
       }),
       dispatch: Effect.fn("Orchestra.dispatch")(function* (input) {
         // Lock ordering is project -> worker. Project deletion/migration and task admission must
