@@ -614,6 +614,9 @@ export function SessionQuestion<const T extends Record<string, string>>(props: {
         expanded: store.expanded,
       }))}
       backgroundColor={theme.background.raised.base}
+      // TranscriptAxon is a transparent, absolute canvas at zIndex 0. Keep the
+      // recovery/permission card above it so its animated line cannot paint through.
+      zIndex={1}
       border={["left"]}
       borderColor={theme.background.action.primary.focused}
       customBorderChars={SplitBorder.customBorderChars}
