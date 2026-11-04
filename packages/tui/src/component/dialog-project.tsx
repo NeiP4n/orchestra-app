@@ -391,20 +391,39 @@ function TeamOption(props: { selected: boolean; focused: boolean; name: string; 
       onMouseUp={props.onClick}
     >
       <box flexDirection="row" gap={1} minWidth={0}>
-        <text flexShrink={0} fg={props.selected ? theme.text.formfield.focused : theme.text.muted}>
+        <text
+          flexShrink={0}
+          fg={
+            props.selected && props.focused
+              ? theme.text.formfield.focused
+              : hovered()
+                ? theme.text.formfield.hovered
+                : props.selected
+                  ? theme.text.formfield.selected
+                  : theme.text.muted
+          }
+        >
           {props.selected ? "●" : "○"}
         </text>
         <text
           flexShrink={1}
           wrapMode="none"
           truncate
-          fg={props.selected ? theme.text.formfield.focused : theme.text.formfield.base}
+          fg={
+            props.selected && props.focused
+              ? theme.text.formfield.focused
+              : hovered()
+                ? theme.text.formfield.hovered
+                : props.selected
+                  ? theme.text.formfield.selected
+                  : theme.text.formfield.base
+          }
         >
           {props.name}
         </text>
       </box>
       <box paddingLeft={2} minWidth={0}>
-        <text fg={theme.text.muted} wrapMode="word">
+        <text fg={hovered() ? theme.text.formfield.hovered : theme.text.muted} wrapMode="word">
           {props.detail}
         </text>
       </box>
