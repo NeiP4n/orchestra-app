@@ -7,6 +7,7 @@ import { McpCatalog } from "@orchestra/core/mcp/catalog"
 import { useConfig } from "../config"
 import { Keymap } from "../context/keymap"
 import { useTheme } from "../context/theme"
+import { hoverBackground } from "../ui/hover"
 import { useToast } from "../ui/toast"
 import { useT } from "../util/i18n"
 import { hubRegistryStatus, type RegistryOptions, type RegistryTool } from "../util/hub-registry"
@@ -687,13 +688,7 @@ function PluginTools(props: {
             gap={0}
             paddingLeft={1}
             paddingRight={1}
-            backgroundColor={
-              index() === cursor()
-                ? theme.background.formfield.focused
-                : hovered() === index()
-                  ? theme.background.formfield.hovered
-                  : undefined
-            }
+            backgroundColor={index() === cursor() || hovered() === index() ? hoverBackground(theme) : undefined}
             onMouseOver={() => {
               setHovered(index())
               setCursor(index())
@@ -812,13 +807,7 @@ function AiTools(props: {
             gap={0}
             paddingLeft={1}
             paddingRight={1}
-            backgroundColor={
-              index() === cursor()
-                ? theme.background.formfield.focused
-                : hovered() === index()
-                  ? theme.background.formfield.hovered
-                  : undefined
-            }
+            backgroundColor={index() === cursor() || hovered() === index() ? hoverBackground(theme) : undefined}
             onMouseOver={() => {
               setHovered(index())
               setCursor(index())
@@ -916,7 +905,7 @@ function ToolRow(props: {
         props.active
           ? theme.background.formfield.focused
           : hovered()
-            ? theme.background.formfield.hovered
+            ? hoverBackground(theme)
             : undefined
       }
       onMouseOver={() => {
