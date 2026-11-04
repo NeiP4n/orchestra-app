@@ -24,7 +24,11 @@ type HoverTheme<T> = {
 function distinctSurface<T>(surface: T, base: T) {
   if (surface === base) return false
   if (!(surface instanceof RGBA) || !(base instanceof RGBA)) return true
-  return Math.hypot(surface.r - base.r, surface.g - base.g, surface.b - base.b) >= 0.045
+  if (surface.a <= 0) return false
+  const r = surface.r * surface.a + base.r * (1 - surface.a)
+  const g = surface.g * surface.a + base.g * (1 - surface.a)
+  const b = surface.b * surface.a + base.b * (1 - surface.a)
+  return Math.hypot(r - base.r, g - base.g, b - base.b) >= 0.045
 }
 
 function visibleFallback<T>(base: T, theme: HoverTheme<T>): T {
@@ -38,9 +42,9 @@ function visibleFallback<T>(base: T, theme: HoverTheme<T>): T {
 
 /**
  * Shared hover surface for interactive rows and actions throughout the TUI.
- * Use the authored raised-high token when it is actually distinct from the
- * panel background. Some custom themes map both tokens to the same color; in
- * that case synthesize a subtle neutral highlight so hover never becomes inert.
+ * Prefer the semantic action-hover token, then the raised-high surface. Some
+ * themes leave either token transparent or identical to the panel background;
+ * synthesize a subtle neutral highlight rather than making hover invisible.
  */
 export function hoverBackground<T>(theme: HoverTheme<T>): T {
   const background = theme.background
