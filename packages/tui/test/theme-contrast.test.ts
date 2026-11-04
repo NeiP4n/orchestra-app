@@ -59,6 +59,8 @@ const primary: Array<{ name: string; fg: (t: Resolved) => RGBA; bg: (t: Resolved
 const subdued: Array<{ name: string; fg: (t: Resolved) => RGBA; bg: (t: Resolved) => RGBA; floor: number }> = [
   { name: "text.muted on raised.high", fg: (t) => t.text.muted, bg: (t) => t.background.raised.high, floor: 3.0 },
   { name: "text.base on raised.high", fg: (t) => t.text.base, bg: (t) => t.background.raised.high, floor: 3.0 },
+  { name: "text.muted on action.primary.hovered", fg: (t) => t.text.muted, bg: (t) => t.background.action.primary.hovered, floor: 3.0 },
+  { name: "text.base on action.primary.hovered", fg: (t) => t.text.base, bg: (t) => t.background.action.primary.hovered, floor: 3.0 },
   { name: "syntax.comment on background.base", fg: (t) => t.syntax.comment, bg: (t) => t.background.base, floor: 3.5 },
   { name: "markdown.blockQuote on background.base", fg: (t) => t.markdown.blockQuote, bg: (t) => t.background.base, floor: 3.5 },
   { name: "feedback.error.muted on background.base", fg: (t) => t.text.feedback.error.muted, bg: (t) => t.background.base, floor: 3.0 },
