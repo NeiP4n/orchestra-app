@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js"
 import { useTheme } from "../context/theme"
+import { hoverBackground } from "../ui/hover"
 import { useT } from "../util/i18n"
 import { errorMessage } from "../util/error"
 import { listEverySession, removeEverySession, type SessionCleanupApi } from "../util/clear-sessions"
@@ -82,7 +83,7 @@ export function ClearSessionsAction(props: {
       <box
         id="project-tree.clear-sessions.action"
         flexDirection="row"
-        backgroundColor={hovered() ? theme.background.action.destructive.hovered : undefined}
+        backgroundColor={hovered() ? hoverBackground(theme, "destructive") : undefined}
         onMouseOver={() => setHovered(true)}
         onMouseOut={() => setHovered(false)}
         onMouseUp={(event) => {
