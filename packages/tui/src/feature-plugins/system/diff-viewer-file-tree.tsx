@@ -4,6 +4,7 @@ import { truncateFilePath } from "../../ui/file-path"
 import { stringWidth } from "../../util/string-width"
 import { useTheme } from "../../context/theme"
 import { tint } from "../../theme/color"
+import { hoverBackground } from "../../ui/hover"
 import { createEffect, createMemo, createSignal, For, Match, Show, Switch, type JSX } from "solid-js"
 import { buildFileTree, flattenFileTree, type FileTreeItem, type FileTreeRow } from "./diff-viewer-file-tree-utils"
 
@@ -135,11 +136,8 @@ export function DiffViewerFileTree(props: DiffViewerFileTreeProps) {
                       if (row.kind === "directory") return theme.text.muted
                       return reviewed() ? theme.text.muted : theme.text.base
                     }
-                    const background = () => {
-                      // Elevated context maps this to a quiet neutral surface step, not the loud accent.
-                      if (hovered()) return theme.background.raised.high
-                      return theme.background.raised.base
-                    }
+                    const background = () =>
+                      hovered() ? hoverBackground(theme) : theme.background.raised.base
                     const marker = () => {
                       if (row.kind !== "directory") return "≡ "
                       return props.expandedNodes && !props.expandedNodes.has(row.id) ? "▸ " : "▾ "
