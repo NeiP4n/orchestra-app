@@ -2,6 +2,7 @@ import { createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { useTheme } from "../../context/theme"
 import { Keymap } from "../../context/keymap"
 import { useT } from "../../util/i18n"
+import { hoverBackground } from "../../ui/hover"
 import type { PartRef } from "./grouping/session"
 import type { OutlineCategory } from "./outline"
 
@@ -212,7 +213,7 @@ export function OutlineRail(props: {
                   flexDirection="row"
                   height={1}
                   flexShrink={0}
-                  backgroundColor={hovered() === line.key ? theme.background.action.primary.hovered : undefined}
+                  backgroundColor={hovered() === line.key ? hoverBackground(theme) : undefined}
                   onMouseOver={() => setHovered(line.key)}
                   onMouseDown={(event) => {
                     event.stopPropagation()
