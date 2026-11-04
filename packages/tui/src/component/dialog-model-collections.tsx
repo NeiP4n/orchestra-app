@@ -403,7 +403,7 @@ export function DialogModelCollections() {
         actions={[
           {
             command: "dialog.endpoint.test",
-            title: t("Test connection & fetch models"),
+            title: t("Test & fetch models"),
             selection: "none",
             onTrigger: () => {
               setEndpointStatus(id, { ok: true, text: t("testing…") })

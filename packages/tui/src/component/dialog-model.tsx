@@ -393,7 +393,7 @@ export function DialogModel(props: {
         },
         {
           command: "model.dialog.collections",
-          title: "Model collections & endpoints",
+          title: "Collections & endpoints",
           selection: "none",
           hidden: !connected(),
           onTrigger() {
@@ -408,11 +408,11 @@ export function DialogModel(props: {
       titleView={
         showExtra() ? (
           <box flexDirection="row" gap={1} alignItems="center">
-            <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
+            <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="none">
               {activeCategory()?.label ?? t("All")}
             </text>
-            <text fg={theme.text.muted}>{`· ${options().length} ${t("options")}`}</text>
-            <text fg={theme.text.muted}>{`· tab ${t("category")} · shift+tab ${t("previous")}`}</text>
+            <text fg={theme.text.muted} wrapMode="none">{`· ${options().length} ${t("options")}`}</text>
+            <text fg={theme.text.muted} wrapMode="none">{`· tab ${t("category")}`}</text>
           </box>
         ) : undefined
       }
