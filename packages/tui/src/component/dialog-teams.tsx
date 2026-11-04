@@ -1433,8 +1433,11 @@ function Choice(props: { selected: boolean; focused: boolean; onClick: () => voi
   const theme = useTheme().surface("dialog")
   const [hovered, setHovered] = createSignal(false)
   const state = () => (props.focused && props.selected ? "focused" : props.selected ? "selected" : "base")
-  const foreground = () =>
-    props.focused && props.selected ? theme.text.formfield.focused : hovered() ? theme.text.base : theme.text.formfield[state()]
+  const foreground = () => {
+    if (props.focused && props.selected) return theme.text.formfield.focused
+    if (hovered()) return theme.text.base
+    return theme.text.formfield[state()]
+  }
   return (
     <box
       flexDirection="row"
