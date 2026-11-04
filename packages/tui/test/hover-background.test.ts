@@ -63,3 +63,26 @@ test("ignores a transparent action hover token and falls back to the raised surf
   })
   expect(value.equals(raisedHigh)).toBe(true)
 })
+
+test("synthesized hover surfaces retain readable primary and muted text", () => {
+  const background = RGBA.fromHex("#101820")
+  const primary = RGBA.fromHex("#e8edf2")
+  const muted = RGBA.fromHex("#9caab4")
+  const value = hoverBackground({
+    background: { base: background, raised: { base: background, high: RGBA.clone(background) } },
+    text: { base: primary, muted },
+    increase: () => RGBA.clone(background),
+  })
+  const luminance = (color: RGBA) => {
+    const channel = (value: number) =>
+      value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+    return 0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b)
+  }
+  const ratio = (foreground: RGBA, surface: RGBA) => {
+    const fg = luminance(foreground)
+    const bg = luminance(surface)
+    return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05)
+  }
+  expect(ratio(primary, value)).toBeGreaterThanOrEqual(3)
+  expect(ratio(muted, value)).toBeGreaterThanOrEqual(3)
+})
