@@ -1,7 +1,10 @@
+import { createSignal } from "solid-js"
 import { useTheme } from "../context/theme"
+import { hoverBackground } from "../ui/hover"
 
 export function PluginRouteMissing(props: { id: string; name: string; onHome: () => void }) {
   const theme = useTheme()
+  const [hovered, setHovered] = createSignal(false)
 
   return (
     <box width="100%" height="100%" alignItems="center" justifyContent="center" flexDirection="column" gap={1}>
@@ -9,12 +12,17 @@ export function PluginRouteMissing(props: { id: string; name: string; onHome: ()
         Unknown plugin route: {props.id}/{props.name}
       </text>
       <box
-        onMouseUp={props.onHome}
-        backgroundColor={theme.background.action.primary.hovered}
         paddingLeft={1}
         paddingRight={1}
+        backgroundColor={hovered() ? hoverBackground(theme) : undefined}
+        onMouseOver={() => setHovered(true)}
+        onMouseOut={() => setHovered(false)}
+        onMouseUp={(event) => {
+          event.stopPropagation()
+          props.onHome()
+        }}
       >
-        <text fg={theme.text.action.primary.hovered}>go home</text>
+        <text fg={hovered() ? theme.text.action.primary.hovered : theme.text.action.primary.base}>go home</text>
       </box>
     </box>
   )
