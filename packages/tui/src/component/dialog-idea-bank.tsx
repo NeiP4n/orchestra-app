@@ -193,6 +193,9 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
   const [globalTotal, setGlobalTotal] = createSignal(0)
   const [globalLoadingMore, setGlobalLoadingMore] = createSignal(false)
   const [shareArmed, setShareArmed] = createSignal<string>()
+  const [hoveredAction, setHoveredAction] = createSignal<string>()
+  const actionIsHovered = (id: string) => hoveredAction() === id
+  const actionHover = (id: string) => (hovered: boolean) => setHoveredAction(hovered ? id : undefined)
 
   const loadGlobalIdeas = async (query = globalQuery(), offset = 0, append = false) => {
     const base = globalBase()
@@ -629,13 +632,13 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
           {state.autoCapture ? t("Automatic local capture is on") : t("Automatic local capture is off")}
         </text>
         <box flexGrow={1} />
-        <HoverAction id="idea-bank.toggle-capture" onClick={toggleCapture} paddingLeft={1} paddingRight={1}>
-          <text fg={theme.text.action.primary.base}>
+        <HoverAction id="idea-bank.toggle-capture" onHoverChange={actionHover("idea-bank.toggle-capture")} onClick={toggleCapture} paddingLeft={1} paddingRight={1}>
+          <text fg={actionIsHovered("idea-bank.toggle-capture") ? theme.text.action.primary.hovered : theme.text.action.primary.base}>
             {state.autoCapture ? t("Pause") : t("Enable")}
           </text>
         </HoverAction>
-        <HoverAction id="idea-bank.clear" onClick={() => void clearLocalData()} paddingLeft={1} paddingRight={1}>
-          <text fg={clearArmed() ? theme.text.feedback.warning.base : theme.text.muted}>
+        <HoverAction id="idea-bank.clear" variant="destructive" onHoverChange={actionHover("idea-bank.clear")} onClick={() => void clearLocalData()} paddingLeft={1} paddingRight={1}>
+          <text fg={actionIsHovered("idea-bank.clear") ? theme.text.action.destructive.hovered : clearArmed() ? theme.text.feedback.warning.base : theme.text.muted}>
             {clearArmed() ? t("Confirm clear") : t("Clear local data")}
           </text>
         </HoverAction>
@@ -650,8 +653,8 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
           {state.autoShareSignals ? t("Automatic global sharing is on") : t("Automatic global sharing is off")}
         </text>
         <box flexGrow={1} />
-        <HoverAction id="idea-bank.toggle-global-sharing" onClick={toggleGlobalSignalSharing} paddingLeft={1} paddingRight={1}>
-          <text fg={shareArmed() === "automatic-signals" ? theme.text.feedback.warning.base : theme.text.action.primary.base}>
+        <HoverAction id="idea-bank.toggle-global-sharing" onHoverChange={actionHover("idea-bank.toggle-global-sharing")} onClick={toggleGlobalSignalSharing} paddingLeft={1} paddingRight={1}>
+          <text fg={actionIsHovered("idea-bank.toggle-global-sharing") ? theme.text.action.primary.hovered : shareArmed() === "automatic-signals" ? theme.text.feedback.warning.base : theme.text.action.primary.base}>
             {state.autoShareSignals ? t("Pause sharing") : shareArmed() === "automatic-signals" ? t("Confirm sharing") : t("Enable sharing")}
           </text>
         </HoverAction>
@@ -672,11 +675,11 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
         <text fg={theme.text.muted}>{t("Potential directions")}: {ideas().length}</text>
         <text fg={theme.text.muted}>{t("Local signals")}: {totalSignals()}</text>
         <box flexGrow={1} />
-        <HoverAction id="idea-bank.submit-global" onClick={openCustomShare} paddingLeft={1} paddingRight={1}>
-          <text fg={theme.text.action.primary.base}>{t("Submit idea")}</text>
+        <HoverAction id="idea-bank.submit-global" onHoverChange={actionHover("idea-bank.submit-global")} onClick={openCustomShare} paddingLeft={1} paddingRight={1}>
+          <text fg={actionIsHovered("idea-bank.submit-global") ? theme.text.action.primary.hovered : theme.text.action.primary.base}>{t("Submit idea")}</text>
         </HoverAction>
-        <HoverAction id="idea-bank.search-global" onClick={openGlobalSearch} paddingLeft={1} paddingRight={1}>
-          <text fg={theme.text.action.primary.base}>{t("Search")}</text>
+        <HoverAction id="idea-bank.search-global" onHoverChange={actionHover("idea-bank.search-global")} onClick={openGlobalSearch} paddingLeft={1} paddingRight={1}>
+          <text fg={actionIsHovered("idea-bank.search-global") ? theme.text.action.primary.hovered : theme.text.action.primary.base}>{t("Search")}</text>
         </HoverAction>
         <HoverAction id="idea-bank.refresh-global" onClick={() => void loadGlobalIdeas()} paddingLeft={1} paddingRight={1}>
           <text fg={theme.text.muted}>{t("Refresh")}</text>
@@ -739,22 +742,32 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
                   <Show when={!idea.global}>
                     <HoverAction
                       id={"idea-bank.share." + idea.id}
+                      onHoverChange={actionHover("idea-bank.share." + idea.id)}
                       onClick={() => void shareIdea(idea)}
                       paddingLeft={1}
                       paddingRight={1}
                     >
-                      <text fg={shareArmed() === idea.id ? theme.text.feedback.warning.base : theme.text.muted}>
+                      <text
+                        fg={
+                          actionIsHovered("idea-bank.share." + idea.id)
+                            ? theme.text.action.primary.hovered
+                            : shareArmed() === idea.id
+                              ? theme.text.feedback.warning.base
+                              : theme.text.muted
+                        }
+                      >
                         {shareArmed() === idea.id ? t("Confirm public share") : t("Share globally")}
                       </text>
                     </HoverAction>
                   </Show>
                   <HoverAction
                     id={"idea-bank.use." + idea.id}
+                    onHoverChange={actionHover("idea-bank.use." + idea.id)}
                     onClick={() => useIdea(idea)}
                     paddingLeft={1}
                     paddingRight={1}
                   >
-                    <text fg={theme.text.action.primary.base}>{t("Explore")}</text>
+                    <text fg={actionIsHovered("idea-bank.use." + idea.id) ? theme.text.action.primary.hovered : theme.text.action.primary.base}>{t("Explore")}</text>
                   </HoverAction>
                 </box>
                 <box height={1} border={["bottom"]} borderColor={theme.border.base} />
@@ -765,8 +778,8 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
       </Show>
       <Show when={globalStatus() === "connected" && globalIdeas().length < globalTotal()}>
         <box flexDirection="row" justifyContent="center" gap={2}>
-          <HoverAction id="idea-bank.load-more" onClick={loadMoreGlobalIdeas} paddingLeft={1} paddingRight={1}>
-            <text fg={globalLoadingMore() ? theme.text.muted : theme.text.action.primary.base}>
+          <HoverAction id="idea-bank.load-more" onHoverChange={actionHover("idea-bank.load-more")} onClick={loadMoreGlobalIdeas} paddingLeft={1} paddingRight={1}>
+            <text fg={globalLoadingMore() ? theme.text.muted : actionIsHovered("idea-bank.load-more") ? theme.text.action.primary.hovered : theme.text.action.primary.base}>
               {globalLoadingMore() ? t("Loading more ideas…") : t("Load more global ideas")}
             </text>
           </HoverAction>
