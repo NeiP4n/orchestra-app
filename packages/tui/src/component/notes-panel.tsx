@@ -3,6 +3,7 @@ import type { NoteInfo, NoteStatus } from "@orchestra/client"
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { useConfig } from "../config"
 import { useTheme } from "../context/theme"
+import { hoverBackground } from "../ui/hover"
 import { ago, matchesNote, NOTE_STATUS_MARKER, noteTitle } from "../util/note"
 import { useT } from "../util/i18n"
 import { Row } from "./panel-row"
@@ -165,9 +166,11 @@ export function NotesPanel(props: {
               </text>
               <box
                 flexShrink={0}
+                paddingLeft={1}
+                paddingRight={1}
                 backgroundColor={
                   armed() === note.name || hover() === `note:${note.name}`
-                    ? theme.background.action.destructive.base
+                    ? hoverBackground(theme, "destructive")
                     : undefined
                 }
                 onMouseOut={() => setArmed()}
@@ -180,7 +183,7 @@ export function NotesPanel(props: {
                 <text
                   fg={
                     armed() === note.name || hover() === `note:${note.name}`
-                      ? theme.text.action.destructive.base
+                      ? theme.text.action.destructive.hovered
                       : theme.text.muted
                   }
                   wrapMode="none"
