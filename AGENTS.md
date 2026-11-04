@@ -6,6 +6,29 @@
 - Default new branches and worktrees to `main`, or `origin/main` when the local `main` ref is unavailable, and default pull requests to target `main`. Use another base or target branch when the requester explicitly instructs it.
 - Use `main` or `origin/main` for diffs.
 
+## Standing Orders for AI in This Repository
+
+- **The map is `AI_ATLAS.md`.** It describes every system in this app — where it
+  lives, what it guarantees, how to change and verify it. Read the relevant
+  section before changing a system, and update that section in the same change
+  when your change alters what it says. An atlas statement that no longer
+  matches the code is a defect.
+- **Fix on sight.** When analyzing, reviewing or passing through code you find
+  a defect you can *prove* (a reproduction, a failing check, or code-level
+  evidence with file and line), fix it in the same pass when the fix is small
+  and self-contained in the area you are already working in, and run a check
+  that exercises it. Never soften, skip or delete a test to make a fix pass.
+  Report instead of fixing when the defect is unproven, the fix crosses a
+  package contract or changes product policy, or the action is irreversible —
+  and label it found-not-fixed with its evidence.
+- **The Society is permanent.** This project keeps a standing council-mode
+  federation group, `orchestra-society`, uniting the package projects
+  (`packages/core` coordinating, then `packages/schema`, `packages/tui`,
+  `packages/server`, `packages/app`). Its charter and recreation recipe live
+  in `AI_ATLAS.md` ("Federation and the Society"). Never delete it as cleanup;
+  recreate it if absent. Convene it for cross-package work, retrospectives and
+  health rounds; each member speaks for its package, with file:line evidence.
+
 ## Orchestra Ecosystem Architecture
 
 Orchestra is an extensible multi-agent AI engineering platform structured as a strict layered monorepo:
