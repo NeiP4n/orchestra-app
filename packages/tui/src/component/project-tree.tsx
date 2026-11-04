@@ -1392,7 +1392,11 @@ function RoomPeople(props: {
           }
         >
           <For each={people()}>
-            {(item) => (
+            {(item) => {
+              const [roleHovered, setRoleHovered] = createSignal(false)
+              const [kickHovered, setKickHovered] = createSignal(false)
+              const [banHovered, setBanHovered] = createSignal(false)
+              return (
               <box flexDirection="row" paddingLeft={5} paddingRight={1}>
                 <text fg={item.member.online ? theme.text.feedback.success.base : theme.text.muted}>
                   {item.member.online ? "● " : "○ "}
@@ -1404,14 +1408,19 @@ function RoomPeople(props: {
                 </box>
                 <HoverAction
                   id={`member-role:${item.member.id}`}
+                  onHoverChange={setRoleHovered}
                   onClick={() => cycle(item.room, item.member)}
                 >
-                  <text fg={theme.text.formfield.base}>{` [${t(ROLE_LABEL[item.member.role])}]`}</text>
+                  <text fg={roleHovered() ? theme.text.action.primary.hovered : theme.text.base}>
+                    {` [${t(ROLE_LABEL[item.member.role])}]`}
+                  </text>
                 </HoverAction>
                 <HoverAction
                   id={`member-kick:${item.member.id}`}
+                  variant="destructive"
                   minWidth={6}
                   justifyContent="flex-end"
+                  onHoverChange={setKickHovered}
                   onMouseLeave={() => setArmed()}
                   onClick={() =>
                     confirm(`kick:${item.member.id}`, () =>
@@ -1419,14 +1428,22 @@ function RoomPeople(props: {
                     )
                   }
                 >
-                  <text fg={destructive(`kick:${item.member.id}`)}>
+                  <text
+                    fg={
+                      kickHovered()
+                        ? theme.text.action.destructive.hovered
+                        : destructive(`kick:${item.member.id}`)
+                    }
+                  >
                     {armed() === `kick:${item.member.id}` ? ` ${t("Kick?")}` : " ×"}
                   </text>
                 </HoverAction>
                 <HoverAction
                   id={`member-ban:${item.member.id}`}
+                  variant="destructive"
                   minWidth={5}
                   justifyContent="flex-end"
+                  onHoverChange={setBanHovered}
                   onMouseLeave={() => setArmed()}
                   onClick={() =>
                     confirm(`ban:${item.member.id}`, () =>
@@ -1434,12 +1451,19 @@ function RoomPeople(props: {
                     )
                   }
                 >
-                  <text fg={destructive(`ban:${item.member.id}`)}>
+                  <text
+                    fg={
+                      banHovered()
+                        ? theme.text.action.destructive.hovered
+                        : destructive(`ban:${item.member.id}`)
+                    }
+                  >
                     {armed() === `ban:${item.member.id}` ? ` ${t("Ban?")}` : ` ${t("ban")}`}
                   </text>
                 </HoverAction>
               </box>
-            )}
+              )
+            }}
           </For>
         </Show>
         <For each={banned()}>
