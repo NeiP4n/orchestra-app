@@ -1,5 +1,4 @@
 import { RGBA } from "@opentui/core"
-import { tint } from "../theme/color"
 
 type HoverTheme<T> = {
   background?: {
@@ -31,11 +30,47 @@ function distinctSurface<T>(surface: T, base: T) {
   return Math.hypot(r - base.r, g - base.g, b - base.b) >= 0.045
 }
 
+function luminance(color: RGBA) {
+  const channel = (value: number) =>
+    value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  return 0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b)
+}
+
+function contrast(foreground: RGBA, background: RGBA) {
+  const fg = luminance(foreground)
+  const bg = luminance(background)
+  return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05)
+}
+
 function visibleFallback<T>(base: T, theme: HoverTheme<T>): T {
   if (base instanceof RGBA) {
-    const luminance = 0.2126 * base.r + 0.7152 * base.g + 0.0722 * base.b
-    const pole = luminance < 0.5 ? RGBA.fromInts(255, 255, 255) : RGBA.fromInts(0, 0, 0)
-    return tint(base, pole, 0.14) as T
+    const foregrounds = [theme.text?.base, theme.text?.muted].filter(
+      (color): color is RGBA => color instanceof RGBA && color.a >= 1,
+    )
+    const candidates = [0, 1].flatMap((pole) =>
+      Array.from({ length: 87 }, (_, index) => {
+        const amount = (index + 14) / 100
+        const color = RGBA.fromValues(
+          base.r + (pole - base.r) * amount,
+          base.g + (pole - base.g) * amount,
+          base.b + (pole - base.b) * amount,
+          1,
+        )
+        const minimum = foregrounds.length
+          ? Math.min(...foregrounds.map((foreground) => contrast(foreground, color)))
+          : 0
+        return { color, amount, minimum }
+      }),
+    )
+    // Prefer the smallest visible tint that keeps both primary and muted text readable.
+    const readable = candidates
+      .filter((candidate) => candidate.minimum >= 3)
+      .sort((a, b) => a.amount - b.amount)[0]
+    if (readable) return readable.color as T
+    // Extremely unusual palettes may have conflicting text hues; choose the direction
+    // that maximizes the weakest text contrast rather than hiding one of the labels.
+    const safest = candidates.sort((a, b) => b.minimum - a.minimum || a.amount - b.amount)[0]
+    return (safest?.color ?? base) as T
   }
   return theme.increase?.(base, 4) ?? base
 }
