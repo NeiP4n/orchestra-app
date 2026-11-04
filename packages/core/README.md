@@ -29,10 +29,13 @@ priority order: a per-task explicit model wins; the agent and model are
 picked from the favorites, ranked for the work (depth vs. speed);
 unavailable favorites are skipped and, when all are down, the run falls back
 to the role model, then the worker policy, then the caller's model; MCP
-tools and rules are derived/applied automatically; the budget is automatic
-(`AiStandard.budgetFor`, applied through `Limits`). Zero configuration is a
-working state. Callers such as `Orchestra.workerModels` consume the standard
-and must not re-encode their own priority chain.
+tools and rules are derived/applied automatically; the step budget is the
+standard's default (`AiStandard.budgetFor`, fed into the runner through
+`AiStandard.stepCeilings`) — a ceiling on steps, not a cap on spend, and
+like every ceiling it applies only when the deployment enforces limits
+(`Limits`). Zero configuration is a working state. Callers such as
+`Orchestra.workerModels` consume the standard and must not re-encode their
+own priority chain.
 
 ## Usage
 
