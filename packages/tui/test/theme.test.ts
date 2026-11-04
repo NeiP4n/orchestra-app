@@ -2,25 +2,33 @@ import { expect, test } from "bun:test"
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import type { TerminalColors } from "@opentui/core"
-import { allThemes, hasTheme, getOpenCodeTheme, parseTheme, resolveTheme } from "../src/theme"
-import { resolveThemeDocument } from "@orchestra/theme/tui"
+import { allThemes, hasTheme, getOrchestraTheme, legacyThemeMigration, parseTheme, resolveTheme } from "../src/theme"
+import { resolveThemeDocument, themeModes } from "@orchestra/theme/tui"
 import { discoverThemes } from "../src/theme/discovery"
 import { configDirectories } from "../src/util/config-directories"
 import { terminalMode } from "../src/theme/system"
-import opencodeSource from "../src/theme/assets/opencode.json" with { type: "json" }
+import draculaSource from "../src/theme/assets/dracula.json" with { type: "json" }
 import type { ThemeV1Json } from "@orchestra/theme/tui/v1"
 import { tmpdir } from "./fixture/fixture"
 
-const opencodeV1 = opencodeSource as ThemeV1Json
+const opencodeV1 = draculaSource as ThemeV1Json
 
 test("rejects unrecognized theme structures", () => {
   expect(() => parseTheme({})).toThrow()
   expect(() => parseTheme({ version: 3 })).toThrow("Invalid theme")
 })
 
-test("registers opencode as a native V2 theme", () => {
-  expect(allThemes().opencode).toBe(getOpenCodeTheme())
-  expect(parseTheme(getOpenCodeTheme()).base).toBeDefined()
+test("registers orchestra as a native V2 theme", () => {
+  expect(allThemes().orchestra).toBe(getOrchestraTheme())
+  expect(parseTheme(getOrchestraTheme()).base).toBeDefined()
+})
+
+test("opencode is no longer a built-in theme, but its stored name migrates to orchestra", () => {
+  expect(allThemes().opencode).toBeUndefined()
+  expect(hasTheme("opencode")).toBe(false)
+  expect(legacyThemeMigration("opencode")).toBe("orchestra")
+  expect(legacyThemeMigration("orchestra")).toBeUndefined()
+  expect(legacyThemeMigration("missing-theme")).toBeUndefined()
 })
 
 test("detects V1 themes from their theme field and caches migrations", () => {
@@ -37,8 +45,8 @@ test("detects V1 themes from their theme field and caches migrations", () => {
 
 test("decodes native V2 themes lazily once", () => {
   const source = {
-    base: getOpenCodeTheme().base,
-    light: { ...getOpenCodeTheme().light, categorical: ["red"] },
+    base: getOrchestraTheme().base,
+    light: { ...getOrchestraTheme().light, categorical: ["red"] },
   } as const
 
   const document = parseTheme(source)
@@ -74,7 +82,7 @@ test("replacement sources receive independent parse caches", () => {
 test("hasTheme checks theme presence", () => {
   expect(hasTheme("missing-theme")).toBe(false)
   expect(hasTheme("orchestra")).toBe(true)
-  expect(hasTheme("opencode")).toBe(true)
+  expect(hasTheme("opencode")).toBe(false)
 })
 
 test("resolveTheme rejects circular color refs", () => {
@@ -132,7 +140,7 @@ test("custom theme precedence follows directory order", async () => {
 })
 
 test("built-in theme names a color for every execution backend in both modes", () => {
-  const document = getOpenCodeTheme()
+  const document = getOrchestraTheme()
   for (const mode of ["light", "dark"] as const) {
     const theme = resolveThemeDocument(document, mode)
     expect(theme.text.backend?.bash).toBeDefined()
@@ -145,7 +153,7 @@ test("built-in theme names a color for every execution backend in both modes", (
 })
 
 test("a theme without the backend role resolves and leaves the fallback in charge", () => {
-  const source: Record<string, unknown> = { ...structuredClone(getOpenCodeTheme()) }
+  const source: Record<string, unknown> = { ...structuredClone(getOrchestraTheme()) }
   const base = { ...(source.base as Record<string, unknown>) }
   const text = { ...(base.text as Record<string, unknown>) }
   delete text.backend
@@ -171,4 +179,22 @@ test("theme directories include global config before project directories", async
     global: { source: "global" },
     project: { source: "project" },
   })
+})
+
+test("every registered built-in theme parses and resolves in every mode it declares", () => {
+  const sources = allThemes()
+  const names = Object.keys(sources).filter((name) => name !== "system")
+  expect(names.length).toBeGreaterThan(10)
+  for (const name of names) {
+    const document = parseTheme(sources[name], name)
+    const modes = themeModes(document)
+    expect(modes.length).toBeGreaterThan(0)
+    for (const mode of modes) {
+      const resolved = resolveThemeDocument(document, mode)
+      expect(resolved.text.base, `${name}/${mode} text`).toBeDefined()
+      expect(resolved.background.base, `${name}/${mode} background`).toBeDefined()
+      expect(resolved.border.base, `${name}/${mode} border`).toBeDefined()
+      expect(resolved.text.muted, `${name}/${mode} muted text`).toBeDefined()
+    }
+  }
 })

@@ -10,6 +10,7 @@ import {
 import {
   allThemes,
   hasTheme,
+  legacyThemeMigration,
   parseTheme,
   setCustomThemes,
   setSystemTheme,
@@ -98,6 +99,10 @@ type Themes = {
   unlock(): void
   setMode(mode?: "dark" | "light", persist?: boolean): boolean
   set(theme: string): boolean
+  /** Switch the visible theme without persisting it (dialog previews, cancel restore). */
+  preview(theme: string): boolean
+  /** Switch the visible theme and persist it; resolves after the write lands, rejects when it fails. */
+  commit(theme: string): Promise<boolean>
   afterPaint(): void
   onError(handler: ThemeErrorHandler): () => void
   readonly ready: boolean
@@ -155,6 +160,38 @@ const themeContext = createSimpleContext({
       if (mode === "system" && store.lock !== undefined) free(false)
     })
 
+    // Config writes are serialized through one queue: a confirmed selection can
+    // never be overwritten by an earlier write landing out of order, and a failed
+    // write rejects for its caller instead of being swallowed.
+    let writeQueue: Promise<unknown> = Promise.resolve()
+    function persistConfig(mutate: (draft: any) => void): Promise<void> {
+      const run = writeQueue.then(() => configState.update(mutate))
+      writeQueue = run.then(
+        () => {},
+        () => {},
+      )
+      return run.then(() => {})
+    }
+
+    // A stored selection that no discovered theme provides is either a retired
+    // built-in name (migrate it) or a theme that no longer exists (repair to the
+    // fallback). Runs only after discovery, so a custom theme that simply has
+    // not loaded yet is never mistaken for a missing one. A theme that exists
+    // but fails to parse is left alone: its owner may still be editing the file,
+    // and the load error is already reported through themeErrors.
+    function repairStoredSelection() {
+      const name = config.theme?.name
+      if (!name || name === "system") return
+      const sources = themeSources()
+      if (sources[name]) return
+      const target = legacyThemeMigration(name) ?? "orchestra"
+      if (!sources[target]) return
+      setStore("active", target)
+      void persistConfig((draft) => {
+        draft.theme = { ...draft.theme, name: target }
+      }).catch((error) => themeErrors.emit(name, error))
+    }
+
     function syncCustomThemes() {
       return themes
         .discover()
@@ -168,6 +205,7 @@ const themeContext = createSimpleContext({
       // Terminal palette queries serialize with frame output. First paint uses the cached palette or built-in fallback.
       void syncCustomThemes().finally(() => {
         tokens()
+        repairStoredSelection()
         setStore("ready", true)
       })
     })
@@ -234,22 +272,18 @@ const themeContext = createSimpleContext({
       setStore("lock", mode)
       apply(mode)
       if (!persist) return
-      void configState
-        .update((draft) => {
-          draft.theme = { ...draft.theme, mode }
-        })
-        .catch(() => {})
+      void persistConfig((draft) => {
+        draft.theme = { ...draft.theme, mode }
+      }).catch((error) => themeErrors.emit(store.active, error))
     }
 
     function free(persist = true) {
       setStore("lock", undefined)
       apply(renderer.themeMode ?? store.mode)
       if (!persist) return
-      void configState
-        .update((draft) => {
-          draft.theme = { ...draft.theme, mode: "system" }
-        })
-        .catch(() => {})
+      void persistConfig((draft) => {
+        draft.theme = { ...draft.theme, mode: "system" }
+      }).catch((error) => themeErrors.emit(store.active, error))
     }
 
     const handleMode = (mode: "dark" | "light") => {
@@ -333,12 +367,24 @@ const themeContext = createSimpleContext({
         if (!hasTheme(theme)) return false
         setStore("active", theme)
         if (theme === "system") refreshPalette()
-        void configState
-          .update((draft) => {
-            draft.theme = { ...draft.theme, name: theme }
-          })
-          .catch(() => {})
+        void persistConfig((draft) => {
+          draft.theme = { ...draft.theme, name: theme }
+        }).catch((error) => themeErrors.emit(theme, error))
         return true
+      },
+      preview(theme: string) {
+        if (!hasTheme(theme)) return false
+        setStore("active", theme)
+        if (theme === "system") refreshPalette()
+        return true
+      },
+      commit(theme: string) {
+        if (!hasTheme(theme)) return Promise.resolve(false)
+        setStore("active", theme)
+        if (theme === "system") refreshPalette()
+        return persistConfig((draft) => {
+          draft.theme = { ...draft.theme, name: theme }
+        }).then(() => true)
       },
       afterPaint,
       onError: themeErrors.onError,

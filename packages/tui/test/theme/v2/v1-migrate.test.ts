@@ -7,12 +7,12 @@ import {
   type HueScale,
   type ResolvedTheme,
 } from "@orchestra/theme/tui"
-import { DEFAULT_THEMES, getOpenCodeTheme, resolveTheme as resolveV1 } from "../../../src/theme"
-import opencodeSource from "../../../src/theme/assets/opencode.json" with { type: "json" }
+import { DEFAULT_THEMES, getOrchestraTheme, resolveTheme as resolveV1 } from "../../../src/theme"
+import draculaSource from "../../../src/theme/assets/dracula.json" with { type: "json" }
 import type { ThemeV1Json } from "@orchestra/theme/tui/v1"
 
-const opencodeV1 = opencodeSource as ThemeV1Json
-const opencodeLight = resolveThemeDocument(getOpenCodeTheme(), "light")
+const opencodeV1 = draculaSource as ThemeV1Json
+const opencodeLight = resolveThemeDocument(getOrchestraTheme(), "light")
 const opencodeLightHues = allHues(opencodeLight)
 
 test("migrates resolved V1 modes into V2 tokens", () => {
