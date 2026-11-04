@@ -22,6 +22,7 @@ export function PanelHost(props: {
     // Side panels sit on a raised surface; fullscreen takes over the base background.
     const background = () =>
       panels.presentation() === "panel" ? theme.background.raised.base : theme.background.base
+    // Contain plugin-rendered canvases and decoration inside the panel bounds.
     return (
       <box
         id="session-panel"
@@ -30,7 +31,6 @@ export function PanelHost(props: {
         minWidth={0}
         minHeight={0}
         focusable
-        // Contain plugin-rendered canvases and decoration inside the panel bounds.
         overflow="hidden"
         backgroundColor={background()}
         onMouseDown={props.onFocus}
