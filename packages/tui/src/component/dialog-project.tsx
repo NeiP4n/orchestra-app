@@ -416,7 +416,7 @@ function TeamOption(props: { selected: boolean; focused: boolean; name: string; 
             props.selected && props.focused
               ? theme.text.formfield.focused
               : hovered()
-                ? theme.text.formfield.hovered
+                ? theme.text.base
                 : props.selected
                   ? theme.text.formfield.selected
                   : theme.text.formfield.base
