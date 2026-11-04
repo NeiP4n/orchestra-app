@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { RGBA } from "@opentui/core"
 import { hoverBackground } from "../src/ui/hover"
 
 test("uses the shared raised-high surface for hover", () => {
@@ -27,4 +28,13 @@ test("falls back for a minimal theme without a raised-high surface", () => {
     },
   })
   expect(value).toBe(fallback)
+})
+
+test("creates a visible neutral hover surface when raised-high equals the panel background", () => {
+  const base = RGBA.fromHex("#101820")
+  const value = hoverBackground({
+    background: { base, raised: { base, high: RGBA.clone(base) } },
+  })
+  expect(value).toBeInstanceOf(RGBA)
+  expect(value.equals(base)).toBe(false)
 })
