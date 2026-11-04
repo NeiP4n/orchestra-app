@@ -15,8 +15,9 @@ import { Form } from "../form.js"
 import { Integration } from "../integration.js"
 import { KeyedMutex } from "../effect/keyed-mutex.js"
 import { Location } from "../location.js"
-import { KV } from "../kv.js"
+import { Database } from "../database/database.js"
 import { SessionStore } from "../session/store.js"
+import { SessionID } from "@orchestra/schema/session-id"
 import { McpBudget } from "./budget.js"
 import { waitForAbort } from "@orchestra/util/process"
 import { State } from "../state.js"
@@ -166,38 +167,51 @@ export const layer = (options?: Options) =>
       const integration = yield* Integration.Service
       const credentials = yield* Credential.Service
       const sessions = yield* SessionStore.Service
-      const kv = yield* KV.Service
+      const database = yield* Database.Service
       const root = yield* Effect.scope
       const fork = yield* FiberSet.makeRuntime<never, void, never>()
 
       const entries = new Map<ServerName, ServerEntry>()
       // The Orchestrator's per-task MCP budgets (see ./budget.ts) are enforced
       // here, at the one dispatch point every MCP tool call passes through.
-      const budgetGate = McpBudget.createGate()
+      // The reservation is a transaction on the shared database, so the cap
+      // holds across fibers, service instances and processes; a store failure
+      // refuses the call rather than dispatching it unbudgeted.
       const enforceBudget = Effect.fn("MCP.enforceBudget")(function* (sessionID: Session.ID, server: ServerName) {
         const info = yield* sessions.get(sessionID)
         const stamp = McpBudget.parseStamp(info?.metadata)
         if (stamp.kind === "none") {
-          budgetGate.clear(sessionID)
+          // No budget: drop any usage an earlier stamp left behind, so a
+          // finished task's record does not linger (bounded cleanup).
+          yield* McpBudget.removeUsage(database.db, sessionID).pipe(Effect.ignore)
           return undefined
         }
-        const persisted = McpBudget.parsePersistedUsage(
-          yield* kv.get(`${McpBudget.USAGE_KEY_PREFIX}${sessionID}`),
+        return yield* McpBudget.reserve(database.db, { sessionID, server, stamp }).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("MCP budget reservation failed; refusing the call", { cause, sessionID }).pipe(
+              Effect.as(
+                "The MCP budget store could not record this call, so it was refused: an unenforceable budget is never silently skipped.",
+              ),
+            ),
+          ),
         )
-        // No await between this reserve and the dispatch below it in
-        // callTool's synchronous segment: the check-and-increment inside the
-        // gate is what makes parallel calls from one session race-safe.
-        const denial = budgetGate.reserve({ sessionID, server, stamp, persisted })
-        if (denial) return denial
-        const counted = budgetGate.usage(sessionID)
-        if (counted)
-          yield* kv.set(`${McpBudget.USAGE_KEY_PREFIX}${sessionID}`, {
-            epoch: counted.epoch,
-            total: counted.usage.total,
-            perServer: counted.usage.perServer,
-          })
-        return undefined
       })
+      // Bounded cleanup of budget usage records: at service start, drop rows
+      // whose session is gone, whose stamp was removed, or whose epoch no
+      // longer matches the session's current stamp. A row whose epoch still
+      // matches is an active task's live counter and is never touched.
+      // Best-effort and forked: it never blocks or fails service startup.
+      yield* Effect.gen(function* () {
+        for (const row of yield* McpBudget.listUsage(database.db)) {
+          const info = yield* sessions.get(SessionID.make(row.sessionID))
+          const stamp = McpBudget.parseStamp(info?.metadata)
+          if (!info || stamp.kind !== "limit" || stamp.epoch !== row.usage?.epoch)
+            yield* McpBudget.removeUsage(database.db, row.sessionID)
+        }
+      }).pipe(
+        Effect.catchCause((cause) => Effect.logWarning("MCP budget usage sweep failed", { cause })),
+        Effect.forkScoped({ startImmediately: true }),
+      )
       // Serializes lifecycle operations per server. Anything taking this lock from a connection
       // callback must stay forked: lifecycle operations close scopes while holding it, firing onClose.
       const locks = KeyedMutex.makeUnsafe<ServerName>()
@@ -853,7 +867,7 @@ export function configured(options?: Options) {
       Integration.node,
       Credential.node,
       SessionStore.node,
-      KV.node,
+      Database.node,
     ],
   })
 }

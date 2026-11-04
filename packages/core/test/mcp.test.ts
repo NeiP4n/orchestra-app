@@ -2084,6 +2084,7 @@ const shutdownIt = testEffect(
       Location.node,
       SessionStore.node,
       KV.node,
+      Database.node,
     ]),
     [
       Location.node.replace(
@@ -2884,13 +2885,14 @@ test("starts an identical local launcher one location at a time", async () => {
 describe("MCP budget enforcement at dispatch", () => {
   const budgetKey = "orchestra:mcp-limit"
   const seedRows =
-    (rows: ReadonlyArray<{ id: Session.ID; metadata?: Record<string, unknown> }>) =>
+    (rows: ReadonlyArray<{ id: Session.ID; metadata?: Record<string, Schema.Json> }>) =>
     (database: Database.Interface) =>
       Effect.gen(function* () {
         yield* database.db
           .insert(ProjectTable)
-          .values({ id: Project.ID.global, worktree: "/tmp", sandboxes: [] })
+          .values({ id: Project.ID.global, worktree: AbsolutePath.make("/tmp"), sandboxes: [] })
           .run()
+          .pipe(Effect.orDie)
         for (const row of rows)
           yield* database.db
             .insert(SessionTable)
@@ -2903,6 +2905,7 @@ describe("MCP budget enforcement at dispatch", () => {
               ...(row.metadata ? { metadata: row.metadata } : {}),
             })
             .run()
+            .pipe(Effect.orDie)
       })
   const stamp = (limit: Record<string, unknown>, epoch: string) => ({
     [budgetKey]: { ...limit, budgetEpoch: epoch },
