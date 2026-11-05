@@ -14,7 +14,7 @@ it.live("sessions created from projects sharing a directory keep their own owner
       fs: { filewatcher: false },
       models: { fetch: false },
       config: { directory: tmp.path, project: false, content: "{}" },
-    })
+    }, { allowUnauthenticated: true })
     const call = (route: string, method = "GET", body?: unknown) =>
       Effect.promise(async () => {
         const response = await handler(

@@ -62,7 +62,7 @@ it.live("Server handles legacy /api/opencode/* aliases end-to-end", () =>
     const handler = yield* ServerFetch.make({
       ...options,
       config: { directory: tmp.path, project: false, content: "{}" },
-    })
+    }, { allowUnauthenticated: true })
 
     const call = (route: string, method = "GET", body?: unknown, headers: Record<string, string> = {}) =>
       Effect.promise(async () => {
