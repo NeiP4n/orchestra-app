@@ -903,7 +903,7 @@ export function make(options: ClientOptions) {
           requestOptions,
         ),
       prompt: (input: SessionPromptInput, requestOptions?: RequestOptions) =>
-        request<{ readonly data: SessionPromptOutput }>(
+        request<SessionPromptOutput>(
           {
             method: "POST",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/prompt`,
@@ -922,7 +922,7 @@ export function make(options: ClientOptions) {
             empty: false,
           },
           requestOptions,
-        ).then((value) => value.data),
+        ),
       command: (input: SessionCommandInput, requestOptions?: RequestOptions) =>
         request<SessionCommandOutput>(
           {
@@ -3568,6 +3568,7 @@ export function make(options: ClientOptions) {
                 projects: input["projects"],
                 mode: input["mode"],
                 supervisor: input["supervisor"],
+                budget: input["budget"],
               },
               successStatus: 204,
               declaredStatuses: [400, 401],

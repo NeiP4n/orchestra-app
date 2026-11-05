@@ -404,7 +404,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S, FormI ext
           delivery: SessionInbox.Delivery.pipe(Schema.optional),
           resume: Schema.Boolean.pipe(Schema.optional),
         }),
-        success: Schema.Struct({ data: SessionInbox.User }),
+        success: Schema.Struct({ data: SessionInbox.User, held: Schema.Boolean }),
         error: [ConflictError, InvalidRequestError, SessionNotFoundError, PromptRejectedError],
       })
         .middleware(sessionLocationMiddleware)
@@ -412,7 +412,8 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S, FormI ext
           OpenApi.annotations({
             identifier: "session.prompt",
             summary: "Send message",
-            description: "Durably admit one session input and schedule agent-loop execution unless resume is false.",
+            description:
+              "Durably admit one session input and schedule agent-loop execution unless resume is false. When the session is held (paused), the input is admitted but not started, and held is true so the client can say so instead of waiting in silence.",
           }),
         ),
     )

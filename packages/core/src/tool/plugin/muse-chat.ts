@@ -242,7 +242,9 @@ export const Plugin = {
               text: input.text,
             })
 
-            return text(`Prompt sent to session ${input.sessionID} (message ${sent.id}).`)
+            return text(
+              `Prompt sent to session ${input.sessionID} (message ${sent.data.id}).${sent.held ? " The session is paused, so it will run when the session resumes." : ""}`,
+            )
           }).pipe(Effect.mapError(failed)),
       })
 

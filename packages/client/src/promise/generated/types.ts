@@ -2053,6 +2053,7 @@ export type FederationGroup = {
   projects: Array<string>
   mode?: FederationCoordinationMode | undefined
   supervisor?: string | undefined
+  budget?: MoneyUSD | undefined
 }
 
 export type QuotaTokenQuotaSpec = {
@@ -4926,7 +4927,7 @@ export type SessionPromptInput = {
   }["resume"]
 }
 
-export type SessionPromptOutput = { data: SessionInboxUser }["data"]
+export type SessionPromptOutput = { data: SessionInboxUser; held: boolean }
 
 export type SessionCommandInput = {
   readonly sessionID: { readonly sessionID: string }["sessionID"]
@@ -15084,25 +15085,36 @@ export type OrchestraGroupSaveInput = {
     readonly projects: ReadonlyArray<string>
     readonly mode?: ("lead" | "council") | undefined
     readonly supervisor?: string | undefined
+    readonly budget?: number | undefined
   }["name"]
   readonly projects: {
     readonly name: string
     readonly projects: ReadonlyArray<string>
     readonly mode?: ("lead" | "council") | undefined
     readonly supervisor?: string | undefined
+    readonly budget?: number | undefined
   }["projects"]
   readonly mode?: {
     readonly name: string
     readonly projects: ReadonlyArray<string>
     readonly mode?: ("lead" | "council") | undefined
     readonly supervisor?: string | undefined
+    readonly budget?: number | undefined
   }["mode"]
   readonly supervisor?: {
     readonly name: string
     readonly projects: ReadonlyArray<string>
     readonly mode?: ("lead" | "council") | undefined
     readonly supervisor?: string | undefined
+    readonly budget?: number | undefined
   }["supervisor"]
+  readonly budget?: {
+    readonly name: string
+    readonly projects: ReadonlyArray<string>
+    readonly mode?: ("lead" | "council") | undefined
+    readonly supervisor?: string | undefined
+    readonly budget?: number | undefined
+  }["budget"]
 }
 
 export type OrchestraGroupSaveOutput = void

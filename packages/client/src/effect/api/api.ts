@@ -283,7 +283,7 @@ export type SessionPromptInput = {
   readonly delivery?: SessionInbox.Delivery | undefined
   readonly resume?: boolean | undefined
 }
-export type SessionPromptOutput = SessionInbox.User
+export type SessionPromptOutput = { readonly data: SessionInbox.User; readonly held: boolean }
 export type SessionPromptOperation<E = never> = (input: SessionPromptInput) => Effect.Effect<SessionPromptOutput, E>
 
 export type SessionCommandInput = {
@@ -4808,6 +4808,7 @@ export type OrchestraGroupListOutput = ReadonlyArray<{
   readonly projects: ReadonlyArray<Orchestra.ProjectID>
   readonly mode?: ("lead" | "council") | undefined
   readonly supervisor?: Session.ID | undefined
+  readonly budget?: (number & Brand.Brand<"Money.USD">) | undefined
 }>
 export type OrchestraGroupListOperation<E = never> = () => Effect.Effect<OrchestraGroupListOutput, E>
 
@@ -4816,6 +4817,7 @@ export type OrchestraGroupSaveInput = {
   readonly projects: ReadonlyArray<Orchestra.ProjectID>
   readonly mode?: ("lead" | "council") | undefined
   readonly supervisor?: Session.ID | undefined
+  readonly budget?: (number & Brand.Brand<"Money.USD">) | undefined
 }
 export type OrchestraGroupSaveOutput = void
 export type OrchestraGroupSaveOperation<E = never> = (
