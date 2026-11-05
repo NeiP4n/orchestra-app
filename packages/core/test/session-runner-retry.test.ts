@@ -100,6 +100,60 @@ describe("SessionRunnerRetry.policy", () => {
       }
     }),
   )
+
+  it.effect("caps a plugin hook delay instead of sleeping for hours", () =>
+    Effect.gen(function* () {
+      const policy = yield* SessionRunnerRetry.policy(SessionSchema.ID.make("ses_hook_delay"))
+      const decision = yield* policy({
+        ...input(rateLimit),
+        hook: (event) =>
+          Effect.sync(() => {
+            event.decision = { retry: true, delay: 3_600_000 }
+          }),
+      })
+      expect(decision.retry).toBe(true)
+      if (decision.retry) expect(decision.delay).toBeLessThanOrEqual(60_000)
+    }),
+  )
+
+  it.effect("lets a hook force at most one retry the policy refused", () =>
+    Effect.gen(function* () {
+      const cap = asRateLimit(
+        new AIError({
+          reason: new QuotaExceededError({
+            message: "Rate limit exceeded. Please try again later.",
+            body: JSON.stringify({ type: "error", error: { type: "FreeUsageLimitError", message: "Rate limit exceeded." } }),
+          }),
+        }),
+      )
+      const policy = yield* SessionRunnerRetry.policy(SessionSchema.ID.make("ses_hook_forced"))
+      const forcing = (cause: AIError) => ({
+        ...input(cause),
+        hook: (event: { decision: { retry: boolean; delay?: number } }) =>
+          Effect.sync(() => {
+            event.decision = { retry: true, delay: 0 }
+          }),
+      })
+      // One forced retry (a token refresh, say) is allowed; the second refusal stands, so a
+      // hook that always answers retry cannot spin the step forever.
+      expect((yield* policy(forcing(cap))).retry).toBe(true)
+      expect((yield* policy(forcing(cap))).retry).toBe(false)
+    }),
+  )
+
+  it.effect("still lets a hook shorten the delay", () =>
+    Effect.gen(function* () {
+      const policy = yield* SessionRunnerRetry.policy(SessionSchema.ID.make("ses_hook_short"))
+      const decision = yield* policy({
+        ...input(rateLimit),
+        hook: (event) =>
+          Effect.sync(() => {
+            event.decision = { retry: true, delay: 100 }
+          }),
+      })
+      expect(decision).toEqual({ retry: true, attempt: 2, delay: 100 })
+    }),
+  )
 })
 
 describe("SessionRunnerRetry", () => {

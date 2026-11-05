@@ -58,6 +58,13 @@ const retryAfterMsOf = (cause: AIError): number | undefined => {
   return undefined
 }
 
+// A plugin retry hook may shorten a delay or cancel a retry, and may force one retry the policy
+// refused (a provider refreshing an expired token, then retrying once). It may not set a delay
+// without a ceiling — a step that sleeps for hours is a stuck session — and it may not force
+// retries without end: one forced retry per step, then the policy's refusal stands.
+const MAX_HOOK_DELAY_MS = 60_000
+const MAX_HOOK_FORCED_RETRIES = 1
+
 const isTimeout = (error: AIError) => error.reason._tag === "Transport" && error.reason.code === "Timeout"
 
 export const policy = (sessionID: SessionSchema.ID) =>
@@ -65,6 +72,7 @@ export const policy = (sessionID: SessionSchema.ID) =>
     const step = yield* Schedule.toStep(schedule)
     let attempt = 1
     let timeouts = 0
+    let hookRetries = 0
     return (input: Input) =>
       Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis
@@ -95,6 +103,15 @@ export const policy = (sessionID: SessionSchema.ID) =>
         // schedule instead of failing on a comparison NaN can never pass.
         const hintWithinCap =
           hint === undefined || !Number.isFinite(hint) || hint < 0 || hint <= MAX_RATE_LIMIT_WAIT_MS
+        // The policy's own refusal: a non-retryable cause, too many timeouts, a spent
+        // free-tier address, a deterministic type, or a pause past the cap. A hook may
+        // override it once per step, never without limit.
+        const allowed =
+          input.retry &&
+          timeouts <= MAX_TIMEOUT_RETRIES &&
+          !isFreeTierAddressCap(input.cause) &&
+          retriesUsed <= entry.maxRetries &&
+          hintWithinCap
         const event: PluginHooks.Domains["session"]["retry"] = {
           sessionID,
           agent: input.agent,
@@ -104,20 +121,23 @@ export const policy = (sessionID: SessionSchema.ID) =>
           // Another attempt from an address that spent its free-tier day is wasted, so the step stops
           // at once instead of retrying a spent address; the work is picked up again from the
           // durable session state on the next prompt or a restart, not by waiting out the cap here.
-          decision:
-            input.retry &&
-            timeouts <= MAX_TIMEOUT_RETRIES &&
-            !isFreeTierAddressCap(input.cause) &&
-            retriesUsed <= entry.maxRetries &&
-            hintWithinCap
-              ? { retry: true, delay }
-              : { retry: false },
+          decision: allowed ? { retry: true, delay } : { retry: false },
         }
         yield* input.hook(event)
         if (!event.decision.retry) return event.decision
         const normalized =
           Number.isFinite(event.decision.delay) && event.decision.delay >= 0 ? Math.ceil(event.decision.delay) : delay
-        return { retry: true as const, attempt, delay: normalized }
+        // The cap applies to a delay the hook set, not to the policy's own: the policy may
+        // legitimately wait up to 10 minutes on a provider cooldown or retry-after, and
+        // cutting that to 60s would retry before the provider is ready and earn another
+        // 429. A hook asking for hours is capped at 60s instead.
+        const capped =
+          event.decision.delay !== delay ? Math.min(normalized, MAX_HOOK_DELAY_MS) : normalized
+        if (!allowed) {
+          if (hookRetries >= MAX_HOOK_FORCED_RETRIES) return { retry: false as const }
+          hookRetries++
+        }
+        return { retry: true as const, attempt, delay: capped }
       })
   })
 
