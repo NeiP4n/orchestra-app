@@ -119,6 +119,28 @@ The `sessions` tool is how the Orchestrator dispatches role workers.
 - Worker sessions receive `patch` but not `write` in their grant; briefs and
   worker guidance assume patch-first editing.
 
+## Autoloop journal — `packages/core/src/autoloop/`
+
+The native autoloop cycle (block Б2) keeps its state in the journal, not in
+process memory. One source of truth, in the existing `orchestra-local.db`.
+
+- **Tables** (`autoloop_facts`, `autoloop_projections`,
+  `autoloop_projection_meta`, `autoloop_projection_refs`), created by Drizzle
+  migration `20261105171218_oval_joystick` from `src/autoloop/sql.ts`. Never a
+  separate `hub.db`; never touch another table from this module.
+- **`kernel/schema.ts`**: fact shape (`id`, `type`, `collection`, `key`, `data`,
+  `refs`), projection collections, `FORMAT = "autoloop-kernel-v1"`.
+- **`kernel/evolve.ts`**: pure journal → projection folding (`View`, `evolve`,
+  `rebuild`, `snapshot`, `rows`). No Effect, no I/O — `decide` (block Б3)
+  reuses it and any decision can be replayed from the journal.
+- **`kernel/store.ts`**: the ONLY writer of facts. `commit(facts,
+  expectedSeq?)` appends facts and updates projections in one transaction; a
+  commit on a stale `seq` fails with `Autoloop.StaleSeq` and writes nothing.
+  `commitLatest` reads the latest sequence inside the same transaction.
+  `readLog` / `iterateLog` / `openView` are the reads. Projections are
+  disposable: `rebuild` from the journal restores the same state.
+- **Tests**: `packages/core/test/autoloop/` — no network, no models.
+
 ## MCP — `packages/core/src/mcp/`
 
 - `catalog.ts` is the curated catalog: a server is catalogued only if it adds a
