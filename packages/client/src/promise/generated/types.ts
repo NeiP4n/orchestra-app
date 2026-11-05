@@ -1412,6 +1412,15 @@ export type McpResourcesChanged = {
   data: { server: string }
 }
 
+export type ServerReplayGap = {
+  id: string
+  created: number
+  metadata?: { [x: string]: any }
+  type: "server.replay-gap"
+  location?: LocationRef
+  data: { lastEventID: string }
+}
+
 export type SessionMoved = {
   id: string
   created: number
@@ -3030,6 +3039,7 @@ export type V2Event =
   | AutoloopCardUpdated
   | McpStatusChanged
   | McpResourcesChanged
+  | ServerReplayGap
   | V2EventRpc
   | V2EventServerConnected
 

@@ -82,6 +82,8 @@ export const ServerDefinitions = Event.inventory(
   ...AutoloopCard.Event.Definitions,
   McpEvent.StatusChanged,
   McpEvent.ResourcesChanged,
+  // The client consumes this from the public stream to resync after a replay gap.
+  ServerEvent.ReplayGap,
 )
 export const Server = Event.latest(ServerDefinitions)
 export type ServerEvent = Schema.Schema.Type<(typeof ServerDefinitions)[number]>
