@@ -685,19 +685,19 @@ describe("Federation", () => {
       const status = yield* federation.societyStatus("StatusTest")
       expect(status.target).toBe(30)
       expect(status.minimum).toBe(21)
-      // Planner main plus team main plus the eight template workers.
-      expect(status.agents).toBe(10)
-      expect(status.alive).toBe(10)
+      // Planner main plus team main plus the eleven template workers.
+      expect(status.agents).toBe(13)
+      expect(status.alive).toBe(13)
       expect(status.ready).toBe(false)
       expect(status.generation.stage).toBe("founded")
       expect(status.generation.kickoffDelivered).toBe(true)
       expect(status.generation.stalled).toBe(false)
-      expect(status.missing).toContain("10/21 agents (target 30)")
+      expect(status.missing).toContain("13/21 agents (target 30)")
       expect(status.missing).toContain("society_plan apply never ran (generation is founded)")
       expect(status.missing).toContain("no chat has a recorded budget")
       expect(status.missing.some((item) => item.includes("without a model"))).toBe(true)
-      const teamRow = status.projects.find((item) => item.agents === 9)!
-      expect(teamRow.alive).toBe(9)
+      const teamRow = status.projects.find((item) => item.agents === 12)!
+      expect(teamRow.alive).toBe(12)
       const unknown = yield* federation.societyStatus("No such society")
       expect(unknown.ready).toBe(false)
       expect(unknown.agents).toBe(0)
@@ -778,14 +778,14 @@ describe("Federation", () => {
         const orchestra = yield* Orchestra.Service
         const kv = yield* KV.Service
         const { planner, team } = yield* foundSociety("DryRun", "Build the dry-run society")
-        // The planner's team is 10 agents (2 mains + 8 template workers); the
+        // The planner's team is 13 agents (2 mains + 11 template workers); the
         // planner tops it up with sessions create (newInstance=true), one
         // worker per role, until the Society counts 30 living agents.
         const members = yield* orchestra.sessions(team.id)
         const agents = members.map((member) => member.agent)
         const mid = Model.Ref.make({ id: "sonnet-5.5", providerID: "anymodel" })
         const cheap = Model.Ref.make({ id: "anymodel-coder", providerID: "anymodel" })
-        for (let index = 0; index < 20; index++)
+        for (let index = 0; index < 17; index++)
           yield* orchestra.createMember({
             project: team,
             agent: agents[index % agents.length]!,
@@ -865,10 +865,15 @@ describe("Federation", () => {
         const group = (yield* federation.groups()).find((item) => item.name === "LoadTest")!
         expect(group.projects).toHaveLength(2)
         const team = group.projects.find((project) => project !== society.project.id)!
-        // Eight template roles plus the team project's own Orchestrator.
+        // Every role of the team template, plus the team project's own Orchestrator.
+        const system = (yield* orchestra.templates()).find((item) => item.id === "system")!
         const teamProject = (yield* orchestra.projects()).find((project) => project.id === team)!
         expect(teamProject.main).toBeDefined()
-        expect(yield* orchestra.sessions(team)).toHaveLength(8)
+        const teamSessions = yield* orchestra.sessions(team)
+        expect(teamSessions).toHaveLength(system.members.length)
+        expect(teamSessions.map((session) => session.agent).toSorted()).toEqual(
+          system.members.map((member) => member.agent).toSorted(),
+        )
         expect(society.project.main).toBeDefined()
         // The busy project's marker was not redirected by the creation.
         expect(yield* kv.get(`orchestra/task/${a.main!}`)).toBe(marker)
