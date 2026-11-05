@@ -886,6 +886,32 @@ describe("ShellTool", () => {
   )
 
   productionIt.live(
+    "refuses a command that touches a protected file before anything spawns",
+    () =>
+      Effect.acquireUseRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => {
+          reset()
+          return withSession(tmp.path, (registry) =>
+            Effect.gen(function* () {
+              // A command that touches a protected file is refused before anything spawns,
+              // and before the permission check: no permission is asked, nothing runs.
+              const refused = yield* executeTool(registry, call({ command: "cat .env" }, "call-env"))
+              expect(refused.status).toBe("error")
+              expect(refused.error?.message).toContain("protected file")
+              expect(refused.error?.message).toContain(".env")
+              expect(assertions).toEqual([])
+              const dump = yield* executeTool(registry, call({ command: "printenv" }, "call-printenv"))
+              expect(dump.status).toBe("error")
+              expect(dump.error?.message).toContain("environment or credentials")
+            }),
+          )
+        },
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]().then(() => undefined)),
+      ),
+  )
+
+  productionIt.live(
     "registers and returns real successful output from the active Location",
     () =>
       Effect.acquireUseRelease(
@@ -1898,5 +1924,20 @@ describe("ShellTool", () => {
       },
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]().then(() => undefined)),
     ),
+  )
+})
+
+describe("ShellTool forbidden commands", () => {
+  it.live("refuses protected files and credential dumps, allows ordinary commands", () =>
+    Effect.sync(() => {
+      expect(ShellTool.forbiddenCommand("cat .env")).toContain("protected file")
+      expect(ShellTool.forbiddenCommand("cat .env.local")).toContain(".env")
+      expect(ShellTool.forbiddenCommand("cat ~/.ssh/id_ed25519")).toContain("protected file")
+      expect(ShellTool.forbiddenCommand("printenv")).toContain("environment or credentials")
+      expect(ShellTool.forbiddenCommand("printenv API_KEY")).toContain("environment or credentials")
+      expect(ShellTool.forbiddenCommand("echo hi")).toBeUndefined()
+      expect(ShellTool.forbiddenCommand("ls -la")).toBeUndefined()
+      expect(ShellTool.forbiddenCommand("bun test")).toBeUndefined()
+    }),
   )
 })
