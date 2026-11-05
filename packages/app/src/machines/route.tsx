@@ -410,7 +410,7 @@ export function MachinesRoute() {
                 <div class="min-h-0 flex-1 rounded-md border border-v2-border-border-base p-3">
                   <h3 class="text-v2-text-text-base font-medium">{language.t("machines.terminal")}</h3>
                   <Show
-                    when={platform.machines && machine().status === "running"}
+                    when={platform.machines && machine.status === "running"}
                     fallback={<p class="text-v2-text-text-muted">{language.t("machines.terminalEmpty")}</p>}
                   >
                     <div class="flex flex-wrap items-center gap-2">
@@ -420,7 +420,7 @@ export function MachinesRoute() {
                         value={terminalCommand()}
                         onInput={(event) => setTerminalCommand(event.currentTarget.value)}
                       />
-                      <button type="button" onClick={() => runTerminal(machine().id)}>
+                      <button type="button" onClick={() => runTerminal(machine.id)}>
                         {language.t("machines.run")}
                       </button>
                     </div>
