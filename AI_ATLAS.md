@@ -139,6 +139,29 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   `commitLatest` reads the latest sequence inside the same transaction.
   `readLog` / `iterateLog` / `openView` are the reads. Projections are
   disposable: `rebuild` from the journal restores the same state.
+- **`kernel/decide.ts`** (block Б3, подшаг 1): pure `decide(view, input, now, env)` — no
+  Effect, no I/O. Handlers `ingest / claimNext / started / finish / cancel /
+  answer / resolve / nextCard / delivered / failed / tick / sweep / heartbeat`,
+  helpers `retryLater`, `applyReceipt`, `createCard`, `enqueue`. Event dedup
+  by `(source, key)`; claim by token (repeat claim returns the same run);
+  idempotent `finish` (same receipt → same answer, different receipt under
+  the same token → conflict). Orchestra limits instead of the original's:
+  retries 1–2 (was 10), check rounds max 5 (`verifyIterations` on the run,
+  then an ask card), `MAX_HOPS = 8`, `RESEND_AT = [0,1,3,7,15,25,35,45,55]`,
+  57-minute window. Rules come from Orchestra config via the `decide`
+  environment, never from a `rules.json`. Minimal five-field cron parser
+  lives here too (tick needs it); the service, cards API and orchestrator
+  wiring are later Б3 sub-steps, not here.
+- **`kernel/due.ts`**: `RUN_LEASE = 5 мин`, `WORKER_FRESH = 2 мин`,
+  `OFFLINE_AFTER = 10 мин`, `SEEN_EVERY = 1 мин`, `deadlines`,
+  `offlineCard`, `workers` / `waitingOn`.
+- **`kernel/rules.ts`**: cycle rule shape (`Rule { name, when, to, cwd,
+  group, tell }`, `typeMatches`, `eventRule`, `cronOf`).
+- **Cycle limits in config**: `Config.Orchestra.Autoloop`
+  (`packages/schema/src/config/orchestra.ts`, next to `orchestra.worker`):
+  `maxAttempts` (2), `maxVerifyIterations` (5), `maxHops` (8),
+  `retryBaseMinutes` (5), `retryMaxMinutes` (60), `runLeaseMinutes` (5),
+  `workerFreshMinutes` (2), `offlineAfterMinutes` (10).
 - **Tests**: `packages/core/test/autoloop/` — no network, no models.
 
 ## MCP — `packages/core/src/mcp/`
