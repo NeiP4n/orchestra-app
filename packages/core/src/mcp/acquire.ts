@@ -4,7 +4,11 @@ import type { ServerConfig } from "@orchestra/schema/mcp"
 import { Cause, Effect } from "effect"
 import { which } from "../util/which.js"
 import { McpCatalog } from "./catalog.js"
+import type { Rating } from "./ratings.js"
+import { McpSelect } from "./select.js"
 import type { Mcp } from "./index.js"
+
+export type { Match } from "./select.js"
 
 /**
  * Autonomous MCP acquisition: the Orchestrator's path from "this task needs a
@@ -98,66 +102,19 @@ export function classify(
   }
 }
 
-export interface Match {
-  readonly entry: McpCatalog.Entry
-  readonly score: number
-  readonly reasons: readonly string[]
-}
-
-const tokens = (text: string) =>
-  [...new Set(text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((token) => token.length > 2))]
-
 /**
  * Deterministic catalog search for a capability need ("browser automation",
- * "read GitHub issues"). Scores name/id matches above description and usage
- * text; ties break by id so the same need always selects the same server.
- *
- * A single generic word is not evidence of a match. An entry qualifies when
- * a token hits its name/id, when at least two distinct tokens match, when
- * the weighted score reaches 4, or when a matched token is discriminating —
- * it appears in at most a quarter of the catalog, so it actually picks out
- * a topic ("browser") — in the description or name. A token spread across
- * the whole catalog ("read", "work", "data") never qualifies an entry on
- * its own. Tokenization is Unicode-aware, so needs phrased in other
- * languages still tokenize correctly (matching itself is against the
- * catalog's English text; a non-English need matches only where words
- * coincide).
+ * "автоматизация браузера"). Ranking lives in ./select.ts: Russian needs
+ * are translated before matching, every match carries a confidence score,
+ * and persistent server ratings nudge the order. Kept here so existing
+ * callers (`mcp_manager acquire`, tests) keep one entry point.
  */
-export function select(need: string, platform: NodeJS.Platform = process.platform): readonly Match[] {
-  const wanted = tokens(need)
-  if (wanted.length === 0) return []
-  const entries = McpCatalog.forPlatform(platform)
-  const frequency = new Map<string, number>()
-  for (const entry of entries)
-    for (const token of tokens(`${entry.id} ${entry.name} ${entry.description} ${entry.usage}`))
-      frequency.set(token, (frequency.get(token) ?? 0) + 1)
-  const discriminating = (token: string) => (frequency.get(token) ?? 0) <= Math.max(2, Math.ceil(entries.length / 4))
-  return entries
-    .flatMap((entry) => {
-      const fields: ReadonlyArray<readonly [string, number, boolean]> = [
-        [`${entry.id} ${entry.name}`, 3, true],
-        [entry.description, 2, false],
-        [entry.usage, 1, false],
-      ]
-      let score = 0
-      let named = false
-      let topical = false
-      const reasons: string[] = []
-      for (const token of wanted) {
-        for (const [text, weight, isName] of fields) {
-          if (tokens(text).includes(token)) {
-            score += weight
-            if (isName) named = true
-            if (weight >= 2 && discriminating(token)) topical = true
-            reasons.push(token)
-            break
-          }
-        }
-      }
-      const distinct = new Set(reasons).size
-      return named || topical || distinct >= 2 || score >= 4 ? [{ entry, score, reasons: [...new Set(reasons)] }] : []
-    })
-    .toSorted((a, b) => b.score - a.score || a.entry.id.localeCompare(b.entry.id))
+export function select(
+  need: string,
+  platform: NodeJS.Platform = process.platform,
+  ratings?: ReadonlyMap<string, Rating>,
+): readonly McpSelect.Match[] {
+  return McpSelect.rank(need, platform, ratings)
 }
 
 export interface Ensured extends Classification {

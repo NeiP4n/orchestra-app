@@ -36,13 +36,13 @@ Reading the columns:
 | developer | — | brave-search, chrome-devtools, context7, deepwiki, desktop-commander, fetch, filesystem, git, github, mcp-docs, memory, playwright, rea-anything, sentry, sequential-thinking, time, windows | — (per task) | ≤24 calls/task (tighten-only) | profile derived + tested |
 | frontend-developer | — | brave-search, chrome-devtools, context7, deepwiki, desktop-commander, fetch, filesystem, git, github, mcp-docs, memory, playwright, rea-anything, sentry, sequential-thinking, time, windows | — (per task) | ≤24 calls/task (tighten-only) | profile derived + tested |
 | backend-developer | — | brave-search, chrome-devtools, context7, deepwiki, desktop-commander, fetch, filesystem, git, github, mcp-docs, memory, playwright, rea-anything, sentry, sequential-thinking, time | — (per task) | ≤24 calls/task (tighten-only) | profile derived + tested |
-| mobile-developer | memory | android_helper, brave-search, chrome-devtools, context7, deepwiki, desktop-commander, fetch, filesystem, git, github, mcp-docs, playwright, rea-anything, sentry, sequential-thinking, time, windows | — (per task) | ≤24 calls/task (tighten-only) | profile derived + tested |
+| mobile-developer | memory | brave-search, chrome-devtools, context7, deepwiki, desktop-commander, fetch, filesystem, git, github, mcp-docs, playwright, rea-anything, sentry, sequential-thinking, time, windows | — (per task) | ≤24 calls/task (tighten-only) | profile derived + tested |
 | desktop-developer | — | brave-search, chrome-devtools, context7, deepwiki, desktop-commander, fetch, filesystem, git, github, mcp-docs, memory, playwright, rea-anything, sentry, sequential-thinking, time, windows | — (per task) | ≤24 calls/task (tighten-only) | profile derived + tested |
 | database-engineer | — | brave-search, context7, deepwiki, desktop-commander, fetch, filesystem, git, github, mcp-docs, memory, sentry, sequential-thinking, time | — (per task) | ≤24 calls/task (tighten-only) | profile derived + tested |
 | writer | — | brave-search, context7, deepwiki, desktop-commander, fetch, filesystem, git, github, mcp-docs, memory, sentry, time | — (per task) | ≤24 calls/task (tighten-only) | profile derived + tested |
 | devops | — | brave-search, chrome-devtools, context7, deepwiki, desktop-commander, fetch, filesystem, git, github, mcp-docs, memory, playwright, sentry, sequential-thinking, time | — (per task) | ≤24 calls/task (tighten-only) | profile derived + tested |
-| debugger | — | android_helper, brave-search, chrome-devtools, context7, deepwiki, desktop-commander, fetch, filesystem, git, github, mcp-docs, memory, playwright, rea-anything, sentry, sequential-thinking, time, windows | — (per task) | ≤12 calls/task (tighten-only) | profile derived + tested |
-| tester | time | android_helper, brave-search, chrome-devtools, context7, deepwiki, desktop-commander, fetch, filesystem, git, github, mcp-docs, memory, playwright, rea-anything, sentry, sequential-thinking, windows | — (per task) | ≤24 calls/task (tighten-only) | profile derived + tested |
+| debugger | — | brave-search, chrome-devtools, context7, deepwiki, desktop-commander, fetch, filesystem, git, github, mcp-docs, memory, playwright, rea-anything, sentry, sequential-thinking, time, windows | — (per task) | ≤12 calls/task (tighten-only) | profile derived + tested |
+| tester | time | brave-search, chrome-devtools, context7, deepwiki, desktop-commander, fetch, filesystem, git, github, mcp-docs, memory, playwright, rea-anything, sentry, sequential-thinking, windows | — (per task) | ≤24 calls/task (tighten-only) | profile derived + tested |
 | reviewer | git | brave-search, chrome-devtools, context7, deepwiki, desktop-commander, fetch, filesystem, github, mcp-docs, memory, playwright, rea-anything, sentry, sequential-thinking, time | — (per task) | ≤12 calls/task (tighten-only) | profile derived + tested |
 | counterexample-engineer | — | brave-search, context7, deepwiki, desktop-commander, fetch, filesystem, git, github, mcp-docs, memory, sentry, sequential-thinking, time | — (per task) | ≤12 calls/task (tighten-only) | profile derived + tested |
 | security-auditor | rea-anything | brave-search, context7, deepwiki, desktop-commander, fetch, filesystem, git, github, mcp-docs, memory, sentry, sequential-thinking, time | — (per task) | ≤12 calls/task (tighten-only) | profile derived + tested |
@@ -76,9 +76,11 @@ Notes on the non-team profiles (also generated above):
   configured session permissions decide.
 - **explore** is the narrowest working profile: read-only documentation and
   fetch servers only (context7, deepwiki, fetch, mcp-docs, brave-search).
-- `android_helper` appears in several profiles' allowed lists (mobile,
-  debugger, tester). It is **not** a catalog entry — it cannot be acquired
-  through `acquire_mcp`; it names a hub/device capability, a distinction the
-  catalog/plugin boundary already keeps.
+- `android_helper` was removed from every role ceiling in Б9: no such MCP
+  server exists anywhere in the code (no catalog entry, no tool ever
+  registers `android_helper_*`), so the grant was a ghost — roles named a
+  capability they could never reach. If an Android-device server is ever
+  added to the catalog, its id goes back into the ceilings through the
+  same derivation, not by hand.
 - Custom roles saved by the operator derive profiles through the same
   `fromRole` path, so they appear in this matrix's generation unchanged.

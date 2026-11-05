@@ -37,10 +37,10 @@ test("uses root JSON config when it is the existing project config", async () =>
   }
 })
 
-test("chooses conventional root config path when no config exists", async () => {
+test("chooses .orchestra/orchestra.json when no config exists", async () => {
   const directory = await temporary()
   try {
-    expect(await resolveConfigPath(directory.path)).toBe(path.join(directory.path, "orchestra.json"))
+    expect(await resolveConfigPath(directory.path)).toBe(path.join(directory.path, ".orchestra", "orchestra.json"))
   } finally {
     await directory.dispose()
   }

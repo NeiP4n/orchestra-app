@@ -11,6 +11,7 @@ import { Effect, Option, Schema } from "effect"
 import { Form } from "../../form.js"
 import { McpAcquire } from "../../mcp/acquire.js"
 import { McpCatalog } from "../../mcp/catalog.js"
+import { McpSurvey } from "../../mcp/survey.js"
 import { Mcp } from "../../mcp/index.js"
 import { Model } from "../../model.js"
 import { Orchestra } from "../../orchestra.js"
@@ -263,6 +264,8 @@ export interface McpLimit {
   readonly maxCalls: number
   /** Per-server call caps, for servers in the effective allowlist. */
   readonly perServer: Readonly<Record<string, number>>
+  /** Estimated MCP output tokens allowed for the task, when set; absent means calls alone cap it. */
+  readonly maxTokens?: number
 }
 
 /** What the Orchestrator asks for in the sessions tool's `mcp` field. */
@@ -270,6 +273,7 @@ export interface McpLimitRequest {
   readonly servers?: ReadonlyArray<string>
   readonly maxCalls?: number
   readonly perServer?: Readonly<Record<string, number>>
+  readonly maxTokens?: number
 }
 
 type RoleMcpShape = {
@@ -314,7 +318,6 @@ export function defaultMcpLimit(role: RoleMcpShape): McpLimit {
   const maxCalls = servers !== "all" && servers.length === 0 ? 0 : role.readOnly ? MCP_CALLS_READ_ONLY : MCP_CALLS_DEFAULT
   return { servers, maxCalls, perServer: {} }
 }
-
 export type McpLimitResolution = { readonly ok: true; readonly limit: McpLimit } | { readonly ok: false; readonly message: string }
 
 /**
@@ -357,7 +360,10 @@ export function resolveMcpLimit(role: RoleMcpShape, requested?: McpLimitRequest)
     if (cap > maxCalls)
       return { ok: false, message: `The per-server MCP cap for ${server} (${cap}) exceeds the task's total MCP limit (${maxCalls}).` }
   }
-  return { ok: true, limit: { servers, maxCalls, perServer } }
+  const maxTokens = requested?.maxTokens
+  if (maxTokens !== undefined && (!Number.isInteger(maxTokens) || maxTokens < 0))
+    return { ok: false, message: `The MCP maxTokens must be a whole number of 0 or more, got ${maxTokens}.` }
+  return { ok: true, limit: { servers, maxCalls, perServer, ...(maxTokens === undefined ? {} : { maxTokens }) } }
 }
 
 /**
@@ -384,7 +390,8 @@ export function mcpBriefLine(limit: McpLimit): string {
   const per = Object.entries(limit.perServer)
     .map(([server, cap]) => `${server} at most ${cap}`)
     .join(", ")
-  return `[MCP limit for this task, set by the Orchestrator: at most ${limit.maxCalls} MCP tool call(s) in total; servers allowed: ${servers}${per ? `; per server: ${per}` : ""}. Stay inside it; if the task cannot be done within it, say so in your report instead of exceeding it.]`
+  const tokens = limit.maxTokens === undefined ? "" : `; at most ${limit.maxTokens} estimated MCP output tokens`
+  return `[MCP limit for this task, set by the Orchestrator: at most ${limit.maxCalls} MCP tool call(s) in total; servers allowed: ${servers}${per ? `; per server: ${per}` : ""}${tokens}. Stay inside it; if the task cannot be done within it, say so in your report instead of exceeding it.]`
 }
 
 const StageInput = Schema.Struct({
@@ -456,6 +463,10 @@ export const Input = Schema.Struct({
       }),
       maxCalls: Schema.optionalKey(Schema.Int).annotate({
         description: "Total MCP tool calls the worker may make for this task; at most the role's own ceiling.",
+      }),
+      maxTokens: Schema.optionalKey(Schema.Int).annotate({
+        description:
+          "Estimated MCP output tokens the worker may receive for this task; the budget gate refuses further calls once it is spent. Omit for a calls-only budget.",
       }),
       perServer: Schema.optionalKey(Schema.Record(Schema.String, Schema.Int)).annotate({
         description: "MCP call caps per server name, for servers in the effective allowlist.",
@@ -1011,15 +1022,18 @@ export const Plugin = {
                 // stamps this session when it runs. An empty assignment after the
                 // survey is a valid answer; the same assignment without one is a
                 // guess, so it is refused here, in code, the same way a missing
-                // assignment is. One survey covers the whole session.
+                // assignment is. A survey goes stale: after SURVEY_TTL_MS the fleet
+                // may have changed (a server died, a new one was installed), so a
+                // dispatch on a stale survey is refused until the fleet is
+                // surveyed again.
                 if (Option.isSome(mcp)) {
                   const self = yield* sessions.get(context.sessionID).pipe(Effect.orElseSucceed(() => undefined))
-                  if (!self?.metadata?.[MCP_SURVEY_METADATA_KEY]) {
+                  if (!McpSurvey.isFresh(self?.metadata)) {
                     const configured = yield* mcp.value
                       .servers()
                       .pipe(Effect.map((infos) => infos.length), Effect.orElseSucceed(() => 0))
                     return yield* new ToolFailure({
-                      message: `No MCP survey yet: before the first dispatch, call mcp_manager with action=inspect once — it lists the configured servers (status, discovered tools, leases) and the ${McpCatalog.all.length} installable catalog servers — then dispatch with an explicit mcp assignment based on what you saw (${configured} server(s) currently configured). An assignment of { servers: [], maxCalls: 0 } is valid after the survey; before it, it is a guess. Nothing was sent.`,
+                      message: `No fresh MCP survey: before the first dispatch, call mcp_manager with action=inspect once — it lists the configured servers (status, discovered tools, leases) and the ${McpCatalog.all.length} installable catalog servers — then dispatch with an explicit mcp assignment based on what you saw (${configured} server(s) currently configured). A survey older than ${McpSurvey.SURVEY_TTL_MS / 60_000} minutes is stale: run inspect again. An assignment of { servers: [], maxCalls: 0 } is valid after the survey; before it, it is a guess. Nothing was sent.`,
                     })
                   }
                 }
