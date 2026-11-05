@@ -78,4 +78,28 @@ describe("SessionRunnerModel.resolve", () => {
       }),
     )
   }, 15_000)
+
+  it.live("fails fast on a repeated resolve of a model that never appears", () => {
+    return Effect.gen(function* () {
+      const selected = yield* Ref.make<string | undefined>(undefined)
+      return yield* Effect.gen(function* () {
+        const service = yield* SessionRunnerModel.Service
+        const missing = () =>
+          service.resolve(session("missing"), () => Effect.succeed([info("other")])).pipe(Effect.flip)
+        yield* missing()
+        const started = Date.now()
+        const failure = yield* missing()
+        return { failure, elapsed: Date.now() - started }
+      }).pipe(Effect.provide(layer(selected)))
+    }).pipe(
+      Effect.map(({ failure, elapsed }) => {
+        expect(failure._tag).toBe("SessionRunnerModel.ModelUnavailableError")
+        // The first resolve waits out the catalog settle (10s); the second must not re-wait it:
+        // resolve runs on every step, and a missing model used to sleep 10s per step. The 60s
+        // timeout is headroom for timer drift on a loaded machine, not for the second resolve:
+        // it performs no sleeps at all, so it stays fast even when the first one drifts.
+        expect(elapsed).toBeLessThan(5_000)
+      }),
+    )
+  }, 60_000)
 })
