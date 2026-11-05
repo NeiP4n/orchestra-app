@@ -37,9 +37,9 @@ export interface RunOptions {
   /**
    * Whether the server is idle enough to install. When provided and it reports busy,
    * an "auto" policy only notifies instead of installing — an update must never restart
-   * a society mid-work. A check that fails counts as busy.
+   * a society mid-work. The check never fails: a check that cannot run counts as busy.
    */
-  readonly isIdle?: () => Effect.Effect<boolean>
+  readonly isIdle?: () => Effect.Effect<boolean, never, never>
 }
 
 /** Whether an "auto" policy installs now: only while the server is idle. */
@@ -663,9 +663,7 @@ const make = Effect.gen(function* () {
       if (result.policy === "notify") return { type: "available" as const, version: result.version }
       // An explicit "auto" policy still never installs mid-work: without a quiet
       // window the update only notifies, and the next check retries it.
-      const idle = options?.isIdle
-        ? yield* options.isIdle().pipe(Effect.catchAll(() => Effect.succeed(false)))
-        : true
+      const idle = options?.isIdle ? yield* options.isIdle() : true
       if (!shouldInstallNow(result.policy, idle)) {
         yield* Effect.logInfo("update deferred: server is busy", { version: result.version })
         return { type: "available" as const, version: result.version }
