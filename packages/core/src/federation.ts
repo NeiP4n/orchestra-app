@@ -658,6 +658,9 @@ const layer: Layer.Layer<
         previous.projects.length === projects.length &&
         previous.projects.every((id, index) => id === projects[index])
       const mode = group.mode ?? (sameMembers && previous ? Federation.modeOf(previous) : undefined) ?? "lead"
+      // A budget survives a membership-preserving rewrite that does not name
+      // one, the same way the mode does: group edits must not silently drop it.
+      const budget = group.budget ?? (sameMembers ? previous?.budget : undefined)
       const keepSupervisor = sameMembers && previous !== undefined && Federation.modeOf(previous) === mode
       let supervisor = group.supervisor ?? (keepSupervisor ? previous?.supervisor : undefined)
       if (supervisor) {
@@ -686,7 +689,13 @@ const layer: Layer.Layer<
       }
       yield* kv.set(
         GROUP + name,
-        Schema.encodeSync(Group)({ name, projects, mode, ...(supervisor ? { supervisor } : {}) }),
+        Schema.encodeSync(Group)({
+          name,
+          projects,
+          mode,
+          ...(supervisor ? { supervisor } : {}),
+          ...(budget !== undefined ? { budget } : {}),
+        }),
       )
     })
 

@@ -19,6 +19,7 @@ import { SessionHold } from "@orchestra/core/session/hold"
 import { KV } from "@orchestra/core/kv"
 import { Location } from "@orchestra/core/location"
 import { SessionID } from "@orchestra/schema/session-id"
+import { Money } from "@orchestra/schema/money"
 import { AbsolutePath } from "@orchestra/core/schema"
 import { tmpdir } from "./fixture/tmpdir"
 import { tempGlobalLayer } from "./fixture/global"
@@ -242,6 +243,19 @@ describe("Federation", () => {
       yield* federation.removeGroup("Shop")
       expect(yield* federation.groups()).toEqual([])
       expect((yield* federation.linkGroup("Shop").pipe(Effect.flip)).message).toContain("No group")
+    }),
+  )
+
+  it.live("keeps a group's budget across a rewrite that does not name one", () =>
+    Effect.gen(function* () {
+      const { a, b } = yield* setup
+      const federation = yield* Federation.Service
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id], budget: Money.USD.make(100) })
+      expect((yield* federation.groups()).find((group) => group.name === "Shop")?.budget).toBe(Money.USD.make(100))
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id] })
+      expect((yield* federation.groups()).find((group) => group.name === "Shop")?.budget).toBe(Money.USD.make(100))
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id], budget: Money.USD.make(50) })
+      expect((yield* federation.groups()).find((group) => group.name === "Shop")?.budget).toBe(Money.USD.make(50))
     }),
   )
 
