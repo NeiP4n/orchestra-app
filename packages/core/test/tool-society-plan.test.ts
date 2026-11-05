@@ -9,6 +9,7 @@ import { Bus } from "@orchestra/core/bus"
 import { Agent } from "@orchestra/core/agent"
 import { Job } from "@orchestra/core/job"
 import { LocationServiceMap } from "@orchestra/core/location-service-map"
+import { Model } from "@orchestra/schema/model"
 import { Orchestra } from "@orchestra/core/orchestra"
 import { Federation } from "@orchestra/core/federation"
 import { Session } from "@orchestra/core/session"
@@ -273,10 +274,10 @@ describe("SocietyPlanTool apply", () => {
       expect(result.status).toBe("completed")
       expect(outputText(result)).toContain("budget 10000000 tokens")
       const plannerMain = yield* sessions.get(planner.main!)
-      expect(plannerMain.model?.id).toBe("opus-5.5")
+      expect(plannerMain.model?.id).toBe(Model.ID.make("opus-5.5"))
       expect(SessionPlan.parseBudget(plannerMain.metadata?.[SessionPlan.BUDGET_KEY])).toBe(5_000_000)
       const teamMain = yield* sessions.get(team.main!)
-      expect(teamMain.model?.id).toBe("sonnet-5.5")
+      expect(teamMain.model?.id).toBe(Model.ID.make("sonnet-5.5"))
       expect(SessionPlan.parseBudget(teamMain.metadata?.[SessionPlan.BUDGET_KEY])).toBe(10_000_000)
       expect(teamMain.metadata?.[SessionPlan.CACHE_KEY]).toBe("auto")
       expect(teamMain.metadata?.[SessionPlan.CONTEXT_KEY]).toBe(500000)

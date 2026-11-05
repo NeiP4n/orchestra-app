@@ -12,6 +12,7 @@ import { Agent } from "@orchestra/core/agent"
 import { Job } from "@orchestra/core/job"
 import { LocationServiceMap } from "@orchestra/core/location-service-map"
 import { Model } from "@orchestra/schema/model"
+import { Provider } from "@orchestra/schema/provider"
 import { Orchestra } from "@orchestra/core/orchestra"
 import { Federation } from "@orchestra/core/federation"
 import { Rules } from "@orchestra/core/rules"
@@ -723,10 +724,10 @@ describe("Federation", () => {
       expect((yield* federation.societyPlanFor(team.id))?.mcp).toEqual(["context7"])
       // A worker created after the plan still gets it.
       const members = yield* orchestra.sessions(team.id)
-      const worker = yield* orchestra.createMember({ project: team, agent: members[0]!.agent, title: "Late worker" })
+      const worker = yield* orchestra.createMember({ project: team, agent: members[0]!.agent!, title: "Late worker" })
       yield* federation.applyStoredPlan(worker.id)
       const info = yield* sessions.get(worker.id)
-      expect(info.model?.id).toBe("sonnet-5.5")
+      expect(info.model?.id).toBe(Model.ID.make("sonnet-5.5"))
       expect(SessionPlan.parseBudget(info.metadata?.[SessionPlan.BUDGET_KEY])).toBe(1_000_000)
       expect(info.metadata?.[SessionPlan.CACHE_KEY]).toBe("auto")
       expect(info.metadata?.[SessionPlan.CONTEXT_KEY]).toBe(500000)
@@ -783,8 +784,8 @@ describe("Federation", () => {
         // worker per role, until the Society counts 30 living agents.
         const members = yield* orchestra.sessions(team.id)
         const agents = members.map((member) => member.agent)
-        const mid = Model.Ref.make({ id: "sonnet-5.5", providerID: "anymodel" })
-        const cheap = Model.Ref.make({ id: "anymodel-coder", providerID: "anymodel" })
+        const mid = Model.Ref.make({ id: Model.ID.make("sonnet-5.5"), providerID: Provider.ID.make("anymodel") })
+        const cheap = Model.Ref.make({ id: Model.ID.make("anymodel-coder"), providerID: Provider.ID.make("anymodel") })
         for (let index = 0; index < 17; index++)
           yield* orchestra.createMember({
             project: team,

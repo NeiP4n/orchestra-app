@@ -58,10 +58,10 @@ describe("Society model table", () => {
   test("resolves a tier model from the catalog, never inventing a provider id", () => {
     const models = catalog(["opus-5.5", "sonnet-5.5", "anymodel-coder", "sonnet-5"])
     expect(Society.resolveSocietyModel("strong", models)).toEqual(
-      Model.Ref.make({ id: "opus-5.5", providerID: "anymodel" }),
+      Model.Ref.make({ id: Model.ID.make("opus-5.5"), providerID: Provider.ID.make("anymodel") }),
     )
-    expect(Society.resolveSocietyModel("cheap", models)?.id).toBe("anymodel-coder")
-    expect(Society.resolveSocietyModel("fallback", models)?.id).toBe("sonnet-5")
+    expect(Society.resolveSocietyModel("cheap", models)?.id).toBe(Model.ID.make("anymodel-coder"))
+    expect(Society.resolveSocietyModel("fallback", models)?.id).toBe(Model.ID.make("sonnet-5"))
     // A tier whose model the account does not have resolves to nothing, so
     // the caller falls through instead of running a model that is not there.
     expect(Society.resolveSocietyModel("strong", catalog(["sonnet-5"]))).toBeUndefined()
