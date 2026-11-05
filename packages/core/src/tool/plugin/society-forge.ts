@@ -129,12 +129,19 @@ export const Plugin = {
                 const report = yield* federation.societyStatus(group.name)
                 const rows = report.projects.map(
                   (item) =>
-                    `- ${item.name}: DoD ${item.done}/${item.total}${item.blocked ? `, ${item.blocked} blocked` : ""} · ${item.running ? "working" : "idle"}`,
+                    `- ${item.name}: DoD ${item.done}/${item.total}${item.blocked ? `, ${item.blocked} blocked` : ""} · ${item.running ? "working" : "idle"} · agents ${item.alive}/${item.agents}${item.withModel < item.agents ? ` (${item.agents - item.withModel} without a model)` : ""}`,
                 )
                 const done = report.projects.reduce((sum, item) => sum + item.done, 0)
                 const total = report.projects.reduce((sum, item) => sum + item.total, 0)
                 return [
                   `Society "${group.name}" · ${report.held ? "AIs HELD by the operator: nothing runs until released" : "running"} · DoD ${done}/${total}`,
+                  `Agents ${report.alive}/${report.agents} alive, ${report.withModel} with a model (target ${report.target}, minimum ${report.minimum}) · ${report.budgetChats} chat(s) with a recorded budget`,
+                  report.generation.stage === undefined
+                    ? "Generation: never tracked — founded before generation was recorded."
+                    : `Generation: ${report.generation.stage}${report.generation.stalled ? " — STALLED: the planner never generated anything, the Society will retry the delivery on startup" : ""}${report.generation.kickoffDelivered ? "" : " — the planner never received the goal"}`,
+                  report.ready
+                    ? "Ready: the Society is built."
+                    : `Not ready yet: ${report.missing.join("; ")}.`,
                   ...rows,
                 ].join("\n")
               }
@@ -229,18 +236,8 @@ export const Plugin = {
               // or — when it lists none — the roles behind its member agents.
               // A built-in template opens no roster by itself, so generate
               // opens these eagerly instead of leaving the project workerless.
-              const templateRoles = (template: Orchestra.Template): ReadonlyArray<Orchestra.Role> => {
-                const byID = new Map(roles.map((role) => [role.id, role]))
-                const fromRoles = (template.roles ?? []).flatMap((id) => {
-                  const role = byID.get(id)
-                  return role ? [role] : []
-                })
-                if (fromRoles.length > 0) return fromRoles
-                return template.members.flatMap((member) => {
-                  const role = roles.find((candidate) => candidate.agent === member.agent)
-                  return role ? [role] : []
-                })
-              }
+              const templateRoles = (template: Orchestra.Template): ReadonlyArray<Orchestra.Role> =>
+                rolesForTemplate(template, roles)
               // Opens one worker per role of a built-in team template.
               // Operator-saved templates already opened their roster when
               // the project was created, so they are left alone here.
@@ -281,7 +278,7 @@ export const Plugin = {
                     const first = group.projects[0]
                       ? current.find((item) => item.id === group.projects[0])
                       : undefined
-                    for (const base of Federation.baseProjects) {
+                    for (const base of bases) {
                       const role = roles.find((candidate) => candidate.id === base.role)
                       const present =
                         base.key === "planner"
@@ -340,16 +337,26 @@ export const Plugin = {
                       created.push(project)
                       briefs.set(project.id, spec.brief)
                       if (spec.role) yield* workerOf(project, spec.role)
+                      // A built-in team opens no roster by itself (only the
+                      // Orchestrator): open one worker per role now, or the
+                      // project starts with nobody to do the work.
+                      else if (spec.team) yield* openTeamWorkers(project, spec.team)
                     }
                     // Whatever was created joins the Society even if a later project failed, so no project is
                     // left behind without a group.
-                    if (created.length > 0 || briefs.size > 0) yield* register(group, created, goal, briefs)
-                    return created
+                    const failedBriefs =
+                      created.length > 0 || briefs.size > 0
+                        ? yield* register(group, created, goal, briefs)
+                        : []
+                    return { created, failedBriefs }
                   }),
                 ),
               )
               const failure = Result.isFailure(outcome) ? outcome.failure : undefined
-              const created = Result.isSuccess(outcome) ? outcome.success : []
+              const result = Result.isSuccess(outcome)
+                ? outcome.success
+                : { created: [] as Orchestra.Project[], failedBriefs: [] as ReadonlyArray<string> }
+              const created = result.created
               if (failure)
                 return yield* new ToolFailure({
                   message: [
@@ -360,11 +367,23 @@ export const Plugin = {
                   ].join("\n"),
                 })
 
+              // The projects exist now, so the Society's generation moves
+              // forward even when a brief failed to land: the stage says
+              // "generated", and the warning below names the missing briefs.
+              const generation = yield* federation
+                .recordGeneration(group.name, "generated")
+                .pipe(Effect.result)
               return [
                 `Society "${group.name}" now has these projects in ${root}:`,
                 ...created.map((project) => `- ${project.name} (${project.id}) · ${project.directory}`),
                 created.length === 0 ? "Every project you asked for was already there." : undefined,
                 "Each project is linked to the others and has its brief. Use consult_all to hear from them.",
+                result.failedBriefs.length > 0
+                  ? `WARNING: the brief did not reach: ${result.failedBriefs.join(", ")}. Re-run generate with the same goal and projects — it is idempotent and re-delivers the missing briefs.`
+                  : undefined,
+                Result.isFailure(generation)
+                  ? `WARNING: the generation stage could not be recorded (${String(generation.failure)}).`
+                  : undefined,
               ]
                 .filter((line): line is string => line !== undefined)
                 .join("\n")
@@ -433,25 +452,53 @@ export const Plugin = {
         const known = yield* orchestra.projects()
         const names = new Map(known.map((project) => [project.id, project.name]))
         // Every project that has a brief gets it, the existing planner included.
+        // A brief that fails to land does not block the others: the failure is
+        // collected and reported, and a re-run of generate re-delivers it.
+        const failed: string[] = []
         yield* Effect.forEach(
           [...briefs],
           ([id, brief]) =>
-            federation.brief({
-              project: id,
-              id: `society-brief-${id}`,
-              text: briefText({
-                society: group.name,
-                project: names.get(id) ?? id,
-                goal,
-                brief,
-                peers: members.filter((other) => other !== id).map((other) => names.get(other) ?? other),
-              }),
+            Effect.gen(function* () {
+              const delivered = yield* federation
+                .brief({
+                  project: id,
+                  id: `society-brief-${id}`,
+                  text: briefText({
+                    society: group.name,
+                    project: names.get(id) ?? id,
+                    goal,
+                    brief,
+                    peers: members.filter((other) => other !== id).map((other) => names.get(other) ?? other),
+                  }),
+                })
+                .pipe(Effect.result)
+              if (Result.isFailure(delivered)) failed.push(names.get(id) ?? id)
             }),
           { discard: true },
         )
+        return failed as ReadonlyArray<string>
       })
     }
   }),
+}
+
+// The roles a team template staffs: its recommended role ids, or — when it
+// lists none — the roles behind its member agents. generate opens one worker
+// per role for a built-in template, so the project starts with a team.
+export function rolesForTemplate(
+  template: Orchestra.Template,
+  roles: ReadonlyArray<Orchestra.Role>,
+): ReadonlyArray<Orchestra.Role> {
+  const byID = new Map(roles.map((role) => [role.id, role]))
+  const fromRoles = (template.roles ?? []).flatMap((id) => {
+    const role = byID.get(id)
+    return role ? [role] : []
+  })
+  if (fromRoles.length > 0) return fromRoles
+  return template.members.flatMap((member) => {
+    const role = roles.find((candidate) => candidate.agent === member.agent)
+    return role ? [role] : []
+  })
 }
 
 function briefText(input: { society: string; project: string; goal: string; brief: string; peers: readonly string[] }) {
