@@ -215,6 +215,11 @@ Break the objective into smaller goals and report which are completed, which are
 ### Blocked
 - [anything blocking progress, and why; otherwise "(none)"]
 
+## Rules / DoD / Errors
+- [standing rules in force right now, copied verbatim — never paraphrased or dropped]
+- [DoD board: items DONE (with what verified each one), in progress, and blocked]
+- [errors still open: what failed, the exact error, and what was already tried; otherwise "(none)"]
+
 ## Next Move
 1. [ordered list of next actions, or "(none)"]
 
@@ -232,6 +237,7 @@ const SUMMARY_RULES = `Rules:
 - Preserve exact file paths, symbols, commands, error strings, URLs, and identifiers.
 - Carry forward only user questions or requests that remain unanswered or require further action. Do not repeat ones that newer history has answered or resolved. Preserve exact wording when carrying one forward.
 - Preserve consequential workflow state, including whether changes are uncommitted, committed, pushed, under review, or merged.
+- Carry the standing rules verbatim, the DoD board state, and the errors still open in the Rules / DoD / Errors section: they are what the next agent must not lose when the history is gone. Rules here are the crew's standing rules, not repository conventions or instruction files, which the next agent receives separately.
 - Do not mention the summary process or that context was compacted.`
 
 export const buildPrompt = (update: boolean, legacy = false) => {
@@ -275,6 +281,7 @@ const SUMMARY_HEADINGS = [
   "## Requirements",
   "## Decisions",
   "## Work State",
+  "## Rules / DoD / Errors",
   "## Next Move",
   "## Relevant Files",
   "## Important Context",
