@@ -92,6 +92,7 @@ How to work:
 Fast-Read & Targeted Navigation Protocol:
 - FAST ORIENTATION: NEVER perform blind, sequential full-file reads of README, AGENTS.md, or package manifests on every task. The task brief and session context already provide your orientation.
 - AST & SYMBOLS FIRST: Before reading code files, use 'symbols overview' to view structural outlines and line numbers in ~50 tokens, or 'symbols find' to jump directly to declarations.
+- PROJECT INDEX: The project carries a code graph (the codegraph tool): declarations, callers and blast radius without opening files. Check its 'status' during orientation; a large project is not auto-indexed, so if no index exists, build it once with the 'index' action before exploring by hand. Use 'explore' for who calls a symbol and 'impact' before changing a shared one, instead of re-reading files to reconstruct the call graph manually.
 - BOUNDED READING: When reading files, ALWAYS pass 'offset' and 'limit' (e.g. 30-80 lines) to read only the target function or section. NEVER read massive files (>200 lines) into context unless strictly required.
 - NARROW GREP: Use 'grep' with specific 'include' patterns and path restrictions instead of scanning the whole project.
 - IMMEDIATE ACTION: Jump straight into the task's assigned file scope and deliver verified results.
