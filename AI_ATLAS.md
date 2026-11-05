@@ -150,8 +150,7 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   then an ask card), `MAX_HOPS = 8`, `RESEND_AT = [0,1,3,7,15,25,35,45,55]`,
   57-minute window. Rules come from Orchestra config via the `decide`
   environment, never from a `rules.json`. Minimal five-field cron parser
-  lives here too (tick needs it); the tick service and orchestrator wiring
-  are later Б3 sub-steps, not here.
+  lives here too (tick needs it).
 - **Cards (block Б3, подшаг 2)**: `src/autoloop/cards.ts` is the thin layer
   over `store` + `decide` — `listCards` / `listOpenCards`, `createCard`
   (same key while open = duplicate, no new fact), `answerCard` (records
@@ -194,7 +193,33 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   `FORMAT` no longer matches), so a restart loses no runs. Rules come from
   the journal (`rules` input) unless the service was built with explicit
   ones; limits default to the kernel defaults until the orchestrator wiring
-  passes config-derived ones.
+  applies the operator config (see below).
+- **Orchestrator wiring (block Б3, подшаг 4 — Б3 закрыт)**: `src/autoloop/orchestrator.ts`
+  is the bridge. `dispatch()` creates a run: the bridge first makes sure the
+  dispatch rule (`orchestra-task`: `task.created` from source `orchestra` →
+  agent `orchestrator`, one lane per worker session, 30 claimed runs at most)
+  is in the journal — ingest routes once, at ingest time, so a rule stored
+  later would strand the event — then ingests, claims, records the worker
+  session on the run (`started`), and marks the worker seen. Run id + finish
+  token live in the durable task marker (`orchestra/task/<session>`), never in
+  memory. `report()` finishes the run from the journal (`finishRun` reads the
+  run fresh; a second finish of the same receipt changes nothing, a different
+  receipt under the same token is a conflict): `done` → `done`, `failed` →
+  retry 1–2 times by the limits, then a stop card (`run:<id>:stopped`),
+  `stopped`/`cancelled` → final, no retries. `nothing` is a real outcome:
+  a worker that answered nothing and left no trace of work in the transcript
+  finishes as `nothing`. While a worker streams, `MessageContentUpdated`
+  heartbeats its run (throttled to 1/min per session), so a long task is not
+  mistaken for a worker gone quiet. Config reaches the service two ways:
+  `configure({rules, limits})` (explicit, e.g. tests), and self-configuration
+  on the first `execute` in a context that carries `Config.Service` — the
+  limits come from `Config.Orchestra.Autoloop`, the dispatch rule is merged
+  into any operator rules stored in the journal (`mergeDispatchRule`) instead
+  of shadowing them. Server boot cannot configure it directly: Config is
+  location-scoped and the built routes context holds no `Config.Service`
+  (verified by probe). Known limit for Б4: a re-queued run waits for a claim,
+  and the next `dispatch` claims it (FIFO, any worker) — re-execution of
+  re-queued runs is Б4's job.
 - **Tests**: `packages/core/test/autoloop/` — no network, no models.
 
 ## MCP — `packages/core/src/mcp/`

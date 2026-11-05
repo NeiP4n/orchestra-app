@@ -30,6 +30,9 @@ import { Dod } from "./dod.js"
 import { OrchestraStage } from "./stage.js"
 import { AiStandard } from "./ai-standard.js"
 import { Config } from "./config.js"
+import { Autoloop } from "./autoloop/service.js"
+import { AutoloopOrchestrator } from "./autoloop/orchestrator.js"
+import type { Receipt } from "./autoloop/kernel/decide.js"
 import { Project as CoreProject } from "./project.js"
 import { Git } from "./git.js"
 import { Global } from "@orchestra/util/global"
@@ -252,7 +255,11 @@ const Task = Schema.Struct({
   reportID: SessionMessage.ID.pipe(Schema.optional),
   // Once report construction starts, preserve the payload across retries and process crashes.
   reportPrepared: Schema.Boolean.pipe(Schema.optional),
-  reportState: Schema.Literals(["done", "failed", "stopped", "recovered"]).pipe(Schema.optional),
+  // The autoloop run tracking this dispatch, and the token that finishes it.
+  // Absent on tasks dispatched before the cycle wiring (or without the service).
+  autoloopRun: Schema.Number.pipe(Schema.optional),
+  autoloopToken: Schema.String.pipe(Schema.optional),
+  reportState: Schema.Literals(["done", "failed", "stopped", "recovered", "nothing"]).pipe(Schema.optional),
   reportDetail: Schema.String.pipe(Schema.optional),
   reportText: Schema.String.pipe(Schema.optional),
   reportOutcome: Schema.Literals(["complete", "partial", "incomplete", "unknown", "failed", "stopped"]).pipe(Schema.optional),
@@ -268,7 +275,7 @@ const TaskReport = Schema.Struct({
   projectID: ProjectID,
   workerID: SessionID,
   taskID: SessionMessage.ID.pipe(Schema.optional),
-  state: Schema.Literals(["done", "failed", "stopped", "recovered"]),
+  state: Schema.Literals(["done", "failed", "stopped", "recovered", "nothing"]),
   outcome: Schema.Literals(["complete", "partial", "incomplete", "unknown", "failed", "stopped"]),
   text: Schema.String,
   description: Schema.String,
@@ -351,6 +358,7 @@ const layer: Layer.Layer<
   | Bus.Service
   | Git.Service
   | Global.Service
+  | Autoloop.Service
   | CorePermission.DelegateRegistryService
 > = Layer.effect(
   Service,
@@ -362,6 +370,7 @@ const layer: Layer.Layer<
     const bus = yield* Bus.Service
     const git = yield* Git.Service
     const global = yield* Global.Service
+    const autoloop = yield* Autoloop.Service
     const permissionDelegates = yield* CorePermission.DelegateRegistryService
     // Concurrent UI/API opens must converge on one durable main session per project.
     const mainLocks = KeyedMutex.makeUnsafe<ProjectID>()
@@ -961,7 +970,33 @@ const layer: Layer.Layer<
       return messages
     })
 
-    const report = (sessionID: SessionID, state: "done" | "failed" | "stopped" | "recovered", detail?: string): Effect.Effect<void> =>
+    // Finish the autoloop run for a task from the journal, never from memory:
+    // the run id and token come from the durable task marker, the run's state
+    // is read fresh from the journal, and a run already finished stays
+    // finished. A failure here must never lose the team report, so it is
+    // logged and swallowed.
+    const finishAutoloop = Effect.fnUntraced(function* (task: TaskInfo, receipt: Receipt) {
+      if (task.autoloopRun === undefined || task.autoloopToken === undefined) return
+      const result = yield* AutoloopOrchestrator.finishRun(autoloop, {
+        run: task.autoloopRun,
+        token: task.autoloopToken,
+        receipt,
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("autoloop: квитанция за задачу не сдана", {
+            run: task.autoloopRun,
+            error: error instanceof Error ? error.message : String(error),
+          }).pipe(Effect.as({ status: "missing" as const, rejected: [] })),
+        ),
+      )
+      if (result.status === "conflict") {
+        yield* Effect.logWarning("autoloop: задача уже сдала другую квитанцию, эта не принята", {
+          run: task.autoloopRun,
+        })
+      }
+    })
+
+    const report = (sessionID: SessionID, state: "done" | "failed" | "stopped" | "recovered" | "nothing", detail?: string): Effect.Effect<void> =>
       dispatchLocks.withLock(sessionID)(
         Effect.gen(function* () {
           const task = decodeTask(yield* kv.get(TASK + sessionID))
@@ -1021,6 +1056,26 @@ const layer: Layer.Layer<
                   deliveredTo: target.deliveredTo,
                   deliveryID: target.deliveryID,
                 })
+                // The report is delivered; the run ends with what it says.
+                yield* finishAutoloop(
+                  task.value,
+                  AutoloopOrchestrator.receiptForReport({
+                    state: reportState,
+                    outcome: reportOutcome,
+                    summary: body,
+                    workerRemoved: false,
+                  }),
+                )
+              } else {
+                yield* finishAutoloop(
+                  task.value,
+                  AutoloopOrchestrator.receiptForReport({
+                    state: ledger.value.state,
+                    outcome: ledger.value.outcome,
+                    summary: ledger.value.text,
+                    workerRemoved: false,
+                  }),
+                )
               }
               yield* kv.remove(TASK + sessionID)
               return
@@ -1110,7 +1165,13 @@ const layer: Layer.Layer<
           const title = session?.title ?? `Deleted worker ${sessionID}`
           const reportID = task.value.reportID ?? SessionMessage.ID.create()
           const wasPrepared = task.value.reportPrepared === true
-          const stateForReport = workerRemoved ? "failed" : state
+          // A run that ended with no answer and no trace of work did nothing:
+          // the report says so, and the cycle receipt is `nothing`, not `done`.
+          const didNothing =
+            !workerRemoved &&
+            state === "done" &&
+            AutoloopOrchestrator.looksLikeNothing(answer, note)
+          const stateForReport = workerRemoved ? "failed" : didNothing ? "nothing" : state
           const detailForReport =
             workerRemoved
               ? `Worker session ${sessionID} was removed before it could report the assigned task.`
@@ -1179,8 +1240,22 @@ const layer: Layer.Layer<
             })
             .pipe(Effect.as(true), Effect.orElseSucceed(() => false))
           // Keep the task marker until admission succeeds; it is the durable retry record.
-          if (admitted) yield* kv.remove(TASK + sessionID)
-          else yield* kv.set(TASK + sessionID, Schema.encodeSync(Task)(preparedTask))
+          if (admitted) {
+            // The report is delivered; the run ends with what it says. A
+            // failed receipt retries 1–2 times by the cycle limits, then the
+            // cycle tells the owner with a card; cancelled ends finally.
+            yield* finishAutoloop(
+              preparedTask,
+              AutoloopOrchestrator.receiptForReport({
+                state: reportState,
+                outcome: reportOutcome,
+                summary: cut,
+                error: reportDetail,
+                workerRemoved,
+              }),
+            )
+            yield* kv.remove(TASK + sessionID)
+          } else yield* kv.set(TASK + sessionID, Schema.encodeSync(Task)(preparedTask))
       }),
     )
 
@@ -1530,6 +1605,29 @@ const layer: Layer.Layer<
         }),
         Effect.forkScoped({ startImmediately: true }),
       )
+
+    // While a worker streams, its run stays visibly alive in the cycle: the
+    // sweep must not mistake a long task for a worker gone quiet (a run
+    // unmentioned for 5 minutes goes `unknown`, and after 10 the owner gets
+    // an offline card). Heartbeats are throttled in memory — expendable
+    // state, not journal state — at most one per minute per session, and
+    // only for sessions with an outstanding dispatched task.
+    const lastHeartbeat = new Map<SessionID, number>()
+    yield* bus.subscribe(SessionEvent.MessageContentUpdated).pipe(
+      Stream.runForEach((event) =>
+        Effect.gen(function* () {
+          const sessionID = event.data.sessionID
+          const last = lastHeartbeat.get(sessionID) ?? 0
+          if (Date.now() - last < 60_000) return
+          if (lastHeartbeat.size > 1024) lastHeartbeat.clear()
+          lastHeartbeat.set(sessionID, Date.now())
+          const task = decodeTask(yield* kv.get(TASK + sessionID))
+          if (Option.isNone(task) || task.value.autoloopRun === undefined) return
+          yield* AutoloopOrchestrator.heartbeatRun(autoloop, task.value.autoloopRun).pipe(Effect.ignore)
+        }),
+      ),
+      Effect.forkScoped({ startImmediately: true }),
+    )
 
     // A worker running a dispatched task may stop to ask the human a question, and nobody
     // may be watching that session. Forward the question to the main session as a
@@ -2189,6 +2287,40 @@ const layer: Layer.Layer<
                   key,
                   Schema.encodeSync(Task)({ main, projectID: project.id, sent: Date.now(), messageID, reportID }),
                 )
+                // The cycle takes the task before the worker sees it: the run
+                // in the journal is the task's record from here on, and the
+                // token below is what finishes it when the run ends. A task
+                // the cycle cannot take is not sent at all — silent work the
+                // journal never saw is how tasks get lost on re-entry.
+                const cycle = yield* AutoloopOrchestrator.createRun(autoloop, {
+                  sessionID: input.sessionID,
+                  projectID: project.id,
+                  text: input.text,
+                  messageID,
+                }).pipe(
+                  Effect.tapError(() => kv.remove(key)),
+                  Effect.mapError(
+                    (error) => new DispatchError({ message: `Autoloop could not take the task: ${error.message}` }),
+                  ),
+                )
+                if (cycle === null) {
+                  yield* kv.remove(key)
+                  return yield* new DispatchError({
+                    message: `Autoloop has no run ready for this task (the dispatch rule is missing, or ${AutoloopOrchestrator.MAX_CONCURRENT_RUNS} runs are already in flight).`,
+                  })
+                }
+                yield* kv.set(
+                  key,
+                  Schema.encodeSync(Task)({
+                    main,
+                    projectID: project.id,
+                    sent: Date.now(),
+                    messageID,
+                    reportID,
+                    autoloopRun: cycle.run,
+                    autoloopToken: cycle.token,
+                  }),
+                )
                 yield* sessions
                   .prompt({
                     sessionID: input.sessionID,
@@ -2198,7 +2330,18 @@ const layer: Layer.Layer<
                     metadata: { orchestra: { project: project.id, from: main, taskID: messageID } },
                   })
                   .pipe(
-                    Effect.tapError(() => kv.remove(key)),
+                    Effect.tapError(() =>
+                      Effect.gen(function* () {
+                        // The worker never saw the task: end the run as
+                        // cancelled instead of leaving it claimed forever.
+                        yield* AutoloopOrchestrator.cancelRun(autoloop, {
+                          run: cycle.run,
+                          token: cycle.token,
+                          reason: "The task could not be sent to the worker.",
+                        })
+                        yield* kv.remove(key)
+                      }),
+                    ),
                     Effect.mapError((error) => new DispatchError({ message: String(error) })),
                   )
               }),
@@ -2742,5 +2885,5 @@ function finalText(message: SessionMessage.Info) {
 export const node = makeGlobalNode({
   service: Service,
   layer,
-  deps: [KV.node, Session.node, SessionStore.node, FSUtil.node, Bus.node, Git.node, Global.node, CorePermission.delegateNode],
+  deps: [KV.node, Session.node, SessionStore.node, FSUtil.node, Bus.node, Git.node, Global.node, Autoloop.node, CorePermission.delegateNode],
 })
