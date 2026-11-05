@@ -50,6 +50,35 @@ describe("SessionPrefixPin", () => {
     expect(later.messages.slice(4)).toEqual(third.slice(3))
   })
 
+  test("shows a changed rulebook as a diff, not as a whole new block", () => {
+    const pin = SessionPrefixPin.make()
+    const oldRules = "# Rules\nStanding rules of this crew.\n- [Society] Never edit generated files.\n- [Project] Use bun, not npm."
+    const newRules = "# Rules\nStanding rules of this crew.\n- [Society] Never edit generated files.\n- [Project] Use bun, not npm.\n- [Society] Always run the checks before reporting done."
+    const first = [user("u1", "hi")]
+    pin({ sessionID: "s", key: "k", system: system("base", oldRules), messages: first })
+
+    const second = [...first, assistant("a1", "hello"), user("u2", "next")]
+    const changed = pin({ sessionID: "s", key: "k", system: system("base", newRules), messages: second })
+    expect(changed.system).toEqual(system("base", oldRules))
+    const note = texts(changed.messages)[3] ?? ""
+    expect(note).toContain("Rules changed since this conversation started.")
+    expect(note).toContain("+ - [Society] Always run the checks before reporting done.")
+    // The unchanged rules are not repeated, and the old block is not dumped as a first-line summary.
+    expect(note).not.toContain("Never edit generated files.")
+    expect(note).not.toContain("- # Rules")
+
+    // Removing a rule is announced the same way, with a minus line.
+    const dropped = "# Rules\nStanding rules of this crew.\n- [Project] Use bun, not npm."
+    const third = [...second, assistant("a2", "noted"), user("u3", "more")]
+    const removed = pin({ sessionID: "s", key: "k", system: system("base", dropped), messages: third })
+    const notes = texts(removed.messages).filter((text) => text.includes("Rules changed"))
+    const note2 = notes.at(-1) ?? ""
+    // The diff is pinned rules vs current rules: the rule added in between was never pinned,
+    // so it does not appear as removed — only the rule the pinned prompt actually had.
+    expect(note2).toContain("- - [Society] Never edit generated files.")
+    expect(note2).not.toContain("Always run the checks")
+  })
+
   test("starts over when the agent or model changes", () => {
     const pin = SessionPrefixPin.make()
     const messages = [user("u1", "hi")]
