@@ -10,7 +10,6 @@ import { checksum } from "@orchestra/util/encode"
 import { FSUtil } from "@orchestra/util/fs-util"
 import { Global } from "@orchestra/util/global"
 import { Federation } from "@orchestra/schema/federation"
-import { ConfigOrchestra } from "@orchestra/schema/config/orchestra"
 import { SessionID } from "@orchestra/schema/session-id"
 import { SessionEvent } from "@orchestra/schema/session-event"
 import { KV } from "./kv.js"
@@ -603,11 +602,7 @@ const layer: Layer.Layer<
     // session or a prompt that keeps failing reports false instead of
     // disappearing into `Effect.ignore`. Used where a lost message strands
     // the Society (the planner's kickoff, a project's brief).
-    const tellConfirmed = Effect.fnUntraced(function* (
-      project: Orchestra.ProjectID,
-      id: string,
-      text: string,
-    ): Effect.Effect<boolean> {
+    const tellConfirmed = Effect.fnUntraced(function* (project: Orchestra.ProjectID, id: string, text: string) {
       const main = yield* orchestra.main(project).pipe(Effect.option)
       if (Option.isNone(main)) return false
       return yield* sessions
@@ -1084,7 +1079,9 @@ const layer: Layer.Layer<
       if (plan.cache !== undefined) metadata[SessionPlan.CACHE_KEY] = plan.cache ? "auto" : "off"
       if (plan.budget !== undefined) metadata[SessionPlan.BUDGET_KEY] = plan.budget
       if (plan.context !== undefined || plan.cache !== undefined || plan.budget !== undefined)
-        yield* sessions.setMetadata({ sessionID, metadata })
+        yield* sessions
+          .setMetadata({ sessionID, metadata })
+          .pipe(Effect.catchTag("Session.NotFoundError", () => Effect.void))
       const model = plan.model ? parsePlanModel(plan.model) : undefined
       if (model)
         yield* sessions
