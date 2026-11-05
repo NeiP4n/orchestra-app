@@ -8,7 +8,7 @@ import { Mode } from "@orchestra/schema/mode"
 import { Model } from "@orchestra/schema/model"
 import type { SessionID } from "@orchestra/schema/session-id"
 import { Tool } from "@orchestra/schema/tool"
-import { Effect, Option, Stream } from "effect"
+import { Cause, Effect, Option, Stream } from "effect"
 import { Agent } from "../agent.js"
 import { Federation as FederationDomain } from "../federation.js"
 import { Federation as FederationSchema } from "@orchestra/schema/federation"
@@ -212,10 +212,12 @@ export const Plugin = define({
         // that does not start, so the failure is handed to the model as an explicit stop.
         const rules = yield* Rules.scopesOf({ sessionID: event.sessionID, sessions, orchestra, federation }).pipe(
           Effect.flatMap((scopes) => Rules.block(kv, scopes)),
-          Effect.catchAllCause((cause) =>
-            Effect.succeed(
-              `# Rules could not be loaded\nThe rulebook failed to load (${cause._tag === "Fail" ? String(cause.error) : "storage failure"}), so no rule can be trusted to apply. Do not start work on the task until the rules load: report this failure and stop.`,
-            ),
+          Effect.catchCause((cause) =>
+            Cause.hasInterruptsOnly(cause)
+              ? Effect.failCause(cause)
+              : Effect.succeed(
+                  `# Rules could not be loaded\nThe rulebook failed to load (${Cause.pretty(cause)}), so no rule can be trusted to apply. Do not start work on the task until the rules load: report this failure and stop.`,
+                ),
           ),
         )
         if (rules) event.system.push({ type: "text", text: rules })

@@ -1,6 +1,6 @@
 export * as Rules from "./rules.js"
 
-import { Effect, Option, Schema } from "effect"
+import { Cause, Effect, Option, Schema } from "effect"
 import { SessionID } from "@orchestra/schema/session-id"
 import type { Federation } from "./federation.js"
 import type { Orchestra } from "./orchestra.js"
@@ -67,6 +67,12 @@ const isRule = (item: unknown): item is Rule =>
   typeof (item as Partial<Rule>).id === "string" &&
   typeof (item as Partial<Rule>).text === "string"
 
+/** The failure value a cause carries, or undefined when it died or was interrupted. */
+const failureOf = (cause: Cause.Cause<unknown>): unknown => {
+  const found = Cause.findError(cause)
+  return found._tag === "Success" ? found.value : undefined
+}
+
 const toRule = (item: Partial<Rule>): Rule => ({
   id: item.id as string,
   text: item.text as string,
@@ -108,16 +114,19 @@ export const listStrict = (kv: KV.Interface, scope: string): Effect.Effect<Reado
           )
         : Effect.succeed(found.rules),
     ),
-    Effect.catchAllCause((cause) =>
-      cause._tag === "Fail" && cause.error instanceof LoadError
-        ? Effect.fail(cause.error)
-        : Effect.fail(
-            new LoadError({
+    Effect.catchCause((cause) => {
+      // An interruption keeps interrupting; turning it into a load error would let a stopped session keep working.
+      if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause)
+      const error = failureOf(cause)
+      return Effect.fail(
+        error instanceof LoadError
+          ? error
+          : new LoadError({
               scope,
-              reason: `could not be read: ${cause._tag === "Fail" ? String(cause.error) : "storage failure"}`,
+              reason: `could not be read: ${error === undefined ? Cause.pretty(cause) : String(error)}`,
             }),
-          ),
-    ),
+      )
+    }),
   )
 
 interface HistoryEntry {
@@ -252,13 +261,15 @@ export const scopesOf = (input: {
     }
     return { societies: [] } satisfies Scopes
   }).pipe(
-    Effect.catchAllCause((cause) =>
-      Effect.fail(
+    Effect.catchCause((cause) => {
+      if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause)
+      const error = failureOf(cause)
+      return Effect.fail(
         new ScopesError({
-          reason: `scopes could not be determined: ${cause._tag === "Fail" ? String(cause.error) : "lookup failure"}`,
+          reason: `scopes could not be determined: ${error === undefined ? Cause.pretty(cause) : String(error)}`,
         }),
-      ),
-    ),
+      )
+    }),
   )
 
 // --- Priority and conflicts -------------------------------------------------

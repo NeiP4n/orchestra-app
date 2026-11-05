@@ -1,7 +1,7 @@
 export * as Permission from "./permission.js"
 
 import { makeGlobalNode, makeLocationNode } from "@orchestra/util/effect/app-node"
-import { Context, Deferred, Effect, Layer, Schema } from "effect"
+import { Cause, Context, Deferred, Effect, Layer, Schema } from "effect"
 import { Permission } from "@orchestra/schema/permission"
 import { contains as containsDirectory } from "@orchestra/schema/orchestra"
 import { RoomRules } from "@orchestra/schema/room-rules"
@@ -771,7 +771,9 @@ const layer = Layer.effect(
         )
         if (denied(input, configuredRules)) return yield* new DeclinedError()
         const activeRoomRules = yield* roomRulesForSession(input.sessionID).pipe(
-          Effect.catchAllCause(() => Effect.fail(new DeclinedError())),
+          Effect.catchCause((cause) =>
+            Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause) : Effect.fail(new DeclinedError()),
+          ),
         )
         if (
           RoomRules.policy(activeRoomRules, {
