@@ -148,10 +148,24 @@ const layer: Layer.Layer<Service, never, KV.Service | Session.Service> = Layer.e
     const kv = yield* KV.Service
     const sessions = yield* Session.Service
 
+    // A KV scan returns at most 1000 entries per page: follow `next` until the
+    // tail is read, or peer tasks and watches past 1000 silently stop being polled.
+    const scanEntries = (prefix: string) => {
+      const read = (after?: string): Effect.Effect<KV.Entry[]> =>
+        kv.scan({ prefix, after, limit: 1000 }).pipe(
+          Effect.flatMap((result) =>
+            result.next
+              ? read(result.next).pipe(Effect.map((rest) => [...result.entries, ...rest]))
+              : Effect.succeed([...result.entries]),
+          ),
+        )
+      return read()
+    }
+
     const scan = <A>(prefix: string, decode: (value: unknown) => Option.Option<A>) =>
-      kv
-        .scan({ prefix, limit: 1000 })
-        .pipe(Effect.map((result) => result.entries.flatMap((entry) => Option.toArray(decode(entry.value)))))
+      scanEntries(prefix).pipe(
+        Effect.map((entries) => entries.flatMap((entry) => Option.toArray(decode(entry.value)))),
+      )
 
     // The guest routes of the host's server, with the room token as the only credential.
     const call = <S extends Schema.Top>(
@@ -288,15 +302,15 @@ const layer: Layer.Layer<Service, never, KV.Service | Session.Service> = Layer.e
     })
 
     yield* Effect.gen(function* () {
-      const result = yield* kv.scan({ prefix: TASK, limit: 1000 })
-      yield* Effect.forEach(result.entries, (entry) =>
+      const tasks = yield* scanEntries(TASK)
+      yield* Effect.forEach(tasks, (entry) =>
         Option.match(decodeTask(entry.value), {
           onNone: () => kv.remove(entry.key),
           onSome: (task) => check(entry.key, task),
         }),
       )
-      const watches = yield* kv.scan({ prefix: WATCH, limit: 1000 })
-      yield* Effect.forEach(watches.entries, (entry) =>
+      const watches = yield* scanEntries(WATCH)
+      yield* Effect.forEach(watches, (entry) =>
         Option.match(decodeWatch(entry.value), {
           onNone: () => kv.remove(entry.key),
           onSome: (watch) => follow(entry.key, watch),

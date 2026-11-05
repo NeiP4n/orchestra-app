@@ -430,6 +430,21 @@ const layer: Layer.Layer<
       return Option.getOrElse(decodePolicy(yield* kv.get(POLICY + project)), () => Federation.defaultPolicy(project))
     })
 
+    // A KV scan returns at most 1000 entries per page: follow `next` until the
+    // tail is read, or groups, holds, links and activity past 1000 entries
+    // silently disappear from every list built on them.
+    const scanAll = (prefix: string) => {
+      const read = (after?: string): Effect.Effect<KV.Entry[]> =>
+        kv.scan({ prefix, after, limit: 1000 }).pipe(
+          Effect.flatMap((result) =>
+            result.next
+              ? read(result.next).pipe(Effect.map((rest) => [...result.entries, ...rest]))
+              : Effect.succeed([...result.entries]),
+          ),
+        )
+      return read()
+    }
+
     const tickets = Effect.fnUntraced(function* () {
       const now = Date.now()
       const read = (after?: string): Effect.Effect<Ticket[]> =>
@@ -494,8 +509,8 @@ const layer: Layer.Layer<
 
     const linked = Effect.fnUntraced(function* (project: Orchestra.ProjectID) {
       const projects = yield* orchestra.projects()
-      const result = yield* kv.scan({ prefix: `${LINK}${project}/`, limit: 1000 })
-      return result.entries
+      const entries = yield* scanAll(`${LINK}${project}/`)
+      return entries
         .flatMap((entry) => Option.toArray(decodeLink(entry.value)))
         .flatMap((link) =>
           projects.filter((item) => item.id === link.peer).map((item) => ({ id: item.id, name: item.name })),
@@ -538,8 +553,8 @@ const layer: Layer.Layer<
     })
 
     const groups = Effect.fnUntraced(function* () {
-      const result = yield* kv.scan({ prefix: GROUP, limit: 1000 })
-      return result.entries
+      const entries = yield* scanAll(GROUP)
+      return entries
         .flatMap((entry) => Option.toArray(decodeGroup(entry.value)))
         .toSorted((x, y) => x.name.localeCompare(y.name))
     })
@@ -555,9 +570,9 @@ const layer: Layer.Layer<
     const activity = Effect.fn("Federation.activity")(function* (name: string) {
       const group = (yield* groups()).find((item) => item.name === name.trim())
       if (!group) return yield* new FederationError({ message: "No group named " + name })
-      const result = yield* kv.scan({ prefix: ACTIVITY + encodeURIComponent(group.name) + "/", limit: 1000 })
+      const entries = yield* scanAll(ACTIVITY + encodeURIComponent(group.name) + "/")
       const members = new Set(group.projects)
-      return result.entries
+      return entries
         .flatMap((entry) => {
           const value = decodeActivity(entry.value)
           if (Option.isNone(value) || !members.has(value.value.project)) return []
@@ -821,8 +836,8 @@ const layer: Layer.Layer<
     yield* trustSocieties.pipe(Effect.forkScoped)
 
     const holds = Effect.fnUntraced(function* () {
-      const result = yield* kv.scan({ prefix: HOLD, limit: 1000 })
-      return result.entries.map((entry) => entry.key.slice(entry.key.indexOf(HOLD) + HOLD.length))
+      const entries = yield* scanAll(HOLD)
+      return entries.map((entry) => entry.key.slice(entry.key.indexOf(HOLD) + HOLD.length))
     })
 
     // The top-level session a session belongs to: a worker's subagents are held with the worker.
@@ -889,9 +904,9 @@ const layer: Layer.Layer<
 
         // Remove expired rounds so an offline member cannot leave stale coordination state forever.
         const prefix = COUNCIL_ROUND + encodeURIComponent(group.name) + "/"
-        const oldRounds = yield* kv.scan({ prefix, limit: 1000 })
+        const oldRounds = yield* scanAll(prefix)
         yield* Effect.forEach(
-          oldRounds.entries,
+          oldRounds,
           (entry) =>
             Effect.gen(function* () {
               const stored = decodeCouncilRound(entry.value)

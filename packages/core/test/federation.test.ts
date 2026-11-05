@@ -245,6 +245,28 @@ describe("Federation", () => {
     }),
   )
 
+  it.live("pages past the 1000-entry KV scan limit for groups and holds", () =>
+    Effect.gen(function* () {
+      const federation = yield* Federation.Service
+      const kv = yield* KV.Service
+      // One scan page holds 1000 entries: seed 1001 groups and 1001 holds so the
+      // tail past the first page must be followed through `next` to be seen.
+      const names = Array.from({ length: 1001 }, (_, index) => `page-${String(index).padStart(4, "0")}`)
+      yield* Effect.forEach(
+        names,
+        (name) => kv.set(`federation/group/${name}`, { name, projects: [] }),
+        { concurrency: 8, discard: true },
+      )
+      yield* Effect.forEach(
+        names,
+        (name) => kv.set(`federation/hold/${name}`, true),
+        { concurrency: 8, discard: true },
+      )
+      expect((yield* federation.groups()).filter((group) => group.name.startsWith("page-"))).toHaveLength(1001)
+      expect((yield* federation.holds()).filter((name) => name.startsWith("page-"))).toHaveLength(1001)
+    }),
+  )
+
   it.live("rejects an unregistered group supervisor session", () =>
     Effect.gen(function* () {
       const { a, b } = yield* setup
