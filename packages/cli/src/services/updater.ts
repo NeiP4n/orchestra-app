@@ -23,13 +23,29 @@ export type CheckResult =
 export const DEFAULT_UPDATE_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 
 /**
- * The update policy when the user has not chosen one: updates install
- * themselves (automation first). An explicit `update`/`autoupdate` choice in
- * any config file still wins, including "notify" and "disable". Source
- * checkouts are exempt — `inspect` reports them as "notify" regardless,
- * because auto-pulling a working checkout could destroy local work.
+ * The update policy when the user has not chosen one: only notify. An update installs a
+ * new binary and restarts the background service on version mismatch, so silently
+ * installing one mid-work would restart a society in the middle of its tasks. Only an
+ * explicit `update`/`autoupdate` choice of "auto" in a config file installs on its own —
+ * and even then only while the server is idle (see `run`'s isIdle gate). Source
+ * checkouts are exempt — `inspect` reports them as "notify" regardless, because
+ * auto-pulling a working checkout could destroy local work.
  */
-export const DEFAULT_POLICY: Policy = "auto"
+export const DEFAULT_POLICY: Policy = "notify"
+
+export interface RunOptions {
+  /**
+   * Whether the server is idle enough to install. When provided and it reports busy,
+   * an "auto" policy only notifies instead of installing — an update must never restart
+   * a society mid-work. A check that fails counts as busy.
+   */
+  readonly isIdle?: () => Effect.Effect<boolean>
+}
+
+/** Whether an "auto" policy installs now: only while the server is idle. */
+export function shouldInstallNow(policy: Policy, idle: boolean): boolean {
+  return policy === "auto" && idle
+}
 
 export interface VersionCacheEntry {
   readonly version: string
@@ -90,7 +106,10 @@ function resultDetail(result: { code: number; stdout: string; stderr: string }) 
 }
 
 export interface Interface {
-  readonly run: (onInstall?: (version: string) => void) => Effect.Effect<RunResult | undefined>
+  readonly run: (
+    onInstall?: (version: string) => void,
+    options?: RunOptions,
+  ) => Effect.Effect<RunResult | undefined>
   readonly check: (options?: CheckOptions) => Effect.Effect<CheckResult | undefined, Error>
   readonly apply: (version: string) => Effect.Effect<SourceRelease.Kept | undefined, Error>
   readonly method: () => Effect.Effect<Method | undefined>
@@ -637,11 +656,20 @@ const make = Effect.gen(function* () {
   })
 
   const run = Effect.fn("cli.updater.run")(
-    function* (onInstall: (version: string) => void = () => {}) {
+    function* (onInstall: (version: string) => void = () => {}, options?: RunOptions) {
       if (!ORCHESTRA_LOCAL && !process.env.ORCHESTRA_UPDATE_URL?.trim()) return undefined
       const result = yield* inspect()
       if (!result) return undefined
       if (result.policy === "notify") return { type: "available" as const, version: result.version }
+      // An explicit "auto" policy still never installs mid-work: without a quiet
+      // window the update only notifies, and the next check retries it.
+      const idle = options?.isIdle
+        ? yield* options.isIdle().pipe(Effect.catchAll(() => Effect.succeed(false)))
+        : true
+      if (!shouldInstallNow(result.policy, idle)) {
+        yield* Effect.logInfo("update deferred: server is busy", { version: result.version })
+        return { type: "available" as const, version: result.version }
+      }
       onInstall(result.version)
       if (!(yield* install(result.version))) return yield* Effect.fail(new Error("Installation method not found"))
       return { type: "installed" as const, version: result.version }

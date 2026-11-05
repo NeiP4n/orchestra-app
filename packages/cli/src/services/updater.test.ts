@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { action } from "./updater-action"
-import { decodePolicy, DEFAULT_POLICY } from "./updater"
+import { decodePolicy, DEFAULT_POLICY, shouldInstallNow } from "./updater"
 
 describe("updater", () => {
   test("reads update policy from JSONC", () => {
@@ -10,11 +10,19 @@ describe("updater", () => {
     expect(decodePolicy('{ "update": "invalid" }')).toBeUndefined()
   })
 
-  test("defaults to automatic updates when the user chose no policy", () => {
-    expect(DEFAULT_POLICY).toBe("auto")
+  test("defaults to notifying when the user chose no policy", () => {
+    expect(DEFAULT_POLICY).toBe("notify")
     // The default never overrides an explicit choice: every configured value decodes as itself.
     expect(decodePolicy('{ "update": "notify" }')).toBe("notify")
     expect(decodePolicy('{ "update": "disable" }')).toBe("disable")
+    expect(decodePolicy('{ "update": "auto" }')).toBe("auto")
+  })
+
+  test("installs on auto only while the server is idle", () => {
+    expect(shouldInstallNow("auto", true)).toBe(true)
+    expect(shouldInstallNow("auto", false)).toBe(false)
+    expect(shouldInstallNow("notify", true)).toBe(false)
+    expect(shouldInstallNow("disable", true)).toBe(false)
   })
 
   test("maps the v1 update policy", () => {
