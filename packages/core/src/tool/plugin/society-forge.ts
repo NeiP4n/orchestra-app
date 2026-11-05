@@ -46,7 +46,7 @@ export const Input = Schema.Struct({
     description: "For found: a full path to create the Society's folder in. Omit it for the default folder.",
   }),
   projects: Schema.optionalKey(Schema.Array(Project)).annotate({
-    description: `For generate: ADDITIONAL projects the goal needs beyond the base four, 0 to ${MAX_PROJECTS}. Never list the base projects (${Federation.baseProjects.map((item) => item.name).join(", ")}): they are always created.`,
+    description: `For generate: ADDITIONAL projects the goal needs beyond the base projects, 0 to ${MAX_PROJECTS}. Never list the base projects: they are always created.`,
   }),
 })
 export const Output = Schema.Struct({ output: Schema.String })
@@ -57,7 +57,7 @@ const guide = [
   "The Society's planner plans its own Society: from the planner project it calls list and generate directly, and it settles models, context and caching with society_plan. The Society's own chat lists and generates too, when the operator works from there.",
   "list and generate work only inside a Society (from its planner project or its chat). There:",
   "Call action=list first for exact team-template and role IDs. When no template fits a project, create the missing role or team with team_forge first, then use its ID.",
-  `generate always creates the base projects: ${Federation.baseProjects.map((item) => item.name).join(", ")}. They are separate projects, not sessions of one project, and you do not list them.`,
+  `generate always creates the base projects. They are separate projects, not sessions of one project, and you do not list them.`,
   `Then call action=generate once with the goal and only the ADDITIONAL projects it needs (0 to ${MAX_PROJECTS}): research, design, marketing, security and so on. Decide yourself: do not ask the operator for names, folders or teams the goal already implies.`,
   "Each project gets its own folder inside the Society's folder, a main Orchestrator, the sessions of its team or role, links to every other project of the Society, and its brief delivered right away.",
 ].join("\n")
@@ -76,7 +76,7 @@ export const Plugin = {
           options: { codemode: false, guide, triggers: ["societ|общест"] },
           description: [
             "Found a Society from a goal, or generate its projects. found works from any chat and creates the Society with its planner, which plans and builds the rest; status, list and generate work only inside a Society, from its planner project or its chat. status reads every project's DoD progress and whether it is working, at no model cost. Actions: found, status, list, generate.",
-            "generate always creates the base projects (planner, architects, coders, testers) plus the additional ones you pass, each in the Society's folder with its Orchestrator and team, links them to each other and delivers every brief.",
+            "generate always creates the base projects plus the additional ones you pass, each in the Society's folder with its Orchestrator and team, links them to each other and delivers every brief.",
           ].join("\n"),
           input: Input,
           output: Output,
@@ -94,6 +94,17 @@ export const Plugin = {
                   ...(input.name?.trim() ? { name: input.name.trim() } : {}),
                   ...(input.directory?.trim() ? { directory: input.directory.trim() } : {}),
                 })
+                // The kickoff is confirmed, not assumed: if the goal never
+                // reached the planner, retry the delivery once (same message
+                // id, so the planner's inbox keeps one copy) and say so —
+                // a Society that looks founded and never builds is worse
+                // than one that reports the failure.
+                let kickoffDelivered = society.generation.kickoffDelivered
+                if (!kickoffDelivered) {
+                  yield* federation.resumeGeneration(society.name).pipe(Effect.ignore)
+                  kickoffDelivered =
+                    (yield* federation.generation(society.name))?.kickoffDelivered ?? false
+                }
                 // The Society's chat is a session of its own: it runs on the model of the chat that founded it,
                 // not on whatever the server would pick for a session without one.
                 const founder = yield* sessions.get(context.sessionID).pipe(Effect.option)
@@ -103,7 +114,9 @@ export const Plugin = {
                 // projects; the chat is left free for the operator.
                 return [
                   `Society "${society.name}" founded in ${society.directory}.`,
-                  `Its planner project (${society.project.id}) has the goal and is planning now; the projects appear as it creates them.`,
+                  kickoffDelivered
+                    ? `Its planner project (${society.project.id}) has the goal and is planning now; the projects appear as it creates them.`
+                    : `Its planner project (${society.project.id}) did NOT receive the goal: it has no live main session, and the retry did not land either. The Society will retry the delivery on startup; check with society_forge status before assuming it is building.`,
                   "Tell the operator the Society is working and where its folder is. Do not create projects yourself and do not repeat the plan.",
                 ].join("\n")
               }
@@ -157,7 +170,11 @@ export const Plugin = {
               const wanted = input.projects ?? []
               if (wanted.length > MAX_PROJECTS)
                 return yield* new ToolFailure({ message: `generate takes at most ${MAX_PROJECTS} additional projects.` })
-              const baseNames = new Set(Federation.baseProjects.map((item) => item.name.toLowerCase()))
+              // The base projects come from the operator's config when it
+              // sets them, the built-in four otherwise — the same source the
+              // Society itself was founded from, not a second hardcoded list.
+              const bases = yield* federation.baseProjects()
+              const baseNames = new Set(bases.map((item) => item.name.toLowerCase()))
 
               // Everything is checked before anything is created, so a typo in the last project's team
               // does not leave the first ones behind.
@@ -195,15 +212,52 @@ export const Plugin = {
               const root = yield* federation.societyRoot(group.name)
               const workerOf = (project: Orchestra.Project, role: Orchestra.Role) => {
                 const choice = Orchestra.workerModels(workerPolicy, role, { favorites, catalog: available })
-                return orchestra.createMember({
-                  project,
-                  agent: role.agent,
-                  title: role.name,
-                  category: role.category,
-                  model: choice.model,
-                  models: choice.models,
+                return orchestra
+                  .createMember({
+                    project,
+                    agent: role.agent,
+                    title: role.name,
+                    category: role.category,
+                    model: choice.model,
+                    models: choice.models,
+                  })
+                  // A worker created after society_plan apply still gets the
+                  // plan the planner set; without this it runs on defaults.
+                  .pipe(Effect.tap((member) => federation.applyStoredPlan(member.id).pipe(Effect.ignore)))
+              }
+              // The roles a team template staffs: its recommended role ids,
+              // or — when it lists none — the roles behind its member agents.
+              // A built-in template opens no roster by itself, so generate
+              // opens these eagerly instead of leaving the project workerless.
+              const templateRoles = (template: Orchestra.Template): ReadonlyArray<Orchestra.Role> => {
+                const byID = new Map(roles.map((role) => [role.id, role]))
+                const fromRoles = (template.roles ?? []).flatMap((id) => {
+                  const role = byID.get(id)
+                  return role ? [role] : []
+                })
+                if (fromRoles.length > 0) return fromRoles
+                return template.members.flatMap((member) => {
+                  const role = roles.find((candidate) => candidate.agent === member.agent)
+                  return role ? [role] : []
                 })
               }
+              // Opens one worker per role of a built-in team template.
+              // Operator-saved templates already opened their roster when
+              // the project was created, so they are left alone here.
+              const openTeamWorkers = Effect.fnUntraced(function* (
+                project: Orchestra.Project,
+                teamID: string | undefined,
+              ) {
+                if (!teamID) return 0
+                const template = templates.find((item) => item.id === teamID)
+                if (!template || template.origin !== "builtin") return 0
+                let count = 0
+                for (const teamRole of templateRoles(template)) {
+                  yield* workerOf(project, teamRole)
+                  count += 1
+                }
+                return count
+              })
               // Typed failures become a value so what was created can still be registered; interruption
               // and defects are not caught and travel on.
               const outcome = yield* generateLocks.withLock(group.name)(
