@@ -21,29 +21,79 @@ interface Entry {
 
 const file = () => path.join(Global.Path.state, "mcp-children.json")
 
+const isEntry = (value: unknown): value is Entry =>
+  typeof value === "object" &&
+  value !== null &&
+  Number.isInteger((value as Entry).pid) &&
+  Number.isInteger((value as Entry).owner) &&
+  typeof (value as Entry).server === "string" &&
+  typeof (value as Entry).command === "string"
+
 const read = (): Entry[] => {
   try {
     const parsed: unknown = JSON.parse(fs.readFileSync(file(), "utf8"))
-    return Array.isArray(parsed) ? (parsed as Entry[]) : []
+    return Array.isArray(parsed) ? parsed.filter(isEntry) : []
   } catch {
     return []
   }
 }
 
+// The registry is read by the next service to decide what to kill, so a half-written
+// file is worse than a missing one: write to a temp file in the same directory and
+// rename it over the registry, so readers only ever see the old file or the new one.
 const write = (entries: readonly Entry[]) => {
   try {
-    fs.mkdirSync(path.dirname(file()), { recursive: true })
-    fs.writeFileSync(file(), JSON.stringify(entries))
+    const target = file()
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    const temporary = path.join(path.dirname(target), `.mcp-children.json.${process.pid}.tmp`)
+    const fd = fs.openSync(temporary, "w")
+    try {
+      fs.writeFileSync(fd, JSON.stringify(entries))
+      fs.fsyncSync(fd)
+    } finally {
+      fs.closeSync(fd)
+    }
+    fs.renameSync(temporary, target)
   } catch {
     // The registry only helps the next start; losing it must never break a running server.
   }
 }
 
-/** Kills a process and everything it started. */
-export const killTree = (pid: number) => {
+/** The process's command line, or undefined when it is gone or cannot be read. */
+const commandLineOf = (pid: number): string | undefined => {
+  try {
+    const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, "utf8")
+    if (cmdline.length > 0) return cmdline.replaceAll("\0", " ").trim()
+  } catch {
+    // No /proc (macOS): fall through to ps.
+  }
+  try {
+    const listed = spawnSync("ps", ["-o", "command=", "-p", String(pid)], {
+      encoding: "utf8",
+      timeout: 5_000,
+    })
+    const line = String(listed.stdout ?? "").trim()
+    return line.length > 0 ? line : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Kills a process and everything it started. When the expected launch command is given,
+ * the process is only killed when its command line still names that command: a pid the
+ * OS reused for an unrelated program must never be killed because the registry is stale.
+ * A process whose command line cannot be read is left alone — failing closed is safer
+ * than killing a stranger.
+ */
+export const killTree = (pid: number, expectedCommand?: string) => {
   if (process.platform === "win32") {
     spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }).on("error", () => {}).unref()
     return
+  }
+  if (expectedCommand !== undefined) {
+    const commandLine = commandLineOf(pid)
+    if (commandLine === undefined || !commandLine.includes(path.basename(expectedCommand))) return
   }
   try {
     process.kill(-pid, "SIGKILL")
@@ -78,7 +128,7 @@ export const reap = () => {
   if (entries.length === 0) return
   write(all.filter((entry) => !entries.includes(entry)))
   if (process.platform !== "win32") {
-    entries.forEach((entry) => killTree(entry.pid))
+    entries.forEach((entry) => killTree(entry.pid, entry.command))
     return
   }
   // A pid can be reused by an unrelated program, so only a process whose command line still names the
