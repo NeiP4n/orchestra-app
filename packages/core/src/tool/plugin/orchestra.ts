@@ -895,18 +895,20 @@ export const Plugin = {
         }
 
               // What the Orchestrator already read while orienting travels with the
-              // task: the worker starts from the same pages instead of paying for
-              // the same reconnaissance a second time. Only this cycle's reads are
-              // attached (the scan stops at the latest operator or wake-up
-              // message), the newest read of a file wins, and the section is
-              // capped so the brief stays a brief.
+              // task, in full: the worker starts from the same pages instead of
+              // paying for the same reconnaissance a second time. Only this
+              // cycle's reads are attached (the scan stops at the latest
+              // operator or wake-up message) and the newest read of a file
+              // wins — but nothing is cut: a capped brief makes the worker
+              // re-read the missing pages, which is exactly the waste this
+              // exists to avoid. Read outputs are already bounded by the
+              // runner, so no second cap belongs here.
               const reconBrief = Effect.fnUntraced(function* () {
                 const messages = yield* sessions
                   .messages({ sessionID: context.sessionID, limit: 60, order: "desc" })
                   .pipe(Effect.orElseSucceed((): SessionMessage.Info[] => []))
                 const seen = new Set<string>()
                 const chunks: string[] = []
-                let total = 0
                 for (const message of messages) {
                   if (message.type === "user" || message.type === "synthetic") break
                   if (message.type !== "assistant") continue
@@ -930,13 +932,8 @@ export const Plugin = {
                       .join("\n")
                     if (!text) continue
                     paths.forEach((path) => seen.add(path))
-                    const chunk = text.length > 8000 ? `${text.slice(0, 8000)}\n…(read output truncated)` : text
-                    if (total + chunk.length > 24000) continue
-                    total += chunk.length
-                    chunks.push(chunk)
-                    if (chunks.length >= 6) break
+                    chunks.push(text)
                   }
-                  if (chunks.length >= 6) break
                 }
                 if (chunks.length === 0) return undefined
                 return [
