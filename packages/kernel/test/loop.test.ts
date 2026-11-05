@@ -28,10 +28,30 @@ const call = (id: string, name = "echo", input: unknown = id): Chunk => ({ type:
 const echo = { name: "echo", run: async (input: unknown) => `echo:${String(input)}` }
 
 describe("kernel loop", () => {
-  test("runs far past any step ceiling and stops when the model stops calling tools", async () => {
+  test("runs far past the default step ceiling when raised, and stops when the model stops calling tools", async () => {
     const turns = [...Array.from({ length: 500 }, (_, index) => [call(`c${index}`)]), [text("finished")]]
-    const events = await collect(run({ transport: scripted("t", turns), tools: [echo], messages: [{ role: "user", text: "go" }] }))
+    const events = await collect(run({ transport: scripted("t", turns), tools: [echo], messages: [{ role: "user", text: "go" }], maxSteps: 600 }))
     expect(events.filter((event) => event.type === "result")).toHaveLength(500)
+    expect(events.at(-1)?.type).toBe("done")
+  })
+
+  test("stops with done at the default 40 steps instead of looping forever", async () => {
+    const turns = Array.from({ length: 500 }, (_, index) => [call(`c${index}`)])
+    const events = await collect(run({ transport: scripted("t", turns), tools: [echo], messages: [{ role: "user", text: "go" }] }))
+    expect(events.filter((event) => event.type === "result")).toHaveLength(40)
+    expect(events.at(-1)?.type).toBe("done")
+  })
+
+  test("respects an explicit maxSteps and still runs the last step's tools", async () => {
+    const events = await collect(
+      run({
+        transport: scripted("t", [[call("a")], [call("b")], [call("c")], [text("done")]]),
+        tools: [echo],
+        messages: [],
+        maxSteps: 2,
+      }),
+    )
+    expect(events.filter((event) => event.type === "result")).toHaveLength(2)
     expect(events.at(-1)?.type).toBe("done")
   })
 
