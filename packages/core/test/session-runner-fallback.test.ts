@@ -342,10 +342,11 @@ const drainPrompt = (sessionID: Session.ID, text: string) =>
   })
 
 const backup = Model.Ref.make({ providerID: Provider.ID.make("fake"), id: Model.ID.make("backup") })
-// The drain tests below expect the rewritten message, not this raw text:
-// `to-session-error.ts` turns a geo-blocked provider answer into the
-// actionable "Google refused this network's location…" message.
+// toSessionError rewrites a geo-blocked refusal into this actionable message; the drain
+// tests below expect the rewritten text, not the raw provider message.
 const invalidRequest = new AIError({ reason: new InvalidRequestError({ message: "User location is not supported" }) })
+const geoBlockedMessage =
+  "Google refused this network's location. Requests leave through a VPN or proxy exit that Google does not serve for this model; switch the exit to another country or connect directly, then retry."
 const contentPolicy = new AIError({ reason: new ContentPolicyError({ message: "The request was blocked" }) })
 const contextOverflow = new AIError({
   reason: new InvalidRequestError({ message: "Maximum context length is 128000 tokens", classification: "context-overflow" }),
@@ -385,7 +386,7 @@ describe("SessionRunnerLLM fallback while draining a session", () => {
       expect(result.messages.at(-1)).toMatchObject({
         type: "assistant",
         finish: "error",
-        error: { type: "provider.invalid-request", message: "Google refused this network's location. Requests leave through a VPN or proxy exit that Google does not serve for this model; switch the exit to another country or connect directly, then retry." },
+        error: { type: "provider.invalid-request", message: geoBlockedMessage },
       })
     }),
   )
@@ -433,8 +434,30 @@ describe("SessionRunnerLLM fallback while draining a session", () => {
       expect(result.messages.at(-1)).toMatchObject({
         type: "assistant",
         finish: "error",
-        error: { type: "provider.invalid-request", message: "Google refused this network's location. Requests leave through a VPN or proxy exit that Google does not serve for this model; switch the exit to another country or connect directly, then retry." },
+        error: { type: "provider.invalid-request", message: geoBlockedMessage },
       })
+    }),
+  )
+
+  it.effect("does not ping-pong back to a model that refused in an earlier step", () =>
+    Effect.gen(function* () {
+      yield* seed({ sessionID: workerSession, model: "worker", models: [backup] })
+      const llm = yield* TestLLM.Service
+      // Step 1: worker refuses, the run switches to backup, backup answers with a tool call
+      // (an unknown tool fails, which still settles the step and starts step 2). Step 2:
+      // backup refuses too — the run must fail honestly instead of switching back to worker.
+      yield* llm.push(
+        Stream.fail(invalidRequest),
+        TestLLM.tool("call-unknown", "echo", { text: "hi" }),
+        Stream.fail(invalidRequest),
+        TestLLM.text("Done", "text-done"),
+      )
+
+      const result = yield* drainPrompt(workerSession, "Do the work")
+
+      expect(Exit.isFailure(result.exit)).toBe(true)
+      expect(result.requested).toEqual(["worker", "backup", "backup"])
+      expect(result.model).toMatchObject({ providerID: "fake", id: "backup" })
     }),
   )
 })
