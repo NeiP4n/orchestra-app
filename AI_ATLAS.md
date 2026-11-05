@@ -246,10 +246,19 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   `maxTokens` (estimated output tokens); usage counts calls and output tokens.
 - `client.ts`: no MCP call runs without a timeout — the execution timeout
   defaults to 5 minutes and is clamped to 30 minutes whatever the config says.
+  Known-slow tools get more from the per-tool table (`executionTimeoutFor`):
+  serena `initial_instructions`/`serena_repl` and deepwiki `ask_question`
+  run 10 minutes; explicit per-server config still wins over the table.
   Transient failures retry for read-only tools and for calls the caller marked
   idempotent (`idempotencyKey`); other calls run exactly once.
 - `index.ts`: a server that dies on its own is restarted up to 3 times with
   growing delays (5s/15s/30s), then stays failed; explicit stops never restart.
+  The circuit breaker (`catalog.ts`, `McpCircuitBreaker`) is wired into the
+  call path: 3 failed calls or connects in a row pause the server (fail fast
+  with a named message instead of hammering it), a successful call or
+  connect clears the pause, and the catalog plugin hides paused servers from
+  session context. Needs-auth is an operator state, not a failure, so it
+  never counts toward the breaker.
 - `instructions.ts`: server instructions are sanitized before they reach the
   model — terminal escapes and control characters stripped, prompt-injection
   lines dropped and named in place, never pasted as-is.
