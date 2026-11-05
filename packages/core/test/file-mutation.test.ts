@@ -204,6 +204,62 @@ describe("FileMutation", () => {
     ),
   )
 
+  it.live("restores the previous content when the atomic rename fails", () =>
+    withTempDir(({ path: directory }) =>
+      Effect.gen(function* () {
+        const targetPath = path.join(directory, "hello.txt")
+        yield* Effect.promise(() => fs.writeFile(targetPath, "before"))
+        const access = yield* FileAccess.Service
+        const target = yield* access.resolve({ path: "hello.txt" })
+        const files = yield* FileMutation.Service
+
+        const result = yield* files.write({ target, content: "after" }).pipe(Effect.exit)
+        expect(result._tag).toBe("Failure")
+        // The torn write never reaches the reader: the old bytes are back.
+        expect(yield* Effect.promise(() => fs.readFile(targetPath, "utf8"))).toBe("before")
+        expect(yield* Effect.promise(() => fs.readdir(directory))).toEqual(["hello.txt"])
+      }).pipe(
+        provide(directory, (files) => ({
+          move: () =>
+            Effect.fail(new Environment.Failed({ path: "hello.txt", cause: new Error("rename failed") })),
+        })),
+      ),
+    ),
+  )
+
+  it.live("steals a stale cross-process lock instead of blocking forever", () =>
+    withTempDir(({ path: directory }) =>
+      Effect.gen(function* () {
+        const targetPath = path.join(directory, "hello.txt")
+        yield* Effect.promise(() => fs.writeFile(targetPath, "before"))
+        // A lockfile from a dead process: our own pid, but untouched for a minute.
+        const lockPath = `${targetPath}.orchestra-lock`
+        yield* Effect.promise(() => fs.writeFile(lockPath, `${process.pid}\n${Date.now() - 60_000}\n`))
+        yield* Effect.promise(() => fs.utimes(lockPath, new Date(Date.now() - 60_000), new Date(Date.now() - 60_000)))
+        const access = yield* FileAccess.Service
+        const target = yield* access.resolve({ path: "hello.txt" })
+        const files = yield* FileMutation.Service
+
+        yield* files.write({ target, content: "after" })
+        expect(yield* Effect.promise(() => fs.readFile(targetPath, "utf8"))).toBe("after")
+        expect(yield* Effect.promise(() => fs.readdir(directory))).toEqual(["hello.txt"])
+      }).pipe(provide(directory)),
+    ),
+  )
+
+  it.live("leaves no temp file or lock file behind after a write", () =>
+    withTempDir(({ path: directory }) =>
+      Effect.gen(function* () {
+        const access = yield* FileAccess.Service
+        const target = yield* access.resolve({ path: "hello.txt" })
+        const files = yield* FileMutation.Service
+
+        yield* files.write({ target, content: "hello" })
+        expect(yield* Effect.promise(() => fs.readdir(directory))).toEqual(["hello.txt"])
+      }).pipe(provide(directory)),
+    ),
+  )
+
   it.live("allows distinct absolute targets to proceed independently", () =>
     withTempDir(({ path: directory }) =>
       Effect.gen(function* () {
@@ -212,14 +268,24 @@ describe("FileMutation", () => {
         const secondFinished = yield* Deferred.make<void>()
         const secondPath = path.join(directory, "second.txt")
         let writes = 0
-        const filesystem = instrumentWrites((write) =>
-          ++writes === 1
-            ? Deferred.succeed(firstStarted, undefined).pipe(
-                Effect.andThen(Deferred.await(releaseFirst)),
-                Effect.andThen(write),
-              )
-            : write.pipe(Effect.andThen(Deferred.succeed(secondFinished, undefined))),
-        )
+        // Writes land atomically: files.write goes to a temp file and only the
+        // rename makes the content visible, so "second finished" is signalled
+        // by the rename of second.txt, not by its temp write.
+        const filesystem: EnvironmentFilesTransform = (files) => ({
+          write: (target, content) =>
+            ++writes === 1
+              ? Deferred.succeed(firstStarted, undefined).pipe(
+                  Effect.andThen(Deferred.await(releaseFirst)),
+                  Effect.andThen(files.write(target, content)),
+                )
+              : files.write(target, content),
+          move: (from, to) =>
+            files.move(from, to).pipe(
+              Effect.andThen(() =>
+                to === secondPath ? Deferred.succeed(secondFinished, undefined) : Effect.void,
+              ),
+            ),
+        })
 
         yield* Effect.gen(function* () {
           const access = yield* FileAccess.Service
