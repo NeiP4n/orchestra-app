@@ -27,7 +27,7 @@ it.live("operator projects own the sessions under their directory and one main s
       fs: { filewatcher: false },
       models: { fetch: false },
       config: { directory: tmp.path, project: false, content: "{}" },
-    })
+    }, { allowUnauthenticated: true })
     const call = (route: string, method = "GET", body?: unknown) =>
       Effect.promise(async () => {
         const response = await handler(
@@ -107,7 +107,7 @@ it.live("a built-in template opens only the orchestra, a saved template opens it
       fs: { filewatcher: false },
       models: { fetch: false },
       config: { directory: tmp.path, project: false, content: "{}" },
-    })
+    }, { allowUnauthenticated: true })
     const call = (route: string, method = "GET", body?: unknown) =>
       Effect.promise(async () => {
         const response = await handler(

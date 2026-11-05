@@ -165,6 +165,14 @@ export const Plugin = {
         case "verify": {
           const id = yield* need(input.id, "id")
           const command = yield* Dod.command({ directory, id, owner })
+          // The command comes from dod.yaml, a file anyone can edit — including a
+          // foreign repository. A planted check that pipes into a shell or substitutes
+          // a command is refused here, before permission or the shell ever see it.
+          const problem = Dod.verificationProblem(command)
+          if (problem)
+            return yield* new ToolFailure({
+              message: `Refusing to run ${id}'s verification command: it uses ${problem}, which a check never needs. A verification command must be a plain check (tests, typecheck, build).`,
+            })
           // The check is a shell command from a file anyone can edit, so the shell policy decides.
           yield* permission.assert({
             action: "shell",

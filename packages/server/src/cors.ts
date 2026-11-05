@@ -8,10 +8,13 @@ export const CorsConfig = Context.Reference<CorsOptions | undefined>("@orchestra
   defaultValue: () => undefined,
 })
 
+// Only explicitly trusted origins may call the API from a browser. In particular
+// any page on localhost is NOT trusted by default: a local page (a dev server, a
+// preview, a malicious site the operator opened) could otherwise call the API
+// with the operator's ambient credentials. A localhost origin that should be
+// allowed belongs in the `cors` config list, like any other origin.
 export function isAllowedCorsOrigin(input: string | undefined, opts?: CorsOptions) {
   if (!input) return true
-  if (input.startsWith("http://localhost:")) return true
-  if (input.startsWith("http://127.0.0.1:")) return true
   if (input.startsWith("oc://renderer")) return true
   if (input === "tauri://localhost" || input === "http://tauri.localhost" || input === "https://tauri.localhost")
     return true

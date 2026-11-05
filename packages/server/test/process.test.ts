@@ -12,7 +12,8 @@ it.live("authenticates API requests behind the frontend transform while allowing
         hostname: "127.0.0.1",
         port: 0,
         password: "secret",
-        cors: ["http://192.168.1.10:3001", "https://example.com"],
+        // localhost is trusted here only because this test lists it explicitly.
+        cors: ["http://192.168.1.10:3001", "https://example.com", "http://localhost:3000"],
         app: { version: "test-version" },
         database: { path: ":memory:" },
       },

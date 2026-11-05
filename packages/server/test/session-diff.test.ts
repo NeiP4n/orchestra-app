@@ -60,6 +60,7 @@ it.live("serves turn diffs by user message with range validation", () =>
         models: { fetch: false },
       },
       {
+        allowUnauthenticated: true,
         overrides: [
           SessionExecution.node.replace(
             makeGlobalNode({ service: SessionExecution.Service, layer: execution, deps: [Bus.node] }),

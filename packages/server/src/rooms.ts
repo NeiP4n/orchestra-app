@@ -12,7 +12,7 @@ const CODE_TTL = Duration.minutes(10)
 // Unambiguous characters only, so a code read aloud or typed on a phone survives.
 const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 const CODE_LENGTH = 8
-const TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60
+const TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60
 
 export interface Interface {
   readonly issueCode: (roomID: Room.ID) => Effect.Effect<Room.JoinCode>
