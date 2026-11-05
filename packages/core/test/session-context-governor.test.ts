@@ -89,7 +89,7 @@ describe("context governor", () => {
     expect(JSON.stringify(governed).length).toBeLessThan(JSON.stringify(messages).length / 2)
   })
 
-  test("never elides errors, decisions or short output", () => {
+  test("never elides errors, decisions, the rulebook, or short output", () => {
     const govern = SessionContextGovernor.make()
     const messages = [
       user("go"),
@@ -97,14 +97,17 @@ describe("context governor", () => {
       result("e", big, "read", "error"),
       call("q", "question"),
       result("q", big, "question"),
+      call("r", "rules"),
+      result("r", big, "rules"),
       call("t"),
       result("t", "short"),
       ...conversation(6).slice(1),
     ]
     const governed = govern({ sessionID: "s", key: "k", messages, policy })
-    const [error, question, short] = resultsOf(governed)
+    const [error, question, rules, short] = resultsOf(governed)
     expect(error.result.value).toBe(big)
     expect(question.result.value).toBe(big)
+    expect(rules.result.value).toBe(big)
     expect(short.result.value).toBe("short")
   })
 

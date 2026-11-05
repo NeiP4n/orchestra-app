@@ -46,7 +46,9 @@ export const policy = (): Policy | undefined => {
 }
 
 // Results that carry decisions, instructions or the team's state; the model must keep seeing them.
-const KEPT = new Set(["question", "skill", "dod", "tools"])
+// `rules` is here on purpose: a `rules list` answer is the standing rulebook, and eliding it
+// would let the model forget a rule it was told to follow for the rest of the session.
+const KEPT = new Set(["question", "skill", "dod", "tools", "rules"])
 // About 3.5 characters per token across prose, JSON schema and code, as the request report assumes.
 const CHARS_PER_TOKEN = 3.5
 const MEDIA_CHARS = 1_500
