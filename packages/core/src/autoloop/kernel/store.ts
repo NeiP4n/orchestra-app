@@ -3,7 +3,7 @@ export * as AutoloopStore from "./store.js"
 import { sql } from "drizzle-orm"
 import { Effect, Schema, Stream } from "effect"
 import { Database } from "../../database/database.js"
-import { diff, evolve } from "./evolve.js"
+import { diff, evolve, rebuild, snapshot } from "./evolve.js"
 import type { View } from "./evolve.js"
 import { FORMAT, META_FORMAT, META_LAST_SEQ } from "./schema.js"
 import type { AutoloopFact } from "./schema.js"
@@ -162,4 +162,53 @@ export function commit(facts: ReadonlyArray<AutoloopFact>, expectedSeq?: number)
 /** `commit` without an expected sequence: reads the latest sequence inside the same transaction. */
 export function commitLatest(facts: ReadonlyArray<AutoloopFact>) {
   return commit(facts)
+}
+
+/**
+ * Rewrite the stored projections from the journal in one transaction. The
+ * service runs this at start when the stored kernel format no longer
+ * matches `FORMAT`: the journal is the source of truth and the projections
+ * are disposable, so a format change rebuilds them instead of trusting rows
+ * folded by older kernel code. Returns the rebuilt view and latest sequence.
+ */
+export function rebuildProjections() {
+  return Effect.gen(function* () {
+    const { db } = yield* Database.Service
+    const facts = yield* readLog()
+    const view = rebuild(facts)
+    const lastRefs = new Map<string, Array<{ collection: string; key: string }>>()
+    for (const fact of facts) {
+      if (fact.collection !== undefined && fact.key !== undefined) {
+        lastRefs.set(`${fact.collection}:${fact.key}`, fact.refs ?? [])
+      }
+    }
+    return yield* db.transaction((tx) =>
+      Effect.gen(function* () {
+        const lastSeqRow = yield* tx.get<{ seq: number | null }>(sql`SELECT MAX(seq) AS seq FROM autoloop_facts`)
+        yield* tx.run(sql`DELETE FROM autoloop_projections`)
+        yield* tx.run(sql`DELETE FROM autoloop_projection_refs`)
+        yield* tx.run(sql`DELETE FROM autoloop_projection_meta`)
+        for (const { collection, key, data } of snapshot(view)) {
+          yield* tx.run(sql`
+            INSERT INTO autoloop_projections (collection, key, data)
+            VALUES (${collection}, ${key}, ${JSON.stringify(data)})
+          `)
+          for (const ref of lastRefs.get(`${collection}:${key}`) ?? []) {
+            yield* tx.run(sql`
+              INSERT OR IGNORE INTO autoloop_projection_refs (collection, key, ref_collection, ref_key)
+              VALUES (${collection}, ${key}, ${ref.collection}, ${ref.key})
+            `)
+          }
+        }
+        const lastSeq = lastSeqRow?.seq ?? 0
+        yield* tx.run(sql`
+          INSERT INTO autoloop_projection_meta (key, value) VALUES (${META_LAST_SEQ}, ${String(lastSeq)})
+        `)
+        yield* tx.run(sql`
+          INSERT INTO autoloop_projection_meta (key, value) VALUES (${META_FORMAT}, ${FORMAT})
+        `)
+        return { view, lastSeq }
+      }),
+    )
+  })
 }

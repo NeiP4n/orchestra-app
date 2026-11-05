@@ -2,6 +2,7 @@ export * as ServerProcess from "./process"
 
 import { NodeHttpServer } from "@effect/platform-node"
 import { Bus } from "@orchestra/core/bus"
+import { Autoloop } from "@orchestra/core/autoloop/service"
 import { SessionRestart } from "@orchestra/core/session/execution/restart"
 import { Federation } from "@orchestra/core/federation"
 import { Orchestra } from "@orchestra/core/orchestra"
@@ -117,6 +118,12 @@ export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
         Context.get(context, Federation.Service),
       ).pipe(Effect.provideService(Scope.Scope, applicationScope))
     }
+    // The autoloop clock rises with the server and falls with it: its loop
+    // lives in the application scope, and its state is the journal, so a
+    // restart resumes the runs instead of losing them.
+    yield* Context.get(context, Autoloop.Service)
+      .start()
+      .pipe(Effect.provideService(Scope.Scope, applicationScope))
     yield* Ref.set(application, Option.some(Context.get(context, HttpRouter.HttpRouter).asHttpEffect()))
     yield* status.ready
     const bus = Context.get(context, Bus.Service)
