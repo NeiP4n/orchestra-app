@@ -11,6 +11,7 @@ import { Bom } from "@orchestra/util/bom"
 import { Environment } from "./environment/index.js"
 import type { Files } from "./environment/index.js"
 import type { FileAccess } from "./file-access.js"
+import { Journal } from "./journal.js"
 
 export type Target = Pick<FileAccess.Target, "absolute" | "resource">
 
@@ -204,14 +205,28 @@ const layer = Layer.effect(
           if (previous !== undefined)
             yield* environment.files.write(target.absolute, previous).pipe(Effect.ignore)
         })
+        // A failed write is an error worth keeping: the rollback restores the
+        // bytes, and the journal keeps the fact that it happened and why.
+        const failWrite = (error: Environment.Failed | Environment.NotFound | Environment.WrongKind) =>
+          rollback.pipe(
+            Effect.andThen(
+              Journal.recordError({
+                source: "file-mutation",
+                kind: "write-failed",
+                message: `Write to ${target.absolute} failed (${error._tag}); previous content restored`,
+                detail: { target: target.absolute },
+              }),
+            ),
+            Effect.andThen(Effect.fail(toFailed(error))),
+          )
         if (isSymlink) {
-          yield* environment.files.write(target.absolute, bytes).pipe(Effect.catch((error) => rollback.pipe(Effect.andThen(Effect.fail(toFailed(error))))))
+          yield* environment.files.write(target.absolute, bytes).pipe(Effect.catch(failWrite))
           return
         }
         yield* Effect.gen(function* () {
           yield* environment.files.write(temp, bytes)
           yield* environment.files.move(temp, target.absolute)
-        }).pipe(Effect.catch((error) => rollback.pipe(Effect.andThen(Effect.fail(toFailed(error))))))
+        }).pipe(Effect.catch(failWrite))
       })
 
     const write = Effect.fn("FileMutation.write")((input: WriteInput) =>

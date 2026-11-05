@@ -13,6 +13,7 @@ import type { Agent } from "@orchestra/schema/agent"
 import { Cause, Clock, Data, Effect, Exit, Fiber, Option, Stream } from "effect"
 import { SessionError } from "@orchestra/schema/session-error"
 import { Bus } from "../../bus.js"
+import { Journal } from "../../journal.js"
 import { Permission } from "../../permission.js"
 import { Snapshot } from "../../snapshot.js"
 import { Tool } from "../../tool.js"
@@ -236,6 +237,16 @@ export const make = Effect.gen(function* () {
               : undefined
         if (toolFailure) yield* publisher.failUnsettledTools(toolFailure)
         if (interrupted) yield* publisher.failAssistant(STEP_INTERRUPTED)
+        // The receipt for a break after output started: the partial text is
+        // already flushed durably and the step failed, so the only thing left
+        // is to say so in the error journal instead of leaving silence.
+        if (publisher.record().outputStarted && (interrupted || llmError !== undefined))
+          yield* Journal.recordError({
+            source: "session-runner",
+            kind: "stream-interrupted",
+            message: llmError?.message ?? "Step interrupted after output started",
+            sessionID: input.sessionID,
+          })
 
         // All local fibers have joined; only provider-hosted results can still be missing.
         if (llmError || (Exit.isSuccess(stream) && !recorded.providerFailed)) {
