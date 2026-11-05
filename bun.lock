@@ -127,6 +127,7 @@
         "@opentui/core": "catalog:",
         "@opentui/solid": "catalog:",
         "@orchestra/client": "workspace:*",
+        "@orchestra/core": "workspace:*",
         "@orchestra/plugin": "workspace:*",
         "@orchestra/schema": "workspace:*",
         "@orchestra/server": "workspace:*",
