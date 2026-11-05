@@ -129,6 +129,11 @@ export const Plugin = {
           }),
         )
       }
+      // Validate every step before any of them runs: a missing argument is a
+      // typed ToolFailure (taxonomy G4), not a throw halfway through the list
+      // after earlier steps already moved the mouse.
+      const invalid = validateSteps(steps)
+      if (invalid) return yield* Effect.fail(new ToolFailure({ message: invalid }))
       // Every desktop tool shares one permission, so a role grants or denies the computer as a whole.
       yield* permission
         .assert({
@@ -274,6 +279,24 @@ export const Plugin = {
       }),
     )
   }),
+}
+
+/**
+ * Every step's required arguments, checked before any step runs so a bad call
+ * fails as one typed ToolFailure (taxonomy G4) instead of throwing halfway
+ * through the list. `run` keeps its own throws as a backstop for direct callers.
+ */
+export function validateSteps(steps: readonly StepInput[]): string | undefined {
+  for (const [index, step] of steps.entries()) {
+    const label = steps.length > 1 ? `step ${index + 1} (${step.action})` : step.action
+    if (step.action === "move" && (step.x === undefined || step.y === undefined))
+      return `${label}: pass x and y`
+    if (step.action === "type" && !step.text) return `${label}: pass text`
+    if (step.action === "keys" && !step.keys) return `${label}: pass keys, e.g. ctrl+s`
+    if (step.action === "focus" && !step.text) return `${label}: pass part of the window title as text`
+    if (step.action === "open" && !step.text) return `${label}: pass the app, file, folder or URL to open as text`
+  }
+  return undefined
 }
 
 export async function run(host: Host, step: StepInput, scale: { x: number; y: number } | undefined): Promise<string | Shot> {

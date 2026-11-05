@@ -245,10 +245,10 @@ describe("provider error classification", () => {
     expect(failure._tag).toBe("InvalidRequest")
   })
 
-  test("classifies transient client statuses as provider internal", () => {
+  test("classifies transient 408 as provider internal and deterministic 409 as invalid request", () => {
     expect([408, 409].map((status) => classifyProviderFailure({ message: `HTTP ${status}`, status })._tag)).toEqual([
       "ProviderInternal",
-      "ProviderInternal",
+      "InvalidRequest",
     ])
   })
 

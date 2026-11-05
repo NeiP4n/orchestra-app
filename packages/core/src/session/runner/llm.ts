@@ -33,6 +33,7 @@ import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import { llmClient } from "../../effect/app-node-platform.js"
 import { StepFailedError } from "../error.js"
 import { SessionRunnerRetry } from "./retry.js"
+import { MAIN_SESSION_FALLBACK_MODELS } from "./error-taxonomy.js"
 import { SessionStep } from "./step.js"
 import { ToolOutput } from "../../tool-output.js"
 import { Plugin } from "../../plugin.js"
@@ -343,17 +344,25 @@ const layer = Layer.effect(
 
     // A worker whose provider refuses the current model outright continues on the next model
     // the operator gave it (`orchestra.worker`, or the role's own list). Those models are
-    // snapshotted on the session at creation; the project's main session carries none and so
-    // never switches. Waiting cannot clear either a refusal or a spent free-tier address.
+    // snapshotted on the session at creation; the project's main session carries none, so it
+    // falls back to the working Anymodel models instead — but only inside the provider it
+    // already runs on, so a fallback can never invent a provider that does not exist. A
+    // refusal, a rejected request or a spent free-tier address cannot be waited out. The
+    // switch is announced in the session itself: a silent model swap is an error, not a fix.
     const nextModel = Effect.fn("SessionRunner.nextModel")(function* (
       loaded: SessionContext.Loaded,
       cause: AIError,
       error: SessionError.Error,
       refused: Set<string>,
     ) {
+      const listed = Orchestra.sessionModels(loaded.session.metadata)
+      const mainFallbacks =
+        listed.length === 0 && String(loaded.model.ref.providerID) === "anymodel"
+          ? MAIN_SESSION_FALLBACK_MODELS.map((ref) => Model.Ref.parse(ref))
+          : []
       const next = fallbackModel({
         cause,
-        models: Orchestra.sessionModels(loaded.session.metadata),
+        models: [...listed, ...mainFallbacks],
         current: loaded.model.ref,
         refused,
       })
@@ -365,6 +374,13 @@ const layer = Layer.effect(
         next,
         message: error.message,
       })
+      if (listed.length === 0)
+        yield* bus.publish(SessionEvent.Synthetic, {
+          sessionID: loaded.session.id,
+          text: `Провайдер отказался от модели ${loaded.model.ref.id}; сессия продолжается на запасной модели ${next.id} (та же Anymodel). Это не тихая подмена: если запасная тоже откажет, ошибка уйдёт на эскалацию.`,
+          description: "Model fallback",
+          metadata: { previous: `${loaded.model.ref.providerID}/${loaded.model.ref.id}`, next: `${next.providerID}/${next.id}` },
+        })
       yield* bus.publish(SessionEvent.ModelSelected, {
         sessionID: loaded.session.id,
         model: next,
@@ -435,13 +451,14 @@ const layer = Layer.effect(
 const modelKey = (model: Model.Ref) => `${model.providerID}/${model.id}#${model.variant ?? ""}`
 
 /**
- * The next model a worker may try after its provider refused the current one outright. A
+ * The next model a session may try after its provider refused the current one outright. A
  * failure the retry policy can wait out is left to it; a refusal, a rejected request or a
- * spent free-tier address cannot be waited out, so the worker continues on another model the
- * operator gave it. A session with no such list (the project's main session) returns nothing.
- * A content policy refusal belongs to the request, not to the model, so another model would
- * only dodge the filter. A context overflow that survived compaction is the task's own size:
- * another model hides it instead of reporting it, so the step fails honestly.
+ * spent free-tier address cannot be waited out, so the session continues on another model:
+ * the operator-given list for a worker, the working-Anymodel list for a main session (see
+ * `MAIN_SESSION_FALLBACK_MODELS`; `anymodel-v4.1-flash` is dead and never listed). A content
+ * policy refusal belongs to the request, not to the model, so another model would only dodge
+ * the filter. A context overflow that survived compaction is the task's own size: another
+ * model hides it instead of reporting it, so the step fails honestly.
  */
 export function fallbackModel(input: {
   readonly cause: AIError
