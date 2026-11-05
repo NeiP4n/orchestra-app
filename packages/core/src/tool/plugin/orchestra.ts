@@ -239,6 +239,8 @@ export interface McpAssignment {
   readonly budgetEpoch: string | null
   /** When this assignment was stamped (epoch milliseconds). */
   readonly assignedAt: number
+  /** MCP servers this assignment denied with generated permission rules, so the next dispatch can remove exactly those rules instead of letting them pile up on a reused worker. Absent on records stamped before this was tracked. */
+  readonly deniedServers?: ReadonlyArray<string>
 }
 
 /** Read a session's MCP assignment record out of its metadata; undefined when never assigned. */
@@ -269,6 +271,9 @@ export function mcpAssignmentOf(metadata: Record<string, unknown> | undefined): 
     explicit: record.explicit === true,
     budgetEpoch: typeof record.budgetEpoch === "string" ? record.budgetEpoch : null,
     assignedAt: record.assignedAt,
+    ...(Array.isArray(record.deniedServers) && record.deniedServers.every((item) => typeof item === "string")
+      ? { deniedServers: record.deniedServers as string[] }
+      : {}),
   }
 }
 /** Default per-task MCP call cap for a role that may change files. */
@@ -387,19 +392,41 @@ export function resolveMcpLimit(role: RoleMcpShape, requested?: McpLimitRequest)
 
 /**
  * Permission rules denying every known MCP server outside the limit's
- * allowlist. Rules are evaluated last-match-wins, so appending these to a
- * session's ruleset closes the servers it names without touching anything
- * else. A server nobody knows about cannot be named here; the numeric caps
- * and any server discovered later are the MCP runtime's side of the limit,
- * read from the session metadata stamp.
+ * allowlist. Rules are evaluated last-match-wins, so these close the servers
+ * they name without touching anything else. A server nobody knows about
+ * cannot be named here; the numeric caps and any server discovered later are
+ * the MCP runtime's side of the limit, read from the session metadata stamp.
+ * Each dispatch replaces the previous assignment's generated rules with a
+ * fresh set (see `withoutMcpDenyRules`): appending here would let the denies
+ * of every past task pile up on a reused worker forever.
  */
 export function mcpDenyRules(limit: McpLimit, knownServers: ReadonlyArray<string>): Permission.Ruleset {
   if (limit.servers === "all") return []
   const allowed = new Set(limit.servers)
-  return [...new Set(knownServers)]
-    .filter((server) => !allowed.has(server))
+  return denyRulesForServers([...new Set(knownServers)].filter((server) => !allowed.has(server)))
+}
+
+/** The deny rules for exactly these servers, in a stable order. */
+export function denyRulesForServers(servers: ReadonlyArray<string>): Permission.Ruleset {
+  return [...new Set(servers)]
     .toSorted()
     .map((server) => ({ action: `${server}_*`, resource: "*", effect: "deny" as const }))
+}
+
+/**
+ * A ruleset with exactly the generated deny rules removed: the ones a
+ * previous MCP assignment put there, identified by value. Anything the
+ * operator set by hand — or a rule for a server the previous assignment
+ * never denied — stays, so a reused worker's next task starts from the
+ * operator's rules plus the new assignment, not from every task it ever ran.
+ */
+export function withoutMcpDenyRules(
+  permissions: Permission.Ruleset,
+  generated: Permission.Ruleset,
+): Permission.Ruleset {
+  if (generated.length === 0) return permissions
+  const doomed = new Set(generated.map((rule) => `${rule.action}\n${rule.resource}\n${rule.effect}`))
+  return permissions.filter((rule) => !doomed.has(`${rule.action}\n${rule.resource}\n${rule.effect}`))
 }
 
 /** The one line at the top of a worker's task brief stating the MCP limit it was handed. */
@@ -1018,10 +1045,10 @@ export const Plugin = {
                 ].toSorted()
               })
               // Distribute the MCP limit the Orchestrator passed for this task: checked
-              // against the role's ceiling, enforced by appending deny rules for the
-              // servers outside the allowlist to the session's ruleset (last match
-              // wins), stamped on the session metadata, and returned so the caller
-              // can state it at the top of the task brief. A dispatch to a role
+              // against the role's ceiling, enforced by replacing the previous task's
+              // generated deny rules for the servers outside the allowlist with the new
+              // set (last match wins), stamped on the session metadata, and returned so
+              // the caller can state it at the top of the task brief. A dispatch to a role
               // session without an `mcp` field is refused (see the gate below).
               const distributeMcp = Effect.fnUntraced(function* (
                 sessionID: SessionSchema.ID,
@@ -1073,10 +1100,32 @@ export const Plugin = {
                 const resolution = resolveMcpLimit(role, input.mcp)
                 if (!resolution.ok) return yield* new ToolFailure({ message: resolution.message })
                 const limit = resolution.limit
-                const deny = mcpDenyRules(limit, yield* knownServers())
-                if (deny.length > 0)
+                // The previous task's generated denies come out before the
+                // new ones go in: a reused worker otherwise keeps every
+                // task's denies forever. Which servers the previous dispatch
+                // denied is stamped on the session (records from before that
+                // fall back to recomputing from the previous allowlist); a
+                // rule the operator set by hand is never in that set, so it
+                // stays. The write happens whenever the ruleset actually
+                // changes — including when the new task allows everything and
+                // the old denies simply come off.
+                const known = yield* knownServers()
+                const previous = mcpAssignmentOf(session.metadata)
+                const previousDeny =
+                  previous === undefined
+                    ? []
+                    : previous.deniedServers !== undefined
+                      ? denyRulesForServers(previous.deniedServers)
+                      : mcpDenyRules(previous, known)
+                const deniedServers =
+                  limit.servers === "all"
+                    ? []
+                    : [...new Set(known)].filter((server) => !limit.servers.includes(server)).toSorted()
+                const deny = denyRulesForServers(deniedServers)
+                const permissions = [...withoutMcpDenyRules(session.permissions ?? [], previousDeny), ...deny]
+                if (JSON.stringify(permissions) !== JSON.stringify(session.permissions ?? []))
                   yield* sessions
-                    .setPermissions({ sessionID, permissions: [...(session.permissions ?? []), ...deny] })
+                    .setPermissions({ sessionID, permissions })
                     .pipe(
                       Effect.mapError(
                         (error) => new ToolFailure({ message: `Could not apply the MCP limit to ${sessionID}`, error }),
@@ -1102,6 +1151,9 @@ export const Plugin = {
                         explicit: true,
                         budgetEpoch,
                         assignedAt: Date.now(),
+                        // The servers this dispatch denied, so the next one
+                        // removes exactly these generated rules and no others.
+                        deniedServers: [...deniedServers],
                       } as Schema.Json,
                     },
                   })
