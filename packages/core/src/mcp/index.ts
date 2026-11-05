@@ -171,6 +171,10 @@ export const layer = (options?: Options) =>
       const credentials = yield* Credential.Service
       const sessions = yield* SessionStore.Service
       const database = yield* Database.Service
+      // The circuit breaker (./catalog.ts) is the one live copy: the service
+      // records every connect/call outcome on it, and the catalog plugin
+      // hides tripped servers from session context from the same state.
+      const { circuitBreaker } = yield* Effect.promise(() => import("./catalog.js"))
       const root = yield* Effect.scope
       const fork = yield* FiberSet.makeRuntime<never, void, never>()
 
@@ -558,6 +562,10 @@ export const layer = (options?: Options) =>
             entry.tools = result.value.tools.map((tool) => toTool(name, entry, tool))
             entry.prompts = []
             entry.status = { status: "connected" }
+            // A connect that works clears the breaker's failure count: a
+            // server the operator fixed (or that recovered on its own) is
+            // usable again immediately, not after its old failures age out.
+            circuitBreaker.recordSuccess(name)
             watch(name, entry, result.value.connection)
             yield* Effect.logInfo("mcp connected", { server: name, tools: entry.tools.length })
             // The tool registry reads on this event; a late-connecting server has no other way to appear.
@@ -574,6 +582,12 @@ export const layer = (options?: Options) =>
             error instanceof McpClient.NeedsAuthError
               ? { status: "needs_auth", error: error.message }
               : { status: "failed", error: error instanceof Error ? error.message : String(error) }
+          // A failed connect counts toward the breaker like a failed call:
+          // three dead servers in a row pause the server instead of letting
+          // every session pay a fresh startup timeout for it. Needs-auth is
+          // an operator state, not a dead server, so it never counts.
+          if (!(error instanceof McpClient.NeedsAuthError))
+            circuitBreaker.recordFailure(name, error instanceof Error ? error.message : String(error))
           yield* Effect.logWarning("mcp connect failed", { server: name, status: entry.status })
           yield* bus.publish(McpEvent.StatusChanged, { server: name })
         }).pipe(
@@ -781,13 +795,32 @@ export const layer = (options?: Options) =>
               tool: input.name,
               message: unavailable(target.name, target.entry.status),
             })
+          // A server that failed its last calls in a row is paused by the
+          // circuit breaker: fail fast here instead of paying another
+          // startup/execution timeout hammering it. The message names the
+          // pause and the way out (another server, or reconnect), so the
+          // caller can fall back instead of retrying the same dead server.
+          if (!circuitBreaker.isAvailable(target.name)) {
+            const state = circuitBreaker.getState(target.name)
+            return yield* new ToolCallError({
+              server: target.name,
+              tool: input.name,
+              message: `MCP server "${target.name}" is paused by the circuit breaker after ${state.consecutiveFailures} failed calls${state.lastError ? ` (last error: ${state.lastError})` : ""}. Use another server for this job, or reconnect it from /mcps; a successful reconnect clears the pause.`,
+            })
+          }
           // Every dispatch feeds the persistent rating (success or failure,
           // latency, output size) and the session's output-token accounting.
           // Best-effort and silent: a bookkeeping failure never fails the
           // call it describes.
           const startedAt = Date.now()
-          const recordOutcome = (ok: boolean, outputTokens = 0) =>
+          const recordOutcome = (ok: boolean, outputTokens = 0, errorMessage?: string) =>
             Effect.gen(function* () {
+              // The same outcome drives the circuit breaker: a transport
+              // failure counts, a tool answering with an error does not —
+              // that call reached the server and returned, so the server
+              // is alive. A success clears the failure count outright.
+              if (ok) circuitBreaker.recordSuccess(target.name, Date.now() - startedAt)
+              else circuitBreaker.recordFailure(target.name, errorMessage)
               yield* McpRatings.record(database.db, target.name, {
                 ok,
                 latencyMs: Date.now() - startedAt,
@@ -806,7 +839,7 @@ export const layer = (options?: Options) =>
             }),
           ).pipe(
             Effect.tap((res) => recordOutcome(true, McpBudget.estimateOutputTokens(res.content))),
-            Effect.tapError(() => recordOutcome(false)),
+            Effect.tapError((error) => recordOutcome(false, 0, error.message)),
             Effect.mapError(
               (error) =>
                 new ToolCallError({
