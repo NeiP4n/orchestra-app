@@ -19,6 +19,7 @@ import { Rules } from "@orchestra/core/rules"
 import { SessionPlan } from "@orchestra/core/session/plan"
 import { Society } from "@orchestra/core/society"
 import { Session } from "@orchestra/core/session"
+import { Rules } from "@orchestra/core/rules"
 import { SessionExecution } from "@orchestra/core/session/execution"
 import { SessionHold } from "@orchestra/core/session/hold"
 import { KV } from "@orchestra/core/kv"
@@ -835,6 +836,38 @@ describe("Federation", () => {
         expect(status.missing).toEqual([])
       }),
     120_000,
+  )
+
+  it.live(
+    "hands the Society's rules to every member project at creation",
+    () =>
+      Effect.gen(function* () {
+        const federation = yield* Federation.Service
+        const orchestra = yield* Orchestra.Service
+        const kv = yield* KV.Service
+        const root = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-society-rules-")))
+
+        const added = yield* Rules.add(kv, Rules.societyScope("RulesTest"), {
+          text: "Every project writes its API contract first.",
+          by: "operator",
+        })
+        expect(added.rule).toBeDefined()
+        expect(yield* Rules.list(kv, Rules.societyScope("RulesTest"))).toHaveLength(1)
+        const created = yield* federation
+          .createSociety({ goal: "", name: "RulesTest", directory: root.path, team: "system" })
+          .pipe(Effect.timeoutOption("30 seconds"))
+        expect(Option.isSome(created)).toBe(true)
+        const group = (yield* federation.groups()).find((item) => item.name === "RulesTest")!
+        expect(group.projects).toHaveLength(2)
+        // Both the planner and the team project start with the Society's rules in their inbox.
+        for (const id of group.projects) {
+          const project = (yield* orchestra.projects()).find((item) => item.id === id)!
+          const inbox = yield* texts(project)
+          expect(inbox.some((text) => text.includes("Every project writes its API contract first."))).toBe(true)
+          expect(inbox.some((text) => text.includes("<society-rules"))).toBe(true)
+        }
+      }),
+    60_000,
   )
 
   it.live(

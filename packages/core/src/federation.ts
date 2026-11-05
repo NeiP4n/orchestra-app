@@ -1518,6 +1518,13 @@ const layer: Layer.Layer<
         // A goal is not unique, so a taken name gets a number instead of an error.
         let name = base
         for (let attempt = 2; taken.has(name); attempt++) name = `${base} ${attempt}`
+        // The Society's standing rules are read before anything is created: a rulebook that
+        // cannot be read must fail the creation here, not hand its projects an empty rulebook.
+        const societyRules = yield* Rules.listStrict(kv, Rules.societyScope(name)).pipe(
+          Effect.mapError(
+            (error) => new FederationError({ message: `Could not read the rules of Society "${name}": ${String(error)}` }),
+          ),
+        )
         // The folder is the operator's choice, so it must be a full path they can find again.
         const chosen = input.directory?.trim()
         const parent = chosen ? chosen.replace(/^~(?=$|[\\/])/, os.homedir()) : undefined
@@ -1612,6 +1619,23 @@ const layer: Layer.Layer<
             }),
           ),
         )
+        // The Society's rules are handed to every member project at creation, so each project
+        // starts with them instead of discovering them on its own first request.
+        if (societyRules.length > 0) {
+          const rulesText = [
+            `<society-rules society="${name}">`,
+            "Standing rules of this Society. They bind every project of the Society, including this one; follow them in every task.",
+            ...societyRules.map((rule) => `- ${rule.text}`),
+            "</society-rules>",
+          ].join("\n")
+          // The inbox id is global, not per session: the same id for two projects would
+          // deliver to the first project only and silently drop the second.
+          yield* Effect.forEach(
+            projects,
+            (projectID) => tell(projectID, `society-rules-${name}-${projectID}`, rulesText),
+            { discard: true },
+          )
+        }
         // The planner plans at once, in its own first messages, so no person has to assemble the
         // Society: it creates the projects the goal needs and sets every chat up.
         // The kickoff is delivered with confirmation: a goal the planner never
