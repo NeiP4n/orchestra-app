@@ -293,10 +293,13 @@ too far behind, so it resyncs instead of missing events.
 
 - **Pagination**: `packages/core/src/federation.ts` scans KV with `scanAll`
   (follows `next` past 1000 entries) for groups, links, activity, holds and
-  council rounds; `packages/server/src/handlers/session.ts` pages session
+  council rounds; `packages/core/src/orchestra.ts` does the same for projects
+  and for saved roles/templates (`scanAll`, used by `projects()` and
+  `stored()`); `packages/server/src/handlers/session.ts` pages session
   lists; the app loads the whole session index and pages archived sessions by
-  cursor. `packages/core/src/orchestra.ts` still scans with a single
-  1000-entry page (open; see master plan Б8).
+  cursor. `Orchestra.outcomes` returns every report of each worker, oldest
+  first — not only the latest — so earlier reports are never overwritten in
+  the view (each report is its own KV entry under `orchestra/report/`).
 - **Chat**: `session.prompt` returns `{data, held}` — `held: true` means the
   prompt was admitted but the session is paused (hold), so the client shows
   "Session is paused" instead of silence. The composer retries a failed send

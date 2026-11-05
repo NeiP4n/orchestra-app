@@ -729,7 +729,7 @@ export const Plugin = {
         rows.map((row, index) => ({
           ...row,
           sent: pending[index],
-          outcome: outcomes[row.session.id]?.outcome,
+          outcome: outcomes[row.session.id]?.at(-1)?.outcome,
         })),
         (row) =>
           [
@@ -1394,7 +1394,9 @@ export const Plugin = {
                         `role ${row.role}`,
                         ...(row.mode ? [`mode ${row.mode}`] : []),
                         `access ${row.access}`,
-                        ...(outcomes[row.session.id] ? [`last report ${outcomes[row.session.id]?.outcome}`] : []),
+                        ...(outcomes[row.session.id]?.length
+                          ? [`last report ${outcomes[row.session.id]?.at(-1)?.outcome}`]
+                          : []),
                       ].join(" · "),
                   ),
                 ].join("\n"),
