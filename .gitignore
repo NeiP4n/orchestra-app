@@ -53,3 +53,5 @@ tsconfig.tsbuildinfo
 .freebuff/
 .ideas/
 .zed/
+
+.playwright-mcp/
