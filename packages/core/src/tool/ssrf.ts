@@ -16,7 +16,7 @@ import { Effect } from "effect"
 // the RFC 1918 / loopback / link-local / unique-local set the audit named, plus the
 // unroutable space around it (0/8, CGNAT, multicast, reserved).
 
-const BLOCKED_V4 = [
+const BLOCKED_V4: ReadonlyArray<{ readonly octets: readonly number[]; readonly mask: number }> = [
   { octets: [0], mask: 8 },
   { octets: [10], mask: 8 },
   { octets: [100, 64], mask: 10 },
