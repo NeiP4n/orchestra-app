@@ -61,4 +61,25 @@ export class Autoloop extends Schema.Class<Autoloop>("Config.Orchestra.Autoloop"
 export class Info extends Schema.Class<Info>("Config.Orchestra")({
   worker: Worker.pipe(optional),
   autoloop: Autoloop.pipe(optional),
+  society: Society.pipe(optional),
+}) {}
+
+// One of the Society's base projects, as the operator configured it. A Society
+// always starts from the built-in four (planner, architects, coders, testers);
+// setting baseProjects replaces that list wholesale, so an operator who runs
+// a different standing crew does not have to fight the code for it. A list
+// that fails to decode, or an entry missing a field, falls back to the
+// built-in four with a warning instead of breaking Society creation.
+export class BaseProject extends Schema.Class<BaseProject>("Config.Orchestra.Society.BaseProject")({
+  key: Schema.String,
+  folder: Schema.String,
+  name: Schema.String,
+  role: Schema.String,
+  brief: Schema.String,
+}) {}
+
+export class Society extends Schema.Class<Society>("Config.Orchestra.Society")({
+  baseProjects: Schema.Array(BaseProject).pipe(optional).annotate({
+    description: "The Society's base projects, replacing the built-in planner/architects/coders/testers when set",
+  }),
 }) {}

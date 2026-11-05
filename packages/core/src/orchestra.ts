@@ -29,6 +29,7 @@ import { SessionInbox } from "./session/inbox.js"
 import { Dod } from "./dod.js"
 import { OrchestraStage } from "./stage.js"
 import { AiStandard } from "./ai-standard.js"
+import { Society } from "./society.js"
 import { Config } from "./config.js"
 import { Autoloop } from "./autoloop/service.js"
 import { AutoloopOrchestrator } from "./autoloop/orchestrator.js"
@@ -2523,6 +2524,12 @@ export function modelOf(role: Role | undefined) {
 // general worker policy. `models` lists what the worker may continue on when its provider
 // refuses the current model outright, so it excludes that model. An explicit task model passed
 // by a caller always wins; without any policy a worker keeps inheriting the Orchestrator's model.
+// Two B10 guards sit on top of that chain: a model Anymodel proved dead (see `Society`) is
+// never picked from the favorites or the policy and never listed as a fallback — a role that
+// names one explicitly keeps it, because that is the role author's deliberate choice and the
+// runtime fallback covers it — and cheap work (Quality: testers, reviewers, auditors) that
+// resolves to nothing gets the Society's cheap model from the catalog instead of inheriting
+// the Orchestrator's flagship.
 export function workerModels(
   policy: ConfigOrchestra.Worker | undefined,
   role: Role | undefined,
@@ -2538,24 +2545,33 @@ export function workerModels(
   // falls back to the role and policy models when the pinned provider refuses the model.
   // Ranking and the unavailable-skip follow the single AI standard in `AiStandard`.
   const unavailable = new Set((options.unavailable ?? []).map(AiStandard.keyOf))
-  const usable = (model: Model.Ref) => !unavailable.has(AiStandard.keyOf(model))
+  const usable = (model: Model.Ref) =>
+    !unavailable.has(AiStandard.keyOf(model)) && !Society.isDeadSocietyModel(model)
   const favorites = AiStandard.rankFavorites(
     options.favorites ?? [],
     AiStandard.effortFor(role ? `${role.category} ${role.name}` : undefined),
     options.catalog,
   ).filter(usable)
   const roleModel = modelOf(role)
+  // The role's own model is exempt from the dead-model guard only: a provider refusal still
+  // blocks it, because that refusal just happened.
+  const roleUsable = roleModel && !unavailable.has(AiStandard.keyOf(roleModel)) ? roleModel : undefined
   const model =
     favorites[0] ??
-    (roleModel && usable(roleModel) ? roleModel : undefined) ??
-    [refOf(entry?.model), refOf(policy?.model)].find((candidate) => candidate !== undefined && usable(candidate))
+    roleUsable ??
+    [refOf(entry?.model), refOf(policy?.model)].find((candidate) => candidate !== undefined && usable(candidate)) ??
+    (Society.tierForCategory(role?.category) === "cheap"
+      ? Society.resolveSocietyModel("cheap", options.catalog)
+      : undefined)
+  const societyFallback = Society.resolveSocietyModel("fallback", options.catalog)
   const models = distinctModels(
     [
       ...favorites,
-      ...(roleModel ? [roleModel] : []),
+      ...(roleModel && usable(roleModel) ? [roleModel] : []),
       ...(role?.models ?? []).flatMap(parseModel),
       ...(entry?.models ?? []).flatMap((selection) => [refOf(selection)]),
       ...(policy?.models ?? []).flatMap((selection) => [refOf(selection)]),
+      ...(societyFallback ? [societyFallback] : []),
     ].filter((candidate): candidate is Model.Ref => candidate !== undefined && usable(candidate)),
     model,
   )

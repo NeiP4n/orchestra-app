@@ -10,14 +10,18 @@ import { checksum } from "@orchestra/util/encode"
 import { FSUtil } from "@orchestra/util/fs-util"
 import { Global } from "@orchestra/util/global"
 import { Federation } from "@orchestra/schema/federation"
+import { ConfigOrchestra } from "@orchestra/schema/config/orchestra"
 import { SessionID } from "@orchestra/schema/session-id"
 import { SessionEvent } from "@orchestra/schema/session-event"
 import { KV } from "./kv.js"
 import { Slug } from "./slug.js"
 import { Bus } from "./bus.js"
+import { Config } from "./config.js"
 import { Orchestra } from "./orchestra.js"
 import { Model } from "./model.js"
 import { Session } from "./session.js"
+import { SessionPlan } from "./session/plan.js"
+import { Society } from "./society.js"
 import { Dod } from "./dod.js"
 import { Rules } from "./rules.js"
 import { SessionHold } from "./session/hold.js"
@@ -115,6 +119,8 @@ export interface Interface {
   }) => Effect.Effect<{ sessionID: SessionID; title: string; directory: string }, FederationError>
   // Creates a whole Society in one step: a folder for it, a coordinator project inside it, the
   // council group and its chat. Everything else is generated later, from the operator's goal.
+  // `generation` says where that later work stands: the goal reached the planner
+  // (kickoffDelivered) or it did not, in which case the Society must be resumed, not trusted.
   readonly createSociety: (input: {
     // Without a name the Society is named after its goal.
     name?: string
@@ -124,20 +130,55 @@ export interface Interface {
     // A team template for one extra project created at once, covering every layer of the system.
     team?: string
   }) => Effect.Effect<
-    { name: string; sessionID: SessionID; directory: string; project: Orchestra.Project },
+    {
+      name: string
+      sessionID: SessionID
+      directory: string
+      project: Orchestra.Project
+      generation: { stage: Society.GenerationStage; kickoffDelivered: boolean }
+    },
     FederationError
   >
+  // The Society's base projects: the operator's `orchestra.society.baseProjects`
+  // config when it is set and valid, the built-in four otherwise.
+  readonly baseProjects: () => Effect.Effect<
+    ReadonlyArray<{ key: string; folder: string; name: string; role: string; brief: string }>
+  >
+  // Where a Society stands between "founded" and "ready": undefined for
+  // Societies founded before generation was tracked.
+  readonly generation: (name: string) => Effect.Effect<Society.Generation | undefined>
+  // Moves a Society's generation forward: "generated" when its projects exist,
+  // "planned" when society_plan apply ran. Never moves it backwards.
+  readonly recordGeneration: (name: string, stage: Society.GenerationStage) => Effect.Effect<void>
+  // Restarts a Society whose generation never finished: the goal is delivered
+  // to the planner again (same message id, so the planner's inbox keeps one
+  // copy) and the planner's main session is woken. A no-op once generation
+  // ran; it never releases an operator's hold.
+  readonly resumeGeneration: (name: string) => Effect.Effect<void>
+  // The society_plan apply a project carries, so workers created later get the
+  // same model, context threshold, cache switch and budget the planner set.
+  readonly recordSocietyPlan: (project: Orchestra.ProjectID, plan: Society.SocietyPlan) => Effect.Effect<void>
+  readonly societyPlanFor: (project: Orchestra.ProjectID) => Effect.Effect<Society.SocietyPlan | undefined>
+  // Applies the project's stored society plan to one of its sessions (a
+  // worker created after the plan was set). A no-op when the project has no
+  // plan, the session is gone, or the plan names nothing to change.
+  readonly applyStoredPlan: (sessionID: SessionID) => Effect.Effect<void>
   // The Society's folder: the one chosen when it was created, or the default.
   readonly societyRoot: (name: string) => Effect.Effect<string>
   // A new project folder inside the Society's folder: created, and made a git repository when git exists.
   readonly societyFolder: (input: { society: string; project: string }) => Effect.Effect<string, FederationError>
   // Hands a member project's Orchestrator its assignment from the Society. It runs without waiting for a ticket.
-  readonly brief: (input: { project: Orchestra.ProjectID; id: string; text: string }) => Effect.Effect<void>
+  // Delivery is confirmed (retried, then an error): a brief nobody received is a project that
+  // never starts, and silence about it is worse than failing the call.
+  readonly brief: (input: { project: Orchestra.ProjectID; id: string; text: string }) => Effect.Effect<void, FederationError>
   readonly removeGroup: (name: string) => Effect.Effect<void>
   // Societies whose AIs are held: none of their sessions runs, whatever wakes it, until the hold is released.
   readonly holds: () => Effect.Effect<ReadonlyArray<string>>
   // A Society's progress, read from its projects' own files and sessions without a single model call: each
-  // project's DoD board counted by state, and whether its AIs are working now.
+  // project's DoD board counted by state, and whether its AIs are working now. `agents` counts
+  // living agents (every project's Orchestrator plus its workers); `ready` is the code's verdict
+  // on whether the Society is actually built (more than 20 living agents, every one with a
+  // model, society_plan apply ran, a budget recorded), and `missing` names what is still open.
   readonly societyStatus: (name: string) => Effect.Effect<{
     readonly held: boolean
     readonly projects: ReadonlyArray<{
@@ -147,7 +188,23 @@ export interface Interface {
       readonly total: number
       readonly blocked: number
       readonly running: boolean
+      readonly agents: number
+      readonly alive: number
+      readonly withModel: number
     }>
+    readonly agents: number
+    readonly alive: number
+    readonly withModel: number
+    readonly budgetChats: number
+    readonly target: number
+    readonly minimum: number
+    readonly generation: {
+      readonly stage: Society.GenerationStage | undefined
+      readonly stalled: boolean
+      readonly kickoffDelivered: boolean
+    }
+    readonly ready: boolean
+    readonly missing: ReadonlyArray<string>
   }>
   // The rulebook: the operator's view of the standing rules of a scope (global, project:<id>, society:<name>).
   readonly rules: {
@@ -188,6 +245,10 @@ const GROUP = "federation/group/"
 const SOCIETY = "federation/society/"
 const HOLD = "federation/hold/"
 const ACTIVITY = "federation/group/activity/"
+// Where a Society's generation stands (see `Society.Generation`), and the
+// society_plan apply each project carries for workers created later.
+const GENERATION = "federation/society-generation/"
+const SOCIETY_PLAN = "federation/society-plan/"
 
 export const Activity = Schema.Struct({
   project: Orchestra.ProjectID,
@@ -269,16 +330,18 @@ export function societyProjectDirectory(society: string, project: string, root?:
 // The minimum every Society has, as four separate projects (not sessions of one): each has its own
 // Orchestrator, folder and brief. The Society adds whatever else the goal needs. The planner is the
 // Society's first project, created together with it; the others are created on the first generate.
-// The five allocations a Society's planner settles before any project starts working. They are
+// The seven allocations a Society's planner settles before any project starts working. They are
 // repeated wherever the planner is briefed, so a planner created later plans the same way.
 export const plannerPlan = [
-  "Plan the Society in your first messages, before any project starts working. Decide these five things and write them down:",
+  "Plan the Society in your first messages, before any project starts working. Decide these seven things and write them down:",
   "1. Roles: which roles the goal needs, matched to the models the account has, their context limits and what it can spend.",
   "2. Models: which model runs each chat. Honour every model the operator named; place the strong models where a mistake costs the most and the cheap ones on scanning, drafting and checks.",
   "3. Budget: what each chat is worth spending on. Give the chats that carry the work most of the budget and keep the exploratory ones cheap.",
   "4. Caching: prompt caching on for every chat that keeps a long shared prefix, off where a chat's prefix is never reused and would only pay for writes.",
   '5. Context: a context threshold for every chat, so no chat silently overflows its window. Say it as a share of the window ("60%") when you do not know which model will run the chat.',
   "Create the projects the goal needs with society_forge generate; read the chats with society_plan status and apply models, context and caching with society_plan apply. Do this once, up front, instead of sending the same task to each project in separate turns.",
+  "6. Workers: one worker per project is the floor, not the Society. Create extra workers with the sessions tool (action=create, newInstance=true) until the Society counts 30 living agents (at least 21). Models by role: strong opus-5.5 for planning and architecture, mid sonnet-5.5 for building, cheap anymodel-coder for testing, review and checks; fallback sonnet-5. Never use anymodel-reasoner, anymodel-v4.1-flash, fable-5.1, gpt-6-astra, gpt-6-sol or gpt-6.1-sol — they are dead.",
+  "7. MCP: assign the MCP servers once, for the whole Society, with society_plan apply — one assignment the projects share, not a fresh assignment per task per project.",
 ].join("\n")
 
 export const baseProjects = [
@@ -385,7 +448,7 @@ const bootstrapText = (input: {
       ? "You are not a project session: you belong to the group. You do not edit files or run commands yourself, and you do not build the Society: its planner does. The planner project turns the goal into the plan and creates the other projects."
       : "You are not a project session: you belong to the group, not to a project's team, and you create no sessions.",
     input.mode === "council"
-      ? "The Society's planner already has the goal and is planning it: its first task is the five allocations (roles, models, budget, caching, context), and it creates the base projects (planner, architects, coders, testers) and whatever else the goal needs through society_forge, then sets every chat up with society_plan. Do not create projects yourself, do not ask the operator for names, folders or teams, and do not repeat the plan here. For a question that needs the projects' perspectives, call federation action=consult_all with a short subject and the full task, wait for all proposals, then give one synthesis."
+      ? "The Society's planner already has the goal and is planning it: its first task is the seven allocations (roles, models, budget, caching, context, workers, MCP), and it creates the base projects (planner, architects, coders, testers) and whatever else the goal needs through society_forge, then sets every chat up with society_plan. Do not create projects yourself, do not ask the operator for names, folders or teams, and do not repeat the plan here. For a question that needs the projects' perspectives, call federation action=consult_all with a short subject and the full task, wait for all proposals, then give one synthesis."
       : "Use federation action=group_status only when the operator asks for the group's status or a coordination recommendation. Summarize the sanitized status here; do not send tickets, messages, or work to any project.",
     ...(input.mode === "council"
       ? [
@@ -448,6 +511,59 @@ const layer: Layer.Layer<
       return project
     })
 
+    // The Society's base projects: the operator's `orchestra.society.baseProjects`
+    // config when it is set and complete, the built-in four otherwise. A
+    // configured list with a broken entry is refused wholesale — a Society
+    // with half a crew is worse than the default one — and the refusal is
+    // logged, not silent.
+    const societyBaseProjects = Effect.fn("Federation.baseProjects")(function* () {
+      const defaults: ReadonlyArray<{ key: string; folder: string; name: string; role: string; brief: string }> = [
+        ...baseProjects,
+      ]
+      const config = yield* Effect.serviceOption(Config.Service)
+      if (Option.isNone(config)) return defaults
+      const configured = Config.latest(yield* config.value.entries(), "orchestra")?.society?.baseProjects
+      if (!configured) return defaults
+      const valid = configured.filter(
+        (item) =>
+          item.key.trim() !== "" &&
+          item.folder.trim() !== "" &&
+          item.name.trim() !== "" &&
+          item.role.trim() !== "" &&
+          item.brief.trim() !== "",
+      )
+      if (valid.length !== configured.length)
+        yield* Effect.logWarning(
+          "orchestra.society.baseProjects has an entry missing a key, folder, name, role or brief; using the built-in base projects",
+        )
+      return valid.length === configured.length && valid.length > 0 ? valid : defaults
+    })
+
+    // Where a Society's generation stands; undefined for Societies founded
+    // before generation was tracked.
+    const generationOf = (name: string) =>
+      Effect.map(kv.get(GENERATION + name.trim()), (value) => Option.getOrUndefined(Society.decodeGeneration(value)))
+
+    const writeGeneration = (name: string, generation: Society.Generation) =>
+      kv.set(GENERATION + name.trim(), Society.encodeGeneration(generation))
+
+    // Generation only moves forward: a late "generated" never rewinds a
+    // Society that already ran society_plan apply.
+    const generationOrder: ReadonlyArray<Society.GenerationStage> = ["founded", "generated", "planned"]
+    const recordGenerationStep = Effect.fn("Federation.recordGeneration")(function* (
+      name: string,
+      stage: Society.GenerationStage,
+    ) {
+      const current = yield* generationOf(name)
+      if (current && generationOrder.indexOf(stage) <= generationOrder.indexOf(current.stage)) return
+      yield* writeGeneration(name, {
+        stage,
+        updated: Date.now(),
+        kickoffDelivered: current?.kickoffDelivered ?? stage !== "founded",
+        ...(current?.goal !== undefined ? { goal: current.goal } : {}),
+      })
+    })
+
     // Wakes a project's orchestrator with text. Failures only mean the project has no live main session.
     const tell = Effect.fnUntraced(function* (project: Orchestra.ProjectID, id: string, text: string) {
       const main = yield* orchestra.main(project).pipe(Effect.option)
@@ -461,6 +577,33 @@ const layer: Layer.Layer<
           metadata: { federation: { project } },
         })
         .pipe(Effect.ignore)
+    })
+
+    // Like `tell`, but the caller learns whether the message actually landed:
+    // the prompt is admitted up to three times, and a project with no main
+    // session or a prompt that keeps failing reports false instead of
+    // disappearing into `Effect.ignore`. Used where a lost message strands
+    // the Society (the planner's kickoff, a project's brief).
+    const tellConfirmed = Effect.fnUntraced(function* (
+      project: Orchestra.ProjectID,
+      id: string,
+      text: string,
+    ): Effect.Effect<boolean> {
+      const main = yield* orchestra.main(project).pipe(Effect.option)
+      if (Option.isNone(main)) return false
+      return yield* sessions
+        .prompt({
+          sessionID: main.value.id,
+          id: SessionMessage.ID.make("msg_" + id),
+          delivery: "queue",
+          text,
+          metadata: { federation: { project } },
+        })
+        .pipe(
+          Effect.retry({ times: 2 }),
+          Effect.as(true),
+          Effect.catchAll(() => Effect.succeed(false)),
+        )
     })
 
     const deliver = Effect.fnUntraced(function* (ticket: Ticket) {
@@ -824,8 +967,10 @@ const layer: Layer.Layer<
       if (held.length === 0) return false
       const root = yield* rootOf(sessionID as SessionID)
       if (held.some((group) => group.supervisor === root)) return true
-      const main = yield* orchestra.mainOf(root).pipe(Effect.orElseSucceed(() => undefined))
-      const project = main?.id ?? (yield* orchestra.owners().pipe(Effect.orElseSucceed(() => ({}) as Record<string, string>)))[root]
+      const main = Option.getOrUndefined(yield* orchestra.mainOf(root).pipe(Effect.option))
+      const project =
+        main?.id ??
+        Option.getOrElse(yield* orchestra.owners().pipe(Effect.option), () => ({}) as Record<string, string>)[root]
       return project !== undefined && held.some((group) => group.projects.includes(project as Orchestra.ProjectID))
     })
     SessionHold.install((sessionID) => heldSession(sessionID).pipe(Effect.orElseSucceed(() => false)))
@@ -845,6 +990,96 @@ const layer: Layer.Layer<
       return [...new Set([...(group.supervisor ? [group.supervisor as string] : []), ...owned, ...mains.flatMap((item) => Option.toArray(item))])]
     })
 
+    // The society_plan apply a project carries, stored under the project so a
+    // worker created after the plan was set can pick it up.
+    const recordSocietyPlan = Effect.fn("Federation.recordSocietyPlan")(function* (
+      project: Orchestra.ProjectID,
+      plan: Society.SocietyPlan,
+    ) {
+      yield* kv.set(SOCIETY_PLAN + project, Society.encodeSocietyPlan(plan))
+    })
+
+    const societyPlanOf = (project: Orchestra.ProjectID) =>
+      Effect.map(kv.get(SOCIETY_PLAN + project), (value) => Option.getOrUndefined(Society.decodeSocietyPlan(value)))
+
+    // A plan model that does not parse is skipped, not fatal: the planner
+    // wrote it as text, and a stale name must not strand a new worker.
+    const parsePlanModel = (value: string) => {
+      try {
+        return Model.Ref.parse(value)
+      } catch {
+        return undefined
+      }
+    }
+
+    // Applies the project's stored society plan to one of its sessions: the
+    // model, context threshold, cache switch and budget the planner set. A
+    // no-op when the project has no plan, the session is gone, or the plan
+    // names nothing to change.
+    const applyStoredPlan = Effect.fn("Federation.applyStoredPlan")(function* (sessionID: SessionID) {
+      const info = yield* sessions.get(sessionID).pipe(Effect.option)
+      if (Option.isNone(info)) return
+      const main = Option.getOrUndefined(yield* orchestra.mainOf(sessionID).pipe(Effect.option))
+      const owners = Option.getOrElse(yield* orchestra.owners().pipe(Effect.option), () => ({}) as Record<string, string>)
+      const project = main?.id ?? owners[sessionID as string]
+      if (!project) return
+      const plan = yield* societyPlanOf(project as Orchestra.ProjectID)
+      if (!plan) return
+      const metadata = { ...(info.value.metadata ?? {}) }
+      if (plan.context !== undefined) {
+        const threshold = SessionPlan.parseThreshold(plan.context)
+        if (threshold !== undefined)
+          metadata[SessionPlan.CONTEXT_KEY] =
+            threshold.type === "tokens"
+              ? threshold.tokens
+              : threshold.type === "capped"
+                ? { percent: threshold.percent, tokens: threshold.tokens }
+                : `${threshold.percent}%`
+      }
+      if (plan.cache !== undefined) metadata[SessionPlan.CACHE_KEY] = plan.cache ? "auto" : "off"
+      if (plan.budget !== undefined) metadata[SessionPlan.BUDGET_KEY] = plan.budget
+      if (plan.context !== undefined || plan.cache !== undefined || plan.budget !== undefined)
+        yield* sessions.setMetadata({ sessionID, metadata })
+      const model = plan.model ? parsePlanModel(plan.model) : undefined
+      if (model)
+        yield* sessions
+          .switchModel({ sessionID, model })
+          .pipe(Effect.catchTag("Session.NotFoundError", () => Effect.void))
+    })
+
+    // Restarts a Society whose generation never finished: the goal is
+    // delivered to the planner again (same message id as the original
+    // kickoff, so the planner's inbox keeps one copy) and the planner's main
+    // session is woken. A no-op once generation ran, and it never releases
+    // an operator's hold: a held Society still waits for the release, but
+    // the goal is already queued when it comes.
+    const resumeGeneration = Effect.fn("Federation.resumeGeneration")(function* (name: string) {
+      const generation = yield* generationOf(name)
+      if (!generation || generation.stage !== "founded" || !generation.goal) return
+      const group = (yield* groups()).find((item) => item.name === name.trim())
+      if (!group || group.projects.length === 0) return
+      const known = yield* orchestra.projects()
+      const existing = group.projects.slice(1).flatMap((id) => {
+        const project = known.find((item) => item.id === id)
+        return project ? [project.name] : []
+      })
+      const delivered = yield* tellConfirmed(
+        group.projects[0],
+        "society-goal",
+        plannerKickoff({ society: name, goal: generation.goal, existing }),
+      )
+      if (!delivered) return
+      yield* writeGeneration(name, { ...generation, updated: Date.now(), kickoffDelivered: true })
+      const main = yield* orchestra.main(group.projects[0]).pipe(Effect.option)
+      if (Option.isSome(main))
+        yield* sessions.resume(main.value.id).pipe(
+          Effect.ignore,
+          Effect.delay("1 second"),
+          Effect.forkIn(layerScope),
+          Effect.asVoid,
+        )
+    })
+
     return Service.of({
       policy,
       link,
@@ -852,6 +1087,13 @@ const layer: Layer.Layer<
       linked,
       groups,
       activity,
+      baseProjects: societyBaseProjects,
+      generation: generationOf,
+      recordGeneration: recordGenerationStep,
+      resumeGeneration,
+      recordSocietyPlan,
+      societyPlanFor: societyPlanOf,
+      applyStoredPlan,
       consultGroup: Effect.fn("Federation.consultGroup")(function* (input) {
         const group = (yield* groups()).find((item) => item.name === input.name.trim())
         if (!group) return yield* new FederationError({ message: "No group named " + input.name })
@@ -1041,8 +1283,21 @@ const layer: Layer.Layer<
       ensureGroupChat,
       holds,
       societyStatus: Effect.fn("Federation.societyStatus")(function* (name) {
+        const empty = {
+          held: false,
+          projects: [],
+          agents: 0,
+          alive: 0,
+          withModel: 0,
+          budgetChats: 0,
+          target: Society.SOCIETY_SIZE,
+          minimum: Society.SOCIETY_MIN_AGENTS,
+          generation: { stage: undefined as Society.GenerationStage | undefined, stalled: false, kickoffDelivered: false },
+          ready: false,
+          missing: ["no Society by that name"] as ReadonlyArray<string>,
+        }
         const group = (yield* groups()).find((item) => item.name === name.trim())
-        if (!group) return { held: false, projects: [] }
+        if (!group) return empty
         const active = yield* sessions.active
         const all = yield* orchestra.projects()
         const owners = yield* orchestra.owners()
@@ -1053,6 +1308,24 @@ const layer: Layer.Layer<
               const board = yield* Dod.status(project.directory).pipe(Effect.orElseSucceed(() => undefined))
               const items = board?.type === "ready" ? board.items.filter((item) => item.state !== "OUT_OF_SCOPE") : []
               const mine = new Set([...(project.main ? [project.main as string] : []), ...Object.entries(owners).filter(([, id]) => id === project.id).map(([sid]) => sid)])
+              // Every agent the project is supposed to have: its Orchestrator,
+              // the sessions it opened, and its team roster. Each id is read
+              // back from the session store, so a deleted session counts as
+              // missing instead of silently padding the total. Budgets are
+              // counted from the same live sessions, not from the plan that
+              // was written.
+              const team = Option.getOrElse(
+                yield* orchestra.sessions(project.id).pipe(Effect.option),
+                () => [] as ReadonlyArray<{ id: string }>,
+              )
+              const ids = [...new Set([...mine, ...team.map((item) => item.id)])]
+              const alive = (
+                yield* Effect.forEach(
+                  ids,
+                  (id) => sessions.get(id as SessionID).pipe(Effect.option),
+                  { concurrency: 4 },
+                )
+              ).flatMap((item) => Option.toArray(item))
               return {
                 id: project.id as string,
                 name: project.name,
@@ -1060,11 +1333,39 @@ const layer: Layer.Layer<
                 total: items.length,
                 blocked: items.filter((item) => item.state === "BLOCKED" || item.state === "FAILED").length,
                 running: [...active].some((id) => mine.has(id as string)),
+                agents: ids.length,
+                alive: alive.length,
+                withModel: alive.filter((item) => item.model !== undefined).length,
+                budgetChats: alive.filter(
+                  (item) => SessionPlan.parseBudget(item.metadata?.[SessionPlan.BUDGET_KEY]) !== undefined,
+                ).length,
               }
             }),
           { concurrency: 4 },
         )
-        return { held: (yield* holds()).includes(group.name), projects }
+        const agents = projects.reduce((sum, item) => sum + item.agents, 0)
+        const alive = projects.reduce((sum, item) => sum + item.alive, 0)
+        const withModel = projects.reduce((sum, item) => sum + item.withModel, 0)
+        const budgetChats = projects.reduce((sum, item) => sum + item.budgetChats, 0)
+        const generation = yield* generationOf(name)
+        const checked = Society.readiness({ agents, alive, withModel, budgetChats, stage: generation?.stage })
+        return {
+          held: (yield* holds()).includes(group.name),
+          projects: projects.map(({ budgetChats: _budget, ...row }) => row),
+          agents,
+          alive,
+          withModel,
+          budgetChats,
+          target: Society.SOCIETY_SIZE,
+          minimum: Society.SOCIETY_MIN_AGENTS,
+          generation: {
+            stage: generation?.stage,
+            stalled: generation !== undefined && Society.generationStalled(generation, Date.now()),
+            kickoffDelivered: generation?.kickoffDelivered ?? false,
+          },
+          ready: checked.ready,
+          missing: checked.missing,
+        }
       }),
       rules: {
         list: (scope) => Rules.list(kv, scope),
@@ -1088,13 +1389,29 @@ const layer: Layer.Layer<
       startupHold: Effect.fn("Federation.startupHold")(function* () {
         if (process.env.ORCHESTRA_SOCIETY_AUTOSTART) return
         const councils = (yield* groups()).filter((group) => Federation.modeOf(group) === "council")
-        yield* Effect.forEach(councils, (group) => kv.set(HOLD + group.name, true), { discard: true })
+        yield* Effect.forEach(
+          councils,
+          (group) =>
+            Effect.gen(function* () {
+              // A Society whose generation never finished has no running work
+              // to protect — only a pending kickoff. Holding it would freeze
+              // the Society before it exists, so it is resumed instead.
+              const generation = yield* generationOf(group.name)
+              if (generation?.stage === "founded") return yield* resumeGeneration(group.name)
+              yield* kv.set(HOLD + group.name, true)
+            }),
+          { discard: true },
+        )
       }),
       removeGroup: Effect.fn("Federation.removeGroup")(function* (name) {
         const normalized = name.trim()
+        const group = (yield* groups()).find((item) => item.name === normalized)
         yield* kv.remove(HOLD + normalized)
         yield* kv.remove(GROUP + normalized)
         yield* kv.remove(SOCIETY + normalized)
+        yield* kv.remove(GENERATION + normalized)
+        if (group)
+          yield* Effect.forEach(group.projects, (id) => kv.remove(SOCIETY_PLAN + id), { discard: true })
         const prefix = ACTIVITY + encodeURIComponent(normalized) + "/"
         const removeActivity = (after?: string): Effect.Effect<void> =>
           Effect.gen(function* () {
@@ -1170,8 +1487,12 @@ const layer: Layer.Layer<
         if (teamID && !template)
           return yield* new FederationError({ message: `Unknown AI team template "${teamID}".` })
         // The first project of a Society is its planner: the group needs a leader from the start, and
-        // an empty coordinator would only cost model turns.
-        const planner = baseProjects[0]
+        // an empty coordinator would only cost model turns. The base projects
+        // come from the operator's config when it sets them, the built-in
+        // four otherwise.
+        const planner = (yield* societyBaseProjects())[0]
+        if (!planner)
+          return yield* new FederationError({ message: "The Society has no base projects configured." })
         const directory = yield* societyFolder(name, planner.name, planner.folder)
         const project = yield* orchestra.create({ name: planner.name, directory }).pipe(
           Effect.mapError(
@@ -1220,13 +1541,20 @@ const layer: Layer.Layer<
         )
         // The planner plans at once, in its own first messages, so no person has to assemble the
         // Society: it creates the projects the goal needs and sets every chat up.
+        // The kickoff is delivered with confirmation: a goal the planner never
+        // received leaves a Society that looks founded and never builds, so
+        // the delivery (and the goal itself, for a later resume) is recorded
+        // in the generation state instead of assumed.
         const goal = input.goal?.trim()
+        let kickoffDelivered = false
         if (goal) {
-          yield* tell(
+          yield* writeGeneration(name, { stage: "founded", updated: Date.now(), kickoffDelivered: false, goal })
+          kickoffDelivered = yield* tellConfirmed(
             project.id,
             "society-goal",
             plannerKickoff({ society: name, goal, existing: template ? [template.name] : [] }),
           )
+          yield* writeGeneration(name, { stage: "founded", updated: Date.now(), kickoffDelivered, goal })
           const main = yield* orchestra.main(project.id).pipe(Effect.option)
           if (Option.isSome(main))
             yield* sessions.resume(main.value.id).pipe(
@@ -1236,12 +1564,25 @@ const layer: Layer.Layer<
               Effect.asVoid,
             )
         }
-        return { name, sessionID: chat.sessionID, directory: home, project }
+        return {
+          name,
+          sessionID: chat.sessionID,
+          directory: home,
+          project,
+          generation: { stage: "founded" as const, kickoffDelivered },
+        }
       }),
       societyFolder: ({ society, project }) => societyFolder(society, project),
       societyRoot: (name) => societyRoot(name),
       brief: Effect.fn("Federation.brief")(function* ({ project, id, text }) {
-        yield* tell(project, id, text)
+        // A brief nobody received is a project that never starts. Delivery is
+        // confirmed here (retried inside), and a failure is an error the
+        // caller must hear — not a message lost into `Effect.ignore`.
+        const delivered = yield* tellConfirmed(project, id, text)
+        if (!delivered)
+          return yield* new FederationError({
+            message: `Could not deliver the brief to ${project}: its Orchestrator has no live main session`,
+          })
         const main = yield* orchestra.main(project).pipe(Effect.option)
         if (Option.isNone(main)) return
         // A session created a moment ago can miss the advisory wake that its prompt schedules, and its

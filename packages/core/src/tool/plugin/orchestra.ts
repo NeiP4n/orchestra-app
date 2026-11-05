@@ -21,6 +21,8 @@ import { FormDecision } from "../../form-decision.js"
 import { Session } from "../../session.js"
 import { SessionSchema } from "../../session/schema.js"
 import type { SessionMessage } from "../../session/message.js"
+import { SocietyForgeTool } from "./society-forge.js"
+import { SocietyPlanTool } from "./society-plan.js"
 
 export const name = "sessions"
 
@@ -45,7 +47,7 @@ export const description = [
   `Modes: ${MODE_IDS}. A mode changes how a session works and may make it read-only; it never widens the role's permissions. Pass mode to send or create, or use action set_mode. Use fast for trivial work, planning or research before building, coding for implementation, architecture for parallel-safe design, test to verify, review or debug for checks, and self-improvement for work on the product itself. A planner in coding mode still cannot edit files.`,
   "Never pass a display title as a role ID: use an exact role id from the roles listed with your team.",
   "Access per session is hidden < read < write < full: read allows list and read, write adds send, full adds stop. Sessions you create get full access.",
-  "The 6-message rule binds you: after 6 of your own messages in a row without handing a task to a worker, your other tool calls are refused until you delegate with send or create. The roster in your context shows how many of the 6 you have used.",
+  "The 6-message rule binds you: after 6 of your own messages in a row without handing a task to a worker, your other tool calls are refused until you delegate with send or create. Building the Society (society_forge found/generate, society_plan apply) is never refused by this rule and resets the count like a delegation, so creating the Society never forces a premature dispatch. The roster in your context shows how many of the 6 you have used.",
   "MCP assignment is mandatory, and it is enforced, not advised: every send or create to a team session must pass mcp — the servers the worker may call for that task, maxCalls in total, perServer caps — and a dispatch without it is refused and sends nothing. When a task needs no MCP, say so explicitly: mcp with servers [] and maxCalls 0. You may only tighten the role's own MCP ceiling, never widen it; a refused limit says what the role allows. The limit is stamped on the worker session and stated at the top of its task brief.",
   "The assignment must come from a survey, and that is enforced too: before the first dispatch in a session, call mcp_manager with action=inspect once — it lists the configured servers (status, discovered tools, leases) and the installable catalog. A dispatch before the survey is refused and sends nothing. Judge the assignment from what the survey shows: no catalog server fitting the task is a finding, and an explicit empty assignment after the survey is the right answer for native-tool work.",
   "Worker models are a cost decision, so make it deliberately: pass model on create or send — the strongest model for design, hard debugging and review, a mid-tier or small model for mechanical implementation and routine checks. With no explicit model the role's own model or the worker policy applies, and failing those the worker inherits YOUR model, which is the expensive default, not a decision. The dispatch result names the model the worker will run and where it came from.",
@@ -81,6 +83,9 @@ export function reusableWorker<T extends WorkerRow>(
 // ORCHESTRATOR_MESSAGE_LIMIT of its own messages in a row without handing a
 // task to a team session, it must delegate: the gate below refuses its other
 // tool calls until a sessions send/create carrying a task goes through.
+// Building the Society is exempt: society_forge found/generate and
+// society_plan apply are never refused, and one resets the count like a
+// delegation — creating the Society must not force a premature dispatch.
 // Counting is by assistant message, not by tool call — one message may call
 // several tools and still counts once — and only a real delegation resets
 // the count: listing or reading the team is management, not distribution,
@@ -103,28 +108,42 @@ export interface DelegationGate {
 const isDelegationCall = (tool: string, action: string | undefined, text: string | undefined) =>
   tool === name && (action === "send" || action === "create") && !!text?.trim()
 
+// Building the Society hands work to its projects, so it is delegation, not
+// the Orchestrator doing the work itself: society_forge found/generate gives
+// the goal to the planner and the briefs to the projects, society_plan apply
+// sets the whole Society up. The 6-message rule never blocks those calls,
+// and one resets the count like a dispatch — otherwise the planner would be
+// forced into a premature dispatch halfway through creating the Society.
+const isSocietyBuildingCall = (tool: string, action: string | undefined) =>
+  (tool === SocietyForgeTool.name && (action === "found" || action === "generate")) ||
+  (tool === SocietyPlanTool.name && action === "apply")
+
+const isSocietyTool = (tool: string) => tool === SocietyForgeTool.name || tool === SocietyPlanTool.name
+
 export function delegationGate(
   counted: ReadonlyArray<string>,
   input: { tool: string; messageID: string; action?: string; text?: string },
 ): DelegationGate {
-  if (isDelegationCall(input.tool, input.action, input.text)) return { counted: [], blocked: false, reset: true }
-  // Team management and asking the operator are always available and never
-  // count as the Orchestrator doing the work itself.
-  if (input.tool === name || input.tool === "question") return { counted, blocked: false, reset: false }
+  if (isDelegationCall(input.tool, input.action, input.text) || isSocietyBuildingCall(input.tool, input.action))
+    return { counted: [], blocked: false, reset: true }
+  // Team management, Society building and asking the operator are always
+  // available and never count as the Orchestrator doing the work itself.
+  if (input.tool === name || input.tool === "question" || isSocietyTool(input.tool))
+    return { counted, blocked: false, reset: false }
   if (counted.includes(input.messageID)) return { counted, blocked: false, reset: false }
   if (counted.length >= ORCHESTRATOR_MESSAGE_LIMIT) return { counted, blocked: true, reset: false }
   return { counted: [...counted, input.messageID], blocked: false, reset: false }
 }
 
-/** Whether a finished assistant message handed a task to a team session. */
+/** Whether a finished assistant message handed a task to a team session or built the Society. */
 export function isDelegation(message: SessionMessage.Info): boolean {
   if (message.type !== "assistant") return false
   return message.content.some(
     (part) =>
       part.type === "tool" &&
-      part.name === name &&
       part.state.status === "completed" &&
-      isDelegationCall(part.name, part.state.input.action as string | undefined, part.state.input.text as string | undefined),
+      (isDelegationCall(part.name, part.state.input.action as string | undefined, part.state.input.text as string | undefined) ||
+        isSocietyBuildingCall(part.name, part.state.input.action as string | undefined)),
   )
 }
 
@@ -157,11 +176,11 @@ export function delegationStatus(streak: number) {
     text: mustDelegate
       ? [
           "# 6-message rule — limit reached",
-          `You have sent ${streak} of your own messages in a row without handing a task to a team session (limit ${limit}). Your next action MUST be sessions action send or create with the task; your other tool calls are refused until you delegate. Do not keep investigating, editing around it or writing a longer report instead.`,
+          `You have sent ${streak} of your own messages in a row without handing a task to a team session (limit ${limit}). Your next action MUST be sessions action send or create with the task; your other tool calls are refused until you delegate. Do not keep investigating, editing around it or writing a longer report instead. Building the Society (society_forge found/generate, society_plan apply) is always allowed and also resets the count.`,
         ].join("\n")
       : [
           "# 6-message rule",
-          `You have sent ${streak} of your ${limit} own messages in a row since the last task you handed to the team; ${Math.max(0, limit - streak)} remain before you must delegate. After ${limit} own messages you hand tasks to team sessions (sessions send/create) instead of continuing yourself, and other tool calls are refused until you do.`,
+          `You have sent ${streak} of your ${limit} own messages in a row since the last task you handed to the team; ${Math.max(0, limit - streak)} remain before you must delegate. After ${limit} own messages you hand tasks to team sessions (sessions send/create) instead of continuing yourself, and other tool calls are refused until you do. Society building (society_forge, society_plan) is never refused by this rule.`,
         ].join("\n"),
   }
 }
@@ -219,6 +238,8 @@ export interface McpAssignment {
   readonly budgetEpoch: string | null
   /** When this assignment was stamped (epoch milliseconds). */
   readonly assignedAt: number
+  /** MCP servers this assignment denied with generated permission rules, so the next dispatch can remove exactly those rules instead of letting them pile up on a reused worker. Absent on records stamped before this was tracked. */
+  readonly deniedServers?: ReadonlyArray<string>
 }
 
 /** Read a session's MCP assignment record out of its metadata; undefined when never assigned. */
@@ -249,6 +270,9 @@ export function mcpAssignmentOf(metadata: Record<string, unknown> | undefined): 
     explicit: record.explicit === true,
     budgetEpoch: typeof record.budgetEpoch === "string" ? record.budgetEpoch : null,
     assignedAt: record.assignedAt,
+    ...(Array.isArray(record.deniedServers) && record.deniedServers.every((item) => typeof item === "string")
+      ? { deniedServers: record.deniedServers as string[] }
+      : {}),
   }
 }
 /** Default per-task MCP call cap for a role that may change files. */
@@ -362,19 +386,41 @@ export function resolveMcpLimit(role: RoleMcpShape, requested?: McpLimitRequest)
 
 /**
  * Permission rules denying every known MCP server outside the limit's
- * allowlist. Rules are evaluated last-match-wins, so appending these to a
- * session's ruleset closes the servers it names without touching anything
- * else. A server nobody knows about cannot be named here; the numeric caps
- * and any server discovered later are the MCP runtime's side of the limit,
- * read from the session metadata stamp.
+ * allowlist. Rules are evaluated last-match-wins, so these close the servers
+ * they name without touching anything else. A server nobody knows about
+ * cannot be named here; the numeric caps and any server discovered later are
+ * the MCP runtime's side of the limit, read from the session metadata stamp.
+ * Each dispatch replaces the previous assignment's generated rules with a
+ * fresh set (see `withoutMcpDenyRules`): appending here would let the denies
+ * of every past task pile up on a reused worker forever.
  */
 export function mcpDenyRules(limit: McpLimit, knownServers: ReadonlyArray<string>): Permission.Ruleset {
   if (limit.servers === "all") return []
   const allowed = new Set(limit.servers)
-  return [...new Set(knownServers)]
-    .filter((server) => !allowed.has(server))
+  return denyRulesForServers([...new Set(knownServers)].filter((server) => !allowed.has(server)))
+}
+
+/** The deny rules for exactly these servers, in a stable order. */
+export function denyRulesForServers(servers: ReadonlyArray<string>): Permission.Ruleset {
+  return [...new Set(servers)]
     .toSorted()
     .map((server) => ({ action: `${server}_*`, resource: "*", effect: "deny" as const }))
+}
+
+/**
+ * A ruleset with exactly the generated deny rules removed: the ones a
+ * previous MCP assignment put there, identified by value. Anything the
+ * operator set by hand — or a rule for a server the previous assignment
+ * never denied — stays, so a reused worker's next task starts from the
+ * operator's rules plus the new assignment, not from every task it ever ran.
+ */
+export function withoutMcpDenyRules(
+  permissions: Permission.Ruleset,
+  generated: Permission.Ruleset,
+): Permission.Ruleset {
+  if (generated.length === 0) return permissions
+  const doomed = new Set(generated.map((rule) => `${rule.action}\n${rule.resource}\n${rule.effect}`))
+  return permissions.filter((rule) => !doomed.has(`${rule.action}\n${rule.resource}\n${rule.effect}`))
 }
 
 /** The one line at the top of a worker's task brief stating the MCP limit it was handed. */
@@ -787,7 +833,7 @@ export const Plugin = {
         gateCounted.set(event.sessionID, [...gate.counted])
         if (gate.blocked)
           return yield* new Tool.Error({
-            message: `6-message rule: you have sent ${ORCHESTRATOR_MESSAGE_LIMIT} of your own messages in a row without handing a task to a team session, so this call is refused. Delegate now with the sessions tool (action send or create, with the task as text) — that call is always allowed and resets the count.`,
+            message: `6-message rule: you have sent ${ORCHESTRATOR_MESSAGE_LIMIT} of your own messages in a row without handing a task to a team session, so this call is refused. Delegate now with the sessions tool (action send or create, with the task as text) — that call is always allowed and resets the count. Building the Society (society_forge found/generate, society_plan apply) is always allowed too.`,
           })
       }),
     )
@@ -838,18 +884,20 @@ export const Plugin = {
         }
 
               // What the Orchestrator already read while orienting travels with the
-              // task: the worker starts from the same pages instead of paying for
-              // the same reconnaissance a second time. Only this cycle's reads are
-              // attached (the scan stops at the latest operator or wake-up
-              // message), the newest read of a file wins, and the section is
-              // capped so the brief stays a brief.
+              // task, in full: the worker starts from the same pages instead of
+              // paying for the same reconnaissance a second time. Only this
+              // cycle's reads are attached (the scan stops at the latest
+              // operator or wake-up message) and the newest read of a file
+              // wins — but nothing is cut: a capped brief makes the worker
+              // re-read the missing pages, which is exactly the waste this
+              // exists to avoid. Read outputs are already bounded by the
+              // runner, so no second cap belongs here.
               const reconBrief = Effect.fnUntraced(function* () {
                 const messages = yield* sessions
                   .messages({ sessionID: context.sessionID, limit: 60, order: "desc" })
                   .pipe(Effect.orElseSucceed((): SessionMessage.Info[] => []))
                 const seen = new Set<string>()
                 const chunks: string[] = []
-                let total = 0
                 for (const message of messages) {
                   if (message.type === "user" || message.type === "synthetic") break
                   if (message.type !== "assistant") continue
@@ -873,13 +921,8 @@ export const Plugin = {
                       .join("\n")
                     if (!text) continue
                     paths.forEach((path) => seen.add(path))
-                    const chunk = text.length > 8000 ? `${text.slice(0, 8000)}\n…(read output truncated)` : text
-                    if (total + chunk.length > 24000) continue
-                    total += chunk.length
-                    chunks.push(chunk)
-                    if (chunks.length >= 6) break
+                    chunks.push(text)
                   }
-                  if (chunks.length >= 6) break
                 }
                 if (chunks.length === 0) return undefined
                 return [
@@ -988,10 +1031,10 @@ export const Plugin = {
                 ].toSorted()
               })
               // Distribute the MCP limit the Orchestrator passed for this task: checked
-              // against the role's ceiling, enforced by appending deny rules for the
-              // servers outside the allowlist to the session's ruleset (last match
-              // wins), stamped on the session metadata, and returned so the caller
-              // can state it at the top of the task brief. A dispatch to a role
+              // against the role's ceiling, enforced by replacing the previous task's
+              // generated deny rules for the servers outside the allowlist with the new
+              // set (last match wins), stamped on the session metadata, and returned so
+              // the caller can state it at the top of the task brief. A dispatch to a role
               // session without an `mcp` field is refused (see the gate below).
               const distributeMcp = Effect.fnUntraced(function* (
                 sessionID: SessionSchema.ID,
@@ -1040,10 +1083,32 @@ export const Plugin = {
                 const resolution = resolveMcpLimit(role, input.mcp)
                 if (!resolution.ok) return yield* new ToolFailure({ message: resolution.message })
                 const limit = resolution.limit
-                const deny = mcpDenyRules(limit, yield* knownServers())
-                if (deny.length > 0)
+                // The previous task's generated denies come out before the
+                // new ones go in: a reused worker otherwise keeps every
+                // task's denies forever. Which servers the previous dispatch
+                // denied is stamped on the session (records from before that
+                // fall back to recomputing from the previous allowlist); a
+                // rule the operator set by hand is never in that set, so it
+                // stays. The write happens whenever the ruleset actually
+                // changes — including when the new task allows everything and
+                // the old denies simply come off.
+                const known = yield* knownServers()
+                const previous = mcpAssignmentOf(session.metadata)
+                const previousDeny =
+                  previous === undefined
+                    ? []
+                    : previous.deniedServers !== undefined
+                      ? denyRulesForServers(previous.deniedServers)
+                      : mcpDenyRules(previous, known)
+                const deniedServers =
+                  limit.servers === "all"
+                    ? []
+                    : [...new Set(known)].filter((server) => !limit.servers.includes(server)).toSorted()
+                const deny = denyRulesForServers(deniedServers)
+                const permissions = [...withoutMcpDenyRules(session.permissions ?? [], previousDeny), ...deny]
+                if (JSON.stringify(permissions) !== JSON.stringify(session.permissions ?? []))
                   yield* sessions
-                    .setPermissions({ sessionID, permissions: [...(session.permissions ?? []), ...deny] })
+                    .setPermissions({ sessionID, permissions })
                     .pipe(
                       Effect.mapError(
                         (error) => new ToolFailure({ message: `Could not apply the MCP limit to ${sessionID}`, error }),
@@ -1069,6 +1134,9 @@ export const Plugin = {
                         explicit: true,
                         budgetEpoch,
                         assignedAt: Date.now(),
+                        // The servers this dispatch denied, so the next one
+                        // removes exactly these generated rules and no others.
+                        deniedServers: [...deniedServers],
                       } as Schema.Json,
                     },
                   })
