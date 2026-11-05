@@ -1,9 +1,9 @@
 import { Schema } from "effect"
 import { Rpc, RpcGroup } from "effect/unstable/rpc"
 
-export const MachineBackendSchema = Schema.Literal("firecracker", "qemu-kvm", "apple-vz", "wsl", "container")
+export const MachineBackendSchema = Schema.Literals(["firecracker", "qemu-kvm", "apple-vz", "wsl", "container"])
 
-export const MachineStatusSchema = Schema.Literal(
+export const MachineStatusSchema = Schema.Literals([
   "creating",
   "stopped",
   "starting",
@@ -11,7 +11,7 @@ export const MachineStatusSchema = Schema.Literal(
   "stopping",
   "error",
   "destroying",
-)
+])
 
 export const MachineSchema = Schema.Struct({
   id: Schema.String,

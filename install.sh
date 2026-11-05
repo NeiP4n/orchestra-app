@@ -5,8 +5,8 @@ INSTALLER_REVISION="orchestra-unified-2026-10-26-r1"
 echo "orchestra: installer revision $INSTALLER_REVISION"
 set -eu
 
-REPO="${ORCHESTRA_REPO:-${ORCHESTRA_PP_REPO:-https://github.com/NeiP4n/opencode-plus-plus.git}}"
-BRANCH="${ORCHESTRA_BRANCH:-${ORCHESTRA_PP_BRANCH:-lan-rooms}}"
+REPO="${ORCHESTRA_REPO:-${ORCHESTRA_PP_REPO:-https://github.com/NeiP4n/orchestra-app.git}}"
+BRANCH="${ORCHESTRA_BRANCH:-${ORCHESTRA_PP_BRANCH:-main}}"
 
 resolve_dir() {
   if [ -n "${ORCHESTRA_DIR:-}" ]; then

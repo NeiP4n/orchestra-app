@@ -93,7 +93,7 @@ test("HoverAction does not trigger when disabled", async () => {
 
 test("HoverAction supports destructive hover surfaces and reports pointer state", async () => {
   let hovered = false
-  let destructiveHover: number[] = []
+  let destructiveHover: [number, number, number, number] = [0, 0, 0, 0]
   function Probe() {
     const theme = useTheme()
     destructiveHover = theme.background.action.destructive.hovered.toInts()

@@ -1,5 +1,7 @@
 #!/bin/sh
 # Installs Orchestra for the current user (Linux, macOS, Git Bash). Needs a prebuilt binary or Rust.
+# NOTE: this builds the Rust binary from crates/orchestra. It is NOT the main install path —
+# the main one-command install is installer/get.sh (clones orchestra-app and runs it with Bun).
 #   sh installer/install.sh              build with cargo and install to ~/.local/bin
 #   sh installer/install.sh <binary>     install a prebuilt binary
 set -eu

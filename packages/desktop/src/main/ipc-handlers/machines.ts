@@ -33,6 +33,12 @@ const appleVzProcesses = new Map<string, SpawnedProcess>()
 
 const wslProcesses = new Map<string, SpawnedProcess>()
 
+// The machines RPCs declare no typed error, so a failure cannot be encoded on the wire —
+// the server can only ever deliver it as a defect. Convert typed failures to defects here
+// instead of failing with an error the contract cannot carry.
+const asDefect = <A>(effect: Effect.Effect<A, Error>) =>
+  effect.pipe(Effect.catch((error) => Effect.die(error)))
+
 export const machineHandlers = MachineRpcs.toLayer(
   Effect.gen(function* () {
     const storage = yield* DesktopStorage.Service
@@ -104,7 +110,7 @@ export const machineHandlers = MachineRpcs.toLayer(
           return void next
         }),
       MachinesStart: ({ id }) =>
-        Effect.gen(function* () {
+        asDefect(Effect.gen(function* () {
           const save = (status: "starting" | "running" | "error") => {
             const current = storage.state.items(namespace).items
             const updated = updateMachineStatus(current, id, status)
@@ -217,9 +223,9 @@ export const machineHandlers = MachineRpcs.toLayer(
           }
 
           return save("running")
-        }),
+        })),
       MachinesStop: ({ id }) =>
-        Effect.gen(function* () {
+        asDefect(Effect.gen(function* () {
           const save = (status: "stopping" | "stopped" | "error") => {
             const current = storage.state.items(namespace).items
             const updated = updateMachineStatus(current, id, status)
@@ -308,9 +314,9 @@ export const machineHandlers = MachineRpcs.toLayer(
           }
 
           return save("stopped")
-        }),
+        })),
       MachinesSnapshot: ({ id }) =>
-        Effect.gen(function* () {
+        asDefect(Effect.gen(function* () {
           const raw = storage.state.items(namespace).items[id]
 
           if (!raw) return yield* Effect.fail(new Error(`Machine ${id} not found`))
@@ -342,9 +348,9 @@ export const machineHandlers = MachineRpcs.toLayer(
           storage.state.update(namespace, { [id]: JSON.stringify(snapshotted.machine) }, [])
 
           return snapshotted.machine
-        }),
+        })),
       MachinesExec: ({ id, command }) =>
-        Effect.gen(function* () {
+        asDefect(Effect.gen(function* () {
           const raw = storage.state.items(namespace).items[id]
 
           if (!raw) return yield* Effect.fail(new Error(`Machine ${id} not found`))
@@ -367,9 +373,9 @@ export const machineHandlers = MachineRpcs.toLayer(
           const runtime = yield* Effect.tryPromise(() => detectContainerRuntime(exec))
 
           return yield* Effect.tryPromise(() => execInContainer(exec, runtime, machine, command))
-        }),
+        })),
       MachinesLogs: ({ id }) =>
-        Effect.gen(function* () {
+        asDefect(Effect.gen(function* () {
           const raw = storage.state.items(namespace).items[id]
 
           if (!raw) return yield* Effect.fail(new Error(`Machine ${id} not found`))
@@ -384,9 +390,9 @@ export const machineHandlers = MachineRpcs.toLayer(
           const runtime = yield* Effect.tryPromise(() => detectContainerRuntime(exec))
 
           return yield* Effect.tryPromise(() => logsContainer(exec, runtime, machine))
-        }),
+        })),
       MachinesNetwork: ({ id, network }) =>
-        Effect.gen(function* () {
+        asDefect(Effect.gen(function* () {
           const raw = storage.state.items(namespace).items[id]
 
           if (!raw) return yield* Effect.fail(new Error(`Machine ${id} not found`))
@@ -423,7 +429,7 @@ export const machineHandlers = MachineRpcs.toLayer(
           storage.state.update(namespace, { [id]: JSON.stringify(updated.machine) }, [])
 
           return updated.machine
-        }),
+        })),
     })
   }),
 )

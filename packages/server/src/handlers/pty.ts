@@ -9,7 +9,7 @@ import { HttpApiBuilder, HttpApiSchema } from "effect/unstable/httpapi"
 import { Socket } from "effect/unstable/socket"
 import { Api } from "../api"
 import { CorsConfig, isAllowedRequestOrigin } from "../cors"
-import { ForbiddenError, PtyNotFoundError, ServiceUnavailableError } from "@orchestra/protocol/errors"
+import { ForbiddenError, PtyNotFoundError } from "@orchestra/protocol/errors"
 import {
   LEGACY_PTY_CONNECT_TOKEN_HEADER,
   PTY_CONNECT_TICKET_QUERY,
@@ -48,24 +48,15 @@ export const PtyHandler = HttpApiBuilder.group(Api, "server.pty", (handlers) =>
           const location = yield* Location.Service
           const cwd = ctx.payload.cwd || location.directory
           return yield* response(
-            pty
-              .create({
-                ...ctx.payload,
-                args: ctx.payload.args ? [...ctx.payload.args] : undefined,
-                cwd,
-                env: {
-                  ...ctx.payload.env,
-                  ...(yield* environment.get({ directory: location.directory, cwd })),
-                },
-              })
-              .pipe(
-                // The host, not the request, is out of room: 503 tells the client to retry later
-                // instead of looping on a spawn that cannot succeed.
-                Effect.catchTag(
-                  "Pty.CapacityError",
-                  (error) => new ServiceUnavailableError({ service: "pty", message: error.message }),
-                ),
-              ),
+            pty.create({
+              ...ctx.payload,
+              args: ctx.payload.args ? [...ctx.payload.args] : undefined,
+              cwd,
+              env: {
+                ...ctx.payload.env,
+                ...(yield* environment.get({ directory: location.directory, cwd })),
+              },
+            }),
           )
         }),
       )

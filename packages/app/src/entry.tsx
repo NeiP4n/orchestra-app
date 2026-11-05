@@ -77,6 +77,7 @@ if (import.meta.env.VITE_SENTRY_DSN) {
 if (root instanceof HTMLElement && root.dataset.opencodeMounted === undefined) {
   // Lazy chunks can import the entry chunk back under a distinct URL, so claim the root before async startup.
   root.dataset.opencodeMounted = ""
+  // If startup fails before the first render, show an error page instead of leaving an empty #root.
   void loadInitialLocale().then((locale) => {
     const auth = authFromToken(new URLSearchParams(location.search).get("auth_token"))
     clearAuthToken()
@@ -112,5 +113,33 @@ if (root instanceof HTMLElement && root.dataset.opencodeMounted === undefined) {
       ),
       root,
     )
+  }).catch((error) => {
+    console.error(error)
+    showStartupError(root)
   })
+}
+
+function showStartupError(root: HTMLElement) {
+  const locale = getLocale()
+  const title = (locale === "zh" ? zh["error.page.title"] : en["error.page.title"]) ?? en["error.page.title"]
+  const description =
+    (locale === "zh" ? zh["error.page.description"] : en["error.page.description"]) ??
+    en["error.page.description"]
+  const reloadLabel =
+    (locale === "zh" ? zh["error.page.action.reload"] : en["error.page.action.reload"]) ??
+    en["error.page.action.reload"]
+  root.textContent = ""
+  const page = document.createElement("div")
+  page.style.cssText =
+    "font-family:system-ui,sans-serif;max-width:560px;margin:15vh auto;padding:0 16px;color:#222"
+  const heading = document.createElement("h1")
+  heading.textContent = title
+  const text = document.createElement("p")
+  text.textContent = description
+  const reload = document.createElement("button")
+  reload.textContent = reloadLabel
+  reload.style.cssText = "font:inherit;padding:8px 16px;cursor:pointer"
+  reload.addEventListener("click", () => location.reload())
+  page.append(heading, text, reload)
+  root.append(page)
 }

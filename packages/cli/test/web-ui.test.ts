@@ -229,5 +229,29 @@ describe("web UI", () => {
       ).pipe(Effect.provide(NodeFileSystem.layer)),
     )
   })
+
+  test("returns a clear 500 error page instead of an empty 404 when the web shell was never built", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const transform = yield* WebUi.handler({ assets: {} })
+          const http = yield* NodeHttpServer.make(createServer, { host: "127.0.0.1", port: 0 })
+          yield* http.serve(transform(Effect.succeed(HttpServerResponse.empty({ status: 404 }))))
+          const origin = HttpServer.formatAddress(http.address)
+
+          yield* Effect.forEach(["/", "/workspace/example"], (pathname) =>
+            Effect.gen(function* () {
+              const response = yield* Effect.promise(() => fetch(`${origin}${pathname}`))
+              expect(response.status).toBe(500)
+              const body = yield* Effect.promise(() => response.text())
+              expect(body).toContain("Web UI is not built")
+              expect(body).toContain("bun run build")
+              expect(body).toContain("packages/app")
+            }),
+          )
+        }),
+      ).pipe(Effect.provide(NodeFileSystem.layer)),
+    )
+  })
 })
 

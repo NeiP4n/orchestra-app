@@ -31,8 +31,14 @@ export const name = "muse-chat"
 const Output = Schema.Struct({ output: Schema.String })
 type Output = typeof Output.Type
 
-function text(output: string): Output {
-  return { output }
+function text(output: string): { readonly output: Output; readonly content: string } {
+  return { output: { output }, content: output }
+}
+
+function failed(error: unknown) {
+  if (error instanceof ToolFailure) return error
+  const message = error instanceof Error ? error.message : String(error)
+  return new ToolFailure({ message, error })
 }
 
 export const Plugin = {
@@ -116,7 +122,7 @@ export const Plugin = {
     const assertPermission = Effect.fn("MuseChatTool.assertPermission")(function* (
       action: string,
       resources: readonly string[],
-      context: { sessionID: SessionSchema.ID; agent: string; messageID: string; id: string },
+      context: { sessionID: SessionSchema.ID; agent: Agent.ID; messageID: string; id: string },
     ) {
       yield* permission
         .assert({
@@ -166,7 +172,7 @@ export const Plugin = {
               .map((agent) => `${agent.id} — ${agent.name}`)
 
             return text(lines.length > 0 ? lines.join("\n") : "No agents are available.")
-          }),
+          }).pipe(Effect.mapError(failed)),
       })
 
       editor.add({
@@ -193,7 +199,7 @@ export const Plugin = {
             })
 
             return text(`Created session ${created.id}${created.title ? ` — ${created.title}` : ""}.`)
-          }),
+          }).pipe(Effect.mapError(failed)),
       })
 
       editor.add({
@@ -237,7 +243,7 @@ export const Plugin = {
             })
 
             return text(`Prompt sent to session ${input.sessionID} (message ${sent.id}).`)
-          }),
+          }).pipe(Effect.mapError(failed)),
       })
 
       editor.add({
@@ -259,7 +265,7 @@ export const Plugin = {
             })
 
             return text(`Session ${input.sessionID} now uses agent ${input.agent}.`)
-          }),
+          }).pipe(Effect.mapError(failed)),
       })
 
       editor.add({
@@ -281,7 +287,7 @@ export const Plugin = {
             })
 
             return text(`Session ${input.sessionID} now uses model ${input.model}.`)
-          }),
+          }).pipe(Effect.mapError(failed)),
       })
     })
   }),

@@ -9,24 +9,37 @@ export type AssetMap = Readonly<Record<string, string | Uint8Array>>
 /** Each asset's brotli-compressed bytes, when the build embedded them. */
 export type BrotliMap = Readonly<Record<string, Uint8Array>>
 
+/** Shown (and thrown) when the web shell was never built, so serve explains instead of showing a blank page. */
+export const WEB_UI_NOT_BUILT_MESSAGE =
+  "Web UI is not built. Run bun run build in packages/app, then restart orchestra serve."
+
+export function isWebUiNotBuilt(error: unknown) {
+  return error instanceof Error && error.message === WEB_UI_NOT_BUILT_MESSAGE
+}
+
 export const load = Effect.fn("cli.app-assets.load")(function* () {
   const embedded = yield* Effect.tryPromise(() => import("virtual:opencode-app-assets")).pipe(
     Effect.map((module) => AppArchive.decode(module.default())),
     Effect.option,
   )
-  if (Option.isSome(embedded) && (Object.keys(embedded.value).length > 0 || !ORCHESTRA_LOCAL))
+  if (Option.isSome(embedded)) {
+    if (Object.keys(embedded.value).length === 0)
+      return yield* Effect.fail(new Error(WEB_UI_NOT_BUILT_MESSAGE))
     return {
       files: lazy(embedded.value, (key) => brotliDecompressSync(embedded.value[key]!)),
       brotli: embedded.value,
     }
-  if (!ORCHESTRA_LOCAL) return yield* Effect.fail(new Error("Web UI assets are missing from the CLI build"))
+  }
+  if (!ORCHESTRA_LOCAL) return yield* Effect.fail(new Error(WEB_UI_NOT_BUILT_MESSAGE))
   return { files: yield* sourceAssets(), brotli: undefined }
 })
 
 const sourceAssets = Effect.fnUntraced(function* () {
   const fs = yield* FileSystem.FileSystem
   const root = path.resolve(import.meta.dirname, "../../app/dist")
-  const files = yield* fs.readDirectory(root, { recursive: true })
+  const files = yield* fs.readDirectory(root, { recursive: true }).pipe(
+    Effect.mapError((cause) => new Error(WEB_UI_NOT_BUILT_MESSAGE, { cause })),
+  )
   const assets = Object.fromEntries(
     (yield* Effect.forEach(
       files.filter((file) => !file.endsWith(".map")),

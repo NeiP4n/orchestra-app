@@ -2,7 +2,7 @@ import { FSUtil } from "@orchestra/util/fs-util"
 import { Effect, FileSystem } from "effect"
 import { HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { createHash } from "node:crypto"
-import { load, type AssetMap, type BrotliMap } from "../app-assets"
+import { isWebUiNotBuilt, load, WEB_UI_NOT_BUILT_MESSAGE, type AssetMap, type BrotliMap } from "../app-assets"
 
 export const handler = Effect.fn("cli.web-ui.handler")(function* (options?: {
   readonly assets?: AssetMap
@@ -26,7 +26,13 @@ export const handler = Effect.fn("cli.web-ui.handler")(function* (options?: {
         return yield* api.pipe(
           Effect.catchIf(isRouteNotFound, () => Effect.succeed(HttpServerResponse.empty({ status: 404 }))),
         )
-      return yield* assets.pipe(Effect.flatMap((loaded) => serveUI(request, url, loaded.files, loaded.brotli)))
+      // A missing web shell is a build problem, not a missing page: explain it instead of a blank screen.
+      return yield* assets.pipe(
+        Effect.flatMap((loaded) => serveUI(request, url, loaded.files, loaded.brotli)),
+        Effect.catch((error) =>
+          isWebUiNotBuilt(error) ? Effect.succeed(webUiNotBuiltResponse()) : Effect.fail(error),
+        ),
+      )
     })
 })
 
@@ -45,7 +51,7 @@ function serveUI(
     return Effect.succeed(HttpServerResponse.empty({ status: 404, headers: { "cache-control": "no-store" } }))
   const name = requested !== undefined ? key : "index.html"
   const file = requested ?? assets["index.html"]
-  if (file === undefined) return Effect.succeed(HttpServerResponse.empty({ status: 404 }))
+  if (file === undefined) return Effect.succeed(webUiNotBuiltResponse())
   if (request.method !== "GET" && request.method !== "HEAD")
     return Effect.succeed(HttpServerResponse.empty({ status: 405 }))
   const html = name === "index.html"
@@ -64,6 +70,13 @@ function serveUI(
     request.method === "HEAD"
       ? HttpServerResponse.empty({ status: 200, headers })
       : HttpServerResponse.raw(file, { headers, contentType: headers["content-type"] }),
+  )
+}
+
+function webUiNotBuiltResponse() {
+  return HttpServerResponse.text(
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Orchestra web UI is not built</title><style>body{font-family:system-ui,sans-serif;margin:40px auto;max-width:560px;padding:0 16px;color:#222}code{background:#f0f0f0;padding:2px 6px;border-radius:4px}</style></head><body><h1>Orchestra web UI is not built</h1><p>${WEB_UI_NOT_BUILT_MESSAGE}</p><p>Run <code>bun run build</code> in <code>packages/app</code>, then restart <code>orchestra serve</code>.</p></body></html>`,
+    { status: 500, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" } },
   )
 }
 

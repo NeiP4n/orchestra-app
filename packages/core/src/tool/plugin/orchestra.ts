@@ -1374,7 +1374,7 @@ export const Plugin = {
         if (!event.tools[name]) return
         const project = yield* orchestra.mainOf(event.sessionID)
         if (!project) return
-        const rows = yield* team(project)
+        const rows = yield* team(project).pipe(Effect.orElseSucceed(() => []))
         const roles = yield* orchestra.roles()
         const playbook = yield* orchestra.playbook(project.id)
         const outcomes = yield* orchestra.outcomes(project.id)
