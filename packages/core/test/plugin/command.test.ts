@@ -52,14 +52,17 @@ describe("CommandPlugin.Plugin", () => {
             prompt: (input) =>
               Effect.sync(() => {
                 prompts.push({ text: input.text, files: input.files, delivery: input.delivery })
-                return SessionInbox.User.make({
-                  id: SessionMessage.ID.make("msg_test"),
-                  sessionID: input.sessionID,
-                  time: { created: DateTime.makeUnsafe(0) },
-                  type: "user",
-                  payload: { text: input.text },
-                  delivery: input.delivery ?? "steer",
-                })
+                return {
+                  data: SessionInbox.User.make({
+                    id: SessionMessage.ID.make("msg_test"),
+                    sessionID: input.sessionID,
+                    time: { created: DateTime.makeUnsafe(0) },
+                    type: "user",
+                    payload: { text: input.text },
+                    delivery: input.delivery ?? "steer",
+                  }),
+                  held: false,
+                }
               }),
           },
         }),
