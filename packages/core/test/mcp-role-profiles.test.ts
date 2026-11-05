@@ -52,15 +52,16 @@ describe("MCP role profiles", () => {
     expect(allows(analyst, "agent-desktop")).toBe(false)
   })
 
-  test("mobile roles get the android_helper server, which is not a catalog entry", () => {
-    expect(allows(forRole("mobile-developer")!, "android_helper")).toBe(true)
-    expect(allows(forRole("tester")!, "android_helper")).toBe(true)
-    expect(allows(forRole("developer")!, "android_helper")).toBe(false)
+  test("no profile grants a server that does not exist: android_helper is gone from every ceiling", () => {
+    for (const profile of all)
+      for (const grant of profile.servers) expect(grant.server).not.toBe("android_helper")
     expect(catalog.some((entry) => entry.id === "android_helper")).toBe(false)
+    expect(allows(forRole("mobile-developer")!, "android_helper")).toBe(false)
+    expect(allows(forRole("tester")!, "android_helper")).toBe(false)
   })
 
-  test("every granted server is a catalog server or a known external one", () => {
-    const known = new Set([...catalog.map((entry) => entry.id), "android_helper"])
+  test("every granted server is a catalog server", () => {
+    const known = new Set(catalog.map((entry) => entry.id))
     for (const profile of all)
       for (const grant of profile.servers) expect(known.has(grant.server)).toBe(true)
   })
