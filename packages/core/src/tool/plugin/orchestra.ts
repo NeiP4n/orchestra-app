@@ -22,6 +22,8 @@ import { FormDecision } from "../../form-decision.js"
 import { Session } from "../../session.js"
 import { SessionSchema } from "../../session/schema.js"
 import type { SessionMessage } from "../../session/message.js"
+import { SocietyForgeTool } from "./society-forge.js"
+import { SocietyPlanTool } from "./society-plan.js"
 
 export const name = "sessions"
 
@@ -46,7 +48,7 @@ export const description = [
   `Modes: ${MODE_IDS}. A mode changes how a session works and may make it read-only; it never widens the role's permissions. Pass mode to send or create, or use action set_mode. Use fast for trivial work, planning or research before building, coding for implementation, architecture for parallel-safe design, test to verify, review or debug for checks, and self-improvement for work on the product itself. A planner in coding mode still cannot edit files.`,
   "Never pass a display title as a role ID: use an exact role id from the roles listed with your team.",
   "Access per session is hidden < read < write < full: read allows list and read, write adds send, full adds stop. Sessions you create get full access.",
-  "The 6-message rule binds you: after 6 of your own messages in a row without handing a task to a worker, your other tool calls are refused until you delegate with send or create. The roster in your context shows how many of the 6 you have used.",
+  "The 6-message rule binds you: after 6 of your own messages in a row without handing a task to a worker, your other tool calls are refused until you delegate with send or create. Building the Society (society_forge found/generate, society_plan apply) is never refused by this rule and resets the count like a delegation, so creating the Society never forces a premature dispatch. The roster in your context shows how many of the 6 you have used.",
   "MCP assignment is mandatory, and it is enforced, not advised: every send or create to a team session must pass mcp — the servers the worker may call for that task, maxCalls in total, perServer caps — and a dispatch without it is refused and sends nothing. When a task needs no MCP, say so explicitly: mcp with servers [] and maxCalls 0. You may only tighten the role's own MCP ceiling, never widen it; a refused limit says what the role allows. The limit is stamped on the worker session and stated at the top of its task brief.",
   "The assignment must come from a survey, and that is enforced too: before the first dispatch in a session, call mcp_manager with action=inspect once — it lists the configured servers (status, discovered tools, leases) and the installable catalog. A dispatch before the survey is refused and sends nothing. Judge the assignment from what the survey shows: no catalog server fitting the task is a finding, and an explicit empty assignment after the survey is the right answer for native-tool work.",
   "Worker models are a cost decision, so make it deliberately: pass model on create or send — the strongest model for design, hard debugging and review, a mid-tier or small model for mechanical implementation and routine checks. With no explicit model the role's own model or the worker policy applies, and failing those the worker inherits YOUR model, which is the expensive default, not a decision. The dispatch result names the model the worker will run and where it came from.",
@@ -82,6 +84,9 @@ export function reusableWorker<T extends WorkerRow>(
 // ORCHESTRATOR_MESSAGE_LIMIT of its own messages in a row without handing a
 // task to a team session, it must delegate: the gate below refuses its other
 // tool calls until a sessions send/create carrying a task goes through.
+// Building the Society is exempt: society_forge found/generate and
+// society_plan apply are never refused, and one resets the count like a
+// delegation — creating the Society must not force a premature dispatch.
 // Counting is by assistant message, not by tool call — one message may call
 // several tools and still counts once — and only a real delegation resets
 // the count: listing or reading the team is management, not distribution,
@@ -104,28 +109,42 @@ export interface DelegationGate {
 const isDelegationCall = (tool: string, action: string | undefined, text: string | undefined) =>
   tool === name && (action === "send" || action === "create") && !!text?.trim()
 
+// Building the Society hands work to its projects, so it is delegation, not
+// the Orchestrator doing the work itself: society_forge found/generate gives
+// the goal to the planner and the briefs to the projects, society_plan apply
+// sets the whole Society up. The 6-message rule never blocks those calls,
+// and one resets the count like a dispatch — otherwise the planner would be
+// forced into a premature dispatch halfway through creating the Society.
+const isSocietyBuildingCall = (tool: string, action: string | undefined) =>
+  (tool === SocietyForgeTool.name && (action === "found" || action === "generate")) ||
+  (tool === SocietyPlanTool.name && action === "apply")
+
+const isSocietyTool = (tool: string) => tool === SocietyForgeTool.name || tool === SocietyPlanTool.name
+
 export function delegationGate(
   counted: ReadonlyArray<string>,
   input: { tool: string; messageID: string; action?: string; text?: string },
 ): DelegationGate {
-  if (isDelegationCall(input.tool, input.action, input.text)) return { counted: [], blocked: false, reset: true }
-  // Team management and asking the operator are always available and never
-  // count as the Orchestrator doing the work itself.
-  if (input.tool === name || input.tool === "question") return { counted, blocked: false, reset: false }
+  if (isDelegationCall(input.tool, input.action, input.text) || isSocietyBuildingCall(input.tool, input.action))
+    return { counted: [], blocked: false, reset: true }
+  // Team management, Society building and asking the operator are always
+  // available and never count as the Orchestrator doing the work itself.
+  if (input.tool === name || input.tool === "question" || isSocietyTool(input.tool))
+    return { counted, blocked: false, reset: false }
   if (counted.includes(input.messageID)) return { counted, blocked: false, reset: false }
   if (counted.length >= ORCHESTRATOR_MESSAGE_LIMIT) return { counted, blocked: true, reset: false }
   return { counted: [...counted, input.messageID], blocked: false, reset: false }
 }
 
-/** Whether a finished assistant message handed a task to a team session. */
+/** Whether a finished assistant message handed a task to a team session or built the Society. */
 export function isDelegation(message: SessionMessage.Info): boolean {
   if (message.type !== "assistant") return false
   return message.content.some(
     (part) =>
       part.type === "tool" &&
-      part.name === name &&
       part.state.status === "completed" &&
-      isDelegationCall(part.name, part.state.input.action as string | undefined, part.state.input.text as string | undefined),
+      (isDelegationCall(part.name, part.state.input.action as string | undefined, part.state.input.text as string | undefined) ||
+        isSocietyBuildingCall(part.name, part.state.input.action as string | undefined)),
   )
 }
 
@@ -158,11 +177,11 @@ export function delegationStatus(streak: number) {
     text: mustDelegate
       ? [
           "# 6-message rule — limit reached",
-          `You have sent ${streak} of your own messages in a row without handing a task to a team session (limit ${limit}). Your next action MUST be sessions action send or create with the task; your other tool calls are refused until you delegate. Do not keep investigating, editing around it or writing a longer report instead.`,
+          `You have sent ${streak} of your own messages in a row without handing a task to a team session (limit ${limit}). Your next action MUST be sessions action send or create with the task; your other tool calls are refused until you delegate. Do not keep investigating, editing around it or writing a longer report instead. Building the Society (society_forge found/generate, society_plan apply) is always allowed and also resets the count.`,
         ].join("\n")
       : [
           "# 6-message rule",
-          `You have sent ${streak} of your ${limit} own messages in a row since the last task you handed to the team; ${Math.max(0, limit - streak)} remain before you must delegate. After ${limit} own messages you hand tasks to team sessions (sessions send/create) instead of continuing yourself, and other tool calls are refused until you do.`,
+          `You have sent ${streak} of your ${limit} own messages in a row since the last task you handed to the team; ${Math.max(0, limit - streak)} remain before you must delegate. After ${limit} own messages you hand tasks to team sessions (sessions send/create) instead of continuing yourself, and other tool calls are refused until you do. Society building (society_forge, society_plan) is never refused by this rule.`,
         ].join("\n"),
   }
 }
@@ -798,7 +817,7 @@ export const Plugin = {
         gateCounted.set(event.sessionID, [...gate.counted])
         if (gate.blocked)
           return yield* new Tool.Error({
-            message: `6-message rule: you have sent ${ORCHESTRATOR_MESSAGE_LIMIT} of your own messages in a row without handing a task to a team session, so this call is refused. Delegate now with the sessions tool (action send or create, with the task as text) — that call is always allowed and resets the count.`,
+            message: `6-message rule: you have sent ${ORCHESTRATOR_MESSAGE_LIMIT} of your own messages in a row without handing a task to a team session, so this call is refused. Delegate now with the sessions tool (action send or create, with the task as text) — that call is always allowed and resets the count. Building the Society (society_forge found/generate, society_plan apply) is always allowed too.`,
           })
       }),
     )
