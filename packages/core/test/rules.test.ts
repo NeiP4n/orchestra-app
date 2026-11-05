@@ -30,15 +30,17 @@ describe("rulebook", () => {
     }),
   )
 
-  it.live("caps a scope and truncates long rules", () =>
+  it.live("caps a scope and refuses long rules instead of cutting them off", () =>
     Effect.gen(function* () {
       const kv = yield* KV.Service
       const scope = Rules.societyScope("Games")
       for (let index = 0; index < Rules.MAX_PER_SCOPE; index++)
         expect((yield* Rules.add(kv, scope, { text: `rule ${index}`, by: "operator" })).rule).toBeDefined()
       expect(yield* Rules.add(kv, scope, { text: "one too many", by: "operator" })).toMatchObject({ error: expect.stringContaining("already has") })
+      // A long rule is refused, not silently cut to 240 characters: the stored text must stay what was written.
       const long = yield* Rules.add(kv, Rules.GLOBAL, { text: "x".repeat(1000), by: "operator" })
-      expect(long.rule?.text.length).toBe(Rules.MAX_TEXT)
+      expect(long.error).toContain(String(Rules.MAX_TEXT))
+      expect(yield* Rules.list(kv, Rules.GLOBAL)).toEqual([])
     }),
   )
 
