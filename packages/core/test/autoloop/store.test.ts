@@ -6,6 +6,7 @@ import { Database } from "@orchestra/core/database/database"
 import autoloopMigration from "@orchestra/core/database/migration/20261105171218_oval_joystick"
 import { AutoloopEvolve } from "@orchestra/core/autoloop/kernel/evolve"
 import { AutoloopStore } from "@orchestra/core/autoloop/kernel/store"
+import { AutoloopSchema } from "@orchestra/core/autoloop/kernel/schema"
 import type { AutoloopFact } from "@orchestra/core/autoloop/kernel/schema"
 import { Global } from "@orchestra/util/global"
 
@@ -167,6 +168,34 @@ describe("AutoloopStore", () => {
         const facts = yield* AutoloopStore.iterateLog().pipe(Stream.runCollect)
 
         expect(facts.map((fact) => fact.id)).toEqual(["f1", "f2"])
+      }),
+    )
+  })
+
+  test("rebuildProjections rewrites the projections from the journal", async () => {
+    await run(
+      Effect.gen(function* () {
+        const { db } = yield* Database.Service
+        yield* AutoloopStore.commitLatest([queued("f1", "run_1"), queued("f2", "run_2")])
+        yield* AutoloopStore.commitLatest([
+          { id: "f3", type: "run.done", collection: "runs", key: "run_1", data: { state: "done" } },
+        ])
+        // Simulate projections folded by older kernel code: wipe them and lie about the format.
+        yield* db.run(sql`DELETE FROM autoloop_projections`)
+        yield* db.run(sql`DELETE FROM autoloop_projection_refs`)
+        yield* db.run(sql`UPDATE autoloop_projection_meta SET value = 'autoloop-kernel-v0' WHERE key = 'format'`)
+
+        const rebuilt = yield* AutoloopStore.rebuildProjections()
+        const opened = yield* AutoloopStore.openView()
+        const log = yield* AutoloopStore.readLog()
+
+        expect(rebuilt.view).toEqual(AutoloopEvolve.rebuild(log))
+        expect(rebuilt.lastSeq).toBe(3)
+        expect(opened.view).toEqual({
+          runs: { run_1: { state: "done" }, run_2: { state: "queued" } },
+        })
+        expect(opened.lastSeq).toBe(3)
+        expect(opened.format).toBe(AutoloopSchema.FORMAT)
       }),
     )
   })

@@ -176,6 +176,25 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   `maxAttempts` (2), `maxVerifyIterations` (5), `maxHops` (8),
   `retryBaseMinutes` (5), `retryMaxMinutes` (60), `runLeaseMinutes` (5),
   `workerFreshMinutes` (2), `offlineAfterMinutes` (10).
+- **Tick service (block Б3, подшаг 3)**: `src/autoloop/service.ts` is the
+  Effect service around the journal and `decide` (`Autoloop.Service`,
+  node in the server layer next to `Orchestra`/`Federation`,
+  `packages/server/src/routes.ts`; started in `packages/server/src/process.ts`
+  `boot`, loop lives in the application scope). `execute(input)` — open view
+  → `decide` → `commitLatest` → notify `subscribe()` listeners → deliver
+  cards; `getView()` reads fresh from the journal; `heartbeat(worker, runs)`;
+  `stats()` counts loop ticks. The clock is ONE timer on the nearest due
+  from `deadlines()` (cron, `later`, retry pauses, card resends, lease /
+  offline sweep) — never polling; every `execute` wakes it, and with nothing
+  due it waits and runs no ticks. Delivery hands the next card to the `web`
+  channel and publishes it on the Bus (`autoloop.card.created` on first
+  hand-out, `updated` on resend); a failed publish is `markFailed` and comes
+  back on `RESEND_AT`, `given_up` after 57 minutes. State is restored from
+  the journal at start (`store.rebuildProjections()` when the stored kernel
+  `FORMAT` no longer matches), so a restart loses no runs. Rules come from
+  the journal (`rules` input) unless the service was built with explicit
+  ones; limits default to the kernel defaults until the orchestrator wiring
+  passes config-derived ones.
 - **Tests**: `packages/core/test/autoloop/` — no network, no models.
 
 ## MCP — `packages/core/src/mcp/`

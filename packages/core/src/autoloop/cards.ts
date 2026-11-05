@@ -125,7 +125,8 @@ const decideError = (cause: unknown): CardsFailure => {
   return new CardsFailure({ code: "invalid", message })
 }
 
-const storedRules = (view: View): { rules: Rules; version: number } | undefined => {
+/** Rules stored in the journal by a `rules` decide input, if any — the service reads them the same way. */
+export const storedRules = (view: View): { rules: Rules; version: number } | undefined => {
   const stored = view["config"]?.["rules"]
   if (typeof stored !== "object" || stored === null) return undefined
   const value = (stored as Record<string, unknown>)["value"]
@@ -153,7 +154,8 @@ const runDecide = (view: View, lastSeq: number, input: DecideInput, env?: CardsE
     catch: (cause) => decideError(cause),
   })
 
-const changesBetween = (before: View, after: View): CardChange[] => {
+/** What changed about cards between two views: for the SSE stream and the tick service. */
+export const cardChanges = (before: View, after: View): CardChange[] => {
   const oldCards = new Map(cardRows(before).map((row) => [row.id, row]))
   return cardRows(after).flatMap((row): CardChange[] => {
     const old = oldCards.get(row.id)
@@ -170,7 +172,7 @@ const commitDecided = (before: View, decided: DecideResult) =>
   Effect.gen(function* () {
     if (decided.facts.length === 0) return { view: before, events: [] as CardChange[] }
     const committed = yield* AutoloopStore.commitLatest(decided.facts).pipe(Effect.mapError(storeFailure))
-    return { view: committed.view, events: changesBetween(before, committed.view) }
+    return { view: committed.view, events: cardChanges(before, committed.view) }
   })
 
 const openJournal = AutoloopStore.openView().pipe(Effect.mapError(storeFailure))
