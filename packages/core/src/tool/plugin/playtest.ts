@@ -13,7 +13,7 @@ import { Effect, Option, Schema } from "effect"
 import { Location } from "../../location.js"
 import { Permission } from "../../permission.js"
 import { Session } from "../../session.js"
-import { makeHost } from "./desktop.js"
+import { isDesktopCaptureEnabled, makeHost } from "./desktop.js"
 import { ProjectDirs } from "../../project-dirs.js"
 
 export const name = "playtest"
@@ -235,6 +235,11 @@ export const Plugin = {
     )
 
     const perform = Effect.fnUntraced(function* (input: Input, context: Tool.Context) {
+      if (!isDesktopCaptureEnabled()) {
+        return yield* new ToolFailure({
+          message: "Desktop access is off by default. Set ORCHESTRA_DESKTOP_CAPTURE=on to allow it.",
+        })
+      }
       if (process.platform !== "win32") return yield* new ToolFailure({ message: "playtest works on Windows for now" })
       const loaded = input.script ? yield* loadScript(root, input.script) : []
       const steps = [...loaded, ...(input.steps ?? [])]

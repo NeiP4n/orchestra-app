@@ -5,7 +5,7 @@ import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { optional } from "@orchestra/schema/schema"
 import { Effect, Schema } from "effect"
-import { makeHost } from "./desktop.js"
+import { isDesktopCaptureEnabled, makeHost } from "./desktop.js"
 
 export const name = "desktop_action"
 
@@ -590,6 +590,11 @@ export const Plugin = {
     yield* Effect.addFinalizer(() => Effect.sync(() => host.close()))
 
     const run = Effect.fn("DesktopActionTool.run")(function* (input: Input) {
+      if (!isDesktopCaptureEnabled()) {
+        return yield* new ToolFailure({
+          message: "Desktop access is off by default. Set ORCHESTRA_DESKTOP_CAPTURE=on to allow it.",
+        })
+      }
       if (process.platform !== "win32") return { output: UNSUPPORTED }
       const invalid = validate(input)
       if (invalid !== undefined) return yield* new ToolFailure({ message: invalid })

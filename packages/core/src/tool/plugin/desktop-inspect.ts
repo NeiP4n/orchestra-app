@@ -4,7 +4,7 @@ import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { optional } from "@orchestra/schema/schema"
 import { Effect, Schema } from "effect"
-import { makeHost } from "./desktop.js"
+import { isDesktopCaptureEnabled, makeHost } from "./desktop.js"
 
 export const name = "desktop_inspect"
 
@@ -52,6 +52,7 @@ export interface InspectElement {
 export interface InspectWindow {
   readonly title: string
   readonly processId: number
+  readonly handle?: number
   readonly className: string
   readonly x: number
   readonly y: number
@@ -84,6 +85,7 @@ const RawElement = Schema.Struct({
 const RawWindow = Schema.Struct({
   title: Schema.NullOr(Schema.String),
   processId: Schema.Number,
+  handle: Schema.optional(Schema.NullOr(Schema.Number)),
   class: Schema.NullOr(Schema.String),
   x: Schema.Number,
   y: Schema.Number,
@@ -181,7 +183,8 @@ function describeElement(element: InspectElement) {
 }
 
 function describeWindow(window: InspectWindow) {
-  return ` [pid ${window.processId}] at ${window.x},${window.y} ${window.w}x${window.h}`
+  const hwnd = window.handle ? ` hwnd 0x${window.handle.toString(16)}` : ""
+  return ` [pid ${window.processId}${hwnd}] at ${window.x},${window.y} ${window.w}x${window.h}`
 }
 
 function toElement(raw: typeof RawElement.Type): InspectElement {
@@ -203,6 +206,7 @@ function toWindow(raw: typeof RawWindow.Type, fallback?: readonly InspectElement
   return {
     title: raw.title ?? "",
     processId: raw.processId,
+    handle: raw.handle ?? 0,
     className: raw.class ?? "",
     x: raw.x,
     y: raw.y,
@@ -316,9 +320,12 @@ function ConvertTo-Window($element, $elements) {
   }
   $processId = 0
   try { $processId = [int]$element.Current.ProcessId } catch {}
+  $handle = 0
+  try { $handle = [int64]$element.Current.NativeWindowHandle } catch {}
   return [pscustomobject]@{
     title = $title.Trim()
     processId = $processId
+    handle = $handle
     class = $class
     x = $x
     y = $y
@@ -471,6 +478,11 @@ export const Plugin = {
     yield* Effect.addFinalizer(() => Effect.sync(() => host.close()))
 
     const run = Effect.fn("DesktopInspectTool.run")(function* (input: Input) {
+      if (!isDesktopCaptureEnabled()) {
+        return yield* new ToolFailure({
+          message: "Desktop access is off by default. Set ORCHESTRA_DESKTOP_CAPTURE=on to allow it.",
+        })
+      }
       if (process.platform !== "win32") return { output: UNSUPPORTED }
       const query = input.query?.trim() ?? ""
       if (input.action === "find" && query === "")

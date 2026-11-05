@@ -5,6 +5,9 @@ param([switch]$Decoy)
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Playtest Fixture'
+$form.StartPosition = 'Manual'
+$form.Location = New-Object System.Drawing.Point -32000, -32000
+$form.ShowInTaskbar = $false
 $form.ClientSize = New-Object System.Drawing.Size 400, 300
 $form.BackColor = [System.Drawing.Color]::FromArgb(128, 0, 128)
 $form.KeyPreview = $true
@@ -58,7 +61,8 @@ if ($Decoy) {
   $loader.ClientSize = New-Object System.Drawing.Size 600, 450
   $loader.BackColor = [System.Drawing.Color]::Black
   $loader.StartPosition = 'Manual'
-  $loader.Location = New-Object System.Drawing.Point -6000, -6000
+  $loader.Location = New-Object System.Drawing.Point -32000, -32000
+  $loader.ShowInTaskbar = $false
   # Shown from the message loop, after the main window took the launch's first (hidden) show.
   $timer = New-Object System.Windows.Forms.Timer
   $timer.Interval = 50

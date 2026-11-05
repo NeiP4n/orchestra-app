@@ -128,7 +128,8 @@ describe("PlaytestTool", () => {
     expect(PlaytestTool.close("#00ff00", "#ff0000", 16)).toBe(false)
   })
 
-  ;(process.platform === "win32" ? it.live : it.live.skip)(
+  // Skipped: requires GUI WinForms window which may disrupt host desktop
+  it.live.skip(
     "moves from a black helper window to the window that draws",
     () =>
       withTempDir(({ path: directory }) => {
@@ -156,7 +157,8 @@ describe("PlaytestTool", () => {
     60_000,
   )
 
-  ;(process.platform === "win32" ? it.live : it.live.skip)(
+  // Skipped: requires GUI WinForms window which may disrupt host desktop
+  it.live.skip(
     "drives a hidden app with the virtual mouse and keyboard and sees the result",
     () =>
       withTempDir(({ path: directory }) => {

@@ -38,6 +38,9 @@ const Step = Schema.Struct({
   width: Schema.optionalKey(Schema.Number).annotate({
     description: "For screenshot: image width in pixels (default 1280, smaller is faster)",
   }),
+  window: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number])).annotate({
+    description: "For screenshot: window title or HWND from desktop_windows to capture only this window",
+  }),
 })
 
 export const Input = Schema.Struct({
@@ -47,7 +50,15 @@ export const Input = Schema.Struct({
 export const Output = Schema.Struct({ output: Schema.String })
 
 type StepInput = typeof Step.Type
-type Shot = { file: string; mime: string; width: number; height: number; screenWidth: number; screenHeight: number }
+type Shot = {
+  file: string
+  mime: string
+  width: number
+  height: number
+  screenWidth: number
+  screenHeight: number
+  window?: string | number
+}
 
 const Coordinate = Schema.optionalKey(Schema.Number).annotate({
   description: "Pixels of the latest screenshot unless screen is true",
@@ -58,6 +69,9 @@ const Button = Schema.optionalKey(Schema.Literals(["left", "right", "middle"]))
 // One-action shortcuts: a model reaches for a named tool more readily than for a step list.
 const ScreenshotInput = Schema.Struct({
   width: Schema.optionalKey(Schema.Number).annotate({ description: "Image width, default 1280; smaller is faster" }),
+  window: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number])).annotate({
+    description: "Window title or HWND from desktop_windows to capture only this window without raising or focusing it",
+  }),
 })
 const TypeInput = Schema.Struct({ text: Schema.String, paste: Schema.optionalKey(Schema.Boolean) })
 const KeysInput = Schema.Struct({ keys: Schema.String })
@@ -84,13 +98,19 @@ export const names = [
 const GUIDE = [
   "# Computer tools",
   "You can see and operate this computer, not only its files:",
-  "- desktop_screenshot to look at the screen; then desktop_click / desktop_scroll with x/y read from that image.",
+  "- desktop_screenshot captures the full screen or a specific window by title or HWND (window parameter). It captures background and covered windows directly without moving cursor or raising/focusing windows — do NOT call focus before screenshot.",
+  "- desktop_windows lists windows with their process name, title, and HWND.",
   "- desktop_type for text (long text is pasted, fast), desktop_keys for shortcuts (ctrl+s, alt+tab, win+r, enter).",
-  "- desktop_windows lists windows, desktop_focus brings one forward, desktop_open starts an app, file or URL, desktop_clipboard reads or sets the clipboard.",
+  "- desktop_focus brings a window forward, desktop_open starts an app, file or URL, desktop_clipboard reads or sets the clipboard.",
   "- desktop runs several of these steps in one call (focus, type, enter, wait, screenshot); prefer it for multi-step interactions, it is the fastest.",
   "- Commands: the shell tool with background: true returns at once and you are notified when the command ends; independent tool calls in one step run in parallel. Never poll a background command.",
-  "Work loop: screenshot, act, screenshot again to check the result. Never guess coordinates without a fresh screenshot.",
+  "Work loop: screenshot (pass window when targeting a specific app), act, screenshot again to check the result. Never guess coordinates without a fresh screenshot. Do not call focus before taking a window screenshot.",
 ].join("\n")
+
+export function isDesktopCaptureEnabled(): boolean {
+  const env = process.env.ORCHESTRA_DESKTOP_CAPTURE?.trim().toLowerCase()
+  return env === "on" || env === "1" || env === "true" || env === "enabled" || env === "yes"
+}
 
 export const Plugin = {
   id: "orchestra.tool.desktop",
@@ -102,6 +122,13 @@ export const Plugin = {
     yield* Effect.addFinalizer(() => Effect.sync(() => host.close()))
 
     const perform = Effect.fnUntraced(function* (steps: readonly StepInput[], context: Tool.Context) {
+      if (!isDesktopCaptureEnabled()) {
+        return yield* Effect.fail(
+          new ToolFailure({
+            message: "Desktop access is off by default. Set ORCHESTRA_DESKTOP_CAPTURE=on to allow it.",
+          }),
+        )
+      }
       // Every desktop tool shares one permission, so a role grants or denies the computer as a whole.
       yield* permission
         .assert({
@@ -124,7 +151,11 @@ export const Plugin = {
           ),
         )
         if (!result.ok) {
-          lines.push(`${label}: failed: ${result.error instanceof Error ? result.error.message : String(result.error)}`)
+          const message = result.error instanceof Error ? result.error.message : String(result.error)
+          if (step.action === "screenshot") {
+            return yield* Effect.fail(new ToolFailure({ message, error: result.error }))
+          }
+          lines.push(`${label}: failed: ${message}`)
           if (index < steps.length - 1) lines.push("Remaining steps were skipped.")
           break
         }
@@ -143,7 +174,9 @@ export const Plugin = {
         yield* Effect.promise(() => rm(path.dirname(value.file), { recursive: true, force: true }))
         images.push({ uri: `data:${value.mime};base64,${data.toString("base64")}`, mime: value.mime, name: `screenshot-${index + 1}` })
         lines.push(
-          `${label}: ${value.width}x${value.height} image of a ${value.screenWidth}x${value.screenHeight} screen; x/y of later clicks use this image's pixels`,
+          value.window
+            ? `${label}: ${value.width}x${value.height} image of window '${value.window}' (${value.screenWidth}x${value.screenHeight}); x/y of later clicks use this image's pixels`
+            : `${label}: ${value.width}x${value.height} image of a ${value.screenWidth}x${value.screenHeight} screen; x/y of later clicks use this image's pixels`,
         )
       }
       const output = lines.join("\n")
@@ -161,7 +194,8 @@ export const Plugin = {
         editor.add({
           name: "desktop_screenshot",
           options,
-          description: "Take a screenshot of the whole screen and see it. Later clicks take x/y in this image's pixels.",
+          description:
+            "Take a screenshot of the whole screen or a specific window by title or HWND without raising or focusing it. Later clicks take x/y in this image's pixels.",
           input: ScreenshotInput,
           output: Output,
           execute: (input, context) => perform([{ action: "screenshot", ...input }], context),
@@ -256,7 +290,7 @@ export async function run(host: Host, step: StepInput, scale: { x: number; y: nu
       const directory = await mkdtemp(path.join(tmpdir(), "opencode-desktop-"))
       const file = path.join(directory, "screen.jpg")
       const width = Math.max(320, Math.min(Math.round(step.width ?? 1280), 3840))
-      const reply = await host.call(platformScript.screenshot(file, width))
+      const reply = await host.call(platformScript.screenshot(file, width, step.window))
       const [screenWidth, screenHeight, imageWidth, imageHeight] = reply.split(/\s+/).map(Number)
       return {
         file,
@@ -265,6 +299,7 @@ export async function run(host: Host, step: StepInput, scale: { x: number; y: nu
         height: imageHeight || 0,
         screenWidth: screenWidth || width,
         screenHeight: screenHeight || 0,
+        window: step.window,
       }
     }
     case "type": {
@@ -308,6 +343,9 @@ export function makeHost(prelude = HOST_PRELUDE, label = "desktop") {
   let queue = Promise.resolve()
 
   const start = () => {
+    if (!isDesktopCaptureEnabled()) {
+      throw new Error("Desktop access is off by default. Set ORCHESTRA_DESKTOP_CAPTURE=on to allow it.")
+    }
     if (child && child.exitCode === null && !child.killed) return child
     buffer = ""
     const created = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-STA", "-Command", "-"], {
@@ -341,6 +379,9 @@ export function makeHost(prelude = HOST_PRELUDE, label = "desktop") {
   return {
     // Requests are serialized: the desktop has one keyboard and one mouse.
     call(script: string): Promise<string> {
+      if (!isDesktopCaptureEnabled()) {
+        return Promise.reject(new Error("Desktop access is off by default. Set ORCHESTRA_DESKTOP_CAPTURE=on to allow it."))
+      }
       if (process.platform !== "win32") return runPosix(script)
       const result = queue.then(
         () =>
@@ -370,7 +411,14 @@ export function makeHost(prelude = HOST_PRELUDE, label = "desktop") {
       return result
     },
     close() {
-      child?.kill()
+      if (child?.pid) {
+        if (process.platform === "win32") {
+          try {
+            spawn("taskkill.exe", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true })
+          } catch {}
+        }
+        child.kill()
+      }
       child = undefined
     },
   }
@@ -380,9 +428,21 @@ const HOST_PRELUDE = `
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing, Microsoft.VisualBasic
-Add-Type -TypeDefinition @'
+Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
 using System;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+public struct RECT { public int Left, Top, Right, Bottom; }
+public struct POINT { public int X, Y; }
+public struct WINDOWPLACEMENT {
+  public int length;
+  public int flags;
+  public int showCmd;
+  public POINT ptMinPosition;
+  public POINT ptMaxPosition;
+  public RECT rcNormalPosition;
+}
 public static class OcDesk {
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
@@ -390,9 +450,96 @@ public static class OcDesk {
   [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint f, IntPtr e);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint nFlags);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
+  [DllImport("user32.dll", EntryPoint = "FindWindowW", CharSet = CharSet.Unicode)]
+  public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+  [DllImport("user32.dll", EntryPoint = "GetWindowTextW", CharSet = CharSet.Unicode)]
+  public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+
+  public static IntPtr FindWindowBySubstring(string substring) {
+    IntPtr exact = IntPtr.Zero;
+    IntPtr partial = IntPtr.Zero;
+    EnumWindows((hWnd, lParam) => {
+      if (!IsWindowVisible(hWnd)) return true;
+      System.Text.StringBuilder sb = new System.Text.StringBuilder(512);
+      GetWindowText(hWnd, sb, 512);
+      string title = sb.ToString();
+      if (!string.IsNullOrEmpty(title)) {
+        if (title.Equals(substring, StringComparison.OrdinalIgnoreCase)) {
+          exact = hWnd;
+          return false;
+        }
+        if (partial == IntPtr.Zero && title.IndexOf(substring, StringComparison.OrdinalIgnoreCase) >= 0) {
+          partial = hWnd;
+        }
+      }
+      return true;
+    }, IntPtr.Zero);
+    return exact != IntPtr.Zero ? exact : partial;
+  }
+
+  public static bool IsImageNonEmpty(Bitmap bmp) {
+    if (bmp == null || bmp.Width <= 0 || bmp.Height <= 0) return false;
+    BitmapData data = bmp.LockBits(
+      new Rectangle(0, 0, bmp.Width, bmp.Height),
+      ImageLockMode.ReadOnly,
+      PixelFormat.Format32bppArgb
+    );
+    try {
+      int stride = data.Stride;
+      int bytes = Math.Abs(stride) * bmp.Height;
+      byte[] rgb = new byte[bytes];
+      Marshal.Copy(data.Scan0, rgb, 0, bytes);
+      for (int i = 0; i < bytes; i += 4) {
+        if (rgb[i+3] > 0 && (rgb[i] > 0 || rgb[i+1] > 0 || rgb[i+2] > 0)) {
+          return true;
+        }
+      }
+      return false;
+    } finally {
+      bmp.UnlockBits(data);
+    }
+  }
 }
 '@
 [void][OcDesk]::SetProcessDPIAware()
+function Resolve-Hwnd($target) {
+  if ($null -eq $target -or [string]::IsNullOrWhiteSpace([string]$target)) { return [IntPtr]::Zero }
+  $str = [string]$target.Trim()
+  $hwndVal = 0
+  if ($str -match '^(?:0x([0-9a-fA-F]+)|([0-9]+))$') {
+    if ($matches[1]) { $hwndVal = [Convert]::ToInt64($matches[1], 16) }
+    else { $hwndVal = [Convert]::ToInt64($matches[2], 10) }
+  } elseif ($str -match 'HWND\s*(?:0x([0-9a-fA-F]+)|([0-9]+))') {
+    if ($matches[1]) { $hwndVal = [Convert]::ToInt64($matches[1], 16) }
+    else { $hwndVal = [Convert]::ToInt64($matches[2], 10) }
+  }
+  if ($hwndVal -ne 0) {
+    $h = [IntPtr]$hwndVal
+    if ([OcDesk]::IsWindow($h)) { return $h }
+  }
+  $found = [OcDesk]::FindWindow($null, $str)
+  if ($found -ne [IntPtr]::Zero) { return $found }
+  $foundSub = [OcDesk]::FindWindowBySubstring($str)
+  if ($foundSub -ne [IntPtr]::Zero) { return $foundSub }
+  $procs = Get-Process | Where-Object { $_.MainWindowTitle -and $_.MainWindowHandle -ne 0 }
+  $match = $procs | Where-Object { $_.MainWindowTitle -eq $str } | Select-Object -First 1
+  if (!$match) {
+    $match = $procs | Where-Object { $_.MainWindowTitle -like "*$str*" } | Select-Object -First 1
+  }
+  if (!$match) {
+    $match = $procs | Where-Object { $_.ProcessName -like "*$str*" } | Select-Object -First 1
+  }
+  if ($match) { return $match.MainWindowHandle }
+  throw "No window found matching '$str'"
+}
 function Send-Reply([string]$tag, [string]$text) {
   [Console]::Out.WriteLine('@@' + $tag + ' ' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($text)))
   [Console]::Out.Flush()
@@ -457,9 +604,59 @@ function windowsKeys(combo: string) {
 const MOUSE = { left: [0x02, 0x04], right: [0x08, 0x10], middle: [0x20, 0x40] } as const
 
 const platformScript = {
-  screenshot(file: string, width: number) {
+  screenshot(file: string, width: number, window?: string | number) {
     if (process.platform === "darwin") return `screenshot\t${file}\t${width}`
     if (process.platform !== "win32") return `screenshot\t${file}\t${width}`
+    if (window !== undefined && window !== null && String(window).trim() !== "") {
+      const targetStr = String(window).trim()
+      return `
+$target = ${psString(targetStr)}
+$h = Resolve-Hwnd $target
+if ($h -eq [IntPtr]::Zero) { throw "Window not found matching '$target'" }
+$r = New-Object RECT
+$isMin = [OcDesk]::IsIconic($h)
+if ($isMin) {
+  $wp = New-Object WINDOWPLACEMENT
+  $wp.length = [System.Runtime.InteropServices.Marshal]::SizeOf($wp)
+  if ([OcDesk]::GetWindowPlacement($h, [ref]$wp)) {
+    $w = $wp.rcNormalPosition.Right - $wp.rcNormalPosition.Left
+    $hgt = $wp.rcNormalPosition.Bottom - $wp.rcNormalPosition.Top
+  } else {
+    $w = 0; $hgt = 0
+  }
+} else {
+  if (![OcDesk]::GetWindowRect($h, [ref]$r)) {
+    throw "Failed to get window bounds for HWND $h"
+  }
+  $w = $r.Right - $r.Left
+  $hgt = $r.Bottom - $r.Top
+}
+if ($w -le 0 -or $hgt -le 0) {
+  throw "Window '$target' has invalid bounds ($w x $hgt). The window may be minimized or offscreen."
+}
+$bmp = New-Object System.Drawing.Bitmap $w, $hgt
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$hdc = $g.GetHdc()
+$pwOk = [OcDesk]::PrintWindow($h, $hdc, 3)
+$g.ReleaseHdc($hdc)
+$g.Dispose()
+
+if (!$pwOk -or ![OcDesk]::IsImageNonEmpty($bmp)) {
+  $bmp.Dispose()
+  $reason = if ($isMin) { "window is minimized" } else { "window returned a blank or empty frame (may use hardware acceleration, protected content, or is not rendered)" }
+  throw "Failed to capture window '$target': $reason. Window does not yield its content via background capture."
+}
+
+$origW = $w; $origH = $hgt
+$scaleW = [Math]::Min(${width}, $origW); $scaleH = [int]($origH * $scaleW / $origW)
+$small = New-Object System.Drawing.Bitmap $bmp, $scaleW, $scaleH
+$codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' }
+$params = New-Object System.Drawing.Imaging.EncoderParameters 1
+$params.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter ([System.Drawing.Imaging.Encoder]::Quality), 80L
+$small.Save(${psString(file)}, $codec, $params)
+$bmp.Dispose(); $small.Dispose()
+"$origW $origH $scaleW $scaleH"`
+    }
     return `
 $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
 $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
@@ -507,7 +704,7 @@ $g.Dispose(); $bmp.Dispose(); $small.Dispose()
   },
   windows() {
     if (process.platform !== "win32") return "windows"
-    return `Get-Process | Where-Object { $_.MainWindowTitle } | ForEach-Object { "$($_.ProcessName): $($_.MainWindowTitle)" }`
+    return `Get-Process | Where-Object { $_.MainWindowTitle -and $_.MainWindowHandle -ne 0 } | ForEach-Object { "$($_.ProcessName): $($_.MainWindowTitle) [HWND 0x$($_.MainWindowHandle.ToInt64().ToString('X')) / $($_.MainWindowHandle.ToInt64())]" }`
   },
   open(target: string) {
     if (process.platform !== "win32") return `open\t${target}`
