@@ -12,6 +12,33 @@ export const register = Effect.fn("BrowserTools.register")(function* (
   ctx: Pick<Context, "tool" | "location">,
   connection: BrowserConnection.Connection,
 ) {
+  // The tab list and focus below call the connection directly instead of
+  // `run`: `run` calls `perform`, so calling it from `perform` would make
+  // the two infer each other's types in a circle.
+  const listTabs = (tool: Tool.Context) =>
+    Effect.gen(function* () {
+      const operation = Browser.Operations.find((item) => item.name === "tabs.list")!
+      const target = yield* connection.target(tool.sessionID, { type: "tabs.list" })
+      const response = yield* target.request([])
+      const decoded = yield* Effect.fromResult(decodeResult(operation, response))
+      return yield* Schema.decodeUnknownEffect(Browser.State)(decoded).pipe(
+        Effect.mapError(
+          (error) => new Tool.Error({ message: `browser.tabs.list returned an unexpected result.`, error }),
+        ),
+      )
+    })
+  const focusTab = (tool: Tool.Context, tabID: Browser.TabID) =>
+    Effect.gen(function* () {
+      const operation = Browser.Operations.find((item) => item.name === "tabs.focus")!
+      const target = yield* connection.target(tool.sessionID, { type: "tabs.focus", tabID })
+      const response = yield* target.request([])
+      const decoded = yield* Effect.fromResult(decodeResult(operation, response))
+      return yield* Schema.decodeUnknownEffect(Browser.Tab)(decoded).pipe(
+        Effect.mapError(
+          (error) => new Tool.Error({ message: `browser.tabs.focus returned an unexpected result.`, error }),
+        ),
+      )
+    })
   const perform = Effect.fn("BrowserTools.perform")(function* (
     operation: Browser.Operation,
     input: Browser.Action,
@@ -25,13 +52,11 @@ export const register = Effect.fn("BrowserTools.register")(function* (
     // the open tabs first and return the matching one (focused, as an open
     // would select it). A failed tab list never blocks the open.
     if (action.type === "tabs.open" && action.url !== undefined && action.url !== "about:blank") {
-      const listed = yield* run({ type: "tabs.list" }, Browser.State, tool).pipe(Effect.option)
+      const listed = yield* listTabs(tool).pipe(Effect.option)
       const match = Option.isSome(listed) ? findTabWithURL(listed.value.tabs, action.url) : undefined
       if (match !== undefined) {
         const focused =
-          action.focus === false
-            ? undefined
-            : yield* run({ type: "tabs.focus", tabID: match.id }, Browser.Tab, tool).pipe(Effect.option)
+          action.focus === false ? Option.none<Browser.Tab>() : yield* focusTab(tool, match.id).pipe(Effect.option)
         const output = yield* Schema.decodeUnknownEffect(operation.output)(
           Option.isSome(focused) ? focused.value : match,
         ).pipe(
