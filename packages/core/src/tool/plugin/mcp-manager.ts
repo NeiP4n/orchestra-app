@@ -6,6 +6,8 @@ import { Effect, Option, Schema } from "effect"
 import { McpAcquire } from "../../mcp/acquire.js"
 import { McpCatalog } from "../../mcp/catalog.js"
 import { McpLifecycle } from "../../mcp/lifecycle.js"
+import { McpRatings } from "../../mcp/ratings.js"
+import { McpSelect } from "../../mcp/select.js"
 import { Orchestra } from "../../orchestra.js"
 import { Session } from "../../session.js"
 import { SessionSchema } from "../../session/schema.js"
@@ -15,7 +17,7 @@ export const name = "mcp_manager"
 
 const description = [
   "Manage the MCP fleet lifecycle as the Orchestrator. The fleet is AI-managed: servers stay persistently disabled until a task needs them.",
-  "Actions: inspect lists every configured server with its origin (orchestra = untouched catalog install, user = user-managed), status, discovered tools, leases and pins. enable persistently enables a server and verifies it actually works (connected AND tools discovered). disable persistently disables it (config preserved, survives restart) — refused while another task leases it or the operator pinned it. remove deletes a server's config entry after archiving it (restore brings it back); Orchestra-managed servers can be removed autonomously, user-managed ones only with approved: true after the operator agreed. acquire selects and installs a catalog server for a capability need (need) or a server id, then enables it. lease/release stake or free a task's claim on a server so other work cannot disable it mid-task. pin/unpin mark an operator keep-on decision.",
+  "Actions: inspect lists every configured server with its origin (orchestra = untouched catalog install, user = user-managed), status, discovered tools, leases and pins. enable persistently enables a server and verifies it actually works (connected AND tools discovered). disable persistently disables it (config preserved, survives restart) — refused while another task leases it or the operator pinned it. remove deletes a server's config entry after archiving it (restore brings it back); Orchestra-managed servers can be removed autonomously, user-managed ones only with approved: true after the operator agreed. acquire selects and installs a catalog server for a capability need (need) or a server id, then enables it — selection is ranked by the need with a fallback chain (context7 → deepwiki, serena → native symbols/grep, playwright → agent-desktop), and when no server fits confidently it answers with an ask-card (candidates + recommendation) instead of guessing. lease/release stake or free a task's claim on a server so other work cannot disable it mid-task. pin/unpin mark an operator keep-on decision.",
   "Pass role when acting for a specific role: servers outside that role's MCP ceiling are refused — enabling globally never grants a role access. Pass holder (a session or task id) on lease/release, and on disable to release your own lease first.",
   "Never enable the whole catalog: enable only what the current task needs, and disable what no active task needs anymore.",
 ].join("\n")
@@ -106,6 +108,26 @@ export const Plugin = {
                 return acquireCeiling(role, server)
               })
 
+            // Persistent server ratings, best-effort: a missing rating store
+            // is no evidence either way, never a reason to fail the action.
+            const readRatings = () =>
+              Effect.forEach(
+                McpCatalog.all,
+                (entry) =>
+                  lifecycle.kvGet(McpRatings.ratingKey(entry.id)).pipe(
+                    Effect.map((value) => ({ id: entry.id, rating: McpRatings.parseRating(value) })),
+                    Effect.orElseSucceed(() => ({ id: entry.id, rating: undefined as McpRatings.Rating | undefined })),
+                  ),
+                { concurrency: "unbounded" },
+              ).pipe(
+                Effect.map((rows) => {
+                  const ratings = new Map<string, McpRatings.Rating>()
+                  for (const row of rows) if (row.rating) ratings.set(row.id, row.rating)
+                  return ratings
+                }),
+                Effect.orElseSucceed(() => new Map<string, McpRatings.Rating>()),
+              )
+
             switch (input.action) {
               case "inspect": {
                 const rows = yield* guard(McpLifecycle.inspect(lifecycle))
@@ -127,10 +149,18 @@ export const Plugin = {
                 })
                 // The survey covers both halves of the fleet: what is configured
                 // (above) and what could still be installed from the catalog.
+                // It also shows the capability classes no server is needed
+                // for — native tools cover them — and the persistent server
+                // ratings, so the assignment is judged on evidence, not on
+                // a first impression from one session.
                 const configured = new Set(rows.map((row) => row.name))
                 const installable = McpCatalog.all.filter(
                   (entry) => !configured.has(entry.id) && !configured.has(entry.name),
                 )
+                const ratings = yield* readRatings()
+                const rated = [...ratings]
+                  .map(([id, rating]) => ({ id, rating }))
+                  .filter((row) => row.rating.calls > 0)
                 // Running inspect is the session's MCP survey: the sessions tool
                 // refuses a first dispatch until this stamp exists, so an MCP
                 // assignment is always made after seeing the fleet, never by
@@ -163,6 +193,19 @@ export const Plugin = {
                       ? [
                           `Installable from the catalog (${installable.length}, not configured):`,
                           ...installable.map((entry) => `- ${entry.id}: ${entry.description}`),
+                        ]
+                      : []),
+                    `No MCP server needed for these — native tools cover them:`,
+                    ...McpCatalog.nativeAnalogues.map(
+                      (analogue) => `- ${analogue.id}: ${analogue.description} (use ${analogue.nativeTools.join(", ")})`,
+                    ),
+                    ...(rated.length > 0
+                      ? [
+                          `Server ratings from past calls (persistent across sessions):`,
+                          ...rated.map(
+                            (row) =>
+                              `- ${row.id}: ${row.rating.successes}/${row.rating.calls} succeeded (${Math.round(McpRatings.successRate(row.rating) * 100)}%), mean latency ${Math.round(McpRatings.avgLatencyMs(row.rating) ?? 0)}ms`,
+                          ),
                         ]
                       : []),
                   ].join("\n"),
@@ -201,30 +244,82 @@ export const Plugin = {
                 return { output: outcome.detail }
               }
               case "acquire": {
-                const picked = input.server?.trim()
-                  ? [{ entry: { id: input.server.trim() }, score: 0, reasons: [] as string[] }]
-                  : input.need
-                    ? McpAcquire.select(input.need)
-                    : undefined
-                if (!picked) return yield* fail("Action acquire needs a server id or a need in words.")
-                if (picked.length === 0)
-                  return yield* fail(`No catalog server matches "${input.need}". Inspect the fleet or describe the need differently.`)
-                const id = picked[0]!.entry.id
-                const refusal = yield* checkRole(id)
-                if (refusal) return yield* fail(refusal)
-                const ensured = yield* McpAcquire.ensure(McpLifecycle.acquireAccess(lifecycle), id)
-                if (ensured.state === "needs_auth")
-                  return {
-                    output: `${id}: needs authorization before it can be installed — ${ensured.detail} Nothing was installed.`,
+                const explicit = input.server?.trim()
+                const need = input.need?.trim()
+                if (!explicit && !need) return yield* fail("Action acquire needs a server id or a need in words.")
+                // An explicit id is a decision already made; a need in words
+                // is ranked, and a low-confidence or tied ranking answers
+                // with an ask-card instead of guessing a server.
+                let server: string
+                let chain: readonly McpSelect.Fallback[]
+                let explanation = ""
+                if (explicit) {
+                  server = explicit
+                  chain = McpSelect.fallbackChain(explicit)
+                } else {
+                  const ratings = yield* readRatings()
+                  const decision = McpSelect.selectForTask(need!, { ratings })
+                  if (decision.kind === "native")
+                    return { output: `${decision.explanation} No server was installed.` }
+                  if (decision.kind === "ask")
+                    return {
+                      output: [
+                        decision.explanation,
+                        `Ask which server to acquire (or answer with an explicit server id):`,
+                        `Card: ${decision.card.title}`,
+                        decision.card.text,
+                        `Options: ${decision.card.options.join(", ")}${decision.card.recommend ? `; recommended: ${decision.card.recommend}` : ""}`,
+                        "Nothing was installed.",
+                      ].join("\n"),
+                    }
+                  server = decision.server
+                  chain = decision.chain
+                  explanation = decision.explanation
+                }
+                // The winner first, then its fallback chain: a dead primary
+                // hands over to the next link instead of being hammered, and
+                // the report says which link served. A role refusal of the
+                // primary fails the action; a refusal of a fallback just
+                // skips that link.
+                const attempts: readonly McpSelect.Fallback[] = [{ kind: "mcp", server }, ...chain]
+                const tried: string[] = []
+                for (const attempt of attempts) {
+                  if (attempt.kind === "native")
+                    return {
+                      output: [
+                        ...(tried.length > 0 ? [`${tried.join("; ")}; falling back to native tools.`] : []),
+                        `Use native tools instead: ${attempt.tools.join(", ")}. No server was installed.`,
+                      ].join(" "),
+                    }
+                  const refusal = yield* checkRole(attempt.server)
+                  if (refusal) {
+                    if (attempt.server === server) return yield* fail(refusal)
+                    tried.push(`${attempt.server} (refused for this role)`)
+                    continue
                   }
-                if (ensured.state !== "healthy" && ensured.state !== "degraded")
-                  return { output: `${id}: ${ensured.state} (${ensured.action}) — ${ensured.detail}` }
-                // A catalog install lands enabled in the runtime; make the
-                // enabled state the persistent one too, then verify.
-                const outcome = yield* guard(McpLifecycle.enable(lifecycle, id))
-                if (input.holder) yield* guard(McpLifecycle.acquireLease(lifecycle, id, input.holder, input.note))
+                  const ensured = yield* McpAcquire.ensure(McpLifecycle.acquireAccess(lifecycle), attempt.server)
+                  if (ensured.state === "needs_auth")
+                    return {
+                      output: `${attempt.server}: needs authorization before it can be installed — ${ensured.detail} Nothing was installed.`,
+                    }
+                  if (ensured.state === "healthy" || ensured.state === "degraded") {
+                    // A catalog install lands enabled in the runtime; make the
+                    // enabled state the persistent one too, then verify.
+                    const outcome = yield* guard(McpLifecycle.enable(lifecycle, attempt.server))
+                    if (input.holder)
+                      yield* guard(McpLifecycle.acquireLease(lifecycle, attempt.server, input.holder, input.note))
+                    return {
+                      output: [
+                        ...(explanation ? [explanation] : []),
+                        ...(tried.length > 0 ? [`${tried.join("; ")}; fell back to ${attempt.server}.`] : []),
+                        `${attempt.server}: acquired (${ensured.action}) and ${outcome.state} — ${outcome.detail}${outcome.tools.length > 0 ? ` Tools: ${outcome.tools.join(", ")}.` : ""}`,
+                      ].join(" "),
+                    }
+                  }
+                  tried.push(`${attempt.server} (${ensured.state}: ${ensured.detail})`)
+                }
                 return {
-                  output: `${id}: acquired (${ensured.action}) and ${outcome.state} — ${outcome.detail}${outcome.tools.length > 0 ? ` Tools: ${outcome.tools.join(", ")}.` : ""}`,
+                  output: `No server could be acquired for "${need ?? explicit}": ${tried.join("; ")}. Nothing was installed.`,
                 }
               }
               case "lease": {

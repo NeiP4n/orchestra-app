@@ -265,6 +265,91 @@ export const all: readonly Entry[] = [
   },
 ]
 
+// Capability classes the catalog deliberately does NOT offer as MCP
+// servers, because a native Orchestra tool already covers them — installing
+// a server for one of these would only duplicate what the session can do.
+// The selection ranking (./select.ts) answers these needs with the native
+// tools instead of guessing a catalog server, and `mcp_manager inspect`
+// lists them in the survey so the Orchestrator sees the whole capability
+// map, not just the installable half. Keep this in step with AGENTS.md
+// ("MCP Standards"): a class leaves this list only when a catalog server
+// is added that genuinely beats the native tool.
+export interface NativeAnalogue {
+  readonly id: string
+  readonly name: string
+  readonly description: string
+  /** Native tools that cover the class; named as the model calls them. */
+  readonly nativeTools: readonly string[]
+  /** English capability words that name this class (needs are translated to English before matching). */
+  readonly keywords: readonly string[]
+}
+
+export const nativeAnalogues: readonly NativeAnalogue[] = [
+  {
+    id: "web-search",
+    name: "Web search",
+    description: "Search the web for pages, answers and current information.",
+    nativeTools: ["websearch"],
+    keywords: ["websearch", "search", "google", "find", "lookup", "internet", "web"],
+  },
+  {
+    id: "fetch",
+    name: "Fetch a URL",
+    description: "Read one URL's content: a page, a file, an API response.",
+    nativeTools: ["webfetch"],
+    keywords: ["fetch", "download", "curl", "url", "webpage"],
+  },
+  {
+    id: "memory",
+    name: "Memory",
+    description: "Durable notes and facts the team keeps across sessions.",
+    nativeTools: ["note", "idea_bank"],
+    keywords: ["memory", "remember", "notes", "note", "knowledge", "recall"],
+  },
+  {
+    id: "sequential-thinking",
+    name: "Step-by-step thinking",
+    description: "Working through a hard problem in explicit steps.",
+    nativeTools: ["reasoning"],
+    keywords: ["thinking", "reasoning", "step", "plan", "think"],
+  },
+  {
+    id: "filesystem",
+    name: "Filesystem",
+    description: "Read, write and search project files.",
+    nativeTools: ["read", "edit", "write", "glob", "grep", "symbols"],
+    keywords: ["filesystem", "file", "files", "read", "write", "edit", "directory"],
+  },
+  {
+    id: "database",
+    name: "Database",
+    description: "Query a local database file (SQLite and friends) through the shell.",
+    nativeTools: ["shell"],
+    keywords: ["database", "sql", "sqlite", "query", "table", "db"],
+  },
+  {
+    id: "task-tracker",
+    name: "Task tracker",
+    description: "The team's own board: stages, acceptance criteria and who does what.",
+    nativeTools: ["sessions", "plan", "stages"],
+    keywords: ["tracker", "tasks", "task", "board", "kanban", "todo", "stage", "stages"],
+  },
+  {
+    id: "git",
+    name: "Git",
+    description: "Version control: history, diffs, branches, commits.",
+    nativeTools: ["shell"],
+    keywords: ["git", "commit", "branch", "diff", "history", "vcs"],
+  },
+  {
+    id: "time",
+    name: "Time",
+    description: "The current date and time, and date arithmetic.",
+    nativeTools: ["shell"],
+    keywords: ["time", "date", "clock", "today", "now"],
+  },
+]
+
 // The variables a catalog server exits without that neither its config nor the host provides. A key
 // passed as a command-line flag instead (--api-key, --access-token) counts as provided.
 export function missing(name: string, config: ServerConfig) {
