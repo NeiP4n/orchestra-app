@@ -342,6 +342,9 @@ const drainPrompt = (sessionID: Session.ID, text: string) =>
   })
 
 const backup = Model.Ref.make({ providerID: Provider.ID.make("fake"), id: Model.ID.make("backup") })
+// The drain tests below expect the rewritten message, not this raw text:
+// `to-session-error.ts` turns a geo-blocked provider answer into the
+// actionable "Google refused this network's location…" message.
 const invalidRequest = new AIError({ reason: new InvalidRequestError({ message: "User location is not supported" }) })
 const contentPolicy = new AIError({ reason: new ContentPolicyError({ message: "The request was blocked" }) })
 const contextOverflow = new AIError({
@@ -382,7 +385,7 @@ describe("SessionRunnerLLM fallback while draining a session", () => {
       expect(result.messages.at(-1)).toMatchObject({
         type: "assistant",
         finish: "error",
-        error: { type: "provider.invalid-request", message: "User location is not supported" },
+        error: { type: "provider.invalid-request", message: "Google refused this network's location. Requests leave through a VPN or proxy exit that Google does not serve for this model; switch the exit to another country or connect directly, then retry." },
       })
     }),
   )
@@ -430,7 +433,7 @@ describe("SessionRunnerLLM fallback while draining a session", () => {
       expect(result.messages.at(-1)).toMatchObject({
         type: "assistant",
         finish: "error",
-        error: { type: "provider.invalid-request", message: "User location is not supported" },
+        error: { type: "provider.invalid-request", message: "Google refused this network's location. Requests leave through a VPN or proxy exit that Google does not serve for this model; switch the exit to another country or connect directly, then retry." },
       })
     }),
   )
