@@ -5824,6 +5824,191 @@
         "summary": "Get provider"
       }
     },
+    "/api/provider/discover": {
+      "post": {
+        "tags": ["provider"],
+        "operationId": "provider.discover",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "reachable": {
+                      "type": "boolean"
+                    },
+                    "models": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": ["id"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "latencyMs": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "error": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string"
+                            },
+                            "message": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": ["kind", "message"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["ok", "reachable", "models"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "LocationNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationNotFoundErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Calls the endpoint's OpenAI-compatible /models API and returns the model list or a classified failure (auth, timeout, network, unsupported) so clients can fall back to manual model entry. API keys are used for the call only and never echoed back.",
+        "summary": "Test an endpoint and discover its models",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "baseURL": {
+                    "type": "string"
+                  },
+                  "apiKey": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "headers": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "providerID": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["baseURL"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
     "/api/integration": {
       "get": {
         "tags": ["integration"],
@@ -20577,7 +20762,7 @@
             }
           }
         },
-        "description": "Ready-made AI teams a project can be created with: the role sessions each one opens.",
+        "description": "Ready-made AI teams a project can be created with. A built-in template describes a type of work and recommends roles its Orchestrator may create lazily; an operator-saved template opens the roster it saved.",
         "summary": "List team templates"
       },
       "post": {
@@ -20624,7 +20809,7 @@
             }
           }
         },
-        "description": "Add the operator's own team: a name and the role sessions it opens.",
+        "description": "Add the operator's own team: a name, its role recommendations and the member roster it opens.",
         "summary": "Create team template",
         "requestBody": {
           "content": {
@@ -23258,6 +23443,9 @@
           "model_favorites": {
             "$ref": "#/components/schemas/Config.ModelFavorites"
           },
+          "model_collections": {
+            "$ref": "#/components/schemas/Config.ModelCollections"
+          },
           "default_agent": {
             "type": "string"
           },
@@ -23801,6 +23989,32 @@
           }
         ]
       },
+      "Config.ModelCollection": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-_]*$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "models": {
+            "$ref": "#/components/schemas/Config.ModelFavorites"
+          }
+        },
+        "required": ["id", "name", "enabled", "models"],
+        "additionalProperties": false
+      },
+      "Config.ModelCollections": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/Config.ModelCollection"
+        }
+      },
       "Config.ModelEncoded": {
         "type": "object",
         "properties": {
@@ -24000,6 +24214,38 @@
               }
             ],
             "description": "Models pinned to the Feature section of the model picker, as provider/model without a variant; null clears it"
+          },
+          "model_collections": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Config.ModelCollections"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Named model collections to store in the global config; null clears all collections"
+          },
+          "providers": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Config.ProviderEncoded"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Provider configurations (including custom endpoints) to add or replace by provider id; null removes one provider, or the whole section when the value itself is null"
           },
           "mcpServers": {
             "type": "object",
@@ -24372,6 +24618,9 @@
           },
           "package": {
             "type": "string"
+          },
+          "endpoint": {
+            "type": "boolean"
           },
           "settings": {
             "$ref": "#/components/schemas/Config.Provider.Settings"
@@ -27461,6 +27710,19 @@
               "$ref": "#/components/schemas/Orchestra.Member"
             }
           },
+          "roles": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "playbook": {
             "anyOf": [
               {
@@ -27495,6 +27757,19 @@
             "items": {
               "$ref": "#/components/schemas/Orchestra.Member"
             }
+          },
+          "roles": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "playbook": {
             "anyOf": [
