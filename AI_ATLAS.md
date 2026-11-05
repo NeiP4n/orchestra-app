@@ -257,3 +257,42 @@ never overrides contracts, permissions, isolation or budgets.
   `packages/client`, and include the regenerated client in the change.
 - A claim is verified only when the check ran and its output was seen. Report
   NOT RUN items as not run.
+
+## The whole approach — one loop, not a pile of features
+
+Every subsystem above is one station in a single operating loop. An AI working
+in this repository runs the loop whole; using one station while skipping the
+others is the broken approach this project has repeatedly paid for (habitual
+dispatch, trust-based acceptance, lessons lost with the session).
+
+1. **Orient from live inventories** (capability awareness): what tools, MCP
+   servers, models and peers exist *now* — never from habit or memory of a
+   previous session.
+2. **Plan deliberately** (the single AI standard): roles matched to the task,
+   worker models from the operator's Feature favorites with rotation and a
+   capability floor, a session category for every dispatch, an MCP assignment
+   justified by the role's relevant servers — an empty assignment is a
+   decision that must carry its reason.
+3. **Work to the senior standard**: recon before code, the codebase's own
+   idioms, a named check chosen before editing, a fresh-eyes self-review
+   (correctness, edge cases, naming, dead code, security) before "done".
+4. **Verify by reproduction** (verification playbook): the acceptor re-runs
+   the check itself; a report is evidence to inspect, not a conclusion.
+5. **Audit yourself** (self-audit): scan your own action record for waste —
+   repeat reads, duplicated recon, unchanged retries, disproportionate
+   ceremony, idle waiting. Name each mistake with its cause and the changed
+   approach before continuing.
+6. **Remember** (durable memory): decisions, defects and lessons are written
+   to memory as they happen, so the next session starts from them instead of
+   rediscovering them. A recurring lesson escalates into a proposed rule.
+7. **Escalate through the operator channel**: scope, money and irreversible
+   steps are the operator's; verified results and pending decisions are
+   delivered proactively, never left buried in a session.
+8. **Improve the system** (the Society): the permanent council audits the
+   packages on this same loop — contributions in one place, synthesis at the
+   deadline from the record, fixes on sight inside the author's own package,
+   cross-verification by a non-author, and no commits by the council itself.
+
+The loop is the product's definition of "another level": a self-improving
+agent OS whose approach cannot silently rot, because every station is a
+mechanism (a gate, a record, a check) rather than a paragraph of advice.
