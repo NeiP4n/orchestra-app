@@ -11,6 +11,7 @@ import path from "node:path"
 import { Deferred, Effect, Option, Schema, Scope } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { AppProcess } from "@orchestra/util/process"
+import { RoomRules } from "@orchestra/schema/room-rules"
 import { Config } from "../../config.js"
 import { Environment } from "../../environment/index.js"
 import { Job } from "../../job.js"
@@ -147,6 +148,11 @@ export const Plugin = {
       // swapped string still goes through the permission scan below.
       const hit = hubRewrite(invocation.command, (tool: string) => HubHost.locate(tool, { extras: false })?.name)
       if (hit) invocation.command = hit.command
+      // Room rules check this when a room exists; outside a room nothing did.
+      // The built-in secret patterns apply everywhere, so `cat .env` and
+      // `printenv` are refused here, before anything spawns.
+      const forbidden = forbiddenCommand(invocation.command)
+      if (forbidden) return yield* Effect.fail(new Error(forbidden))
       const source = {
         type: "tool" as const,
         messageID: context.messageID,
@@ -335,6 +341,19 @@ export const Plugin = {
     yield* ctx.session.hook("compaction", hook)
     yield* ctx.session.hook("generate", hook)
   }),
+}
+
+// A command that touches a protected file or dumps the host's environment is refused
+// before it spawns, in every session — not only in rooms, where the room policy already
+// checks this. `rules` is undefined on purpose: only the built-in secret patterns apply
+// here; a room's own protected files are enforced by the room policy on top.
+export function forbiddenCommand(command: string): string | undefined {
+  const file = RoomRules.protectedFileInCommand(undefined, command)
+  if (file)
+    return `Refusing to run a command that touches protected file "${file}": secret and credential files are off limits to the AI.`
+  if (RoomRules.commandLeaksCredentials(command))
+    return "Refusing to run a command that prints the host's environment or credentials."
+  return undefined
 }
 
 // Translate common POSIX mistakes into concrete alternatives without mutating the command.

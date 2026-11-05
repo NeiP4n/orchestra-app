@@ -5,7 +5,7 @@ import type { Context } from "@orchestra/plugin/effect/plugin"
 import type { SessionHooks } from "@orchestra/plugin/effect/session"
 import { Mode } from "@orchestra/schema/mode"
 import { Orchestra as SchemaOrchestra } from "@orchestra/schema/orchestra"
-import type { Permission } from "@orchestra/schema/permission"
+import { Permission } from "../../permission.js"
 import { Tool } from "@orchestra/schema/tool"
 import { Effect, Option, Schema } from "effect"
 import { Form } from "../../form.js"
@@ -968,10 +968,35 @@ export const Plugin = {
                   yield* sessions.switchModel({ sessionID, model: choice.model }).pipe(
                     Effect.mapError((error) => new ToolFailure({ message: `Could not switch model for ${sessionID}`, error })),
                   )
-                if (choice.permissions)
-                  yield* sessions.setPermissions({ sessionID, permissions: choice.permissions }).pipe(
-                    Effect.mapError((error) => new ToolFailure({ message: `Could not set permissions for ${sessionID}`, error })),
+                if (choice.permissions) {
+                  // Replacing the set wholesale silently dropped the denies the operator or
+                  // an earlier dispatch stamped on the session, so the new allow set ran
+                  // without them. Denies are restrictions, never grants, so they survive a
+                  // re-apply — and a new set that would lift one is refused instead.
+                  // Two exceptions, both re-derived on every dispatch: the `*` catch-all
+                  // deny the tool rules themselves start with, and the per-server MCP
+                  // denies `distributeMcp` stamps right after this runs.
+                  const session = yield* sessions
+                    .get(sessionID)
+                    .pipe(Effect.mapError(() => new ToolFailure({ message: `Session not found: ${sessionID}` })))
+                  const kept = (session.permissions ?? []).filter(
+                    (rule) =>
+                      rule.effect === "deny" &&
+                      !(rule.action === "*" && rule.resource === "*") &&
+                      !/^[^*]+_\*$/.test(rule.action),
                   )
+                  for (const deny of kept) {
+                    if (Permission.evaluate(deny.action, deny.resource, choice.permissions).effect === "allow")
+                      return yield* new ToolFailure({
+                        message: `Refusing to replace the permissions of ${sessionID}: the new set would allow ${deny.action} ${deny.resource}, which this session denies. Ask the operator to lift the deny first.`,
+                      })
+                  }
+                  yield* sessions
+                    .setPermissions({ sessionID, permissions: [...kept, ...choice.permissions] })
+                    .pipe(
+                      Effect.mapError((error) => new ToolFailure({ message: `Could not set permissions for ${sessionID}`, error })),
+                    )
+                }
               })
               // The servers anyone can name for deny rules: the roles' own lists plus
               // whatever the MCP service currently knows (configured or discovered).

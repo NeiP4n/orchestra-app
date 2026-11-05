@@ -208,9 +208,17 @@ export const Plugin = define({
     yield* ctx.session.hook("context", (event) =>
       Effect.gen(function* () {
         // The crew's standing rules ride on every request of its sessions, the Society's chat included.
+        // A load failure is never silent: an agent that starts without its rules is worse than one
+        // that does not start, so the failure is handed to the model as an explicit stop.
         const rules = yield* Rules.scopesOf({ sessionID: event.sessionID, sessions, orchestra, federation }).pipe(
           Effect.flatMap((scopes) => Rules.block(kv, scopes)),
-          Effect.orElseSucceed(() => ""),
+          Effect.catchCause((cause) =>
+            Cause.hasInterruptsOnly(cause)
+              ? Effect.failCause(cause)
+              : Effect.succeed(
+                  `# Rules could not be loaded\nThe rulebook failed to load (${Cause.pretty(cause)}), so no rule can be trusted to apply. Do not start work on the task until the rules load: report this failure and stop.`,
+                ),
+          ),
         )
         if (rules) event.system.push({ type: "text", text: rules })
         const role = team.roles.find((item) => item.agent === event.agent)

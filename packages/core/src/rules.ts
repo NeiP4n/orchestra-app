@@ -1,6 +1,6 @@
 export * as Rules from "./rules.js"
 
-import { Effect, Option } from "effect"
+import { Cause, Effect, Option, Schema } from "effect"
 import { SessionID } from "@orchestra/schema/session-id"
 import type { Federation } from "./federation.js"
 import type { Orchestra } from "./orchestra.js"
@@ -15,6 +15,12 @@ import { Federation as FederationSchema } from "@orchestra/schema/federation"
 //
 // Scopes: `global` (every session), `project:<id>` (one project's team), `society:<name>` (the Society's chat
 // and every project of the Society, which is what makes a Society run differently from a lone project).
+//
+// Rules are checked by code, not by asking the model nicely:
+// - a scope that cannot be loaded fails the load instead of reading as empty;
+// - a rule the operator wrote can only be removed by the operator, in any scope;
+// - a lower scope never silently overrides a higher one: society > project > global,
+//   and a contradiction between scopes is an error, not a judgement call.
 export interface Rule {
   readonly id: string
   readonly text: string
@@ -27,47 +33,181 @@ export const MAX_PER_SCOPE = 20
 export const MAX_TEXT = 240
 
 const KEY = "rules/"
+const HISTORY_KEY = "rules/history/"
+const HISTORY_CAP = 100
 
 export const GLOBAL = "global"
 export const projectScope = (id: string) => `project:${id}`
 export const societyScope = (name: string) => `society:${name}`
 
-export const list = (kv: KV.Interface, scope: string): Effect.Effect<ReadonlyArray<Rule>> =>
+/** A scope's stored rules could not be read, or some of its stored entries are corrupt. */
+export class LoadError extends Schema.TaggedError<LoadError>()("Rules.LoadError", {
+  scope: Schema.String,
+  reason: Schema.String,
+}) {}
+
+/** Two scopes contradict each other. The model never picks a winner. */
+export class ConflictError extends Schema.TaggedError<ConflictError>()("Rules.ConflictError", {
+  reason: Schema.String,
+}) {}
+
+/** The session's scopes could not be determined, so no rule can be trusted to apply. */
+export class ScopesError extends Schema.TaggedError<ScopesError>()("Rules.ScopesError", {
+  reason: Schema.String,
+}) {}
+
+/** A worker tried to remove or rewrite a rule the operator wrote. */
+export class ProtectedError extends Schema.TaggedError<ProtectedError>()("Rules.ProtectedError", {
+  reason: Schema.String,
+}) {}
+
+const isRule = (item: unknown): item is Rule =>
+  typeof item === "object" &&
+  item !== null &&
+  typeof (item as Partial<Rule>).id === "string" &&
+  typeof (item as Partial<Rule>).text === "string"
+
+/** The failure value a cause carries, or undefined when it died or was interrupted. */
+const failureOf = (cause: Cause.Cause<unknown>): unknown => {
+  const found = Cause.findError(cause)
+  return found._tag === "Success" ? found.value : undefined
+}
+
+const toRule = (item: Partial<Rule>): Rule => ({
+  id: item.id as string,
+  text: item.text as string,
+  by: String(item.by ?? "operator"),
+  at: Number(item.at ?? 0),
+})
+
+/** The stored rules of a scope plus how many stored entries are corrupt and were skipped. */
+export const inspect = (kv: KV.Interface, scope: string): Effect.Effect<{ rules: ReadonlyArray<Rule>; corrupt: number }> =>
   kv.get(KEY + scope).pipe(
-    Effect.map((value) =>
-      Array.isArray(value)
-        ? value.flatMap((item): Rule[] => {
-            const rule = item as Partial<Rule> | null
-            return rule && typeof rule.id === "string" && typeof rule.text === "string"
-              ? [{ id: rule.id, text: rule.text, by: String(rule.by ?? "operator"), at: Number(rule.at ?? 0) }]
-              : []
-          })
+    Effect.map((value) => {
+      if (value === undefined) return { rules: [], corrupt: 0 }
+      if (!Array.isArray(value)) return { rules: [], corrupt: 1 }
+      const rules: Rule[] = []
+      let corrupt = 0
+      for (const item of value) {
+        if (isRule(item)) rules.push(toRule(item))
+        else corrupt++
+      }
+      return { rules, corrupt }
+    }),
+  )
+
+// Display only: corrupt entries are skipped, and the caller must say so (see `inspect`).
+// Anything that acts on rules — the system-prompt block, add, remove — uses `listStrict`.
+export const list = (kv: KV.Interface, scope: string): Effect.Effect<ReadonlyArray<Rule>> =>
+  inspect(kv, scope).pipe(Effect.map((found) => found.rules))
+
+/** The stored rules of a scope, failing loudly when the scope cannot be read or holds corrupt entries. */
+export const listStrict = (kv: KV.Interface, scope: string): Effect.Effect<ReadonlyArray<Rule>> =>
+  inspect(kv, scope).pipe(
+    Effect.flatMap((found) =>
+      found.corrupt > 0
+        ? Effect.fail(
+            new LoadError({
+              scope,
+              reason: `${found.corrupt} stored rule ${found.corrupt === 1 ? "entry is" : "entries are"} corrupt and were not loaded; fix the scope before the rules can be trusted.`,
+            }),
+          )
+        : Effect.succeed(found.rules),
+    ),
+    Effect.catchCause((cause) => {
+      // An interruption keeps interrupting; turning it into a load error would let a stopped session keep working.
+      if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause)
+      const error = failureOf(cause)
+      return Effect.fail(
+        error instanceof LoadError
+          ? error
+          : new LoadError({
+              scope,
+              reason: `could not be read: ${error === undefined ? Cause.pretty(cause) : String(error)}`,
+            }),
+      )
+    }),
+  )
+
+interface HistoryEntry {
+  readonly action: "add" | "remove"
+  readonly id: string
+  readonly text: string
+  readonly by: string
+  readonly at: number
+}
+
+// Every edit to a scope is recorded next to it, so a rule nobody remembers writing can be traced.
+const recordHistory = (kv: KV.Interface, scope: string, entry: HistoryEntry) =>
+  Effect.gen(function* () {
+    const key = HISTORY_KEY + scope
+    const stored = yield* kv.get(key).pipe(Effect.orElseSucceed(() => undefined))
+    const entries = (Array.isArray(stored) ? stored : []).filter(
+      (item): item is HistoryEntry =>
+        typeof item === "object" && item !== null && typeof (item as Partial<HistoryEntry>).id === "string",
+    )
+    yield* kv.set(key, [...entries, entry].slice(-HISTORY_CAP) as unknown as KV.Value)
+  }).pipe(Effect.orElseSucceed(() => undefined))
+
+export const history = (kv: KV.Interface, scope: string): Effect.Effect<ReadonlyArray<HistoryEntry>> =>
+  kv.get(HISTORY_KEY + scope).pipe(
+    Effect.map((stored) =>
+      Array.isArray(stored)
+        ? stored.filter(
+            (item): item is HistoryEntry =>
+              typeof item === "object" && item !== null && typeof (item as Partial<HistoryEntry>).id === "string",
+          )
         : [],
     ),
+    Effect.orElseSucceed(() => []),
   )
 
 export type AddResult = { readonly error: string; readonly rule?: undefined } | { readonly rule: Rule; readonly error?: undefined }
 
 export const add = (kv: KV.Interface, scope: string, input: { text: string; by: string }): Effect.Effect<AddResult> =>
   Effect.gen(function* () {
-    const text = input.text.replace(/\s+/g, " ").trim().slice(0, MAX_TEXT)
+    const text = input.text.replace(/\s+/g, " ").trim()
     if (!text) return { error: "A rule needs text." } as const
-    const rules = yield* list(kv, scope)
+    // A long rule is refused, not cut off: silent truncation rewrote what the operator or the
+    // AI meant, and nobody could tell from the stored text.
+    if (text.length > MAX_TEXT)
+      return { error: `That rule is ${text.length} characters; the limit is ${MAX_TEXT}. Shorten it — long rules are refused, not cut off.` } as const
+    const rules = yield* listStrict(kv, scope)
     if (rules.some((rule) => rule.text.toLowerCase() === text.toLowerCase())) return { error: "That rule already exists." } as const
     if (rules.length >= MAX_PER_SCOPE)
       return { error: `This scope already has ${MAX_PER_SCOPE} rules. Remove or merge one first.` } as const
-    const rule: Rule = { id: `r${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`, text, by: input.by, at: Date.now() }
+    const taken = new Set(rules.map((rule) => rule.id))
+    let rule: Rule | undefined
+    for (let attempt = 0; attempt < 10 && rule === undefined; attempt++) {
+      const id = `r${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}${attempt > 0 ? `x${attempt}` : ""}`
+      if (!taken.has(id)) rule = { id, text, by: input.by, at: Date.now() }
+    }
+    if (!rule) return { error: "Could not pick a free rule id; try again." } as const
     yield* kv.set(KEY + scope, [...rules, rule] as unknown as KV.Value)
+    yield* recordHistory(kv, scope, { action: "add", id: rule.id, text, by: input.by, at: rule.at })
     return { rule } as const
   })
 
-export const remove = (kv: KV.Interface, scope: string, id: string) =>
+export const remove = (
+  kv: KV.Interface,
+  scope: string,
+  id: string,
+  options?: { readonly operator?: boolean },
+) =>
   Effect.gen(function* () {
-    const rules = yield* list(kv, scope)
+    const rules = yield* listStrict(kv, scope)
+    const target = rules.find((rule) => rule.id === id)
+    if (!target) return false
+    // A rule the operator wrote is theirs in every scope, not just `global`: a worker that
+    // could delete it could also rewrite the operator's standing orders.
+    if (target.by === "operator" && !options?.operator)
+      return yield* new ProtectedError({
+        reason: `Rule ${id} was written by the operator; only the operator can remove it.`,
+      })
     const next = rules.filter((rule) => rule.id !== id)
-    if (next.length === rules.length) return false
     if (next.length === 0) yield* kv.remove(KEY + scope)
     else yield* kv.set(KEY + scope, next as unknown as KV.Value)
+    yield* recordHistory(kv, scope, { action: "remove", id, text: target.text, by: target.by, at: Date.now() })
     return true
   })
 
@@ -81,6 +221,10 @@ export interface Scopes {
 }
 
 // Where a session stands: a Society's chat, or a session of a project (and through it of its Societies).
+// A subagent or sandbox session inherits the scopes of the session that opened it: its own
+// lookups find nothing, but its parent's project and Societies still bind it.
+// A lookup that fails is an error, not an empty answer: scopes that could not be determined
+// must never read as "no rule applies".
 export const scopesOf = (input: {
   readonly sessionID: string
   readonly sessions: Session.Interface
@@ -88,45 +232,127 @@ export const scopesOf = (input: {
   readonly federation: Federation.Interface
 }) =>
   Effect.gen(function* () {
-    const id = input.sessionID as SessionID
-    const info = yield* input.sessions.get(id).pipe(Effect.option)
-    const marker = Option.isSome(info) ? FederationSchema.groupSupervisor(info.value.metadata) : undefined
     const groups = yield* input.federation.groups()
-    if (marker) {
-      const chat = groups.find((group) => group.supervisor === id && group.name === marker.groupName)
-      if (chat) return { chatOf: chat.name, societies: [chat.name] } satisfies Scopes
+    let current: string | undefined = input.sessionID
+    const seen = new Set<string>()
+    for (let depth = 0; depth < 8 && current !== undefined && !seen.has(current); depth++) {
+      seen.add(current)
+      const id = current as SessionID
+      const info = yield* input.sessions.get(id).pipe(Effect.option)
+      const marker = Option.isSome(info) ? FederationSchema.groupSupervisor(info.value.metadata) : undefined
+      if (marker) {
+        const chat = groups.find((group) => group.supervisor === id && group.name === marker.groupName)
+        if (chat) return { chatOf: chat.name, societies: [chat.name] } satisfies Scopes
+      }
+      const main = yield* input.orchestra.mainOf(id)
+      const owners = main ? {} : yield* input.orchestra.owners()
+      const project = main?.id ?? owners[id]
+      if (project) {
+        return {
+          project,
+          // Every group a project belongs to is one of its Societies, council or lead:
+          // a lead group's President and its member projects all read the same society rules.
+          societies: groups
+            .filter((group) => group.projects.includes(project as never))
+            .map((group) => group.name),
+        } satisfies Scopes
+      }
+      current = Option.isSome(info) ? (info.value.parentID as string | undefined) : undefined
     }
-    const main = yield* input.orchestra.mainOf(id).pipe(Effect.orElseSucceed(() => undefined))
-    const owners = main ? {} : yield* input.orchestra.owners().pipe(Effect.orElseSucceed(() => ({}) as Record<string, string>))
-    const project = main?.id ?? owners[id]
-    if (!project) return { societies: [] } satisfies Scopes
-    return {
-      project,
-      societies: groups
-        .filter((group) => FederationSchema.modeOf(group) === "council" && group.projects.includes(project as never))
-        .map((group) => group.name),
-    } satisfies Scopes
-  })
+    return { societies: [] } satisfies Scopes
+  }).pipe(
+    Effect.catchCause((cause) => {
+      if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause)
+      const error = failureOf(cause)
+      return Effect.fail(
+        new ScopesError({
+          reason: `scopes could not be determined: ${error === undefined ? Cause.pretty(cause) : String(error)}`,
+        }),
+      )
+    }),
+  )
 
-// The system-prompt block for a session, empty when no rule applies.
+// --- Priority and conflicts -------------------------------------------------
+//
+// Society > project > global. A rule in a lower scope never overrides a higher one, and a
+// contradiction is an error the load reports, not a choice left to the model. Detection is
+// deliberately narrow — the same core instruction with opposite polarity — so ordinary
+// rules that merely differ never trip it.
+
+const NEGATIVE = ["never", "must not", "mustn't", "do not", "don't", "cannot", "can't", "forbidden", "prohibited", "refuse", "avoid", "no ", "not "]
+const POSITIVE = ["always", "must", "do", "should", "required", "ensure"]
+
+const polarityOf = (text: string): "negative" | "positive" | undefined => {
+  const lower = ` ${text.toLowerCase().replace(/[^a-z0-9' ]+/g, " ").replace(/\s+/g, " ").trim()} `
+  if (NEGATIVE.some((word) => lower.includes(` ${word.trim()} `) || lower.startsWith(` ${word.trim()} `))) return "negative"
+  if (POSITIVE.some((word) => lower.includes(` ${word} `))) return "positive"
+  return undefined
+}
+
+const coreOf = (text: string): string => {
+  let core = text.toLowerCase().replace(/[^a-z0-9' ]+/g, " ").replace(/\s+/g, " ").trim()
+  for (const word of [...NEGATIVE, ...POSITIVE].sort((a, b) => b.length - a.length)) {
+    const token = word.trim()
+    if (core.startsWith(`${token} `)) core = core.slice(token.length + 1)
+  }
+  return core.replace(/^(you|we|the team|agents?|all) /g, "").trim()
+}
+
+/** The first rule in `rules` that contradicts `text`, or undefined when there is none. */
+export const findConflict = (text: string, rules: ReadonlyArray<Rule>): Rule | undefined => {
+  const polarity = polarityOf(text)
+  if (!polarity) return undefined
+  const core = coreOf(text)
+  if (!core) return undefined
+  return rules.find((rule) => polarityOf(rule.text) === (polarity === "negative" ? "positive" : "negative") && coreOf(rule.text) === core)
+}
+
+const crossScopeConflict = (
+  parts: ReadonlyArray<{ title: string; scope: string; rules: ReadonlyArray<Rule> }>,
+): { higher: { title: string; rule: Rule }; lower: { title: string; rule: Rule } } | undefined => {
+  for (let higher = 0; higher < parts.length; higher++) {
+    for (let lower = higher + 1; lower < parts.length; lower++) {
+      for (const rule of parts[lower].rules) {
+        const other = findConflict(rule.text, parts[higher].rules)
+        if (other)
+          return {
+            higher: { title: parts[higher].title, rule: other },
+            lower: { title: parts[lower].title, rule },
+          }
+      }
+    }
+  }
+  return undefined
+}
+
+// The system-prompt block for a session. A scope that fails to load, or a contradiction
+// between scopes, fails the whole block: an agent that starts without its rules is worse
+// than one that does not start.
 export const block = (kv: KV.Interface, scopes: Scopes) =>
   Effect.gen(function* () {
-    const parts = yield* Effect.forEach(
-      [
-        { title: "Society", scope: scopes.societies.map(societyScope) },
-        { title: "Project", scope: scopes.project ? [projectScope(scopes.project)] : [] },
-        { title: "Global", scope: [GLOBAL] },
-      ],
-      (group) =>
-        Effect.forEach(group.scope, (scope) => list(kv, scope)).pipe(
-          Effect.map((lists) => ({ title: group.title, rules: lists.flat() })),
-        ),
+    const wanted = [
+      { title: "Society", scope: scopes.societies.map(societyScope) },
+      { title: "Project", scope: scopes.project ? [projectScope(scopes.project)] : [] },
+      { title: "Global", scope: [GLOBAL] },
+    ]
+    const parts = yield* Effect.forEach(wanted, (group) =>
+      Effect.forEach(group.scope, (scope) => listStrict(kv, scope)).pipe(
+        Effect.map((lists) => ({ title: group.title, scope: group.scope.join(", "), rules: lists.flat() })),
+      ),
     )
+    const conflict = crossScopeConflict(parts)
+    if (conflict)
+      return yield* new ConflictError({
+        reason:
+          `Rule conflict: [${conflict.higher.title}] "${conflict.higher.rule.text}" contradicts ` +
+          `[${conflict.lower.title}] "${conflict.lower.rule.text}". Society rules override project rules, which override global rules; ` +
+          `remove or rewrite one of them — the model does not pick a winner.`,
+      })
     const lines = parts.flatMap((part) => part.rules.map((rule) => `- [${part.title}] ${rule.text}`))
     if (lines.length === 0) return ""
     return [
       "# Rules",
-      "Standing rules of this crew, set by the operator and by teammates. Follow them in every task. When you learn something the whole crew must follow, add it with the rules tool instead of repeating it in briefs; never add a rule that contradicts the operator.",
+      "Standing rules of this crew, set by the operator and by teammates. Society rules override project rules, which override global rules; a conflict between scopes is an error, not a judgement call. Follow them in every task. When you learn something the whole crew must follow, add it with the rules tool instead of repeating it in briefs; never add a rule that contradicts the operator.",
       ...lines,
     ].join("\n")
   })
