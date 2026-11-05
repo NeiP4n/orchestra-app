@@ -16,6 +16,7 @@ import { AbsolutePath } from "@orchestra/core/schema"
 import { Session } from "@orchestra/core/session"
 import { SessionExecution } from "@orchestra/core/session/execution"
 import { SessionRestart, orderResumeCandidates } from "@orchestra/core/session/execution/restart"
+import { SessionHold } from "@orchestra/core/session/hold"
 import { SessionEvent } from "@orchestra/core/session/event"
 import { SessionInbox } from "@orchestra/core/session/inbox"
 import { SessionMessage } from "@orchestra/core/session/message"
@@ -112,6 +113,45 @@ describe("SessionExecution lifecycle", () => {
 
       yield* restart.resumeSuspendedSessions
       expect(drained).toEqual([sessionID])
+      expect(yield* SessionInbox.list(database.db, sessionID)).toHaveLength(1)
+    }),
+  )
+
+  it.effect("leaves a held session parked without marking it blocked", () =>
+    Effect.gen(function* () {
+      const database = yield* Database.Service
+      const kv = yield* KV.Service
+      const admission = yield* SessionInbox.Service
+      const sessionID = Session.ID.make("ses_held_stays_parked")
+      yield* seedSessions(database, [sessionID])
+      yield* admission.admit({
+        id: SessionMessage.ID.create(),
+        sessionID,
+        item: {
+          type: "user",
+          payload: SessionInbox.UserPayload.make({ text: "Work while held", resumeOnStart: true }),
+          delivery: "queue",
+        },
+      })
+
+      const drained: Session.ID[] = []
+      const scope = yield* Scope.make()
+      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+      const context = yield* buildExecution(
+        scope,
+        ({ sessionID: current }) => Effect.sync(() => void drained.push(current)),
+      )
+      const restart = Context.get(context, SessionRestart.Service)
+
+      // The Society is paused: the hold predicate refuses every session.
+      SessionHold.install(() => Effect.succeed(true))
+      yield* Effect.addFinalizer(() => Effect.sync(() => SessionHold.install(() => Effect.succeed(false))))
+      yield* restart.resumeSuspendedSessions
+      yield* restart.resumeSuspendedSessions
+      expect(drained).toEqual([])
+      // No blocked marker: once the hold releases, the next sweep must resume this work
+      // instead of finding it blocked forever.
+      expect(yield* kv.get(resumeBlockedKey(sessionID))).toBeUndefined()
       expect(yield* SessionInbox.list(database.db, sessionID)).toHaveLength(1)
     }),
   )

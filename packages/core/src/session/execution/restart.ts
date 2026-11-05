@@ -7,6 +7,7 @@ import { Job } from "../../job.js"
 import { KV } from "../../kv.js"
 import { Session } from "../../session.js"
 import { SessionEvent } from "../event.js"
+import { SessionHold } from "../hold.js"
 import { SessionInbox } from "../inbox.js"
 import { resumeBlockedKey } from "../restart-state.js"
 import { SessionExecution } from "../execution.js"
@@ -191,6 +192,10 @@ export const layer = (options?: Options) =>
           return
         }
         if (yield* execution.isActive(recovery.childSessionID)) return
+        // A held child stays parked: resuming it would burn its restart budget while the
+        // Society is paused, and execution.resume would no-op anyway. The background stays
+        // pending; the next sweep after the hold releases recovers it.
+        if (yield* SessionHold.held(recovery.childSessionID)) return
         if (!(yield* prepareResume(recovery.childSessionID))) {
           yield* notify({ status: "error", error: RESUME_EXHAUSTED.message })
           return
@@ -236,6 +241,8 @@ export const layer = (options?: Options) =>
           yield* store.releaseChildClaims(children)
           yield* Effect.forEach(
             // Admit shell outcomes before a recovered child can start its first model request.
+            // Bounded like the resume pass below: an unbounded sweep would start every
+            // pending background job at once.
             pending.toSorted((a, b) => Number(a.recovery.kind === "subagent") - Number(b.recovery.kind === "subagent")),
             Effect.fnUntraced(function* (background) {
               if ((yield* jobs.get(background.id))?.status === "running") return
@@ -244,7 +251,7 @@ export const layer = (options?: Options) =>
                 ? recoverShell(background, recovery)
                 : recoverSubagent(background, recovery, suspended)
             }),
-            { discard: true },
+            { concurrency: MAX_CONCURRENT_RESUMES, discard: true },
           )
 
           // One resume pass, not two sweeps: suspended claims and runnable
@@ -291,6 +298,12 @@ export const layer = (options?: Options) =>
           yield* Effect.forEach(
             candidates,
             Effect.fnUntraced(function* (candidate) {
+              // A held session stays parked, whatever kind of candidate it is: resuming it
+              // would no-op (execution.resume refuses held sessions) while prepareResume
+              // burns its restart budget, and the inbox path would mark it blocked forever.
+              // The claim and the inbox work stay durable; the next sweep after the hold
+              // releases resumes them.
+              if (yield* SessionHold.held(candidate.sessionID)) return
               if (candidate.kind === "suspended") {
                 yield* execution
                   .resume(candidate.sessionID)
@@ -326,8 +339,10 @@ export const layer = (options?: Options) =>
             }),
             { concurrency: MAX_CONCURRENT_RESUMES, discard: true },
           )
-          // Async observers consult this set at delivery; later completions wake parents normally.
-          suspended.clear()
+          // The set is deliberately not cleared: forked subagent completions read
+          // `suspended.has()` when they deliver, after this sweep returns. Clearing it here
+          // would tell them the parent is awake and let a background result resume it.
+          // The set is local to this sweep and is dropped with it once the fibers finish.
         }),
       })
     }),
