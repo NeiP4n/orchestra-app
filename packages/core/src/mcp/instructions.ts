@@ -21,9 +21,39 @@ const entries = (servers: ReadonlyArray<Summary>, limit: number) =>
       result.push(
         `    Use tools from this server through \`execute\` under \`tools[${JSON.stringify(McpTool.namespace(server.server))}]\`.`,
       )
-    result.push(...clip(server.instructions, limit).split("\n").map((line) => `    ${line}`), "  </server>")
+    result.push(...clip(sanitizeInstructions(server.instructions), limit).split("\n").map((line) => `    ${line}`), "  </server>")
     return result
   })
+
+// Lines that try to steer the model past the server's own job: override the
+// system prompt, impersonate a role, or break out of the <server> block the
+// instructions are rendered inside. Server instructions are untrusted data
+// from a third-party process, so they are sanitized, never pasted as-is —
+// a dropped line is named in place, so the model sees that something was
+// removed instead of reading a silently rewritten text.
+const INJECTION_PATTERNS: readonly RegExp[] = [
+  /ignore\s+(all\s+)?(previous|prior|above|earlier)\s+instructions/i,
+  /disregard\s+(all\s+)?(previous|prior|above|earlier)/i,
+  /override\s+(the\s+)?(system|previous)\s+(prompt|instructions)/i,
+  /you\s+are\s+now\s+(a|an|the)\b/i,
+  /new\s+system\s+prompt/i,
+  /<\s*\/?\s*(system|mcp_instructions|server)\b/i,
+  /\[INST\]|\[\/INST\]/,
+]
+
+const CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g
+const ANSI_SEQUENCES = /\u001b\[[0-9;]*[A-Za-z]/g
+
+/** Strip terminal escapes and control characters, and drop prompt-injection lines from a server's instructions. Pure, for tests. */
+export function sanitizeInstructions(text: string): string {
+  const cleaned = text.replace(ANSI_SEQUENCES, "").replace(CONTROL_CHARS, "")
+  const kept = cleaned.split("\n").flatMap((line) => {
+    if (INJECTION_PATTERNS.some((pattern) => pattern.test(line)))
+      return ["[a line from this server's instructions was removed: it tried to override the model's instructions]"]
+    return [line]
+  })
+  return kept.join("\n").trim()
+}
 
 // Server instructions reach the model on every request, so a chatty server is clipped instead of
 // crowding out the conversation: about 750 tokens per server inside one shared block budget. The
