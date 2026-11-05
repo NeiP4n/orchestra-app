@@ -446,6 +446,9 @@ import type {
   OrchestraLinkSetOutput,
   OrchestraLinkListInput,
   OrchestraLinkListOutput,
+  ServerAutoloopCardsListOutput,
+  ServerAutoloopCardsAnswerInput,
+  ServerAutoloopCardsAnswerOutput,
   QuotaCheckInput,
   QuotaCheckOutput,
 } from "./types.js"
@@ -3716,6 +3719,33 @@ export function make(options: ClientOptions) {
               path: `/api/orchestra/link/${encodeURIComponent(input.projectID)}`,
               successStatus: 200,
               declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+      },
+    },
+    "server.autoloop": {
+      cards: {
+        list: (requestOptions?: RequestOptions) =>
+          request<ServerAutoloopCardsListOutput>(
+            {
+              method: "GET",
+              path: `/api/autoloop/cards`,
+              successStatus: 200,
+              declaredStatuses: [400, 401, 404, 409, 503],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        answer: (input: ServerAutoloopCardsAnswerInput, requestOptions?: RequestOptions) =>
+          request<ServerAutoloopCardsAnswerOutput>(
+            {
+              method: "POST",
+              path: `/api/autoloop/cards/${encodeURIComponent(input.id)}/answer`,
+              body: { choice: input["choice"], text: input["text"], by: input["by"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401, 404, 409, 503],
               empty: false,
             },
             requestOptions,

@@ -2,6 +2,7 @@ export * as EventManifest from "./event-manifest.js"
 
 import { Schema } from "effect"
 import { Agent } from "./agent.js"
+import { AutoloopCard } from "./autoloop-card.js"
 import { Command } from "./command.js"
 import { Config } from "./config.js"
 import { Credential } from "./credential.js"
@@ -78,6 +79,7 @@ export const ServerDefinitions = Event.inventory(
   ...TuiEvent.Definitions,
   ...InstallationEvent.Definitions,
   ...VcsEvent.Definitions,
+  ...AutoloopCard.Event.Definitions,
   McpEvent.StatusChanged,
   McpEvent.ResourcesChanged,
 )

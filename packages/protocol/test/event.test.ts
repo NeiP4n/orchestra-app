@@ -29,6 +29,12 @@ test("classifies public events by type", () => {
   expect(isOrchestraEvent({ type: "acme.updated" })).toBe(false)
 })
 
+test("classifies autoloop card events as public, so the SSE stream carries them", () => {
+  expect(isOrchestraEvent({ type: "autoloop.card.created" })).toBe(true)
+  expect(isOrchestraEvent({ type: "autoloop.card.answered" })).toBe(true)
+  expect(isOrchestraEvent({ type: "autoloop.card.updated" })).toBe(true)
+})
+
 test("keeps public event runtime values within the encoded contract", () => {
   expect(wireReady).toBe(true)
 })

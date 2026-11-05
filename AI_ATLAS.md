@@ -150,8 +150,22 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   then an ask card), `MAX_HOPS = 8`, `RESEND_AT = [0,1,3,7,15,25,35,45,55]`,
   57-minute window. Rules come from Orchestra config via the `decide`
   environment, never from a `rules.json`. Minimal five-field cron parser
-  lives here too (tick needs it); the service, cards API and orchestrator
-  wiring are later Б3 sub-steps, not here.
+  lives here too (tick needs it); the tick service and orchestrator wiring
+  are later Б3 sub-steps, not here.
+- **Cards (block Б3, подшаг 2)**: `src/autoloop/cards.ts` is the thin layer
+  over `store` + `decide` — `listCards` / `listOpenCards`, `createCard`
+  (same key while open = duplicate, no new fact), `answerCard` (records
+  `card.answered`, starts a new run when the card belongs to a rule),
+  `nextCard` / `markDelivered` / `markFailed` (resend schedule `RESEND_AT`,
+  give up after 57 minutes), `publish` (card changes to the Bus).
+  `question` / `interact` stay as UI; the card in the journal is the source
+  of truth. Public shape + events in `packages/schema/src/autoloop-card.ts`
+  (`AutoloopCard.Card`, `autoloop.card.created / answered / updated`,
+  in `ServerDefinitions`, so the existing SSE feed carries them — no new
+  transport). HTTP: `GET /api/autoloop/cards`, `POST
+  /api/autoloop/cards/:id/answer` (`packages/protocol/src/groups/autoloop.ts`,
+  `packages/server/src/handlers/autoloop.ts`, client regenerated).
+  No TUI/web card view yet — that is the remaining UI sub-step.
 - **`kernel/due.ts`**: `RUN_LEASE = 5 мин`, `WORKER_FRESH = 2 мин`,
   `OFFLINE_AFTER = 10 мин`, `SEEN_EVERY = 1 мин`, `deadlines`,
   `offlineCard`, `workers` / `waitingOn`.
