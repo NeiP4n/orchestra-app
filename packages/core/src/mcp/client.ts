@@ -42,6 +42,33 @@ const DEFAULT_EXECUTION_TIMEOUT = 5 * 60 * 1_000 // 5 minutes: a tool call that 
 // No MCP call runs without a timeout, whatever the config says: even an
 // explicit per-server timeout is clamped to this hard wall.
 const MAX_EXECUTION_TIMEOUT_MS = 30 * 60 * 1_000
+// Tools that legitimately run longer than the 5-minute default: a language
+// server starting up behind Serena, a remote model answering behind
+// DeepWiki. An entry needs a tool observed to exceed the default — never add
+// one pre-emptively "just in case", or the table becomes a second default.
+// Explicit per-server config still wins over the table.
+const TOOL_EXECUTION_TIMEOUT_MS: Readonly<Record<string, number>> = {
+  "serena:initial_instructions": 10 * 60 * 1_000,
+  "serena:serena_repl": 10 * 60 * 1_000,
+  "deepwiki:ask_question": 10 * 60 * 1_000,
+}
+
+/**
+ * Execution timeout for one tool call, in milliseconds. Explicit per-server
+ * config wins; then the per-tool table; then the 5-minute default. The hard
+ * wall caps everything, so no call runs without a timeout whatever the config
+ * says. `tool` is the raw tool name the server sees (no `<server>_` prefix).
+ */
+export function executionTimeoutFor(
+  server: string,
+  tool: string | undefined,
+  configured: number | undefined,
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const fallback =
+    tool === undefined ? DEFAULT_EXECUTION_TIMEOUT : (TOOL_EXECUTION_TIMEOUT_MS[`${server}:${tool}`] ?? DEFAULT_EXECUTION_TIMEOUT)
+  return Math.min(Limits.timeout(configured, fallback, env), MAX_EXECUTION_TIMEOUT_MS)
+}
 const TERMINATE_TIMEOUT = 1_000
 const toError = (error: unknown) => (error instanceof Error ? error : new Error(String(error)))
 
@@ -340,7 +367,7 @@ export const connect = Effect.fnUntraced(function* (
       }),
     )
     const catalog = { timeout: config.timeout?.catalog ?? DEFAULT_CATALOG_TIMEOUT }
-    const execution = Math.min(Limits.timeout(config.timeout?.execution, DEFAULT_EXECUTION_TIMEOUT), MAX_EXECUTION_TIMEOUT_MS)
+    const executionFor = (tool?: string) => executionTimeoutFor(server, tool, config.timeout?.execution)
     const request = <A>(what: string, run: (signal: AbortSignal) => Promise<A>) =>
       Effect.tryPromise({ try: run, catch: failure }).pipe(
         Effect.tapError((error) => Effect.logWarning(`failed to ${what}`, { server, error: error.message })),
@@ -371,12 +398,12 @@ export const connect = Effect.fnUntraced(function* (
       readResource: (input) => {
         if (!client.getServerCapabilities()?.resources) return Effect.succeed(undefined)
         return readRequest("read MCP resource", (signal) =>
-          client.readResource({ uri: input.uri }, { signal, timeout: execution }),
+          client.readResource({ uri: input.uri }, { signal, timeout: executionFor() }),
         )
       },
       prompt: (input) =>
         readRequest("get MCP prompt", (signal) =>
-          client.getPrompt({ name: input.name, arguments: input.args ?? {} }, { signal, timeout: execution }),
+          client.getPrompt({ name: input.name, arguments: input.args ?? {} }, { signal, timeout: executionFor() }),
         ),
       callTool: (input) => {
         const run = (signal: AbortSignal) =>
@@ -396,7 +423,7 @@ export const connect = Effect.fnUntraced(function* (
                   }),
             },
             // Requesting progress keeps long calls active; the execution timeout remains the hard wall.
-            { signal, timeout: execution, onprogress: () => {} },
+            { signal, timeout: executionFor(input.name), onprogress: () => {} },
           )
         // Transient failures are retried for read-only tools and for calls
         // the caller marked idempotent; anything else runs exactly once, so

@@ -236,7 +236,11 @@ export const toolGroups: readonly { id: string; name: string; actions: readonly 
   { id: "desktop", name: "Desktop", actions: ["desktop", "playtest"] },
   { id: "skills", name: "Skills", actions: ["skill", "skill_catalog"] },
   { id: "notes", name: "Notes", actions: ["note", "idea_bank", "plots"] },
-  { id: "android", name: "Android devices", actions: ["android_helper_*"] },
+  // No android group: there is no android_helper MCP server anywhere in the
+  // code (no catalog entry, no tool ever registers android_helper_*), so
+  // offering the group in the team editor granted a capability no role could
+  // reach. Android devices are reached through the Registry (adb programs),
+  // not through MCP — see hub/catalog/mobile.ts.
   { id: "reverse", name: "Reverse engineering", actions: ["rea-anything_*", "rea_*"] },
   { id: "vcs", name: "Version control", actions: ["github_*"] },
   { id: "forge", name: "Tool & MCP Forge", actions: ["mcp_forge", "command_forge", "plugin_forge"] },
