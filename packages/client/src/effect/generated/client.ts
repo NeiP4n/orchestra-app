@@ -692,10 +692,7 @@ const EndpointSessionPrompt = (raw: RawClient["server.session"]) => (input: Sess
         delivery: input["delivery"],
         resume: input["resume"],
       },
-    }).pipe(
-      Effect.mapError(mapClientError),
-      Effect.map((value) => value.data),
-    ),
+    }).pipe(Effect.mapError(mapClientError)),
   )
 
 const EndpointSessionCommand = (raw: RawClient["server.session"]) => (input: SessionCommandInput) =>
@@ -2578,6 +2575,7 @@ const EndpointOrchestraGroupSave = (raw: RawClient["server.orchestra"]) => (inpu
         projects: input["projects"],
         mode: input["mode"],
         supervisor: input["supervisor"],
+        budget: input["budget"],
       },
     }).pipe(Effect.mapError(mapClientError)),
   )

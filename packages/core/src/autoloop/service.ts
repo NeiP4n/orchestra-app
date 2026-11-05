@@ -1,14 +1,11 @@
 export * as Autoloop from "./service.js"
 
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
-import { Cause, Context, Deferred, Duration, Effect, Layer, Option, PubSub, Ref, Schema, Scope, Semaphore, Stream } from "effect"
+import { Cause, Context, Deferred, Duration, Effect, Layer, PubSub, Ref, Schema, Scope, Semaphore, Stream } from "effect"
 import { Bus } from "../bus.js"
-import { Config } from "../config.js"
 import { Database } from "../database/database.js"
-import type { Entry } from "@orchestra/schema/config"
 import { AutoloopCards } from "./cards.js"
 import type { CardChange, CardsEnv } from "./cards.js"
-import { limitsFromConfig, mergeDispatchRule, orchestraRules } from "./orchestrator.js"
 import {
   decide,
   resolveLimits,
@@ -80,17 +77,6 @@ export interface Interface {
   readonly start: () => Effect.Effect<void, never, Scope.Scope>
   /** How many ticks the clock has run, and when the last one ran. */
   readonly stats: () => Effect.Effect<Stats>
-  /**
-   * Apply operator options at runtime — rules and limits from the Orchestra
-   * config, set once at server boot before the clock starts. Only the
-   * fields given change; the rest keep what the layer was built with. The
-   * claim/finish secret stays construction-only: tokens already issued
-   * must keep verifying.
-   */
-  readonly configure: (options: {
-    rules?: Rules
-    limits?: Partial<AutoloopLimits>
-  }) => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@orchestra/Autoloop") {}
@@ -106,12 +92,8 @@ export interface Options {
 }
 
 interface State {
-  /** Set at build, replaced by `configure` at server boot. */
-  readonly rules: Ref.Ref<Rules | undefined>
-  /** Set at build, replaced by `configure` at server boot. */
-  readonly limits: Ref.Ref<Partial<AutoloopLimits> | undefined>
-  /** Whether the operator config has been applied once (see `ensureConfigured`). */
-  readonly configured: Ref.Ref<boolean>
+  readonly rules: Rules | undefined
+  readonly limits: Partial<AutoloopLimits> | undefined
   readonly tokenSecret: string | undefined
   readonly bus: Bus.Interface
   /** Captured at make time, so the interface methods need no environment: the journal is provided, not requested. */
@@ -156,10 +138,10 @@ const signal = (state: State) =>
     yield* Ref.set(state.wakeup, yield* Deferred.make<void>())
   })
 
-const cardsEnv = (rules: Rules | undefined, limits: Partial<AutoloopLimits> | undefined, tokenSecret: string | undefined): CardsEnv => ({
-  rules,
-  limits,
-  tokenSecret,
+const cardsEnv = (state: State): CardsEnv => ({
+  rules: state.rules,
+  limits: state.limits,
+  tokenSecret: state.tokenSecret,
 })
 
 /**
@@ -172,7 +154,7 @@ const cardsEnv = (rules: Rules | undefined, limits: Partial<AutoloopLimits> | un
  */
 const drainDelivery = (state: State): Effect.Effect<void> =>
   Effect.gen(function* () {
-    const env = cardsEnv(yield* Ref.get(state.rules), yield* Ref.get(state.limits), state.tokenSecret)
+    const env = cardsEnv(state)
     while (true) {
       const handed = yield* AutoloopCards.nextCard("web", env).pipe(Effect.exit)
       if (handed._tag === "Failure") {
@@ -217,13 +199,11 @@ const executeInner = (state: State, input: DecideInput, now = Date.now()) =>
     Effect.gen(function* () {
       const opened = yield* AutoloopStore.openView().pipe(Effect.mapError(storeFailure))
       const stored = AutoloopCards.storedRules(opened.view)
-      const rules = (yield* Ref.get(state.rules)) ?? stored?.rules ?? emptyRules()
-      const limits = yield* Ref.get(state.limits)
       const decided = yield* Effect.try({
         try: () =>
           decide(opened.view, input, now, {
-            rules,
-            limits,
+            rules: state.rules ?? stored?.rules ?? emptyRules(),
+            limits: state.limits,
             tokenSecret: state.tokenSecret,
             seq: opened.lastSeq + 1,
             rulesVersion: stored?.version ?? 1,
@@ -269,8 +249,8 @@ const loopStep = (state: State): Effect.Effect<"tick" | "wakeup", unknown, never
     const wakeup = yield* Ref.get(state.wakeup)
     const opened = yield* AutoloopStore.openView()
     const stored = AutoloopCards.storedRules(opened.view)
-    const rules = (yield* Ref.get(state.rules)) ?? stored?.rules ?? emptyRules()
-    const limits = resolveLimits(yield* Ref.get(state.limits))
+    const rules = state.rules ?? stored?.rules ?? emptyRules()
+    const limits = resolveLimits(state.limits)
     const now = Date.now()
     const due = deadlines(opened.view, now, rules, dueLimitsOf(limits))
     const ats = Object.values(due)
@@ -318,102 +298,53 @@ const loop = (state: State): Effect.Effect<void, never, never> =>
     }
   })
 
-export const layer = (options: Options = {}) => Layer.effect(Service, make(options))
-
-/**
- * Build the service implementation from options, shared by `layer` and
- * tests: restore the state from the journal (rebuilding the projections
- * when the kernel format changed), then hand out the interface over the
- * captured database and bus.
- */
-const make = (options: Options = {}) =>
-  Effect.gen(function* () {
-    const bus = yield* Bus.Service
-    const database = yield* Database.Service
-    // State is restored from the journal at start, never from memory: the
-    // runs are in the journal, so a restart loses none of them. A format
-    // change rebuilds the projections from the journal instead of trusting
-    // rows folded by older kernel code.
-    const opened = yield* AutoloopStore.openView()
-    if (opened.format !== null && opened.format !== FORMAT) {
-      yield* AutoloopStore.rebuildProjections()
-    }
-    const state: State = {
-      rules: yield* Ref.make(options.rules),
-      limits: yield* Ref.make(options.limits),
-      configured: yield* Ref.make(false),
-      tokenSecret: options.tokenSecret,
-      bus,
-      database,
-      changes: yield* PubSub.unbounded<View>(),
-      wakeup: yield* Ref.make(yield* Deferred.make<void>()),
-      started: yield* Ref.make(false),
-      semaphore: Semaphore.makeUnsafe(1),
-      stats: yield* Ref.make<Stats>({ ticks: 0, lastTickAt: null }),
-    }
-    /**
-     * Apply the operator config once, on first use in a context that carries it.
-     * Config is location-scoped, so server boot cannot see it (the built routes
-     * context holds no `Config.Service`); the cycle instead self-configures when
-     * a dispatch (or any other `execute` call) runs in a config-bearing context,
-     * exactly like the orchestrator's worker policy does. The tick loop has no
-     * config, so it leaves the flag unset until a dispatch arrives.
-     * Operator rules stored in the journal are kept: the dispatch rule is merged
-     * into them instead of shadowing them. Without a config in the context this
-     * is a no-op, and the kernel defaults apply.
-     */
-    const ensureConfigured = (state: State) =>
-      Effect.gen(function* () {
-        if (yield* Ref.get(state.configured)) return
-        const config = yield* Effect.serviceOption(Config.Service)
-        if (Option.isNone(config)) return
-        const entries = yield* config.value.entries().pipe(
-          Effect.catch(() => Effect.succeed([] as Entry[])),
-        )
-        const autoloop = Config.latest(entries, "orchestra")?.autoloop
-        const opened = yield* AutoloopStore.openView().pipe(
-          Effect.provideService(Database.Service, state.database),
-          Effect.catch(() => Effect.succeed(null)),
-        )
-        const stored = opened === null ? undefined : AutoloopCards.storedRules(opened.view)
-        const rules = stored === undefined ? orchestraRules() : mergeDispatchRule(stored.rules)
-        yield* Ref.set(state.rules, rules)
-        yield* Ref.set(state.limits, limitsFromConfig(autoloop))
-        yield* Ref.set(state.configured, true)
-      })
-
-    const service: Interface = {
-      execute: (input, now) =>
-        Effect.gen(function* () {
-          yield* ensureConfigured(state)
-          return yield* executeInner(state, input, now)
-        }),
-      getView: () =>
-        AutoloopStore.openView().pipe(
-          Effect.provideService(Database.Service, database),
-          Effect.map(({ view }) => view),
-          Effect.mapError(storeFailure),
-        ),
-      subscribe: () => Stream.fromPubSub(state.changes),
-      heartbeat: (worker, running) =>
-        executeInner(state, { type: "heartbeat", args: [worker, [...running]] }).pipe(Effect.asVoid),
-      start: () =>
-        Effect.gen(function* () {
-          const already = yield* Ref.getAndSet(state.started, true)
-          if (already) return
-          yield* Effect.forkScoped(loop(state))
-        }),
-      stats: () => Ref.get(state.stats),
-      configure: (given) =>
-        state.semaphore.withPermit(
+export const layer = (options: Options = {}) =>
+  Layer.effect(
+    Service,
+    Effect.gen(function* () {
+      const bus = yield* Bus.Service
+      const database = yield* Database.Service
+      // State is restored from the journal at start, never from memory: the
+      // runs are in the journal, so a restart loses none of them. A format
+      // change rebuilds the projections from the journal instead of trusting
+      // rows folded by older kernel code.
+      const opened = yield* AutoloopStore.openView()
+      if (opened.format !== null && opened.format !== FORMAT) {
+        yield* AutoloopStore.rebuildProjections()
+      }
+      const state: State = {
+        rules: options.rules,
+        limits: options.limits,
+        tokenSecret: options.tokenSecret,
+        bus,
+        database,
+        changes: yield* PubSub.unbounded<View>(),
+        wakeup: yield* Ref.make(yield* Deferred.make<void>()),
+        started: yield* Ref.make(false),
+        semaphore: Semaphore.makeUnsafe(1),
+        stats: yield* Ref.make<Stats>({ ticks: 0, lastTickAt: null }),
+      }
+      return {
+        execute: (input, now) => executeInner(state, input, now),
+        getView: () =>
+          AutoloopStore.openView().pipe(
+            Effect.provideService(Database.Service, database),
+            Effect.map(({ view }) => view),
+            Effect.mapError(storeFailure),
+          ),
+        subscribe: () => Stream.fromPubSub(state.changes),
+        heartbeat: (worker, running) =>
+          executeInner(state, { type: "heartbeat", args: [worker, [...running]] }).pipe(Effect.asVoid),
+        start: () =>
           Effect.gen(function* () {
-            if (given.rules !== undefined) yield* Ref.set(state.rules, given.rules)
-            if (given.limits !== undefined) yield* Ref.set(state.limits, given.limits)
+            const already = yield* Ref.getAndSet(state.started, true)
+            if (already) return
+            yield* Effect.forkScoped(loop(state))
           }),
-        ),
-    }
-    return service
-  })
+        stats: () => Ref.get(state.stats),
+      }
+    }),
+  )
 
 export const node = makeGlobalNode({
   service: Service,

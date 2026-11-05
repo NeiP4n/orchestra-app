@@ -152,19 +152,33 @@ const layer = Layer.effect(
 
     // Project memory lives inside the repository (<project>/.orchestra), so
     // the first project write must make sure a plain `git add -A` cannot
-    // drag it into history. Append-only and idempotent: never rewrite the
-    // user's .gitignore, and never fail the memory write itself if the
+    // drag it into history — but the definition of done and the project
+    // binding are meant to be versioned, so only the rest of .orchestra is
+    // ignored. Append-only and idempotent for the user's own lines: the one
+    // line this function used to write (`.orchestra/`) is replaced by the
+    // split block when present. Never fail the memory write itself if the
     // .gitignore cannot be read or written.
+    const BLOCK = [".orchestra/*", "!.orchestra/dod.yaml", "!.orchestra/project.json"]
     const ensureProjectGitignore = Effect.fn("Memory.ensureProjectGitignore")(function* () {
       const gitignore = path.join(location.project.directory, ".gitignore")
       const existing = (yield* fs.readFileStringSafe(gitignore).pipe(Effect.orElseSucceed(() => undefined))) ?? ""
+      const lines = existing.split("\n")
+      if (BLOCK.every((line) => lines.some((item) => item.trim() === line))) return
+      const block = BLOCK.join("\n")
+      const next = lines.some((line) => line.trim() === ".orchestra/")
+        ? lines.map((line) => (line.trim() === ".orchestra/" ? block : line)).join("\n")
+        : existing === ""
+          ? `${block}\n`
+          : existing.endsWith("\n")
+            ? `${existing}${block}\n`
+            : `${existing}\n${block}\n`
 
-      if (existing.split("\n").some((line) => line.trim() === ".orchestra/")) return
-
-      const next =
-        existing === "" ? ".orchestra/\n" : existing.endsWith("\n") ? `${existing}.orchestra/\n` : `${existing}\n.orchestra/\n`
-
-      yield* fs.writeFileString(gitignore, next).pipe(Effect.ignore)
+      yield* fs
+        .ensureDir(path.dirname(gitignore))
+        .pipe(
+          Effect.andThen(fs.writeFileString(gitignore, next)),
+          Effect.ignore,
+        )
     })
 
     const writeFile = (file: string, content: string) => {

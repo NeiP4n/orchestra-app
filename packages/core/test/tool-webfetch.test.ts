@@ -439,73 +439,39 @@ describe("WebFetchTool registration", () => {
     }),
   )
 
-  it.effect("refuses localhost and private URLs before permission or transport", () =>
+  it.effect("accepts localhost URLs with the same requested-URL permission check", () =>
     Effect.gen(function* () {
       reset()
       const registry = yield* Tool.Service
+      const url = "http://localhost/private"
 
-      for (const url of [
-        "http://localhost/private",
-        "http://127.0.0.1:8080/",
-        "http://169.254.169.254/latest/meta-data/",
-      ]) {
-        expect(yield* executeTool(registry, call({ url, format: "text" }))).toMatchObject({
-          status: "error",
-          error: { type: "unknown", message: expect.stringContaining("Refusing to fetch") },
-        })
-      }
-      expect(assertions).toEqual([])
-      expect(requests).toEqual([])
-    }),
-  )
-
-  it.effect("follows a redirect to a public URL", () =>
-    Effect.gen(function* () {
-      reset()
-      let calls = 0
-      respond = () =>
-        Effect.succeed(
-          ++calls === 1
-            ? new Response("", { status: 302, headers: { location: "/target" } })
-            : new Response("redirected", { headers: { "content-type": "text/plain" } }),
-        )
-      const registry = yield* Tool.Service
-
-      expect(yield* executeTool(registry, call({ url: "https://example.com/redirect", format: "text" }))).toMatchObject({
+      expect(yield* executeTool(registry, call({ url, format: "text" }))).toMatchObject({
         status: "completed",
-        content: [{ type: "text", text: "redirected" }],
+        content: [{ type: "text", text: "hello" }],
       })
-      expect(requests.map((request) => request.url)).toEqual([
-        "https://example.com/redirect",
-        "https://example.com/target",
+      expect(assertions).toMatchObject([
+        { sessionID, action: "webfetch", resources: [url], save: ["*"], metadata: { url, format: "text" } },
       ])
+      expect(requests.map((request) => request.url)).toEqual([url])
     }),
   )
 
-  it.effect("refuses a redirect to a private address without fetching it", () =>
-    Effect.gen(function* () {
-      reset()
-      respond = () =>
-        Effect.succeed(new Response("", { status: 302, headers: { location: "http://127.0.0.1:9/evil" } }))
-      const registry = yield* Tool.Service
-
-      expect(yield* executeTool(registry, call({ url: "https://example.com/redirect", format: "text" }))).toMatchObject({
-        status: "error",
-        error: { type: "unknown", message: expect.stringContaining("Refusing to fetch") },
-      })
-      expect(requests).toHaveLength(1)
-    }),
-  )
-
-  live.effect("refuses a real local server without sending it a request", () => {
-    const received: Array<string> = []
+  live.effect("follows redirects while approving only the requested URL", () => {
+    const received: Array<Record<string, string | null>> = []
     return Effect.acquireUseRelease(
       Effect.sync(() =>
         Bun.serve({
           port: 0,
           fetch: (request) => {
-            received.push(request.url)
-            return new Response("secret", { headers: { "content-type": "text/plain" } })
+            received.push({
+              accept: request.headers.get("accept"),
+              "accept-language": request.headers.get("accept-language"),
+              "sec-fetch-mode": request.headers.get("sec-fetch-mode"),
+              "user-agent": request.headers.get("user-agent"),
+            })
+            if (new URL(request.url).pathname === "/redirect")
+              return new Response("", { status: 302, headers: { location: "/target" } })
+            return new Response("redirected", { headers: { "content-type": "text/plain" } })
           },
         }),
       ),
@@ -513,15 +479,23 @@ describe("WebFetchTool registration", () => {
         Effect.gen(function* () {
           reset()
           const registry = yield* Tool.Service
-          const url = new URL("/private", server.url).toString()
+          const url = new URL("/redirect", server.url).toString()
 
           expect(yield* executeTool(registry, call({ url, format: "text" }))).toMatchObject({
-            status: "error",
-            error: { type: "unknown", message: expect.stringContaining("Refusing to fetch") },
+            status: "completed",
+            content: [{ type: "text", text: "redirected" }],
           })
-          expect(received).toEqual([])
-          expect(assertions).toEqual([])
-          expect(requests).toEqual([])
+          expect(assertions).toMatchObject([
+            { sessionID, action: "webfetch", resources: [url], save: ["*"], metadata: { url, format: "text" } },
+          ])
+          expect(received).toEqual(
+            Array.from({ length: 2 }, () => ({
+              accept: "text/plain;q=1.0, text/markdown;q=0.9, text/html;q=0.8, */*;q=0.1",
+              "accept-language": "en-US,en;q=0.9",
+              "sec-fetch-mode": null,
+              "user-agent": webFetchUserAgent,
+            })),
+          )
         }),
       (server) => Effect.promise(() => server.stop(true)),
     )

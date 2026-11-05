@@ -111,12 +111,6 @@ export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
       ).pipe(Layer.provideMerge(NodeHttpServer.layerHttpServices)),
       applicationScope,
     )
-    // The cycle self-configures on first use: Config is location-scoped and
-    // the built routes context holds no `Config.Service` (verified by probe),
-    // so the Autoloop service applies the operator's `Config.Orchestra.Autoloop`
-    // limits and the dispatch rules itself, the first time a dispatch runs in
-    // a config-bearing context. Until then the kernel defaults apply, and the
-    // clock below only ticks once runs exist.
     if (lifecycle) {
       yield* installRestartContinuity(
         Context.get(context, SessionRestart.Service),

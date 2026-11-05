@@ -2,6 +2,7 @@ export * as Federation from "./federation.js"
 
 import { Option, Schema } from "effect"
 import { ascending } from "./identifier.js"
+import { Money } from "./money.js"
 import { ProjectID } from "./orchestra.js"
 import { SessionID } from "./session-id.js"
 import type { SessionMetadata } from "./session-metadata.js"
@@ -69,6 +70,11 @@ export const Group = Schema.Struct({
   // Optional for compatibility with groups saved before coordination modes existed.
   mode: CoordinationMode.pipe(Schema.optional),
   supervisor: SessionID.pipe(Schema.optional),
+  // Optional for compatibility with groups saved before budgets existed: the
+  // society's spend limit in USD; society_plan status reports spend against it.
+  // Raw Schema.optional, like the sibling fields: the optional() helper's
+  // decodeTo makes the generator emit the whole struct's optionals as nullable.
+  budget: Money.USD.pipe(Schema.optional),
 }).annotate({ identifier: "Federation.Group" })
 export interface Group extends Schema.Schema.Type<typeof Group> {}
 

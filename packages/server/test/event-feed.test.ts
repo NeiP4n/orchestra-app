@@ -305,11 +305,36 @@ describe("EventFeed", () => {
       expect(feed.replaySince("evt_one")).toBeUndefined()
       expect(feed.replaySince("evt_two")).toEqual(["evt_three"])
 
-      // Reconnecting with evicted ID starts fresh with live events
+      // Reconnecting with an evicted ID gets a replay-gap frame first, then live events:
+      // the client resyncs from the API instead of silently missing evt_two/evt_three.
       const stream = yield* feed.stream({ lastEventID: "evt_one" })
-      const received = yield* stream.pipe(Stream.take(1), Stream.runCollect, Effect.forkScoped)
+      const received = yield* stream.pipe(Stream.take(2), Stream.runCollect, Effect.forkScoped)
       yield* source.publish(event("four"))
-      expect(Array.from(yield* Fiber.join(received))).toEqual(["evt_four"])
+      const frames = Array.from(yield* Fiber.join(received))
+      expect(frames[0]).toContain("server.replay-gap")
+      expect(frames[0]).toContain("evt_one")
+      expect(frames[1]).toBe("evt_four")
+    }),
+  )
+
+  it.effect("replays a 30-second drop inside the widened default window", () =>
+    Effect.gen(function* () {
+      const source = makeSource()
+      const feed = yield* EventFeed.make(source.observe, { encode: (e) => e.id })
+      expect(EventFeed.DefaultReplayCapacity).toBe(4096)
+
+      // 600 streamed events: far past the old 512-frame window.
+      yield* Effect.forEach(
+        Array.from({ length: 600 }, (_, index) => `drop-${index}`),
+        (id) => source.publish(event(id)),
+        { discard: true },
+      )
+
+      const stream = yield* feed.stream({ lastEventID: "evt_drop-0" })
+      const received = yield* stream.pipe(Stream.take(599), Stream.runCollect)
+      expect(Array.from(received)).toEqual(
+        Array.from({ length: 599 }, (_, index) => `evt_drop-${index + 1}`),
+      )
     }),
   )
 

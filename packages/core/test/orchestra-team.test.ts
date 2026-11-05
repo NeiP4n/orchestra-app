@@ -12,9 +12,6 @@ import { Global } from "@orchestra/util/global"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { Database } from "@orchestra/core/database/database"
 import { Bus } from "@orchestra/core/bus"
-import { Autoloop } from "@orchestra/core/autoloop/service"
-import { orchestraRules } from "@orchestra/core/autoloop/orchestrator"
-import type { RunRow } from "@orchestra/core/autoloop/kernel/decide"
 import { Model } from "@orchestra/core/model"
 import { Provider } from "@orchestra/core/provider"
 import { Agent } from "@orchestra/core/agent"
@@ -181,7 +178,6 @@ const it = testEffect(
       Federation.node,
       Agent.node,
       FormService.node,
-      Autoloop.node,
     ]),
     [
       // Keep durable event rows in this suite so recovery can prove whether the
@@ -196,38 +192,6 @@ const it = testEffect(
     ],
   ),
 )
-
-// The run the cycle holds for one worker session, read from the journal.
-const runForSession = (sessionID: Session.ID) =>
-  Effect.gen(function* () {
-    const autoloop = yield* Autoloop.Service
-    const view = yield* autoloop.getView()
-    const rows = Object.values(view["runs"] ?? {}) as Array<RunRow>
-    return rows.find((row) => row.session === sessionID) ?? null
-  })
-
-/** Wait until the worker's run reaches the given state in the journal. */
-const untilRun = (sessionID: Session.ID, state: string) =>
-  runForSession(sessionID).pipe(
-    Effect.filterOrFail((row) => row !== null && row.state === state),
-    Effect.retry(Schedule.spaced("10 millis")),
-    Effect.timeout("2 seconds"),
-  )
-
-/**
- * Wait until the worker's task marker is gone. The report lands in the
- * orchestrator's inbox before the run finishes in the journal and the
- * marker is removed, so checking right after the report is a race.
- */
-const untilNoPending = (sessionID: Session.ID) =>
-  Effect.gen(function* () {
-    const orchestra = yield* Orchestra.Service
-    return yield* orchestra.pending(sessionID)
-  }).pipe(
-    Effect.filterOrFail((pending) => pending === undefined),
-    Effect.retry(Schedule.spaced("10 millis")),
-    Effect.timeout("2 seconds"),
-  )
 
 // Reports are admitted to the orchestrator's inbox; the stub runner never delivers them.
 const reports = (sessionID: Session.ID) =>
@@ -550,7 +514,7 @@ describe("Orchestra team", () => {
       yield* orchestra.remove(project.id)
 
       // Forgetting coordination records does not delete the session or its persisted history.
-      yield* untilNoPending(worker.id)
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
       expect(yield* sessions.get(worker.id)).toMatchObject({ id: worker.id })
       expect(yield* sessions.get(project.main!)).toMatchObject({ id: project.main })
       expect(yield* orchestra.owners()).not.toHaveProperty(worker.id)
@@ -848,7 +812,7 @@ describe("Orchestra team", () => {
       expect(report).toContain(`session="${developer.id}"`)
       expect(report).toContain('state="done"')
       expect(report).toContain("Developer: task answer")
-      yield* untilNoPending(developer.id)
+      expect(yield* orchestra.pending(developer.id)).toBeUndefined()
 
       // a second project in the same directory brings its own orchestrator, which joins neither team
       const neighbour = yield* orchestra.create({ name: "Neighbour", directory: tmp.path, template: "docs" })
@@ -883,54 +847,6 @@ describe("Orchestra team", () => {
       yield* sessions.prompt({ sessionID: developer.id, text: "operator's own question" })
       yield* Effect.sleep("50 millis")
       expect(yield* reports(main)).toHaveLength(1)
-    }).pipe(Effect.scoped),
-  )
-
-  it.live("dispatch creates an autoloop run, and the report finishes it", () =>
-    Effect.gen(function* () {
-      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-team-")))
-      const orchestra = yield* Orchestra.Service
-      const autoloop = yield* Autoloop.Service
-      const project = yield* orchestra.create({ name: "Team", directory: tmp.path, template: "bugfix" })
-      const main = project.main!
-      const developer = yield* orchestra.createMember({ project, title: "Developer", agent: Orchestra.role("developer") })
-      yield* autoloop.execute({ type: "rules", args: [orchestraRules()] })
-      yield* orchestra.dispatch({ project, sessionID: developer.id, text: "Fix the bug" })
-      const [report] = yield* reports(main).pipe(
-        Effect.filterOrFail((found) => found.length > 0),
-        Effect.retry(Schedule.spaced("10 millis")),
-        Effect.timeout("2 seconds"),
-      )
-      expect(report).toContain('state="done"')
-      expect(report).toContain("Developer: task answer")
-      const run = yield* untilRun(developer.id, "done")
-      expect(run).toMatchObject({ state: "done", session: developer.id, rule: "orchestra-task" })
-    }).pipe(Effect.scoped),
-  )
-
-  it.live("a failed dispatch retries the run instead of closing it", () =>
-    Effect.gen(function* () {
-      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-team-")))
-      const orchestra = yield* Orchestra.Service
-      const autoloop = yield* Autoloop.Service
-      const project = yield* orchestra.create({ name: "Team", directory: tmp.path, template: "bugfix" })
-      const main = project.main!
-      const developer = yield* orchestra.createMember({
-        project,
-        title: "Developer fails",
-        agent: Orchestra.role("developer"),
-      })
-      yield* autoloop.execute({ type: "rules", args: [orchestraRules()] })
-      yield* orchestra.dispatch({ project, sessionID: developer.id, text: "Fix the bug" })
-      const [report] = yield* reports(main).pipe(
-        Effect.filterOrFail((found) => found.length > 0),
-        Effect.retry(Schedule.spaced("10 millis")),
-        Effect.timeout("2 seconds"),
-      )
-      expect(report).toContain('state="failed"')
-      const run = yield* untilRun(developer.id, "queued")
-      expect(run).toMatchObject({ state: "queued", attempts: 1, session: developer.id })
-      expect(Date.parse(run!.not_before)).toBeGreaterThan(Date.now())
     }).pipe(Effect.scoped),
   )
 
@@ -1020,7 +936,7 @@ describe("Orchestra team", () => {
         Effect.timeout("2 seconds"),
       )
       expect(original).toContain("Developer: task answer")
-      yield* untilNoPending(worker.id)
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
 
       // The worker reservation is gone, but the unacknowledged report is still project-owned.
       yield* sessions.remove(oldMain)
@@ -1154,7 +1070,7 @@ describe("Orchestra team", () => {
       )
       expect(report).toContain('state="recovered"')
       expect(report).toContain("Developer: task answer")
-      yield* untilNoPending(worker.id)
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
     }).pipe(Effect.scoped),
   ),
 
@@ -1208,7 +1124,7 @@ describe("Orchestra team", () => {
       expect(report).toContain('state="done"')
       expect(report).not.toContain('state="recovered"')
       expect(report).toContain("Developer: task answer")
-      yield* untilNoPending(worker.id)
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
     }).pipe(Effect.scoped),
   ),
 
@@ -1242,7 +1158,7 @@ describe("Orchestra team", () => {
       expect(report).toContain('state="recovered"')
       expect(report).toContain("Developer: final long-turn answer")
       expect(report).not.toContain("intermediate continuation")
-      yield* untilNoPending(worker.id)
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
     }).pipe(Effect.scoped),
   ),
   it.live("does not report a later user prompt as the assigned worker task's answer", () =>
@@ -1282,7 +1198,7 @@ describe("Orchestra team", () => {
       expect(report).toContain('state="recovered"')
       expect(report).toContain("Developer: task answer")
       expect(report).not.toContain("Developer: unrelated answer")
-      yield* untilNoPending(worker.id)
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
     }).pipe(Effect.scoped),
   ),
   it.live("recovers a completed worker task when its terminal event was missed", () =>
@@ -1327,7 +1243,7 @@ describe("Orchestra team", () => {
       expect(recovered).toHaveLength(1)
       expect(recovered[0]).toContain('state="recovered"')
       expect(recovered[0]).toContain("Developer: task answer")
-      yield* untilNoPending(worker.id)
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
 
       // Recovery is idempotent after the durable marker has been cleared.
       yield* orchestra.mainOf(project.main!)
@@ -1378,7 +1294,7 @@ describe("Orchestra team", () => {
       expect(recovered).toHaveLength(1)
       expect(recovered[0]).toContain('state="recovered"')
       expect(recovered[0]).toContain("went stale")
-      yield* untilNoPending(worker.id)
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
       expect(yield* sessionStore.listSuspended()).not.toContain(worker.id)
     }).pipe(Effect.scoped),
   ),
@@ -1428,7 +1344,7 @@ describe("Orchestra team", () => {
       expect(report).toContain("Developer: task answer")
       expect(report).not.toContain("Provisional recovery notice")
       expect(report).not.toContain("Provisional recovery answer")
-      yield* untilNoPending(worker.id)
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
     }).pipe(Effect.scoped),
   ),
 
@@ -1448,7 +1364,7 @@ describe("Orchestra team", () => {
       expect(yield* orchestra.pending(worker.id)).toBeNumber()
 
       yield* orchestra.mainOf(project.main!)
-      yield* untilNoPending(worker.id)
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
       expect(yield* reports(project.main!)).toHaveLength(0)
 
       // The stale marker no longer blocks the worker from accepting a fresh assignment.
@@ -1459,7 +1375,7 @@ describe("Orchestra team", () => {
         Effect.timeout("2 seconds"),
       )
       expect(report).toContain("Developer: task answer")
-      yield* untilNoPending(worker.id)
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
     }).pipe(Effect.scoped),
   ),
 
@@ -1491,7 +1407,7 @@ describe("Orchestra team", () => {
       expect(report).toContain('state="failed"')
       expect(report).toContain("Worker session")
       expect(report).toContain("was removed")
-      yield* untilNoPending(worker.id)
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
     }).pipe(Effect.scoped),
   ),
   it.live("clears the marker when a report was admitted just before a crash", () =>
@@ -1540,7 +1456,7 @@ describe("Orchestra team", () => {
       // Reconciliation must recognize the already-admitted ID, not retry with a conflicting body.
       yield* orchestra.mainOf(project.main!)
       expect(yield* reports(project.main!)).toHaveLength(1)
-      yield* untilNoPending(worker.id)
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
     }).pipe(Effect.scoped),
   ),
   it.live("creates manual members through a recoverable roster plan and rejects stale or removed owners", () =>
@@ -1615,7 +1531,7 @@ describe("Orchestra team", () => {
         .dispatch({ project: first, sessionID: foreign.id, text: "Should never reach the second project" })
         .pipe(Effect.flip)
       expect(failure.message).toContain("does not belong to project")
-      yield* untilNoPending(foreign.id)
+      expect(yield* orchestra.pending(foreign.id)).toBeUndefined()
       expect(yield* reports(second.main!)).toHaveLength(0)
     }).pipe(Effect.scoped),
   ),
@@ -1632,14 +1548,14 @@ describe("Orchestra team", () => {
         .dispatch({ project: stale, sessionID: worker.id, text: "Stale caller" })
         .pipe(Effect.flip)
       expect(staleFailure.message).toContain("stale")
-      yield* untilNoPending(worker.id)
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
 
       yield* orchestra.remove(project.id)
       const removedFailure = yield* orchestra
         .dispatch({ project, sessionID: worker.id, text: "Removed project" })
         .pipe(Effect.flip)
       expect(removedFailure.message).toContain("no longer exists")
-      yield* untilNoPending(worker.id)
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
     }).pipe(Effect.scoped),
   ),
 
@@ -1677,7 +1593,7 @@ describe("Orchestra team", () => {
       )
       expect(report).toContain("Developer: task answer")
       expect(report).not.toContain("Developer: unrelated answer")
-      yield* untilNoPending(worker.id)
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
     }).pipe(Effect.scoped),
   ),
   it.live("failed runs are reported and shutdowns wait for the resumed run", () =>

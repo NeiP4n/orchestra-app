@@ -49,7 +49,7 @@ it.live("uses base configuration without depending on process.cwd()", () =>
         fs: { filewatcher: false },
         models: { fetch: false },
       },
-      { allowUnauthenticated: true, overrides: [Generate.node.replace(generate)] },
+      { overrides: [Generate.node.replace(generate)] },
     )
 
     expect(global).not.toBe(process.cwd())

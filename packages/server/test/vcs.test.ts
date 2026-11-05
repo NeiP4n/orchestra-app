@@ -116,7 +116,6 @@ it.live("returns 501 when a registered VCS provider has no initializer", () =>
         models: { fetch: false },
       },
       {
-        allowUnauthenticated: true,
         overrides: [
           SdkPlugins.node.replace(
             Layer.succeed(
@@ -287,7 +286,6 @@ it.live("maps a failing base provider to HTTP 503 instead of null metadata", () 
         models: { fetch: false },
       },
       {
-        allowUnauthenticated: true,
         overrides: [
           SdkPlugins.node.replace(
             Layer.succeed(

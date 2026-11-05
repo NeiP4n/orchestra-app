@@ -12,7 +12,7 @@ const setup = Effect.gen(function* () {
     app: { version: "test" },
     database: { path: ":memory:" },
     fs: { filewatcher: false },
-  }, { allowUnauthenticated: true })
+  })
   return (path: string, body?: unknown, status = 200) =>
     Effect.promise(async () => {
       const response = await handler(

@@ -3487,12 +3487,15 @@ describe("V2 mini transport", () => {
         })
       })
       return ok({
-        id: input.id ?? "msg_skill_attachment",
-        sessionID: "ses_1",
-        type: "user" as const,
-        payload: { text: input.text },
-        delivery: "steer" as const,
-        time: { created: 2 },
+        data: {
+          id: input.id ?? "msg_skill_attachment",
+          sessionID: "ses_1",
+          type: "user" as const,
+          payload: { text: input.text },
+          delivery: "steer" as const,
+          time: { created: 2 },
+        },
+        held: false,
       })
     })
 

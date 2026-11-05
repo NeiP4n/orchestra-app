@@ -47,7 +47,9 @@ tsconfig.tsbuildinfo
 
 # Per-machine agent and editor state: boards, notes, memory, indexes and settings
 .opencode/
-.orchestra/
+.orchestra/*
+!.orchestra/dod.yaml
+!.orchestra/project.json
 .freebuff/
 .ideas/
 .zed/

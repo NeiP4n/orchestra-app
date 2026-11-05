@@ -105,6 +105,40 @@ describe("Memory blocks", () => {
     ),
   )
 
+  it.live("writes a split .gitignore that versions dod.yaml and the project binding", () =>
+    withTempDir((tmp) =>
+      withMemory(tmp.path, (memory) =>
+        Effect.gen(function* () {
+          yield* memory.rewrite({ label: "stack", value: "Bun.", description: "Tech stack" })
+          const gitignore = yield* Effect.promise(() =>
+            fs.readFile(path.join(tmp.path, "repo", ".gitignore"), "utf8"),
+          )
+          expect(gitignore).toBe(".orchestra/*\n!.orchestra/dod.yaml\n!.orchestra/project.json\n")
+        }),
+      ),
+    ),
+  )
+
+  it.live("migrates the old blanket .orchestra ignore to the split block", () =>
+    withTempDir((tmp) =>
+      withMemory(tmp.path, (memory) =>
+        Effect.gen(function* () {
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.join(tmp.path, "repo"), { recursive: true })
+            await fs.writeFile(path.join(tmp.path, "repo", ".gitignore"), "node_modules\n.orchestra/\n")
+          })
+          yield* memory.rewrite({ label: "stack", value: "Bun.", description: "Tech stack" })
+          const gitignore = yield* Effect.promise(() =>
+            fs.readFile(path.join(tmp.path, "repo", ".gitignore"), "utf8"),
+          )
+          expect(gitignore).toBe(
+            "node_modules\n.orchestra/*\n!.orchestra/dod.yaml\n!.orchestra/project.json\n",
+          )
+        }),
+      ),
+    ),
+  )
+
   it.live("renders block edits as updates instead of a new baseline", () =>
     withTempDir((tmp) =>
       withMemory(tmp.path, (memory) =>

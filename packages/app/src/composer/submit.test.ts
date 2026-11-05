@@ -69,6 +69,7 @@ function submitInput(
   notify: Parameters<typeof createComposerSubmit>[0]["notify"] = {
     missingSelection() {},
     unqueueable() {},
+    sessionPaused() {},
     failed() {},
   },
   mode: "normal" | "shell" = "normal",
@@ -98,6 +99,7 @@ function submitInput(
 function session(input: {
   calls: string[]
   prompt?: (value: Parameters<ComposerSession["data"]["session"]["prompt"]>[0]) => Promise<void>
+  held?: boolean
   handoff?: ComposerSession["handoff"]
   statuses?: ("idle" | "running")[]
   current?: ComposerSession["current"]
@@ -144,14 +146,17 @@ function session(input: {
           input.calls.push("prompt")
           await input.prompt?.(value)
 
-          // The admitted inbox item, as the server returns it.
+          // The admitted inbox item, as the server returns it, with the held flag.
           return {
-            id: value.id ?? "msg_admitted",
-            sessionID: value.sessionID,
-            time: { created: 0 },
-            type: "user" as const,
-            payload: { text: value.text },
-            delivery: value.delivery ?? "steer",
+            data: {
+              id: value.id ?? "msg_admitted",
+              sessionID: value.sessionID,
+              time: { created: 0 },
+              type: "user" as const,
+              payload: { text: value.text },
+              delivery: value.delivery ?? "steer",
+            },
+            held: input.held ?? false,
           }
         },
       },
@@ -227,6 +232,46 @@ describe("Composer submission", () => {
     expect(request.files?.[0]?.mention).toBeUndefined()
     expect(state.current()).toEqual([{ type: "text", content: "", start: 0, end: 0 }])
     expect(state.context.items()).toEqual([])
+  })
+
+  test("retries a dropped send with the same admission id", async () => {
+    const state = createMemoryComposerState({ prompt: "ship it" }).capture()
+    const calls: string[] = []
+    const attempts: (string | undefined)[] = []
+    let failures = 0
+    const target = session({
+      calls,
+      prompt: async (value) => {
+        attempts.push(value.id ?? undefined)
+        if (failures++ < 2) throw new Error("network down")
+      },
+    })
+
+    await submitInput(active(state, target)).submit(new Event("submit"))
+
+    expect(calls).toEqual(["switch-agent", "switch-model", "prompt", "prompt", "prompt"])
+    expect(new Set(attempts).size).toBe(1)
+    expect(attempts[0]).toMatch(/^msg_/)
+  })
+
+  test("notifies when the server reports the session held", async () => {
+    const state = createMemoryComposerState({ prompt: "ship it" }).capture()
+    const calls: string[] = []
+    const target = session({ calls, held: true })
+    let paused = 0
+    const notify = {
+      missingSelection() {},
+      unqueueable() {},
+      sessionPaused() {
+        paused++
+      },
+      failed() {},
+    }
+
+    await submitInput(active(state, target), notify).submit(new Event("submit"))
+
+    expect(calls).toEqual(["switch-agent", "switch-model", "prompt"])
+    expect(paused).toBe(1)
   })
 
   test("applies the captured agent and model before a custom command without passing over its overrides", async () => {
@@ -318,7 +363,7 @@ describe("Composer submission", () => {
     }
     await submitInput(
       active(state, target, () => selected),
-      { missingSelection() {}, unqueueable() {}, failed: (_kind, error) => failed.resolve(error) },
+      { missingSelection() {}, unqueueable() {}, sessionPaused() {}, failed: (_kind, error) => failed.resolve(error) },
       "normal",
       () => [{ name: "review" }],
     ).submit(new Event("submit"))
@@ -361,6 +406,7 @@ describe("Composer submission", () => {
     const notify = {
       missingSelection() {},
       unqueueable() {},
+      sessionPaused() {},
       failed: () => (attempts.length === 2 ? first.resolve() : second.resolve()),
     }
 
@@ -410,7 +456,7 @@ describe("Composer submission", () => {
 
     await submitInput(
       adapter,
-      { missingSelection() {}, unqueueable() {}, failed: () => failed.resolve() },
+      { missingSelection() {}, unqueueable() {}, sessionPaused() {}, failed: () => failed.resolve() },
       "shell",
     ).submit(new Event("submit"))
     await failed.promise

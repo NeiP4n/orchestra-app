@@ -14,6 +14,12 @@ export function createConnectionSync(input: {
   let connectedOnce = false
 
   function handleEvent(event: { type: string }) {
+    // The server could not replay the events since our last ID (long disconnect,
+    // restart): resync from the API instead of showing state that quietly lost events.
+    if (event.type === "server.replay-gap") {
+      input.connected({ reconnect: true })
+      return
+    }
     if (event.type !== "server.connected") return
     input.connected({ reconnect: connectedOnce })
     connectedOnce = true

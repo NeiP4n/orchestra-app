@@ -9,7 +9,6 @@ import { Path } from "@orchestra/util/global"
 import { Effect, Option, Schema } from "effect"
 import { Config } from "../../config.js"
 import { McpForge } from "../../mcp/forge.js"
-import { ForgeJournal } from "./forge-journal.js"
 
 export const name = "mcp_forge"
 export const command = "forge-mcp"
@@ -90,7 +89,7 @@ export const Plugin = {
           description,
           input: Input,
           output: Output,
-          execute: (input, context) =>
+          execute: (input) =>
             Effect.gen(function* () {
               if (input.action === "list") {
                 const servers = yield* registered()
@@ -140,20 +139,8 @@ export const Plugin = {
                     ].join("\n"),
                   }
                 yield* register(serverName, input.server)
-                // A generated server is not trusted by being generated: the journal
-                // records who registered it and what it replaced, so it can be
-                // rolled back. No permission is asked; the record is silent.
-                yield* ForgeJournal.recordForge({
-                  kind: "mcp",
-                  action: "registered",
-                  name: serverName,
-                  source: "server",
-                  by: context.sessionID,
-                  previous: existing ?? null,
-                  detail: { server: input.server },
-                })
                 return {
-                  output: `Registered ${serverName} in the global config. The app connects it after the config reload. Recorded in the autoloop journal (forge.registered); roll back by removing the server from the MCP config.`,
+                  output: `Registered ${serverName} in the global config. The app connects it after the config reload.`,
                 }
               }
 
@@ -192,22 +179,12 @@ export const Plugin = {
                   }),
               })
               yield* register(serverName, { type: "local", command: [runtime, target] })
-              yield* ForgeJournal.recordForge({
-                kind: "mcp",
-                action: "registered",
-                name: serverName,
-                source,
-                by: context.sessionID,
-                previous: existing ?? null,
-                detail: { module: target, tools: built.spec.tools.map((tool) => tool.name) },
-              })
 
               return {
                 output: [
                   `Wrote ${target}.`,
                   `Registered ${serverName} in the global config as \`${runtime} ${target}\`.`,
                   `The app connects it right after the config reload; its tools appear with the prefix ${serverName}_.`,
-                  `Recorded in the autoloop journal (forge.registered); roll back by removing the server from the MCP config.`,
                   ...(built.warnings.length > 0
                     ? ["", "Warnings:", ...built.warnings.map((warning) => `- ${warning}`)]
                     : []),

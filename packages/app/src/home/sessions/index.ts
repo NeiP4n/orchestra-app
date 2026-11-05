@@ -6,13 +6,6 @@ export const HOME_V2_SESSION_PAGE_LIMIT = 5_000
 
 export const HOME_SESSION_LIMIT = 64
 
-// Rows kept per directory from the fetched index: the visible limit plus the
-// recent-window search bucket. Merging locally known sessions and pending
-// removals into this subset resolves exactly like merging into the complete
-// index, so Home shows the same rows, order, and search results while the
-// query cache and every per-update re-merge stay bounded by directory count.
-export const HOME_SESSION_INDEX_LIMIT = HOME_SESSION_LIMIT + SESSION_RECENT_LIMIT
-
 export async function loadHomeSessionIndex(
   list: (
     input: {
@@ -25,8 +18,12 @@ export async function loadHomeSessionIndex(
   ) => Promise<SessionsResponse>,
   signal?: AbortSignal,
 ) {
-  const now = Date.now()
-  let retained: SessionInfo[] = []
+  // The index covers the whole history: pages are followed through `next` until
+  // the server cursor runs out, and nothing is dropped for being old. The
+  // visible list stays bounded (HOME_SESSION_LIMIT) where the index is
+  // displayed, in retainHomeSessions — capping the index itself used to make
+  // sessions past 64 per directory unreachable from Home search.
+  const seen = new Map<string, SessionInfo>()
   let cursor: string | undefined
 
   for (;;) {
@@ -40,12 +37,9 @@ export async function loadHomeSessionIndex(
       { signal },
     )
 
-    // Fold each page in as it arrives: pages are newest first, so later pages
-    // can only fill directories that still have room. Peak allocation is one
-    // page plus the retained subset, not the whole history.
-    retained = retainHomeSessions([...retained, ...parseHomeSessionIndex(response.data)], HOME_SESSION_INDEX_LIMIT, now)
+    for (const session of parseHomeSessionIndex(response.data)) seen.set(session.id, session)
 
-    if (response.data.length < HOME_V2_SESSION_PAGE_LIMIT || !response.cursor.next) return retained
+    if (response.data.length < HOME_V2_SESSION_PAGE_LIMIT || !response.cursor.next) return [...seen.values()]
     cursor = response.cursor.next
   }
 }

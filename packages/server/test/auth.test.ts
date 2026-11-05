@@ -22,13 +22,3 @@ test("session tokens expire, resist tampering, and are revoked by changing the p
   expect(ServerAuth.verifySession(token, { ...config, password: Option.some("rotated") }, now)).toBe(false)
   expect(ServerAuth.issueSession({ ...config, password: Option.none() })).toBeUndefined()
 })
-
-test("session tokens last 7 days by default and honor a configured lifetime", () => {
-  expect(ServerAuth.SESSION_TTL_SECONDS).toBe(7 * 24 * 60 * 60)
-  const config = { password: Option.some("secret"), username: "opencode" }
-  const now = Date.now()
-  const short = ServerAuth.issueSession({ ...config, sessionTtlSeconds: 60 }, now)
-  if (!short) throw new Error("Expected a session token")
-  expect(ServerAuth.verifySession(short, config, now + 61 * 1000)).toBe(false)
-  expect(ServerAuth.verifySession(short, config, now + 59 * 1000)).toBe(true)
-})

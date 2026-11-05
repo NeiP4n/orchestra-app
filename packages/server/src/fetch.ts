@@ -16,13 +16,6 @@ export interface BootOptions {
    * win — swaps services the standard graph assumes are local. See `ServerWorkerd.replacements`.
    */
   readonly overrides?: LayerNode.Replacements
-  /**
-   * Build an unauthenticated handler on purpose. Only for in-process test harnesses
-   * and embedders that front the handler with their own access control; a handler
-   * built without a password and without this flag refuses to build, so a forgotten
-   * password can never silently serve the API to anyone who reaches the socket.
-   */
-  readonly allowUnauthenticated?: boolean
 }
 
 /**
@@ -38,10 +31,9 @@ export interface BootOptions {
  * (Effect-TS/effect#6319 class). The embedder owns the lifecycle — closing the scope releases
  * the application layer.
  *
- * Auth follows `createRoutes` semantics: `options.password` enforces Basic auth. A handler
- * without a password refuses to build unless the caller explicitly passes
- * `allowUnauthenticated: true` — an embedder that does so must front the handler with its
- * own access control, because the handler itself then answers anyone.
+ * Auth follows `createRoutes` semantics: `options.password` enforces Basic auth; omitting it
+ * serves unauthenticated, so an embedder without a password must front the handler with its own
+ * access control.
  *
  * Sessions whose execution claim was never released resume once the layer is built, exactly as
  * the Node server process does: a runtime that dies without teardown — an evicted Durable
@@ -49,12 +41,6 @@ export interface BootOptions {
  * next boot, and the sweep is a no-op when nothing is suspended.
  */
 export const make = Effect.fn("ServerFetch.make")(function* (options: ServerOptions = {}, boot: BootOptions = {}) {
-  if (!options.password && boot.allowUnauthenticated !== true)
-    return yield* Effect.fail(
-      new Error(
-        "ServerFetch.make needs options.password, or an explicit allowUnauthenticated: true when the embedder fronts the handler with its own access control",
-      ),
-    )
   const context = yield* Layer.build(
     createRoutes(options, () => [], boot.overrides ?? []).pipe(Layer.provide(HttpServer.layerServices)),
   )

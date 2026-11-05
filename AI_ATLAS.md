@@ -150,7 +150,8 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   then an ask card), `MAX_HOPS = 8`, `RESEND_AT = [0,1,3,7,15,25,35,45,55]`,
   57-minute window. Rules come from Orchestra config via the `decide`
   environment, never from a `rules.json`. Minimal five-field cron parser
-  lives here too (tick needs it).
+  lives here too (tick needs it); the tick service and orchestrator wiring
+  are later Б3 sub-steps, not here.
 - **Cards (block Б3, подшаг 2)**: `src/autoloop/cards.ts` is the thin layer
   over `store` + `decide` — `listCards` / `listOpenCards`, `createCard`
   (same key while open = duplicate, no new fact), `answerCard` (records
@@ -193,33 +194,7 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   `FORMAT` no longer matches), so a restart loses no runs. Rules come from
   the journal (`rules` input) unless the service was built with explicit
   ones; limits default to the kernel defaults until the orchestrator wiring
-  applies the operator config (see below).
-- **Orchestrator wiring (block Б3, подшаг 4 — Б3 закрыт)**: `src/autoloop/orchestrator.ts`
-  is the bridge. `dispatch()` creates a run: the bridge first makes sure the
-  dispatch rule (`orchestra-task`: `task.created` from source `orchestra` →
-  agent `orchestrator`, one lane per worker session, 30 claimed runs at most)
-  is in the journal — ingest routes once, at ingest time, so a rule stored
-  later would strand the event — then ingests, claims, records the worker
-  session on the run (`started`), and marks the worker seen. Run id + finish
-  token live in the durable task marker (`orchestra/task/<session>`), never in
-  memory. `report()` finishes the run from the journal (`finishRun` reads the
-  run fresh; a second finish of the same receipt changes nothing, a different
-  receipt under the same token is a conflict): `done` → `done`, `failed` →
-  retry 1–2 times by the limits, then a stop card (`run:<id>:stopped`),
-  `stopped`/`cancelled` → final, no retries. `nothing` is a real outcome:
-  a worker that answered nothing and left no trace of work in the transcript
-  finishes as `nothing`. While a worker streams, `MessageContentUpdated`
-  heartbeats its run (throttled to 1/min per session), so a long task is not
-  mistaken for a worker gone quiet. Config reaches the service two ways:
-  `configure({rules, limits})` (explicit, e.g. tests), and self-configuration
-  on the first `execute` in a context that carries `Config.Service` — the
-  limits come from `Config.Orchestra.Autoloop`, the dispatch rule is merged
-  into any operator rules stored in the journal (`mergeDispatchRule`) instead
-  of shadowing them. Server boot cannot configure it directly: Config is
-  location-scoped and the built routes context holds no `Config.Service`
-  (verified by probe). Known limit for Б4: a re-queued run waits for a claim,
-  and the next `dispatch` claims it (FIFO, any worker) — re-execution of
-  re-queued runs is Б4's job.
+  passes config-derived ones.
 - **Tests**: `packages/core/test/autoloop/` — no network, no models.
 
 ## MCP — `packages/core/src/mcp/`
@@ -283,6 +258,52 @@ if it is absent on an install where this work is being done, recreate it.
   (registers the projects), `PUT` the group in the order above with
   `mode: "council"`, link, create the chat, set the chat model to the
   operator's strongest favorite, post the charter as the first message.
+
+## Block Б8 — projects, chat, storage (durability)
+
+Nothing silently disappears: lists page past the KV 1000-entry scan limit,
+the front never overwrites a non-empty store with an empty refetch, and SSE
+replay keeps 4096 events and signals `server.replay-gap` when a client fell
+too far behind, so it resyncs instead of missing events.
+
+- **Pagination**: `packages/core/src/federation.ts` scans KV with `scanAll`
+  (follows `next` past 1000 entries) for groups, links, activity, holds and
+  council rounds; `packages/server/src/handlers/session.ts` pages session
+  lists; the app loads the whole session index and pages archived sessions by
+  cursor. `packages/core/src/orchestra.ts` still scans with a single
+  1000-entry page (open; see master plan Б8).
+- **Chat**: `session.prompt` returns `{data, held}` — `held: true` means the
+  prompt was admitted but the session is paused (hold), so the client shows
+  "Session is paused" instead of silence. The composer retries a failed send
+  up to 3 times with backoff (0/500/1500 ms) reusing the same admission id,
+  so the server's idempotent reconcile never duplicates the message.
+  A stream interrupted after the first tokens publishes a failed receipt
+  with the partial output and continues in a new round. Resume-on-start
+  resumes only when the autoloop journal says the run did not finish
+  (`packages/core/src/journal.ts` — `hasUnfinishedRun`).
+- **Storage as data**: `society_plan apply` stores planner decisions
+  (role, model, context, cache) in KV under
+  `federation/society-plan/<group>/<project|society>/<role>` and `status`
+  reads them back plus spend aggregates per project and for the whole
+  society. A federation group carries an optional USD `budget`, kept across
+  rewrites and checked on apply. Errors go to the autoloop journal
+  (`recordError`, journal-only facts, `type: "error.recorded"`) — wired
+  from the session runner (stream interrupted) and file mutation (write
+  failed, after rollback).
+- **Project identity**: a project's orchestra ID is pinned in
+  `.orchestra/project.json` (read only for folders without repository
+  markers); `dod.yaml` is versioned in git while `.orchestra/` memory and
+  notes stay ignored (`.gitignore` split in the repo root and in
+  `ensureProjectGitignore`).
+- **Database backup**: `packages/core/src/database/backup.ts`
+  (`backupDatabase` via `VACUUM INTO`, `restoreDatabase`, only while the
+  server is stopped) and `PRAGMA synchronous = FULL` for critical writes.
+- **Atomic file writes**: `packages/core/src/file-mutation.ts` writes via a
+  temp file + rename under a cross-process lock file
+  (`<target>.orchestra-lock`, stolen when the owner pid is dead or the lock
+  is older than 30 s), snapshots the previous bytes and rolls back on
+  failure; symlinks are written directly under the same lock with a
+  snapshot.
 
 ## Forges — `packages/core/src/tool/plugin/`
 

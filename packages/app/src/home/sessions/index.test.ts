@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test"
 import type { SessionInfo } from "@orchestra/client/promise"
 import { SESSION_RECENT_LIMIT, SESSION_RECENT_WINDOW } from "@/runtime/server/global-sync/types"
 import {
-  HOME_SESSION_INDEX_LIMIT,
   HOME_SESSION_LIMIT,
   HOME_V2_SESSION_PAGE_LIMIT,
   loadHomeSessionIndex,
@@ -39,7 +38,7 @@ const history = (directory: string, count: number) =>
 const ids = (sessions: SessionInfo[]) => sessions.map((item) => item.id)
 
 describe("Home session index", () => {
-  test("follows cursors across pages and bounds the result per directory", async () => {
+  test("follows cursors across pages and keeps the whole tail", async () => {
     const all = history("/repo", HOME_V2_SESSION_PAGE_LIMIT + 1)
     const calls: Array<{ cursor?: string; parentID: null }> = []
 
@@ -53,11 +52,11 @@ describe("Home session index", () => {
 
     expect(calls.map((call) => call.cursor)).toEqual([undefined, "next"])
     expect(calls.every((call) => call.parentID === null)).toBe(true)
-    // Newest rows in server order, plus the recent window beyond the limit.
-    expect(ids(result)).toEqual(ids(all.slice(0, HOME_SESSION_INDEX_LIMIT + SESSION_RECENT_LIMIT)))
+    // The whole history, newest first — nothing past the first page is dropped.
+    expect(ids(result)).toEqual(ids(all))
   })
 
-  test("folds pages so every directory keeps its newest sessions", async () => {
+  test("folds pages so every directory keeps its whole history", async () => {
     const busy = history("/busy", HOME_V2_SESSION_PAGE_LIMIT + 300)
 
     const quiet = history("/quiet", 3).map((item) => ({
@@ -74,9 +73,7 @@ describe("Home session index", () => {
     })
 
     expect(ids(result.filter((item) => item.location.directory === "/quiet"))).toEqual(ids(quiet))
-    expect(ids(result.filter((item) => item.location.directory === "/busy"))).toEqual(
-      ids(busy.slice(0, HOME_SESSION_INDEX_LIMIT + SESSION_RECENT_LIMIT)),
-    )
+    expect(ids(result.filter((item) => item.location.directory === "/busy"))).toEqual(ids(busy))
   })
 
   test("drops archived sessions before they can occupy a retained slot", async () => {
@@ -157,7 +154,7 @@ describe("Home session index parity with the complete index", () => {
 
     expect(hot.every((item) => item.time.updated > now - SESSION_RECENT_WINDOW)).toBe(true)
     const index = await loadHomeSessionIndex(async () => ({ data: hot, cursor: {} }))
-    expect(index).toHaveLength(HOME_SESSION_INDEX_LIMIT + SESSION_RECENT_LIMIT)
+    expect(index).toHaveLength(300)
     expect(view(index, [])).toEqual(view(hot, []))
   })
 })

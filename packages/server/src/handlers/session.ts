@@ -1,4 +1,5 @@
 import { Session } from "@orchestra/core/session"
+import { SessionHold } from "@orchestra/core/session/hold"
 import { Orchestra } from "@orchestra/core/orchestra"
 import { SessionStats } from "@orchestra/core/session/stats"
 import { SessionTitle } from "@orchestra/core/session/title"
@@ -324,47 +325,49 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
       .handle(
         "session.prompt",
         Effect.fn(function* (ctx) {
-          return {
-            data: yield* session
-              .prompt({
-                sessionID: ctx.params.sessionID,
-                id: ctx.payload.id,
-                text: ctx.payload.text,
-                files: ctx.payload.files,
-                agents: ctx.payload.agents,
-                skills: ctx.payload.skills,
-                metadata: ctx.payload.metadata,
-                delivery: ctx.payload.delivery,
-                resume: ctx.payload.resume,
-              })
-              .pipe(
-                Effect.catchTag("Session.NotFoundError", missingSession),
-                Effect.catchTag("Session.PromptConflictError", (error) =>
-                  Effect.fail(
-                    new ConflictError({
-                      message: `Prompt message ID conflicts with an existing durable record: ${error.messageID}`,
-                      resource: error.messageID,
-                    }),
-                  ),
+          const admitted = yield* session
+            .prompt({
+              sessionID: ctx.params.sessionID,
+              id: ctx.payload.id,
+              text: ctx.payload.text,
+              files: ctx.payload.files,
+              agents: ctx.payload.agents,
+              skills: ctx.payload.skills,
+              metadata: ctx.payload.metadata,
+              delivery: ctx.payload.delivery,
+              resume: ctx.payload.resume,
+            })
+            .pipe(
+              Effect.catchTag("Session.NotFoundError", missingSession),
+              Effect.catchTag("Session.PromptConflictError", (error) =>
+                Effect.fail(
+                  new ConflictError({
+                    message: `Prompt message ID conflicts with an existing durable record: ${error.messageID}`,
+                    resource: error.messageID,
+                  }),
                 ),
-                Effect.catchTag("Session.AttachmentError", (error) =>
-                  Effect.fail(new InvalidRequestError({ message: error.message, field: "files" })),
-                ),
-                Effect.catchTag("Session.SkillNotFoundError", (error) =>
-                  Effect.fail(new InvalidRequestError({ message: `Skill not found: ${error.skill}`, field: "skills" })),
-                ),
-                Effect.catchTag("PromptInput.Rejected", (error) =>
-                  Effect.fail(
-                    new PromptRejectedError({
-                      message: `Prompt rejected: ${error.reason}`,
-                      reason: error.reason,
-                      source: error.source,
-                    }),
-                  ),
-                ),
-                locationErrors,
               ),
-          }
+              Effect.catchTag("Session.AttachmentError", (error) =>
+                Effect.fail(new InvalidRequestError({ message: error.message, field: "files" })),
+              ),
+              Effect.catchTag("Session.SkillNotFoundError", (error) =>
+                Effect.fail(new InvalidRequestError({ message: `Skill not found: ${error.skill}`, field: "skills" })),
+              ),
+              Effect.catchTag("PromptInput.Rejected", (error) =>
+                Effect.fail(
+                  new PromptRejectedError({
+                    message: `Prompt rejected: ${error.reason}`,
+                    reason: error.reason,
+                    source: error.source,
+                  }),
+                ),
+              ),
+              locationErrors,
+            )
+          // The prompt is admitted even when the session is held; the wake
+          // is a silent no-op then, so say so here instead of leaving the
+          // client to wait for an answer that will not come.
+          return { data: admitted, held: yield* SessionHold.held(ctx.params.sessionID) }
         }),
       )
       .handle(

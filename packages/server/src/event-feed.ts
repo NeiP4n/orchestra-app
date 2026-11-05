@@ -11,7 +11,12 @@ export const SubscriberCapacity = 256
  * therefore cannot bound a slow client's memory, so every subscriber also has a byte budget.
  */
 export const SubscriberCapacityBytes = 1 * 1024 * 1024
-export const DefaultReplayCapacity = 512
+/**
+ * Events kept for replay after a reconnect. 512 frames covered a few seconds of
+ * token deltas; a 30-second network drop at full streaming rate blows past it
+ * and silently loses events, so the window holds 4096 frames instead.
+ */
+export const DefaultReplayCapacity = 4096
 export const DefaultHeartbeatInterval = "15 seconds"
 export const HeartbeatFrame = ": heartbeat\n\n"
 
@@ -242,10 +247,27 @@ export const make = Effect.fn("EventFeed.make")(function* (
         const criticalStream = Stream.fromQueue(slot.criticalQueue)
         const liveStream = Stream.merge(criticalStream, regularStream)
         const replayFrames = subOptions?.lastEventID ? ringBuffer.replaySince(subOptions.lastEventID) : undefined
+        // The client's last event fell out of the replay window (a long disconnect or a
+        // server restart): say so up front instead of silently resuming live, so the
+        // client resyncs from the API instead of showing a session that quietly lost events.
+        const replayGap =
+          subOptions?.lastEventID !== undefined && replayFrames === undefined
+            ? frame(
+                {
+                  id: Event.ID.create(),
+                  created: Date.now(),
+                  type: "server.replay-gap",
+                  data: { lastEventID: subOptions.lastEventID },
+                },
+                { id: true },
+              )
+            : undefined
         const baseStream =
           replayFrames && replayFrames.length > 0
             ? Stream.concat(Stream.fromIterable(replayFrames), liveStream)
-            : liveStream
+            : replayGap
+              ? Stream.concat(Stream.fromIterable([replayGap]), liveStream)
+              : liveStream
         const heartbeat = subOptions?.heartbeatInterval ?? defaultHeartbeat
         if (heartbeat === false) {
           return baseStream

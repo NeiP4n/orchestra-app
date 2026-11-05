@@ -65,31 +65,15 @@ export default Runtime.handler(Commands, (input) =>
     let latest: Updater.RunResult | undefined
     const installListeners = new Set<(version: string) => void>()
     const resultListeners = new Set<(result: Updater.RunResult) => void>()
-    // An update must never restart a society mid-work: with an explicit "auto" policy
-    // the install waits for a quiet window — no session updated in the last 10 minutes.
-    // A list that cannot be read counts as busy.
-    const IDLE_AFTER_MS = 10 * 60 * 1000
-    const serverIdle = () =>
-      Effect.tryPromise({
-        try: async (signal) => {
-          const client = Orchestra.make({ baseUrl: server.endpoint.url, headers: Service.headers(server.endpoint) })
-          const page = await client.session.list({ order: "desc", limit: 100 }, { signal })
-          return page.data.every((session) => session.time.updated < Date.now() - IDLE_AFTER_MS)
-        },
-        catch: (cause) => new Error(errorMessage(cause)),
-      }).pipe(Effect.orElseSucceed(() => false))
     // Background checks, `/update` lookups, and manual installs take turns so two installs never overlap.
     const checking = yield* Semaphore.make(1)
     // Restart after an update: the client exits and starts again in the same terminal.
     let relaunch = false
     yield* updater
-      .run(
-        (version) => {
-          installing = version
-          installListeners.forEach((notify) => notify(version))
-        },
-        { isIdle: serverIdle },
-      )
+      .run((version) => {
+        installing = version
+        installListeners.forEach((notify) => notify(version))
+      })
       .pipe(
         Effect.ensuring(Effect.sync(() => (installing = undefined))),
         Effect.tap((result) =>

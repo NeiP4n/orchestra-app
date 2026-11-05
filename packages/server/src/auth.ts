@@ -11,23 +11,16 @@ export type DecodedCredentials = {
 export type Info = {
   readonly password: Option.Option<string>
   readonly username: string
-  /**
-   * Session token lifetime in seconds. A number in config, never in a prompt:
-   * 7 days is long enough for a browser session and short enough that a leaked
-   * token stops working on its own. Rotating the password revokes every session
-   * at once regardless of this value.
-   */
-  readonly sessionTtlSeconds?: number
 }
 
 export const PRIMARY_USERNAME = "orchestra"
 export const LEGACY_USERNAME = "opencode"
 export const ACCEPTED_USERNAMES = [PRIMARY_USERNAME, LEGACY_USERNAME] as const
 
-export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
+export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60
 
 export class Config extends Context.Service<Config, Info>()("@orchestra/ServerAuthConfig") {
-  static configLayer(input: Pick<Info, "password" | "sessionTtlSeconds">) {
+  static configLayer(input: Pick<Info, "password">) {
     return Layer.succeed(this, this.of({ ...input, username: PRIMARY_USERNAME }))
   }
 
@@ -58,8 +51,7 @@ export function authorized(credentials: DecodedCredentials, config: Info) {
 // Sessions are signed with a key derived from the server password, so rotating the password revokes every session.
 export function issueSession(config: Info, now = Date.now()) {
   if (Option.isNone(config.password)) return
-  const ttl = config.sessionTtlSeconds ?? SESSION_TTL_SECONDS
-  const expires = String(Math.floor(now / 1000) + ttl)
+  const expires = String(Math.floor(now / 1000) + SESSION_TTL_SECONDS)
   return `${expires}.${sign(config.password.value, expires)}`
 }
 

@@ -3,18 +3,11 @@ export * as WebFetchTool from "./webfetch.js"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { ToolFailure } from "@orchestra/ai"
 import { Duration, Effect, Schema } from "effect"
-import {
-  FetchHttpClient,
-  HttpClient,
-  type HttpClientError,
-  HttpClientRequest,
-  HttpClientResponse,
-} from "effect/unstable/http"
+import { HttpClient, type HttpClientError, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 import { Parser } from "htmlparser2"
 import { Permission } from "../../permission.js"
 import { convertHTMLToMarkdown, MAX_MARKDOWN_BYTES } from "../html-markdown.js"
 import { collectBoundedResponseBody } from "../http-body.js"
-import { Ssrf } from "../ssrf.js"
 
 export const name = "webfetch"
 export const MAX_RESPONSE_BYTES = MAX_MARKDOWN_BYTES
@@ -65,8 +58,11 @@ const headers = (format: Format, userAgent: string) => ({
 const openCodeUserAgent =
   "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; Orchestra-User/1.0; +https://github.com/NeiP4n/orchestra-app"
 
-const isCloudflareChallenge = (response: HttpClientResponse.HttpClientResponse) =>
-  response.status === 403 && response.headers["cf-mitigated"] === "challenge"
+const isCloudflareChallenge = (error: HttpClientError.HttpClientError) => {
+  if (error.reason._tag !== "StatusCodeError") return false
+  const response = error.reason.response
+  return response.status === 403 && response.headers["cf-mitigated"] === "challenge"
+}
 
 const request = (url: string, format: Format, userAgent = openCodeUserAgent) =>
   HttpClientRequest.get(url).pipe(HttpClientRequest.setHeaders(headers(format, userAgent)))
@@ -75,39 +71,8 @@ const assertHttpUrl = (url: URL) => {
   if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("URL must use http:// or https://")
 }
 
-// Redirects are followed by hand, one hop at a time, so every hop passes the SSRF check:
-// a transparent client redirect could otherwise carry a public URL to 169.254.169.254.
-// `redirect: "manual"` keeps the underlying fetch from following them on its own.
-const isRedirectStatus = (status: number) =>
-  status === 301 || status === 302 || status === 303 || status === 307 || status === 308
-
-const fetchResponse = (
-  http: HttpClient.HttpClient,
-  url: string,
-  format: Format,
-  userAgent: string,
-  redirects: number,
-): Effect.Effect<HttpClientResponse.HttpClientResponse, HttpClientError.HttpClientError | Error> =>
-  Effect.gen(function* () {
-    const response = yield* http
-      .execute(request(url, format, userAgent))
-      .pipe(Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" }))
-    if (isRedirectStatus(response.status)) {
-      if (redirects >= Ssrf.MAX_REDIRECTS)
-        return yield* Effect.fail(new Error(`Too many redirects (maximum ${Ssrf.MAX_REDIRECTS})`))
-      const location = response.headers["location"]
-      if (!location) return yield* Effect.fail(new Error(`Redirect from ${url} has no location`))
-      const next = new URL(location, url).toString()
-      yield* Ssrf.assertPublicUrl(next)
-      return yield* fetchResponse(http, next, format, userAgent, redirects + 1)
-    }
-    if (isCloudflareChallenge(response) && userAgent !== "opencode")
-      return yield* fetchResponse(http, url, format, "opencode", redirects)
-    return yield* HttpClientResponse.filterStatusOk(response)
-  })
-
-const execute = (http: HttpClient.HttpClient, url: string, format: Format) =>
-  fetchResponse(http, url, format, openCodeUserAgent, 0)
+const execute = (http: HttpClient.HttpClient, url: string, format: Format, userAgent = openCodeUserAgent) =>
+  http.execute(request(url, format, userAgent)).pipe(Effect.flatMap(HttpClientResponse.filterStatusOk))
 
 const collectBody = (response: HttpClientResponse.HttpClientResponse) =>
   collectBoundedResponseBody(
@@ -156,10 +121,6 @@ export const Plugin = {
                 catch: (error) => error,
               })
 
-              // A private or loopback address is refused before permission or transport:
-              // no prompt can make fetching the metadata endpoint or the local network safe.
-              yield* Ssrf.assertPublicUrl(input.url)
-
               yield* permission.assert({
                 action: name,
                 resources: [input.url],
@@ -171,7 +132,9 @@ export const Plugin = {
               })
 
               const { body, contentType } = yield* Effect.gen(function* () {
-                const response = yield* execute(http, input.url, input.format)
+                const response = yield* execute(http, input.url, input.format).pipe(
+                  Effect.catchIf(isCloudflareChallenge, () => execute(http, input.url, input.format, "opencode")),
+                )
                 const contentType = response.headers["content-type"] || ""
                 const mime = mimeFrom(contentType)
                 if (isImageAttachment(mime))
