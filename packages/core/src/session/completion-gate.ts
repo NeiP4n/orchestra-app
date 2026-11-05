@@ -1,5 +1,6 @@
 export * as SessionCompletionGate from "./completion-gate.js"
 
+import { DateTime } from "effect"
 import type { Dod } from "../dod.js"
 import type { SessionMessage } from "./message.js"
 import { RoomRules } from "@orchestra/schema/room-rules"
@@ -27,13 +28,21 @@ const WORK_ACTIONS = new Set(["next", "take", "add", "check", "uncheck"])
 const PROMISE =
   /^(?:(?:ok(?:ay)?|now|next|then|first)[,:]?\s+)?(?:i(?:'ll| will| am going to|'m going to)|let me|next,? i|now i|сейчас|теперь|далее|дальше|затем|следующ\S* шаг|(?:я\s+)?(?:сделаю|запущу|проверю|исправлю|добавлю|начну|займусь|продолжу))(?=[\s,.!:;…]|$)/iu
 
-export function check(messages: ReadonlyArray<SessionMessage.Info>, board: Dod.Status) {
+// A dispatched team task with no report for this long is not "outstanding" any more: the
+// worker is gone or stuck, and the session must be woken to check on it instead of idling
+// forever on a report that will never come.
+const STALE_DISPATCH_MS = 30 * 60 * 1000
+
+export function check(
+  messages: ReadonlyArray<SessionMessage.Info>,
+  board: Dod.Status,
+  now?: DateTime.DateTime,
+) {
   const max = limit()
   if (max === 0) return undefined
   const start = messages.findLastIndex((message) => message.type === "user")
   const turn = messages.slice(start + 1)
   const nudges = turn.filter((message) => message.type === "synthetic" && message.metadata?.[MetadataKey] === true)
-  if (nudges.length >= max) return undefined
   const last = turn.findLast((message) => message.type === "assistant")
   if (!last || last.type !== "assistant" || last.error || last.finish !== "stop") return undefined
   // A model that answers a nudge without doing anything has said it is done twice; believe it.
@@ -45,10 +54,23 @@ export function check(messages: ReadonlyArray<SessionMessage.Info>, board: Dod.S
   if (tools(last).some((tool) => tool.name === "question") || /[?？]\s*$/.test(text)) return undefined
 
   // If the session has dispatched work to a team worker and is waiting for <team-report>,
-  // do not nudge. The worker's completion report will wake the session reactively.
-  if (hasOutstandingTasks(messages)) return undefined
+  // do not nudge. The worker's completion report will wake the session reactively — unless
+  // the dispatch went stale (see STALE_DISPATCH_MS): then the report is not coming.
+  if (hasOutstandingTasks(messages, now)) return undefined
 
   const open = openItems(messages, board)
+  if (nudges.length >= max) {
+    // The limit is spent, but the board still holds work this session took: one final
+    // escalation instead of silence. It does not ask for more work — it asks the session
+    // to block the item with the reason or ask the operator, then stop. The count keeps
+    // growing past the limit, so this fires once per turn.
+    if (open.length === 0 || nudges.length > max) return undefined
+    return reminder([
+      "Completion check (final): the board still holds work this session took, after all reminders.",
+      ...open,
+      "Do not keep working on it silently: block the item with the reason (`dod block`) or ask the operator the question that unblocks it, then stop. If the work is still running elsewhere, say so and stop.",
+    ])
+  }
   if (open.length > 0)
     return reminder([
       "Completion check: the board still holds work this session took.",
@@ -178,9 +200,10 @@ function reminder(lines: ReadonlyArray<string>) {
   return `<system-reminder>\n${lines.join("\n")}\n</system-reminder>`
 }
 
-function hasOutstandingTasks(messages: ReadonlyArray<SessionMessage.Info>): boolean {
+function hasOutstandingTasks(messages: ReadonlyArray<SessionMessage.Info>, now?: DateTime.DateTime): boolean {
   let dispatched = 0
   let reported = 0
+  let lastDispatch = 0
   for (const message of messages) {
     if (message.type === "assistant") {
       for (const part of message.content) {
@@ -189,6 +212,7 @@ function hasOutstandingTasks(messages: ReadonlyArray<SessionMessage.Info>): bool
           if ((input as any).action === "send" || ((input as any).action === "create" && (input as any).text)) {
             if (part.state.status === "completed") {
               dispatched++
+              lastDispatch = DateTime.toEpochMillis(message.time.created)
             }
           }
         }
@@ -202,5 +226,9 @@ function hasOutstandingTasks(messages: ReadonlyArray<SessionMessage.Info>): bool
       }
     }
   }
-  return dispatched > reported
+  if (dispatched <= reported) return false
+  // Without a clock the gate cannot tell a fresh dispatch from a stale one; the runner
+  // always supplies one, so this only fires for direct callers.
+  if (now === undefined) return true
+  return DateTime.toEpochMillis(now) - lastDispatch <= STALE_DISPATCH_MS
 }
