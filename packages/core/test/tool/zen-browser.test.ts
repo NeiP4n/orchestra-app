@@ -384,7 +384,10 @@ describe("zen_browser with mock connected extension", () => {
       | {
           name: string
           output: unknown
-          execute: (val: unknown) => Effect.Effect<{ output: { output: string }; content: string }>
+          execute: (
+            val: unknown,
+            context: unknown,
+          ) => Effect.Effect<{ output: { output: string }; content: string }>
         }
       | undefined
     const mockCtx = {
@@ -401,13 +404,26 @@ describe("zen_browser with mock connected extension", () => {
       },
     }
 
-    await Effect.runPromise(Effect.scoped(Plugin.effect(mockCtx as any)))
+    // The plugin asserts permission before it runs, so registration needs a
+    // Permission service; the test allows everything.
+    await Effect.runPromise(
+      Effect.scoped(Plugin.effect(mockCtx as any)).pipe(
+        Effect.provide(permissionLayer({ assert: () => Effect.void })),
+      ),
+    )
     expect(capturedTool).toBeDefined()
     expect(capturedTool?.name).toBe("zen_browser")
     expect(capturedTool?.output).toBe(Output)
 
     // Execute status action through capturedTool.execute
-    const execRes = await Effect.runPromise(capturedTool!.execute({ action: "status" }))
+    const execRes = await Effect.runPromise(
+      capturedTool!.execute({ action: "status" }, {
+        sessionID: Session.ID.make("ses_zen_browser_test"),
+        agent: toolIdentity.agent,
+        messageID: toolIdentity.messageID,
+        id: "call-zen-register",
+      }),
+    )
     expect(execRes).toHaveProperty("output")
     expect(execRes).toHaveProperty("content")
     expect(execRes.output).toHaveProperty("output")
