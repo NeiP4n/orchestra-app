@@ -57,8 +57,15 @@ export const Plugin = {
 
               if (input.action === "list") {
                 const lines = yield* Effect.forEach(mine, (entry) =>
-                  Rules.list(kv, entry.scope).pipe(
-                    Effect.map((rules) => rules.map((rule) => `- ${rule.id} [${entry.label}] ${rule.text} (${rule.by})`)),
+                  Rules.inspect(kv, entry.scope).pipe(
+                    Effect.map((found) => [
+                      ...found.rules.map((rule) => `- ${rule.id} [${entry.label}] ${rule.text} (${rule.by})`),
+                      ...(found.corrupt > 0
+                        ? [
+                            `! ${entry.label}: ${found.corrupt} stored rule ${found.corrupt === 1 ? "entry is" : "entries are"} corrupt and were not loaded. Ask the operator to fix them.`,
+                          ]
+                        : []),
+                    ]),
                   ),
                 )
                 const all = lines.flat()
@@ -67,12 +74,26 @@ export const Plugin = {
 
               if (input.action === "remove") {
                 if (!input.id) return yield* new ToolFailure({ message: "remove needs id, from list." })
+                let protectedReason: string | undefined
                 for (const entry of mine) {
-                  // The operator's global rules are theirs to change.
+                  // The operator's global rules are theirs to change, and so is any rule the
+                  // operator wrote in another scope: a worker cannot delete the operator's orders.
                   if (entry.kind === "global") continue
-                  if (yield* Rules.remove(kv, entry.scope, input.id)) return { output: `Removed ${input.id}.` }
+                  const removed = yield* Rules.remove(kv, entry.scope, input.id).pipe(
+                    Effect.catchTag("Rules.ProtectedError", (error) =>
+                      Effect.sync(() => {
+                        protectedReason = error.reason
+                        return false
+                      }),
+                    ),
+                  )
+                  if (removed) return { output: `Removed ${input.id}.` }
                 }
-                return yield* new ToolFailure({ message: "No rule of yours has that id. Global rules are changed only by the operator." })
+                return yield* new ToolFailure({
+                  message:
+                    protectedReason ??
+                    "No rule of yours has that id. Global rules are changed only by the operator.",
+                })
               }
 
               const text = input.text?.trim()
@@ -84,6 +105,15 @@ export const Plugin = {
               if (!target)
                 return yield* new ToolFailure({
                   message: wantSociety ? "This session is not part of a Society." : "This session works for no project.",
+                })
+              // A new rule that contradicts a higher scope is refused here, in code: society
+              // beats project beats global, and the model never picks a winner.
+              const higher = mine.filter((entry) => entry.scope !== target.scope && scopeRank(entry.scope) < scopeRank(target.scope))
+              const higherRules = (yield* Effect.forEach(higher, (entry) => Rules.list(kv, entry.scope))).flat()
+              const conflict = Rules.findConflict(text, higherRules)
+              if (conflict)
+                return yield* new ToolFailure({
+                  message: `That rule contradicts a higher-scope rule: "${conflict.text}". Society rules override project rules, which override global rules; rewrite it so it does not contradict the higher rule.`,
                 })
               const added = yield* Rules.add(kv, target.scope, { text, by: context.agent })
               if (!("rule" in added) || !added.rule) return yield* new ToolFailure({ message: String("error" in added ? added.error : "Could not add the rule.") })
@@ -99,3 +129,6 @@ export const Plugin = {
       .pipe(Effect.orDie)
   }),
 }
+
+// Society outranks project, project outranks global; a lower number is a higher scope.
+const scopeRank = (scope: string) => (scope.startsWith("society:") ? 0 : scope.startsWith("project:") ? 1 : 2)

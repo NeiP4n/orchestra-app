@@ -295,6 +295,10 @@ const layer = Layer.effect(
           memberID: undefined,
         }
       }
+      // A deny in the configured rules above already won. Saved "always allow" rules
+      // only ever lift an ask, never a deny: they are appended after the configured
+      // rules, and `evaluate` takes the last match, so a configured deny checked
+      // first is what keeps a saved allow from beating a newer ban.
       const all = [...rules, ...(yield* savedRules())]
       // Freeze the policy inputs before plugins run: hooks may customize normal permissions,
       // but cannot mutate the command, resources or transport used for room security checks.
@@ -758,6 +762,25 @@ const layer = Layer.effect(
         readonly onAlways?: () => Effect.Effect<void>
       }) {
         if (closed) return yield* new DeclinedError()
+        // A saved "always allow" never wins against a newer ban: the agent's and the
+        // session's deny rules, and the room's deny, are checked before the saved grant
+        // is even looked at. Without this, an outside-model request (a room guest's
+        // command, a forge step) ran on a stale allow after the operator forbade it.
+        const configuredRules = yield* configured(input.sessionID, input.agent).pipe(
+          Effect.catchTag("Session.NotFoundError", () => Effect.succeed([] as Permission.Ruleset)),
+        )
+        if (denied(input, configuredRules)) return yield* new DeclinedError()
+        const activeRoomRules = yield* roomRulesForSession(input.sessionID).pipe(
+          Effect.catchAllCause(() => Effect.fail(new DeclinedError())),
+        )
+        if (
+          RoomRules.policy(activeRoomRules, {
+            action: input.action,
+            resources: input.resources,
+            metadata: input.metadata,
+          })?.effect === "deny"
+        )
+          return yield* new DeclinedError()
         const saved = yield* savedRules()
         if (!input.force && input.resources.every((resource) => evaluate(input.action, resource, saved).effect === "allow")) return
         const item = yield* create(request(input), input.agent, {

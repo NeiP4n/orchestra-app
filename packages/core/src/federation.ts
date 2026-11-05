@@ -1412,7 +1412,8 @@ const layer: Layer.Layer<
       rules: {
         list: (scope) => Rules.list(kv, scope),
         add: (scope, text) => Rules.add(kv, scope, { text, by: "operator" }),
-        remove: (scope, id) => Rules.remove(kv, scope, id),
+        // The operator's own view of the rulebook: operator-authored rules may be removed here.
+        remove: (scope, id) => Rules.remove(kv, scope, id, { operator: true }),
       },
       setHold: Effect.fn("Federation.setHold")(function* (name, held) {
         const normalized = name.trim()
