@@ -237,7 +237,7 @@ export const Plugin = {
               // A built-in template opens no roster by itself, so generate
               // opens these eagerly instead of leaving the project workerless.
               const templateRoles = (template: Orchestra.Template): ReadonlyArray<Orchestra.Role> =>
-                rolesForTemplate(template, roles)
+                Orchestra.rolesForTemplate(template, roles)
               // Opens one worker per role of a built-in team template.
               // Operator-saved templates already opened their roster when
               // the project was created, so they are left alone here.
@@ -480,25 +480,6 @@ export const Plugin = {
       })
     }
   }),
-}
-
-// The roles a team template staffs: its recommended role ids, or — when it
-// lists none — the roles behind its member agents. generate opens one worker
-// per role for a built-in template, so the project starts with a team.
-export function rolesForTemplate(
-  template: Orchestra.Template,
-  roles: ReadonlyArray<Orchestra.Role>,
-): ReadonlyArray<Orchestra.Role> {
-  const byID = new Map(roles.map((role) => [role.id, role]))
-  const fromRoles = (template.roles ?? []).flatMap((id) => {
-    const role = byID.get(id)
-    return role ? [role] : []
-  })
-  if (fromRoles.length > 0) return fromRoles
-  return template.members.flatMap((member) => {
-    const role = roles.find((candidate) => candidate.agent === member.agent)
-    return role ? [role] : []
-  })
 }
 
 function briefText(input: { society: string; project: string; goal: string; brief: string; peers: readonly string[] }) {

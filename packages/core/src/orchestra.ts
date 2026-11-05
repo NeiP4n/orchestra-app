@@ -2519,6 +2519,27 @@ export function modelOf(role: Role | undefined) {
     : Model.Ref.make({ ...ref, variant: Model.VariantID.make(role.variant) })
 }
 
+// The roles a team template staffs: its recommended role ids, or — when it
+// lists none — the roles behind its member agents. A built-in template opens
+// no roster by itself, so callers that create a project from one (generate,
+// createSociety) open one worker per role instead of leaving the project
+// workerless.
+export function rolesForTemplate(
+  template: Template,
+  roles: ReadonlyArray<Role>,
+): ReadonlyArray<Role> {
+  const byID = new Map(roles.map((role) => [role.id, role]))
+  const fromRoles = (template.roles ?? []).flatMap((id) => {
+    const role = byID.get(id)
+    return role ? [role] : []
+  })
+  if (fromRoles.length > 0) return fromRoles
+  return template.members.flatMap((member) => {
+    const role = roles.find((candidate) => candidate.agent === member.agent)
+    return role ? [role] : []
+  })
+}
+
 // The models a worker session runs: the operator's Feature picks first, then the role's own
 // choice, then the operator's `orchestra.worker` policy for the role's category, then the
 // general worker policy. `models` lists what the worker may continue on when its provider

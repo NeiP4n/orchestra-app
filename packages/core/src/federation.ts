@@ -621,7 +621,7 @@ const layer: Layer.Layer<
         .pipe(
           Effect.retry({ times: 2 }),
           Effect.as(true),
-          Effect.catchAll(() => Effect.succeed(false)),
+          Effect.catch(() => Effect.succeed(false)),
         )
     })
 
@@ -1572,6 +1572,36 @@ const layer: Layer.Layer<
               )
           : undefined
         const projects = team ? [project.id, team.id] : [project.id]
+        // A built-in team template opens no roster by itself (only the
+        // Orchestrator): open one worker per role now, or the Society's
+        // working project starts with nobody to do the work — the same hole
+        // generate already closes. A worker that fails to open is logged,
+        // not fatal: the planner tops the team up anyway. Defects are not
+        // caught here: a bug in worker creation must fail loudly, not hide
+        // behind a warning.
+        if (team && template?.origin === "builtin") {
+          const teamRoles = Orchestra.rolesForTemplate(template, yield* orchestra.roles())
+          for (const teamRole of teamRoles) {
+            const choice = Orchestra.workerModels(workerPolicy, teamRole, { favorites, catalog: available })
+            yield* orchestra
+              .createMember({
+                project: team,
+                agent: teamRole.agent,
+                title: teamRole.name,
+                category: teamRole.category,
+                model: choice.model,
+                models: choice.models,
+              })
+              .pipe(
+                Effect.catch((error) =>
+                  Effect.logWarning("Could not open a worker for the Society team project", {
+                    role: teamRole.id,
+                    error,
+                  }),
+                ),
+              )
+          }
+        }
         yield* setGroup({ name, projects, mode: "council" })
         // A Society without its chat is unusable and would only be left behind, so a failure here
         // takes the group and its projects back out.
