@@ -469,7 +469,7 @@ export const layer = (options?: Options) =>
             if (entry.config.disabled || entry.status.status !== "failed") return
             yield* Effect.logWarning("mcp server died, restarting", { server: name })
             yield* startServer(name, entry).pipe(locks.withLock(name))
-            if (entry.client || entry.status.status === "connected") return
+            if (entry.client) return
           }
         }).pipe(Effect.ignore)
 
