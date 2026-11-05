@@ -13,6 +13,7 @@ import { SessionRunner } from "./runner/index.js"
 import { SessionSchema } from "./schema.js"
 import { SessionStore } from "./store.js"
 import { toSessionError } from "./to-session-error.js"
+import { NotFoundError } from "./error.js"
 import { SessionInbox } from "./inbox.js"
 
 export interface Interface {
@@ -98,7 +99,7 @@ export const layer = Layer.effect(
       promotable: SessionInbox.Promotable = "input",
     ): Effect.fn.Return<void, SessionRunner.RunError> {
       const session = yield* store.get(sessionID)
-      if (!session) return yield* Effect.die(new Error(`Session not found: ${sessionID}`))
+      if (!session) return yield* new NotFoundError({ sessionID })
       const result = yield* SessionRunner.Service.use((runner) =>
         runner.drain({ sessionID, force, continuation, promotable }),
       ).pipe(

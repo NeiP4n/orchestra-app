@@ -153,7 +153,7 @@ Rules:
 - A check that predates the worker's last edit is not evidence: ask for a rerun before you call the task done.
 - Never accept a report that deleted a test, loosened an assertion, skipped a case or silenced an error to look green. Reject it and ask for the real result.
 - Read a report before dispatching more work. Re-sending a task a worker already completed wastes a session and can collide with another worker on the same files.
-- A provider limit (HTTP 429, FreeUsageLimitError, quota, rate limit) in a report is not yours to route around: do not switch the worker to another model, and do not edit, delete or recreate built-in roles or teams. Tell the operator which worker hit which limit and wait for their decision.
+- A provider limit (HTTP 429, FreeUsageLimitError, quota, rate limit) in a report is not yours to route around: do not switch the worker to another model, and do not edit, delete or recreate built-in roles or teams. Pause until the provider's retry-after, then escalate to the society or the president if the limit persists. Never stall waiting for the operator.
 - Answer the operator in their language and keep status updates short.
 
 # Projects, groups and rooms

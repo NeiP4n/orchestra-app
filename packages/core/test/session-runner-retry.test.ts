@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { AIError, ProviderInternalError, QuotaExceededError, RateLimitError, TransportError } from "@orchestra/ai"
+import { AIError, ProviderCooldown, ProviderInternalError, QuotaExceededError, RateLimitError, TransportError } from "@orchestra/ai"
 import { Agent } from "@orchestra/schema/agent"
 import { Model } from "@orchestra/schema/model"
 import { Provider } from "@orchestra/core/provider"
@@ -39,9 +39,9 @@ const decisions = (cause: AIError, count: number) =>
 const retryBus = { publish: () => Effect.void } as unknown as Bus.Interface
 
 describe("SessionRunnerRetry.policy", () => {
-  it.effect("stops retrying transport timeouts after three attempts", () =>
+  it.effect("stops retrying transport timeouts after two attempts", () =>
     Effect.gen(function* () {
-      expect(yield* decisions(timeout, 4)).toEqual([true, true, true, false])
+      expect(yield* decisions(timeout, 3)).toEqual([true, true, false])
     }),
   )
 
@@ -62,25 +62,40 @@ describe("SessionRunnerRetry.policy", () => {
 
   it.effect("keeps the general allowance for other transient failures", () =>
     Effect.gen(function* () {
-      expect(yield* decisions(internal, 10)).toEqual(Array(10).fill(true))
+      expect(yield* decisions(internal, 10)).toEqual([true, true, false, false, false, false, false, false, false, false])
     }),
   )
 
-  it.effect("ignores the provider retry-after hint and keeps the ordinary delay", () =>
+  it.effect("honors the provider retry-after hint and refuses a pause past the cap", () =>
     Effect.gen(function* () {
-      for (const retryAfterMs of [Duration.toMillis("15 minutes"), Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+      // A 30s hint waits at least 30s; a 15-minute hint is not a pause but a stop.
+      const hinted = new AIError({
+        reason: new RateLimitError({ message: "Too many requests", retryAfterMs: 30_000 }),
+      })
+      const policy = yield* SessionRunnerRetry.policy(SessionSchema.ID.make("ses_retry_after"))
+      const decision = yield* policy(input(hinted))
+      expect(decision.retry).toBe(true)
+      if (decision.retry) expect(decision.delay).toBeGreaterThanOrEqual(30_000)
+
+      ProviderCooldown.clearAllCooldowns()
+      const tooLong = new AIError({
+        reason: new RateLimitError({ message: "Too many requests", retryAfterMs: Duration.toMillis("15 minutes") }),
+      })
+      const capped = yield* SessionRunnerRetry.policy(SessionSchema.ID.make("ses_retry_after_cap"))
+      expect((yield* capped(input(tooLong))).retry).toBe(false)
+
+      // An unusable hint falls back to the ordinary schedule instead of failing the step.
+      for (const retryAfterMs of [Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+        ProviderCooldown.clearAllCooldowns()
         const cause = new AIError({
           reason: new RateLimitError({ message: "Too many requests", retryAfterMs }),
         })
-        const policy = yield* SessionRunnerRetry.policy(SessionSchema.ID.make("ses_retry_after"))
-        const decision = yield* policy(input(cause))
-        expect(decision.retry).toBe(true)
-        if (decision.retry) {
-          expect(Number.isFinite(decision.delay)).toBe(true)
-          expect(decision.delay).toBeGreaterThanOrEqual(0)
-          // The schedule caps a gap at 10s and jitter scales it by at most 1.2, so a provider
-          // hint can never turn one failure into a long wait.
-          expect(decision.delay).toBeLessThanOrEqual(Duration.toMillis("12 seconds"))
+        const fresh = yield* SessionRunnerRetry.policy(SessionSchema.ID.make("ses_retry_after"))
+        const next = yield* fresh(input(cause))
+        expect(next.retry).toBe(true)
+        if (next.retry) {
+          expect(Number.isFinite(next.delay)).toBe(true)
+          expect(next.delay).toBeGreaterThanOrEqual(0)
         }
       }
     }),
@@ -90,13 +105,34 @@ describe("SessionRunnerRetry.policy", () => {
 describe("SessionRunnerRetry", () => {
   it.effect("treats a provider rate limit as an ordinary retryable failure", () =>
     Effect.gen(function* () {
+      ProviderCooldown.clearAllCooldowns()
       const retry = yield* SessionRunnerRetry.make(retryBus, SessionSchema.ID.make("ses_rate_limit"))
       const decision = yield* retry.decide(input(rateLimit))
       expect(decision.retry).toBe(true)
       if (!decision.retry) throw new Error("A rate limit must stay retryable")
-      // Rate limits are per session now: the delay stays inside the ordinary retry schedule
-      // instead of installing a provider-wide cooldown that sibling sessions would inherit.
-      expect(decision.delay).toBeLessThanOrEqual(Duration.toMillis("10 seconds"))
+      // A 429 installs the shared provider cooldown: the pause is the cooldown
+      // (60s default when the provider gives no hint), not the bare schedule.
+      expect(decision.delay).toBeGreaterThanOrEqual(Duration.toMillis("10 seconds"))
+      expect(decision.delay).toBeLessThanOrEqual(Duration.toMillis("10 minutes"))
+    }),
+  )
+
+  it.effect("makes a second session wait out the shared cooldown instead of spending a retry", () =>
+    Effect.gen(function* () {
+      ProviderCooldown.clearAllCooldowns()
+      const first = yield* SessionRunnerRetry.make(retryBus, SessionSchema.ID.make("ses_cooldown_first"))
+      const second = yield* SessionRunnerRetry.make(retryBus, SessionSchema.ID.make("ses_cooldown_second"))
+      const hinted = new AIError({
+        reason: new RateLimitError({ message: "Too many requests", retryAfterMs: 120_000 }),
+      })
+      const firstDecision = yield* first.decide(input(hinted))
+      expect(firstDecision.retry).toBe(true)
+      // The second session never saw the 429 itself, but its pause still covers
+      // the cooldown the first session installed.
+      const secondDecision = yield* second.decide(input(rateLimit))
+      expect(secondDecision.retry).toBe(true)
+      if (secondDecision.retry && firstDecision.retry)
+        expect(secondDecision.delay).toBeGreaterThanOrEqual(60_000)
     }),
   )
 })

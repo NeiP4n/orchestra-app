@@ -88,7 +88,9 @@ const commandLineOf = (pid: number): string | undefined => {
  */
 export const killTree = (pid: number, expectedCommand?: string) => {
   if (process.platform === "win32") {
-    spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }).on("error", () => {}).unref()
+    spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true })
+      .on("error", (error) => console.warn("[mcp-reaper] taskkill failed", { pid, error }))
+      .unref()
     return
   }
   if (expectedCommand !== undefined) {
@@ -97,10 +99,19 @@ export const killTree = (pid: number, expectedCommand?: string) => {
   }
   try {
     process.kill(-pid, "SIGKILL")
-  } catch {
+  } catch (error) {
+    // The process group is already gone (or never existed): fall back to the single pid, and
+    // say so instead of swallowing the failure — a reaper that silently misses its target
+    // leaves the whole MCP server chain running (taxonomy C3).
+    console.warn("[mcp-reaper] process group kill failed, retrying single pid", { pid, error })
     try {
       process.kill(pid, "SIGKILL")
-    } catch {}
+    } catch (retryError) {
+      console.warn("[mcp-reaper] process kill failed; the process is already gone or unkillable", {
+        pid,
+        error: retryError,
+      })
+    }
   }
 }
 

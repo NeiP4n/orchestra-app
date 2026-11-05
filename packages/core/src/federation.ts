@@ -3,7 +3,7 @@ export * as Federation from "./federation.js"
 import { execFile } from "node:child_process"
 import os from "node:os"
 import path from "node:path"
-import { Context, Effect, Layer, Option, Schema, Stream } from "effect"
+import { Cause, Context, Effect, Layer, Option, Schema, Stream } from "effect"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { KeyedMutex } from "./effect/keyed-mutex.js"
 import { checksum } from "@orchestra/util/encode"
@@ -188,6 +188,10 @@ const GROUP = "federation/group/"
 const SOCIETY = "federation/society/"
 const HOLD = "federation/hold/"
 const ACTIVITY = "federation/group/activity/"
+// A group observer that dies must not vanish into one log line (taxonomy J3):
+// the failure is recorded durably so health checks and the next monitor run
+// can see that a group went unobserved, with when and why.
+const MONITOR_FAILURE = "federation/group/monitor-failure/"
 
 export const Activity = Schema.Struct({
   project: Orchestra.ProjectID,
@@ -606,7 +610,24 @@ const layer: Layer.Layer<
                 ? "failed"
                 : "interrupted"
         yield* recordActivity(interested, projectID, scope, transition)
-      }).pipe(Effect.catchCause((cause) => Effect.logError("federation group monitor failed", { cause }))),
+      }).pipe(
+        Effect.catchCause((cause) =>
+          Effect.gen(function* () {
+            yield* Effect.logError("federation group monitor failed", { cause })
+            // The monitor is the only witness to group activity: if it dies, the
+            // groups it watched go blind. Leave a durable marker (not just the
+            // log line) so the failure is visible to health checks and to the
+            // next run, which must not assume the groups were healthy. A marker
+            // write that itself fails has nowhere left to go, so it is ignored.
+            yield* kv
+              .set(MONITOR_FAILURE + Date.now(), {
+                at: Date.now(),
+                cause: Cause.pretty(cause),
+              })
+              .pipe(Effect.ignore)
+          }),
+        ),
+      ),
     ).pipe(Effect.forkScoped({ startImmediately: true }))
 
     const setGroup = Effect.fn("Federation.setGroup")(function* (group: Group) {
@@ -824,8 +845,8 @@ const layer: Layer.Layer<
       if (held.length === 0) return false
       const root = yield* rootOf(sessionID as SessionID)
       if (held.some((group) => group.supervisor === root)) return true
-      const main = yield* orchestra.mainOf(root).pipe(Effect.orElseSucceed(() => undefined))
-      const project = main?.id ?? (yield* orchestra.owners().pipe(Effect.orElseSucceed(() => ({}) as Record<string, string>)))[root]
+      const main = yield* orchestra.mainOf(root).pipe(Effect.option)
+      const project = Option.getOrUndefined(main)?.id ?? (yield* orchestra.owners().pipe(Effect.orElseSucceed(() => ({}) as Record<string, string>)))[root]
       return project !== undefined && held.some((group) => group.projects.includes(project as Orchestra.ProjectID))
     })
     SessionHold.install((sessionID) => heldSession(sessionID).pipe(Effect.orElseSucceed(() => false)))
@@ -1050,7 +1071,7 @@ const layer: Layer.Layer<
           group.projects.flatMap((id) => all.filter((project) => project.id === id)),
           (project) =>
             Effect.gen(function* () {
-              const board = yield* Dod.status(project.directory).pipe(Effect.orElseSucceed(() => undefined))
+              const board = Option.getOrUndefined(yield* Dod.status(project.directory).pipe(Effect.option))
               const items = board?.type === "ready" ? board.items.filter((item) => item.state !== "OUT_OF_SCOPE") : []
               const mine = new Set([...(project.main ? [project.main as string] : []), ...Object.entries(owners).filter(([, id]) => id === project.id).map(([sid]) => sid)])
               return {

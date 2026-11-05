@@ -28,6 +28,7 @@ import { SessionUsage } from "../usage.js"
 import { SessionRunnerModel } from "./model.js"
 import { createLLMEventPublisher } from "./publish-llm-event.js"
 import { SessionRunnerRetry } from "./retry.js"
+import { SessionEscalate } from "./escalate.js"
 
 export type Outcome = Data.TaggedEnum<{
   Completed: { readonly needsContinuation: boolean }
@@ -203,6 +204,17 @@ export const make = Effect.gen(function* () {
         if (llmFailure && llmError && !retry?.retry && !recorded.outputStarted) {
           if (yield* restore(input.fallback(llmFailure, llmError))) return Outcome.Switched()
         }
+        // Retries and fallbacks are exhausted: the failure is announced in the session itself
+        // (escalation ladder, block Б5) instead of failing silently into the log. The
+        // orchestrator reads it as its next instruction; the society/president rung is
+        // decided by the ladder, not by waiting for a human.
+        if (llmFailure && llmError && retry !== undefined && !retry.retry)
+          yield* SessionEscalate.announce({
+            bus,
+            sessionID: input.sessionID,
+            cause: llmFailure,
+            escalation: SessionEscalate.ladder({ cause: llmFailure, limitsExhausted: true }),
+          })
         if (llmError) yield* publisher.failAssistant(llmError)
 
         for (const decline of tools.declines)
