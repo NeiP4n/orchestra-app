@@ -9,10 +9,30 @@ import { optional } from "@orchestra/schema/schema"
 import { Effect, Option, Schema } from "effect"
 import { Model } from "../../model.js"
 import { Session } from "../../session.js"
+import { KV } from "../../kv.js"
 import { SessionStats } from "../../session/stats.js"
 import { Token } from "../../util/token.js"
 
 export const name = "budget"
+
+// The session's token budget, set once and kept: a limit the model passes on one call still
+// binds the next one, instead of evaporating with the call that named it.
+const LIMITS_KEY = (sessionID: string) => `budget/limits/${sessionID}`
+
+interface StoredBudget {
+  readonly limits: Record<string, number>
+  readonly by: string
+  readonly at: number
+}
+
+const isStoredBudget = (value: unknown): value is StoredBudget =>
+  typeof value === "object" &&
+  value !== null &&
+  typeof (value as Partial<StoredBudget>).limits === "object" &&
+  (value as Partial<StoredBudget>).limits !== null &&
+  Object.values((value as StoredBudget).limits).every((tokens) => typeof tokens === "number" && tokens > 0) &&
+  typeof (value as Partial<StoredBudget>).by === "string" &&
+  typeof (value as Partial<StoredBudget>).at === "number"
 
 export const Input = Schema.Struct({
   action: Schema.Literals(["status", "forecast"]),
@@ -24,7 +44,8 @@ export const Input = Schema.Struct({
   tokens: optional(Schema.Number),
   /** Token allowance of the model; overrides limits and the catalog limit. */
   budget: optional(Schema.Number),
-  /** Token allowance per provider/model, reported by status and used by forecast. */
+  /** Token allowance per provider/model, reported by status and used by forecast. Passed once,
+      it is stored for the session, so later calls keep the same budget without passing it again. */
   limits: optional(Schema.Record(Schema.String, Schema.Number)),
 })
 export type Input = typeof Input.Type
@@ -45,19 +66,42 @@ export const description = [
   "catalog limit (input window when the provider declares one, else its context window), so it answers whether the",
   "task fits into one request rather than into a bought allowance. Spend is cumulative for the session, so an",
   "allowance covers everything the session already burned on that model.",
+  "",
+  "Limits passed once are stored for the session and keep applying to later calls. When the stored budget is",
+  "spent, forecast refuses instead of reporting that the task does not fit: the budget is a limit, not a report.",
 ].join("\n")
 
 export const Plugin = {
   id: "orchestra.tool.budget",
   effect: Effect.fn("BudgetTool.Plugin")(function* (ctx: Context) {
     const sessions = yield* Session.Service
+    const kv = yield* KV.Service
     const catalog = yield* Effect.serviceOption(Model.Service)
 
     const run = Effect.fn("BudgetTool.run")(function* (input: Input, context: Tool.Context) {
       const messages = yield* sessions.messages({ sessionID: context.sessionID })
-      const limits = Object.entries(input.limits ?? {}).map(([model, tokens]) => ({ model, tokens }))
+      // A limit named on one call still binds the next one: limits are stored per session
+      // instead of evaporating with the call that named them. Passing limits again replaces
+      // the stored budget, and the record says who set it and when.
+      const stored = yield* kv
+        .get(LIMITS_KEY(context.sessionID))
+        .pipe(Effect.map((value) => (isStoredBudget(value) ? value : undefined)))
+      const provenance =
+        input.limits !== undefined
+          ? { by: String(context.agent), at: Date.now() }
+          : stored !== undefined
+            ? { by: stored.by, at: stored.at }
+            : undefined
+      if (input.limits !== undefined && provenance !== undefined)
+        yield* kv.set(LIMITS_KEY(context.sessionID), {
+          limits: input.limits,
+          by: provenance.by,
+          at: provenance.at,
+        } as unknown as KV.Value)
+      const effective = input.limits ?? stored?.limits
+      const limits = Object.entries(effective ?? {}).map(([model, tokens]) => ({ model, tokens }))
       const report = SessionStats.sessionBudget(messages, undefined, { limits })
-      if (input.action === "status") return status(report.spend)
+      if (input.action === "status") return status(report.spend, provenance)
 
       const estimate = input.tokens ?? (input.task ? Token.estimate(input.task) : undefined)
       if (estimate === undefined) return yield* new ToolFailure({ message: "forecast needs task or tokens." })
@@ -74,7 +118,7 @@ export const Plugin = {
 
       const key = `${ref.providerID}/${ref.id}`
       const used = report.spend.models.find((line) => `${line.model.providerID}/${line.model.id}` === key)?.tokens
-      const allowed = input.budget ?? input.limits?.[key]
+      const allowed = input.budget ?? effective?.[key]
       const limit = allowed ?? (yield* catalogLimit(catalog, ref))
       if (limit === undefined)
         return yield* new ToolFailure({ message: `No budget is known for ${key}; pass budget or limits.` })
@@ -84,6 +128,12 @@ export const Plugin = {
         limit,
         used: used ? TokenUsage.total(used) : 0,
       })
+      // Nothing left is a refusal, not a report: a spent budget stops further work instead of
+      // answering "it does not fit" while the session keeps spending anyway.
+      if (forecast.remaining <= 0)
+        return yield* new ToolFailure({
+          message: `Budget exhausted for ${key}: ${Token.formatCount(forecast.used)} of ${Token.formatCount(forecast.limit)} tokens spent. The budget is a limit, not a report: no further work fits until the operator raises it.`,
+        })
       return [
         `${key}: the task needs about ${Token.formatCount(forecast.estimate)} tokens.`,
         `Budget ${Token.formatCount(forecast.limit)}, ${Token.formatCount(forecast.used)} already spent, ${Token.formatCount(forecast.remaining)} left.`,
@@ -115,7 +165,7 @@ export const Plugin = {
   }),
 }
 
-function status(spend: Budget) {
+function status(spend: Budget, provenance?: { readonly by: string; readonly at: number }) {
   if (spend.models.length === 0) return "No model has spent tokens in this session yet."
   return [
     `This session: ${spend.requests} requests, ${Token.formatCount(TokenUsage.total(spend.tokens))} tokens, $${spend.cost.toFixed(4)}.`,
@@ -127,6 +177,9 @@ function status(spend: Budget) {
           : `budget ${Token.formatCount(line.limit)}, ${Token.formatCount(line.remaining ?? 0)} left`
       return `- ${line.model.providerID}/${line.model.id}${line.model.variant ? `#${line.model.variant}` : ""}: ${line.requests} requests, ${Token.formatCount(TokenUsage.total(tokens))} tokens (in ${Token.formatCount(tokens.input)}, out ${Token.formatCount(tokens.output)}, reasoning ${Token.formatCount(tokens.reasoning)}, cache ${Token.formatCount(tokens.cache.read)}/${Token.formatCount(tokens.cache.write)}), $${line.cost.toFixed(4)}, ${left}`
     }),
+    ...(provenance
+      ? [`Stored budget set by ${provenance.by} at ${new Date(provenance.at).toISOString()}; passing limits again replaces it.`]
+      : []),
   ].join("\n")
 }
 
