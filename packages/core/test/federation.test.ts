@@ -599,7 +599,7 @@ describe("Federation", () => {
   // prompt. These tests found real Societies through the Federation service
   // (no live models: sessions never run) and check the generation record,
   // the readiness count and the stored plan.
-  const foundSociety = (name: string, goal = "Ship the whole app", team?: string) =>
+  const foundSociety = (name: string, goal = "Ship the whole app", team = "system") =>
     Effect.gen(function* () {
       const federation = yield* Federation.Service
       const orchestra = yield* Orchestra.Service
