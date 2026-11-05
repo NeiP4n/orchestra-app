@@ -11,6 +11,7 @@ import { Autoloop } from "@orchestra/core/autoloop/service"
 import {
   WORKER,
   cancelRun,
+  claimDueRun,
   createRun,
   finishRun,
   limitsFromConfig,
@@ -191,6 +192,51 @@ describe("AutoloopOrchestrator createRun and finishRun", () => {
       })
       expect(yield* readRun(svc, created.run)).toMatchObject({ state: "cancelled", attempts: 2 })
       expect(cardKeys(yield* svc.getView())).toContain(`run:${created.run}:stopped`)
+    }),
+  )
+
+  it.live("a failed run is re-claimed FIFO after its retry pause, via claimDueRun", () =>
+    Effect.gen(function* () {
+      const svc = yield* Autoloop.Service
+      const created = yield* dispatch(svc)
+      expect(yield* finishRun(svc, { ...created, receipt: failedReceipt })).toMatchObject({ status: "finished" })
+      expect(yield* readRun(svc, created.run)).toMatchObject({ state: "queued", attempts: 1 })
+      // A newer task arrives while the failed run waits out its retry pause.
+      // It queues behind the failed run: same rule, another worker's lane.
+      yield* svc.execute({
+        type: "ingest",
+        args: [
+          "orchestra",
+          {
+            id: "msg-2",
+            type: "task.created",
+            subject: "worker-2",
+            summary: "second task",
+            detail: "project:project-1",
+            link: "",
+            hops: 0,
+          },
+        ],
+      })
+      const queued = (Object.values((yield* svc.getView())["runs"] ?? {}) as Array<{ id: number; state: string }>)
+        .filter((run) => run.state === "queued")
+        .map((run) => run.id)
+      expect(queued).toHaveLength(2)
+      expect(queued).toContain(created.run)
+
+      // New work goes first while the failed run waits out its pause.
+      const fresh = yield* claimDueRun(svc)
+      expect(fresh?.run).not.toBe(created.run)
+      // After the pause, the oldest due run is the failed one — it comes back.
+      const retry = yield* claimDueRun(svc, Date.now() + 6 * MINUTE)
+      expect(retry?.run).toBe(created.run)
+      expect(retry?.session).toBe("worker-1")
+      // A second failure stops it; nothing is left to claim.
+      expect(
+        yield* finishRun(svc, { run: retry!.run, token: retry!.token, receipt: failedReceipt }),
+      ).toMatchObject({ status: "finished" })
+      expect(yield* readRun(svc, created.run)).toMatchObject({ state: "cancelled", attempts: 2 })
+      expect(yield* claimDueRun(svc, Date.now() + 6 * MINUTE)).toBeNull()
     }),
   )
 

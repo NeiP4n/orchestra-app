@@ -28,6 +28,23 @@ test("URL normalization fails fast when percent-encoding exceeds the command bou
   expect(() => navigate(input)).toThrow()
 })
 
+test("findTabWithURL matches the tab already showing a URL, ignoring slash and fragment", () => {
+  const tab = (id: string, url: string): Browser.Tab => ({
+    id: Browser.TabID.make(`tab_${id}`),
+    url,
+    title: "t",
+    loading: false,
+    canGoBack: false,
+    canGoForward: false,
+    generation: 0,
+  })
+  const tabs = [tab("11111111-1111-1111-1111-111111111111", "https://example.com/docs"), tab("22222222-2222-2222-2222-222222222222", "https://other.example")]
+  expect(BrowserTools.findTabWithURL(tabs, "https://example.com/docs/")?.url).toBe("https://example.com/docs")
+  expect(BrowserTools.findTabWithURL(tabs, "https://example.com/docs#top")?.url).toBe("https://example.com/docs")
+  expect(BrowserTools.findTabWithURL(tabs, "https://missing.example")).toBeUndefined()
+  expect(BrowserTools.findTabWithURL([], "https://example.com/docs")).toBeUndefined()
+})
+
 test("saved capture names never escape their directory or name a Windows device", async () => {
   const file = (name: string) => ({
     id: Browser.FileID.make(`file_${crypto.randomUUID()}`),

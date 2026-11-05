@@ -32,7 +32,8 @@ import { AiStandard } from "./ai-standard.js"
 import { Config } from "./config.js"
 import { Autoloop } from "./autoloop/service.js"
 import { AutoloopOrchestrator } from "./autoloop/orchestrator.js"
-import type { Receipt } from "./autoloop/kernel/decide.js"
+import type { EventRow, Job, Receipt, RunRow } from "./autoloop/kernel/decide.js"
+import type { View } from "./autoloop/kernel/evolve.js"
 import { Project as CoreProject } from "./project.js"
 import { Git } from "./git.js"
 import { Global } from "@orchestra/util/global"
@@ -1831,6 +1832,168 @@ const layer: Layer.Layer<
       yield* kv.set(STAGE + id, JSON.parse(JSON.stringify(stages)) as Schema.Json)
     })
 
+    // A run that failed and waited out its retry pause is claimed again here,
+    // FIFO, and its original task is re-sent to the same worker session — so
+    // a restart (or a quiet period with no new dispatch) still re-executes
+    // it instead of leaving it queued until the next dispatch happens to
+    // claim it. Only a run whose worker session still exists, belongs to
+    // the project, and has no outstanding task is claimed: claiming a run
+    // that cannot run would strand it claimed until its lease expires.
+    const reclaimDueRuns = Effect.fn("Orchestra.reclaimDueRuns")(function* () {
+      const allProjects = yield* projects()
+      const byID = new Map(allProjects.map((project) => [project.id, project]))
+      const eventsOf = (view: View, runID: number): Array<EventRow> => {
+        const links = Object.values(view["run_events"] ?? {}) as Array<{ run_id: number; event_id: number }>
+        const ids = links
+          .filter((link) => link.run_id === runID)
+          .map((link) => link.event_id)
+          .sort((a, b) => a - b)
+        return ids
+          .map((id) => view["events"]?.[String(id)] as EventRow | undefined)
+          .filter((event): event is EventRow => event !== undefined)
+      }
+      interface ResendTarget {
+        readonly sessionID: SessionID
+        readonly text: string
+        readonly project: Project
+        readonly main: SessionID
+      }
+      const resolveResend = Effect.fn("Orchestra.reclaimDueRuns.target")(function* (
+        session: string | null,
+        resume: string | null,
+        events: ReadonlyArray<EventRow>,
+      ): Effect.Effect<ResendTarget | undefined> {
+        const event = events[0]
+        const sessionID = Option.getOrUndefined(
+          decodeSessionID(session ?? resume ?? event?.subject ?? ""),
+        )
+        const text = event?.summary?.trim()
+        const detail = event?.detail ?? ""
+        const projectID = detail.startsWith("project:") ? detail.slice("project:".length) : undefined
+        if (sessionID === undefined || text === undefined || text === "" || projectID === undefined) return undefined
+        const project = byID.get(projectID as ProjectID)
+        if (project === undefined || project.main === undefined) return undefined
+        const worker = yield* sessions.get(sessionID).pipe(Effect.orElseSucceed(() => undefined))
+        if (worker === undefined || !(yield* owns(project, worker))) return undefined
+        if (Option.isSome(decodeTask(yield* kv.get(TASK + sessionID)))) return undefined
+        return { sessionID, text, project, main: project.main }
+      })
+      const resend = Effect.fn("Orchestra.reclaimDueRuns.resend")(function* (job: Job, target: ResendTarget) {
+        yield* dispatchLocks.withLock(target.sessionID)(
+          Effect.gen(function* () {
+            // Recheck under the lock: a concurrent dispatch may have taken the worker.
+            if (Option.isSome(decodeTask(yield* kv.get(TASK + target.sessionID)))) return
+            const messageID = SessionMessage.ID.create()
+            const reportID = SessionMessage.ID.create()
+            const key = TASK + target.sessionID
+            yield* kv.set(
+              key,
+              Schema.encodeSync(Task)({
+                main: target.main,
+                projectID: target.project.id,
+                sent: Date.now(),
+                messageID,
+                reportID,
+                autoloopRun: job.run,
+                autoloopToken: job.token,
+              }),
+            )
+            const started = yield* autoloop
+              .execute({ type: "started", args: [job.run, job.token, { session: target.sessionID }] })
+              .pipe(Effect.exit)
+            if (started._tag === "Failure") {
+              yield* kv.remove(key)
+              yield* Effect.logWarning("autoloop: повтор задачи не начался", { run: job.run })
+              return
+            }
+            yield* sessions
+              .prompt({
+                sessionID: target.sessionID,
+                id: messageID,
+                delivery: "queue",
+                text: target.text,
+                metadata: { orchestra: { project: target.project.id, from: target.main, taskID: messageID } },
+              })
+              .pipe(
+                Effect.tapError(() =>
+                  Effect.gen(function* () {
+                    // The worker never saw the task: end the run as cancelled
+                    // instead of leaving it claimed forever.
+                    yield* AutoloopOrchestrator.cancelRun(autoloop, {
+                      run: job.run,
+                      token: job.token,
+                      reason: "The task could not be sent to the worker.",
+                    })
+                    yield* kv.remove(key)
+                  }),
+                ),
+                Effect.catchAll((error) =>
+                  Effect.logWarning("autoloop: повтор задачи не отправлен", { run: job.run, error: String(error) }),
+                ),
+              )
+            yield* AutoloopOrchestrator.heartbeatRun(autoloop, job.run).pipe(Effect.ignore)
+          }),
+        )
+      })
+      for (let done = 0; done < AutoloopOrchestrator.MAX_CONCURRENT_RUNS; done++) {
+        const view = yield* autoloop.getView().pipe(Effect.catch(() => Effect.succeed(null)))
+        if (view === null) return
+        const now = Date.now()
+        const rows = Object.values(view["runs"] ?? {}) as Array<RunRow>
+        const claimed = rows.filter((run) => run.state === "claimed")
+        const due = rows
+          .filter(
+            (run) =>
+              run.rule === AutoloopOrchestrator.TASK_RULE &&
+              run.state === "queued" &&
+              Date.parse(run.not_before) <= now &&
+              !claimed.some((other) => other.grp === run.grp && other.lane === run.lane) &&
+              claimed.filter((other) => other.grp === run.grp).length <
+                AutoloopOrchestrator.MAX_CONCURRENT_RUNS,
+          )
+          .sort((a, b) => a.id - b.id)
+        let target: { run: RunRow; target: ResendTarget } | undefined
+        for (const run of due) {
+          const resolved = yield* resolveResend(run.session, run.resume, eventsOf(view, run.id))
+          if (resolved !== undefined) {
+            target = { run, target: resolved }
+            break
+          }
+        }
+        if (target === undefined) return
+        const job = yield* AutoloopOrchestrator.claimDueRun(autoloop).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("autoloop: не удалось взять задачу на повтор", { error: error.message }).pipe(
+              Effect.as(null),
+            ),
+          ),
+        )
+        if (job === null) return
+        if (job.run !== target.run.id) {
+          // A concurrent dispatch moved first: the claimed run is a
+          // different due run. Re-send it when it can run; a run whose
+          // worker is gone ends as cancelled, one whose worker is busy is
+          // left alone instead of losing its task.
+          const other = yield* resolveResend(job.session, job.resume, job.events)
+          if (other === undefined) {
+            if (job.session === null && job.resume === null) {
+              yield* AutoloopOrchestrator.cancelRun(autoloop, {
+                run: job.run,
+                token: job.token,
+                reason: "The worker session for this task is gone.",
+              }).pipe(Effect.ignore)
+            } else {
+              yield* Effect.logWarning("autoloop: повтор задачи отложен — работник занят", { run: job.run })
+            }
+            return
+          }
+          yield* resend(job, other)
+          continue
+        }
+        yield* resend(job, target.target)
+      }
+    })
+
     return Service.of({
       projects,
       create: Effect.fn("Orchestra.create")(function* (input) {
@@ -2388,6 +2551,7 @@ const layer: Layer.Layer<
           { concurrency: 4, discard: true },
         )
         yield* recoverPending()
+        yield* reclaimDueRuns()
       }),
       roles,
       saveRole: Effect.fn("Orchestra.saveRole")(function* (id, input) {

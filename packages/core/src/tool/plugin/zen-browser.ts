@@ -3,8 +3,9 @@ export * as ZenBrowserTool from "./zen-browser.js"
 import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { optional } from "@orchestra/schema/schema"
-import { Effect, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 import { zenBridgeServer, ZenBridgeServer } from "../../zen/bridge-server.js"
+import { Idempotency } from "../idempotency.js"
 
 export const name = "zen_browser"
 
@@ -165,6 +166,23 @@ export const run = (input: Input) =>
     if (input.command !== undefined) params.command = input.command
     if (input.action === "media" && params.command === undefined) {
       params.command = "play_pause"
+    }
+
+    // A navigate without a tab must not open a second tab for a URL that is
+    // already open: reuse that tab's id. A failed tab list never blocks the
+    // navigation — it falls back to opening as before.
+    if (input.action === "navigate" && input.tabId === undefined && input.url !== undefined) {
+      const listed = yield* Effect.tryPromise({
+        try: () => bridge.sendRpc<{ tabs?: ReadonlyArray<{ id?: number; url?: string }> }>("tabs", {}),
+        catch: () => new Error("zen_browser tabs list failed"),
+      }).pipe(Effect.option)
+      if (Option.isSome(listed)) {
+        const target = Idempotency.normalizeTarget(input.url)
+        const match = (listed.value.tabs ?? []).find(
+          (tab) => tab.id !== undefined && tab.url !== undefined && Idempotency.normalizeTarget(tab.url) === target,
+        )
+        if (match?.id !== undefined) params.tabId = match.id
+      }
     }
 
     const raw = yield* Effect.tryPromise({

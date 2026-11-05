@@ -119,6 +119,7 @@ export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
     // clock below only ticks once runs exist.
     if (lifecycle) {
       yield* installRestartContinuity(
+        Context.get(context, Autoloop.Service),
         Context.get(context, SessionRestart.Service),
         Context.get(context, Orchestra.Service),
         Context.get(context, Federation.Service),
@@ -267,6 +268,7 @@ function unavailable(status: Status.State) {
  * graceful restarts and unclean deaths alike — no shutdown hook participates.
  */
 const installRestartContinuity = Effect.fnUntraced(function* (
+  autoloop: Autoloop.Interface,
   restart: SessionRestart.Interface,
   orchestra: Orchestra.Interface,
   federation: Federation.Interface,
@@ -279,8 +281,19 @@ const installRestartContinuity = Effect.fnUntraced(function* (
         Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logError(label, { cause }),
       ),
     )
-  // Societies are held before anything is resumed: the AIs of a Society never start by themselves.
+  // One startup pass through the journal: Societies are held as journaled
+  // first, then the cycle decides what its runs do next (re-queued runs come
+  // due, quiet workers are noticed), suspended sessions resume in a single
+  // sweep, and Orchestra task markers reconcile. Each step is independent:
+  // one failing must not suppress the rest.
   const resumeAndRecover = reportStartupFailure("Failed to hold Societies during server startup", federation.startupHold()).pipe(
+    Effect.andThen(
+      reportStartupFailure(
+        "Failed to tick the autoloop cycle during server startup",
+        autoloop.execute({ type: "tick", args: [] }).pipe(Effect.asVoid),
+      ),
+    ),
+  ).pipe(
     Effect.andThen(
       reportStartupFailure(
         "Failed to resume suspended sessions during server startup",

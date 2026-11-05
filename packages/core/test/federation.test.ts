@@ -555,6 +555,41 @@ describe("Federation", () => {
     }),
   )
 
+  it.live("startup hold is journaled: a release survives the next restart, a manual hold re-arms it", () =>
+    Effect.gen(function* () {
+      const { a, b } = yield* setup
+      const federation = yield* Federation.Service
+      yield* federation.setGroup({ name: "Journal", projects: [a.id, b.id], mode: "council" })
+
+      yield* federation.startupHold()
+      expect(yield* federation.holds()).toEqual(["Journal"])
+      expect(yield* federation.startupHeldGroups()).toEqual(["Journal"])
+
+      // The operator frees it: the next startup must not undo that.
+      yield* federation.setHold("Journal", false)
+      expect(yield* federation.holds()).toEqual([])
+      expect(yield* federation.startupHeldGroups()).toEqual([])
+      yield* federation.startupHold()
+      expect(yield* federation.holds()).toEqual([])
+      expect(yield* federation.startupHeldGroups()).toEqual([])
+
+      // A manual hold re-arms it, but the startup hold did not put it on.
+      yield* federation.setHold("Journal", true)
+      expect(yield* federation.holds()).toEqual(["Journal"])
+      expect(yield* federation.startupHeldGroups()).toEqual([])
+      yield* federation.startupHold()
+      expect(yield* federation.holds()).toEqual(["Journal"])
+      expect(yield* federation.startupHeldGroups()).toEqual([])
+
+      // Freed again after re-arming: the release is journaled again and the next startup hold respects it.
+      yield* federation.setHold("Journal", false)
+      yield* federation.setHold("Journal", true)
+      yield* federation.setHold("Journal", false)
+      yield* federation.startupHold()
+      expect(yield* federation.holds()).toEqual([])
+    }),
+  )
+
   it.live(
     "creates the whole Society while other sessions hold their dispatch locks",
     () =>

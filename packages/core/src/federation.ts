@@ -159,7 +159,12 @@ export interface Interface {
   readonly setHold: (name: string, held: boolean) => Effect.Effect<void>
   // Run once at boot, before any session is resumed: installs the hold gate and holds every Society, so
   // nothing starts by itself when the program starts. ORCHESTRA_SOCIETY_AUTOSTART=1 keeps the saved holds only.
+  // The hold is journaled, not blind: only Societies the operator has not released are held, the ones
+  // this hold put on are recorded (see `startupHeldGroups`), and a release survives the next restart.
   readonly startupHold: () => Effect.Effect<void>
+  // Societies the startup hold put on hold and the operator has not released since: what the operator
+  // sees as "held by startup". Release one with `setHold(name, false)` — the existing release button.
+  readonly startupHeldGroups: () => Effect.Effect<ReadonlyArray<string>>
   readonly linkGroup: (name: string) => Effect.Effect<number, FederationError>
   readonly inbox: (project: Orchestra.ProjectID) => Effect.Effect<ReadonlyArray<Ticket>>
   readonly outbox: (project: Orchestra.ProjectID) => Effect.Effect<ReadonlyArray<Ticket>>
@@ -187,6 +192,11 @@ const GROUP = "federation/group/"
 // Where a Society lives, when its operator chose the folder; otherwise the default under the home directory.
 const SOCIETY = "federation/society/"
 const HOLD = "federation/hold/"
+// The startup hold's own journal: which Societies the last startup hold put
+// on hold (`heldByStartup`), and which the operator released since
+// (`released`). A release survives restarts — the next startup hold does not
+// re-hold a Society the operator freed — until a manual hold re-arms it.
+const STARTUP_HOLD_SNAPSHOT = "federation/startup-hold/snapshot"
 const ACTIVITY = "federation/group/activity/"
 
 export const Activity = Schema.Struct({
@@ -804,6 +814,31 @@ const layer: Layer.Layer<
       return result.entries.map((entry) => entry.key.slice(entry.key.indexOf(HOLD) + HOLD.length))
     })
 
+    interface StartupHoldSnapshot {
+      readonly heldByStartup: ReadonlyArray<string>
+      readonly released: ReadonlyArray<string>
+    }
+
+    const readStartupSnapshot = (): Effect.Effect<StartupHoldSnapshot> =>
+      Effect.gen(function* () {
+        const value = yield* kv.get(STARTUP_HOLD_SNAPSHOT)
+        if (typeof value !== "object" || value === null || Array.isArray(value)) {
+          return { heldByStartup: [], released: [] } as StartupHoldSnapshot
+        }
+        const strings = (field: unknown): Array<string> =>
+          Array.isArray(field) ? field.filter((entry): entry is string => typeof entry === "string") : []
+        return {
+          heldByStartup: strings((value as Record<string, unknown>)["heldByStartup"]),
+          released: strings((value as Record<string, unknown>)["released"]),
+        }
+      })
+
+    const writeStartupSnapshot = (snapshot: StartupHoldSnapshot): Effect.Effect<void> =>
+      kv.set(STARTUP_HOLD_SNAPSHOT, {
+        heldByStartup: [...snapshot.heldByStartup],
+        released: [...snapshot.released],
+      })
+
     // The top-level session a session belongs to: a worker's subagents are held with the worker.
     const rootOf = Effect.fnUntraced(function* (sessionID: SessionID) {
       let current = sessionID
@@ -1073,8 +1108,29 @@ const layer: Layer.Layer<
       },
       setHold: Effect.fn("Federation.setHold")(function* (name, held) {
         const normalized = name.trim()
-        if (held) yield* kv.set(HOLD + normalized, true)
-        else yield* kv.remove(HOLD + normalized)
+        const snapshot = yield* readStartupSnapshot()
+        if (held) {
+          yield* kv.set(HOLD + normalized, true)
+          // A manual hold re-arms the group: a later startup hold may hold it again.
+          if (snapshot.released.includes(normalized)) {
+            yield* writeStartupSnapshot({
+              heldByStartup: snapshot.heldByStartup,
+              released: snapshot.released.filter((entry) => entry !== normalized),
+            })
+          }
+        } else {
+          yield* kv.remove(HOLD + normalized)
+          // The operator freed it: the next startup hold must not undo that.
+          // The release is journaled, so it survives a restart.
+          if (!snapshot.released.includes(normalized) || snapshot.heldByStartup.includes(normalized)) {
+            yield* writeStartupSnapshot({
+              heldByStartup: snapshot.heldByStartup.filter((entry) => entry !== normalized),
+              released: snapshot.released.includes(normalized)
+                ? snapshot.released
+                : [...snapshot.released, normalized],
+            })
+          }
+        }
         if (!held) return
         // The hold is already in place, so nothing new starts; stop what is running.
         const group = (yield* groups()).find((item) => item.name === normalized)
@@ -1087,14 +1143,47 @@ const layer: Layer.Layer<
       }),
       startupHold: Effect.fn("Federation.startupHold")(function* () {
         if (process.env.ORCHESTRA_SOCIETY_AUTOSTART) return
+        const snapshot = yield* readStartupSnapshot()
+        const released = new Set(snapshot.released)
+        const alreadyHeld = new Set(yield* holds())
         const councils = (yield* groups()).filter((group) => Federation.modeOf(group) === "council")
-        yield* Effect.forEach(councils, (group) => kv.set(HOLD + group.name, true), { discard: true })
+        const newlyHeld: Array<string> = []
+        for (const group of councils) {
+          // Not blind: a Society the operator released stays released, and
+          // one already held needs no new hold — the journal remembers both.
+          if (alreadyHeld.has(group.name) || released.has(group.name)) continue
+          yield* kv.set(HOLD + group.name, true)
+          newlyHeld.push(group.name)
+        }
+        const stillHeld = new Set([...alreadyHeld, ...newlyHeld])
+        yield* writeStartupSnapshot({
+          heldByStartup: [
+            ...new Set([
+              ...snapshot.heldByStartup.filter((name) => stillHeld.has(name)),
+              ...newlyHeld,
+            ]),
+          ],
+          released: snapshot.released,
+        })
+      }),
+      startupHeldGroups: Effect.fnUntraced(function* () {
+        const snapshot = yield* readStartupSnapshot()
+        const held = new Set(yield* holds())
+        const names = new Set((yield* groups()).map((group) => group.name))
+        return snapshot.heldByStartup.filter((name) => held.has(name) && names.has(name))
       }),
       removeGroup: Effect.fn("Federation.removeGroup")(function* (name) {
         const normalized = name.trim()
         yield* kv.remove(HOLD + normalized)
         yield* kv.remove(GROUP + normalized)
         yield* kv.remove(SOCIETY + normalized)
+        const snapshot = yield* readStartupSnapshot()
+        if (snapshot.heldByStartup.includes(normalized) || snapshot.released.includes(normalized)) {
+          yield* writeStartupSnapshot({
+            heldByStartup: snapshot.heldByStartup.filter((entry) => entry !== normalized),
+            released: snapshot.released.filter((entry) => entry !== normalized),
+          })
+        }
         const prefix = ACTIVITY + encodeURIComponent(normalized) + "/"
         const removeActivity = (after?: string): Effect.Effect<void> =>
           Effect.gen(function* () {
