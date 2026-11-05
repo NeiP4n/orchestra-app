@@ -218,11 +218,19 @@ export interface Scopes {
   readonly project?: string
   /** The Societies that project belongs to. */
   readonly societies: ReadonlyArray<string>
+  /** Scopes a sandbox session reads from the project it was copied from: read-only — the
+      sandbox follows the source's rules, it never writes them. */
+  readonly inherited?: {
+    readonly projects: ReadonlyArray<string>
+    readonly societies: ReadonlyArray<string>
+  }
 }
 
 // Where a session stands: a Society's chat, or a session of a project (and through it of its Societies).
 // A subagent or sandbox session inherits the scopes of the session that opened it: its own
 // lookups find nothing, but its parent's project and Societies still bind it.
+// A sandbox project also inherits the scopes of the project it was copied from: its own
+// project and Societies are empty, so without this it would run on an empty rulebook.
 // A lookup that fails is an error, not an empty answer: scopes that could not be determined
 // must never read as "no rule applies".
 export const scopesOf = (input: {
@@ -248,6 +256,7 @@ export const scopesOf = (input: {
       const owners = main ? {} : yield* input.orchestra.owners()
       const project = main?.id ?? owners[id]
       if (project) {
+        const inherited = yield* inheritedScopes(input.orchestra, groups, project, main)
         return {
           project,
           // Every group a project belongs to is one of its Societies, council or lead:
@@ -255,6 +264,7 @@ export const scopesOf = (input: {
           societies: groups
             .filter((group) => group.projects.includes(project as never))
             .map((group) => group.name),
+          ...(inherited ? { inherited } : {}),
         } satisfies Scopes
       }
       current = Option.isSome(info) ? (info.value.parentID as string | undefined) : undefined
@@ -271,6 +281,37 @@ export const scopesOf = (input: {
       )
     }),
   )
+
+// A sandbox project works in a detached worktree of its source, so its sessions inherit the
+// source project's rules and Societies instead of starting from an empty rulebook. The chain
+// is followed while each step is itself a sandbox; a source that is not a project — a bare
+// repository the operator sandboxed directly — inherits nothing. The project list is only
+// read when the session's own record does not already rule a sandbox out.
+const inheritedScopes = (
+  orchestra: Orchestra.Interface,
+  groups: ReadonlyArray<FederationSchema.Group>,
+  project: string,
+  main: Orchestra.Project | undefined,
+) =>
+  Effect.gen(function* () {
+    if (main !== undefined && main.sandbox === undefined) return undefined
+    const all = yield* orchestra.projects()
+    const projects: Array<string> = []
+    const societies: Array<string> = []
+    let current = main ?? all.find((item) => item.id === project)
+    const seen = new Set<string>()
+    while (current?.sandbox !== undefined && !seen.has(current.id)) {
+      seen.add(current.id)
+      const source = all.find((item) => item.directory === current?.sandbox?.source)
+      if (!source) break
+      if (!projects.includes(source.id)) projects.push(source.id)
+      for (const group of groups.filter((item) => item.projects.includes(source.id as never)))
+        if (!societies.includes(group.name)) societies.push(group.name)
+      current = source
+    }
+    if (projects.length === 0) return undefined
+    return { projects, societies }
+  })
 
 // --- Priority and conflicts -------------------------------------------------
 //
@@ -332,7 +373,9 @@ export const block = (kv: KV.Interface, scopes: Scopes) =>
   Effect.gen(function* () {
     const wanted = [
       { title: "Society", scope: scopes.societies.map(societyScope) },
+      { title: "Society (inherited)", scope: (scopes.inherited?.societies ?? []).map(societyScope) },
       { title: "Project", scope: scopes.project ? [projectScope(scopes.project)] : [] },
+      { title: "Project (inherited)", scope: (scopes.inherited?.projects ?? []).map(projectScope) },
       { title: "Global", scope: [GLOBAL] },
     ]
     const parts = yield* Effect.forEach(wanted, (group) =>

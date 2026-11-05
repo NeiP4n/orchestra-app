@@ -56,7 +56,22 @@ export const Plugin = {
               ]
 
               if (input.action === "list") {
-                const lines = yield* Effect.forEach(mine, (entry) =>
+                // Inherited scopes are read-only: a sandbox session sees the source's rules
+                // because they bind it, but it never adds or removes them.
+                const visible = [
+                  ...mine,
+                  ...(scopes.inherited?.societies ?? []).map((society) => ({
+                    kind: "inherited" as const,
+                    scope: Rules.societyScope(society),
+                    label: `Society ${society} (inherited)`,
+                  })),
+                  ...(scopes.inherited?.projects ?? []).map((project) => ({
+                    kind: "inherited" as const,
+                    scope: Rules.projectScope(project),
+                    label: "Project (inherited)",
+                  })),
+                ]
+                const lines = yield* Effect.forEach(visible, (entry) =>
                   Rules.inspect(kv, entry.scope).pipe(
                     Effect.map((found) => [
                       ...found.rules.map((rule) => `- ${rule.id} [${entry.label}] ${rule.text} (${rule.by})`),
