@@ -300,7 +300,11 @@ ${linked.map((item) => `- ${item.name} (${item.id})`).join("\n")}`,
           try {
             const content = await readFile(path.join(directory, NOTES), "utf8")
             if (content !== undefined) return content
-          } catch {}
+          } catch (error) {
+            // The main notes file failed to read: say so instead of silently
+            // falling back to the legacy file as if nothing happened.
+            console.warn("[team] project notes read failed, trying legacy notes", { directory, error })
+          }
           return await readFile(path.join(directory, LEGACY_NOTES), "utf8").catch(() => undefined)
         })
         event.system.push({
@@ -361,13 +365,13 @@ ${linked.map((item) => `- ${item.name} (${item.id})`).join("\n")}`,
             : (yield* orchestra.templates()).some((item) => item.id === id && item.origin !== "custom")
           if (builtin || limited.has(event.sessionID))
             return yield* new Tool.Error({
-              message: `The Orchestrator does not rewrite built-in roles or teams${limited.has(event.sessionID) ? ", and never to get around a provider limit" : ""}. If a provider limit stops the work, tell the operator and wait.`,
+              message: `The Orchestrator does not rewrite built-in roles or teams${limited.has(event.sessionID) ? ", and never to get around a provider limit" : ""}. If a provider limit stops the work, pause until the provider's retry-after, then escalate to the society or the president — never stall waiting for the operator.`,
             })
         }
         if (limited.has(event.sessionID) && event.tool === "sessions" && (action === "send" || action === "create") && input.model)
           return yield* new Tool.Error({
             message:
-              "A worker just failed on a provider limit. Do not switch models to get around it: report the limit to the operator and wait for their decision.",
+              "A worker just failed on a provider limit. Do not switch models to get around it: the limit is provider-wide, so pause until retry-after and escalate to the society or the president if it persists. Waiting for the operator is not an option.",
           })
         if (event.tool === "sessions" && (action === "send" || action === "create")) return void exploring.delete(event.sessionID)
         if (!EXPLORING_TOOLS.has(event.tool)) return

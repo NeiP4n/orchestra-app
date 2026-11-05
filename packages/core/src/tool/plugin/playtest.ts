@@ -244,6 +244,11 @@ export const Plugin = {
       const loaded = input.script ? yield* loadScript(root, input.script) : []
       const steps = [...loaded, ...(input.steps ?? [])]
       if (steps.length === 0) return yield* new ToolFailure({ message: "Pass steps or a script" })
+      // Validate every step before any of them runs: a missing argument is a
+      // typed ToolFailure (taxonomy G6), not a throw after earlier steps
+      // already launched the app.
+      const invalid = validateSteps(steps)
+      if (invalid) return yield* new ToolFailure({ message: invalid })
       // A silent session (the tester) must not take the operator's mouse, keyboard or screen, even when asked to.
       const session = sessions ? yield* sessions.get(context.sessionID).pipe(Effect.option) : undefined
       if (Mode.isQuiet(session?._tag === "Some" ? session.value.metadata : undefined, context.agent)) {
@@ -928,6 +933,27 @@ export const Plugin = {
       }),
     )
   }),
+}
+
+/**
+ * Every step's required arguments, checked before any step runs so a bad call
+ * fails as one typed ToolFailure (taxonomy G6) instead of throwing after the
+ * app is already launched. `execute` keeps its own throws as a backstop.
+ */
+const validateSteps = (steps: readonly Step[]): string | undefined => {
+  for (const [index, step] of steps.entries()) {
+    const label = steps.length > 1 ? `step ${index + 1} (${step.action})` : step.action
+    if (step.action === "launch" && !step.path) return `${label}: launch needs path`
+    if (step.action === "attach" && !step.title) return `${label}: attach needs title`
+    if (step.action === "drag" && (step.to_x === undefined || step.to_y === undefined))
+      return `${label}: drag needs to_x and to_y`
+    if (step.action === "key" && !step.keys) return `${label}: key needs keys, e.g. space or ctrl+s`
+    if (step.action === "type" && !step.text) return `${label}: type needs text`
+    if (step.action === "resize" && (!step.width || !step.height))
+      return `${label}: resize needs width and height`
+    if (step.action === "click_text" && !step.text) return `${label}: click_text needs text`
+  }
+  return undefined
 }
 
 const loadScript = Effect.fnUntraced(function* (root: string, file: string) {

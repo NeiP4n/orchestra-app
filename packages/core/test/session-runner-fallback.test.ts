@@ -42,6 +42,7 @@ import { SessionProjector } from "@orchestra/core/session/projector"
 import { SessionRunCoordinator } from "@orchestra/core/session/run-coordinator"
 import { SessionRunner } from "@orchestra/core/session/runner/index"
 import { SessionRunnerLLM } from "@orchestra/core/session/runner/llm"
+import { MAIN_SESSION_FALLBACK_MODELS } from "@orchestra/core/session/runner/error-taxonomy"
 import { SessionRunnerModel } from "@orchestra/core/session/runner/model"
 import { SessionStore } from "@orchestra/core/session/store"
 import { SessionTable } from "@orchestra/core/session/sql"
@@ -108,6 +109,19 @@ describe("SessionRunnerLLM.fallbackModel", () => {
     )
     expect(fallback({ cause })).toBeUndefined()
     expect(fallback({ cause, models: [next, spare] })).toBeUndefined()
+  })
+
+  test("main-session fallbacks use only working Anymodel models, never the dead flash model", () => {
+    // The main session carries no operator-given list; llm.ts substitutes
+    // MAIN_SESSION_FALLBACK_MODELS when it already runs on Anymodel.
+    const mainFallbacks = MAIN_SESSION_FALLBACK_MODELS.map((ref) => model(ref))
+    const cause = failure(new InvalidRequestError({ message: "model_not_found" }))
+    expect(fallback({ cause, models: mainFallbacks })).toEqual(model("anymodel/sonnet-5"))
+    expect(fallback({ cause, models: mainFallbacks, refused: [model("anymodel/sonnet-5")] })).toEqual(
+      model("anymodel/anymodel-coder"),
+    )
+    expect(fallback({ cause, models: mainFallbacks, refused: mainFallbacks })).toBeUndefined()
+    expect(MAIN_SESSION_FALLBACK_MODELS).not.toContain("anymodel/anymodel-v4.1-flash")
   })
 
   test("returns nothing when the session carries no fallback models", () => {
@@ -328,6 +342,9 @@ const drainPrompt = (sessionID: Session.ID, text: string) =>
   })
 
 const backup = Model.Ref.make({ providerID: Provider.ID.make("fake"), id: Model.ID.make("backup") })
+// The drain tests below expect the rewritten message, not this raw text:
+// `to-session-error.ts` turns a geo-blocked provider answer into the
+// actionable "Google refused this network's location…" message.
 const invalidRequest = new AIError({ reason: new InvalidRequestError({ message: "User location is not supported" }) })
 const contentPolicy = new AIError({ reason: new ContentPolicyError({ message: "The request was blocked" }) })
 const contextOverflow = new AIError({
@@ -368,7 +385,7 @@ describe("SessionRunnerLLM fallback while draining a session", () => {
       expect(result.messages.at(-1)).toMatchObject({
         type: "assistant",
         finish: "error",
-        error: { type: "provider.invalid-request", message: "User location is not supported" },
+        error: { type: "provider.invalid-request", message: "Google refused this network's location. Requests leave through a VPN or proxy exit that Google does not serve for this model; switch the exit to another country or connect directly, then retry." },
       })
     }),
   )
@@ -416,7 +433,7 @@ describe("SessionRunnerLLM fallback while draining a session", () => {
       expect(result.messages.at(-1)).toMatchObject({
         type: "assistant",
         finish: "error",
-        error: { type: "provider.invalid-request", message: "User location is not supported" },
+        error: { type: "provider.invalid-request", message: "Google refused this network's location. Requests leave through a VPN or proxy exit that Google does not serve for this model; switch the exit to another country or connect directly, then retry." },
       })
     }),
   )

@@ -1,12 +1,17 @@
 export * as DatabaseMigration from "./migration.js"
 
 import { sql } from "drizzle-orm"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { supportsForeignKeyToggle } from "#sqlite"
 import type { EffectDrizzleSqlite } from "./drizzle.js"
 import { migrations } from "./migration.gen.js"
 import schema from "./schema.gen.js"
 import { Global } from "@orchestra/util/global"
+
+/** A database that cannot be migrated is a typed, recoverable failure (taxonomy H1/H2) — never a defect that kills the process. */
+export class MigrationError extends Schema.TaggedError<MigrationError>()("Database.MigrationError", {
+  message: Schema.String,
+}) {}
 
 type Database = EffectDrizzleSqlite.EffectSQLiteDatabase
 type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0]
@@ -28,7 +33,8 @@ export function apply(db: Database) {
     )
     if (tables.some((table) => table.name === "session" || table.name === "session_v2"))
       return yield* applyOnly(db, migrations)
-    if (tables.length > 0) return yield* Effect.die(new Error("Database is not empty and has no session table"))
+    if (tables.length > 0)
+      return yield* new MigrationError({ message: "Database is not empty and has no session table" })
     const started = Date.now()
     yield* Effect.logInfo("database schema bootstrap started", { migrations: migrations.length })
     yield* db.transaction((tx) =>
@@ -88,9 +94,9 @@ export function applyOnly(db: Database, input: Migration[]) {
           for (const entry of entries) {
             const migration = input.find((item) => item.id.startsWith(`${entry.prefix}_`))
             if (!migration) {
-              return yield* Effect.die(
-                new Error(`Legacy migration timestamp ${entry.created_at} does not match any known migration`),
-              )
+              return yield* new MigrationError({
+                message: `Legacy migration timestamp ${entry.created_at} does not match any known migration`,
+              })
             }
             yield* db.run(sql`
               INSERT OR IGNORE INTO ${sql.identifier("migration")} (id, time_completed)

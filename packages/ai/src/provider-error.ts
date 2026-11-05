@@ -283,9 +283,13 @@ export function classifyProviderFailure(input: ProviderFailure): AIError["reason
       retryAfterMs: input.retryAfterMs,
       rateLimit: input.rateLimit,
     })
+  // HTTP 409 is a deterministic conflict with the request's own state (a stale
+  // revision, a duplicate write, a version the provider already moved past):
+  // sending the same request again cannot clear it, so it fails fast instead
+  // of burning retries as a provider-internal failure.
+  if (input.status === 409) return new InvalidRequestError(details)
   if (
     input.status === 408 ||
-    input.status === 409 ||
     (input.status !== undefined && input.status >= 500) ||
     // Server codes and phrasing only decide when no HTTP status contradicts them:
     // gateways such as OpenCode Zen substitute `server_error` for codes they do
