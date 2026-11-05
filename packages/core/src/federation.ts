@@ -1012,8 +1012,10 @@ const layer: Layer.Layer<
       if (held.length === 0) return false
       const root = yield* rootOf(sessionID as SessionID)
       if (held.some((group) => group.supervisor === root)) return true
-      const main = yield* orchestra.mainOf(root).pipe(Effect.option)
-      const project = Option.getOrUndefined(main)?.id ?? (yield* orchestra.owners().pipe(Effect.orElseSucceed(() => ({}) as Record<string, string>)))[root]
+      const main = Option.getOrUndefined(yield* orchestra.mainOf(root).pipe(Effect.option))
+      const project =
+        main?.id ??
+        Option.getOrElse(yield* orchestra.owners().pipe(Effect.option), () => ({}) as Record<string, string>)[root]
       return project !== undefined && held.some((group) => group.projects.includes(project as Orchestra.ProjectID))
     })
     SessionHold.install((sessionID) => heldSession(sessionID).pipe(Effect.orElseSucceed(() => false)))
