@@ -37,6 +37,7 @@ import { MigrationGroup } from "./groups/migration.js"
 import { ConfigGroup } from "./groups/config.js"
 import { RoomGroup } from "./groups/room.js"
 import { OrchestraGroup } from "./groups/orchestra.js"
+import { AutoloopGroup } from "./groups/autoloop.js"
 import { QuotaGroup } from "./quota.js"
 
 type LocationGroups<LocationId extends HttpApiMiddleware.AnyId> =
@@ -104,6 +105,7 @@ type ApiGroups<
   | typeof CredentialGroup
   | typeof RoomGroup
   | typeof OrchestraGroup
+  | typeof AutoloopGroup
   | typeof QuotaGroup
   | LocationGroups<LocationId>
   | LocationGroup<LocationId, LocationService>
@@ -199,6 +201,7 @@ const makeApiFromGroup = <
     .add(ConfigGroup.middleware(locationMiddleware))
     .add(RoomGroup)
     .add(OrchestraGroup)
+    .add(AutoloopGroup)
     .add(QuotaGroup)
     .annotateMerge(
       OpenApi.annotations({

@@ -62,7 +62,7 @@ it.live("Server accepts both x-orchestra-directory and x-opencode-directory head
     const config = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-headers-test-")))
     const directory = path.join(config.path, "project")
     yield* Effect.promise(() => fs.mkdir(directory))
-    const handler = yield* ServerFetch.make({ ...options, config: { directory: config.path } })
+    const handler = yield* ServerFetch.make({ ...options, config: { directory: config.path } }, { allowUnauthenticated: true })
 
     // 1. Create session using canonical x-orchestra-directory header
     const createdCanonical = yield* Effect.promise(() =>

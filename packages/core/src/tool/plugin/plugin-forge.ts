@@ -5,6 +5,7 @@ import type { Context } from "@orchestra/plugin/effect/plugin"
 import { categorizePlugin, PLUGIN_CATEGORIES, type PluginCategory } from "@orchestra/plugin/category"
 import { Effect, Schema } from "effect"
 import { Config } from "../../config.js"
+import { ForgeJournal } from "./forge-journal.js"
 
 export const name = "plugin_forge"
 export const command = "forge-plugin"
@@ -71,7 +72,7 @@ export const Plugin = {
           description,
           input: Input,
           output: Output,
-          execute: (input) =>
+          execute: (input, context) =>
             Effect.gen(function* () {
               const configured = yield* getConfiguredPlugins()
 
@@ -135,16 +136,37 @@ export const Plugin = {
                     return entry
                   })
                   yield* updatePlugins(next)
-                  return { output: { output: `Plugin "${target}" is already in configuration (ensured enabled).` } }
+                  yield* ForgeJournal.recordForge({
+                    kind: "plugin",
+                    action: "enabled",
+                    name: target,
+                    by: context.sessionID,
+                    previous: configured.find((entry) => matchesTarget(entry, target)) ?? null,
+                  })
+                  return { output: { output: `Plugin "${target}" is already in configuration (ensured enabled). Recorded in the autoloop journal (forge.enabled).` } }
                 }
                 yield* updatePlugins([...configured, target])
-                return { output: { output: `Plugin "${target}" added to configuration.` } }
+                yield* ForgeJournal.recordForge({
+                  kind: "plugin",
+                  action: "registered",
+                  name: target,
+                  by: context.sessionID,
+                  previous: null,
+                })
+                return { output: { output: `Plugin "${target}" added to configuration. Recorded in the autoloop journal (forge.registered); roll back with plugin_forge action=disable.` } }
               }
 
               if (input.action === "remove") {
                 const next = configured.filter((entry) => !matchesTarget(entry, target))
                 yield* updatePlugins(next)
-                return { output: { output: `Plugin "${target}" removed from configuration.` } }
+                yield* ForgeJournal.recordForge({
+                  kind: "plugin",
+                  action: "removed",
+                  name: target,
+                  by: context.sessionID,
+                  previous: configured.find((entry) => matchesTarget(entry, target)) ?? null,
+                })
+                return { output: { output: `Plugin "${target}" removed from configuration. Recorded in the autoloop journal (forge.removed); roll back with plugin_forge action=add.` } }
               }
 
               if (input.action === "enable") {
@@ -160,7 +182,14 @@ export const Plugin = {
                   next.push(target)
                 }
                 yield* updatePlugins(next)
-                return { output: { output: `Plugin "${target}" enabled in configuration.` } }
+                yield* ForgeJournal.recordForge({
+                  kind: "plugin",
+                  action: "enabled",
+                  name: target,
+                  by: context.sessionID,
+                  previous: configured.find((entry) => matchesTarget(entry, target)) ?? null,
+                })
+                return { output: { output: `Plugin "${target}" enabled in configuration. Recorded in the autoloop journal (forge.enabled).` } }
               }
 
               if (input.action === "disable") {
@@ -179,7 +208,14 @@ export const Plugin = {
                   next.push(`-${target}`)
                 }
                 yield* updatePlugins(next)
-                return { output: { output: `Plugin "${target}" disabled in configuration.` } }
+                yield* ForgeJournal.recordForge({
+                  kind: "plugin",
+                  action: "disabled",
+                  name: target,
+                  by: context.sessionID,
+                  previous: configured.find((entry) => matchesTarget(entry, target)) ?? null,
+                })
+                return { output: { output: `Plugin "${target}" disabled in configuration. Recorded in the autoloop journal (forge.disabled); roll back with plugin_forge action=enable.` } }
               }
 
               return yield* new ToolFailure({ message: `Unknown action: ${input.action}` })

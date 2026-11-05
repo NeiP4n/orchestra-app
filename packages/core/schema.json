@@ -1,8 +1,8 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "e98619ef-c334-45e3-8c48-9932ed1ef290",
-  "prevIds": ["be60f352-8da1-40e1-8d70-dc41121cfbc5"],
+  "id": "bd441c9e-1955-47a7-9597-b0ac4e973222",
+  "prevIds": ["e98619ef-c334-45e3-8c48-9932ed1ef290"],
   "ddl": [
     {
       "name": "account_state",
@@ -14,6 +14,22 @@
     },
     {
       "name": "control_account",
+      "entityType": "tables"
+    },
+    {
+      "name": "autoloop_facts",
+      "entityType": "tables"
+    },
+    {
+      "name": "autoloop_projection_meta",
+      "entityType": "tables"
+    },
+    {
+      "name": "autoloop_projection_refs",
+      "entityType": "tables"
+    },
+    {
+      "name": "autoloop_projections",
       "entityType": "tables"
     },
     {
@@ -269,6 +285,116 @@
       "name": "time_updated",
       "entityType": "columns",
       "table": "control_account"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "name": "seq",
+      "entityType": "columns",
+      "table": "autoloop_facts"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "fact",
+      "entityType": "columns",
+      "table": "autoloop_facts"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "key",
+      "entityType": "columns",
+      "table": "autoloop_projection_meta"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "value",
+      "entityType": "columns",
+      "table": "autoloop_projection_meta"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "collection",
+      "entityType": "columns",
+      "table": "autoloop_projection_refs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "key",
+      "entityType": "columns",
+      "table": "autoloop_projection_refs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "ref_collection",
+      "entityType": "columns",
+      "table": "autoloop_projection_refs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "ref_key",
+      "entityType": "columns",
+      "table": "autoloop_projection_refs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "collection",
+      "entityType": "columns",
+      "table": "autoloop_projections"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "key",
+      "entityType": "columns",
+      "table": "autoloop_projections"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "data",
+      "entityType": "columns",
+      "table": "autoloop_projections"
     },
     {
       "type": "text",
@@ -1684,6 +1810,20 @@
       "entityType": "pks"
     },
     {
+      "columns": ["seq"],
+      "nameExplicit": false,
+      "name": "autoloop_facts_pk",
+      "table": "autoloop_facts",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["key"],
+      "nameExplicit": false,
+      "name": "autoloop_projection_meta_pk",
+      "table": "autoloop_projection_meta",
+      "entityType": "pks"
+    },
+    {
       "columns": ["id"],
       "nameExplicit": false,
       "name": "credential_pk",
@@ -1773,6 +1913,82 @@
       "name": "workspace_pk",
       "table": "workspace",
       "entityType": "pks"
+    },
+    {
+      "columns": [
+        {
+          "value": "seq",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "autoloop_facts_seq_idx",
+      "entityType": "indexes",
+      "table": "autoloop_facts"
+    },
+    {
+      "columns": [
+        {
+          "value": "collection",
+          "isExpression": false
+        },
+        {
+          "value": "key",
+          "isExpression": false
+        },
+        {
+          "value": "ref_collection",
+          "isExpression": false
+        },
+        {
+          "value": "ref_key",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "autoloop_projection_refs_pk_idx",
+      "entityType": "indexes",
+      "table": "autoloop_projection_refs"
+    },
+    {
+      "columns": [
+        {
+          "value": "ref_collection",
+          "isExpression": false
+        },
+        {
+          "value": "ref_key",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "autoloop_projection_refs_ref_idx",
+      "entityType": "indexes",
+      "table": "autoloop_projection_refs"
+    },
+    {
+      "columns": [
+        {
+          "value": "collection",
+          "isExpression": false
+        },
+        {
+          "value": "key",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "autoloop_projections_collection_key_idx",
+      "entityType": "indexes",
+      "table": "autoloop_projections"
     },
     {
       "columns": [

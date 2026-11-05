@@ -119,6 +119,109 @@ The `sessions` tool is how the Orchestrator dispatches role workers.
 - Worker sessions receive `patch` but not `write` in their grant; briefs and
   worker guidance assume patch-first editing.
 
+## Autoloop journal — `packages/core/src/autoloop/`
+
+The native autoloop cycle (block Б2) keeps its state in the journal, not in
+process memory. One source of truth, in the existing `orchestra-local.db`.
+
+- **Tables** (`autoloop_facts`, `autoloop_projections`,
+  `autoloop_projection_meta`, `autoloop_projection_refs`), created by Drizzle
+  migration `20261105171218_oval_joystick` from `src/autoloop/sql.ts`. Never a
+  separate `hub.db`; never touch another table from this module.
+- **`kernel/schema.ts`**: fact shape (`id`, `type`, `collection`, `key`, `data`,
+  `refs`), projection collections, `FORMAT = "autoloop-kernel-v1"`.
+- **`kernel/evolve.ts`**: pure journal → projection folding (`View`, `evolve`,
+  `rebuild`, `snapshot`, `rows`). No Effect, no I/O — `decide` (block Б3)
+  reuses it and any decision can be replayed from the journal.
+- **`kernel/store.ts`**: the ONLY writer of facts. `commit(facts,
+  expectedSeq?)` appends facts and updates projections in one transaction; a
+  commit on a stale `seq` fails with `Autoloop.StaleSeq` and writes nothing.
+  `commitLatest` reads the latest sequence inside the same transaction.
+  `readLog` / `iterateLog` / `openView` are the reads. Projections are
+  disposable: `rebuild` from the journal restores the same state.
+- **`kernel/decide.ts`** (block Б3, подшаг 1): pure `decide(view, input, now, env)` — no
+  Effect, no I/O. Handlers `ingest / claimNext / started / finish / cancel /
+  answer / resolve / nextCard / delivered / failed / tick / sweep / heartbeat`,
+  helpers `retryLater`, `applyReceipt`, `createCard`, `enqueue`. Event dedup
+  by `(source, key)`; claim by token (repeat claim returns the same run);
+  idempotent `finish` (same receipt → same answer, different receipt under
+  the same token → conflict). Orchestra limits instead of the original's:
+  retries 1–2 (was 10), check rounds max 5 (`verifyIterations` on the run,
+  then an ask card), `MAX_HOPS = 8`, `RESEND_AT = [0,1,3,7,15,25,35,45,55]`,
+  57-minute window. Rules come from Orchestra config via the `decide`
+  environment, never from a `rules.json`. Minimal five-field cron parser
+  lives here too (tick needs it).
+- **Cards (block Б3, подшаг 2)**: `src/autoloop/cards.ts` is the thin layer
+  over `store` + `decide` — `listCards` / `listOpenCards`, `createCard`
+  (same key while open = duplicate, no new fact), `answerCard` (records
+  `card.answered`, starts a new run when the card belongs to a rule),
+  `nextCard` / `markDelivered` / `markFailed` (resend schedule `RESEND_AT`,
+  give up after 57 minutes), `publish` (card changes to the Bus).
+  `question` / `interact` stay as UI; the card in the journal is the source
+  of truth. Public shape + events in `packages/schema/src/autoloop-card.ts`
+  (`AutoloopCard.Card`, `autoloop.card.created / answered / updated`,
+  in `ServerDefinitions`, so the existing SSE feed carries them — no new
+  transport). HTTP: `GET /api/autoloop/cards`, `POST
+  /api/autoloop/cards/:id/answer` (`packages/protocol/src/groups/autoloop.ts`,
+  `packages/server/src/handlers/autoloop.ts`, client regenerated).
+  No TUI/web card view yet — that is the remaining UI sub-step.
+- **`kernel/due.ts`**: `RUN_LEASE = 5 мин`, `WORKER_FRESH = 2 мин`,
+  `OFFLINE_AFTER = 10 мин`, `SEEN_EVERY = 1 мин`, `deadlines`,
+  `offlineCard`, `workers` / `waitingOn`.
+- **`kernel/rules.ts`**: cycle rule shape (`Rule { name, when, to, cwd,
+  group, tell }`, `typeMatches`, `eventRule`, `cronOf`).
+- **Cycle limits in config**: `Config.Orchestra.Autoloop`
+  (`packages/schema/src/config/orchestra.ts`, next to `orchestra.worker`):
+  `maxAttempts` (2), `maxVerifyIterations` (5), `maxHops` (8),
+  `retryBaseMinutes` (5), `retryMaxMinutes` (60), `runLeaseMinutes` (5),
+  `workerFreshMinutes` (2), `offlineAfterMinutes` (10).
+- **Tick service (block Б3, подшаг 3)**: `src/autoloop/service.ts` is the
+  Effect service around the journal and `decide` (`Autoloop.Service`,
+  node in the server layer next to `Orchestra`/`Federation`,
+  `packages/server/src/routes.ts`; started in `packages/server/src/process.ts`
+  `boot`, loop lives in the application scope). `execute(input)` — open view
+  → `decide` → `commitLatest` → notify `subscribe()` listeners → deliver
+  cards; `getView()` reads fresh from the journal; `heartbeat(worker, runs)`;
+  `stats()` counts loop ticks. The clock is ONE timer on the nearest due
+  from `deadlines()` (cron, `later`, retry pauses, card resends, lease /
+  offline sweep) — never polling; every `execute` wakes it, and with nothing
+  due it waits and runs no ticks. Delivery hands the next card to the `web`
+  channel and publishes it on the Bus (`autoloop.card.created` on first
+  hand-out, `updated` on resend); a failed publish is `markFailed` and comes
+  back on `RESEND_AT`, `given_up` after 57 minutes. State is restored from
+  the journal at start (`store.rebuildProjections()` when the stored kernel
+  `FORMAT` no longer matches), so a restart loses no runs. Rules come from
+  the journal (`rules` input) unless the service was built with explicit
+  ones; limits default to the kernel defaults until the orchestrator wiring
+  applies the operator config (see below).
+- **Orchestrator wiring (block Б3, подшаг 4 — Б3 закрыт)**: `src/autoloop/orchestrator.ts`
+  is the bridge. `dispatch()` creates a run: the bridge first makes sure the
+  dispatch rule (`orchestra-task`: `task.created` from source `orchestra` →
+  agent `orchestrator`, one lane per worker session, 30 claimed runs at most)
+  is in the journal — ingest routes once, at ingest time, so a rule stored
+  later would strand the event — then ingests, claims, records the worker
+  session on the run (`started`), and marks the worker seen. Run id + finish
+  token live in the durable task marker (`orchestra/task/<session>`), never in
+  memory. `report()` finishes the run from the journal (`finishRun` reads the
+  run fresh; a second finish of the same receipt changes nothing, a different
+  receipt under the same token is a conflict): `done` → `done`, `failed` →
+  retry 1–2 times by the limits, then a stop card (`run:<id>:stopped`),
+  `stopped`/`cancelled` → final, no retries. `nothing` is a real outcome:
+  a worker that answered nothing and left no trace of work in the transcript
+  finishes as `nothing`. While a worker streams, `MessageContentUpdated`
+  heartbeats its run (throttled to 1/min per session), so a long task is not
+  mistaken for a worker gone quiet. Config reaches the service two ways:
+  `configure({rules, limits})` (explicit, e.g. tests), and self-configuration
+  on the first `execute` in a context that carries `Config.Service` — the
+  limits come from `Config.Orchestra.Autoloop`, the dispatch rule is merged
+  into any operator rules stored in the journal (`mergeDispatchRule`) instead
+  of shadowing them. Server boot cannot configure it directly: Config is
+  location-scoped and the built routes context holds no `Config.Service`
+  (verified by probe). Known limit for Б4: a re-queued run waits for a claim,
+  and the next `dispatch` claims it (FIFO, any worker) — re-execution of
+  re-queued runs is Б4's job.
+- **Tests**: `packages/core/test/autoloop/` — no network, no models.
+
 ## MCP — `packages/core/src/mcp/`
 
 - `catalog.ts` is the curated catalog: a server is catalogued only if it adds a

@@ -34,6 +34,7 @@ import { Workspace } from "@orchestra/core/workspace"
 import { Room } from "@orchestra/core/room"
 import { Federation } from "@orchestra/core/federation"
 import { Orchestra } from "@orchestra/core/orchestra"
+import { Autoloop } from "@orchestra/core/autoloop/service"
 import { Peer } from "@orchestra/core/peer"
 import { Plot } from "@orchestra/core/plot"
 import { Watcher } from "@orchestra/core/filesystem/watcher"
@@ -83,6 +84,7 @@ const applicationServiceNodes = [
   Room.node,
   Federation.node,
   Orchestra.node,
+  Autoloop.node,
   Peer.node,
   Plot.node,
   LocationServiceMap.node,
@@ -99,7 +101,10 @@ export function createRoutes(
 ) {
   return makeRoutes(
     options.password
-      ? ServerAuth.Config.configLayer({ password: Option.some(options.password) })
+      ? ServerAuth.Config.configLayer({
+          password: Option.some(options.password),
+          sessionTtlSeconds: options.sessionTtlSeconds,
+        })
       : ServerAuth.Config.layer,
     options,
     serviceURLs,

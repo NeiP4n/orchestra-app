@@ -39,7 +39,7 @@ const setup = Effect.gen(function* () {
     config: { project: false },
     models: { fetch: false },
     fs: { filewatcher: false },
-  })
+  }, { allowUnauthenticated: true })
   const api = OpenCode.make({
     baseUrl: "http://opencode.local",
     fetch: Object.assign((input: string | URL | Request, init?: RequestInit) => handler(new Request(input, init)), {

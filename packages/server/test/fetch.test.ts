@@ -42,6 +42,7 @@ it.live("cancels boot recovery when the fetch application scope closes", () =>
     })
 
     yield* ServerFetch.make(options, {
+      allowUnauthenticated: true,
       overrides: [SessionRestart.node.replace(Layer.succeed(SessionRestart.Service, restart))],
     }).pipe(Effect.provideService(Scope.Scope, scope))
 
@@ -69,6 +70,7 @@ it.live("recovers Orchestra tasks even when the session restart sweep fails", ()
     } as unknown as Orchestra.Interface)
 
     yield* ServerFetch.make(options, {
+      allowUnauthenticated: true,
       overrides: [
         SessionRestart.node.replace(Layer.succeed(SessionRestart.Service, restart)),
         Orchestra.node.replace(Layer.succeed(Orchestra.Service, orchestra)),
@@ -87,7 +89,7 @@ it.live("returns LocationNotFoundError for a missing folder and recovers once it
   Effect.gen(function* () {
     const config = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-directory-errors-")))
     const directory = path.join(config.path, "project")
-    const handler = yield* ServerFetch.make({ ...options, config: { directory: config.path } })
+    const handler = yield* ServerFetch.make({ ...options, config: { directory: config.path } }, { allowUnauthenticated: true })
     // Session creation only resolves its placement; it does not boot the Location graph.
     const created = yield* Effect.promise(() =>
       handler(
@@ -235,7 +237,7 @@ it.live("serves the HttpApi and enforces Basic auth like the Node server", () =>
 
 it.live("activates credentials through the HttpApi", () =>
   Effect.gen(function* () {
-    const handler = yield* ServerFetch.make(options)
+    const handler = yield* ServerFetch.make(options, { allowUnauthenticated: true })
     const response = yield* Effect.promise(() =>
       handler(new Request("http://opencode.local/api/credential/cred_missing/activate", { method: "POST" })),
     )
@@ -243,9 +245,23 @@ it.live("activates credentials through the HttpApi", () =>
   }),
 )
 
-it.live("serves unauthenticated and answers CORS preflight when no password is configured", () =>
+it.live("refuses to build without a password unless the embedder opts in", () =>
   Effect.gen(function* () {
-    const handler = yield* ServerFetch.make(options)
+    const denied = yield* Effect.exit(ServerFetch.make(options))
+    expect(Exit.isFailure(denied)).toBe(true)
+
+    const handler = yield* ServerFetch.make(options, { allowUnauthenticated: true })
+    const response = yield* Effect.promise(() => handler(new Request("http://opencode.local/api/info")))
+    expect(response.status).toBe(200)
+  }).pipe(Effect.scoped),
+)
+
+it.live("serves unauthenticated with an explicit opt-in and answers CORS preflight for a listed origin", () =>
+  Effect.gen(function* () {
+    const handler = yield* ServerFetch.make(
+      { ...options, cors: ["http://localhost:3000"] },
+      { allowUnauthenticated: true },
+    )
 
     const response = yield* Effect.promise(() => handler(new Request("http://opencode.local/api/info")))
     expect(response.status).toBe(200)
@@ -262,6 +278,20 @@ it.live("serves unauthenticated and answers CORS preflight when no password is c
       ),
     )
     expect(preflight.headers.get("access-control-allow-origin")).toBe("http://localhost:3000")
+
+    // A localhost origin that is not listed stays untrusted.
+    const unlisted = yield* Effect.promise(() =>
+      handler(
+        new Request("http://opencode.local/api/info", {
+          method: "OPTIONS",
+          headers: {
+            origin: "http://localhost:4000",
+            "access-control-request-method": "GET",
+          },
+        }),
+      ),
+    )
+    expect(unlisted.headers.get("access-control-allow-origin")).toBeNull()
   }),
 )
 
@@ -276,7 +306,9 @@ it.live("applies custom CORS origins to HTTP responses and PTY ticket checks", (
       ["http://192.168.1.10:3001", "http://localhost:3000", "https://untrusted.example.com"],
       (origin) =>
         Effect.gen(function* () {
-          const allowed = origin !== "https://untrusted.example.com"
+          // localhost is not trusted by default even though it is local: only the
+          // origin listed in `cors` is allowed.
+          const allowed = origin === "http://192.168.1.10:3001"
           const preflight = yield* Effect.promise(() =>
             handler(
               new Request("http://opencode.local/api/info", {
@@ -401,7 +433,7 @@ it.live("returns 404 when a previously readable file is deleted", () =>
     Effect.promise(() => tmpdir("opencode-fs-read-endpoint-")),
     (tmp) =>
       Effect.gen(function* () {
-        const handler = yield* ServerFetch.make(options)
+        const handler = yield* ServerFetch.make(options, { allowUnauthenticated: true })
         const file = path.join(tmp.path, "deleted.txt")
         yield* Effect.promise(() => fs.writeFile(file, "content"))
         const url = new URL("http://opencode.local/api/fs/read/deleted.txt")
@@ -427,7 +459,7 @@ it.live("returns 404 when a previously readable file is deleted", () =>
 it.live("cancels a stale OpenAI OAuth callback server before falling back", () =>
   Effect.gen(function* () {
     const requests = yield* occupy(1455, true)
-    const handler = yield* ServerFetch.make(options)
+    const handler = yield* ServerFetch.make(options, { allowUnauthenticated: true })
     const response = yield* connectOpenAI(handler)
 
     expect(response.status).toBe(200)
@@ -441,7 +473,7 @@ it.live("cancels a stale OpenAI OAuth callback server before falling back", () =
 it.live("falls back to port 1457 when OpenAI OAuth port 1455 remains busy", () =>
   Effect.gen(function* () {
     const requests = yield* occupy(1455)
-    const handler = yield* ServerFetch.make(options)
+    const handler = yield* ServerFetch.make(options, { allowUnauthenticated: true })
     const response = yield* connectOpenAI(handler)
 
     expect(response.status).toBe(200)
@@ -458,7 +490,7 @@ it.live(
     Effect.gen(function* () {
       yield* occupy(1455)
       yield* occupy(1457)
-      const handler = yield* ServerFetch.make(options)
+      const handler = yield* ServerFetch.make(options, { allowUnauthenticated: true })
       const response = yield* connectOpenAI(handler)
 
       expect(response.status).toBe(400)
@@ -475,7 +507,7 @@ it.live(
 
 it.live("serves the session view operation and missing-session error", () =>
   Effect.gen(function* () {
-    const handler = yield* ServerFetch.make(options)
+    const handler = yield* ServerFetch.make(options, { allowUnauthenticated: true })
     const created = yield* Effect.promise(() =>
       handler(
         new Request("http://opencode.local/api/session", {
@@ -523,14 +555,17 @@ it.live("serves the session view operation and missing-session error", () =>
 it.live("routes pending requests through the Session's instance", () =>
   Effect.gen(function* () {
     const config = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-pending-read-")))
-    const handler = yield* ServerFetch.make({
-      ...options,
-      config: {
-        directory: config.path,
-        project: false,
-        content: JSON.stringify({ permissions: [{ action: "shell", resource: "*", effect: "ask" }] }),
+    const handler = yield* ServerFetch.make(
+      {
+        ...options,
+        config: {
+          directory: config.path,
+          project: false,
+          content: JSON.stringify({ permissions: [{ action: "shell", resource: "*", effect: "ask" }] }),
+        },
       },
-    })
+      { allowUnauthenticated: true },
+    )
     const created = (yield* Effect.promise(() =>
       handler(
         new Request("http://opencode.local/api/session", {
@@ -665,7 +700,7 @@ it.live("routes pending requests through the Session's instance", () =>
 // (the Effect-TS/effect#6319 failure class that lazy first-request builds are prone to).
 it.live("stays serviceable when the first request aborts", () =>
   Effect.gen(function* () {
-    const handler = yield* ServerFetch.make(options)
+    const handler = yield* ServerFetch.make(options, { allowUnauthenticated: true })
 
     const aborted = yield* Effect.promise(() => {
       const controller = new AbortController()
