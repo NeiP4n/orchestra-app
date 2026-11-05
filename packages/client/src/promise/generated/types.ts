@@ -402,6 +402,10 @@ export type SessionStatus =
     }
   | { type: "busy" }
 
+export type AutoloopCardKind = "ask" | "notice"
+
+export type AutoloopCardState = "open" | "closed" | "decided" | "done"
+
 export type PtyTicketConnectToken = { ticket: string; expires_in: number }
 
 export type PersistentPtyReadResult = {
@@ -1873,6 +1877,25 @@ export type SessionStatusUpdated = {
   data: { sessionID: string; status: SessionStatus }
 }
 
+export type AutoloopCardCard = {
+  id: number
+  key: string
+  kind: AutoloopCardKind
+  title: string
+  text: string
+  options: Array<string>
+  recommend: string | null
+  about: string
+  state: AutoloopCardState
+  choice: number | null
+  answer: string | null
+  by: string | null
+  runId: number | null
+  createdAt: string
+  decidedAt: string | null
+  closedAt: string | null
+}
+
 export type ReferenceSource = ReferenceLocalSource | ReferenceGitSource
 
 export type WorktreeList = Array<WorktreeDirectory>
@@ -2282,6 +2305,35 @@ export type FormReplied = {
   data: { id: string; sessionID: string; answer: FormAnswer2 }
 }
 
+export type AutoloopCardCreated = {
+  id: string
+  created: number
+  metadata?: { [x: string]: any }
+  type: "autoloop.card.created"
+  location?: LocationRef
+  data: { card: AutoloopCardCard }
+}
+
+export type AutoloopCardAnswered = {
+  id: string
+  created: number
+  metadata?: { [x: string]: any }
+  type: "autoloop.card.answered"
+  location?: LocationRef
+  data: { card: AutoloopCardCard }
+}
+
+export type AutoloopCardUpdated = {
+  id: string
+  created: number
+  metadata?: { [x: string]: any }
+  type: "autoloop.card.updated"
+  location?: LocationRef
+  data: { card: AutoloopCardCard }
+}
+
+export type AutoloopCardAnswerResult = { card: AutoloopCardCard; changed: boolean; newRunId: number | null }
+
 export type ReferenceInfo = {
   name: string
   path: string
@@ -2505,6 +2557,16 @@ export type ConfigEntry =
                 models?: Array<string | { providerID: string; model: string; variant?: string }>
               }
             }
+          }
+          autoloop?: {
+            maxAttempts?: number
+            maxVerifyIterations?: number
+            maxHops?: number
+            retryBaseMinutes?: number
+            retryMaxMinutes?: number
+            runLeaseMinutes?: number
+            workerFreshMinutes?: number
+            offlineAfterMinutes?: number
           }
         }
         proxy?: ConfigProxy
@@ -2963,6 +3025,9 @@ export type V2Event =
   | InstallationUpdated
   | InstallationUpdateAvailable
   | VcsBranchUpdated
+  | AutoloopCardCreated
+  | AutoloopCardAnswered
+  | AutoloopCardUpdated
   | McpStatusChanged
   | McpResourcesChanged
   | V2EventRpc
@@ -3258,6 +3323,14 @@ export type RoomNotFoundError = {
 }
 export const isRoomNotFoundError = (value: unknown): value is RoomNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "RoomNotFoundError"
+
+export type AutoloopCardNotFoundError = {
+  readonly _tag: "AutoloopCardNotFoundError"
+  readonly id: number
+  readonly message: string
+}
+export const isAutoloopCardNotFoundError = (value: unknown): value is AutoloopCardNotFoundError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "AutoloopCardNotFoundError"
 
 export type ServerInfoOutput = ServerInfo
 
@@ -15113,6 +15186,17 @@ export type OrchestraLinkSetOutput = void
 export type OrchestraLinkListInput = { readonly projectID: { readonly projectID: string }["projectID"] }
 
 export type OrchestraLinkListOutput = Array<{ id: string; name: string }>
+
+export type ServerAutoloopCardsListOutput = Array<AutoloopCardCard>
+
+export type ServerAutoloopCardsAnswerInput = {
+  readonly id: { readonly id: string }["id"]
+  readonly choice?: { readonly choice?: number; readonly text?: string; readonly by?: string }["choice"]
+  readonly text?: { readonly choice?: number; readonly text?: string; readonly by?: string }["text"]
+  readonly by?: { readonly choice?: number; readonly text?: string; readonly by?: string }["by"]
+}
+
+export type ServerAutoloopCardsAnswerOutput = AutoloopCardAnswerResult
 
 export type QuotaCheckInput = {
   readonly modelID: {

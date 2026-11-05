@@ -305,3 +305,12 @@ export class NoteConflictError extends Schema.TaggedError<NoteConflictError>()(
   },
   { httpApiStatus: 409 },
 ) {}
+
+export class AutoloopCardNotFoundError extends Schema.TaggedError<AutoloopCardNotFoundError>()(
+  "AutoloopCardNotFoundError",
+  {
+    id: Schema.Number,
+    message: Schema.String,
+  },
+  { httpApiStatus: 404 },
+) {}

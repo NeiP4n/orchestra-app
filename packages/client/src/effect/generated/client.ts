@@ -448,6 +448,9 @@ import type {
   OrchestraLinkSetOutput,
   OrchestraLinkListInput,
   OrchestraLinkListOutput,
+  ServerAutoloopCardsListOutput,
+  ServerAutoloopCardsAnswerInput,
+  ServerAutoloopCardsAnswerOutput,
   QuotaCheckInput,
   QuotaCheckOutput,
 } from "../api/api.js"
@@ -2692,6 +2695,22 @@ const adaptGroupOrchestra = (raw: RawClient["server.orchestra"]) => ({
   link: { set: EndpointOrchestraLinkSet(raw), list: EndpointOrchestraLinkList(raw) },
 })
 
+const EndpointServerAutoloopCardsList = (raw: RawClient["server.autoloop"]) => () =>
+  preserveEffect<ServerAutoloopCardsListOutput>()(raw["autoloop.cards.list"]({}).pipe(Effect.mapError(mapClientError)))
+
+const EndpointServerAutoloopCardsAnswer =
+  (raw: RawClient["server.autoloop"]) => (input: ServerAutoloopCardsAnswerInput) =>
+    preserveEffect<ServerAutoloopCardsAnswerOutput>()(
+      raw["autoloop.cards.answer"]({
+        params: { id: input["id"] },
+        payload: { choice: input["choice"], text: input["text"], by: input["by"] },
+      }).pipe(Effect.mapError(mapClientError)),
+    )
+
+const adaptGroupServerAutoloop = (raw: RawClient["server.autoloop"]) => ({
+  cards: { list: EndpointServerAutoloopCardsList(raw), answer: EndpointServerAutoloopCardsAnswer(raw) },
+})
+
 const EndpointQuotaCheck = (raw: RawClient["quota"]) => (input: QuotaCheckInput) =>
   preserveEffect<QuotaCheckOutput>()(
     raw["quota.check"]({
@@ -2740,6 +2759,7 @@ const adaptClient = (raw: RawClient) => ({
   config: adaptGroupConfig(raw["server.config"]),
   room: adaptGroupRoom(raw["server.room"]),
   orchestra: adaptGroupOrchestra(raw["server.orchestra"]),
+  "server.autoloop": adaptGroupServerAutoloop(raw["server.autoloop"]),
   quota: adaptGroupQuota(raw["quota"]),
 })
 

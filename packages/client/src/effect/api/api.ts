@@ -4971,6 +4971,65 @@ export interface OrchestraApi<E = never> {
   readonly link: { readonly set: OrchestraLinkSetOperation<E>; readonly list: OrchestraLinkListOperation<E> }
 }
 
+export type ServerAutoloopCardsListOutput = ReadonlyArray<{
+  readonly id: number
+  readonly key: string
+  readonly kind: "ask" | "notice"
+  readonly title: string
+  readonly text: string
+  readonly options: ReadonlyArray<string>
+  readonly recommend: string | null
+  readonly about: string
+  readonly state: "open" | "closed" | "decided" | "done"
+  readonly choice: number | null
+  readonly answer: string | null
+  readonly by: string | null
+  readonly runId: number | null
+  readonly createdAt: string
+  readonly decidedAt: string | null
+  readonly closedAt: string | null
+}>
+export type ServerAutoloopCardsListOperation<E = never> = () => Effect.Effect<ServerAutoloopCardsListOutput, E>
+
+export type ServerAutoloopCardsAnswerInput = {
+  readonly id: number
+  readonly choice?: number | undefined
+  readonly text?: string | undefined
+  readonly by?: string | undefined
+}
+export type ServerAutoloopCardsAnswerOutput = {
+  readonly card: {
+    readonly id: number
+    readonly key: string
+    readonly kind: "ask" | "notice"
+    readonly title: string
+    readonly text: string
+    readonly options: ReadonlyArray<string>
+    readonly recommend: string | null
+    readonly about: string
+    readonly state: "open" | "closed" | "decided" | "done"
+    readonly choice: number | null
+    readonly answer: string | null
+    readonly by: string | null
+    readonly runId: number | null
+    readonly createdAt: string
+    readonly decidedAt: string | null
+    readonly closedAt: string | null
+  }
+  readonly changed: boolean
+  readonly newRunId: number | null
+}
+export type ServerAutoloopCardsAnswerOperation<E = never> = (
+  input: ServerAutoloopCardsAnswerInput,
+) => Effect.Effect<ServerAutoloopCardsAnswerOutput, E>
+
+export interface ServerAutoloopApi<E = never> {
+  readonly cards: {
+    readonly list: ServerAutoloopCardsListOperation<E>
+    readonly answer: ServerAutoloopCardsAnswerOperation<E>
+  }
+}
+
 export type QuotaCheckInput = {
   readonly modelID: string
   readonly contextWindowLimit: number
@@ -5027,5 +5086,6 @@ export interface AppApi<E = never> {
   readonly config: ConfigApi<E>
   readonly room: RoomApi<E>
   readonly orchestra: OrchestraApi<E>
+  readonly "server.autoloop": ServerAutoloopApi<E>
   readonly quota: QuotaApi<E>
 }
