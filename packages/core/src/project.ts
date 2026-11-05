@@ -1,6 +1,6 @@
 export * as Project from "./project.js"
 
-import { Context, Effect, Layer, Schema } from "effect"
+import { Context, Effect, Layer, Option, Schema } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { and, asc, desc, eq, gte, isNull, lte, sql } from "drizzle-orm"
 import path from "path"
@@ -113,6 +113,11 @@ const layer = Layer.effect(
         .get()
         .pipe(Effect.orDie)
       yield* upsertProject(db, project).pipe(Effect.orDie)
+      // The folder -> orchestra-ID binding lives in the project itself, so the
+      // ID survives a database or channel switch and a folder move: the file
+      // moves with the folder. The global sentinel is never pinned — an empty
+      // repo must stay free to adopt a real identity later.
+      if (project.id !== ID.global) yield* ensureBinding(project.directory, project.id)
       // Clones share a project ID; only replace a canonical directory that is gone.
       if (
         previous &&
@@ -265,6 +270,45 @@ const layer = Layer.effect(
       )
     })
 
+    // The binding is the saved folder -> orchestra-ID link: a markerless
+    // directory has no remote or root commit to derive a stable ID from, so
+    // the first resolve pins the derived ID here and later resolves read it
+    // back instead of hashing the (possibly moved) path. Git and Mercurial
+    // projects ignore it on read — their remote/root identity is already
+    // stable — but persist overwrites it, so a repo that later loses its
+    // .git keeps its project instead of becoming an orphan. A corrupt or
+    // foreign binding is ignored, never fatal.
+    const Binding = Schema.Struct({
+      id: ID,
+      version: Schema.optional(Schema.Number),
+    })
+    const decodeBinding = Schema.decodeUnknownOption(Schema.fromJsonString(Binding), {
+      onExcessProperty: "ignore",
+    })
+    const boundId = Effect.fnUntraced(function* (directory: AbsolutePath) {
+      const raw = yield* fs
+        .readFileStringSafe(path.join(directory, ".orchestra", "project.json"))
+        .pipe(Effect.orElseSucceed(() => undefined))
+      if (!raw) return undefined
+      const binding = decodeBinding(raw)
+      return Option.isSome(binding) ? binding.value.id : undefined
+    })
+    const ensureBinding = Effect.fnUntraced(function* (directory: AbsolutePath, id: ID) {
+      const existing = yield* boundId(directory)
+      if (existing === id) return
+      yield* fs
+        .ensureDir(path.join(directory, ".orchestra"))
+        .pipe(
+          Effect.andThen(
+            fs.writeFileString(
+              path.join(directory, ".orchestra", "project.json"),
+              JSON.stringify({ id, version: 1 }, null, 2) + "\n",
+            ),
+          ),
+          Effect.ignore,
+        )
+    })
+
     const remote = Effect.fnUntraced(function* (repo: Git.Repository) {
       const origin = yield* git.remote.get(repo)
       if (!origin) return undefined
@@ -374,8 +418,9 @@ const layer = Layer.effect(
         })
       }
 
+      const bound = yield* boundId(directory)
       return yield* persist({
-        id: ID.make(Hash.fast(`directory:${directory}`)),
+        id: bound ?? ID.make(Hash.fast(`directory:${directory}`)),
         directory,
         canonical: directory,
         vcs: undefined,

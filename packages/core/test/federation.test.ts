@@ -19,6 +19,7 @@ import { SessionHold } from "@orchestra/core/session/hold"
 import { KV } from "@orchestra/core/kv"
 import { Location } from "@orchestra/core/location"
 import { SessionID } from "@orchestra/schema/session-id"
+import { Money } from "@orchestra/schema/money"
 import { AbsolutePath } from "@orchestra/core/schema"
 import { tmpdir } from "./fixture/tmpdir"
 import { tempGlobalLayer } from "./fixture/global"
@@ -242,6 +243,41 @@ describe("Federation", () => {
       yield* federation.removeGroup("Shop")
       expect(yield* federation.groups()).toEqual([])
       expect((yield* federation.linkGroup("Shop").pipe(Effect.flip)).message).toContain("No group")
+    }),
+  )
+
+  it.live("keeps a group's budget across a rewrite that does not name one", () =>
+    Effect.gen(function* () {
+      const { a, b } = yield* setup
+      const federation = yield* Federation.Service
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id], budget: Money.USD.make(100) })
+      expect((yield* federation.groups()).find((group) => group.name === "Shop")?.budget).toBe(Money.USD.make(100))
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id] })
+      expect((yield* federation.groups()).find((group) => group.name === "Shop")?.budget).toBe(Money.USD.make(100))
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id], budget: Money.USD.make(50) })
+      expect((yield* federation.groups()).find((group) => group.name === "Shop")?.budget).toBe(Money.USD.make(50))
+    }),
+  )
+
+  it.live("pages past the 1000-entry KV scan limit for groups and holds", () =>
+    Effect.gen(function* () {
+      const federation = yield* Federation.Service
+      const kv = yield* KV.Service
+      // One scan page holds 1000 entries: seed 1001 groups and 1001 holds so the
+      // tail past the first page must be followed through `next` to be seen.
+      const names = Array.from({ length: 1001 }, (_, index) => `page-${String(index).padStart(4, "0")}`)
+      yield* Effect.forEach(
+        names,
+        (name) => kv.set(`federation/group/${name}`, { name, projects: [] }),
+        { concurrency: 8, discard: true },
+      )
+      yield* Effect.forEach(
+        names,
+        (name) => kv.set(`federation/hold/${name}`, true),
+        { concurrency: 8, discard: true },
+      )
+      expect((yield* federation.groups()).filter((group) => group.name.startsWith("page-"))).toHaveLength(1001)
+      expect((yield* federation.holds()).filter((name) => name.startsWith("page-"))).toHaveLength(1001)
     }),
   )
 

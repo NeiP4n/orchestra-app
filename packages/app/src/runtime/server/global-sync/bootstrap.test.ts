@@ -69,6 +69,53 @@ test("bootstraps projects through the native store setter and preserves subseque
   }
 })
 
+test("an empty project list from a refetch never wipes projects already on screen", async () => {
+  let projects: Array<Record<string, unknown>> = [
+    { id: "project", canonical: "/repo", time: { created: 1, updated: 1 }, sandboxes: [] },
+  ]
+  const api = OpenCode.make({
+    baseUrl: "http://opencode.local",
+    fetch: Object.assign(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(new Request(input, init).url)
+
+        if (url.pathname === "/api/location")
+          return Response.json({
+            directory: "/repo",
+            project: { id: "project", directory: "/repo", canonical: "/repo" },
+          })
+
+        if (url.pathname === "/api/project") return Response.json(projects)
+        throw new Error(`Unexpected request: ${url.pathname}`)
+      },
+      { preconnect() {} },
+    ),
+  })
+
+  const [store, setStore] = createStore<ServerSync["data"]>({
+    path: { state: "", config: "", worktree: "", directory: "", home: "" },
+    project: [],
+    provider_auth: {},
+    config: {},
+    reload: undefined,
+  })
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+  try {
+    await bootstrapGlobal({ serverAPI: api, scope: ServerScope.local, setGlobalStore: setStore, queryClient })
+    expect(store.project.map((project) => project.id)).toEqual(["project"])
+
+    // The server answers empty (not ready yet, wrong database): the list stays.
+    projects = []
+    queryClient.invalidateQueries({ queryKey: [ServerScope.local, "project"] })
+    await bootstrapGlobal({ serverAPI: api, scope: ServerScope.local, setGlobalStore: setStore, queryClient })
+    expect(store.project.map((project) => project.id)).toEqual(["project"])
+  } finally {
+    queryClient.clear()
+  }
+})
+
 // Chromium aborts in-flight loopback requests with ERR_NETWORK_CHANGED when Windows reconfigures an
 // adapter; the client wraps that as ClientError("Transport"), which the bootstrap retry must see through.
 test("recovers project metadata after the connection to the server is dropped", async () => {

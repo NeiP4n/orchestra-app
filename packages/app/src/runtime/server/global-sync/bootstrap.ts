@@ -92,14 +92,19 @@ export async function bootstrapGlobal(input: {
     () => input.queryClient.fetchQuery(loadPathQuery(input.scope, null, input.serverAPI.location)),
     () =>
       input.queryClient.fetchQuery(loadProjectsQuery(input.scope, input.serverAPI.project)).then((data) =>
-        input.setGlobalStore(
-          "project",
-          data.map((project) =>
-            withWorktreeInventory(
-              project,
-              input.queryClient.getQueryData(worktreeInventoryKey(input.scope, project.id)),
-            ),
-          ),
+        input.setGlobalStore("project", (previous) =>
+          // A not-yet-ready server (or a wrong database file) answers with an empty
+          // list: keep the projects already on screen instead of flashing an empty
+          // project list. Projects are never deleted through the UI, so an empty
+          // fetch never legitimately clears a non-empty store.
+          data.length === 0 && previous.length > 0
+            ? previous
+            : data.map((project) =>
+                withWorktreeInventory(
+                  project,
+                  input.queryClient.getQueryData(worktreeInventoryKey(input.scope, project.id)),
+                ),
+              ),
         ),
       ),
   ]

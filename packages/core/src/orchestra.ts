@@ -198,8 +198,9 @@ export interface Interface {
   readonly removeTemplate: (id: string) => Effect.Effect<void, TeamError>
   // The playbook of the team template a project was opened from, which the Orchestrator follows.
   readonly playbook: (id: ProjectID) => Effect.Effect<{ name: string; text: string } | undefined>
-  // The outcome of each worker's latest report in the project, by worker session ID.
-  readonly outcomes: (id: ProjectID) => Effect.Effect<Record<string, { outcome: TaskReportInfo["outcome"]; created: number }>>
+  // Every report outcome of each worker in the project, oldest first, by worker session ID.
+  // The list is the full history: collapsing it to the latest report loses earlier outcomes.
+  readonly outcomes: (id: ProjectID) => Effect.Effect<Record<string, ReadonlyArray<{ outcome: TaskReportInfo["outcome"]; created: number }>>>
   // Emits after every saved or removed role or template, so agents can be rebuilt.
   readonly changes: Stream.Stream<void>
 }
@@ -391,8 +392,7 @@ const layer: Layer.Layer<
     }
 
     const projects = Effect.fn("Orchestra.projects")(function* () {
-      const result = yield* kv.scan({ prefix: PROJECT, limit: 1000 })
-      return result.entries
+      return (yield* scanAll(PROJECT))
         .flatMap((entry) => Option.toArray(decodeProject(entry.value)))
         .toSorted((a, b) => a.created - b.created)
     })
@@ -1680,8 +1680,7 @@ const layer: Layer.Layer<
       prefix: string,
       decode: (value: unknown) => Option.Option<A>,
     ) {
-      const result = yield* kv.scan({ prefix, limit: 1000 })
-      return result.entries.flatMap((entry) =>
+      return (yield* scanAll(prefix)).flatMap((entry) =>
         Option.toArray(decode(entry.value)).map((value) => ({ ...value, id: entry.key.slice(prefix.length) })),
       )
     })
@@ -2447,11 +2446,12 @@ const layer: Layer.Layer<
       }),
       outcomes: Effect.fn("Orchestra.outcomes")(function* (id) {
         const reports = (yield* scanAll(reportPrefix(id))).flatMap((entry) => Option.toArray(decodeTaskReport(entry.value)))
-        return Object.fromEntries(
-          reports
-            .toSorted((a, b) => a.created - b.created)
-            .map((report) => [report.workerID, { outcome: report.outcome, created: report.created }]),
-        )
+        const history: Record<string, Array<{ outcome: TaskReportInfo["outcome"]; created: number }>> = {}
+        for (const report of reports.toSorted((a, b) => a.created - b.created)) {
+          const worker = (history[report.workerID] ??= [])
+          worker.push({ outcome: report.outcome, created: report.created })
+        }
+        return history
       }),
       changes: Stream.fromPubSub(changed),
     })

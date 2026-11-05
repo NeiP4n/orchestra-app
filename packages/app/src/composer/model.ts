@@ -281,6 +281,11 @@ export function createComposerModel(adapter: ComposerAdapter, options?: { queue?
           description: language.t("prompt.toast.modelAgentRequired.description"),
         }),
       unqueueable: () => showToast({ title: language.t("prompt.toast.unqueueable.title") }),
+      sessionPaused: () =>
+        showToast({
+          title: language.t("prompt.toast.sessionPaused.title"),
+          description: language.t("prompt.toast.sessionPaused.description"),
+        }),
       failed: (kind, error) =>
         showToast({
           title: language.t(sendFailedTitle[kind]),

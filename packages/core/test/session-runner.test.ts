@@ -25,6 +25,7 @@ import { TestLLM } from "@orchestra/ai/testing"
 import type { SessionHooks } from "@orchestra/plugin/effect/session"
 import { Database } from "@orchestra/core/database/database"
 import { Dod } from "@orchestra/core/dod"
+import { Journal } from "@orchestra/core/journal"
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
 import { LayerNodePlatform } from "@orchestra/core/effect/app-node-platform"
@@ -5646,6 +5647,10 @@ describe("SessionRunnerLLM", () => {
     expect(new Set(assistants.map((message) => message.id)).size).toBe(2)
     expect(context.find((message) => message.type === "synthetic")?.description).toBeUndefined()
     expect(yield* recordedEventTypes(sessionID)).toContain("session.retry.scheduled.1")
+    // The break after the first tokens is in the error journal, not just in
+    // the failed step: one fact, for this session.
+    const errors = yield* Journal.readErrors()
+    expect(errors.filter((error) => error.kind === "stream-interrupted" && error.sessionID === sessionID)).toHaveLength(1)
     yield* replaySessionProjection(sessionID)
     expect(yield* s.context).toMatchObject(context)
   })

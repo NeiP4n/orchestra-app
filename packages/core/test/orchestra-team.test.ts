@@ -310,6 +310,23 @@ describe("Orchestra sandbox project", () => {
       expect(yield* orchestra.projects()).toEqual([])
     }),
   )
+
+  it.live("pages past the 1000-entry KV scan limit for projects", () =>
+    Effect.gen(function* () {
+      const orchestra = yield* Orchestra.Service
+      const kv = yield* KV.Service
+      // One scan page holds 1000 entries: seed 1001 projects so the tail past
+      // the first page must be followed through `next` to be seen.
+      const ids = Array.from({ length: 1001 }, (_, index) => `prj_page-${String(index).padStart(4, "0")}`)
+      yield* Effect.forEach(
+        ids,
+        (id, index) =>
+          kv.set(`orchestra/project/${id}`, { id, name: `page-${index}`, directory: `/tmp/page-${index}`, created: index }),
+        { concurrency: 8, discard: true },
+      )
+      expect((yield* orchestra.projects()).filter((project) => project.name.startsWith("page-"))).toHaveLength(1001)
+    }),
+  )
 })
 
 describe("Orchestra team", () => {
@@ -1039,6 +1056,35 @@ describe("Orchestra team", () => {
       // Re-running startup reconciliation does not duplicate a report already in the Inbox.
       yield* orchestra.recoverPendingTasks()
       expect(yield* reports(repaired.main!)).toHaveLength(1)
+    }).pipe(Effect.scoped),
+  ),
+
+  it.live("keeps every report of a worker instead of only the latest", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-report-history-")))
+      const orchestra = yield* Orchestra.Service
+      const project = yield* orchestra.create({ name: "Report history", directory: tmp.path, template: "bugfix" })
+      const main = project.main!
+      const worker = yield* orchestra.createMember({ project, title: "Developer", agent: Orchestra.role("developer") })
+
+      yield* orchestra.dispatch({ project, sessionID: worker.id, text: "Fix the first bug" })
+      yield* untilNoPending(worker.id)
+      yield* orchestra.dispatch({ project, sessionID: worker.id, text: "Fix the second bug" })
+      yield* untilNoPending(worker.id)
+
+      // Both reports are still there: the second dispatch must not overwrite the first.
+      const delivered = yield* reports(main).pipe(
+        Effect.filterOrFail((items) => items.length === 2),
+        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.timeout("2 seconds"),
+      )
+      expect(delivered).toHaveLength(2)
+      const history = (yield* orchestra.outcomes(project.id))[worker.id]
+      expect(history).toBeDefined()
+      expect(history).toHaveLength(2)
+      // Oldest first; the stub worker's answer carries no explicit outcome, so the
+      // value itself is not the subject here — the count and the order are.
+      expect(history![0]!.created).toBeLessThanOrEqual(history![1]!.created)
     }).pipe(Effect.scoped),
   ),
 

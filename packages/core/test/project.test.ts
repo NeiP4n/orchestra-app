@@ -199,6 +199,48 @@ describe("Project.resolve", () => {
     }),
   )
 
+  it.live("keeps the same project id when a markerless directory moves", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      const before = path.join(tmp.path, "before")
+      const after = path.join(tmp.path, "after")
+      yield* Effect.promise(() => fs.mkdir(before))
+      const project = yield* Project.Service
+
+      const initial = yield* project.resolve(abs(before))
+      yield* Effect.promise(() => fs.rename(before, after))
+      const moved = yield* project.resolve(abs(after))
+
+      expect(moved.id).toBe(initial.id)
+      expect(moved.id).not.toBe(Project.ID.global)
+      const binding = yield* Effect.promise(() =>
+        fs.readFile(path.join(after, ".orchestra", "project.json"), "utf8").then((raw) => JSON.parse(raw)),
+      )
+      expect(binding.id).toBe(initial.id)
+    }),
+  )
+
+  it.live("ignores a corrupt project binding and falls back to the directory id", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      yield* Effect.promise(async () => {
+        await fs.mkdir(path.join(tmp.path, ".orchestra"), { recursive: true })
+        await fs.writeFile(path.join(tmp.path, ".orchestra", "project.json"), "{not json")
+      })
+      const project = yield* Project.Service
+
+      const result = yield* project.resolve(abs(tmp.path))
+
+      expect(result.id).toBe(Project.ID.make(Hash.fast(`directory:${yield* real(tmp.path)}`)))
+    }),
+  )
+
   it.live("records the canonical directory in the worktree inventory for markerless projects", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireRelease(

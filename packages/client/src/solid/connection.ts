@@ -129,6 +129,12 @@ export function createClientConnection(initialApi: OrchestraClient, options: Cli
         if (event.value && typeof event.value === "object" && "id" in event.value && typeof (event.value as any).id === "string") {
           lastEventID = (event.value as any).id
         }
+        if ((event.value as { readonly type?: string } | null | undefined)?.type === "server.replay-gap") {
+          // The server could not replay the events since our last ID; the app resyncs
+          // from the API on this event, so forget the stale ID instead of asking for
+          // the same unreplayable window again on the next reconnect.
+          lastEventID = undefined
+        }
         if ("durable" in event.value && event.value.durable)
           options.log?.debug?.("event", {
             type: event.value.type,

@@ -19,6 +19,7 @@ import { LocationServiceMap } from "../location-service-map.js"
 import { Model } from "../model.js"
 import { Mcp } from "../mcp/index.js"
 import { Session } from "../session.js"
+import { SessionHold } from "../session/hold.js"
 import { PersistentPty } from "../persistent-pty.js"
 import { Provider } from "../provider.js"
 import { discoverModels, reachable } from "../provider-discovery.js"
@@ -596,7 +597,12 @@ export const make = Effect.fn("PluginHost.make")(function* (
       remove: (input) => sessions.remove(input.sessionID),
       switchAgent: sessions.switchAgent,
       switchModel: sessions.switchModel,
-      prompt: sessions.prompt,
+      prompt: (input) =>
+        Effect.gen(function* () {
+          const data = yield* sessions.prompt(input)
+          const held = yield* SessionHold.held(input.sessionID)
+          return { data, held }
+        }),
       generate: (input) => sessions.generate(input).pipe(Effect.map((text) => ({ text }))),
       command: (input) => sessions.command({ ...input, command: input.name }),
       compact: sessions.compact,

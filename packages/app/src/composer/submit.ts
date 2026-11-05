@@ -43,6 +43,7 @@ type ComposerSubmitInput = {
   notify: {
     missingSelection: () => void
     unqueueable: () => void
+    sessionPaused: () => void
     // oxlint-disable-next-line anti-slop/no-unknown-parameters -- a rejected send is opaque; the notifier formats it
     failed: (kind: "shell" | "command" | "prompt", error: unknown) => void
   }
@@ -155,7 +156,7 @@ export function createComposerSubmit(input: ComposerSubmitInput) {
         const sending = sendPrompt(session, value, input.adapter.controls().model.selection.trackSessionCommit, () => {
           if (optimisticBusy && input.adapter.kind === "active-session")
             session.data.session.setStatus(session.id, "running")
-        }).then(
+        }, input.notify).then(
           () => ({ ok: true as const }),
           (error) => ({ ok: false as const, error }),
         )
@@ -486,6 +487,7 @@ async function sendPrompt(
   value: ComposerSubmission,
   track: ModelSelection["trackSessionCommit"] | undefined,
   onAdmit: () => void,
+  notify: ComposerSubmitInput["notify"],
 ) {
   const request = await buildSubmissionRequest(session, value)
 
@@ -525,9 +527,26 @@ async function sendPrompt(
     },
   }
 
-  const sending = session.data.session.prompt(admission).catch(() => session.data.session.prompt(admission))
+  // A dropped request must not lose the message or send it twice: every
+  // attempt reuses the same admission id, so the server reconciles the retry
+  // with the first admission instead of admitting a second copy. Backoff
+  // gives a brief network blip time to clear before the next attempt.
+  const sendWithRetry = async () => {
+    let lastError: unknown
+    for (const delay of [0, 500, 1500]) {
+      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+      try {
+        return await session.data.session.prompt(admission)
+      } catch (error) {
+        lastError = error
+      }
+    }
+    throw lastError
+  }
+  const sending = sendWithRetry()
   onAdmit()
-  await sending
+  const sent = await sending
+  if (sent.held) notify.sessionPaused()
 }
 
 async function buildSubmissionRequest(session: ComposerSession, value: ComposerSubmission) {

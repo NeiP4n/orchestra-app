@@ -56,7 +56,10 @@ describe("guestApi", () => {
     const api = guestApi(fake.room, "ses_1")
     const admitted = await api.session.prompt({ sessionID: "ses_1", id: "msg_local1", text: "hi" })
     expect(fake.prompts).toEqual([{ id: "msg_local1", text: "hi", sessionID: "ses_1" }])
-    expect(admitted.id).toBe("msg_local1")
+    // guestApi's session.prompt is the room guest endpoint, whose client
+    // unwraps { data } to the user item; the OrchestraClient cast types it
+    // as session.prompt, so read the id through the runtime shape.
+    expect((admitted as unknown as { id: string }).id).toBe("msg_local1")
   })
 
   test("live assistant boundaries and deltas are delivered before history replay is synced", async () => {

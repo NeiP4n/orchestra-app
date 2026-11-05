@@ -8,6 +8,7 @@ import { notifySessionTabsRemoved } from "@/shell/titlebar/session-events"
 import { useCommand } from "@/shell/commands/command"
 import {
   HOME_SESSION_LIMIT,
+  HOME_V2_SESSION_PAGE_LIMIT,
   loadHomeSessionIndex,
   mergeHomeSessionIndex,
   retainHomeSessions,
@@ -84,7 +85,24 @@ export function createHomeSessionsController(home: HomeController) {
       queryKey: ["home-archived-sessions", conn] as const,
       enabled: !!ctx && !!conn && ctx.sdk.connection.status() === "connected",
       queryFn: ctx
-        ? () => ctx.sdk.api.session.list({ archived: true, limit: HOME_SESSION_LIMIT, order: "desc", parentID: null }).then((result) => result.data)
+        ? async () => {
+            // Archived sessions are fetched whole: a single 64-row page used to
+            // hide every archived session past the first page.
+            const sessions: SessionInfo[] = []
+            let cursor: string | undefined
+            for (;;) {
+              const result = await ctx.sdk.api.session.list({
+                archived: true,
+                limit: HOME_V2_SESSION_PAGE_LIMIT,
+                order: "desc",
+                parentID: null,
+                ...(cursor ? { cursor } : {}),
+              })
+              sessions.push(...result.data)
+              if (!result.cursor.next) return sessions
+              cursor = result.cursor.next
+            }
+          }
         : skipToken,
       retry: false,
       staleTime: 30_000,

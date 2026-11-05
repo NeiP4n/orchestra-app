@@ -1736,7 +1736,7 @@ export async function createSessionTransport(input: StreamInput): Promise<Sessio
     const skills = promptSkills(next)
     if (!command) {
       input.trace?.write("send.prompt", { sessionID: input.sessionID, messageID, delivery })
-      return client.session.prompt(
+      const sent = await client.session.prompt(
         {
           sessionID: input.sessionID,
           id: messageID,
@@ -1748,6 +1748,7 @@ export async function createSessionTransport(input: StreamInput): Promise<Sessio
         },
         { signal: next.signal },
       )
+      return sent.data
     }
 
     input.trace?.write("send.command", { sessionID: input.sessionID, messageID, command: command.name, delivery })
