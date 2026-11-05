@@ -42,7 +42,10 @@ const databaseLayer = (lock: Effect.Effect<Semaphore.Semaphore>) =>
 
       if (supportsTuningPragmas) {
         yield* db.run("PRAGMA journal_mode = WAL")
-        yield* db.run("PRAGMA synchronous = NORMAL")
+        // FULL, not NORMAL: a power failure must never lose a committed journal
+        // fact, session or project row. The fsync per commit is the price of
+        // the database surviving the crash it is backing up against.
+        yield* db.run("PRAGMA synchronous = FULL")
         yield* db.run("PRAGMA busy_timeout = 5000")
         yield* db.run("PRAGMA cache_size = -64000")
         yield* db.run("PRAGMA wal_checkpoint(PASSIVE)")
