@@ -180,14 +180,23 @@ The `sessions` tool is how the Orchestrator dispatches role workers.
   watch (`packages/core/src/session/activation.ts`): a durable KV record
   (`orchestra/activation/<sessionID>`) with the dispatch time, then a check
   after N minutes (default 5, `ORCHESTRA_ACTIVATION_CHECK_MINUTES`, clamped
-  1–60). Started means input tokens > 0 or a live execution claim. A worker
-  that has not started is resumed once and checked again; if it still has not
-  started, the watch escalates to the Orchestrator with a durable
+  1–60). Started means real progress since the dispatch: input tokens above
+  the count recorded at dispatch time, or a turn executing live in this
+  process (`Session.active`). A lifetime token total proves nothing — the
+  tokens may predate the dispatch — and neither does a durable execution
+  claim, which survives a crash and names a dead turn after a restart. A
+  worker that has not started is resumed once and checked again; if it still
+  has not started, the watch escalates to the Orchestrator with a durable
   `<activation-failure>` synthetic message, using the existing error ladder
   (`SessionEscalate.ladder`), never a human confirmation. A held worker is
   left alone (the hold release wakes it); a run that ended failed/interrupted
-  is left to its own reporting, and a run that "succeeded" with zero tokens
-  and work still pending counts as not started. The planner is watched the
+  is left to its own reporting, and a run that "succeeded" with no new tokens
+  and work still pending counts as not started. Watches die with their
+  server, so `Orchestra.recoverPendingTasks` at startup re-arms every
+  surviving `watching` / `restarted` record (`SessionActivation.recover`):
+  the token baseline is refreshed to the count at recovery time and the
+  check cycle is forked again — a watch that already spent its one restart
+  escalates instead of restarting a second time. The planner is watched the
   same way from `Federation.createSociety`: a delivered kickoff starts a watch
   on the planner main session, escalating to the Society chat when the planner
   never starts.
@@ -680,11 +689,14 @@ Orchestrator and synthesizes the answers.
   design; there is no HTTP endpoint for them or for starting a round.
 - `group_status` also reports the Society's live agents society-wide
   (`packages/core/src/society-status.ts`): per-project and total counts of
-  running (holds an execution claim), waiting (a delivered task nobody
-  started — never read as working), succeeded, failed and interrupted
-  sessions, plus `live` (did not die). Counts only, never session IDs,
-  titles or names; when the claim store is unavailable in the layer the
-  output says `claimsAvailable: false` instead of reporting zero running.
+  running (executing live in this process — never a durable claim, which
+  survives a crash and would read a dead turn as running), claimed (holds
+  a durable execution claim but is not executing — a turn that never
+  completed), waiting (a delivered task nobody started — never read as
+  working), succeeded, failed and interrupted sessions, plus `live` (did
+  not die). Counts only, never session IDs, titles or names; when the claim
+  store is unavailable in the layer the output says `claimsAvailable: false`
+  instead of reporting zero running.
 - A federation group is **not** the society_forge "Society" feature; do not
   conflate them.
 

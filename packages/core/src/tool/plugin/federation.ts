@@ -632,6 +632,10 @@ export const Plugin = {
                   const activity = yield* federation.activity(group.name)
                   const claimed = Option.isSome(store) ? new Set(yield* store.value.listSuspended()) : new Set<string>()
                   const claimsAvailable = Option.isSome(store)
+                  // Live execution, not the durable claim: a claim survives
+                  // a crash, so it cannot say whether the session is
+                  // running now — only `sessions.active` can.
+                  const active = yield* sessions.active
                   const society = SocietyStatus.summarize({
                     projects: yield* Effect.forEach(
                       group.projects,
@@ -642,6 +646,7 @@ export const Plugin = {
                             sessions: listed.map((session) => ({
                               ...(session.outcome ? { outcome: session.outcome } : {}),
                               claimed: claimed.has(session.id),
+                              active: active.has(session.id),
                             })),
                           })),
                           Effect.orElseSucceed(() => ({ id, sessions: [] as ReadonlyArray<SocietyStatus.SessionSnapshot> })),
@@ -697,6 +702,7 @@ export const Plugin = {
                         society: {
                           total: society.total,
                           running: society.running,
+                          claimed: society.claimed,
                           waiting: society.waiting,
                           succeeded: society.succeeded,
                           failed: society.failed,
@@ -707,7 +713,7 @@ export const Plugin = {
                         },
                         recentTickets,
                         privacy:
-                          "Project session IDs, worker names, transcripts and files are not exposed to the Group Orchestrator. Status is based on sanitized activity transitions and federation ticket metadata, plus aggregate session counts only (society): running means a session holds an execution claim right now, waiting means a delivered task nobody started — it is not working.",
+                          "Project session IDs, worker names, transcripts and files are not exposed to the Group Orchestrator. Status is based on sanitized activity transitions and federation ticket metadata, plus aggregate session counts only (society): running means a session is executing live in this process right now, claimed means it holds a durable execution claim but is not executing, waiting means a delivered task nobody started — it is not working.",
                       },
                       null,
                       2,

@@ -12,20 +12,23 @@ export * as SocietyStatus from "./society-status.js"
 // from the same two durable signals, and names each bucket so the planner
 // cannot misread it:
 //
-// - `running`: the session holds an execution claim right now
-//   (`SessionStore.listSuspended`). A claim that survives a crash also
-//   reads as running here — it is a turn that never completed, and the
-//   restart recovery resumes it, so treating it as running is the honest
-//   reading until the terminal event lands.
+// - `running`: the session is executing live in this process right now
+//   (`Session.active`). A durable claim is NOT running: the claim is a
+//   write-ahead marker that survives a crash, so a claimed session whose
+//   process died would read as running forever — the same stale-flag
+//   mistake the activation check used to make.
+// - `claimed`: the session holds a durable execution claim but is not
+//   executing live — a turn that never completed. The restart recovery
+//   resumes it at boot, so it is work in limbo, not work in progress.
 // - `succeeded` / `failed` / `interrupted`: the last idle outcome
 //   (`idle_outcome`), written only by a terminal execution event.
 // - `waiting`: the session exists and never went idle — a delivered task
 //   nobody started, the Б14 shape. This is NOT "working".
 // - `live`: every session that did not die: everything except a session
-//   whose last outcome is failed/interrupted AND which holds no claim.
-//   A running session is alive by definition, even when its last outcome
-//   was failed (the stale-outcome case the projector fix clears on drain
-//   start). It is a roster size, not activity: a live society can still be
+//   whose last outcome is failed/interrupted AND which holds no claim and
+//   is not executing. A running session is alive by definition, even when
+//   its last outcome was failed (the stale-outcome case the projector fix
+//   clears on drain start). It is a roster size, not activity: a live society can still be
 //   all waiting, and `running` is the number that says otherwise.
 //
 // Only counts leave this module: no session IDs, no titles, no names, no
@@ -38,8 +41,13 @@ export type Outcome = "succeeded" | "failed" | "interrupted"
 export interface SessionSnapshot {
   /** The last idle outcome, if the session ever went idle. */
   readonly outcome?: Outcome
-  /** Whether the session holds an execution claim right now. */
+  /** Whether the session holds a durable execution claim right now. */
   readonly claimed: boolean
+  /**
+   * Whether the session is executing live in this process right now
+   * (`Session.active`). Absent means unknown — treated as not executing.
+   */
+  readonly active?: boolean
 }
 
 export interface ProjectSnapshot {
@@ -51,6 +59,7 @@ export interface ProjectStatus {
   readonly id: string
   readonly total: number
   readonly running: number
+  readonly claimed: number
   readonly succeeded: number
   readonly failed: number
   readonly interrupted: number
@@ -62,6 +71,7 @@ export interface Status {
   readonly projects: ReadonlyArray<ProjectStatus>
   readonly total: number
   readonly running: number
+  readonly claimed: number
   readonly succeeded: number
   readonly failed: number
   readonly interrupted: number
@@ -69,7 +79,7 @@ export interface Status {
   readonly live: number
 }
 
-const empty = { total: 0, running: 0, succeeded: 0, failed: 0, interrupted: 0, waiting: 0, live: 0 }
+const empty = { total: 0, running: 0, claimed: 0, succeeded: 0, failed: 0, interrupted: 0, waiting: 0, live: 0 }
 
 function countProject(project: ProjectSnapshot): ProjectStatus {
   // No annotation here on purpose: the accumulator is mutated below, and
@@ -77,14 +87,18 @@ function countProject(project: ProjectSnapshot): ProjectStatus {
   const status = { id: project.id, ...empty }
   for (const session of project.sessions) {
     status.total++
-    if (session.claimed) status.running++
+    const liveExecution = session.active === true
+    if (liveExecution) status.running++
+    else if (session.claimed) status.claimed++
     if (session.outcome === "succeeded") status.succeeded++
     else if (session.outcome === "failed") status.failed++
     else if (session.outcome === "interrupted") status.interrupted++
-    else if (!session.claimed) status.waiting++
-    // Dead means idle AND terminal: a running session is alive even when
-    // its last outcome was failed (stale outcome, cleared on drain start).
-    if (!session.claimed && (session.outcome === "failed" || session.outcome === "interrupted")) continue
+    else if (!liveExecution && !session.claimed) status.waiting++
+    // Dead means idle AND terminal: a running or claimed session is alive
+    // even when its last outcome was failed (stale outcome, cleared on
+    // drain start).
+    if (!liveExecution && !session.claimed && (session.outcome === "failed" || session.outcome === "interrupted"))
+      continue
     status.live++
   }
   return status
@@ -96,6 +110,7 @@ export function summarize(input: { readonly projects: ReadonlyArray<ProjectSnaps
   for (const project of projects) {
     total.total += project.total
     total.running += project.running
+    total.claimed += project.claimed
     total.succeeded += project.succeeded
     total.failed += project.failed
     total.interrupted += project.interrupted
