@@ -124,6 +124,39 @@ const layer = Layer.effect(
                 ]
               : []),
             Instructions.make({
+              key: Instructions.Key.make("core/ask-first"),
+              codec: Schema.toCodecJson(Schema.String),
+              read: Effect.succeed(
+                [
+                  "<ask-first>",
+                  "  Before writing any code for a task, first write exactly three questions about the parts of the task that are unclear to you, then work from the answers.",
+                  "  Ask about the goal, the constraints or the acceptance check — not about trivia you can read in the code yourself.",
+                  "  When a task is trivial and nothing is unclear, write one line saying so instead of inventing questions.",
+                  "</ask-first>",
+                ].join("\n"),
+              ),
+              render: {
+                initial: (text) => text,
+                changed: (_previous, text) => text,
+              },
+            }),
+            Instructions.make({
+              key: Instructions.Key.make("core/riskiest-first"),
+              codec: Schema.toCodecJson(Schema.String),
+              read: Effect.succeed(
+                [
+                  "<riskiest-first>",
+                  "  Do the riskiest, least-known part of a task first, not the easiest part: the unknown integration, the unclear requirement, the part most likely to fail.",
+                  "  Fail fast and cheap while the rest is still undone, and say what the risk was before you start it.",
+                  "</riskiest-first>",
+                ].join("\n"),
+              ),
+              render: {
+                initial: (text) => text,
+                changed: (_previous, text) => text,
+              },
+            }),
+            Instructions.make({
               key: Instructions.Key.make("core/environment"),
               codec: Schema.toCodecJson(Schema.String),
               read: Effect.sync(() =>

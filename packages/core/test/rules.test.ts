@@ -33,6 +33,29 @@ describe("rulebook", () => {
     }),
   )
 
+  it.live("seeds the default society rules once, and never duplicates them", () =>
+    Effect.gen(function* () {
+      const kv = yield* KV.Service
+      const scope = Rules.societyScope("Seeded")
+      for (const text of Rules.DEFAULT_SOCIETY_RULES) expect(text.length).toBeLessThanOrEqual(Rules.MAX_TEXT)
+      yield* Rules.seedDefaults(kv, scope)
+      const first = yield* Rules.list(kv, scope)
+      expect(first).toHaveLength(Rules.DEFAULT_SOCIETY_RULES.length)
+      expect(first.every((rule) => rule.by === "operator")).toBe(true)
+      expect(first.map((rule) => rule.text)).toEqual([...Rules.DEFAULT_SOCIETY_RULES])
+      // Seeding again changes nothing, and a society with its own rules keeps them.
+      yield* Rules.seedDefaults(kv, scope)
+      expect(yield* Rules.list(kv, scope)).toHaveLength(Rules.DEFAULT_SOCIETY_RULES.length)
+      const own = Rules.societyScope("OwnRules")
+      yield* Rules.add(kv, own, { text: "Our own rule.", by: "operator" })
+      yield* Rules.seedDefaults(kv, own)
+      expect((yield* Rules.list(kv, own)).map((rule) => rule.text)).toEqual([
+        "Our own rule.",
+        ...Rules.DEFAULT_SOCIETY_RULES,
+      ])
+    }),
+  )
+
   it.live("caps a scope and refuses long rules instead of cutting them off", () =>
     Effect.gen(function* () {
       const kv = yield* KV.Service

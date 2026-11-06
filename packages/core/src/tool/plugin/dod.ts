@@ -5,8 +5,10 @@ import type { Room } from "@orchestra/schema/room"
 import type { Tool } from "@orchestra/schema/tool"
 import { ToolFailure } from "@orchestra/ai"
 import { optional } from "@orchestra/schema/schema"
-import { Effect, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 import { Dod } from "../../dod.js"
+import { KnowledgeMap } from "../../knowledge-map.js"
+import { KV } from "../../kv.js"
 import { Location } from "../../location.js"
 import { Orchestra } from "../../orchestra.js"
 import { Passport } from "../../passport.js"
@@ -199,6 +201,29 @@ export const Plugin = {
             owner,
           })
           const state = dod.items.find((item) => item.id === id)?.state ?? "unknown"
+          // A verified outcome is evidence for the knowledge map: a DONE item records a
+          // success, a FAILED one a failure, for the verifying agent in the item's stage
+          // (its group on the board) (see knowledge-map.ts). Best-effort and detached — the board already says
+          // DONE/FAILED, so a map write must never turn this call into a failure, and a
+          // layer without KV simply records nothing.
+          if (state === "DONE" || state === "FAILED")
+            yield* Effect.forkDetach(
+              Effect.gen(function* () {
+                const kv = yield* Effect.serviceOption(KV.Service)
+                if (Option.isNone(kv)) return
+                const detail = yield* Dod.detail(directory, id)
+                const owners = yield* orchestra.owners()
+                const project = owners[context.sessionID]
+                // The item's stage is its group ("Ungrouped" when the board has none).
+                const stage = detail.item.stage === "Ungrouped" ? "general" : detail.item.stage
+                yield* KnowledgeMap.record(kv.value, project ? `project:${project}` : "project:unknown", {
+                  agent: context.agent,
+                  name: owner.name,
+                  area: stage,
+                  outcome: state === "DONE" ? "done" : "failed",
+                })
+              }),
+            )
           return [
             `${id} check \`${command}\` exited ${result.exitCode}; ${id} is ${state} now.`,
             result.output.trim().split("\n").slice(-30).join("\n"),
