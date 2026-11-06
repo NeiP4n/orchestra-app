@@ -1,0 +1,68 @@
+[data-component="neural-field"],
+[data-component="neural-line"],
+[data-component="neural-axon"],
+[data-component="neural-dot"] {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+[data-component="neural-dot"] {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+/* Sculk spinner: three resonance rings expanding from a center dot. */
+[data-component="sculk-spinner"] {
+  position: relative;
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+[data-component="sculk-spinner"] [data-slot="sculk-spinner-ring"] {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--icon-spark-base, #67e8f9);
+  border-radius: 9999px;
+  opacity: 0;
+  animation: sculk-ring 1.8s ease-out infinite;
+}
+
+[data-component="sculk-spinner"] [data-slot="sculk-spinner-ring"]:nth-child(2) {
+  animation-delay: 0.6s;
+}
+
+[data-component="sculk-spinner"] [data-slot="sculk-spinner-ring"]:nth-child(3) {
+  animation-delay: 1.2s;
+}
+
+[data-component="sculk-spinner"] [data-slot="sculk-spinner-dot"] {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 9999px;
+  background: var(--icon-spark-base, #67e8f9);
+}
+
+@keyframes sculk-ring {
+  0% {
+    transform: scale(0.3);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+/* When motion is off the rings freeze invisible, so hide them and keep
+   only the dot: a spinner that looks broken is worse than a still one. */
+:root[data-motion="off"] [data-component="sculk-spinner"] [data-slot="sculk-spinner-ring"] {
+  display: none;
+}

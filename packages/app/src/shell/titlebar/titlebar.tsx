@@ -15,6 +15,7 @@ import { useSettings } from "@/settings/model"
 import { WindowsAppMenu } from "./windows-menu"
 import { applyPath, backPath, forwardPath, type HistoryLocation } from "./history"
 import { OrchestraLogo } from "@/providers/orchestra-logo"
+import { NeuralDot } from "@orchestra/ui/neural-field"
 import { TitlebarTabStrip } from "@/shell/titlebar/tab-strip"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { createMediaQuery } from "@solid-primitives/media"
@@ -181,6 +182,8 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
         <div class="flex shrink-0 items-center gap-2 self-center ps-3 pe-1" data-slot="titlebar-brand">
           <OrchestraLogo class="size-5 text-v2-icon-icon-base" />
           <span class="text-[13px] font-semibold tracking-[0.22em] text-v2-text-text-base">ORCHESTRA</span>
+          {/* One breathing neuron: it shows whether the agents are working right now. */}
+          <NeuralDot />
         </div>
       </Show>
       <Switch>

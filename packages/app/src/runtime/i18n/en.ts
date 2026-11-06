@@ -914,6 +914,8 @@ export const dict = {
   "settings.general.row.terminalPlacement.bottom": "Bottom",
   "settings.general.row.colorScheme.title": "Color scheme",
   "settings.general.row.colorScheme.description": "Choose whether Orchestra follows the system, light, or dark theme",
+  "settings.general.row.animations.title": "Animations",
+  "settings.general.row.animations.description": "Moving effects: the neuron network, the sculk spinner, and transitions. Off means still everywhere.",
   "settings.general.row.theme.title": "Theme",
   "settings.general.row.theme.description": "Customise how Orchestra is themed.",
   "settings.general.row.theme.reset.title": "Reset theme",

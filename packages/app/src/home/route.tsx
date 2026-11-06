@@ -1,4 +1,5 @@
 import { ScrollView } from "@orchestra/ui/scroll-view"
+import { NeuralField } from "@orchestra/ui/neural-field"
 import { createMediaQuery } from "@solid-primitives/media"
 import { Show } from "solid-js"
 import { createHomeController } from "./model"
@@ -22,17 +23,22 @@ export function Home() {
     <div
       data-slot="home-panel"
       class={`
-        mx-[var(--shell-inline-inset,8px)] mb-[var(--shell-bottom-inset,8px)] mt-[var(--shell-top-inset,8px)] flex min-h-0 flex-1 flex-col self-stretch overflow-hidden rounded-[10px]
+        relative mx-[var(--shell-inline-inset,8px)] mb-[var(--shell-bottom-inset,8px)] mt-[var(--shell-top-inset,8px)] flex min-h-0 flex-1 flex-col self-stretch overflow-hidden rounded-[10px]
         bg-v2-background-bg-base shadow-[var(--v2-elevation-raised)]
       `}
     >
+      {/* The neuron network behind the home content: it shows what the
+          agents are doing right now, and stays still when motion is off. */}
+      <div class="pointer-events-none absolute inset-0 opacity-60" aria-hidden="true">
+        <NeuralField />
+      </div>
       <Show when={mobile()}>
         <div class="relative z-40 -mb-3 shrink-0 px-3 pt-3">
           <HomeProjects projects={projects} scroll={scroll} dropdown />
         </div>
       </Show>
       <ScrollView
-        class="min-h-0 flex-1 [container-type:size]"
+        class="relative z-10 min-h-0 flex-1 [container-type:size]"
         thumbContainer={scroll.viewport.thumbTrack()}
         thumbHoverTarget={scroll.viewport.hoverTarget()}
         viewportRef={scroll.viewport.setViewport}
@@ -51,7 +57,7 @@ export function Home() {
           <HomeSessions sessions={sessions} search={search} scroll={scroll} />
         </div>
       </ScrollView>
-      <div class="hidden shrink-0 px-3 py-2 md:block lg:hidden">
+      <div class="relative hidden shrink-0 px-3 py-2 md:block lg:hidden">
         <HomeUtilityNav
           class="flex"
           onOpenSettings={projects.utility.settings}

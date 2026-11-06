@@ -1,5 +1,6 @@
 import { Component } from "solid-js"
 import { Select } from "@orchestra/ui/select"
+import { Switch } from "@orchestra/ui/switch"
 import { TextInput } from "@orchestra/ui/text-input"
 import { useLanguage } from "@/runtime/i18n/language"
 import { ExternalLink } from "@/runtime/platform/external-link"
@@ -100,6 +101,18 @@ export const SettingsAppearance: Component = () => {
                 }}
                 onSelect={(option) => option && appearance.scheme.select(option)}
               />
+            </SettingsRow>
+
+            <SettingsRow
+              title={language.t("settings.general.row.animations.title")}
+              description={language.t("settings.general.row.animations.description")}
+            >
+              <div data-action="settings-animations">
+                <Switch
+                  checked={appearance.animations.current()}
+                  onChange={(checked) => appearance.animations.set(checked)}
+                />
+              </div>
             </SettingsRow>
 
             <SettingsRow
