@@ -1,6 +1,6 @@
 export * as ProjectFilesRestore from "./restore.js"
 
-import { Effect } from "effect"
+import { Cause, Effect } from "effect"
 import { ProjectFilesErrors } from "./errors.js"
 import { ProjectFilesHealth } from "./health.js"
 import { ProjectFilesIndex } from "./index-file.js"
@@ -62,6 +62,11 @@ export const restoreFromFiles = (
       const entry = yield* restorer.restore(directory, deps).pipe(
         Effect.catchTag("ProjectFiles.Error", (error) =>
           Effect.succeed({ file: restorer.file, status: "failed" as const, error: error.message })
+        ),
+        // Best-effort, like sync: a restorer that dies is reported
+        // failed, never blocks the other restorers.
+        Effect.catchCause((cause) =>
+          Effect.succeed({ file: restorer.file, status: "failed" as const, error: Cause.pretty(cause).slice(0, 300) })
         ),
       )
       entries.push(entry)

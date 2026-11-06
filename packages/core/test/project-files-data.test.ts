@@ -406,7 +406,7 @@ describe("ProjectFiles quarantine", () => {
         return restored
       }),
     )
-    expect(report.entries).toHaveLength(1)
+    expect(report.entries.find((item) => item.file === "quarantine.jsonl")?.status).toBe("restored")
   })
 
   test("unquarantining removes the line on the next sync", async () => {
@@ -429,7 +429,10 @@ describe("ProjectFiles quarantine", () => {
     const report = await runDb(
       ProjectFiles.ProjectFilesRestore.restoreFromFiles(dir, { kv: undefined as never }),
     )
-    expect(report.entries).toEqual([{ file: "quarantine.jsonl", status: "skipped" }])
+    expect(report.entries.find((item) => item.file === "quarantine.jsonl")).toEqual({
+      file: "quarantine.jsonl",
+      status: "skipped",
+    })
   })
 
   test("a corrupt quarantine file fails the restore and leaves the table empty", async () => {

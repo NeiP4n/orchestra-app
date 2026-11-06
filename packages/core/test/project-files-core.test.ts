@@ -3,12 +3,26 @@ import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { Effect } from "effect"
+import { Database } from "@orchestra/core/database/database"
 import { ProjectFiles } from "@orchestra/core/project-files/index"
+import { Global } from "@orchestra/util/global"
 
 // The framework functions carry the Database.Service requirement for the
-// syncers/restorers they will call; the core commit registers none, so the
-// service is never touched and the cast is safe here. Slice tests that
-// register real syncers provide a real database layer instead.
+// syncers/restorers they call, so effects that run syncAll/restoreFromFiles
+// run on a real in-memory database — never a mock. (S2's journal and
+// quarantine syncers need it; without it they report failed, which is
+// what the framework does for a syncer that cannot run.)
+const runDb = <A, E>(effect: Effect.Effect<A, E, Database.Service>) =>
+  Effect.runPromise(
+    effect.pipe(
+      Effect.provide(Database.layer({ path: ":memory:" })),
+      Effect.provideService(Global.Service, Global.make({ data: path.join(process.cwd(), ".test-data") })),
+      Effect.scoped,
+    ),
+  )
+
+// Effects that touch no database (index, health, snapshots) run without
+// a layer; the cast is safe because no syncer runs in them.
 const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.runPromise(effect as Effect.Effect<A, E, never>)
 
@@ -70,6 +84,8 @@ describe("ProjectFiles health", () => {
       } else if (descriptor.rel.endsWith(".yaml") || descriptor.rel.endsWith(".yml")) {
         await write(dir, descriptor.rel, "key: value\n")
       } else if (descriptor.rel.endsWith(".json")) {
+        await write(dir, descriptor.rel, "{}\n")
+      } else if (descriptor.rel.endsWith(".jsonl")) {
         await write(dir, descriptor.rel, "{}\n")
       } else {
         await write(dir, descriptor.rel, "text\n")
@@ -153,11 +169,13 @@ describe("ProjectFiles sync and restore frameworks", () => {
   test("syncAll runs the registered syncers and reports nothing failed", async () => {
     const dir = await fixture()
     await write(dir, "dod.yaml", "task_id: X\nleaves: []\n")
-    const report = await run(
-      // The S3 syncers are registered, so they run: a missing mcp.yaml
-      // and a missing skill registry are ok (fresh project), and
-      // INTEGRATE.md is regenerated. The framework path (index + health
-      // refresh) is what is tested, plus that no syncer failed.
+    const report = await runDb(
+      // The S2/S3 syncers are registered, so they run: a missing mcp.yaml
+      // and a missing skill registry are ok (fresh project), the journal
+      // logs start empty, and INTEGRATE.md is regenerated. Runs on a real
+      // in-memory database because the S2 journal syncers need it. The
+      // framework path (index + health refresh) is what is tested, plus
+      // that no syncer failed.
       ProjectFiles.ProjectFilesSync.syncAll(dir, { kv: undefined as never }),
     )
     expect(report.files.length).toBeGreaterThan(0)
@@ -170,11 +188,13 @@ describe("ProjectFiles sync and restore frameworks", () => {
   test("restoreFromFiles runs the registered restorers, reports nothing failed, refreshes index and health", async () => {
     const dir = await fixture()
     await write(dir, "dod.yaml", "task_id: X\nleaves: []\n")
-    const report = await run(
-      // The S3 restorers are registered, so they run: file-owned state
-      // is skipped, INTEGRATE.md is regenerated. Nothing fails on a
-      // fresh project, and the framework path (index + health refresh)
-      // is what is tested.
+    const report = await runDb(
+      // The S2/S3 restorers are registered, so they run: file-owned state
+      // is skipped, INTEGRATE.md is regenerated, the quarantine file is
+      // absent (skipped). Runs on a real in-memory database because the
+      // S2 quarantine restorer needs it. Nothing fails on a fresh
+      // project, and the framework path (index + health refresh) is what
+      // is tested.
       ProjectFiles.ProjectFilesRestore.restoreFromFiles(dir, { kv: undefined as never }),
     )
     expect(report.entries.length).toBeGreaterThan(0)

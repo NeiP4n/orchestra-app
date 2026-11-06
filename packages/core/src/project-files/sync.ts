@@ -1,6 +1,6 @@
 export * as ProjectFilesSync from "./sync.js"
 
-import { Effect } from "effect"
+import { Cause, Effect } from "effect"
 import type { KV } from "../kv.js"
 import type { Database } from "../database/database.js"
 import { ProjectFilesErrors } from "./errors.js"
@@ -67,6 +67,12 @@ export const syncFile = (
     const result = yield* syncer.sync(directory, deps).pipe(
       Effect.map(() => ({ file, status: "ok" as const })),
       Effect.catchTag("ProjectFiles.Error", (error) => Effect.succeed({ file, status: "failed" as const, error: error.message })),
+      // Best-effort means best-effort: a syncer that dies (missing
+      // service, unexpected defect) is reported failed, never crashes
+      // the whole sync for the other files.
+      Effect.catchCause((cause) =>
+        Effect.succeed({ file, status: "failed" as const, error: Cause.pretty(cause).slice(0, 300) })
+      ),
     )
     return result
   })
