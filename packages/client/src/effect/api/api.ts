@@ -5094,6 +5094,7 @@ export type ServerRecoveryChatOutput = {
     readonly success: boolean
   }>
   readonly fixed?: string | undefined
+  readonly root?: string | undefined
   readonly inputTokens?: number | undefined
   readonly outputTokens?: number | undefined
   readonly model: Model.Ref

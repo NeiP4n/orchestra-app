@@ -1264,8 +1264,8 @@ the case "the program itself is broken".
   normal server credential and show a sign-in hint on 401.
 - **API** (`packages/protocol/src/groups/recovery.ts`, handlers
   `packages/server/src/handlers/recovery.ts`): `GET /api/recovery/models`
-  lists only working providers (klinch, lix — Anymodel is down with 502 and
-  is never offered); `POST /api/recovery/chat` runs one autonomous repair
+  lists every enabled model in catalog order (the catalog hides providers
+  it cannot serve; no provider is hardcoded in or out); `POST /api/recovery/chat` runs one autonomous repair
   round. The chat input is capped (T3-6): at most 20 messages
   (`Recovery.RecoveryChatTranscript`) of at most 8000 characters each, one
   round at a time per server (a second concurrent request is refused with
@@ -1309,8 +1309,7 @@ the case "the program itself is broken".
   at a broken Orchestra, and a bare 500 with no words helps no one.
 - **Model list**: `listRecoveryModels` offers every model the catalog
   reports as available (the catalog already hides providers it cannot
-  serve — no key, disabled plugin), klinch and lix first, then the rest
-  in catalog order. No provider is hardcoded out: Anymodel is offered
+  serve — no key, disabled plugin), in catalog order. No provider is hardcoded out: Anymodel is offered
   again when the catalog says it works, and a provider that fails at call
   time is reported as a reply, not a crash.
 - **After the fix**: the page shows the `Исправлено:` banner with an

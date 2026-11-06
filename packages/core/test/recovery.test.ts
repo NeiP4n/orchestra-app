@@ -2,12 +2,12 @@ import { mkdtemp, readdir, rm, symlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { describe, expect, test } from "bun:test"
-import { LanguageModel, ToolCallPart, ToolRuntime } from "@orchestra/ai"
+import { LanguageModel, Message, ToolCallPart, ToolRuntime } from "@orchestra/ai"
 import { OpenAIChat } from "@orchestra/ai/protocols"
 import { TestLLM } from "@orchestra/ai/testing"
 import { ID, Model, Ref } from "@orchestra/core/model"
 import { Provider } from "@orchestra/core/provider"
-import { parseFixed, runRepairLoop } from "@orchestra/core/recovery/agent"
+import { limitHistory, parseFixed, runRepairLoop } from "@orchestra/core/recovery/agent"
 import { listRecoveryModels } from "@orchestra/core/recovery/models"
 import { resolveRepoRoot } from "@orchestra/core/recovery/service"
 import { isForbiddenCommand, isProtectedPath, recoveryTools, resolveInRoot, resolveInRootReal } from "@orchestra/core/recovery/tools"
@@ -39,6 +39,41 @@ describe("recovery model list", () => {
 
   test("an empty catalog offers nothing instead of a dead model", () => {
     expect(listRecoveryModels([])).toEqual([])
+  })
+})
+
+describe("recovery history budget", () => {
+  test("keeps only the last 30 messages", () => {
+    const messages = Array.from({ length: 31 }, (_, index) =>
+      Message.user(`message ${index}`),
+    )
+    const trimmed = limitHistory(messages)
+    expect(trimmed).toHaveLength(30)
+    expect((trimmed[0]!.content[0] as { text: string }).text).toBe("message 1")
+    expect((trimmed[29]!.content[0] as { text: string }).text).toBe("message 30")
+  })
+
+  test("drops the oldest messages when the total passes 100 000 chars, always keeping the last", () => {
+    const big = "x".repeat(20_000)
+    const messages = [
+      Message.user("first, drop me"),
+      Message.user(big),
+      Message.user(big),
+      Message.user(big),
+      Message.user(big),
+      Message.user(big),
+      Message.user("last, keep me"),
+    ]
+    const trimmed = limitHistory(messages)
+    expect(trimmed).toHaveLength(5)
+    expect((trimmed[0]!.content[0] as { text: string }).text).toBe(big)
+    expect((trimmed[4]!.content[0] as { text: string }).text).toBe("last, keep me")
+  })
+
+  test("caps one oversized message at 20 000 chars", () => {
+    const trimmed = limitHistory([Message.user("y".repeat(50_000))])
+    expect(trimmed).toHaveLength(1)
+    expect((trimmed[0]!.content[0] as { text: string }).text).toHaveLength(20_000)
   })
 })
 
