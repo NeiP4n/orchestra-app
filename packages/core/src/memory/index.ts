@@ -35,6 +35,7 @@ import type { SessionSchema } from "../session/schema.js"
 import { SessionMessageTable, SessionTable } from "../session/sql.js"
 import { MemoryRank } from "./rank.js"
 import { ProjectDirs } from "../project-dirs.js"
+import { ProjectFilesRegistry } from "../project-files/registry.js"
 
 export const Scope = Schema.Literals(["user", "project"])
 export type Scope = typeof Scope.Type
@@ -154,11 +155,14 @@ const layer = Layer.effect(
     // the first project write must make sure a plain `git add -A` cannot
     // drag it into history — but the definition of done and the project
     // binding are meant to be versioned, so only the rest of .orchestra is
-    // ignored. Append-only and idempotent for the user's own lines: the one
-    // line this function used to write (`.orchestra/`) is replaced by the
-    // split block when present. Never fail the memory write itself if the
-    // .gitignore cannot be read or written.
-    const BLOCK = [".orchestra/*", "!.orchestra/dod.yaml", "!.orchestra/project.json"]
+    // ignored. The block comes from the project-files registry (the single
+    // source of the git split), so a new versioned file is one registry
+    // flag, not a second edit here. Append-only and idempotent for the
+    // user's own lines: the one line this function used to write
+    // (`.orchestra/`) is replaced by the split block when present. Never
+    // fail the memory write itself if the .gitignore cannot be read or
+    // written.
+    const BLOCK = ProjectFilesRegistry.gitignoreLines()
     const ensureProjectGitignore = Effect.fn("Memory.ensureProjectGitignore")(function* () {
       const gitignore = path.join(location.project.directory, ".gitignore")
       const existing = (yield* fs.readFileStringSafe(gitignore).pipe(Effect.orElseSucceed(() => undefined))) ?? ""

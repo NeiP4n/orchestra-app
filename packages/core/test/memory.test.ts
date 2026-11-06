@@ -113,7 +113,9 @@ describe("Memory blocks", () => {
           const gitignore = yield* Effect.promise(() =>
             fs.readFile(path.join(tmp.path, "repo", ".gitignore"), "utf8"),
           )
-          expect(gitignore).toBe(".orchestra/*\n!.orchestra/dod.yaml\n!.orchestra/project.json\n")
+          expect(gitignore).toBe(
+            ".orchestra/*\n!.orchestra/index.yaml\n!.orchestra/project.json\n!.orchestra/dod.yaml\n!.orchestra/zones.yaml\n",
+          )
         }),
       ),
     ),
@@ -132,7 +134,7 @@ describe("Memory blocks", () => {
             fs.readFile(path.join(tmp.path, "repo", ".gitignore"), "utf8"),
           )
           expect(gitignore).toBe(
-            "node_modules\n.orchestra/*\n!.orchestra/dod.yaml\n!.orchestra/project.json\n",
+            "node_modules\n.orchestra/*\n!.orchestra/index.yaml\n!.orchestra/project.json\n!.orchestra/dod.yaml\n!.orchestra/zones.yaml\n",
           )
         }),
       ),
