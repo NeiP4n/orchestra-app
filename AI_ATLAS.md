@@ -1576,7 +1576,20 @@ have no version field.
   packages/cli/script/build.ts --single`, `bun packages/cli/script/service-smoke.ts`,
   `bump-version --dry-run 9.9.9`, `update-manifests --dry-run`. This is the 8 GB
   substitute: the full `clean-build.sh --smoke` needs a machine with 16 GB or more
-  (its typecheck OOMs here).
+  (its typecheck OOMs here). Verified green end-to-end on 2026-11-06 (all 5 steps).
+  Two pre-existing defects the smoke run exposed and fixed in D2: (1) the compiled
+  CLI could not serve at all — `packages/plugin-antigravity-auth/src/v2.ts`
+  resolved `@ai-sdk/google` with a bare `import.meta.resolve` at module top level,
+  which throws in a compiled binary (no node_modules layout); fixed by falling back
+  to the bare specifier, which Core rewrites to the bundled native Google transport.
+  (2) `service-smoke.ts` created `.orchestra/plugins` but wrote the smoke plugin
+  to `.opencode/plugins/smoke.ts` (ENOENT); fixed to write where it mkdirs.
+  Stale-dist trap (found while verifying fix 1): the CLI bundles
+  `@orchestra/plugin-antigravity-auth` from its COMMITTED `dist/`, not from `src/`
+  — a source fix reaches no binary until `bun run --cwd
+  packages/plugin-antigravity-auth build` runs. `release.yml`, `release-desktop.yml`
+  and `release-smoke.sh` all rebuild that dist before building the CLI; it is the
+  only workspace package whose exports point at `dist/`.
 - Deleted in D2: `.github/workflows/publish.yml` + `.github/workflows/deploy.yml`
   (both fully dead, `anomalyco/opencode`-gated) and `script/release.ts` (dispatched
   the dead `publish.yml`). Snapshot push cannot delete remote files — the remote

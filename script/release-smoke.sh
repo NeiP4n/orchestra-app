@@ -30,6 +30,9 @@ print(f"{len(files)} workflow/action files parse")
 PY
 
 step "3/5 build the CLI for this platform"
+# The CLI bundles @orchestra/plugin-antigravity-auth from its committed dist/
+# (see release.yml): rebuild it first, or a stale dist ships stale plugin code.
+bun run --cwd packages/plugin-antigravity-auth build
 bun packages/cli/script/build.ts --single
 
 step "4/5 compiled service smoke test"

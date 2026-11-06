@@ -145,6 +145,13 @@ jobs:
       - name: Setup Bun
         uses: ./.github/actions/setup-bun
 
+      # The CLI bundles @orchestra/plugin-antigravity-auth from its committed
+      # dist/ (package.json exports point there, not at src/). A source change
+      # without a dist rebuild ships stale plugin code silently — rebuild it
+      # here so the binary always matches the sources on this commit.
+      - name: Rebuild workspace dists bundled by the CLI
+        run: bun run --cwd packages/plugin-antigravity-auth build
+
       - name: Build CLI
         run: bun packages/cli/script/build.ts --target=${{ matrix.target }}
         env:
