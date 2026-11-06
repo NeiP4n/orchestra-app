@@ -7,7 +7,7 @@ import { decide, type AutoloopLimits, type CardRow, type DecideInput } from "./k
 import type { View } from "./kernel/evolve.js"
 import { rows } from "./kernel/evolve.js"
 import { emptyRules, type Rules } from "./kernel/rules.js"
-import { AutoloopStore, type OpenedView } from "./kernel/store.js"
+import { AutoloopStore, StaleSeqError, type OpenedView } from "./kernel/store.js"
 
 // Cards ask/notice (block Б3, подшаг 2): the thin layer over the journal
 // (`store`) and the pure decision (`decide`). This is the ONLY place the
@@ -182,16 +182,20 @@ const commitDecided = (opened: OpenedView, input: DecideInput, env?: CardsEnv) =
       // instead of silently overwriting the winner. It re-decides on the
       // fresh view once — an already-decided card then answers
       // `changed: false` instead of recording a second answer (M-05).
-      Effect.catchTag("Autoloop.StaleSeq", () =>
-        Effect.gen(function* () {
-          const reopened = yield* openJournal
-          const redecided = yield* runDecide(reopened.view, reopened.lastSeq, input, env)
-          if (redecided.facts.length === 0) {
-            return { view: reopened.view, events: [] as CardChange[], value: redecided.value }
-          }
-          const recommitted = yield* AutoloopStore.commit(redecided.facts, reopened.lastSeq)
-          return { view: recommitted.view, events: cardChanges(reopened.view, recommitted.view), value: redecided.value }
-        }),
+      // `catch` + `instanceof`, not `catchTag`: the store's error
+      // channel carries no tag union for the tag to match against.
+      Effect.catch((error) =>
+        error instanceof StaleSeqError
+          ? Effect.gen(function* () {
+              const reopened = yield* openJournal
+              const redecided = yield* runDecide(reopened.view, reopened.lastSeq, input, env)
+              if (redecided.facts.length === 0) {
+                return { view: reopened.view, events: [] as CardChange[], value: redecided.value }
+              }
+              const recommitted = yield* AutoloopStore.commit(redecided.facts, reopened.lastSeq)
+              return { view: recommitted.view, events: cardChanges(reopened.view, recommitted.view), value: redecided.value }
+            })
+          : Effect.fail(error),
       ),
       Effect.mapError(storeFailure),
     )
