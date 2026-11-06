@@ -13,6 +13,12 @@
   document.documentElement.dataset.theme = themeId
   document.documentElement.dataset.colorScheme = mode
   document.documentElement.style.backgroundColor = isDark ? "#080808" : "#fafafa"
+  // Explicit text color: before ThemeProvider mounts, inherited text would
+  // fall back to the browser default (black) on a dark v2 background —
+  // black text on a black background. The v2 tokens switch on
+  // [data-color-scheme] immediately, the non-v2 ones do not, so set the
+  // color here too.
+  document.documentElement.style.color = isDark ? "#eeeeee" : "#171717"
 
   // Update theme-color meta tag to match app color scheme
   var metas = document.querySelectorAll("meta[name='theme-color']")
@@ -23,7 +29,7 @@
   var css = localStorage.getItem("opencode-theme-css-" + mode)
   if (css) {
     var style = document.createElement("style")
-    style.id = "oc-theme-preload"
+    style.id = "orchestra-theme-preload"
     style.textContent =
       ":root{color-scheme:" +
       mode +

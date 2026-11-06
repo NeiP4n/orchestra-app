@@ -5,7 +5,7 @@
 }
 
 [data-component="session-tab-popover"] {
-  z-index: 50;
+  z-index: var(--z-popover);
   box-sizing: border-box;
   width: 256px;
   max-width: calc(100dvw - 24px);

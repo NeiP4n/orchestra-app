@@ -1,7 +1,7 @@
 [data-slot="mobile-drawer-overlay"] {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: var(--z-drawer);
   background: var(--v2-overlay-simple-overlay-scrim);
   animation: mobile-drawer-backdrop-in 240ms ease-out;
 }
@@ -15,7 +15,7 @@
   position: fixed;
   inset-inline: 0;
   bottom: 0;
-  z-index: 51;
+  z-index: calc(var(--z-drawer) + 1);
   display: flex;
   flex-direction: column;
   max-height: min(75dvh, calc(100dvh - env(safe-area-inset-top, 0px) - 16px));

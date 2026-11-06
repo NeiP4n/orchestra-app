@@ -1,6 +1,6 @@
 import { OpenCode, type MigrationV1StatusOutput } from "@orchestra/client/promise"
 import { useLanguage } from "@orchestra/app/desktop"
-import { Loader } from "@orchestra/ui/loader"
+import { SculkSpinner } from "@orchestra/ui/neural-field"
 import { showToast, toaster, Toast } from "@orchestra/ui/toast"
 import { createRoot, createSignal, onCleanup, onMount } from "solid-js"
 import type { ServerReadyData } from "../shared/ipc-contract"
@@ -64,7 +64,7 @@ export function MigrationStatus(props: { server: ServerReadyData }) {
             <Toast toastId={toastId}>
               <div data-slot="toast-v2-header" class="col-span-full">
                 <Toast.Icon>
-                  <Loader />
+                  <SculkSpinner />
                 </Toast.Icon>
                 <Toast.Content>
                   <Toast.Title dir="auto">{format(progress())}</Toast.Title>

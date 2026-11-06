@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test"
 
-const src = await Bun.file(new URL("../public/oc-theme-preload.js", import.meta.url)).text()
+const src = await Bun.file(new URL("../public/orchestra-theme-preload.js", import.meta.url)).text()
 
 const run = () => Function(src)()
 
@@ -15,19 +15,20 @@ beforeEach(() => {
   document.documentElement.removeAttribute("data-theme")
   document.documentElement.removeAttribute("data-color-scheme")
   document.documentElement.style.removeProperty("background-color")
+  document.documentElement.style.removeProperty("color")
   localStorage.clear()
   setSystemDark(false)
 })
 
 describe("theme preload", () => {
   test.each([
-    { stored: undefined, systemDark: false, scheme: "light", background: "#fafafa" },
-    { stored: "dark", systemDark: false, scheme: "dark", background: "#080808" },
-    { stored: "light", systemDark: true, scheme: "light", background: "#fafafa" },
-    { stored: "system", systemDark: true, scheme: "dark", background: "#080808" },
+    { stored: undefined, systemDark: false, scheme: "light", background: "#fafafa", color: "#171717" },
+    { stored: "dark", systemDark: false, scheme: "dark", background: "#080808", color: "#eeeeee" },
+    { stored: "light", systemDark: true, scheme: "light", background: "#fafafa", color: "#171717" },
+    { stored: "system", systemDark: true, scheme: "dark", background: "#080808", color: "#eeeeee" },
   ])(
     "paints the default theme in $scheme for stored scheme $stored (system dark: $systemDark)",
-    ({ stored, systemDark, scheme, background }) => {
+    ({ stored, systemDark, scheme, background, color }) => {
       setSystemDark(systemDark)
 
       if (stored) localStorage.setItem("opencode-color-scheme", stored)
@@ -36,6 +37,9 @@ describe("theme preload", () => {
       expect(document.documentElement.dataset.theme).toBe("oc-2")
       expect(document.documentElement.dataset.colorScheme).toBe(scheme)
       expect(document.documentElement.style.backgroundColor).toBe(background)
+      // Inherited text must stay readable on the dark v2 background before
+      // ThemeProvider mounts: no black text on a black background.
+      expect(document.documentElement.style.color).toBe(color)
     },
   )
 
@@ -64,6 +68,6 @@ describe("theme preload", () => {
 
     expect(document.documentElement.dataset.theme).toBe("nightowl")
     expect(document.documentElement.dataset.colorScheme).toBe(expected)
-    expect(document.getElementById("oc-theme-preload")?.textContent).toContain(css)
+    expect(document.getElementById("orchestra-theme-preload")?.textContent).toContain(css)
   })
 })

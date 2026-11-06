@@ -111,6 +111,10 @@ export function createAppearanceSettingsController() {
       setCode: (value: string) => settings.appearance.setFont(value),
       setTerminal: (value: string) => settings.appearance.setTerminalFont(value),
     },
+    animations: {
+      current: settings.appearance.animations,
+      set: (value: boolean) => settings.appearance.setAnimations(value),
+    },
   }
 }
 

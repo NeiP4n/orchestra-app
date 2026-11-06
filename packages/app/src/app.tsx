@@ -10,6 +10,7 @@ import { type Component, createRenderEffect, ErrorBoundary, type JSX, type Paren
 import { Dynamic } from "solid-js/web"
 import { CommandProvider } from "@/shell/commands/command"
 import { DesktopCommands } from "@/shell/commands/desktop"
+import { MotionAttribute } from "@/neural/feed"
 import { GlobalProvider } from "@/runtime/server/runtime"
 import { LanguageProvider, UiI18nBridge, type Locale } from "@/runtime/i18n/language"
 import { ServerConnection, ServersProvider } from "@/runtime/server/registry"
@@ -99,6 +100,7 @@ export function AppInterface(props: {
     <TabsProvider>
       <GlobalProvider>
         <BodyTypography />
+        <MotionAttribute />
         <CommandProvider>
           <DesktopCommands />
           {props.children}

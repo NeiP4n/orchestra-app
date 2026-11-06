@@ -1284,6 +1284,133 @@ lives 10 minutes.
 - Theme config writes are serialized through one promise queue; `preview()`
   never writes, `commit()` resolves after the write. Removed built-in themes
   migrate via `LEGACY_THEME_NAMES`.
+- The `neural` role already exists in the TUI theme schema
+  (`packages/theme/src/tui/schema.ts`: `text.neural`, optional) with resolve
+  pass-through (`resolve.ts`) and v1-migrate defaults
+  (signal/synapse/spark/dormant from hue tokens). Themes written before the
+  role existed resolve without it; `neuralPalette()` in
+  `packages/tui/src/component/neural.tsx` falls back to a monochrome network.
+- **Web dark-token invariant (block D1):** non-v2 tokens in
+  `packages/ui/src/styles/theme.css` must switch to dark under
+  `:root[data-color-scheme="dark"]`, with the OS
+  `@media (prefers-color-scheme: dark)` query only as a pre-mount fallback
+  (`:root:not([data-color-scheme="light"])`). The two dark blocks MUST define
+  the same variables — `packages/ui/src/styles/tokens/theme.test.ts` enforces
+  parity. Before D1 the dark tokens lived only inside the OS media query
+  nested in `:root`, so a dark app scheme on a light OS rendered light text
+  tokens (`--text-strong: #171717`) on a dark v2 background: black on black.
+  The same rule applies to `buildThemeCss` in
+  `packages/ui/src/theme/loader.ts` (attribute + media blocks, tested in
+  `loader.test.ts`). The preload
+  (`packages/app/public/orchestra-theme-preload.js`, formerly
+  `oc-theme-preload.js`) also sets an explicit `color` on `<html>` so text
+  stays readable before ThemeProvider mounts.
+
+## Desktop + serve redesign (block D1) — `desktop-serve-redesign`
+
+The Orchestra visual identity, applied to serve (web) and desktop. Work is
+in the `desktop-serve-redesign` branch; the big layout restructures (home
+rebuild, session drawer/terminal, settings regrouping, machines/muse folding,
+unified model picker, single desktop splash, error badge) are NOT in this
+branch — they need a browser/live run to verify, and are listed as deferred
+below. What IS in:
+
+- **Logo — the Fan is the main mark** (`packages/ui/src/components/logo.tsx`):
+  the user chose variant 2 «Веер» (Fan) as the main mark; v1 «Орбита» (Orbit)
+  is secondary (`Orbit` export). The old podium-and-arc O mark is gone. Fan
+  geometry is the 512 grid from `orchestra-brand/o-logo-new-v2.svg`
+  (podium diamond, 5 rays, 3 sound arcs); colors come from the app icon
+  tokens, with a new `--icon-spark-base` token (light `#0E7490`, dark
+  `#67E8F9`) in `theme.css` (light + both dark blocks). `Mark`/`Splash`/`Logo`
+  keep their names and aspect ratios. The 20px titlebar and provider rows
+  use the simplified 16px Fan (`packages/app/src/providers/orchestra-logo.tsx`,
+  renamed from `opencode-logo.tsx`, monochrome `currentColor`). SVG favicons
+  (`packages/app/public/favicon*.svg`,
+  `packages/ui/src/assets/favicon/favicon*.svg`) are the simplified Fan on a
+  dark rounded rect; PNG/ICO favicons still show the old mark — no icon
+  tooling exists on this VM, regenerate with `bun tauri icon` or an icon tool
+  on a dev machine. Theme JSON `$schema` and the schema `$id`
+  (`packages/ui/src/theme/desktop-theme.schema.json`) point at the
+  project-owned
+  `https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/packages/ui/src/theme/desktop-theme.schema.json`.
+- **One z-index scale** (`packages/ui/src/styles/tokens/z-index.css`,
+  loaded via `tokens/index.css`): content 0, sticky 20, scrollbar 30, drawer
+  40, dialog 50, popover 60, menu 70, context menu 100, toast/tooltip 1000.
+  Every overlay reads its layer from these variables (dialog, popover,
+  image-preview, hover-card, tab-popover, menu, select, context-menu,
+  tooltip, toast, mobile-drawer, review header, scrollbars). Nested dialogs
+  still stack as `50 + layer*10` (`packages/ui/src/context/dialog.tsx`).
+  TUI: autocomplete `zIndex` 100 → 2500, below dialogs (3000).
+- **Neural network on the web** (port of `packages/tui/src/component/neural*.ts`):
+  `packages/ui/src/components/neural-activity.ts` — framework-free
+  `NeuralActivity` store (same weights: `tool.called` 3, `tool.failed` 2.5,
+  `text.delta` 0.4; heat half-life 2.4s; 128-signal ring; `level()` =
+  `1 - exp(-heat/10)`); `neural-field.tsx` — canvas `NeuralField`/`NeuralLine`/
+  `NeuralAxon`/`NeuralDot` + `SculkSpinner` (resonance rings), drawing from
+  the store every animation frame without re-running Solid. The loop pauses
+  off-screen or in a hidden tab and draws one static frame when motion is off.
+  The app feeds the store from the server event stream (`NeuralFeed` in
+  `packages/app/src/shell/shell.tsx`, one shared instance via
+  `getSharedNeuralActivity()`); the field sits behind home
+  (`packages/app/src/home/route.tsx`), a breathing dot is in the titlebar,
+  a `NeuralLine` runs under the titlebar bar, and the migration toast uses
+  the `SculkSpinner`. Palette reads v2 tokens
+  (`--v2-text-text-base`, `--v2-border-border-base`, `--icon-spark-base`,
+  `--v2-text-text-muted`, `--v2-state-fg-success/danger`) with hex fallbacks.
+  Fix-on-sight: `beat()` in both the TUI and the web store treated a missing
+  beat as time 0, so with `performance.now()` under 80ms every stream signal
+  was suppressed — a missing beat now means "never beaten".
+- **Animations — one setting**: `settings.appearance.animations`
+  (`packages/app/src/settings/model.tsx`, persisted in `settings.v3`, default
+  on unless the OS asks for reduced motion), shown as the Animations row in
+  Appearance settings (`settings.general.row.animations.*`, English source
+  only), mirrored onto `<html data-motion>` by `MotionAttribute`
+  (`packages/app/src/app.tsx`). The neural canvases, the spinner and the CSS
+  kill-switch (`packages/ui/src/styles/animations.css`,
+  `:root[data-motion="off"]`) all read that attribute.
+- **Titlebar + home (small items)**: `SessionWorkingIndicator` shows for
+  every running session, not only child sessions (the `parentID` condition
+  is gone); the new-session menu button carries its label on wide screens
+  (`recently-closed-tabs-menu.tsx`); the settings gear sits in the titlebar
+  right side, always in place; the home footer is visible on mobile too
+  (`lg:hidden` instead of `hidden md:block lg:hidden` — on large screens the
+  projects sidebar nav still serves it).
+- **Deferred from D1 (honest list, with reasons)**:
+  - Home rebuild (prompt on top, project-chip лента, sessions with status
+    dots): needs the new-session composer on home + a browser to verify the
+    layout. The field behind home is done; the prompt/chips are not.
+  - Session rebuild (header pill, side panel as overlay drawer, terminal as
+    a collapsible strip, inline errors instead of the limit modal, axon left
+    of the timeline): the `NeuralAxon` component is ready, but wiring it
+    into the session screen needs the production benchmark baseline the app
+    rules require before session/timeline changes — not recorded here.
+  - Settings regrouping into 6 groups, deleting `experimental`, merging
+    `models`+`providers` and `projects`+`workspaces`: navigation
+    restructure, needs a browser to verify.
+  - `/machines` and `/muse` folding into the session, and the unified model
+    picker (5 implementations, ~2400 lines): separate blocks.
+  - Desktop single splash (merge `LoadingSplash` + `MigrationStatus` into
+    one staged screen): touches the desktop startup sequence, unverifiable
+    without a desktop build+run. Note: the "onboarding" the draft describes
+    as a multi-step screen does not exist — first launch is already an
+    automatic headless flow (`packages/desktop/src/renderer/onboarding/index.tsx`,
+    67 lines, no UI).
+  - Error badge in the titlebar (`error-badge.tsx` in the draft): needs a
+    live error feed design — the Б5/B8 journal is durable (in the DB) but
+    not a live stream; bridging it needs a server endpoint or an event
+    subscription with severity + a list panel + dismissal.
+  - Web mascot port: needs art assets (the TUI mascot is an aseprite).
+  - Draft-vs-code discrepancies found: the serve draft says "do not change
+    Mark geometry" (the user later chose the Fan — the user decision wins);
+    the draft's "add the neural role to the theme schema" is already done in
+    code (see Themes above); the draft's "onboarding screen" does not exist.
+- Verify: `bun test src` in `packages/ui` (theme/z-index/loader/neural
+  tests; 2 pre-existing jsxDEV failures in `scroll-view.test.ts` and
+  `i18n.test.ts` fail on clean main too — a Solid/jsxDEV environment issue,
+  not this branch), `bun test src/theme-preload.test.ts` and
+  `e2e/performance/unit/desktop-startup.test.ts` in `packages/app`,
+  `electron.vite.config.test.ts` in `packages/desktop`, `test/web-ui.test.ts`
+  in `packages/cli`. Full `bun run check` OOMs on the 8GB VM — verify in parts.
 
 ## Capability awareness (system intelligence)
 

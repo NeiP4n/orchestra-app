@@ -1,6 +1,6 @@
-/* Above modal dialogs (z-index 50); matches select-v2-content. */
+/* Above modal dialogs (var(--z-dialog)); matches select-v2-content. */
 [data-popper-positioner]:has([data-component="menu-v2-content"]) {
-  z-index: 60;
+  z-index: var(--z-menu);
 }
 
 [data-component="menu-v2-content"] {
@@ -10,7 +10,7 @@
   align-items: stretch;
   padding: 2px;
   min-width: 160px;
-  z-index: 60;
+  z-index: var(--z-menu);
   pointer-events: auto;
 
   background: var(--v2-background-bg-layer-01);
@@ -191,7 +191,7 @@
   background: var(--surface-raised-stronger-non-alpha);
   background-clip: padding-box;
   box-shadow: var(--shadow-md);
-  z-index: 60;
+  z-index: var(--z-menu);
   animation: dropdown-menu-open 150ms ease-out;
 
   &[data-closed] {

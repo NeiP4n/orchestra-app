@@ -14,9 +14,8 @@ export function SessionWorkingIndicator(props: { sessionID?: string }) {
     () => {
       const id = props.sessionID
 
-      return id && server.ctx.data.session.get(id)?.parentID && server.ctx.data.session.status(id) === "running"
-        ? true
-        : undefined
+      // The indicator is for every running session, not only child sessions.
+      return id && server.ctx.data.session.status(id) === "running" ? true : undefined
     },
     () => elements.indicator ?? null,
     () => props.sessionID,

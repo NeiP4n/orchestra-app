@@ -45,7 +45,7 @@ test("minifies only builds, previews onboarding only in development, and ships s
 
   // Vite resolves publicDir from the renderer root, not from the config file.
   if (!renderer?.root || typeof renderer.publicDir !== "string") throw new Error("Missing renderer root or publicDir")
-  expect(existsSync(path.resolve(import.meta.dirname, renderer.root, renderer.publicDir, "oc-theme-preload.js"))).toBe(
+  expect(existsSync(path.resolve(import.meta.dirname, renderer.root, renderer.publicDir, "orchestra-theme-preload.js"))).toBe(
     true,
   )
 })

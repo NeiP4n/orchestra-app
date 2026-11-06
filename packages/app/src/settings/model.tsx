@@ -124,6 +124,9 @@ const appearanceSchema = Persistence.struct({
   sans: Schema.String,
   terminal: Schema.String,
   tabLayout: Schema.Literals(["horizontal", "vertical"]),
+  // Undefined means "not chosen yet": the default is on, unless the OS
+  // asks for reduced motion (see the animations accessor below).
+  animations: Persistence.optional(Schema.Boolean),
 })
 
 const permissionsSchema = Persistence.struct({
@@ -272,7 +275,7 @@ export const defaultSettings: Settings = {
     terminalPlacement: "side",
     followUpBehavior: "steer",
   },
-  appearance: { fontSize: 14, mono: "", sans: "", terminal: "", tabLayout: "horizontal" },
+  appearance: { fontSize: 14, mono: "", sans: "", terminal: "", tabLayout: "horizontal", animations: undefined },
   keybinds: {},
   permissions: { autoApprove: false },
   workspaces: { defaultDestination: "last-used", lastUsed: {} },
@@ -375,6 +378,15 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         tabLayout: withFallback(() => store.appearance?.tabLayout, defaultSettings.appearance.tabLayout),
         setTabLayout(value: TabLayout) {
           setStore("appearance", "tabLayout", value)
+        },
+        // First launch: animations follow the OS reduced-motion preference.
+        // Once the user chooses in settings, the stored value wins.
+        animations: withFallback(
+          () => store.appearance?.animations,
+          typeof window === "undefined" || !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+        ),
+        setAnimations(value: boolean) {
+          setStore("appearance", "animations", value)
         },
       },
       keybinds: {

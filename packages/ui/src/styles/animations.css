@@ -3,6 +3,19 @@
   --animate-pulse-scale: pulse-scale 1.2s ease-in-out infinite;
 }
 
+/* Motion kill-switch: when the animations setting is off
+   (<html data-motion="off">, mirrored from settings.appearance.animations),
+   CSS animations and transitions stop everywhere. The neural canvases and
+   the sculk spinner read the same attribute and draw one static frame. */
+:root[data-motion="off"] *,
+:root[data-motion="off"] *::before,
+:root[data-motion="off"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
 @keyframes pulse-opacity {
   0%,
   100% {

@@ -144,6 +144,12 @@ export function Tooltip(props: TooltipProps) {
                 const theme = ref?.closest("[data-theme]")?.getAttribute("data-theme")
 
                 if (theme) el.setAttribute("data-theme", theme)
+                // Mirror the color scheme too: v2 tokens switch on
+                // [data-color-scheme], and portalled content lives outside
+                // the themed subtree.
+                const scheme = ref?.closest("[data-color-scheme]")?.getAttribute("data-color-scheme")
+
+                if (scheme) el.setAttribute("data-color-scheme", scheme)
               }}
               data-component="tooltip-v2"
               data-appearance={local.appearance ?? "compact"}

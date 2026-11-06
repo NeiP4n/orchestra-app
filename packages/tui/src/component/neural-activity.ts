@@ -179,7 +179,11 @@ export class NeuralActivity {
 
   private beat(key: string) {
     const now = performance.now()
-    if (now - (this.beats.get(key) ?? 0) < STREAM_BEAT_MS) return false
+    const last = this.beats.get(key)
+    // A missing beat means "never beaten": comparing against 0 would
+    // suppress every stream signal while performance.now() is under the
+    // beat window (the first 80ms of the process).
+    if (last !== undefined && now - last < STREAM_BEAT_MS) return false
     this.beats.set(key, now)
     return true
   }
