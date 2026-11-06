@@ -1,0 +1,31 @@
+# Worktrunk — настройки проекта orchestra-app.
+# Стандарт работы с worktree: docs/worktree-standard.md.
+# Файл лежит в репозитории, поэтому действует для всех, у кого установлен wt.
+# Без wt те же правила выполняет script/wt.sh (fallback на чистый git).
+#
+# ВАЖНО (проверено на wt v0.81.0): в проектном конфиге учитываются ТОЛЬКО
+# хуки, [commit.generation] template-append, [list] url, [forge] и алиасы.
+# worktree-path, [merge] и [remove] в проектном файле ИГНОРИРУЮТСЯ —
+# они живут в пользовательском конфиге (~/.config/worktrunk/config.toml),
+# в секции [projects."github.com/NeiP4n/orchestra-app"] (см. документ-стандарт).
+# script/wt.sh передаёт флаги мёржа явно, поэтому стандарт держится и без
+# пользовательского конфига. Хуки — на верхнем уровне, ДО любых [таблиц]:
+# ключ после заголовка [таблицы] принадлежит ей, а не корню файла.
+
+# pre-start: новый worktree приводится в рабочее состояние — убираются
+#   симлинки node_modules, ставятся зависимости, проверяется резолв пакетов
+#   внутрь worktree. Без этого тесты могут гонять чужой старый код.
+# pre-merge: перед мёржем проверяется worktree сливаемой ветки — чистое
+#   дерево, допустимое имя ветки, нет симлинков node_modules.
+# Первый запуск хука из этого файла wt попросит подтвердить один раз;
+# для автоматики используйте `wt -y ...`.
+pre-start = "script/wt.sh setup"
+pre-merge = "script/wt.sh check-merge {{ branch }}"
+
+# Сообщения коммитов — в стиле репозитория (conventional commits).
+[commit.generation]
+template-append = """
+- Use conventional commits: feat:, fix:, docs:, chore:, refactor:, test:
+- Subject under 50 chars, imperative mood ("Add feature", not "Added feature")
+- Describe the change, not the intent or benefit
+"""

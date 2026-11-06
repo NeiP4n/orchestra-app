@@ -1764,6 +1764,40 @@ A failing window blocks the sprint. The scratch worktree lives under
 `$HOME/.cache/orchestra-integration` (`--scratch-dir` overrides it; `/tmp`
 is too small on machines where it is a small tmpfs).
 
+## Worktree standard — worktrunk (run5, БРАТЬ №3)
+
+One agent = one worktree = one branch. Tool: `wt` (worktrunk v0.81.0,
+Rust CLI, MIT/Apache-2.0, prebuilt musl binary from GitHub releases, verified
+sha256, installed to `~/.local/bin/wt`); helper `script/wt.sh` enforces the
+same rules on plain `git worktree` when `wt` is absent. Full standard:
+`docs/worktree-standard.md`.
+
+- Layout: `main` lives in `~/workspace/orchestra-app-security`; every other
+  worktree is `~/workspace/orchestra-app-<branch>`. Never work in
+  `~/workspace/orchestra-app` (old `fix/projects-chat` checkout, not main).
+- Branch names: 1–3 lowercase words joined by hyphens, no slashes, no
+  `feat/`/`fix/` prefixes, max 40 chars (already in `AGENTS.md`, enforced
+  by `script/wt.sh validate-name`).
+- Create: `script/wt.sh new <branch>` (branch from `main` + worktree +
+  setup) or `wt -y switch -c <branch> -b main --no-cd --path <path>`.
+  Setup removes `node_modules` symlinks, runs `bun install`, and verifies
+  `require.resolve('@orchestra/core/dod-kanban')` points inside the worktree —
+  symlinked `node_modules` make tests run someone else's old code.
+- Merge — coordinator only, from the `main` worktree:
+  `script/wt.sh merge <branch>`. Gate: `script/wt.sh check` (clean tree,
+  valid name, no `node_modules` symlinks) + the integration window above.
+  Merge commit, no squash, no rebase, no fast-forward; worktree and branch
+  are removed after the merge. No push to remote, ever.
+- Project config `.config/wt.toml` carries only what wt v0.81.0 honours from
+  a project file: `pre-start` / `pre-merge` hooks and the commit-message
+  style. `worktree-path`, `[merge]` and `[remove]` are IGNORED there — they
+  belong in user config under `[projects."github.com/NeiP4n/orchestra-app"]`
+  (see `docs/worktree-standard.md`); `script/wt.sh` passes the merge flags
+  explicitly, so the standard holds without user config.
+- Hooks run `script/wt.sh` from repo files, so they only work after the
+  branch carrying the helper is committed; a failing `pre-start` leaves the
+  worktree and branch behind (remove manually, `wt -y remove -f -D <branch>`).
+
 ## Release rollback — `script/rollback.sh` (idea #23)
 
 Every release writes its rollback plan ahead, in
