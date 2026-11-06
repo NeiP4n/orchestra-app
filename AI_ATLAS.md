@@ -1224,6 +1224,110 @@ the claim path would refuse. Columns come from `task_state`:
   `packages/core`; `bun test test/component/room-dod.test.tsx` in
   `packages/tui`; `bun typecheck` in `packages/app`.
 
+## Block Б16 — project state files in `.orchestra` — `packages/core/src/project-files/`
+
+- Idea: every project folder carries its state on disk in `.orchestra/`
+  — a mirror of what lives in the database and the journal, not a second
+  source of truth. A project restores from its files without the DB; a
+  move is a folder copy. Divergence file vs DB is an error visible in
+  `health.json`, never silent drift. Secrets are never in files and never
+  in git. DoD is in git, memory/notes are not.
+- Core framework (`packages/core/src/project-files/`):
+  - `errors.ts` — one error, `ProjectFileError` (`Schema.TaggedError`
+    `"ProjectFiles.Error"`, fields `file`/`kind`/`message`; kinds
+    `corrupt`|`missing`|`divergent`|`write-failed`|`restore-failed`|`invalid`).
+    A corrupt file fails loudly, never reads as empty.
+  - `format.ts` — one place for parsing/writing: YAML via `Bun.YAML`,
+    JSON via `Schema.fromJsonString`, JSONL (missing file = empty log, bad
+    line = corrupt with `file:line`), atomic writes via `WriteAtomic`,
+    best-effort `appendJsonl` with 1 MiB rotation. Plain
+    `node:fs/promises` — core does not depend on `@effect/platform`.
+  - `registry.ts` — the registry of every known file: `FileDescriptor`
+    `{rel, base, dir, kind, purpose, git, source}`; `source` is `file`
+    (the file IS the store), `db` (mirror of DB/journal), or `derived`
+    (generated). `base` is `orchestra` (inside `.orchestra/`, default) or
+    `project` (the project directory itself — only the native skill
+    registry lives there). `descriptorForPath` returns the exact
+    descriptor, else the longest enclosing directory descriptor, so a
+    file inside `notes/` is a note, not `unknown`. The `.gitignore` split
+    derives from `gitignoreLines()` — the single source of truth, also
+    used by `packages/core/src/memory/index.ts`.
+  - `index-file.ts` — `index.yaml`, the manifest of `.orchestra` (path,
+    kind, purpose, updatedAt, size, sha256, count): it exists because
+    `notes/`, `plots/`, `skills/` and the rest were invisible to agents
+    (only DoD and memory reach the prompt). Never lists itself;
+    `snapshots/` is one entry with a count; an unregistered file is listed
+    as `unknown`. Covers `.orchestra/` only — project-base files are
+    discovered via the registry and health-checked, not listed here.
+  - `health.ts` — `health.json`: one line per registered file
+    (`ok`|`missing`|`corrupt`|`divergent`|`unchecked`) and one overall
+    status (`healthy`|`degraded`|`unhealthy`|`unchecked`). Existence and
+    parseability are checked by the core; divergences come from the
+    slices via `checkHealth(directory, divergences)`. Base-aware: a
+    project-base file is checked at its real sibling path.
+  - `snapshot.ts` — snapshots of the whole `.orchestra` (minus the
+    snapshots themselves) with a manifest; keep 7, prune oldest first.
+    `restoreSnapshot` verifies manifest + every listed file (exists and
+    parses) BEFORE writing anything, so a broken snapshot fails with the
+    current files intact; files that exist now but not in the snapshot
+    are left alone and reported as skipped.
+  - `sync.ts` / `restore.ts` — the two directions. Sync pulls state from
+    the owning subsystem into the file (mirror); restore rebuilds DB
+    state from the files after the DB is gone. Every syncer/restorer runs
+    best-effort: one file failing (including a syncer that dies — missing
+    service, unexpected defect) is reported `failed`, never crashes the
+    whole run. After both, the index refreshes and health recomputes.
+- State files (S1, `files-state.ts`): `orchestra.json` (project config,
+  validated against the real `Config.Info` schema, file-owned),
+  `rules.yaml` (mirror of KV rules, restorer writes back per scope),
+  `tasks.yaml` (projection of DoD leaves, derived, no restorer),
+  `decisions.yaml` (ADR index over `decisions/`, derived),
+  `society.yaml` (federation groups from KV, restorer writes back),
+  `budget.yaml` (projection of `Group.budget` — no separate budget store
+  exists; restorer patches the budget back onto the group),
+  `briefing.md` (file-owned, no briefing store exists),
+  `handoffs.md` (append-only log, file-owned),
+  `lifecycle.json` (file-owned, no project-lifecycle store exists).
+  All git-tracked except `handoffs.md` and `lifecycle.json`.
+- Data files (S2, `files-data.ts`): `kanban.yaml` (snapshot of the live
+  host-view board; `compareKanban` returns divergences for health),
+  `dod-history/` (dated DoD snapshots on change, cap 30),
+  `errors.jsonl` / `events.jsonl` / `usage.jsonl` (append-only mirrors
+  of the autoloop journal, watermark = last `seq` in the file plus its
+  rotated `.1` copy; never rewritten — replaying would mint new
+  sequences), `quarantine.jsonl` (full rewrite of the
+  `autoloop_quarantine` set; the restorer re-quarantines every listed
+  fact, so a poisoned fact stays quarantined after a file-only restore).
+  All `git=false` (runtime data). DoD/zones need no syncer — the files
+  already ARE their stores.
+- Integrations + skills (S3, `files-integrations.ts`): `mcp.yaml`
+  (per-project MCP servers — the fix for MCP being global-only; secrets
+  only as `{credential: "<id>"}` references, a secret value is rejected
+  loudly), `integrations/` + `INTEGRATE.md` (`integrate(directory, spec)`
+  — recognise catalog/MCP/REST/provider → validate → install manifest
+  `.orchestra/integrations/<name>.yaml` → offline verify → regenerate
+  the doc; CLI wiring is NOT done), `native-skills/skills.json`
+  (project-base validated registry via the existing
+  `loadLevelDetailed` — damage is surfaced as a health divergence, never
+  a silent empty level; the damage handling itself lives in
+  `skill-marketplace/levels.ts` and is not redone here).
+- What is NOT covered: snapshots cover `.orchestra/` only, not the
+  sibling skill registry; restore is additive per scope/group (a scope
+  deleted from `rules.yaml` by hand is not pruned from KV); negative
+  budgets are not schema-rejected; handoff appends are single writes
+  without a lock (same tradeoff as the DoD event log); live probes
+  (server start, `tools/list`, `GET /models`) are not implemented —
+  verification here is offline shape-only.
+- Tests: `packages/core/test/project-files-core.test.ts` (13: index,
+  health incl. divergence + base-project path, snapshots, sync/restore
+  frameworks on a real temp DB+KV, gitignore split, registry),
+  `project-files-state.test.ts` (19), `project-files-data.test.ts` (19),
+  `project-files-integrations.test.ts` (17). Verify: `bun test
+  test/project-files-core.test.ts test/project-files-state.test.ts
+  test/project-files-data.test.ts test/project-files-integrations.test.ts`
+  in `packages/core` (68 pass); `bun typecheck` in `packages/core`
+  (0 errors in the `project-files/` files).
+
 
 ## Model collections & custom endpoints
 
