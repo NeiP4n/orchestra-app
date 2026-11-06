@@ -1,6 +1,6 @@
 export * as SessionRunnerLLM from "./llm.js"
 
-import { Message, isContextOverflowFailure } from "@orchestra/ai"
+import { Message, ProviderCooldown, isContextOverflowFailure } from "@orchestra/ai"
 import type { AIError } from "@orchestra/ai"
 import { Mode } from "@orchestra/schema/mode"
 import { Orchestra } from "@orchestra/schema/orchestra"
@@ -26,7 +26,7 @@ import { SessionSchema } from "../schema.js"
 import { SessionStore } from "../store.js"
 import { SessionMessageTable } from "../sql.js"
 import { SessionTitle } from "../title.js"
-import { toSessionError, isFreeTierAddressCap } from "../to-session-error.js"
+import { toSessionError } from "../to-session-error.js"
 import { DrainResult, Service, type Interface } from "./index.js"
 import { Snapshot } from "../../snapshot.js"
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
@@ -388,11 +388,21 @@ const layer = Layer.effect(
     // snapshotted on the session at creation; the project's main session carries none, so it
     // falls back to the live catalog instead: other models of the same provider first, then
     // the verified Anymodel models, then lix as the second provider, then whatever else the
-    // catalog has. On an authentication failure the whole provider is dead, so the chain
-    // starts on another provider. A provider with no key has no models in the catalog and
-    // contributes nothing, so a fallback can never invent a provider that does not exist. A
-    // refusal, a rejected request or a spent free-tier address cannot be waited out. The
-    // switch is announced in the session itself: a silent model swap is an error, not a fix.
+    // catalog has. On an authentication failure — or a gateway failure (502/503/504), which
+    // is the whole provider down, not one model — the chain starts on another provider.
+    // A provider with no key has no models in the catalog and contributes nothing, so a
+    // fallback can never invent a provider that does not exist. A refusal, a rejected
+    // request or a spent free-tier address cannot be waited out. The switch is announced
+    // in the session itself: a silent model swap is an error, not a fix.
+    //
+    // Why this exists (Б14, 2026-11-06): G2-14 built the chain for main sessions only,
+    // and `fallbackModel` refused every retryable cause — so a worker session whose
+    // operator-given list was all Anymodel (Probe Runner) retried the same dead provider
+    // twice on 502 and then failed, and the chain never ran. Two fixes: the live-catalog
+    // chain is now appended AFTER a worker's own list, so an exhausted list crosses
+    // providers; and `fallbackModel` no longer re-checks retryability — step.ts only
+    // calls it after the retry policy already declined (retries spent), so a retryable
+    // cause here means "change the model", not "wait again".
     const nextModel = Effect.fn("SessionRunner.nextModel")(function* (
       loaded: SessionContext.Loaded,
       cause: AIError,
@@ -400,19 +410,26 @@ const layer = Layer.effect(
       refused: Set<string>,
     ) {
       const listed = Orchestra.sessionModels(loaded.session.metadata)
-      // The catalog is read only for a main session; a worker's operator-given list wins.
-      // A catalog that cannot be read leaves the session with no fallback instead of
-      // failing the drain on top of the model failure. The service is bound once at
-      // the layer top: `nextModel` runs as `SessionStep.attempt`'s `fallback`, whose
-      // type carries no requirements, so it must not yield `Model.Service` itself.
-      const catalog =
-        listed.length === 0
-          ? yield* models.available().pipe(Effect.orElseSucceed(() => [] as readonly Model.Info[]))
-          : []
-      const mainFallbacks =
-        listed.length === 0
-          ? mainSessionFallbackChain({ cause, current: loaded.model.ref, catalog })
-          : []
+      // The catalog is read for every session now, not only main sessions: a
+      // worker whose own list is exhausted (or all on one dead provider) falls
+      // back to the live-catalog chain instead of failing on its list. A
+      // catalog that cannot be read leaves the session with its list alone
+      // instead of failing the drain on top of the model failure. The service
+      // is bound once at the layer top: `nextModel` runs as
+      // `SessionStep.attempt`'s `fallback`, whose type carries no requirements,
+      // so it must not yield `Model.Service` itself.
+      const catalog = yield* models.available().pipe(Effect.orElseSucceed(() => [] as readonly Model.Info[]))
+      const coolingDown = new Set(
+        catalog
+          .map((info) => info.providerID)
+          .filter((providerID) => ProviderCooldown.isCoolingDown(String(providerID))),
+      )
+      const mainFallbacks = mainSessionFallbackChain({
+        cause,
+        current: loaded.model.ref,
+        catalog,
+        coolingDown,
+      })
       const next = fallbackModel({
         cause,
         models: [...listed, ...mainFallbacks],
@@ -427,7 +444,7 @@ const layer = Layer.effect(
         next,
         message: error.message,
       })
-      if (listed.length === 0)
+      if (listed.length === 0 || next.providerID !== loaded.model.ref.providerID)
         yield* bus.publish(SessionEvent.Synthetic, {
           sessionID: loaded.session.id,
           text: `Провайдер отказался от модели ${loaded.model.ref.id}; сессия продолжается на запасной модели ${next.id} (провайдер ${next.providerID}). Это не тихая подмена: если запасная тоже откажет, ошибка уйдёт на эскалацию.`,
@@ -543,16 +560,19 @@ const refusedIdentities = (refused: ReadonlySet<string>) =>
   new Set([...refused].map((key) => key.split("#")[0] ?? key))
 
 /**
- * The next model a session may try after its provider refused the current one outright. A
- * failure the retry policy can wait out is left to it; a refusal, a rejected request or a
- * spent free-tier address cannot be waited out, so the session continues on another model:
- * the operator-given list for a worker, the live-catalog chain for a main session (see
- * `mainSessionFallbackChain`; `anymodel-v4.1-flash` is dead and never listed). The current
- * model is excluded by identity, not by variant: another variant of the same model is the
- * same model, and on an authentication failure it fails exactly the same way. A content
- * policy refusal belongs to the request, not to the model, so another model would only dodge
- * the filter. A context overflow that survived compaction is the task's own size: another
- * model hides it instead of reporting it, so the step fails honestly.
+ * The next model a session may try after its provider refused the current one outright. This
+ * runs ONLY after the retry policy already declined (see `step.ts`: the fallback is called
+ * when `retry` is false — the retries are spent or the cause never retries), so a retryable
+ * cause here means "change the model", not "wait again": re-checking retryability here is
+ * what left a 502 to fail a worker session after two same-model retries instead of crossing
+ * providers (Б14 Probe Runner). A content policy refusal belongs to the request, not to the
+ * model, so another model would only dodge the filter. A context overflow that survived
+ * compaction is the task's own size: another model hides it instead of reporting it, so the
+ * step fails honestly. The candidate list is the operator-given list first, then the
+ * live-catalog chain (`mainSessionFallbackChain`; `anymodel-v4.1-flash` is dead and never
+ * listed). The current model is excluded by identity, not by variant: another variant of
+ * the same model is the same model, and on an authentication failure it fails exactly the
+ * same way.
  */
 export function fallbackModel(input: {
   readonly cause: AIError
@@ -562,7 +582,6 @@ export function fallbackModel(input: {
 }) {
   if (input.cause.reason._tag === "ContentPolicy") return undefined
   if (isContextOverflowFailure(input.cause)) return undefined
-  if (SessionRunnerRetry.isRetryable(input.cause) && !isFreeTierAddressCap(input.cause)) return undefined
   const refusedModels = refusedIdentities(input.refused)
   const current = modelIdentity(input.current)
   return input.models.find(

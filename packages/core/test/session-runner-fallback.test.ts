@@ -3,6 +3,7 @@ import {
   AIError,
   AuthenticationError,
   ContentPolicyError,
+  HttpContext,
   InvalidRequestError,
   LanguageModel,
   ProviderInternalError,
@@ -73,9 +74,16 @@ const fallback = (input: { cause: AIError; models?: ReadonlyArray<Model.Ref>; re
   })
 
 describe("SessionRunnerLLM.fallbackModel", () => {
-  test("leaves a failure the retry policy can wait out to it", () => {
+  test("switches after the retry policy has refused the failure (Б14 Probe Runner)", () => {
+    // WHY: `fallbackModel` runs only after the retry policy declines (see
+    // step.ts — the fallback is called when `retry` is false, i.e. the
+    // retries are spent). A retryable cause here therefore means "change the
+    // model", not "wait again". The old gate re-checked retryability and left
+    // a 502 to fail a worker session after two same-model retries instead of
+    // crossing providers: Probe Runner failed twice on Anymodel 502 while
+    // lix and klinch were alive.
     const cause = failure(new ProviderInternalError({ message: "internal" }))
-    expect(fallback({ cause })).toBeUndefined()
+    expect(fallback({ cause })).toEqual(next)
   })
 
   test("continues on the next model when the provider rejects the request outright", () => {
@@ -94,8 +102,13 @@ describe("SessionRunnerLLM.fallbackModel", () => {
     expect(fallback({ cause, models: [spare] })).toEqual(spare)
   })
 
-  test("keeps an ordinary rate limit on the retry policy", () => {
-    expect(fallback({ cause: failure(new RateLimitError({ message: "Too many requests" })) })).toBeUndefined()
+  test("switches after the retry policy declines a rate limit, too", () => {
+    // Same contract as the 502 case above: by the time this runs, the retry
+    // policy has already waited out the throttle and declined. The chain
+    // (not this pure function) is what skips the throttled provider — the
+    // retry policy records it in the shared cooldown, and
+    // `mainSessionFallbackChain` drops cooling-down providers.
+    expect(fallback({ cause: failure(new RateLimitError({ message: "Too many requests" })) })).toEqual(next)
   })
 
   test("does not dodge a content policy refusal with another model", () => {
@@ -185,8 +198,16 @@ describe("mainSessionFallbackChain (G2-14)", () => {
     cause: AIError
     current: string
     catalog: ReadonlyArray<Model.Info>
-  }) => mainSessionFallbackChain({ cause: input.cause, current: model(input.current), catalog: input.catalog })
+    coolingDown?: ReadonlySet<string>
+  }) =>
+    mainSessionFallbackChain({
+      cause: input.cause,
+      current: model(input.current),
+      catalog: input.catalog,
+      ...(input.coolingDown ? { coolingDown: input.coolingDown } : {}),
+    })
   const asFailure = (reason: ConstructorParameters<typeof AIError>[0]["reason"]) => failure(reason)
+  const http = (status: number) => new HttpContext({ url: "https://provider.example/v1", status, headers: {} })
   const invalidRequest = new InvalidRequestError({ message: "model_not_found" })
   const auth = new AuthenticationError({ message: "Unauthorized" })
   // The B14 catalog: the planner's free provider, the Anymodel models, lix as
@@ -245,6 +266,41 @@ describe("mainSessionFallbackChain (G2-14)", () => {
         catalog: [info("opencode", "crouton-alpha-free"), info("opencode", "minimax-free")],
       }),
     ).toEqual([model("opencode/minimax-free")])
+  })
+
+  test("a gateway failure (502/503/504) skips the whole current provider, like auth", () => {
+    // Б14: Anymodel answered 502 on sonnet-5.5 while lix was alive, and the
+    // chain still offered Anymodel's other models first — the gateway is
+    // down, not the model, so no Anymodel model is tried at all.
+    const gatewayDown = new ProviderInternalError({ message: "bad gateway", http: http(502) })
+    expect(chain({ cause: asFailure(gatewayDown), current: "anymodel/sonnet-5", catalog })).toEqual([
+      model("lix/lix-test-model"),
+      model("opencode/crouton-alpha-free"),
+      model("opencode/minimax-free"),
+    ])
+    // A 500 is a model-level failure, not the gateway: Anymodel's other
+    // models are still tried first.
+    const modelDown = new ProviderInternalError({ message: "internal", http: http(500) })
+    expect(chain({ cause: asFailure(modelDown), current: "anymodel/sonnet-5", catalog })).toEqual([
+      model("anymodel/anymodel-coder"),
+      model("lix/lix-test-model"),
+      model("opencode/crouton-alpha-free"),
+      model("opencode/minimax-free"),
+    ])
+  })
+
+  test("a cooling-down provider is skipped outright", () => {
+    // The retry policy records a 429 (or a 502) in the shared cooldown; the
+    // chain must not offer a model of a provider that just refused the
+    // whole process — switching to it only earns the same refusal.
+    expect(
+      chain({
+        cause: asFailure(invalidRequest),
+        current: "opencode/crouton-alpha-free",
+        catalog,
+        coolingDown: new Set(["anymodel"]),
+      }),
+    ).toEqual([model("opencode/minimax-free"), model("lix/lix-test-model")])
   })
 
   test("lix is the second provider even when Anymodel has no key", () => {
@@ -573,13 +629,22 @@ describe("SessionRunnerLLM fallback while draining a session", () => {
     Effect.gen(function* () {
       yield* seed({ sessionID: workerSession, model: "worker", models: [backup] })
       const llm = yield* TestLLM.Service
-      yield* llm.push(Stream.fail(invalidRequest), Stream.fail(invalidRequest))
+      // The worker's own list is exhausted after backup, but the run now
+      // crosses providers on the live-catalog chain (Б14 Probe Runner fix):
+      // sonnet-5, anymodel-coder, lix-test-model — and only then fails.
+      yield* llm.push(
+        Stream.fail(invalidRequest),
+        Stream.fail(invalidRequest),
+        Stream.fail(invalidRequest),
+        Stream.fail(invalidRequest),
+        Stream.fail(invalidRequest),
+      )
 
       const result = yield* drainPrompt(workerSession, "Do the work")
 
       expect(Exit.isFailure(result.exit)).toBe(true)
-      expect(result.requested).toEqual(["worker", "backup"])
-      expect(result.model).toMatchObject({ providerID: "fake", id: "backup" })
+      expect(result.requested).toEqual(["worker", "backup", "sonnet-5", "anymodel-coder", "lix-test-model"])
+      expect(result.model).toMatchObject({ providerID: "lix", id: "lix-test-model" })
       expect(result.messages.at(-1)).toMatchObject({
         type: "assistant",
         finish: "error",
@@ -594,7 +659,8 @@ describe("SessionRunnerLLM fallback while draining a session", () => {
       const llm = yield* TestLLM.Service
       // Step 1: worker refuses, the run switches to backup, backup answers with a tool call
       // (an unknown tool fails, which still settles the step and starts step 2). Step 2:
-      // backup refuses too — the run must fail honestly instead of switching back to worker.
+      // backup refuses too — the run must not switch back to worker. It crosses to the
+      // live-catalog chain instead (sonnet-5), which answers, so the run succeeds.
       yield* llm.push(
         Stream.fail(invalidRequest),
         TestLLM.tool("call-unknown", "echo", { text: "hi" }),
@@ -604,9 +670,15 @@ describe("SessionRunnerLLM fallback while draining a session", () => {
 
       const result = yield* drainPrompt(workerSession, "Do the work")
 
-      expect(Exit.isFailure(result.exit)).toBe(true)
-      expect(result.requested).toEqual(["worker", "backup", "backup"])
-      expect(result.model).toMatchObject({ providerID: "fake", id: "backup" })
+      expect(Exit.isSuccess(result.exit)).toBe(true)
+      expect(result.requested).toEqual(["worker", "backup", "backup", "sonnet-5"])
+      expect(result.requested.filter((id) => id === "worker")).toHaveLength(1)
+      expect(result.model).toMatchObject({ providerID: "anymodel", id: "sonnet-5" })
+      expect(result.messages.at(-1)).toMatchObject({
+        type: "assistant",
+        finish: "stop",
+        content: [{ type: "text", text: "Done" }],
+      })
     }),
   )
 })

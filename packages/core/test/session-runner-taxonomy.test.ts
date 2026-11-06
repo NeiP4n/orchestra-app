@@ -161,7 +161,7 @@ describe("SessionErrorTaxonomy", () => {
   })
 
   test("main-session fallbacks are only the working Anymodel models", () => {
-    expect(MAIN_SESSION_FALLBACK_MODELS).toEqual(["anymodel/sonnet-5", "anymodel/anymodel-coder"])
+    expect(MAIN_SESSION_FALLBACK_MODELS).toEqual(["anymodel/sonnet-5", "anymodel/anymodel-coder", "anymodel/gemini-3.8-flash"])
     expect(MAIN_SESSION_FALLBACK_MODELS).not.toContain("anymodel/anymodel-v4.1-flash")
   })
 })

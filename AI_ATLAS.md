@@ -83,6 +83,20 @@ provider. lix is seeded by the `orchestra.provider.lix` plugin
 (`packages/core/src/plugin/provider/lix.ts`): registered but never available
 without a stored key, models discovered live from `/models` once the key exists.
 
+Why G2-14 did not save the Б14 Probe Runner (role-toolkits fix, 2026-11-06):
+the chain ran for main sessions only — a worker's operator-given list was used
+alone — and `fallbackModel` refused every retryable cause, so a 502 retried
+the same dead provider twice and then failed without ever switching. Now the
+live-catalog chain is appended AFTER a worker's own list, so an exhausted list
+crosses providers; `fallbackModel` no longer re-checks retryability, because
+`step.ts` only calls it after the retry policy already declined (retries
+spent), so a retryable cause there means "change the model". A gateway failure
+(502/503/504) is treated like an authentication failure — the whole provider
+is down, not one model — and the retry policy records it in the shared
+provider cooldown (`ProviderCooldown.noteProviderDown`), so the chain also
+skips providers that are cooling down from a 429 or a 502 this process
+already saw.
+
 ## Modes — `packages/schema/src/mode.ts`
 
 A mode is rails for a run: step ceiling, read-only flag, preloaded tools, one

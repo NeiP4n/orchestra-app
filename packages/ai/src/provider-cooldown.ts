@@ -30,6 +30,20 @@ export const noteRateLimit = (providerID: string, retryAfterMs?: number | undefi
   return until
 }
 
+/**
+ * Record that `providerID` answered 502/503/504: the gateway itself is down,
+ * not one model. Same map as a rate limit, same meaning for everyone else —
+ * do not spend retries against this provider until the cooldown passes, and
+ * prefer another provider when choosing a fallback model. A restart clears
+ * it, like every other cooldown here.
+ */
+export const noteProviderDown = (providerID: string, now: number = Date.now()) => {
+  const until = now + DEFAULT_COOLDOWN_MS
+  const previous = cooldowns.get(providerID)
+  if (previous === undefined || until > previous) cooldowns.set(providerID, until)
+  return until
+}
+
 /** Milliseconds of cooldown left for `providerID`, or 0 when it may be called again. */
 export const cooldownRemainingMs = (providerID: string, now: number = Date.now()) =>
   Math.max(0, (cooldowns.get(providerID) ?? 0) - now)
