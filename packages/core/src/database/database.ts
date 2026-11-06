@@ -8,6 +8,7 @@ import { Global } from "@orchestra/util/global"
 import { closeSync, copyFileSync, existsSync, openSync } from "node:fs"
 import { chmod } from "node:fs/promises"
 import { basename, dirname, isAbsolute, join } from "path"
+import { DatabaseBackup } from "./backup.js"
 import { DatabaseMigration } from "./migration.js"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 
@@ -34,7 +35,10 @@ export class Service extends Context.Service<Service, Interface>()("@orchestra/s
 // releasing a shared semaphore resumes the waiting object's fiber inside the
 // releasing object's I/O context, where its first storage call is rejected as
 // cross-object I/O.
-const databaseLayer = (lock: Effect.Effect<Semaphore.Semaphore>) =>
+const databaseLayer = (
+  lock: Effect.Effect<Semaphore.Semaphore>,
+  beforeMigration?: (db: DatabaseShape) => Effect.Effect<void>,
+) =>
   Layer.effect(
     Service,
     Effect.gen(function* () {
@@ -53,7 +57,12 @@ const databaseLayer = (lock: Effect.Effect<Semaphore.Semaphore>) =>
       // Durable Object SQLite always enforces foreign keys and rejects the pragma.
       if (supportsForeignKeyToggle) yield* db.run("PRAGMA foreign_keys = ON")
       const semaphore = yield* lock
-      yield* semaphore.withPermit(DatabaseMigration.apply(db))
+      yield* semaphore.withPermit(
+        Effect.gen(function* () {
+          if (beforeMigration) yield* beforeMigration(db)
+          yield* DatabaseMigration.apply(db)
+        }),
+      )
 
       return { db }
     }).pipe(Effect.orDie),
@@ -75,9 +84,35 @@ export function layer(options: Options = { path: ":memory:" }) {
   return Layer.unwrap(
     Effect.gen(function* () {
       const provide = (filename: string) =>
-        databaseLayer(filename === ":memory:" ? Semaphore.make(1) : Effect.succeed(lockFor(filename))).pipe(
-          Layer.provide(sqliteLayer({ filename })),
-        )
+        databaseLayer(
+          filename === ":memory:" ? Semaphore.make(1) : Effect.succeed(lockFor(filename)),
+          // G2-8: migrations rewrite schema (old ones DROP tables), so a file
+          // database with pending migrations is snapshotted first. In-memory
+          // databases and workerd (no tuning pragmas, no filesystem) skip it.
+          // Best-effort: a failed backup is one loud warning, never a failed boot.
+          filename === ":memory:" || !supportsTuningPragmas
+            ? undefined
+            : (db) =>
+                Effect.gen(function* () {
+                  const pending = yield* DatabaseMigration.pendingMigrations(db)
+                  if (pending.length === 0) return
+                  const result = yield* DatabaseBackup.runBackupCycle(db, {
+                    directory: join(dataDir, "backups"),
+                    database: basename(filename),
+                    keep: 7,
+                  })
+                  yield* Effect.logInfo("database backup before migration", {
+                    backup: result.backup.path,
+                    migrations: pending,
+                  })
+                }).pipe(
+                  Effect.catchCause((cause) =>
+                    Effect.logWarning("database backup before migration failed; continuing without a fresh backup", {
+                      cause,
+                    }),
+                  ),
+                ),
+        ).pipe(Layer.provide(sqliteLayer({ filename })))
       const envDb = process.env.ORCHESTRA_DB ?? process.env.OPENCODE_DB
       const raw = options.path ?? envDb ?? ":memory:"
       if (raw === ":memory:") return provide(raw)

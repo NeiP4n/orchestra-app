@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
-import { Effect, Stream } from "effect"
+import { Effect, Layer, Stream } from "effect"
 import { Bus } from "@orchestra/core/bus"
 import { Database } from "@orchestra/core/database/database"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
@@ -21,9 +21,13 @@ import { tmpdir } from "./fixture/tmpdir"
 // session event so `log` can decode it back.
 const Renamed = SessionEvent.Renamed
 
-const layerFor = (file: string) =>
+const layerFor = (file: string, data: string) =>
   AppNodeBuilder.build(LayerNode.group([Database.node, Bus.node]), [
-    Database.node.replace(Database.layer({ path: file })),
+    // A node replacement must be a closed layer: close the Database layer
+    // over the test's Global instead of leaving Global as a requirement.
+    Database.node.replace(
+      Layer.provide(Database.layer({ path: file }), Layer.succeed(Global.Service, Global.make({ data }))),
+    ),
   ])
 
 // `Database.layer` needs `Global.Service`; the test provides it around the
@@ -31,7 +35,7 @@ const layerFor = (file: string) =>
 const runWith = <A, E>(file: string, data: string, program: Effect.Effect<A, E, Database.Service | Bus.Service>) =>
   Effect.runPromise(
     program.pipe(
-      Effect.provide(layerFor(file)),
+      Effect.provide(layerFor(file, data)),
       Effect.provideService(Global.Service, Global.make({ data })),
       Effect.scoped,
     ),

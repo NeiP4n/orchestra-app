@@ -508,6 +508,23 @@ too far behind, so it resyncs instead of missing events.
 - **Database backup**: `packages/core/src/database/backup.ts`
   (`backupDatabase` via `VACUUM INTO`, `restoreDatabase`, only while the
   server is stopped) and `PRAGMA synchronous = FULL` for critical writes.
+  Durable events persist by default (G2-7: `Bus` keeps payloads unless
+  `persist: false` is passed explicitly — a plain `orchestra serve` used to
+  drop them on restart). Backups run themselves (G2-8): the Node server takes
+  one at startup — before the startup hold resumes Societies — and then one
+  every 6 h into `<data>/backups`, keeping the 7 newest (`ServerOptions.backup`
+  to tune, `packages/server/src/database-backup.ts`); a file database with
+  pending migrations is snapshotted before the migration runs
+  (`DatabaseMigration.pendingMigrations`, best-effort, never fails the boot).
+  Restore is atomic: the backup is verified (magic header +
+  `PRAGMA quick_check`) before the live file is touched, the live file and
+  its `-wal`/`-shm` sidecars are moved aside to
+  `<database>.pre-restore-<timestamp>` instead of deleted, the copy is
+  verified again, and a failed copy or verification moves the live database
+  back — a corrupt backup can no longer destroy the live database. Rotation
+  (`pruneBackups`) deletes only old timestamped backup files.
+  `restoreDatabase` still needs the server stopped: an open connection would
+  keep writing to the replaced inode.
 - **Atomic file writes**: `packages/core/src/file-mutation.ts` writes via a
   temp file + rename under a cross-process lock file
   (`<target>.orchestra-lock`, stolen when the owner pid is dead or the lock

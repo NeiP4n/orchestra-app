@@ -30,6 +30,17 @@ export const ServerOptions = Schema.Struct({
       persist: Schema.optional(Schema.Boolean),
     }),
   ),
+  backup: Schema.optional(
+    Schema.Struct({
+      // G2-8: automatic database backups. Enabled by default: one at server
+      // startup (before the first live Society run) and then every
+      // `intervalHours`, keeping the `keep` newest snapshots.
+      enabled: Schema.optional(Schema.Boolean),
+      intervalHours: Schema.optional(Schema.Number),
+      keep: Schema.optional(Schema.Int),
+      directory: Schema.optional(Schema.String),
+    }),
+  ),
   models: Schema.optional(ModelsDev.Options),
   config: Schema.optional(
     Schema.Struct({
