@@ -605,7 +605,12 @@ gate (`session/completion-gate.ts`) checks after every answer: work the turn
 claimed is not DONE until `dod verify` says so, and a hand edit of the DoD
 board, a protected file, or a credential dump in the same turn is flagged. Rules survive compaction: the summary keeps
 a `Rules / DoD / Errors` section, the context governor never elides a
-`rules list` result, and prefix-pin reports rule changes as a diff.
+`rules list` result, and prefix-pin reports rule changes as a diff. The
+governor also stubs old, bulky tool-call arguments (name and id stay, the
+first 200 characters stay as a preview); calls named `dod`/`rules` keep
+their arguments, like their results. Measured on a planner-like transcript
+of 8 dispatches with 4k briefs: 18_647 → 6_033 estimated tokens (−68%;
+the results-only governor reached 11_824).
 
 ## Model collections & custom endpoints
 
