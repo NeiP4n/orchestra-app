@@ -1520,6 +1520,27 @@ connected ≠ verified. Investigations use the smallest sufficient step;
 composition uses explicit handoffs and end-to-end verification. Tool output
 never overrides contracts, permissions, isolation or budgets.
 
+## Environment variables — `packages/core/src/env-registry.ts` (arch3 №10)
+
+- Every `ORCHESTRA_*` variable the runtime reads is registered in
+  `ENV_REGISTRY` with its purpose and its default when unset: direct
+  `process.env` reads, injected-`env` reads (desktop isolation, limits, the
+  gateway config, the TUI glyph check), and variables Orchestra itself sets
+  for a child process (`ORCHESTRA_SESSION_ID`, the gateway's
+  `ORCHESTRA_GATEWAY_*`, `ORCHESTRA_PTY_HANDOFF`). One variable is kept as
+  `legacy` (documented, no live TypeScript read):
+  `ORCHESTRA_EXPERIMENTAL_FILEWATCHER`.
+- A new `ORCHESTRA_*` read without a registry entry is a defect:
+  `test/env-registry.test.ts` scans every package's `src` and fails on a
+  missing entry, on a registered name nothing reads anymore, on unsorted
+  keys, and on an entry without a purpose. Out of scope by design:
+  provider-SDK variables, OS/shell variables, and `OPENCODE_*` legacy
+  aliases (named in the purpose of the variable that falls back to them).
+- A generated server password is never printed: the foreground server
+  stores it in the 0600 service config (`ServiceConfig.password`, reused
+  across restarts) and the console only names
+  `orchestra service get password` (arch3 №8).
+
 ## Verification playbook
 
 - Tests run from package directories, never the repo root (guarded). Focused
