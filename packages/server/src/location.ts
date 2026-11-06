@@ -45,6 +45,20 @@ export function response<A, E, R>(data: Effect.Effect<A, E, R>) {
   })
 }
 
+// G2-6 (N3): "global" catalog reads (models, providers, integrations) never
+// touch the location's filesystem, so a request for a missing directory used
+// to answer 200 with a confident-looking global catalog instead of the 404
+// the API contract promises. Building the location filesystem runs its boot
+// probe (realPath of the directory); a missing directory fails with
+// DirectoryNotFoundError, which the LocationMiddleware maps to
+// LocationNotFoundError. Call this first, before Plugin.awaitActivation,
+// so a missing directory fails fast instead of hanging in activation.
+export function requireLocationDirectory() {
+  return Effect.gen(function* () {
+    yield* FileSystem.Service
+  })
+}
+
 const decodeSessionID = Schema.decodeUnknownEffect(Session.ID)
 
 export const sessionInfo = Effect.fnUntraced(function* (sessions: Session.Interface, sessionID: unknown) {

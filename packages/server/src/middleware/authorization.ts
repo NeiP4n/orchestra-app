@@ -86,6 +86,10 @@ export const authorizationLayer = Layer.effect(
           hasPersistentPtyConnectTicketURL(url) ||
           isPairingConnectURL(url) ||
           isRoomGuestURL(url) ||
+          // G2-6: /health is unauthenticated by design — monitoring polls it
+          // without credentials, and the report carries no secrets, paths,
+          // or provider details.
+          url.pathname === "/health" ||
           // Mesh RPC authenticates each peer with the room's high-entropy invitation secret
           // in ServerMesh.rpc. Requiring Basic auth here would block peer-to-peer replication.
           url.pathname === "/api/room/mesh/rpc"

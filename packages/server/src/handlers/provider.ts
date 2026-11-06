@@ -1,4 +1,5 @@
 import { Provider } from "@orchestra/core/provider"
+import { Plugin } from "@orchestra/core/plugin"
 import { Credential } from "@orchestra/core/credential"
 import { discoverModels, reachable } from "@orchestra/core/provider-discovery"
 import { Integration } from "@orchestra/schema/integration"
@@ -6,7 +7,7 @@ import { ProviderNotFoundError } from "@orchestra/protocol/errors"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { Api } from "../api"
-import { response } from "../location"
+import { requireLocationDirectory, response } from "../location"
 
 // Provider settings can carry secrets: the Meta plugin stores its resolved
 // apiKey in settings so the model route can use it server-side. That record
@@ -25,6 +26,11 @@ export const ProviderHandler = HttpApiBuilder.group(Api, "server.provider", (han
       .handle(
         "provider.list",
         Effect.fn(function* () {
+          yield* requireLocationDirectory()
+          // G2-6 (N2): providers are registered by plugin activation, like
+          // models — without awaiting it this answered [] on the first call
+          // while /api/model already showed the activated catalog.
+          yield* Plugin.awaitActivation
           const providers = yield* Provider.Service
           // available() returns an Effect of the provider list, not the list
           // itself: yield it before mapping. Calling .map on the Effect was
@@ -37,6 +43,8 @@ export const ProviderHandler = HttpApiBuilder.group(Api, "server.provider", (han
       .handle(
         "provider.get",
         Effect.fn(function* (ctx) {
+          yield* requireLocationDirectory()
+          yield* Plugin.awaitActivation
           const providers = yield* Provider.Service
           const provider = yield* providers.get(ctx.params.providerID)
           if (!provider)

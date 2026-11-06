@@ -43,6 +43,28 @@ import type { Duration } from "effect"
 import type { Room } from "@orchestra/schema/room"
 import type { Orchestra } from "@orchestra/schema/orchestra"
 
+export type ServerHealthOutput = {
+  readonly status: "ok"
+  readonly checks: {
+    readonly database: {
+      readonly status: "ok" | "unavailable"
+      readonly detail?: string | undefined
+      readonly latencyMs?: number | undefined
+    }
+    readonly bus: {
+      readonly status: "ok" | "unavailable"
+      readonly detail?: string | undefined
+      readonly latencyMs?: number | undefined
+    }
+    readonly autoloop: {
+      readonly status: "ok" | "unavailable"
+      readonly detail?: string | undefined
+      readonly latencyMs?: number | undefined
+    }
+  }
+}
+export type ServerHealthOperation<E = never> = () => Effect.Effect<ServerHealthOutput, E>
+
 export type ServerInfoOutput = {
   readonly version: string
   readonly pid: number
@@ -60,6 +82,7 @@ export type ServerConnectOutput = { readonly token: string }
 export type ServerConnectOperation<E = never> = (input: ServerConnectInput) => Effect.Effect<ServerConnectOutput, E>
 
 export interface ServerApi<E = never> {
+  readonly health: ServerHealthOperation<E>
   readonly info: ServerInfoOperation<E>
   readonly pair: ServerPairOperation<E>
   readonly connect: ServerConnectOperation<E>

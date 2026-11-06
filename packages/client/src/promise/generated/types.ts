@@ -1,5 +1,7 @@
 export type JsonValue = null | boolean | number | string | Array<JsonValue> | { [key: string]: JsonValue }
 
+export type HealthCheck = { status: "ok" | "unavailable"; detail?: string | undefined; latencyMs?: number | undefined }
+
 export type ServerInfo = {
   version: string
   pid: number
@@ -626,6 +628,8 @@ export type OrchestraAccess = "hidden" | "read" | "write" | "full"
 export type FederationCoordinationMode = "lead" | "council"
 
 export type QuotaQuotaStatus = "ok" | "approaching_limit" | "exceeded"
+
+export type Health = { status: "ok"; checks: { database: HealthCheck; bus: HealthCheck; autoloop: HealthCheck } }
 
 export type SessionMessageLocationSwitched = {
   id: string
@@ -2578,6 +2582,7 @@ export type ConfigEntry =
             workerFreshMinutes?: number
             offlineAfterMinutes?: number
           }
+          society?: { baseProjects?: Array<{ key: string; folder: string; name: string; role: string; brief: string }> }
         }
         proxy?: ConfigProxy
         update?: "disable" | "notify" | "auto"
@@ -3071,14 +3076,6 @@ export type UnauthorizedError = { readonly _tag: "UnauthorizedError"; readonly m
 export const isUnauthorizedError = (value: unknown): value is UnauthorizedError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "UnauthorizedError"
 
-export type LocationNotFoundError = {
-  readonly _tag: "LocationNotFoundError"
-  readonly location: { readonly directory: string }
-  readonly message: string
-}
-export const isLocationNotFoundError = (value: unknown): value is LocationNotFoundError =>
-  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "LocationNotFoundError"
-
 export type ServiceUnavailableError = {
   readonly _tag: "ServiceUnavailableError"
   readonly message: string
@@ -3086,6 +3083,14 @@ export type ServiceUnavailableError = {
 }
 export const isServiceUnavailableError = (value: unknown): value is ServiceUnavailableError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "ServiceUnavailableError"
+
+export type LocationNotFoundError = {
+  readonly _tag: "LocationNotFoundError"
+  readonly location: { readonly directory: string }
+  readonly message: string
+}
+export const isLocationNotFoundError = (value: unknown): value is LocationNotFoundError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "LocationNotFoundError"
 
 export type AgentNotFoundError = {
   readonly _tag: "AgentNotFoundError"
@@ -3342,6 +3347,8 @@ export type AutoloopCardNotFoundError = {
 }
 export const isAutoloopCardNotFoundError = (value: unknown): value is AutoloopCardNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "AutoloopCardNotFoundError"
+
+export type ServerHealthOutput = Health
 
 export type ServerInfoOutput = ServerInfo
 

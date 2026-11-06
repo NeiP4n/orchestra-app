@@ -64,7 +64,15 @@ export const Plugin = define({
               id: provider.id,
               integrationID: provider.integrationID,
             })
-          provider.activation = "enabled"
+          // G2-6 (N2): a config provider is only "enabled" when it carries its own
+          // key. Stamping every config provider "enabled" advertised its models
+          // (and made them the session default) with no key anywhere — B14's
+          // 12 keyless Anymodel models. Without a key the activation stays
+          // "auto", so availability is decided by the credential/env connection
+          // in Provider.snapshot(); adding a credential later flips it live
+          // with no config change. Other provider plugins follow the same
+          // rule (Bedrock: AWS chain, Vertex: ADC project, Meta: configured).
+          if (hasOwnKey(item)) provider.activation = "enabled"
           if (item.canonical !== undefined) provider.canonical = item.canonical
           if (item.name !== undefined) provider.name = item.name
           if (item.package !== undefined) provider.package = item.package
@@ -167,4 +175,13 @@ function configuredProviders(entries: readonly Entry[]) {
   return entries
     .filter((entry): entry is Document => entry.type === "document")
     .flatMap((file) => Object.entries(file.info.providers ?? {}))
+}
+
+// A literal key in the provider settings, after config load already resolved
+// any {env:VAR} reference (config/variable.ts). A surviving "{env:" placeholder
+// means the variable was never resolved, so it is not a usable key — the same
+// rule Model.default() uses for model settings.
+function hasOwnKey(item: ConfigProvider.Info): boolean {
+  const apiKey = item.settings?.apiKey
+  return typeof apiKey === "string" && apiKey.length > 0 && !apiKey.includes("{env:")
 }

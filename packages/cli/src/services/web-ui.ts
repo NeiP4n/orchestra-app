@@ -17,10 +17,13 @@ export const handler = Effect.fn("cli.web-ui.handler")(function* (options?: {
       const request = yield* HttpServerRequest.HttpServerRequest
       const url = new URL(request.url, "http://localhost")
       // Serve the web shell before API authentication so a signed-out browser gets the app's sign-in screen.
+      // /health is an API route too: it must reach the health handler, never the SPA fallback that used
+      // to answer 200 with index.html for it (G2-6).
       if (
         url.pathname === "/api" ||
         url.pathname.startsWith("/api/") ||
         url.pathname.startsWith("/auth/") ||
+        url.pathname === "/health" ||
         url.pathname === "/openapi.json"
       )
         return yield* api.pipe(
