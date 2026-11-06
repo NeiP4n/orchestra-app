@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import { existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { Database as BunDatabase } from "bun:sqlite"
 import { Effect } from "effect"
+import { Credential } from "@orchestra/core/credential"
+import { CredentialEncryption } from "@orchestra/core/credential/encryption"
 import { Database } from "@orchestra/core/database/database"
 import { DatabaseBackup } from "@orchestra/core/database/backup"
 import { DatabaseMigration } from "@orchestra/core/database/migration"
@@ -239,6 +241,282 @@ describe("Database backup and restore", () => {
         Effect.scoped,
       ),
     )
+  })
+
+  // A3-01: the backup is a pair — database + credential key. Losing the data
+  // directory must not lose the credentials: restore brings both files back,
+  // and the restored key opens the restored sealed rows.
+  test("backup writes the credential key next to the database and restore brings the pair back", async () => {
+    await using tmp = await tmpdir()
+    const file = path.join(tmp.path, "orchestra-local.db")
+    const keyFile = path.join(tmp.path, "credential.key")
+    const key = CredentialEncryption.createKey()
+    writeFileSync(keyFile, key)
+    const dir = path.join(tmp.path, "backups")
+    const value = Credential.Key.make({ type: "key", key: "fake-test-key-do-not-use-0123456789" })
+    const sealed = JSON.stringify(CredentialEncryption.encodeStored(key, value))
+
+    const cycle = await Effect.runPromise(
+      Effect.gen(function* () {
+        const { db } = yield* Database.Service
+        yield* db.run(
+          `INSERT INTO credential (id, integration_id, label, value, time_created, time_updated) VALUES ('cred-1', 'test-integration', 'test', '${sealed}', 0, 0)`,
+        )
+        return yield* DatabaseBackup.runBackupCycle(db, {
+          directory: dir,
+          database: "orchestra-local.db",
+          keep: 7,
+          keyFile,
+        })
+      }).pipe(
+        Effect.provide(Database.layer({ path: file })),
+        Effect.provideService(Global.Service, Global.make({ data: tmp.path })),
+        Effect.scoped,
+      ),
+    )
+    expect(cycle.backup.keyBackedUp).toBe(true)
+    expect(cycle.backup.keyPath).toBe(`${cycle.backup.path}.key`)
+    expect(existsSync(cycle.backup.keyPath!)).toBe(true)
+    expect(readFileSync(cycle.backup.keyPath!)).toEqual(key)
+    expect(statSync(cycle.backup.keyPath!).mode & 0o777).toBe(0o600)
+
+    // Lose the data directory the way a dead disk would: garbage database, no key.
+    writeFileSync(file, "not a database anymore")
+    rmSync(keyFile)
+
+    const restored = await Effect.runPromise(
+      DatabaseBackup.restoreDatabase(file, cycle.backup.path, { keyFile }),
+    )
+    expect(restored).toEqual({ database: file, key: "restored" })
+    expect(readFileSync(keyFile)).toEqual(key)
+    expect(readdirSync(tmp.path).filter((name) => name.includes("pre-restore"))).toEqual([])
+
+    // The restored key opens the restored sealed row.
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const { db } = yield* Database.Service
+        const rows = yield* db.all<{ value: unknown }>("SELECT value FROM credential")
+        expect(rows).toHaveLength(1)
+        // Raw SQL returns the stored JSON text; drizzle's json mode would
+        // parse it — parse here the way the credential layer's read does.
+        const stored = typeof rows[0]!.value === "string" ? JSON.parse(rows[0]!.value) : rows[0]!.value
+        expect(CredentialEncryption.decodeStored(key, stored, "cred-1")).toEqual(value)
+      }).pipe(
+        Effect.provide(Database.layer({ path: file })),
+        Effect.provideService(Global.Service, Global.make({ data: tmp.path })),
+        Effect.scoped,
+      ),
+    )
+  })
+
+  // A3-01: a backup that cannot restore the credentials must fail loudly
+  // instead of looking complete — and a failed cycle must not rotate away
+  // the previous good backup (A3-02: verify first, rotate only on success).
+  test("backup refuses when sealed credentials exist but the key file is missing", async () => {
+    await using tmp = await tmpdir()
+    const file = path.join(tmp.path, "orchestra-local.db")
+    const keyFile = path.join(tmp.path, "credential.key")
+    const key = CredentialEncryption.createKey()
+    writeFileSync(keyFile, key)
+    const dir = path.join(tmp.path, "backups")
+    const sealed = JSON.stringify(
+      CredentialEncryption.encodeStored(key, Credential.Key.make({ type: "key", key: "fake-test-key-do-not-use-0123456789" })),
+    )
+
+    const good = await Effect.runPromise(
+      Effect.gen(function* () {
+        const { db } = yield* Database.Service
+        return yield* DatabaseBackup.runBackupCycle(db, {
+          directory: dir,
+          database: "orchestra-local.db",
+          keep: 7,
+          keyFile,
+        })
+      }).pipe(
+        Effect.provide(Database.layer({ path: file })),
+        Effect.provideService(Global.Service, Global.make({ data: tmp.path })),
+        Effect.scoped,
+      ),
+    )
+    expect(good.backup.keyBackedUp).toBe(true)
+    expect(existsSync(good.backup.path)).toBe(true)
+
+    // Seal a credential, then lose the key file: the next cycle must fail
+    // and leave the previous good backup (database and key) in place.
+    rmSync(keyFile)
+    const failed = await Effect.runPromiseExit(
+      Effect.gen(function* () {
+        const { db } = yield* Database.Service
+        yield* db.run(
+          `INSERT INTO credential (id, integration_id, label, value, time_created, time_updated) VALUES ('cred-1', 'test-integration', 'test', '${sealed}', 0, 0)`,
+        )
+        return yield* DatabaseBackup.runBackupCycle(db, {
+          directory: dir,
+          database: "orchestra-local.db",
+          keep: 7,
+          keyFile,
+        })
+      }).pipe(
+        Effect.provide(Database.layer({ path: file })),
+        Effect.provideService(Global.Service, Global.make({ data: tmp.path })),
+        Effect.scoped,
+      ),
+    )
+    expect(failed._tag).toBe("Failure")
+    expect(existsSync(good.backup.path)).toBe(true)
+    expect(existsSync(`${good.backup.path}.key`)).toBe(true)
+    expect(readdirSync(dir).filter((name) => name.endsWith(".db"))).toHaveLength(1)
+  })
+
+  // A3-02: the file a backup just wrote must pass quick_check right away —
+  // a backup that is only "non-empty" is not a backup.
+  test("a backup just written passes verification", async () => {
+    await using tmp = await tmpdir()
+    const file = path.join(tmp.path, "orchestra-local.db")
+    const backup = path.join(tmp.path, "backups", "orchestra-local-backup.db")
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const { db } = yield* Database.Service
+        yield* db.run("CREATE TABLE IF NOT EXISTS b8_probe (id TEXT PRIMARY KEY, val TEXT)")
+        yield* db.run("INSERT INTO b8_probe VALUES ('1', 'keep-me')")
+        const result = yield* DatabaseBackup.backupDatabase(db, backup)
+        expect(result.keyBackedUp).toBe(false)
+        const check = new BunDatabase(result.path, { readonly: true })
+        try {
+          expect(check.query("PRAGMA quick_check").all()).toEqual([{ quick_check: "ok" }])
+        } finally {
+          check.close()
+        }
+      }).pipe(
+        Effect.provide(Database.layer({ path: file })),
+        Effect.provideService(Global.Service, Global.make({ data: tmp.path })),
+        Effect.scoped,
+      ),
+    )
+  })
+
+  // A3-01: restoring a backup whose sealed rows no available key opens must
+  // fail before the live database and the live key are touched.
+  test("restore refuses a backup whose sealed rows no key opens, keeping the live pair", async () => {
+    await using tmp = await tmpdir()
+    const file = path.join(tmp.path, "orchestra-local.db")
+    const keyFile = path.join(tmp.path, "credential.key")
+    const key = CredentialEncryption.createKey()
+    writeFileSync(keyFile, key)
+    const dir = path.join(tmp.path, "backups")
+    const sealed = JSON.stringify(
+      CredentialEncryption.encodeStored(key, Credential.Key.make({ type: "key", key: "fake-test-key-do-not-use-0123456789" })),
+    )
+
+    const cycle = await Effect.runPromise(
+      Effect.gen(function* () {
+        const { db } = yield* Database.Service
+        yield* db.run(
+          `INSERT INTO credential (id, integration_id, label, value, time_created, time_updated) VALUES ('cred-1', 'test-integration', 'test', '${sealed}', 0, 0)`,
+        )
+        return yield* DatabaseBackup.runBackupCycle(db, {
+          directory: dir,
+          database: "orchestra-local.db",
+          keep: 7,
+          keyFile,
+        })
+      }).pipe(
+        Effect.provide(Database.layer({ path: file })),
+        Effect.provideService(Global.Service, Global.make({ data: tmp.path })),
+        Effect.scoped,
+      ),
+    )
+
+    // Case 1: the key sibling is gone and the live key is a different key.
+    rmSync(`${cycle.backup.path}.key`)
+    const wrongKey = CredentialEncryption.createKey()
+    writeFileSync(keyFile, wrongKey)
+    const refused = await Effect.runPromiseExit(
+      DatabaseBackup.restoreDatabase(file, cycle.backup.path, { keyFile }),
+    )
+    expect(refused._tag).toBe("Failure")
+    expect(readFileSync(keyFile)).toEqual(wrongKey)
+    expect(readdirSync(tmp.path).filter((name) => name.includes("pre-restore"))).toEqual([])
+    const live = new BunDatabase(file, { readonly: true })
+    try {
+      expect(live.query("SELECT COUNT(*) AS n FROM credential").all()).toEqual([{ n: 1 }])
+    } finally {
+      live.close()
+    }
+
+    // Case 2: the key sibling is present but is the wrong key.
+    writeFileSync(`${cycle.backup.path}.key`, wrongKey)
+    const refused2 = await Effect.runPromiseExit(
+      DatabaseBackup.restoreDatabase(file, cycle.backup.path, { keyFile }),
+    )
+    expect(refused2._tag).toBe("Failure")
+    expect(readFileSync(keyFile)).toEqual(wrongKey)
+    expect(readdirSync(tmp.path).filter((name) => name.includes("pre-restore"))).toEqual([])
+  })
+
+  // A3-01: when the backup has no key sibling but the live key opens its
+  // sealed rows, the restore keeps the live key instead of failing.
+  test("restore keeps the live key when it opens the backup sealed rows", async () => {
+    await using tmp = await tmpdir()
+    const file = path.join(tmp.path, "orchestra-local.db")
+    const keyFile = path.join(tmp.path, "credential.key")
+    const key = CredentialEncryption.createKey()
+    writeFileSync(keyFile, key)
+    const dir = path.join(tmp.path, "backups")
+    const sealed = JSON.stringify(
+      CredentialEncryption.encodeStored(key, Credential.Key.make({ type: "key", key: "fake-test-key-do-not-use-0123456789" })),
+    )
+
+    const cycle = await Effect.runPromise(
+      Effect.gen(function* () {
+        const { db } = yield* Database.Service
+        yield* db.run(
+          `INSERT INTO credential (id, integration_id, label, value, time_created, time_updated) VALUES ('cred-1', 'test-integration', 'test', '${sealed}', 0, 0)`,
+        )
+        return yield* DatabaseBackup.runBackupCycle(db, {
+          directory: dir,
+          database: "orchestra-local.db",
+          keep: 7,
+          keyFile,
+        })
+      }).pipe(
+        Effect.provide(Database.layer({ path: file })),
+        Effect.provideService(Global.Service, Global.make({ data: tmp.path })),
+        Effect.scoped,
+      ),
+    )
+    rmSync(`${cycle.backup.path}.key`)
+    writeFileSync(file, "not a database anymore")
+
+    const restored = await Effect.runPromise(
+      DatabaseBackup.restoreDatabase(file, cycle.backup.path, { keyFile }),
+    )
+    expect(restored).toEqual({ database: file, key: "kept-live" })
+    expect(readFileSync(keyFile)).toEqual(key)
+  })
+
+  // A3-01: rotation deletes a pruned backup's key sibling with it, and keeps
+  // the key siblings of the backups it keeps.
+  test("rotation deletes the key sibling of a pruned backup", async () => {
+    await using tmp = await tmpdir()
+    const dir = path.join(tmp.path, "backups")
+    mkdirSync(dir, { recursive: true })
+    const old = path.join(dir, "orchestra-local-2026-11-01T00-00-00-000Z.db")
+    const kept = path.join(dir, "orchestra-local-2026-11-02T00-00-00-000Z.db")
+    writeFileSync(old, "old")
+    writeFileSync(`${old}.key`, "old-key")
+    writeFileSync(kept, "kept")
+    writeFileSync(`${kept}.key`, "kept-key")
+    utimesSync(old, new Date(2026, 10, 1), new Date(2026, 10, 1))
+    utimesSync(kept, new Date(2026, 10, 2), new Date(2026, 10, 2))
+
+    const result = await Effect.runPromise(DatabaseBackup.pruneBackups(dir, 1))
+    expect(result.deleted).toEqual([old])
+    expect(existsSync(old)).toBe(false)
+    expect(existsSync(`${old}.key`)).toBe(false)
+    expect(existsSync(kept)).toBe(true)
+    expect(existsSync(`${kept}.key`)).toBe(true)
   })
 
   // G2-8: migrations rewrite schema, so a file database with pending
