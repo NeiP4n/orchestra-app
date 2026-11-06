@@ -54,7 +54,11 @@ if [ "$SMOKE" = 1 ]; then STEPS="install,typecheck"; fi
 
 REPO="$(git rev-parse --show-toplevel)"
 cd "$REPO"
-if [ -z "$DIR" ]; then DIR="$(mktemp -d /tmp/clean-build-XXXXXXXX)"; rmdir "$DIR"; fi
+if [ -z "$DIR" ]; then
+  # /tmp здесь — маленький tmpfs (512M), bun install туда не влезает.
+  mkdir -p "$HOME/.cache"
+  DIR="$(mktemp -d "$HOME/.cache/clean-build-XXXXXXXX")"; rmdir "$DIR"
+fi
 STARTED="$(date -u +%s)"
 STATUS="FAIL"
 COMMIT=""
