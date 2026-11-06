@@ -76,6 +76,33 @@ describe("Mcp resources", () => {
       expect(remote.streamTimeout).toBe(30_000)
     }
   })
+
+  test("local filesystem servers accept an opt-in read-only flag, off by default", () => {
+    const readOnly = Schema.decodeUnknownSync(Mcp.ServerConfig)({
+      type: "local",
+      command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/data"],
+      readOnly: true,
+    })
+    expect(readOnly.type).toBe("local")
+    if (readOnly.type === "local") expect(readOnly.readOnly).toBe(true)
+    expect(Schema.encodeSync(Mcp.ServerConfig)(readOnly)).toEqual({
+      type: "local",
+      command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/data"],
+      readOnly: true,
+    })
+
+    // Absent means off: old configs decode unchanged and encode without the key.
+    const plain = Schema.decodeUnknownSync(Mcp.ServerConfig)({
+      type: "local",
+      command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/data"],
+    })
+    expect(plain.type).toBe("local")
+    if (plain.type === "local") expect(plain.readOnly).toBeUndefined()
+    expect(Schema.encodeSync(Mcp.ServerConfig)(plain)).toEqual({
+      type: "local",
+      command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/data"],
+    })
+  })
 })
 
 
