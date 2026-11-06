@@ -68,10 +68,8 @@ const isRule = (item: unknown): item is Rule =>
   typeof (item as Partial<Rule>).text === "string"
 
 /** The failure value a cause carries, or undefined when it died or was interrupted. */
-const failureOf = (cause: Cause.Cause<unknown>): unknown => {
-  const found = Cause.findError(cause)
-  return found._tag === "Success" ? found.value : undefined
-}
+const failureOf = (cause: Cause.Cause<unknown>): unknown =>
+  Option.getOrUndefined(Cause.findErrorOption(cause))
 
 const toRule = (item: Partial<Rule>): Rule => ({
   id: item.id as string,
@@ -102,7 +100,7 @@ export const list = (kv: KV.Interface, scope: string): Effect.Effect<ReadonlyArr
   inspect(kv, scope).pipe(Effect.map((found) => found.rules))
 
 /** The stored rules of a scope, failing loudly when the scope cannot be read or holds corrupt entries. */
-export const listStrict = (kv: KV.Interface, scope: string): Effect.Effect<ReadonlyArray<Rule>> =>
+export const listStrict = (kv: KV.Interface, scope: string): Effect.Effect<ReadonlyArray<Rule>, LoadError> =>
   inspect(kv, scope).pipe(
     Effect.flatMap((found) =>
       found.corrupt > 0
@@ -164,7 +162,7 @@ export const history = (kv: KV.Interface, scope: string): Effect.Effect<Readonly
 
 export type AddResult = { readonly error: string; readonly rule?: undefined } | { readonly rule: Rule; readonly error?: undefined }
 
-export const add = (kv: KV.Interface, scope: string, input: { text: string; by: string }): Effect.Effect<AddResult> =>
+export const add = (kv: KV.Interface, scope: string, input: { text: string; by: string }): Effect.Effect<AddResult, LoadError> =>
   Effect.gen(function* () {
     const text = input.text.replace(/\s+/g, " ").trim()
     if (!text) return { error: "A rule needs text." } as const
@@ -238,7 +236,7 @@ export const scopesOf = (input: {
   readonly sessions: Session.Interface
   readonly orchestra: Orchestra.Interface
   readonly federation: Federation.Interface
-}) =>
+}): Effect.Effect<Scopes, ScopesError> =>
   Effect.gen(function* () {
     const groups = yield* input.federation.groups()
     let current: string | undefined = input.sessionID
