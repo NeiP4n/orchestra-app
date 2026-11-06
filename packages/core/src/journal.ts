@@ -1,7 +1,7 @@
 export * as Journal from "./journal.js"
 
 import { randomUUID } from "node:crypto"
-import { Effect, Option, Schema } from "effect"
+import { Cause, Effect, Option, Schema } from "effect"
 import { AutoloopStore } from "./autoloop/kernel/store.js"
 import type { AutoloopFact } from "./autoloop/kernel/schema.js"
 import { Database } from "./database/database.js"
@@ -14,12 +14,15 @@ import { Database } from "./database/database.js"
  *
  * Recording is best-effort by design: a journal write must never turn the
  * failure it reports into a second failure. When no database is in scope (or
- * the journal tables do not exist yet) the record is silently skipped.
+ * the journal tables do not exist yet) the record is dropped — but the drop
+ * is logged with the error itself, never silent (arch3 №24).
  *
  * `hasUnfinishedRun` is the read-only half of resume-on-start (block B8):
- * restart recovery (block B4) asks it whether a session has an unfinished
- * autoloop run and resumes only then, instead of resuming every session it
- * finds. This module only answers; it never restarts anything itself.
+ * it answers whether a session has an unfinished autoloop run. Restart
+ * recovery (block B4) does NOT call it today — `session/execution/restart.ts`
+ * resumes by its own rules — and `readErrors` has no reader outside tests.
+ * The journal is written and rarely read; that gap is open (arch3 №23).
+ * This module only answers; it never restarts anything itself.
  */
 
 export const ERROR_TYPE = "error.recorded"
@@ -47,13 +50,19 @@ export interface StoredDisplayEvent {
  * Virtual-display state (block B7) is a journal fact, like errors: which
  * display, whose session it serves, and whether it started or died. A dead
  * display is an event in the journal, never silence. Best-effort, same as
- * recordError: no database in scope means the record is skipped, never a
- * second failure.
+ * recordError: no database in scope means the record is dropped with a
+ * log line, never a second failure.
  */
 export const recordDisplayEvent = (input: DisplayEvent): Effect.Effect<void, never, never> =>
   Effect.gen(function* () {
     const db = Option.getOrUndefined(yield* Effect.serviceOption(Database.Service))
-    if (db === undefined) return
+    if (db === undefined) {
+      yield* Effect.logWarning("error journal unavailable; dropping a recorded display event", {
+        display: input.display,
+        state: input.state,
+      })
+      return
+    }
     const fact: AutoloopFact = {
       id: `desktop:${input.display}:${input.state}:${randomUUID()}`,
       type: DISPLAY_EVENT_TYPE,
@@ -67,9 +76,15 @@ export const recordDisplayEvent = (input: DisplayEvent): Effect.Effect<void, nev
     }
     yield* AutoloopStore.commitLatest([fact]).pipe(
       Effect.provideService(Database.Service, db),
-      Effect.ignore,
+      Effect.catchCause((cause) =>
+        Effect.logWarning("error journal write failed; dropping a recorded display event", {
+          display: input.display,
+          state: input.state,
+          cause: Cause.pretty(cause),
+        }),
+      ),
     )
-  }).pipe(Effect.catchCause(() => Effect.void))
+  }).pipe(Effect.catchCause((cause) => Effect.logWarning("error journal failed unexpectedly", { cause: Cause.pretty(cause) })))
 
 const DisplayData = Schema.Struct({
   display: Schema.String,
@@ -131,7 +146,17 @@ const decodeErrorData = Schema.decodeUnknownOption(ErrorData)
 export const recordError = (input: ErrorRecord): Effect.Effect<void, never, never> =>
   Effect.gen(function* () {
     const db = Option.getOrUndefined(yield* Effect.serviceOption(Database.Service))
-    if (db === undefined) return
+    if (db === undefined) {
+      // arch3 №24: the old code returned silently — the error it was asked
+      // to record vanished without a trace. Log it: the record is lost,
+      // but the loss itself is visible.
+      yield* Effect.logWarning("error journal unavailable; dropping a recorded error", {
+        source: input.source,
+        kind: input.kind,
+        message: input.message,
+      })
+      return
+    }
     const fact: AutoloopFact = {
       id: `err:${input.source}:${randomUUID()}`,
       type: ERROR_TYPE,
@@ -146,9 +171,16 @@ export const recordError = (input: ErrorRecord): Effect.Effect<void, never, neve
     }
     yield* AutoloopStore.commitLatest([fact]).pipe(
       Effect.provideService(Database.Service, db),
-      Effect.ignore,
+      Effect.catchCause((cause) =>
+        Effect.logWarning("error journal write failed; dropping a recorded error", {
+          source: input.source,
+          kind: input.kind,
+          message: input.message,
+          cause: Cause.pretty(cause),
+        }),
+      ),
     )
-  }).pipe(Effect.catchCause(() => Effect.void))
+  }).pipe(Effect.catchCause((cause) => Effect.logWarning("error journal failed unexpectedly", { cause: Cause.pretty(cause) })))
 
 /** Every recorded error, in journal order. */
 export const readErrors = (): Effect.Effect<ReadonlyArray<StoredError>, unknown, Database.Service> =>

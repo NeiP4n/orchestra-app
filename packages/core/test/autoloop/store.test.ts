@@ -71,6 +71,21 @@ describe("AutoloopStore", () => {
     )
   })
 
+  test("openView falls back to the journal's latest sequence when the stored one is damaged", async () => {
+    await run(
+      Effect.gen(function* () {
+        const { db } = yield* Database.Service
+        yield* AutoloopStore.commitLatest([queued("f1", "run_1")])
+        yield* db.run(sql`UPDATE autoloop_projection_meta SET value = 'not-a-number' WHERE key = 'last_seq'`)
+        const opened = yield* AutoloopStore.openView()
+        // The old code returned Number('not-a-number') — NaN — which then
+        // poisoned every caller comparing against lastSeq.
+        expect(Number.isNaN(opened.lastSeq)).toBe(false)
+        expect(opened.lastSeq).toBe(1)
+      }),
+    )
+  })
+
   test("rebuild from the journal restores the same state as the stored projections", async () => {
     await run(
       Effect.gen(function* () {

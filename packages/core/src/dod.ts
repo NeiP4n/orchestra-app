@@ -5,6 +5,12 @@ import { appendFile, chmod, copyFile, link, mkdir, open, rename, stat, unlink, w
 import path from "node:path"
 import { Effect, Option, Schema } from "effect"
 import type { Room } from "@orchestra/schema/room"
+import { Flock } from "@orchestra/util/flock"
+// commit() is plain async with no layer, but the lock below needs Flock's
+// global (the state directory). Importing Global sets it as a module side
+// effect, so the lock never throws "Flock global not set" no matter who
+// imports this module first.
+import "@orchestra/util/global"
 import { Contracts } from "./contracts.js"
 import { Instructions } from "./instructions/index.js"
 import { ProjectDirs } from "./project-dirs.js"
@@ -104,7 +110,10 @@ const TITLE = 70
 const STEP_LINES = 6
 const STEP = /^\s*\[(x|X)\]/
 // Another writer can save between this read and this write; a few fresh tries settle it.
-const ATTEMPTS = 3
+// Ten, not three: with the cross-process lock (arch3 №32/№34) a lost check is a retry
+// instead of a silent lost take, and a society of agents taking items at once needs the
+// budget to cover real contention — six simultaneous takers already exhaust three.
+const ATTEMPTS = 10
 
 const Leaf = Schema.Struct({
   id: Schema.String,
@@ -914,16 +923,13 @@ export async function replaceFile(
 
 // Two guests taking items at once would both pass the unchanged-file check before either
 // renames, and the later write would drop the earlier take, so writes to one file run in turn.
-const writing = new Map<string, Promise<unknown>>()
-
-function exclusive<A>(file: string, write: () => Promise<A>) {
-  const result = (writing.get(file) ?? Promise.resolve()).then(write)
-  const settled = result.catch(() => undefined)
-  writing.set(file, settled)
-  void settled.then(() => {
-    if (writing.get(file) === settled) writing.delete(file)
-  })
-  return result
+// The lock is cross-process (Flock), not the old process-local Map: the CLI board and the
+// server write the same dod.yaml, and the Map only serialized writers inside one process
+// (arch3 №32/№34). commit() is plain async, so the lock runs on its own scope here.
+function exclusive<A>(file: string, write: () => Promise<A>): Promise<A> {
+  return Effect.runPromise(
+    Effect.scoped(Flock.effect(`dod:${file}`).pipe(Effect.andThen(Effect.promise(write)))),
+  )
 }
 
 // Sets or removes top-level scalar fields of one item, touching no other line. The item is

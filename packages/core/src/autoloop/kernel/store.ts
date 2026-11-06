@@ -152,9 +152,15 @@ export function openView(): Effect.Effect<OpenedView, unknown, Database.Service>
     const lastSeqRow = yield* db.get<{ seq: number | null }>(sql`SELECT MAX(seq) AS seq FROM autoloop_facts`)
     const meta = new Map(metaRows.map((row) => [row.key, row.value]))
     const storedSeq = meta.get(META_LAST_SEQ)
+    const parsedSeq = storedSeq === undefined ? undefined : Number(storedSeq)
+    // №51: the stored sequence is a string, and a damaged one parses to
+    // NaN — which then poisoned every caller that compared against lastSeq.
+    // A damaged value falls back to the journal's real latest sequence.
+    const lastSeq =
+      parsedSeq !== undefined && Number.isInteger(parsedSeq) ? parsedSeq : (lastSeqRow?.seq ?? 0)
     return {
       view: viewFromRows(projectionRows),
-      lastSeq: storedSeq === undefined ? (lastSeqRow?.seq ?? 0) : Number(storedSeq),
+      lastSeq,
       format: meta.get(META_FORMAT) ?? null,
     }
   })
