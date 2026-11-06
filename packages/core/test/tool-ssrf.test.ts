@@ -24,6 +24,21 @@ describe("Ssrf.isPrivateAddress", () => {
     ["fd12:3456::1", true],
     ["::ffff:127.0.0.1", true],
     ["::ffff:10.0.0.5", true],
+    // T3-1: the IPv4 tail in hex form is the same address as the dotted form.
+    ["::ffff:7f00:1", true],
+    ["::ffff:7f00:0001", true],
+    ["::7f00:1", true],
+    ["::ffff:a9fe:a9fe", true],
+    ["::a9fe:a9fe", true],
+    ["::ffff:0a00:0001", true],
+    ["64:ff9b::7f00:1", true],
+    ["64:ff9b::a9fe:a9fe", true],
+    ["100::1", true],
+    ["::ffff:808:808", false],
+    // A public IPv6 address whose last 32 bits merely look like a private
+    // IPv4 address is still public: only IPv4-embedding prefixes carry a v4 tail.
+    ["2606:4700:4700::1111", false],
+    ["2001:4860:4860::a9fe", false],
     ["8.8.8.8", false],
     ["1.1.1.1", false],
     ["93.184.216.34", false],
@@ -84,6 +99,11 @@ describe("Ssrf.assertPublicUrl", () => {
       "http://169.254.169.254/latest/meta-data/",
       "http://[::1]/",
       "http://[fe80::1]/",
+      // T3-1: IPv6 literals with a hex IPv4 tail are loopback / metadata too.
+      "http://[::ffff:7f00:1]/",
+      "http://[::7f00:1]/",
+      "http://[::ffff:a9fe:a9fe]/latest/meta-data/",
+      "http://[64:ff9b::a9fe:a9fe]/",
       "http://foo.localhost/",
       "http://printer.local/",
     ]) {
@@ -91,6 +111,13 @@ describe("Ssrf.assertPublicUrl", () => {
       expect(exit._tag, url).toBe("Failure")
       if (exit._tag === "Failure") expect(String(exit.cause)).toContain("Refusing to fetch")
     }
+  })
+
+  test("allows a public IPv6 literal whose tail merely looks like a private IPv4", async () => {
+    expect((await Effect.runPromise(Ssrf.assertPublicUrl("http://[::ffff:808:808]/"))).hostname).toBe("[::ffff:808:808]")
+    expect((await Effect.runPromise(Ssrf.assertPublicUrl("https://[2606:4700:4700::1111]/"))).hostname).toBe(
+      "[2606:4700:4700::1111]",
+    )
   })
 
   test("refuses non-HTTP schemes", async () => {

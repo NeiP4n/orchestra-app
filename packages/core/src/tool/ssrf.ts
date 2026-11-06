@@ -60,10 +60,58 @@ function isPrivateIPv6(address: string): boolean {
   // An IPv4 tail ( ::ffff:127.0.0.1, ::127.0.0.1 ) carries a v4 address: judge the tail.
   const tail = lower.split(":").at(-1)
   if (tail !== undefined && tail.includes(".")) return isPrivateIPv4(tail)
-  const first = Number.parseInt(lower.split(":", 1)[0] ?? "", 16)
-  if (!Number.isInteger(first)) return false
+  const groups = parseIPv6Groups(lower)
+  if (groups === undefined) return false
+  const first = groups[0] ?? 0
   // fe80::/10 link-local, fc00::/7 unique-local.
-  return (first >= 0xfe80 && first <= 0xfebf) || (first >= 0xfc00 && first <= 0xfdff)
+  if ((first >= 0xfe80 && first <= 0xfebf) || (first >= 0xfc00 && first <= 0xfdff)) return true
+  // 100::/64 discard-only: no host lives there, so nothing legitimate fetches it.
+  if (first === 0x0100 && groups[1] === 0 && groups[2] === 0 && groups[3] === 0) return true
+  // Only IPv4-embedding prefixes carry a v4 address in their last 32 bits:
+  // ::ffff:0:0/96 (IPv4-mapped, ::ffff:7f00:1 is 127.0.0.1), ::/96
+  // (IPv4-compatible, ::7f00:1 is 127.0.0.1) and 64:ff9b::/96 (NAT64 —
+  // the translator dials the embedded IPv4, private included). A public
+  // address whose tail merely looks like a private IPv4 (2606:4700:4700::1111
+  // ends in 0.0.17.17) is NOT private: judging every tail as IPv4 would
+  // block real public IPv6 hosts, so the prefix check comes first.
+  const embedded =
+    (groups[0] === 0 &&
+      groups[1] === 0 &&
+      groups[2] === 0 &&
+      groups[3] === 0 &&
+      groups[4] === 0 &&
+      (groups[5] === 0 || groups[5] === 0xffff)) ||
+    (groups[0] === 0x64 && groups[1] === 0xff9b && groups[2] === 0 && groups[3] === 0 && groups[4] === 0)
+  if (!embedded) return false
+  const octets = [(groups[6]! >> 8) & 0xff, groups[6]! & 0xff, (groups[7]! >> 8) & 0xff, groups[7]! & 0xff]
+  return isPrivateIPv4(octets.join("."))
+}
+
+// The eight 16-bit groups of an IPv6 literal, expanding one "::" run. Returns
+// undefined for a shape no literal has (the caller already knows isIP said 6,
+// so this only guards against hand-built strings reaching the helper).
+function parseIPv6Groups(address: string): readonly number[] | undefined {
+  const parsePart = (part: string): number[] | undefined => {
+    if (part === "") return []
+    const out: number[] = []
+    for (const chunk of part.split(":")) {
+      if (!/^[0-9a-f]{1,4}$/.test(chunk)) return undefined
+      out.push(Number.parseInt(chunk, 16))
+    }
+    return out
+  }
+  const halves = address.split("::")
+  if (halves.length > 2) return undefined
+  if (halves.length === 1) {
+    const groups = parsePart(halves[0] ?? "")
+    return groups !== undefined && groups.length === 8 ? groups : undefined
+  }
+  const left = parsePart(halves[0] ?? "")
+  const right = parsePart(halves[1] ?? "")
+  if (left === undefined || right === undefined) return undefined
+  const missing = 8 - left.length - right.length
+  if (missing < 0) return undefined
+  return [...left, ...Array<number>(missing).fill(0), ...right]
 }
 
 /** True when the hostname itself is local, before any DNS lookup. */
