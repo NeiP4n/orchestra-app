@@ -1,5 +1,5 @@
 {
-  "$schema": "https://opencode.ai/desktop-theme.json",
+  "$schema": "https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/packages/ui/src/theme/desktop-theme.schema.json",
   "name": "Sculk",
   "id": "sculk",
   "light": {

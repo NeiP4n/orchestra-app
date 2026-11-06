@@ -14,7 +14,7 @@ import { useLanguage } from "@/runtime/i18n/language"
 import { useSettings } from "@/settings/model"
 import { WindowsAppMenu } from "./windows-menu"
 import { applyPath, backPath, forwardPath, type HistoryLocation } from "./history"
-import { Mark } from "@orchestra/ui/logo"
+import { OrchestraLogo } from "@/providers/orchestra-logo"
 import { TitlebarTabStrip } from "@/shell/titlebar/tab-strip"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { createMediaQuery } from "@solid-primitives/media"
@@ -179,7 +179,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
     >
       <Show when={platform.platform === "desktop"}>
         <div class="flex shrink-0 items-center gap-2 self-center ps-3 pe-1" data-slot="titlebar-brand">
-          <Mark class="size-5 text-v2-icon-icon-base" />
+          <OrchestraLogo class="size-5 text-v2-icon-icon-base" />
           <span class="text-[13px] font-semibold tracking-[0.22em] text-v2-text-text-base">ORCHESTRA</span>
         </div>
       </Show>
