@@ -496,3 +496,66 @@ describe("AutoloopDecide repeat-error stop-word (idea #2)", () => {
     expect(runRow(view, 1)?.["error_fingerprint"]).toBeNull()
   })
 })
+
+describe("AutoloopDecide test-before-fix gate (idea #6)", () => {
+  const finishDone = (view: View, now: number, seq: number, receipt: Record<string, unknown>) => {
+    const claimed = claimTask(view, now, `claim-${seq}`, seq)
+    expect(claimed.job.run).toBe(1)
+    return step(claimed.view, { type: "finish", args: [1, claimed.job.token, receipt] }, now + 1000, seq + 1)
+  }
+
+  test("a declared fix without a failing test counts a verification round, not done", () => {
+    let view = ingestTask(emptyView(), T0).view
+    view = finishDone(view, T0, 2, { outcome: "done", summary: "fixed", fixTask: true }).view
+    expect(runRow(view, 1)).toMatchObject({
+      state: "queued",
+      verifyIterations: 1,
+      error: "исправление заявлено без падающего теста",
+    })
+    expect(runRow(view, 1)?.["fix_test_file"]).toBeNull()
+  })
+
+  test("after 5 rounds without a failing test the fix stops and asks what to do", () => {
+    let view = ingestTask(emptyView(), T0).view
+    for (let round = 1; round <= 5; round += 1) {
+      const now = T0 + round * MINUTE
+      view = finishDone(view, now, round + 1, { outcome: "done", summary: "fixed", fixTask: true }).view
+    }
+    expect(runRow(view, 1)).toMatchObject({ state: "cancelled", verifyIterations: 5 })
+    const ask = cardRows(view).find((card) => card["key"] === "run:1:verify")
+    expect(ask?.["text"]).toContain("без падающего теста")
+  })
+
+  test("a declared fix with a failing test finishes done and records the proof", () => {
+    let view = ingestTask(emptyView(), T0).view
+    const proof = { file: "test/session/runner/retry.test.ts", run: "bun test retry.test.ts: 1 fail (timeout)" }
+    view = finishDone(view, T0, 2, { outcome: "done", summary: "fixed", fixTask: true, failingTest: proof }).view
+    expect(runRow(view, 1)).toMatchObject({
+      state: "done",
+      fix_test_file: proof.file,
+      fix_test_run: proof.run,
+    })
+  })
+
+  test("an undeclared fix is accepted as before: the gate keys on the declaration", () => {
+    let view = ingestTask(emptyView(), T0).view
+    view = finishDone(view, T0, 2, { outcome: "done", summary: "fixed" }).view
+    expect(runRow(view, 1)).toMatchObject({ state: "done", verifyIterations: 0 })
+  })
+
+  test("a malformed failingTest is rejected as a bad receipt", () => {
+    const ingested = ingestTask(emptyView(), T0)
+    const claimed = claimTask(ingested.view, T0)
+    expect(() =>
+      decide(
+        claimed.view,
+        {
+          type: "finish",
+          args: [1, claimed.job.token, { outcome: "done", summary: "fixed", fixTask: true, failingTest: { file: "", run: "" } }],
+        },
+        T0 + 1000,
+        env(3),
+      ),
+    ).toThrow("failingTest")
+  })
+})

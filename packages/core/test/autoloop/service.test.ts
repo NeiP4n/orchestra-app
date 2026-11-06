@@ -88,6 +88,8 @@ const fullRun = (overrides: Partial<RunRow>): RunRow => ({
   error_fingerprint: null,
   error_repeat: 0,
   error_history: null,
+  fix_test_file: null,
+  fix_test_run: null,
   usage: null,
   not_before: iso(Date.now()),
   created_at: iso(Date.now()),

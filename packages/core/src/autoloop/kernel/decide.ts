@@ -166,6 +166,10 @@ export interface RunRow extends RowData {
   error_repeat: number
   /** JSON string of the last error occurrences `{ fp, at }[]` (idea #2). */
   error_history: string | null
+  /** Failing-test proof for a bug-fix run (idea #6): test file, if declared. */
+  fix_test_file: string | null
+  /** Failing-test proof for a bug-fix run (idea #6): recorded failing run. */
+  fix_test_run: string | null
   usage: Record<string, unknown> | null
   not_before: string
   created_at: string
@@ -340,6 +344,14 @@ export interface Receipt {
   events?: EventInput[]
   /** The run finished, but the code check (DoD) failed: another fix round. */
   verifyFailed?: boolean
+  /**
+   * This run fixed a bug (idea #6: test before the fix). A fix receipt
+   * without `failingTest` is not accepted as done: it counts a verification
+   * round instead, until the failing-first proof is attached.
+   */
+  fixTask?: boolean
+  /** The failing test that reproduces the bug: test file + recorded failing run. */
+  failingTest?: { file: string; run: string }
 }
 
 export interface Rejected {
@@ -488,6 +500,21 @@ export function parseResult(given: unknown): Receipt {
       }
     }
   }
+  const failingTest = given["failingTest"]
+  if (failingTest !== undefined) {
+    if (
+      !isRecord(failingTest) ||
+      typeof failingTest["file"] !== "string" ||
+      failingTest["file"] === "" ||
+      typeof failingTest["run"] !== "string" ||
+      failingTest["run"] === ""
+    ) {
+      throw new DecideInputError("квитанция.failingTest — { file, run }, обе непустые строки")
+    }
+    if (failingTest["file"].length > 500 || failingTest["run"].length > 500) {
+      throw new DecideInputError("квитанция.failingTest — file и run до 500 знаков")
+    }
+  }
   return {
     outcome,
     summary: optText(given["summary"], "квитанция.summary", 2000),
@@ -502,6 +529,11 @@ export function parseResult(given: unknown): Receipt {
     later: later as Later[] | undefined,
     events: Array.isArray(given["events"]) ? given["events"].map((event) => parseEvent(event)) : undefined,
     verifyFailed: given["verifyFailed"] === true,
+    fixTask: given["fixTask"] === true,
+    failingTest:
+      failingTest === undefined
+        ? undefined
+        : { file: failingTest["file"] as string, run: failingTest["run"] as string },
   }
 }
 
@@ -525,6 +557,8 @@ const RUN_DEFAULTS: Partial<RunRow> = {
   error_fingerprint: null,
   error_repeat: 0,
   error_history: null,
+  fix_test_file: null,
+  fix_test_run: null,
   usage: null,
 }
 
@@ -1074,7 +1108,19 @@ export function applyReceipt(draft: Draft, run: RunRow, result: Receipt): Reject
   const rule = ruleNamed(draft, run.rule)
   const summary = result.summary ?? ""
   const rejected: Rejected[] = []
-  if (result.verifyFailed === true) {
+  // Test before the fix (idea #6): a run that declares itself a bug fix
+  // must attach the failing test that reproduces the bug. Without it the
+  // "done" is not accepted — it counts a verification round, exactly like a
+  // failed code check, until the proof is attached. The gate keys on the
+  // declaration: the kernel cannot tell a fix task from other work on its
+  // own, and guessing from the text would misfire.
+  const testGateFailed = result.outcome === "done" && result.fixTask === true && result.failingTest === undefined
+  const verifyError = testGateFailed ? "исправление заявлено без падающего теста" : "проверка не прошла"
+  const fixProof =
+    result.failingTest === undefined
+      ? {}
+      : { fix_test_file: result.failingTest.file, fix_test_run: result.failingTest.run }
+  if (result.verifyFailed === true || testGateFailed) {
     const verifyIterations = run.verifyIterations + 1
     for (const notice of result.notice ?? []) cardFromReceipt(draft, run, "notice", notice)
     for (const later of result.later ?? []) scheduleReview(draft, run, later)
@@ -1084,14 +1130,17 @@ export function applyReceipt(draft: Draft, run: RunRow, result: Receipt): Reject
         finished_at: draft.at,
         summary,
         verifyIterations,
-        error: "проверка не прошла",
+        error: verifyError,
+        ...fixProof,
       })
       closeStopped(draft, id, summary)
       createCard(draft, {
         key: `run:${id}:verify`,
         kind: "ask",
         title: "Проверка не проходит",
-        text: `Проверка кодом не прошла ${draft.limits.maxVerifyIterations} раз подряд (${summary || "без подробностей"}). Что делать дальше?`,
+        text: testGateFailed
+          ? `Исправление заявлено ${draft.limits.maxVerifyIterations} раз подряд без падающего теста (${summary || "без подробностей"}). Приложите тест, который повторяет баг, или отмените задачу. Что делать дальше?`
+          : `Проверка кодом не прошла ${draft.limits.maxVerifyIterations} раз подряд (${summary || "без подробностей"}). Что делать дальше?`,
         options: ["Исправить и проверить снова", "Принять без проверки", "Отменить задачу"],
         recommend: "Исправить и проверить снова",
         ...threadOf(run),
@@ -1104,11 +1153,19 @@ export function applyReceipt(draft: Draft, run: RunRow, result: Receipt): Reject
       not_before: draft.at,
       verifyIterations,
       summary,
-      error: "проверка не прошла",
+      error: verifyError,
+      ...fixProof,
     })
     return rejected
   }
-  put(draft, "runs", id, { state: result.outcome, finished_at: draft.at, summary, error: null, cancel_at: null })
+  put(draft, "runs", id, {
+    state: result.outcome,
+    finished_at: draft.at,
+    summary,
+    error: null,
+    cancel_at: null,
+    ...fixProof,
+  })
   closeOpen(draft, (key) => key === `run:${id}:failing`, "потом получилось")
   closeOpen(draft, (key) => key === `run:${id}:unknown`, "результат вернулся")
   const eventIds = eventsOf(draft.view, id).map((event) => event.id)
