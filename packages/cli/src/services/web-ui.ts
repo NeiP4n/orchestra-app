@@ -3,6 +3,7 @@ import { Effect, FileSystem } from "effect"
 import { HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { createHash } from "node:crypto"
 import { isWebUiNotBuilt, load, WEB_UI_NOT_BUILT_MESSAGE, type AssetMap, type BrotliMap } from "../app-assets"
+import { RECOVERY_PAGE_HTML } from "./recovery-page"
 
 export const handler = Effect.fn("cli.web-ui.handler")(function* (options?: {
   readonly assets?: AssetMap
@@ -29,6 +30,22 @@ export const handler = Effect.fn("cli.web-ui.handler")(function* (options?: {
         return yield* api.pipe(
           Effect.catchIf(isRouteNotFound, () => Effect.succeed(HttpServerResponse.empty({ status: 404 }))),
         )
+      // The recovery mini-chat is a static page with no build step: it must open even when the
+      // main app bundle is broken or was never built, so it never touches the UI assets.
+      if (url.pathname === "/recovery") {
+        if (request.method !== "GET" && request.method !== "HEAD")
+          return HttpServerResponse.empty({ status: 405 })
+        const recoveryHeaders = {
+          "cache-control": "no-store",
+          "content-type": "text/html; charset=utf-8",
+          "content-security-policy":
+            "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'none'; font-src 'none'",
+          "x-content-type-options": "nosniff",
+        }
+        return request.method === "HEAD"
+          ? HttpServerResponse.empty({ status: 200, headers: recoveryHeaders })
+          : HttpServerResponse.text(RECOVERY_PAGE_HTML, { status: 200, headers: recoveryHeaders })
+      }
       // A missing web shell is a build problem, not a missing page: explain it instead of a blank screen.
       return yield* assets.pipe(
         Effect.flatMap((loaded) => serveUI(request, url, loaded.files, loaded.brotli)),

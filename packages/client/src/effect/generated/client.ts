@@ -452,6 +452,10 @@ import type {
   ServerAutoloopCardsListOutput,
   ServerAutoloopCardsAnswerInput,
   ServerAutoloopCardsAnswerOutput,
+  ServerRecoveryModelsInput,
+  ServerRecoveryModelsOutput,
+  ServerRecoveryChatInput,
+  ServerRecoveryChatOutput,
   QuotaCheckInput,
   QuotaCheckOutput,
 } from "../api/api.js"
@@ -2714,6 +2718,24 @@ const adaptGroupServerAutoloop = (raw: RawClient["server.autoloop"]) => ({
   cards: { list: EndpointServerAutoloopCardsList(raw), answer: EndpointServerAutoloopCardsAnswer(raw) },
 })
 
+const EndpointServerRecoveryModels = (raw: RawClient["server.recovery"]) => (input?: ServerRecoveryModelsInput) =>
+  preserveEffect<ServerRecoveryModelsOutput>()(
+    raw["recovery.models"]({ query: { location: input?.["location"] } }).pipe(Effect.mapError(mapClientError)),
+  )
+
+const EndpointServerRecoveryChat = (raw: RawClient["server.recovery"]) => (input: ServerRecoveryChatInput) =>
+  preserveEffect<ServerRecoveryChatOutput>()(
+    raw["recovery.chat"]({
+      query: { location: input["location"] },
+      payload: { model: input["model"], messages: input["messages"] },
+    }).pipe(Effect.mapError(mapClientError)),
+  )
+
+const adaptGroupServerRecovery = (raw: RawClient["server.recovery"]) => ({
+  models: EndpointServerRecoveryModels(raw),
+  chat: EndpointServerRecoveryChat(raw),
+})
+
 const EndpointQuotaCheck = (raw: RawClient["quota"]) => (input: QuotaCheckInput) =>
   preserveEffect<QuotaCheckOutput>()(
     raw["quota.check"]({
@@ -2763,6 +2785,7 @@ const adaptClient = (raw: RawClient) => ({
   room: adaptGroupRoom(raw["server.room"]),
   orchestra: adaptGroupOrchestra(raw["server.orchestra"]),
   "server.autoloop": adaptGroupServerAutoloop(raw["server.autoloop"]),
+  "server.recovery": adaptGroupServerRecovery(raw["server.recovery"]),
   quota: adaptGroupQuota(raw["quota"]),
 })
 

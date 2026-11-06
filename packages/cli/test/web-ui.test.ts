@@ -100,6 +100,38 @@ describe("web UI", () => {
     }).pipe(Effect.provide(NodeFileSystem.layer)),
   )
 
+  // Б12: the recovery mini-chat page is static and needs no built shell — it
+  // must open without credentials even when the main UI was never built.
+  it.live("serves the recovery mini-chat page without authentication or a built shell", () =>
+    Effect.gen(function* () {
+      const transform = yield* WebUi.handler()
+      const server = yield* ServerProcess.start<never, never>(
+        { hostname: "127.0.0.1", port: 0, password: "secret", database: { path: ":memory:" } },
+        undefined,
+        transform,
+      )
+      const origin = HttpServer.formatAddress(server.address)
+      yield* Effect.forEach(["GET", "HEAD"], (method) =>
+        Effect.gen(function* () {
+          const response = yield* Effect.promise(() => fetch(new URL("/recovery", origin), { method }))
+          expect(response.status).toBe(200)
+          expect(response.headers.get("www-authenticate")).toBeNull()
+          expect(response.headers.get("cache-control")).toBe("no-store")
+          expect(response.headers.get("content-security-policy")).toContain("default-src 'self'")
+          if (method === "GET") {
+            expect(response.headers.get("content-type")).toContain("text/html")
+            const body = yield* Effect.promise(() => response.text())
+            expect(body).toContain("восстановление")
+            expect(body).toContain("/api/recovery/models")
+            expect(body).toContain("/api/recovery/chat")
+          } else {
+            yield* Effect.promise(() => response.arrayBuffer())
+          }
+        }),
+      )
+    }).pipe(Effect.provide(NodeFileSystem.layer)),
+  )
+
   test("sends embedded brotli bytes as they are to browsers that accept them", async () => {
     const script = "console.log('compressed')".repeat(50)
     const html = "<html><body>compressed</body></html>"

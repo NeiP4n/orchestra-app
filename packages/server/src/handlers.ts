@@ -34,6 +34,7 @@ import { ConfigHandler } from "./handlers/config"
 import { RoomHandler } from "./handlers/room"
 import { OrchestraHandler } from "./handlers/orchestra"
 import { AutoloopHandler } from "./handlers/autoloop"
+import { RecoveryHandler } from "./handlers/recovery"
 import { QuotaHandler } from "./handlers/quota"
 
 export const handlers = Layer.mergeAll(
@@ -41,6 +42,7 @@ export const handlers = Layer.mergeAll(
   RoomHandler,
   OrchestraHandler,
   AutoloopHandler,
+  RecoveryHandler,
   QuotaHandler,
   DebugHandler,
   MigrationHandler,
