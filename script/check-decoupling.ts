@@ -86,6 +86,11 @@ export const ALLOWLIST: readonly DecouplingAllowlistEntry[] = [
     reason: "Comment explaining upstream opencode.ai free tier gateway restrictions",
   },
   {
+    path: "packages/core/src/env-registry.ts",
+    allowed: ["opencode.ai"],
+    reason: "Default upstream chat-completions URL for the orchestra gateway — OpenCode Zen model API endpoint; gateway endpoints must not be altered",
+  },
+  {
     path: "packages/core/src/plugin/provider/opencode.ts",
     allowed: ["opencode.ai", "Provider.ID.opencode"],
     reason: "External OpenCode Zen provider implementation and upstream console URL",
