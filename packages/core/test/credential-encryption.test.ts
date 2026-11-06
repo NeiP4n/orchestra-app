@@ -117,15 +117,16 @@ describe("Credential encrypted at rest", () => {
 // key file — the shared harness builds its layer before the test body runs.
 // Node dependencies are always built by the graph, never taken from context,
 // so the file database is wired in with `.replace()`, not `Effect.provide`.
-const fileGraph = (dbFile: string, dataDir: string, nodes: Parameters<typeof LayerNode.group>[0]) =>
-  LayerNode.compile(LayerNode.group(nodes), {
-    replacements: [
-      Database.node.replace(Database.configured({ path: dbFile })),
-      Global.node.replace(
-        Layer.succeed(Global.Service, Global.Service.of(Global.make({ data: dataDir }))),
-      ),
-    ],
-  })
+// Node dependencies are always built by the graph, never taken from context,
+// so the file database is wired in with `.replace()`, not `Effect.provide`.
+// Only the replacements are shared: the graphs stay inline literals, so the
+// layer output type is inferred from the concrete nodes.
+const fileReplacements = (dbFile: string, dataDir: string): LayerNode.Replacements => [
+  Database.node.replace(Database.configured({ path: dbFile })),
+  Global.node.replace(
+    Layer.succeed(Global.Service, Global.Service.of(Global.make({ data: dataDir }))),
+  ),
+]
 
 const runWithDatabase = <A, E>(
   program: Effect.Effect<A, E, Credential.Service | Bus.Service | Database.Service | Global.Service>,
@@ -134,7 +135,12 @@ const runWithDatabase = <A, E>(
 ) =>
   Effect.runPromiseExit(
     program.pipe(
-      Effect.provide(fileGraph(dbFile, dataDir, [Credential.node, Bus.node, Database.node])),
+      Effect.provide(
+        LayerNode.compile(LayerNode.group([Credential.node, Bus.node, Database.node]), {
+          replacements: fileReplacements(dbFile, dataDir),
+        }),
+      ),
+      Effect.provideService(Global.Service, Global.Service.of(Global.make({ data: dataDir }))),
       Effect.scoped,
     ),
   )
@@ -142,13 +148,18 @@ const runWithDatabase = <A, E>(
 // Same, but without the credential layer: the test body boots it itself, after
 // seeding plaintext rows, so the startup migration has something to seal.
 const runWithDatabaseOnly = <A, E>(
-  program: Effect.Effect<A, E, Bus.Service | Database.Service | Global.Service>,
+  program: Effect.Effect<A, E, Database.Service | Global.Service>,
   dbFile: string,
   dataDir: string,
 ) =>
   Effect.runPromiseExit(
     program.pipe(
-      Effect.provide(fileGraph(dbFile, dataDir, [Database.node])),
+      Effect.provide(
+        LayerNode.compile(LayerNode.group([Database.node]), {
+          replacements: fileReplacements(dbFile, dataDir),
+        }),
+      ),
+      Effect.provideService(Global.Service, Global.Service.of(Global.make({ data: dataDir }))),
       Effect.scoped,
     ),
   )
@@ -191,7 +202,13 @@ describe("Credential migration and wrong keys", () => {
             const listed = yield* credentials.list(integrationID)
             const raw = yield* database.db.select().from(CredentialTable).all().pipe(Effect.orDie)
             return { listed, raw }
-          }).pipe(Effect.provide(fileGraph(dbFile, directory.path, [Credential.node, Bus.node])))
+          }).pipe(
+            Effect.provide(
+              LayerNode.compile(LayerNode.group([Credential.node, Bus.node]), {
+                replacements: fileReplacements(dbFile, directory.path),
+              }),
+            ),
+          )
         }),
         dbFile,
         directory.path,

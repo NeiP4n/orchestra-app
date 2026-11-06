@@ -115,7 +115,14 @@ const resolveCodec = (
             keyFile,
             detail: error.detail,
           })
-          return yield* CredentialEncryption.regenerateKeyEffect(keyFile)
+          return yield* CredentialEncryption.regenerateKeyEffect(keyFile).pipe(
+            Effect.mapError(
+              (regenerateError) =>
+                new CredentialEncryption.DecryptionError({
+                  reason: `cannot regenerate credential key file ${keyFile}: ${regenerateError.detail}`,
+                }),
+            ),
+          )
         })),
     )
     return key === undefined
@@ -168,7 +175,11 @@ const layer = Layer.effect(
     const bus = yield* Bus.Service
     const global = yield* Global.Service
     const decode = Schema.decodeUnknownSync(Value)
-    const codec = yield* resolveCodec(db, global.data)
+    // The credential layer stays infallible: a corrupt key is a startup
+    // defect (the message carries the recovery steps), and consumers rely on
+    // the node's error being never. Every other fallible call in this layer
+    // is orDie'd the same way.
+    const codec = yield* resolveCodec(db, global.data).pipe(Effect.orDie)
     const migration = yield* migrateStoredValues(db, codec)
     if (codec.mode === "encrypted")
       yield* Effect.logInfo("credential store encrypted at rest", {
