@@ -286,7 +286,30 @@ const installRestartContinuity = Effect.fnUntraced(function* (
   // due, quiet workers are noticed), suspended sessions resume in a single
   // sweep, and Orchestra task markers reconcile. Each step is independent:
   // one failing must not suppress the rest.
-  const resumeAndRecover = reportStartupFailure("Failed to hold Societies during server startup", federation.startupHold()).pipe(
+  // G2-1: the provider preflight runs at boot, before the startup hold
+  // resumes founded Societies — so a dead key is one loud log line at
+  // startup instead of a stalled Society discovered from the logs later.
+  // It never fails the boot: the operator needs the server up to fix the key.
+  const reportPreflight = Effect.gen(function* () {
+    const result = yield* federation.preflight()
+    if (result.status === "failed")
+      yield* Effect.logError("Society provider preflight failed: Societies will not resume without a working provider", {
+        reason: result.reason,
+        message: result.message,
+        action: result.action,
+      })
+    else if (result.status === "skipped")
+      yield* Effect.logWarning("Society provider preflight skipped: Societies resume without a verified provider", {
+        reason: result.reason,
+      })
+    else if (result.warnings.length > 0)
+      yield* Effect.logWarning("Society provider preflight passed with warnings", { warnings: result.warnings })
+  })
+  const resumeAndRecover = reportPreflight.pipe(
+    Effect.andThen(
+      reportStartupFailure("Failed to hold Societies during server startup", federation.startupHold()),
+    ),
+  ).pipe(
     Effect.andThen(
       reportStartupFailure(
         "Failed to tick the autoloop cycle during server startup",

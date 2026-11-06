@@ -14,6 +14,8 @@ import { Global } from "@orchestra/util/global"
 import { Location } from "./location.js"
 import { AbsolutePath } from "./schema.js"
 import { ConfigVariable } from "./config/variable.js"
+import type { SubstituteInput } from "./config/variable.js"
+import { InvalidError } from "./v1/config/error.js"
 import { ConfigNormalize } from "./config/normalize.js"
 import { ConfigDiscovery } from "./config/discovery.js"
 import { ConfigWatch } from "./config/watch.js"
@@ -193,10 +195,27 @@ export const layer = (options?: Options) =>
         })
       })
 
+      // A substitution that fails (missing {env:} variable, N-02) skips that
+      // one document instead of killing the whole config load: the failure is
+      // logged loudly here, and the provider preflight (G2-1) turns the
+      // missing provider/key into a refusal at the point of action.
+      const substituteOrSkip = (input: SubstituteInput, source: string) =>
+        ConfigVariable.substitute(input).pipe(
+          Effect.catch((error) =>
+            InvalidError.isInstance(error)
+              ? Effect.logError("configuration skipped: unresolvable environment reference", {
+                  source,
+                  message: error.data.message ?? "missing environment variable",
+                }).pipe(Effect.as(undefined as string | undefined))
+              : Effect.fail(error),
+          ),
+        )
+
       const loadFile = Effect.fnUntraced(function* (filepath: string) {
         const text = yield* fs.readFileStringSafe(filepath)
         if (text === undefined) return
-        const substituted = yield* ConfigVariable.substitute({ type: "path", path: filepath, text })
+        const substituted = yield* substituteOrSkip({ type: "path", path: filepath, text }, filepath)
+        if (substituted === undefined) return
         const info = yield* parseInfo(substituted, filepath)
         if (!info) return
         return new Document({ type: "document", path: AbsolutePath.make(filepath), info })
@@ -218,15 +237,23 @@ export const layer = (options?: Options) =>
             ),
           )
         return yield* Effect.forEach(configs, (config) =>
-          ConfigVariable.substitute({
-            type: "virtual",
-            source: entry.origin,
-            dir: entry.origin,
-            text: JSON.stringify(config),
-            env: variables,
-          }).pipe(
-            Effect.flatMap((text) => parseInfo(text, entry.origin)),
-            Effect.map((info) => (info ? new Document({ type: "document", info }) : undefined)),
+          substituteOrSkip(
+            {
+              type: "virtual",
+              source: entry.origin,
+              dir: entry.origin,
+              text: JSON.stringify(config),
+              env: variables,
+            },
+            entry.origin,
+          ).pipe(
+            Effect.flatMap((text) =>
+              text === undefined
+                ? Effect.succeed(undefined)
+                : parseInfo(text, entry.origin).pipe(
+                    Effect.map((info) => (info ? new Document({ type: "document", info }) : undefined)),
+                  ),
+            ),
           ),
         ).pipe(Effect.map((documents) => documents.filter((document) => document !== undefined)))
       })
@@ -267,14 +294,22 @@ export const layer = (options?: Options) =>
           : []
         const content =
           options?.content !== undefined
-            ? yield* ConfigVariable.substitute({
-                type: "virtual",
-                source: "ORCHESTRA_CONFIG_CONTENT",
-                dir: location.directory,
-                text: options.content,
-              }).pipe(
-                Effect.flatMap((text) => parseInfo(text, "ORCHESTRA_CONFIG_CONTENT")),
-                Effect.map((info) => (info ? [new Document({ type: "document", info })] : [])),
+            ? yield* substituteOrSkip(
+                {
+                  type: "virtual",
+                  source: "ORCHESTRA_CONFIG_CONTENT",
+                  dir: location.directory,
+                  text: options.content,
+                },
+                "ORCHESTRA_CONFIG_CONTENT",
+              ).pipe(
+                Effect.flatMap((text) =>
+                  text === undefined
+                    ? Effect.succeed([] as Array<Document>)
+                    : parseInfo(text, "ORCHESTRA_CONFIG_CONTENT").pipe(
+                        Effect.map((info) => (info ? [new Document({ type: "document", info })] : [])),
+                      ),
+                ),
                 Effect.orDie,
               )
             : []

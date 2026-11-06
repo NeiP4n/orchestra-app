@@ -78,12 +78,30 @@ const resolveEntry = Effect.fnUntraced(function* (entry: Entry, variables: Reado
   const configs = entry.manifest.config ? [entry.manifest.config] : []
   if (!entry.manifest.remote_config) return configs
 
+  // A missing variable fails loudly instead of emptying silently into the
+  // URL/headers (N-02, same hole as ConfigVariable.substitute): an
+  // unauthenticated fetch to a mangled URL used to be the only symptom.
+  // The caller logs the failure and skips this remote config.
+  const missing: Array<string> = []
   const substitute = (value: string) =>
-    value.replace(/\{env:([^}]+)\}/g, (_, name: string) => variables[name] ?? process.env[name] ?? "")
+    value.replace(/\{env:([^}]+)\}/g, (token: string, name: string) => {
+      const resolved = variables[name] ?? process.env[name]
+      if (resolved === undefined) {
+        missing.push(name)
+        return token
+      }
+      return resolved
+    })
   const url = substitute(entry.manifest.remote_config.url)
   const headers = Object.fromEntries(
     Object.entries(entry.manifest.remote_config.headers ?? {}).map(([key, value]) => [key, substitute(value)]),
   )
+  if (missing.length > 0)
+    return yield* Effect.fail(
+      new Error(
+        `Well-known remote config from ${entry.origin} references missing environment variable${missing.length > 1 ? "s" : ""}: ${[...new Set(missing)].join(", ")}`,
+      ),
+    )
   const http = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
   const remote = yield* http
     .execute(HttpClientRequest.get(url).pipe(HttpClientRequest.acceptJson, HttpClientRequest.setHeaders(headers)))

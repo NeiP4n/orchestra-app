@@ -23,12 +23,34 @@ type SubstituteInput = ParseSource & {
   env?: Record<string, string>
 }
 
+export type { SubstituteInput }
+
 /** Apply {env:VAR} and {file:path} substitutions to config text. */
 export const substitute = Effect.fn("ConfigVariable.substitute")(function* (input: SubstituteInput) {
-  const text = input.text.replace(
-    /\{env:([^}]+)\}/g,
-    (_, varName: string) => (input.env?.[varName] ?? process.env[varName]) || "",
-  )
+  // A missing variable fails loudly by default: an empty string here is how
+  // a provider once started with an empty key and died only on its first
+  // request with a 401 (N-02). Callers that genuinely want "missing means
+  // empty" pass missing: "empty" — the same opt-out the {file:} branch has.
+  const missing: Array<string> = []
+  const text = input.text.replace(/\{env:([^}]+)\}/g, (token: string, varName: string) => {
+    const value = input.env?.[varName] ?? process.env[varName]
+    if (value === undefined) {
+      if (input.missing === "empty") return ""
+      missing.push(varName)
+      return token
+    }
+    return value
+  })
+  if (missing.length > 0) {
+    const names = [...new Set(missing)]
+    const source = input.type === "path" ? input.path : input.source
+    return yield* Effect.fail(
+      new InvalidError({
+        path: source,
+        message: `missing environment variable${names.length > 1 ? "s" : ""}: ${names.join(", ")} (referenced as {env:...} in ${source}; export the variable or pass missing: "empty" to allow an empty value)`,
+      }),
+    )
+  }
   if (!text.includes("{file:")) return text
   return yield* substituteFiles(input, text)
 })
