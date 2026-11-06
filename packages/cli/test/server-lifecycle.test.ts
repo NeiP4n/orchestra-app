@@ -1,6 +1,6 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { expect, test } from "bun:test"
-import { Effect, FileSystem, Logger } from "effect"
+import { Context, Effect, FileSystem, Layer, Logger } from "effect"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -190,28 +190,43 @@ test("a failed clean-marker write is logged, not swallowed", async () => {
   try {
     const previous = await run(ServerLifecycle.readPreviousRun(directory))
     await run(ServerLifecycle.markStarted(directory, info(17898), previous))
-    // A read-only data directory makes the marker write fail: the temp
-    // file cannot be created. The old code swallowed that with
-    // Effect.ignore, so the next boot reported an unclean run and nobody
-    // knew why.
-    await fs.chmod(directory, 0o555)
+    // Fail the marker write deterministically, for every uid: a read-only
+    // data directory (chmod 0o555) cannot force a failure — root bypasses
+    // permission bits, so the write would succeed and the warning would
+    // never fire on root-run CI (the repo's location-layer tests document
+    // the same fact). Instead the filesystem layer fails the rename of
+    // the state temp file, which is the exact step a failed marker write
+    // dies on; everything else is the real implementation, and the state
+    // file is never touched.
+    const failStateRename = { current: false }
+    const flakyFileSystem = NodeFileSystem.layer.pipe(
+      Layer.flatMap((context) => {
+        const fs = Context.get(context, FileSystem.FileSystem)
+        return Layer.succeed(FileSystem.FileSystem, {
+          ...fs,
+          rename: (oldPath: string, newPath: string) =>
+            failStateRename.current && newPath.endsWith("server-state.json")
+              ? fs.rename(oldPath, path.join(path.dirname(newPath), "no-such-directory", "x"))
+              : fs.rename(oldPath, newPath),
+        })
+      }),
+    )
+    failStateRename.current = true
     const logged: Array<unknown> = []
-    try {
-      await Effect.runPromise(
-        ServerLifecycle.markStopped(directory, "signal SIGTERM").pipe(
-          Effect.provide(NodeFileSystem.layer),
-          Effect.provideService(Logger.CurrentLoggers, new Set([Logger.make((entry) => logged.push(entry.message))])),
-        ),
-      )
-    } finally {
-      await fs.chmod(directory, 0o755)
-    }
+    await Effect.runPromise(
+      ServerLifecycle.markStopped(directory, "signal SIGTERM").pipe(
+        Effect.provide(flakyFileSystem),
+        Effect.provideService(Logger.CurrentLoggers, new Set([Logger.make((entry) => logged.push(entry.message))])),
+      ),
+    )
     // Effect logs a warning as [message, ...args], not a plain string.
     expect(logged.some((message) => JSON.stringify(message).includes("clean-shutdown marker"))).toBe(true)
     const state = JSON.parse(await fs.readFile(ServerLifecycle.stateFile(directory), "utf8")) as {
       cleanShutdown: boolean
     }
     expect(state.cleanShutdown).toBe(false)
+    // The failed write left no temp file behind.
+    expect((await fs.readdir(directory)).filter((name) => name.includes(".tmp"))).toEqual([])
   } finally {
     await fs.rm(directory, { recursive: true, force: true })
   }

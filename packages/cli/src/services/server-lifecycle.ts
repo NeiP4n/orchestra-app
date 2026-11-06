@@ -237,8 +237,16 @@ function writeState(dataDir: string, state: ServerState) {
     // and a random suffix — a fixed temp name let two writers collide.
     yield* fs.makeDirectory(dataDir, { recursive: true }).pipe(Effect.ignore)
     const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`
-    yield* fs.writeFileString(temporary, JSON.stringify(state, null, 2), { mode: 0o600 })
-    yield* fs.rename(temporary, file)
+    yield* Effect.gen(function* () {
+      yield* fs.writeFileString(temporary, JSON.stringify(state, null, 2), { mode: 0o600 })
+      yield* fs.rename(temporary, file)
+    }).pipe(
+      // A failed write must not leave its temp file behind: the rename
+      // failing after the temp was written used to litter a .tmp file
+      // next to the state. On success the temp was renamed away, so the
+      // removal is a no-op.
+      Effect.ensuring(fs.remove(temporary).pipe(Effect.ignore)),
+    )
   })
 }
 
