@@ -20,8 +20,10 @@ export const SOCIETY_GENERATION_TIMEOUT_MS = 30 * 60 * 1000
 
 // The Anymodel model table, verified 2026-11-06 in live chat tests
 // against https://anymodel.ghostly.su/v1/models (17 models, up from 12 on
-// 2026-11-05). Model ids are matched against the catalog, so the provider id
-// comes from what the account actually has instead of a hardcoded guess.
+// 2026-11-05) and re-verified 2026-11-07 against the live listing: still
+// 17 models, same ids in the same order. Model ids are matched against the
+// catalog, so the provider id comes from what the account actually has
+// instead of a hardcoded guess.
 export const STRONG_MODEL_ID = "opus-5.5"
 export const MID_MODEL_ID = "sonnet-5.5"
 export const CHEAP_MODEL_ID = "anymodel-coder"
@@ -71,6 +73,23 @@ export const DEAD_MODEL_IDS: ReadonlyArray<string> = [
 
 export const isDeadModelId = (id: string) => DEAD_MODEL_IDS.includes(id.trim().toLowerCase())
 export const isDeadSocietyModel = (model: Model.Ref) => isDeadModelId(model.id)
+
+// Models checked against the live Anymodel /models listing on 2026-11-07
+// and NOT there, so they stay out of the catalog until the provider adds
+// them: gpt-6.1-terra (cheap worker / computer-use candidate, $1/$5 per 1M,
+// 1.05M context), mistral-large-4 (open-weight coder, $0.70/$2.10 per 1M),
+// ripple-65b (cheap open coder, $0.20/$0.60 per 1M). The markers are
+// substrings, not provider ids — no Anymodel id for these models is known
+// yet — so any arrival under any id carrying the family name fails the
+// absence test loudly and forces a catalog update with a worker role and a
+// fallback. Terra caveat (Б13): OpenAI's own tests had Terra agents fall
+// into destructive-action scenarios more often, so a Terra worker's
+// monitoring must live outside the agent itself — never let the agent own,
+// reduce or switch off its own monitoring.
+export const ABSENT_MODEL_MARKERS: ReadonlyArray<string> = ["terra", "mistral", "ripple"]
+
+export const matchesAbsentModelMarker = (id: string) =>
+  ABSENT_MODEL_MARKERS.some((marker) => id.trim().toLowerCase().includes(marker))
 
 export type ModelTier = "strong" | "mid" | "cheap"
 

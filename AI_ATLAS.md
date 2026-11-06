@@ -737,13 +737,20 @@ messages and builds the rest with `society_forge generate` and `society_plan`.
   later inherit the model, context threshold, cache switch, budget and the one
   MCP assignment for the whole Society. Budget is a field (`orchestra.budget-tokens`),
   not prose. Rules reach new projects by scope (`society:<name>`).
-- Model table (`society.ts`, verified against Anymodel 2026-11-06, 17 models):
+- Model table (`society.ts`, verified against Anymodel 2026-11-06,
+  re-verified 2026-11-07, still 17 models in the same order):
   strong `opus-5.5`, mid `sonnet-5.5`, cheap `anymodel-coder` (quality work),
   fallback `sonnet-5`; cheap flash alternative `gemini-3.8-flash` (also a
   main-session fallback after `anymodel-coder`), reasoning `grok-4.7` next to
   `opus-5.5`. The other new models (`gemini-3.5-flash-lite`, `gemini-3.6-flash`,
   `gemini-4-argon`) are catalogued in `ANYMODEL_MODEL_IDS` but have no assigned
-  role yet. Dead models (`anymodel-reasoner`, `anymodel-v4.1-flash`, `fable-5.1`,
+  role yet. Checked 2026-11-07 and absent at Anymodel, so not catalogued:
+  `gpt-6.1-terra` (cheap worker / computer-use candidate), `mistral-large-4`
+  (open-weight coder), `ripple-65b` (cheap open coder); the absence test in
+  `society.test.ts` fails loudly when one arrives. Terra, when it arrives, is
+  a worker candidate only with monitoring outside the agent itself (Б13: Terra
+  agents fell into destructive-action scenarios more often in OpenAI's own
+  tests). Dead models (`anymodel-reasoner`, `anymodel-v4.1-flash`, `fable-5.1`,
   `gpt-6-astra`, `gpt-6-sol`, `gpt-6.1-sol`) are never a primary or a fallback;
   `workerModels` also gives cheap work the cheap model instead of the
   Orchestrator's flagship. Building the Society (`society_forge found/generate`,
