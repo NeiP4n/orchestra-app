@@ -4,12 +4,11 @@ import path from "node:path"
 import { Effect } from "effect"
 import { DatabaseBackup } from "@orchestra/core/database/backup"
 import { CredentialEncryption } from "@orchestra/core/credential/encryption"
-import { Service } from "@orchestra/client/effect/service"
 import { Global } from "@orchestra/util/global"
 import { Commands } from "../../commands"
 import { Runtime } from "../../../framework/runtime"
 import { databasePath } from "../../../database-path"
-import { ServiceConfig } from "../../../services/service-config"
+import { assertServerStopped } from "../server-stopped"
 
 // A3-03: the atomic restore existed only as a library function — an operator
 // in a crash would have restored by hand (`cp` over the live database, the
@@ -29,27 +28,7 @@ export default Runtime.handler(
     if (dbFile === ":memory:") return yield* Effect.fail(new Error("No file database to restore: this install uses :memory:"))
     const backup = path.resolve(input.backup)
     if (!existsSync(backup)) return yield* Effect.fail(new Error(`No backup file at ${backup}`))
-    if (!input.force) {
-      const liveLock = findLiveLock(global.data)
-      if (liveLock !== undefined)
-        return yield* Effect.fail(
-          new Error(
-            `A server looks live (pid ${liveLock.pid}, lock ${liveLock.file}): stop it first ` +
-              `(\`orchestra service stop\`, or stop the foreground \`orchestra serve\`), then restore again. ` +
-              `If the process is really gone, re-run with --force.`,
-          ),
-        )
-      const service = yield* Service.discover({ ...(yield* ServiceConfig.options()), version: undefined }).pipe(
-        Effect.catch(() => Effect.succeed(undefined)),
-      )
-      if (service !== undefined)
-        return yield* Effect.fail(
-          new Error(
-            `A background server is running at ${service.url}: stop it first (\`orchestra service stop\`), ` +
-              `then restore again. If the service is really gone, re-run with --force.`,
-          ),
-        )
-    }
+    yield* assertServerStopped(global.data, input.force, "restore")
     const keyFile = CredentialEncryption.resolveKeyFile(global.data)
     const restored = yield* DatabaseBackup.restoreDatabase(dbFile, backup, { keyFile })
     const keyLine =
@@ -71,7 +50,7 @@ export default Runtime.handler(
 
 // A live foreground server leaves `server.lock` / `server-<port>.lock` naming
 // its pid. A lock naming a dead pid (or an unreadable lock) is stale, not live.
-function findLiveLock(dataDir: string): { file: string; pid: number } | undefined {
+export function findLiveServerLock(dataDir: string): { file: string; pid: number } | undefined {
   let names: Array<string>
   try {
     names = readdirSync(dataDir).filter((name) => /^server(-\d+)?\.lock$/.test(name))

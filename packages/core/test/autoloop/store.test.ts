@@ -40,6 +40,7 @@ describe("AutoloopStore", () => {
           { name: "autoloop_projection_meta" },
           { name: "autoloop_projection_refs" },
           { name: "autoloop_projections" },
+          { name: "autoloop_quarantine" },
         ])
         expect(yield* db.get(sql`SELECT id FROM migration WHERE id = ${autoloopMigration.id}`)).toEqual({
           id: autoloopMigration.id,

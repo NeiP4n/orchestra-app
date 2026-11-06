@@ -43,6 +43,11 @@ const Handlers = Runtime.handlers(Commands, {
   db: {
     restore: () => import("./commands/handlers/db/restore"),
   },
+  autoloop: {
+    quarantine: () => import("./commands/handlers/autoloop/quarantine"),
+    unquarantine: () => import("./commands/handlers/autoloop/unquarantine"),
+    "quarantine-list": () => import("./commands/handlers/autoloop/quarantine-list"),
+  },
   mcp: {
     list: () => import("./commands/handlers/mcp/list"),
     add: () => import("./commands/handlers/mcp/add"),

@@ -47,3 +47,14 @@ export const AutoloopProjectionRefTable = sqliteTable(
     index("autoloop_projection_refs_ref_idx").on(table.ref_collection, table.ref_key),
   ],
 )
+
+// A3-11: quarantine. A poisoned fact is never deleted — the journal is the
+// evidence — but once quarantined it no longer folds into the projections
+// at rebuild, and `commit` never replays it (the stored projections are
+// rebuilt the moment a fact is quarantined). The row keeps the reason and
+// the time, so an operator can see what was held and unquarantine it.
+export const AutoloopQuarantineTable = sqliteTable("autoloop_quarantine", {
+  seq: integer().primaryKey(),
+  reason: text().notNull(),
+  at: integer().notNull(),
+})

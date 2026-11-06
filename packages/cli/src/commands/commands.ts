@@ -141,6 +141,46 @@ const Root = Spec.make(typeof ORCHESTRA_CLI_NAME === "string" ? ORCHESTRA_CLI_NA
         }),
       ],
     }),
+    Spec.make("autoloop", {
+      description: "Autoloop journal operations",
+      commands: [
+        Spec.make("quarantine", {
+          description:
+            "Quarantine one journal fact by sequence: it stays in the journal as evidence but stops affecting decisions. The server must be stopped first.",
+          params: {
+            seq: Argument.integer("seq").pipe(
+              Argument.withDescription("Sequence of the fact to quarantine"),
+            ),
+            reason: Flag.string("reason").pipe(
+              Flag.withDescription("Why the fact is poisoned"),
+              Flag.withDefault("quarantined by operator"),
+            ),
+            force: Flag.boolean("force").pipe(
+              Flag.withAlias("f"),
+              Flag.withDescription("Quarantine even when a live server lock is found (only when you are sure the server is stopped)"),
+              Flag.withDefault(false),
+            ),
+          },
+        }),
+        Spec.make("unquarantine", {
+          description:
+            "Lift a quarantine: the fact plays again in the projections. The server must be stopped first.",
+          params: {
+            seq: Argument.integer("seq").pipe(
+              Argument.withDescription("Sequence of the fact to unquarantine"),
+            ),
+            force: Flag.boolean("force").pipe(
+              Flag.withAlias("f"),
+              Flag.withDescription("Unquarantine even when a live server lock is found (only when you are sure the server is stopped)"),
+              Flag.withDefault(false),
+            ),
+          },
+        }),
+        Spec.make("quarantine-list", {
+          description: "List quarantined journal facts",
+        }),
+      ],
+    }),
     Spec.make("auth", {
       description: "manage integrations and credentials",
       commands: [

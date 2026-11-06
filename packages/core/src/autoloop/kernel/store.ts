@@ -3,10 +3,13 @@ export * as AutoloopStore from "./store.js"
 import { sql } from "drizzle-orm"
 import { Effect, Schema, Stream } from "effect"
 import { Database } from "../../database/database.js"
+import type { EffectDrizzleSqlite } from "../../database/drizzle.js"
 import { diff, evolve, rebuild, snapshot } from "./evolve.js"
 import type { View } from "./evolve.js"
 import { FORMAT, META_FORMAT, META_LAST_SEQ } from "./schema.js"
 import type { AutoloopFact } from "./schema.js"
+
+type Transaction = Parameters<Parameters<EffectDrizzleSqlite.EffectSQLiteDatabase["transaction"]>[0]>[0]
 
 // The ONLY module that appends facts to the journal (block B2). Every write
 // goes through `commit` / `commitLatest`, which insert the facts and update
@@ -49,14 +52,85 @@ function viewFromRows(rows: ReadonlyArray<{ collection: string; key: string; dat
   return view
 }
 
-/** All facts in journal order. */
-export function readLog() {
+/** All facts in journal order, with their sequences. */
+function readLogWithSeqs() {
   return Effect.gen(function* () {
     const { db } = yield* Database.Service
     const rows = yield* db.all<{ seq: number; fact: string }>(
       sql`SELECT seq, fact FROM autoloop_facts ORDER BY seq ASC`,
     )
-    return rows.map((row) => JSON.parse(row.fact) as AutoloopFact)
+    return rows.map((row) => ({ seq: row.seq, fact: JSON.parse(row.fact) as AutoloopFact }))
+  })
+}
+
+/** All facts in journal order. */
+export function readLog() {
+  return Effect.map(readLogWithSeqs(), (rows) => rows.map((row) => row.fact))
+}
+
+/** A quarantined fact: kept in the journal as evidence, never folded into the view. */
+export interface QuarantineEntry {
+  seq: number
+  reason: string
+  /** When the fact was quarantined, as a unix timestamp in milliseconds. */
+  at: number
+}
+
+/** Every quarantined fact, in `seq` order. */
+export function listQuarantine() {
+  return Effect.gen(function* () {
+    const { db } = yield* Database.Service
+    return yield* db.all<QuarantineEntry>(sql`SELECT seq, reason, at FROM autoloop_quarantine ORDER BY seq ASC`)
+  })
+}
+
+function readQuarantinedSeqs() {
+  return Effect.map(listQuarantine(), (entries) => new Set(entries.map((entry) => entry.seq)))
+}
+
+/** Facts in journal order, without the quarantined ones. The journal itself keeps everything. */
+function readActiveFacts() {
+  return Effect.gen(function* () {
+    const rows = yield* readLogWithSeqs()
+    const quarantined = yield* readQuarantinedSeqs()
+    return rows.filter((row) => !quarantined.has(row.seq)).map((row) => row.fact)
+  })
+}
+
+/** Rewrites the stored projections from the given facts, inside the caller's transaction. */
+function rewriteProjectionsInTx(tx: Transaction, facts: readonly AutoloopFact[]) {
+  return Effect.gen(function* () {
+    const view = rebuild(facts)
+    const lastRefs = new Map<string, Array<{ collection: string; key: string }>>()
+    for (const fact of facts) {
+      if (fact.collection !== undefined && fact.key !== undefined) {
+        lastRefs.set(`${fact.collection}:${fact.key}`, fact.refs ?? [])
+      }
+    }
+    const lastSeqRow = yield* tx.get<{ seq: number | null }>(sql`SELECT MAX(seq) AS seq FROM autoloop_facts`)
+    yield* tx.run(sql`DELETE FROM autoloop_projections`)
+    yield* tx.run(sql`DELETE FROM autoloop_projection_refs`)
+    yield* tx.run(sql`DELETE FROM autoloop_projection_meta`)
+    for (const { collection, key, data } of snapshot(view)) {
+      yield* tx.run(sql`
+        INSERT INTO autoloop_projections (collection, key, data)
+        VALUES (${collection}, ${key}, ${JSON.stringify(data)})
+      `)
+      for (const ref of lastRefs.get(`${collection}:${key}`) ?? []) {
+        yield* tx.run(sql`
+          INSERT OR IGNORE INTO autoloop_projection_refs (collection, key, ref_collection, ref_key)
+          VALUES (${collection}, ${key}, ${ref.collection}, ${ref.key})
+        `)
+      }
+    }
+    const lastSeq = lastSeqRow?.seq ?? 0
+    yield* tx.run(sql`
+      INSERT INTO autoloop_projection_meta (key, value) VALUES (${META_LAST_SEQ}, ${String(lastSeq)})
+    `)
+    yield* tx.run(sql`
+      INSERT INTO autoloop_projection_meta (key, value) VALUES (${META_FORMAT}, ${FORMAT})
+    `)
+    return { view, lastSeq }
   })
 }
 
@@ -169,46 +243,106 @@ export function commitLatest(facts: ReadonlyArray<AutoloopFact>) {
  * service runs this at start when the stored kernel format no longer
  * matches `FORMAT`: the journal is the source of truth and the projections
  * are disposable, so a format change rebuilds them instead of trusting rows
- * folded by older kernel code. Returns the rebuilt view and latest sequence.
+ * folded by older kernel code. Quarantined facts are skipped (A3-11) and
+ * the skip is logged with the count, so a rebuild never silently drops
+ * evidence. Returns the rebuilt view and latest sequence.
  */
 export function rebuildProjections() {
   return Effect.gen(function* () {
+    const quarantined = yield* readQuarantinedSeqs()
+    const facts = yield* readActiveFacts()
+    if (quarantined.size > 0)
+      yield* Effect.logInfo(
+        `autoloop rebuild skipped ${quarantined.size} quarantined fact(s); the journal keeps them`,
+        { quarantined: [...quarantined].sort((a, b) => a - b) },
+      )
     const { db } = yield* Database.Service
-    const facts = yield* readLog()
-    const view = rebuild(facts)
-    const lastRefs = new Map<string, Array<{ collection: string; key: string }>>()
-    for (const fact of facts) {
-      if (fact.collection !== undefined && fact.key !== undefined) {
-        lastRefs.set(`${fact.collection}:${fact.key}`, fact.refs ?? [])
-      }
-    }
-    return yield* db.transaction((tx) =>
+    return yield* db.transaction((tx) => rewriteProjectionsInTx(tx, facts))
+  })
+}
+
+export interface QuarantineResult {
+  /** The quarantined (or unquarantined) sequence. */
+  seq: number
+  /** True when this call changed the mark; false when it was already in that state. */
+  changed: boolean
+  /** View after the rebuild that follows the mark change. */
+  view: View
+  lastSeq: number
+}
+
+/**
+ * Quarantines one fact (A3-11): the fact stays in the journal as evidence,
+ * but the stored projections are rebuilt in the same transaction without
+ * it, so the poisoned fact stops affecting decisions at once — and no later
+ * rebuild replays it. Fails when no fact has that sequence.
+ */
+export function quarantine(seq: number, reason: string) {
+  return Effect.gen(function* () {
+    const { db } = yield* Database.Service
+    const found = yield* db.get<{ seq: number }>(sql`SELECT seq FROM autoloop_facts WHERE seq = ${seq}`)
+    if (found === undefined)
+      return yield* Effect.fail(new Error(`No autoloop fact with seq ${seq} to quarantine`))
+    const at = Date.now()
+    const rebuilt = yield* db.transaction((tx) =>
       Effect.gen(function* () {
-        const lastSeqRow = yield* tx.get<{ seq: number | null }>(sql`SELECT MAX(seq) AS seq FROM autoloop_facts`)
-        yield* tx.run(sql`DELETE FROM autoloop_projections`)
-        yield* tx.run(sql`DELETE FROM autoloop_projection_refs`)
-        yield* tx.run(sql`DELETE FROM autoloop_projection_meta`)
-        for (const { collection, key, data } of snapshot(view)) {
-          yield* tx.run(sql`
-            INSERT INTO autoloop_projections (collection, key, data)
-            VALUES (${collection}, ${key}, ${JSON.stringify(data)})
-          `)
-          for (const ref of lastRefs.get(`${collection}:${key}`) ?? []) {
-            yield* tx.run(sql`
-              INSERT OR IGNORE INTO autoloop_projection_refs (collection, key, ref_collection, ref_key)
-              VALUES (${collection}, ${key}, ${ref.collection}, ${ref.key})
-            `)
-          }
-        }
-        const lastSeq = lastSeqRow?.seq ?? 0
-        yield* tx.run(sql`
-          INSERT INTO autoloop_projection_meta (key, value) VALUES (${META_LAST_SEQ}, ${String(lastSeq)})
-        `)
-        yield* tx.run(sql`
-          INSERT INTO autoloop_projection_meta (key, value) VALUES (${META_FORMAT}, ${FORMAT})
-        `)
-        return { view, lastSeq }
+        const already = yield* tx.get<{ seq: number }>(
+          sql`SELECT seq FROM autoloop_quarantine WHERE seq = ${seq}`,
+        )
+        if (already === undefined)
+          yield* tx.run(
+            sql`INSERT INTO autoloop_quarantine (seq, reason, at) VALUES (${seq}, ${reason}, ${at})`,
+          )
+        const rows = yield* tx.all<{ seq: number; fact: string }>(
+          sql`SELECT seq, fact FROM autoloop_facts ORDER BY seq ASC`,
+        )
+        const blocked = new Set(
+          (yield* tx.all<{ seq: number }>(sql`SELECT seq FROM autoloop_quarantine`)).map((row) => row.seq),
+        )
+        const facts = rows
+          .filter((row) => !blocked.has(row.seq))
+          .map((row) => JSON.parse(row.fact) as AutoloopFact)
+        const rewritten = yield* rewriteProjectionsInTx(tx, facts)
+        return { changed: already === undefined, view: rewritten.view, lastSeq: rewritten.lastSeq }
       }),
     )
+    yield* Effect.logWarning(`autoloop fact ${seq} quarantined; its effect left the projections`, {
+      seq,
+      reason,
+      alreadyQuarantined: !rebuilt.changed,
+    })
+    return { seq, changed: rebuilt.changed, view: rebuilt.view, lastSeq: rebuilt.lastSeq } satisfies QuarantineResult
+  })
+}
+
+/**
+ * Lifts a quarantine: the fact plays again at the next rebuild, which
+ * happens in the same transaction, so the projections reflect it at once.
+ * Unquarantining a fact that was never quarantined is a no-op.
+ */
+export function unquarantine(seq: number) {
+  return Effect.gen(function* () {
+    const { db } = yield* Database.Service
+    const rebuilt = yield* db.transaction((tx) =>
+      Effect.gen(function* () {
+        const marked = yield* tx.get<{ seq: number }>(
+          sql`SELECT seq FROM autoloop_quarantine WHERE seq = ${seq}`,
+        )
+        if (marked !== undefined) yield* tx.run(sql`DELETE FROM autoloop_quarantine WHERE seq = ${seq}`)
+        const rows = yield* tx.all<{ seq: number; fact: string }>(
+          sql`SELECT seq, fact FROM autoloop_facts ORDER BY seq ASC`,
+        )
+        const blocked = new Set(
+          (yield* tx.all<{ seq: number }>(sql`SELECT seq FROM autoloop_quarantine`)).map((row) => row.seq),
+        )
+        const facts = rows
+          .filter((row) => !blocked.has(row.seq))
+          .map((row) => JSON.parse(row.fact) as AutoloopFact)
+        const rewritten = yield* rewriteProjectionsInTx(tx, facts)
+        return { changed: marked !== undefined, view: rewritten.view, lastSeq: rewritten.lastSeq }
+      }),
+    )
+    yield* Effect.logInfo(`autoloop fact ${seq} unquarantined; its effect is back in the projections`, { seq })
+    return { seq, changed: rebuilt.changed, view: rebuilt.view, lastSeq: rebuilt.lastSeq } satisfies QuarantineResult
   })
 }

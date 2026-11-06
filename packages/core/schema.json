@@ -1,8 +1,8 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "bd441c9e-1955-47a7-9597-b0ac4e973222",
-  "prevIds": ["e98619ef-c334-45e3-8c48-9932ed1ef290"],
+  "id": "8d47d707-7732-4055-95db-6118715b47fe",
+  "prevIds": ["bd441c9e-1955-47a7-9597-b0ac4e973222"],
   "ddl": [
     {
       "name": "account_state",
@@ -30,6 +30,10 @@
     },
     {
       "name": "autoloop_projections",
+      "entityType": "tables"
+    },
+    {
+      "name": "autoloop_quarantine",
       "entityType": "tables"
     },
     {
@@ -395,6 +399,36 @@
       "name": "data",
       "entityType": "columns",
       "table": "autoloop_projections"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "seq",
+      "entityType": "columns",
+      "table": "autoloop_quarantine"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "reason",
+      "entityType": "columns",
+      "table": "autoloop_quarantine"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "at",
+      "entityType": "columns",
+      "table": "autoloop_quarantine"
     },
     {
       "type": "text",
@@ -1821,6 +1855,13 @@
       "nameExplicit": false,
       "name": "autoloop_projection_meta_pk",
       "table": "autoloop_projection_meta",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["seq"],
+      "nameExplicit": false,
+      "name": "autoloop_quarantine_pk",
+      "table": "autoloop_quarantine",
       "entityType": "pks"
     },
     {

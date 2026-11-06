@@ -65,6 +65,13 @@ const schema: Omit<DatabaseMigration.Migration, "id"> = {
         );
       `)
       yield* tx.run(`
+        CREATE TABLE \`autoloop_quarantine\` (
+          \`seq\` integer PRIMARY KEY,
+          \`reason\` text NOT NULL,
+          \`at\` integer NOT NULL
+        );
+      `)
+      yield* tx.run(`
         CREATE TABLE \`credential\` (
           \`id\` text PRIMARY KEY,
           \`integration_id\` text,
