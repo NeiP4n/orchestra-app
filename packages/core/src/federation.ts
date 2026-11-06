@@ -206,10 +206,12 @@ export interface Interface {
     readonly missing: ReadonlyArray<string>
   }>
   // The rulebook: the operator's view of the standing rules of a scope (global, project:<id>, society:<name>).
+  // A scope that cannot be read fails the call instead of reading as empty, so add and remove
+  // carry the load failure (and the operator-guard failure) in their error channel.
   readonly rules: {
     readonly list: (scope: string) => Effect.Effect<ReadonlyArray<Rules.Rule>>
-    readonly add: (scope: string, text: string) => Effect.Effect<Rules.AddResult>
-    readonly remove: (scope: string, id: string) => Effect.Effect<boolean>
+    readonly add: (scope: string, text: string) => Effect.Effect<Rules.AddResult, Rules.LoadError>
+    readonly remove: (scope: string, id: string) => Effect.Effect<boolean, Rules.LoadError | Rules.ProtectedError>
   }
   // Holds or releases a Society. Holding also stops whatever its sessions are doing right now.
   readonly setHold: (name: string, held: boolean) => Effect.Effect<void>
