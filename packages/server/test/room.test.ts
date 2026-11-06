@@ -1562,6 +1562,64 @@ it.live("guests share the host project's DoD: one takes an item with a plot, the
   }).pipe(Effect.scoped),
 )
 
+it.live("the kanban board groups the DoD by state for host and guest", () =>
+  Effect.gen(function* () {
+    const { call, room, code, directory } = yield* setup
+    yield* Effect.promise(() =>
+      Bun.write(
+        path.join(directory, ".opencode", "dod.yaml"),
+        [
+          "leaves:",
+          "  - id: L-001",
+          '    what: "Write the parser"',
+          "    task_state: NOT_STARTED",
+          "  - id: L-002",
+          '    what: "Ship it"',
+          "    task_state: DONE",
+          "",
+        ].join("\n"),
+      ),
+    )
+    const join = (name: string) =>
+      call("/api/room/join", { method: "POST", body: { code, name } }).pipe(
+        Effect.map((response) => ({ authorization: `Bearer ${response.body.token}` })),
+      )
+    const alex = yield* join("Alex")
+
+    // The host board: both cards, grouped by state, nothing takeable.
+    const hostBoard = yield* call(`/api/room/${room.id}/dod/board`, { headers: host })
+    expect(hostBoard.status).toBe(200)
+    const byId = new Map(
+      hostBoard.body.columns.map((column: { id: string; cards: { id: string }[] }) => [
+        column.id,
+        column.cards.map((card) => card.id),
+      ]),
+    )
+    expect(byId.get("todo")).toEqual(["L-001"])
+    expect(byId.get("done")).toEqual(["L-002"])
+    expect(hostBoard.body.counts).toMatchObject({ total: 2, done: 1, free: 1 })
+    expect(
+      hostBoard.body.columns
+        .flatMap((column: { cards: { canTake: boolean }[] }) => column.cards)
+        .every((card: { canTake: boolean }) => card.canTake === false),
+    ).toBe(true)
+
+    // The guest board: the free card is takeable, the done card is not.
+    const guestBoard = yield* call(`/api/room/${room.id}/guest/dod/board`, { headers: alex })
+    expect(guestBoard.status).toBe(200)
+    const guestCards = new Map(
+      guestBoard.body.columns
+        .flatMap((column: { cards: { id: string; canTake: boolean }[] }) => column.cards)
+        .map((card: { id: string; canTake: boolean }) => [card.id, card]),
+    )
+    expect(guestCards.get("L-001")?.canTake).toBe(true)
+    expect(guestCards.get("L-002")?.canTake).toBe(false)
+
+    // No guest token, no guest board.
+    expect((yield* call(`/api/room/${room.id}/guest/dod/board`)).status).toBe(401)
+  }).pipe(Effect.scoped),
+)
+
 it.live(
   "a guest takes the next ready item, hands it over, and the host's check decides it",
   () =>

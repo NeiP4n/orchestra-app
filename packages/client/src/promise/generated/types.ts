@@ -520,6 +520,8 @@ export type RoomDodItem = {
   total: number
   owner?: string | undefined
   ownerID?: string | undefined
+  standby?: string | undefined
+  standbyID?: string | undefined
   stale?: boolean | undefined
   mine?: boolean | undefined
   waits?: Array<string> | undefined
@@ -527,6 +529,27 @@ export type RoomDodItem = {
 }
 
 export type RoomDodNote = { name: string; text: string }
+
+export type RoomDodBoardCard = {
+  id: string
+  what: string
+  stage: string
+  state: string
+  done: number | "Infinity" | "-Infinity" | "NaN"
+  total: number | "Infinity" | "-Infinity" | "NaN"
+  owner?: string
+  ownerID?: string
+  mine: boolean
+  stale?: boolean
+  waits?: Array<string>
+  verify?: string
+  zone?: string
+  zoneOwner?: string
+  hasPass: boolean
+  canTake: boolean
+  takeRefusal?: string
+  readOnly: boolean
+}
 
 export type RoomEvent = {
   seq: number
@@ -1968,6 +1991,12 @@ export type RoomDod = {
   check?: { exitCode: number; output: string } | undefined
 }
 
+export type RoomDodBoardColumn = {
+  id: "todo" | "in_progress" | "blocked" | "failed" | "done"
+  title: string
+  cards: Array<RoomDodBoardCard>
+}
+
 export type RoomFeed = { events: Array<RoomEvent> }
 
 export type RoomInfo1 = {
@@ -2377,6 +2406,20 @@ export type RoomJoined = {
   guest: RoomGuest
   role: "viewer" | "member" | "helper" | "cohost" | "trusted"
   room: RoomInfo
+}
+
+export type RoomDodBoard = {
+  status?: "ready" | "disabled"
+  columns: Array<RoomDodBoardColumn>
+  zones: Array<{ name: string; ownerGroup: string; mine: boolean }>
+  counts: {
+    total: number | "Infinity" | "-Infinity" | "NaN"
+    done: number | "Infinity" | "-Infinity" | "NaN"
+    inProgress: number | "Infinity" | "-Infinity" | "NaN"
+    blocked: number | "Infinity" | "-Infinity" | "NaN"
+    failed: number | "Infinity" | "-Infinity" | "NaN"
+    free: number | "Infinity" | "-Infinity" | "NaN"
+  }
 }
 
 export type OrchestraProject = {
@@ -13815,6 +13858,10 @@ export type RoomDodGetInput = { readonly roomID: { readonly roomID: string }["ro
 
 export type RoomDodGetOutput = RoomDod
 
+export type RoomDodBoardInput = { readonly roomID: { readonly roomID: string }["roomID"] }
+
+export type RoomDodBoardOutput = RoomDodBoard
+
 export type RoomDodReleaseInput = {
   readonly roomID: { readonly roomID: string }["roomID"]
   readonly id: { readonly id: string }["id"]
@@ -14051,6 +14098,13 @@ export type RoomGuestRunOutput = RoomRunResult
 export type RoomGuestDodGetInput = { readonly roomID: { readonly roomID: string }["roomID"] }
 
 export type RoomGuestDodGetOutput = RoomDod
+
+export type RoomGuestDodBoardInput = {
+  readonly roomID: { readonly roomID: string }["roomID"]
+  readonly group?: { readonly group?: string | undefined }["group"]
+}
+
+export type RoomGuestDodBoardOutput = RoomDodBoard
 
 export type RoomGuestDodClaimInput = {
   readonly roomID: { readonly roomID: string }["roomID"]

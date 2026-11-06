@@ -1,5 +1,5 @@
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "solid-js"
-import type { RoomDod, RoomDodItem, RoomEvent, RoomFeed } from "@orchestra/client/promise"
+import type { RoomDod, RoomDodBoard, RoomDodItem, RoomEvent, RoomFeed } from "@orchestra/client/promise"
 import { useTheme } from "../context/theme"
 import { useToast } from "../ui/toast"
 import { errorMessage } from "../util/error"
@@ -32,9 +32,17 @@ type PanelState =
 // a guest left behind. Finished items only count toward the bar, so a long DoD stays a
 // short list. The room's latest events follow, and each one reloads the list at once.
 // A project without a DoD shows nothing.
+//
+// With loadBoard, the panel also offers the kanban board: the same items grouped into
+// columns by state, with who holds each card and whether the viewer may take it. Cards
+// in a foreign zone are read-only without a pass, and a card the take would refuse is
+// shown with its reason instead of a take action. The board follows the same reloads
+// as the list (feed events and the 5 s poll).
 export function RoomDodRows(props: {
   id: string
   load: () => Promise<RoomDod>
+  // The kanban board for the same room; absent, the panel stays a list.
+  loadBoard?: () => Promise<RoomDodBoard>
   // Guests only; absent on the host, which frees instead of taking. Without an item, takes the next ready one.
   take?: (item?: string) => Promise<RoomDod>
   submit?: (item: string) => Promise<RoomDod>
@@ -52,10 +60,13 @@ export function RoomDodRows(props: {
   const toast = useToast()
   const t = useT()
   const [items, setItems] = createSignal<readonly RoomDodItem[]>([])
+  const [board, setBoard] = createSignal<RoomDodBoard>()
+  const [view, setView] = createSignal<"list" | "board">("list")
   const [open, setOpen] = createSignal(props.open ?? false)
   const indent = () => props.indent ?? 4
   const [armed, setArmed] = createSignal<string>()
   const [nextHovered, setNextHovered] = createSignal(false)
+  const [boardHovered, setBoardHovered] = createSignal(false)
   const [events, setEvents] = createSignal<readonly RoomEvent[]>([])
   const [status, setStatus] = createSignal<PanelState>({ type: "starting" })
   // Retain the last usable payload after a failed refresh, but never mark it as current.
@@ -78,6 +89,7 @@ export function RoomDodRows(props: {
         setLoadedAt(Date.now())
         if (dod.status === "disabled") {
           setItems([])
+          setBoard(undefined)
           setStatus({ type: "disabled" })
           return
         }
@@ -86,10 +98,11 @@ export function RoomDodRows(props: {
           return
         }
         // An older server may return items without a status. The data can be shown, but
-        // the service state is unknown and must not be promoted to READY.
+        // the service state is unknown and must not be promoted to READY. The reason
+        // stays short enough for the board's one-line status row to show it in full.
         setStatus({
           type: "unknown",
-          reason: "The response omitted the explicit service state; it is not being treated as ready.",
+          reason: "The response omitted the explicit service state.",
         })
       })
       .catch((error: unknown) => {
@@ -103,6 +116,17 @@ export function RoomDodRows(props: {
           setStatus({ type: "connection-error", reason })
         }
       })
+    // The board follows the same reloads as the list; a failed board load never
+    // breaks the list, it only hides the board view until the next reload.
+    if (props.loadBoard) {
+      void Promise.resolve()
+        .then(() => props.loadBoard!())
+        .then((loaded) => {
+          if (request !== generation || projectID !== props.id) return
+          if (loaded && Array.isArray(loaded.columns)) setBoard(loaded)
+        })
+        .catch(() => undefined)
+    }
   }
 
   createEffect(
@@ -111,6 +135,7 @@ export function RoomDodRows(props: {
       () => {
         generation++
         setItems([])
+        setBoard(undefined)
         setEvents([])
         setLoadedAt(undefined)
         setStatus({ type: "starting" })
@@ -177,6 +202,8 @@ export function RoomDodRows(props: {
     void action()
       .then((dod) => {
         setItems(dod.items)
+        // The board's canTake and owners change with the take, so it reloads too.
+        read()
         done?.(dod)
       })
       .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
@@ -208,7 +235,7 @@ export function RoomDodRows(props: {
           : state === "FAILED"
             ? theme.text.feedback.error.base
             : theme.text.muted
-  const actionId = (item: RoomDodItem) => `${props.id}:dod:${item.id}`
+  const actionId = (item: { id: string }) => `${props.id}:dod:${item.id}`
 
   // compact: composed as one truncated line in the board's own row style (every other
   // row of the panel is a single truncated line); the standalone form wraps in full.
@@ -274,16 +301,102 @@ export function RoomDodRows(props: {
               <text fg={nextHovered() ? theme.text.base : theme.text.action.primary.base}>{` ${t("next")}`}</text>
             </HoverAction>
           </Show>
+          <Show when={props.loadBoard && board()}>
+            <HoverAction
+              id={`${props.id}:dod:view`}
+              onHoverChange={setBoardHovered}
+              onClick={() => setView(view() === "board" ? "list" : "board")}
+            >
+              <text fg={boardHovered() ? theme.text.base : theme.text.action.primary.base}>
+                {` ${view() === "board" ? t("list") : t("board")}`}
+              </text>
+            </HoverAction>
+          </Show>
         </Row>
         <StatusBox pad={indent() + 3} compact />
         <Show when={open()}>
+          <Show when={view() === "board" && board()}>
+            {(loaded) => (
+              <>
+                <Show when={loaded().zones.length > 0}>
+                  <box paddingLeft={indent() + 3} paddingRight={1}>
+                    <text fg={theme.text.muted} wrapMode="none" truncate>
+                      {`${t("Zones")}: ${loaded()
+                        .zones.map((zone) => `${zone.name}${zone.mine ? ` (${t("yours")})` : ""}`)
+                        .join(" · ")}`}
+                    </text>
+                  </box>
+                </Show>
+                <box flexDirection="row" paddingLeft={indent() + 3} paddingRight={1}>
+                  <For each={loaded().columns}>
+                    {(column) => (
+                      <box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0} paddingRight={1}>
+                        <text fg={theme.text.muted} wrapMode="none" truncate>
+                          {`${column.title} (${column.cards.length})`}
+                        </text>
+                        <For each={column.cards}>
+                          {(card) => (
+                            <box flexDirection="column">
+                              <box flexDirection="row">
+                                <text flexShrink={0} fg={color(card.state)}>
+                                  {`${MARK[card.state] ?? "·"} `}
+                                </text>
+                                <box flexGrow={1} minWidth={0}>
+                                  <text fg={theme.text.base} wrapMode="none" truncate>
+                                    <span style={{ fg: theme.text.muted }}>{`${card.id} `}</span>
+                                    {card.what || card.id}
+                                    <span style={{ fg: theme.text.muted }}>
+                                      {Number(card.total) > 0 ? ` ${card.done}/${card.total}` : ""}
+                                    </span>
+                                  </text>
+                                </box>
+                                <Show when={card.readOnly}>
+                                  <text flexShrink={0} fg={theme.text.muted}>{` ${t("read-only")}`}</text>
+                                </Show>
+                                <DodItemActions
+                                  id={card.id}
+                                  owner={card.owner}
+                                  mine={card.mine}
+                                  stale={card.stale}
+                                  verify={card.verify}
+                                  takeable={card.canTake}
+                                  hideReason
+                                  take={props.take}
+                                  submit={props.submit}
+                                  release={props.release}
+                                  actionId={actionId(card)}
+                                  armed={armed}
+                                  setArmed={setArmed}
+                                  act={act}
+                                  submitted={submitted}
+                                />
+                              </box>
+                              <Show
+                                when={!card.canTake && card.takeRefusal && !FINISHED.has(card.state) ? card.takeRefusal : undefined}
+                              >
+                                {(reason) => (
+                                  <box paddingLeft={2}>
+                                    <text fg={theme.text.muted} wrapMode="word">
+                                      {reason()}
+                                    </text>
+                                  </box>
+                                )}
+                              </Show>
+                            </box>
+                          )}
+                        </For>
+                      </box>
+                    )}
+                  </For>
+                </box>
+              </>
+            )}
+          </Show>
+          <Show when={view() === "list"}>
           <For each={remaining()}>
             {(item) => {
               const mine = () => item.mine === true
               const free = () => !item.owner || item.stale === true
-              const [takeHovered, setTakeHovered] = createSignal(false)
-              const [submitHovered, setSubmitHovered] = createSignal(false)
-              const [releaseHovered, setReleaseHovered] = createSignal(false)
               return (
                 <box flexDirection="row" paddingLeft={indent() + 3} paddingRight={1}>
                   <text flexShrink={0} fg={color(item.state)}>
@@ -301,76 +414,25 @@ export function RoomDodRows(props: {
                       {` ${t("{name}, lease ran out", { name: item.owner ?? "" })}`}
                     </text>
                   </Show>
-                  <Show
-                    when={!free()}
-                    fallback={
-                      <Show
-                        when={!item.waits}
-                        fallback={
-                          <text flexShrink={0} fg={theme.text.muted}>
-                            {` ${t("waits for {items}", { items: item.waits?.join(", ") ?? "" })}`}
-                          </text>
-                        }
-                      >
-                        <Show when={props.take}>
-                          {(take) => (
-                            <HoverAction
-                              id={`${actionId(item)}:take`}
-                              onHoverChange={setTakeHovered}
-                              onClick={() => act(() => take()(item.id))}
-                            >
-                              <text fg={takeHovered() ? theme.text.base : theme.text.action.primary.base}>
-                                {` ${t("take")}`}
-                              </text>
-                            </HoverAction>
-                          )}
-                        </Show>
-                      </Show>
+                  <DodItemActions
+                    id={item.id}
+                    owner={item.owner}
+                    mine={mine()}
+                    stale={item.stale}
+                    verify={item.verify}
+                    takeable={free() && !item.waits}
+                    blockedReason={
+                      item.waits ? t("waits for {items}", { items: item.waits.join(", ") }) : undefined
                     }
-                  >
-                    <text flexShrink={0} fg={mine() ? theme.text.formfield.base : theme.text.muted}>
-                      {` ${mine() ? t("you") : item.owner}`}
-                    </text>
-                    <Show when={mine() && item.verify ? props.submit : undefined}>
-                      {(submit) => (
-                        <HoverAction
-                          id={`${actionId(item)}:submit`}
-                          onHoverChange={setSubmitHovered}
-                          onClick={() => act(() => submit()(item.id), submitted(item.id))}
-                        >
-                          <text fg={submitHovered() ? theme.text.base : theme.text.action.primary.base}>
-                            {` ${t("submit")}`}
-                          </text>
-                        </HoverAction>
-                      )}
-                    </Show>
-                    <Show when={mine() || !props.take}>
-                      <HoverAction
-                        id={`${actionId(item)}:release`}
-                        variant="destructive"
-                        onHoverChange={setReleaseHovered}
-                        onMouseLeave={() => setArmed()}
-                        onClick={() => {
-                          // Freeing another person's item needs a second click; giving back your own does not.
-                          if (!mine() && armed() !== actionId(item)) return setArmed(actionId(item))
-                          setArmed()
-                          act(() => props.release(item.id))
-                        }}
-                      >
-                        <text
-                          fg={
-                            armed() === actionId(item)
-                              ? theme.text.action.destructive.focused
-                              : releaseHovered()
-                                ? theme.text.action.destructive.hovered
-                                : theme.text.action.destructive.base
-                          }
-                        >
-                          {armed() === actionId(item) ? ` ${t("free?")}` : mine() ? ` ${t("release")}` : " ×"}
-                        </text>
-                      </HoverAction>
-                    </Show>
-                  </Show>
+                    take={props.take}
+                    submit={props.submit}
+                    release={props.release}
+                    actionId={actionId(item)}
+                    armed={armed}
+                    setArmed={setArmed}
+                    act={act}
+                    submitted={submitted}
+                  />
                 </box>
               )
             }}
@@ -384,6 +446,7 @@ export function RoomDodRows(props: {
             <box paddingLeft={indent() + 3} paddingRight={1}>
               <text fg={theme.text.muted}>{t("The DoD file exists but contains no tasks.")}</text>
             </box>
+          </Show>
           </Show>
           <For each={events()}>
             {(event) => (
@@ -399,6 +462,113 @@ export function RoomDodRows(props: {
         </Show>
       </Show>
     </>
+  )
+}
+
+// The actions on one DoD item, shared by the list and the kanban board: take a
+// card the viewer may take (or the reason it cannot be taken), and, for a held
+// card, the holder, submit for one's own card, and give back. Freeing another
+// person's card needs a second click; giving back one's own does not.
+function DodItemActions(props: {
+  id: string
+  owner?: string
+  mine: boolean
+  stale?: boolean
+  verify?: string
+  // Whether the viewer may take this card now; when false, blockedReason says why.
+  takeable: boolean
+  blockedReason?: string
+  // The caller shows the reason itself (for example on its own line under the card).
+  hideReason?: boolean
+  take?: (item?: string) => Promise<RoomDod>
+  submit?: (item: string) => Promise<RoomDod>
+  release: (item: string) => Promise<RoomDod>
+  actionId: string
+  armed: () => string | undefined
+  setArmed: (id: string | undefined) => void
+  act: (action: () => Promise<RoomDod>, done?: (dod: RoomDod) => void) => void
+  submitted: (item: string) => (dod: RoomDod) => void
+}) {
+  const theme = useTheme()
+  const t = useT()
+  const [takeHovered, setTakeHovered] = createSignal(false)
+  const [submitHovered, setSubmitHovered] = createSignal(false)
+  const [releaseHovered, setReleaseHovered] = createSignal(false)
+  const held = () => props.owner !== undefined && props.stale !== true
+  return (
+    <Show
+      when={!held()}
+      fallback={
+        <>
+          <text flexShrink={0} fg={props.mine ? theme.text.formfield.base : theme.text.muted}>
+            {` ${props.mine ? t("you") : props.owner}`}
+          </text>
+          <Show when={props.mine && props.verify ? props.submit : undefined}>
+            {(submit) => (
+              <HoverAction
+                id={`${props.actionId}:submit`}
+                onHoverChange={setSubmitHovered}
+                onClick={() => props.act(() => submit()(props.id), props.submitted(props.id))}
+              >
+                <text fg={submitHovered() ? theme.text.base : theme.text.action.primary.base}>
+                  {` ${t("submit")}`}
+                </text>
+              </HoverAction>
+            )}
+          </Show>
+          <Show when={props.mine || !props.take}>
+            <HoverAction
+              id={`${props.actionId}:release`}
+              variant="destructive"
+              onHoverChange={setReleaseHovered}
+              onMouseLeave={() => props.setArmed(undefined)}
+              onClick={() => {
+                if (!props.mine && props.armed() !== props.actionId) return props.setArmed(props.actionId)
+                props.setArmed(undefined)
+                props.act(() => props.release(props.id))
+              }}
+            >
+              <text
+                fg={
+                  props.armed() === props.actionId
+                    ? theme.text.action.destructive.focused
+                    : releaseHovered()
+                      ? theme.text.action.destructive.hovered
+                      : theme.text.action.destructive.base
+                }
+              >
+                {props.armed() === props.actionId ? ` ${t("free?")}` : props.mine ? ` ${t("release")}` : " ×"}
+              </text>
+            </HoverAction>
+          </Show>
+        </>
+      }
+    >
+      <Show
+        when={props.takeable}
+        fallback={
+          <Show when={!props.hideReason}>
+            <box flexShrink={1} minWidth={0}>
+              <text fg={theme.text.muted} wrapMode="none" truncate>
+                {` ${props.blockedReason ?? ""}`}
+              </text>
+            </box>
+          </Show>
+        }
+      >
+        <Show when={props.take}>
+          {(take) => (
+            <HoverAction
+              id={`${props.actionId}:take`}
+              onHoverChange={setTakeHovered}
+              onClick={() => props.act(() => take()(props.id))}
+            >
+              <text fg={takeHovered() ? theme.text.base : theme.text.action.primary.base}>{` ${t("take")}`}</text>
+            </HoverAction>
+          )}
+        </Show>
+      </Show>
+    </Show>
   )
 }
 

@@ -887,6 +887,7 @@ function RoomSidebar(props: {
               hover={hover}
               setHover={setHover}
               load={() => remote.room.guest.dod.get({ roomID: props.room.roomID })}
+              loadBoard={() => remote.room.guest.dod.board({ roomID: props.room.roomID })}
               take={(id) =>
                 remote.room.guest.dod.claim(
                   id

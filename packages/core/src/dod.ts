@@ -328,7 +328,7 @@ function isStandby(item: Room.DodItem, owner: Owner) {
   return item.standbyID === undefined ? item.standby === owner.name : item.standbyID === owner.id
 }
 
-type GuardOptions = { group?: string; zones: Zones.Registry }
+export type GuardOptions = { group?: string; zones: Zones.Registry }
 type GuardOutcome = { refusal?: string; note?: Record<string, string>; takeover?: boolean }
 
 // The guards on every start, after the basic refusal: the WIP limit (idea #20)
@@ -385,8 +385,9 @@ function guardOutcome(
 
 // Why the owner may not start the item, or undefined when it may: the basic
 // refusal plus the guards, without recording anything — `next` skips what it
-// cannot take instead of failing on it.
-function mayClaim(item: Room.DodItem, owner: Owner, all: readonly Room.DodItem[], options: GuardOptions) {
+// cannot take instead of failing on it. The kanban board shows the same answer
+// per card, so the board never offers a card the take would refuse.
+export function mayClaim(item: Room.DodItem, owner: Owner, all: readonly Room.DodItem[], options: GuardOptions) {
   return refusal(item, owner) ?? guardOutcome(item, owner, all, options).refusal
 }
 

@@ -301,6 +301,8 @@ import type {
   RoomRemoveOutput,
   RoomDodGetInput,
   RoomDodGetOutput,
+  RoomDodBoardInput,
+  RoomDodBoardOutput,
   RoomDodReleaseInput,
   RoomDodReleaseOutput,
   RoomFeedInput,
@@ -325,6 +327,8 @@ import type {
   RoomGuestRunOutput,
   RoomGuestDodGetInput,
   RoomGuestDodGetOutput,
+  RoomGuestDodBoardInput,
+  RoomGuestDodBoardOutput,
   RoomGuestDodClaimInput,
   RoomGuestDodClaimOutput,
   RoomGuestDodSubmitInput,
@@ -2708,6 +2712,17 @@ export function make(options: ClientOptions) {
             },
             requestOptions,
           ),
+        board: (input: RoomDodBoardInput, requestOptions?: RequestOptions) =>
+          request<RoomDodBoardOutput>(
+            {
+              method: "GET",
+              path: `/api/room/${encodeURIComponent(input.roomID)}/dod/board`,
+              successStatus: 200,
+              declaredStatuses: [400, 401, 404],
+              empty: false,
+            },
+            requestOptions,
+          ),
         release: (input: RoomDodReleaseInput, requestOptions?: RequestOptions) =>
           request<RoomDodReleaseOutput>(
             {
@@ -2882,6 +2897,18 @@ export function make(options: ClientOptions) {
               {
                 method: "GET",
                 path: `/api/room/${encodeURIComponent(input.roomID)}/guest/dod`,
+                successStatus: 200,
+                declaredStatuses: [400, 401, 404],
+                empty: false,
+              },
+              requestOptions,
+            ),
+          board: (input: RoomGuestDodBoardInput, requestOptions?: RequestOptions) =>
+            request<RoomGuestDodBoardOutput>(
+              {
+                method: "GET",
+                path: `/api/room/${encodeURIComponent(input.roomID)}/guest/dod/board`,
+                query: { group: input["group"] },
                 successStatus: 200,
                 declaredStatuses: [400, 401, 404],
                 empty: false,

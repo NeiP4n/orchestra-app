@@ -31,6 +31,8 @@ const TargetSessionRouteContent = lazy(() =>
   loadSessionRoute().then((module) => ({ default: module.TargetSessionRouteContent })),
 )
 
+const DodBoardRoute = lazy(() => import("@/dod/route").then((module) => ({ default: module.DodBoardRoute })))
+
 export function preloadRoute(url: string) {
   const pathname = url.split(/[?#]/, 1)[0]
 
@@ -70,6 +72,16 @@ export function AppRoutes() {
         )}
       />
       <Route path="/new-session" component={DraftRoute} />
+      <Route
+        path="/server/:serverKey/room/:roomID/dod"
+        component={() => (
+          <Suspense fallback={<div class="flex min-h-0 flex-1 px-[var(--shell-inline-inset,8px)] pb-[var(--shell-bottom-inset,8px)] pt-[var(--shell-top-inset,8px)]" />}>
+            <TargetServerRoute>
+              <DodBoardRoute />
+            </TargetServerRoute>
+          </Suspense>
+        )}
+      />
     </Route>
   )
 }

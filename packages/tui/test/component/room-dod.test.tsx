@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { testRender } from "@opentui/solid"
-import type { RoomDod } from "@orchestra/client/promise"
+import type { RoomDod, RoomDodBoard } from "@orchestra/client/promise"
 import { createSignal } from "solid-js"
 import { ConfigProvider } from "../../src/config"
 import { ThemeProvider } from "../../src/context/theme"
@@ -182,6 +182,197 @@ async function waitLong(setup: Awaited<ReturnType<typeof render>>, text: string)
   }
   throw new Error(`Timed out waiting for "${text}":\n${setup.captureCharFrame()}`)
 }
+
+const kanban: RoomDodBoard = {
+  status: "ready",
+  columns: [
+    {
+      id: "todo",
+      title: "To do",
+      cards: [
+        {
+          id: "L-001",
+          what: "Free task",
+          stage: "Team A",
+          state: "NOT_STARTED",
+          done: 0,
+          total: 2,
+          zone: "Team A",
+          zoneOwner: "team-a",
+          hasPass: false,
+          canTake: true,
+          readOnly: false,
+          mine: false,
+        },
+        {
+          id: "L-007",
+          what: "Foreign task",
+          stage: "Team B",
+          state: "NOT_STARTED",
+          done: 0,
+          total: 0,
+          zone: "Team B",
+          zoneOwner: "team-b",
+          hasPass: false,
+          canTake: false,
+          takeRefusal: `L-007 is in zone "Team B" owned by "team-b"; a pass from its owner is needed to take it.`,
+          readOnly: true,
+          mine: false,
+        },
+      ],
+    },
+    {
+      id: "in_progress",
+      title: "In progress",
+      cards: [
+        {
+          id: "L-002",
+          what: "Work in hand",
+          stage: "Team A",
+          state: "IN_PROGRESS",
+          done: 1,
+          total: 2,
+          owner: "Alex",
+          ownerID: "g-alex",
+          zone: "Team A",
+          zoneOwner: "team-a",
+          hasPass: false,
+          canTake: false,
+          takeRefusal: "L-002 is taken by Alex",
+          readOnly: false,
+          mine: false,
+        },
+      ],
+    },
+    { id: "blocked", title: "Blocked", cards: [] },
+    { id: "failed", title: "Failed", cards: [] },
+    {
+      id: "done",
+      title: "Done",
+      cards: [
+        {
+          id: "L-005",
+          what: "Finished task",
+          stage: "Team B",
+          state: "DONE",
+          done: 1,
+          total: 1,
+          hasPass: false,
+          canTake: false,
+          takeRefusal: "L-005 is already done",
+          readOnly: false,
+          mine: false,
+        },
+      ],
+    },
+  ],
+  zones: [
+    { name: "Team A", ownerGroup: "team-a", mine: true },
+    { name: "Team B", ownerGroup: "team-b", mine: false },
+  ],
+  counts: { total: 4, done: 1, inProgress: 1, blocked: 0, failed: 0, free: 1 },
+}
+
+async function renderBoard(
+  loadBoard: () => Promise<RoomDodBoard>,
+  take?: (item?: string) => Promise<RoomDod>,
+) {
+  const [hover, setHover] = createSignal<string>()
+  return testRender(
+    () => (
+      <TestTuiContexts>
+        <ConfigProvider config={createTuiResolvedConfig()}>
+          <ThemeProvider mode="dark" source={{ discover: async () => ({}) }}>
+            <ToastProvider>
+              <RoomDodRows
+                id="room"
+                open
+                load={() => Promise.resolve(board)}
+                loadBoard={loadBoard}
+                take={take}
+                release={() => Promise.resolve(board)}
+                feed={() => new Promise(() => {})}
+                hover={hover}
+                setHover={setHover}
+              />
+            </ToastProvider>
+          </ThemeProvider>
+        </ConfigProvider>
+      </TestTuiContexts>
+    ),
+    { width: 200, height: 20 },
+  )
+}
+
+async function clickText(setup: Awaited<ReturnType<typeof renderBoard>>, text: string) {
+  const frame = setup.captureCharFrame()
+  const lines = frame.split("\n")
+  const y = lines.findIndex((line) => line.includes(text))
+  if (y < 0) throw new Error(`"${text}" is not on screen:\n${frame}`)
+  const x = lines[y]!.indexOf(text) + 1
+  await setup.mockMouse.click(x, y)
+  await setup.renderOnce()
+}
+
+test("the board toggle shows columns with the right cards", async () => {
+  const setup = await renderBoard(() => Promise.resolve(kanban))
+  try {
+    await frameWith(setup, "board")
+    await clickText(setup, "board")
+    const frame = await frameWith(setup, "To do (2)")
+    expect(frame).toContain("In progress (1)")
+    expect(frame).toContain("Done (1)")
+    expect(frame).toContain("Free task")
+    expect(frame).toContain("Work in hand")
+    expect(frame).toContain("Finished task")
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
+test("the board shows the zones and marks the viewer's own", async () => {
+  const setup = await renderBoard(() => Promise.resolve(kanban))
+  try {
+    await frameWith(setup, "board")
+    await clickText(setup, "board")
+    const frame = await frameWith(setup, "Zones:")
+    expect(frame).toContain("Team A (yours)")
+    expect(frame).toContain("Team B")
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
+test("a foreign-zone card is read-only on the board, with its reason", async () => {
+  const setup = await renderBoard(() => Promise.resolve(kanban))
+  try {
+    await frameWith(setup, "board")
+    await clickText(setup, "board")
+    const frame = await frameWith(setup, "Foreign task")
+    expect(frame).toContain("read-only")
+    // The reason wraps across lines in a narrow column; read it as one line.
+    expect(frame.replace(/\s+/g, " ")).toContain("a pass from its owner is needed")
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
+test("taking a free card from the board takes that card", async () => {
+  const taken: (string | undefined)[] = []
+  const setup = await renderBoard(() => Promise.resolve(kanban), (id) => {
+    taken.push(id)
+    return Promise.resolve(board)
+  })
+  try {
+    await frameWith(setup, "board")
+    await clickText(setup, "board")
+    await frameWith(setup, "Free task")
+    await clickText(setup, "take")
+    expect(taken).toEqual(["L-001"])
+  } finally {
+    setup.renderer.destroy()
+  }
+})
 
 test("a long poll that waited and came back empty asks again at once, so the next event is not delayed", async () => {
   const asked: number[] = []
