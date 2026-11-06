@@ -1629,7 +1629,11 @@ below. What IS in:
   off-screen or in a hidden tab and draws one static frame when motion is off.
   The app feeds the store from the server event stream (`NeuralFeed` in
   `packages/app/src/shell/shell.tsx`, one shared instance via
-  `getSharedNeuralActivity()`); the field sits behind home
+  `getSharedNeuralActivity()`, subscribing through the global server registry
+  to the first healthy server and staying quiet while none is connected —
+  the shell sits above the per-route `ServerProvider`, so the route-level
+  SDK is unavailable there and the feed must never throw before a server
+  connects); the field sits behind home
   (`packages/app/src/home/route.tsx`), a breathing dot is in the titlebar,
   a `NeuralLine` runs under the titlebar bar, and the migration toast uses
   the `SculkSpinner`. Palette reads v2 tokens

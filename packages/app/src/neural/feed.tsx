@@ -1,6 +1,7 @@
 import { createEffect, onCleanup } from "solid-js"
 import { getSharedNeuralActivity } from "@orchestra/ui/neural-field"
-import { useServerSDK } from "@/runtime/server/client"
+import { ServerConnection } from "@/runtime/server/registry"
+import { useGlobal } from "@/runtime/server/runtime"
 import { useSettings } from "@/settings/model"
 
 // Mirrors settings.appearance.animations onto <html data-motion>, the one
@@ -15,11 +16,27 @@ export function MotionAttribute() {
   return null
 }
 
-// Feeds the shared neural activity from the current server's event stream.
+// Feeds the shared neural activity from a live server's event stream.
 // Mounted once in the shell, so every canvas on screen shares one tracker.
+// The shell sits ABOVE the per-route ServerProvider, so the route-level
+// useServerSDK() is unavailable here — and on first launch there is no
+// server at all yet. Subscribe through the global registry instead, and
+// stay quiet (no throw) while no healthy server exists.
 export function NeuralFeed() {
-  const serverSDK = useServerSDK()
+  const global = useGlobal()
   const activity = getSharedNeuralActivity()
-  onCleanup(serverSDK.event.listen((event) => activity.take(event)))
+
+  createEffect(() => {
+    const healthy = global.servers
+      .list()
+      .find((conn) => global.servers.health[ServerConnection.key(conn)]?.healthy)
+    if (!healthy) return
+
+    const ctx = global.serverCtx(ServerConnection.key(healthy))
+    if (!ctx) return
+
+    onCleanup(ctx.sdk.event.listen((event) => activity.take(event)))
+  })
+
   return null
 }
