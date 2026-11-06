@@ -1,6 +1,6 @@
 export * as DesktopIsolation from "./desktop-isolation.js"
 
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
+import { spawn, type ChildProcess } from "node:child_process"
 import { existsSync } from "node:fs"
 
 /**
@@ -177,7 +177,7 @@ export function xvfbCommand(display: string): { command: string; args: ReadonlyA
   }
 }
 
-const startedDisplays = new Map<string, ChildProcessWithoutNullStreams>()
+const startedDisplays = new Map<string, ChildProcess>()
 
 export interface VirtualDisplayStatus {
   readonly display: string
@@ -195,15 +195,12 @@ export interface VirtualDisplayStatus {
 export async function ensureVirtualDisplay(
   display: string,
   waitMs = 5_000,
-  spawnFn: (
-    command: string,
-    args: ReadonlyArray<string>,
-  ) => ChildProcessWithoutNullStreams = (command, args) =>
+  spawnFn: (command: string, args: ReadonlyArray<string>) => ChildProcess = (command, args) =>
     spawn(command, [...args], { detached: true, stdio: "ignore" }),
 ): Promise<VirtualDisplayStatus> {
   if (isVirtualDisplayAlive(display)) return { display, started: false, pid: startedDisplays.get(display)?.pid }
   const { command, args } = xvfbCommand(display)
-  let child: ChildProcessWithoutNullStreams
+  let child: ChildProcess
   try {
     child = spawnFn(command, args)
   } catch (error) {

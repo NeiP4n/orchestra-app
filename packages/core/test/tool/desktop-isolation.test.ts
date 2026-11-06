@@ -10,7 +10,6 @@ import type { KV } from "@orchestra/core/kv"
 import { check, dedup } from "@orchestra/core/tool/idempotency"
 
 const FUTURE = "2999-01-01T00:00:00Z"
-const PAST = "2000-01-01T00:00:00Z"
 
 const envWith = (patch: Record<string, string>): NodeJS.ProcessEnv => ({ ...process.env, ...patch } as NodeJS.ProcessEnv)
 
