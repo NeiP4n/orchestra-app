@@ -72,6 +72,32 @@ describe("SessionCompletionGate", () => {
     expect(text).toContain('L-1 "Ship the feature": 1/3 steps checked.')
   })
 
+  test("holds a session only to the items its own session id holds", () => {
+    const mine: Dod.Status = {
+      type: "ready",
+      directory: "/project",
+      items: [
+        {
+          id: "L-1",
+          what: "Ship the feature",
+          stage: "build",
+          state: "IN_PROGRESS",
+          done: 1,
+          total: 3,
+          owner: "AI 11111111",
+          ownerID: "ses_aaaaaaaaaaaa11111111111111",
+        },
+      ],
+      steps: new Map([["L-1", ["[x] write code", "[ ] add tests", "[ ] run checks"]]]),
+    }
+    const next = [user("ship it"), assistant("", [{ name: "dod", input: { action: "next" } }]), assistant("Done.")]
+    expect(
+      SessionCompletionGate.check(next, mine, undefined, "ses_aaaaaaaaaaaa11111111111111"),
+    ).toContain('L-1 "Ship the feature": 1/3 steps checked.')
+    // Another session's item is not this session's work, even after a `dod next` call.
+    expect(SessionCompletionGate.check(next, mine, undefined, "ses_bbbbbbbbbbbb22222222222222")).toBeUndefined()
+  })
+
   test("lets a session stop when its item is finished or it never used the board", () => {
     const took = [user("ship it"), assistant("", [{ name: "dod", input: { action: "take", id: "L-1" } }]), assistant("Done.")]
     expect(SessionCompletionGate.check(took, board(3))).toBeUndefined()

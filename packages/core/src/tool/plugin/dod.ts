@@ -14,10 +14,12 @@ import { Permission } from "../../permission.js"
 
 export const name = "dod"
 
-// The AI of this project, one holder for every local session: a new chat picks up the
-// item the previous one held instead of finding it taken. Room guests hold items under
-// their own member IDs, so they never pass for this one.
-export const owner: Dod.Owner = { id: "local-ai", name: "AI" }
+// One holder per session: the owner id is the calling session, so two workers can never
+// pass for each other on the board. The name is only what the board shows; ownership is
+// decided by id. Sessions are `ses_…`, so the last eight characters tell holders apart.
+export function ownerOf(sessionID: string): Dod.Owner {
+  return { id: sessionID, name: `AI ${sessionID.slice(-8)}` }
+}
 
 export const Input = Schema.Struct({
   action: Schema.Literals([
@@ -80,6 +82,7 @@ export const Plugin = {
 
     const run = Effect.fn("DodTool.run")(function* (input: Input, context: Tool.Context) {
       const source = { type: "tool" as const, messageID: context.messageID, id: context.id }
+      const owner = ownerOf(context.sessionID)
       if (writes(input.action))
         yield* permission.assert({
           action: name,
@@ -193,6 +196,7 @@ export const Plugin = {
             exitCode: result.exitCode,
             summary: summary(result.output, result.exitCode),
             by: owner.name,
+            owner,
           })
           const state = dod.items.find((item) => item.id === id)?.state ?? "unknown"
           return [
@@ -207,7 +211,7 @@ export const Plugin = {
       const { item, steps } = yield* Dod.detail(directory, id)
       return [
         `${item.id} [${item.state}] ${item.what}`,
-        `Stage: ${item.stage} · steps ${item.done}/${item.total}${item.owner ? ` · held by ${item.owner}` : " · free"}`,
+        `Stage: ${item.stage} · steps ${item.done}/${item.total}${item.owner ? ` · held by ${item.owner}${item.stale ? " (lease expired)" : ""}` : " · free"}`,
         ...(item.waits?.length ? [`Waits for: ${item.waits.join(", ")}`] : []),
         ...steps.map((step, index) => `  ${index + 1}. ${step}`),
         item.verify ? `Verification: ${item.verify}` : "Verification: none; the user accepts this item by hand.",
@@ -254,7 +258,7 @@ function board(dod: Room.Dod) {
     ...open.map(
       (item) =>
         `- ${item.id} [${item.state}] ${clip(item.what)} (${item.done}/${item.total})` +
-        (item.owner ? ` · ${item.owner}` : "") +
+        (item.owner ? ` · ${item.owner}${item.stale ? " (lease expired)" : ""}` : "") +
         (item.waits?.length ? ` · waits for ${item.waits.join(", ")}` : ""),
     ),
     ...(closed.length === 0 ? [] : [`Closed: ${closed.map((item) => item.id).join(", ")}.`]),
