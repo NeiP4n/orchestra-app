@@ -314,6 +314,46 @@ describe("mainSessionFallbackChain (G2-14)", () => {
       }),
     ).toEqual([model("lix/lix-test-model")])
   })
+
+  test("klinch is the third provider, ahead of the catalog tail (arch3 №4)", () => {
+    // Before the fix klinch only appeared in the tail, in catalog order —
+    // its position was arbitrary. Now it has an explicit tier between lix
+    // and the rest.
+    const withKlinch = [
+      ...catalog,
+      info("klinch", "claude-sonnet-4-5"),
+      info("zeta", "zeta-model"),
+    ]
+    expect(chain({ cause: asFailure(invalidRequest), current: "opencode/crouton-alpha-free", catalog: withKlinch })).toEqual([
+      model("opencode/minimax-free"),
+      model("anymodel/sonnet-5"),
+      model("anymodel/anymodel-coder"),
+      model("lix/lix-test-model"),
+      model("klinch/claude-sonnet-4-5"),
+      model("zeta/zeta-model"),
+    ])
+  })
+
+  test("the tail is sorted by provider, not by catalog order (arch3 №4)", () => {
+    // The same catalog in reverse order must build the same chain: the
+    // catalog's insertion order is an accident of registration, not a
+    // priority.
+    const shuffled = [
+      info("zeta", "zeta-model"),
+      info("lix", "lix-test-model"),
+      info("anymodel", "anymodel-coder"),
+      info("anymodel", "sonnet-5"),
+      info("opencode", "minimax-free"),
+      info("opencode", "crouton-alpha-free"),
+    ]
+    expect(chain({ cause: asFailure(invalidRequest), current: "opencode/crouton-alpha-free", catalog: shuffled })).toEqual([
+      model("opencode/minimax-free"),
+      model("anymodel/sonnet-5"),
+      model("anymodel/anymodel-coder"),
+      model("lix/lix-test-model"),
+      model("zeta/zeta-model"),
+    ])
+  })
 })
 
 // --- Runner integration: a real SessionRunnerLLM draining a real Session -------------------

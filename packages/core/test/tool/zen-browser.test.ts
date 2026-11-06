@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
 import { Effect, Exit, Layer } from "effect"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
 import { LayerNode } from "@orchestra/util/effect/layer-node"
@@ -15,6 +15,7 @@ import { permissionLayer } from "../lib/permission"
 import { executeTool, registerToolPlugin, toolIdentity } from "../lib/tool"
 import { ZenBridgeServer } from "../../src/zen/bridge-server.js"
 import {
+  clearAgentTabs,
   getZenBridgeServer,
   name,
   Output,
@@ -24,6 +25,16 @@ import {
   setZenBridgeServer,
   validate,
 } from "../../src/tool/plugin/zen-browser.js"
+
+// Arch3 №5: run() takes the session id — eval is allowed only in tabs
+// this session opened with navigate. These tests drive run() directly,
+// so they share one session and clear its agent tabs after each test.
+const SESSION = "ses_zen_browser_unit_test"
+const runAs = (input: Parameters<typeof run>[0]) => run(input, SESSION)
+
+afterEach(() => {
+  clearAgentTabs(SESSION)
+})
 
 describe("zen_browser unit tests", () => {
   test("tool name is zen_browser", () => {
@@ -99,25 +110,25 @@ describe("zen_browser unit tests", () => {
 
     try {
       // status action
-      const statusRes = await Effect.runPromise(run({ action: "status" }))
+      const statusRes = await Effect.runPromise(runAs({ action: "status" }))
       expect(statusRes.output).toContain("Zen Browser bridge is running on port 59999")
       expect(statusRes.output).toContain("no Zen Browser extension is currently connected")
 
       // tabs action
-      const tabsRes = await Effect.runPromise(run({ action: "tabs" }))
+      const tabsRes = await Effect.runPromise(runAs({ action: "tabs" }))
       expect(tabsRes.output).toContain("Zen Browser bridge is running on port 59999")
       expect(tabsRes.output).toContain("no Zen Browser extension is currently connected")
 
       // read action
-      const readRes = await Effect.runPromise(run({ action: "read" }))
+      const readRes = await Effect.runPromise(runAs({ action: "read" }))
       expect(readRes.output).toContain("Zen Browser bridge is running on port 59999")
 
       // eval action
-      const evalRes = await Effect.runPromise(run({ action: "eval", code: "document.title" }))
+      const evalRes = await Effect.runPromise(runAs({ action: "eval", code: "document.title" }))
       expect(evalRes.output).toContain("Zen Browser bridge is running on port 59999")
 
       // media action
-      const mediaRes = await Effect.runPromise(run({ action: "media", command: "play" }))
+      const mediaRes = await Effect.runPromise(runAs({ action: "media", command: "play" }))
       expect(mediaRes.output).toContain("Zen Browser bridge is running on port 59999")
     } finally {
       offlineBridge.stop()
@@ -297,13 +308,13 @@ describe("zen_browser with mock connected extension", () => {
   })
 
   test("status reports connected extension", async () => {
-    const res = await Effect.runPromise(run({ action: "status" }))
+    const res = await Effect.runPromise(runAs({ action: "status" }))
     expect(res.output).toContain("Zen Browser connected (zen-extension v1.0.0)")
     expect(res.output).toContain(String(serverPort))
   })
 
   test("tabs lists open tabs", async () => {
-    const res = await Effect.runPromise(run({ action: "tabs" }))
+    const res = await Effect.runPromise(runAs({ action: "tabs" }))
     expect(res.output).toContain("Open tabs (2):")
     expect(res.output).toContain("* Tab #10 [active]: Zen Browser")
     expect(res.output).toContain("https://zen-browser.app")
@@ -312,82 +323,86 @@ describe("zen_browser with mock connected extension", () => {
   })
 
   test("read returns tab content", async () => {
-    const res = await Effect.runPromise(run({ action: "read", tabId: 10 }))
+    const res = await Effect.runPromise(runAs({ action: "read", tabId: 10 }))
     expect(res.output).toContain("Title: Zen Browser")
     expect(res.output).toContain("URL: https://zen-browser.app")
     expect(res.output).toContain("The browser for thinkers.")
   })
 
   test("eval executes JS in tab", async () => {
-    const res = await Effect.runPromise(run({ action: "eval", code: "document.title" }))
+    // Arch3 №5: eval runs only in a tab this session opened with navigate.
+    // Navigate to the active tab's URL first, so the tab becomes
+    // agent-opened and the eval below is allowed.
+    await Effect.runPromise(runAs({ action: "navigate", url: "https://zen-browser.app" }))
+    const res = await Effect.runPromise(runAs({ action: "eval", code: "document.title" }))
     expect(res.output).toBe("evaluated result")
   })
 
   test("media controls playback", async () => {
-    const res = await Effect.runPromise(run({ action: "media", command: "next" }))
+    const res = await Effect.runPromise(runAs({ action: "media", command: "next" }))
     expect(res.output).toContain('"media": "next"')
     expect(res.output).toContain('"executed": true')
   })
 
   test("navigate navigates tab", async () => {
-    const res = await Effect.runPromise(run({ action: "navigate", url: "https://example.com" }))
+    const res = await Effect.runPromise(runAs({ action: "navigate", url: "https://example.com" }))
     expect(res.output).toContain("https://example.com")
   })
 
   test("click clicks element", async () => {
-    const res = await Effect.runPromise(run({ action: "click", selector: "button.play" }))
+    const res = await Effect.runPromise(runAs({ action: "click", selector: "button.play" }))
     expect(res.output).toContain('"clicked": true')
   })
 
   test("type types text", async () => {
-    const res = await Effect.runPromise(run({ action: "type", selector: "input.search", text: "search query" }))
+    const res = await Effect.runPromise(runAs({ action: "type", selector: "input.search", text: "search query" }))
     expect(res.output).toContain('"typed": true')
   })
 
   test("activate activates tab", async () => {
-    const res = await Effect.runPromise(run({ action: "activate", tabId: 20 }))
+    const res = await Effect.runPromise(runAs({ action: "activate", tabId: 20 }))
     expect(res.output).toContain('"activated": true')
   })
 
   test("close closes tab", async () => {
-    const res = await Effect.runPromise(run({ action: "close", tabId: 20 }))
+    const res = await Effect.runPromise(runAs({ action: "close", tabId: 20 }))
     expect(res.output).toContain('"closed": true')
   })
 
   test("fails when required fields are missing", async () => {
-    const evalExit = await Effect.runPromiseExit(run({ action: "eval" }))
+    const evalExit = await Effect.runPromiseExit(runAs({ action: "eval" }))
     expect(Exit.isFailure(evalExit)).toBe(true)
 
-    const clickExit = await Effect.runPromiseExit(run({ action: "click" }))
+    const clickExit = await Effect.runPromiseExit(runAs({ action: "click" }))
     expect(Exit.isFailure(clickExit)).toBe(true)
 
-    const navExit = await Effect.runPromiseExit(run({ action: "navigate" }))
+    const navExit = await Effect.runPromiseExit(runAs({ action: "navigate" }))
     expect(Exit.isFailure(navExit)).toBe(true)
   })
 
   test("fails with ToolFailure when extension reports error", async () => {
-    const exit = await Effect.runPromiseExit(run({ action: "click", selector: "#fail" }))
+    const exit = await Effect.runPromiseExit(runAs({ action: "click", selector: "#fail" }))
     expect(Exit.isFailure(exit)).toBe(true)
   })
 
   test("navigate reuses the tab that already shows the URL instead of opening another", async () => {
-    const res = await Effect.runPromise(run({ action: "navigate", url: "https://orchestra.ai" }))
+    const res = await Effect.runPromise(runAs({ action: "navigate", url: "https://orchestra.ai" }))
     expect(res.output).toContain('"tabId": 20')
     expect(res.output).toContain("https://orchestra.ai")
   })
 
   test("navigate without a matching tab opens as before", async () => {
-    const res = await Effect.runPromise(run({ action: "navigate", url: "https://new.example" }))
+    const res = await Effect.runPromise(runAs({ action: "navigate", url: "https://new.example" }))
     expect(res.output).toContain('"tabId": 10')
   })
 
   test("navigate with an explicit tabId keeps it", async () => {
-    const res = await Effect.runPromise(run({ action: "navigate", tabId: 20, url: "https://orchestra.ai" }))
+    const res = await Effect.runPromise(runAs({ action: "navigate", tabId: 20, url: "https://orchestra.ai" }))
     expect(res.output).toContain('"tabId": 20')
   })
 
   test("media defaults to play_pause when command is omitted", async () => {
-    const res = await Effect.runPromise(run({ action: "media" }))
+    const res = await Effect.runPromise(runAs({ action: "media" }))
     expect(res.output).toContain('"media": "play_pause"')
   })
 
@@ -618,11 +633,11 @@ describe("HTTP Long-Polling and Heartbeat fallback", () => {
       })
 
       // Status check through tool
-      const statusRes = await Effect.runPromise(run({ action: "status" }))
+      const statusRes = await Effect.runPromise(runAs({ action: "status" }))
       expect(statusRes.output).toContain("Zen Browser connected (zen-extension-http v2.5.0)")
 
       // Execute tool tabs action
-      const toolPromise = Effect.runPromise(run({ action: "tabs" }))
+      const toolPromise = Effect.runPromise(runAs({ action: "tabs" }))
 
       // Poller receives request
       const pollRes = await fetch(`http://127.0.0.1:${serverPort}/poll`)

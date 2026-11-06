@@ -1,4 +1,5 @@
 import { AmazonBedrockPlugin } from "./provider/amazon-bedrock.js"
+import { AnymodelPlugin } from "./provider/anymodel.js"
 import { AzurePlugin } from "./provider/azure.js"
 import { CerebrasPlugin } from "./provider/cerebras.js"
 import { ChatGPTPlugin } from "./provider/chatgpt.js"
@@ -13,6 +14,7 @@ import { GitLabPlugin } from "./provider/gitlab.js"
 import { GoogleAntigravityPlugin } from "./provider/google-antigravity.js"
 import { GoogleVertexPlugin } from "./provider/google-vertex.js"
 import { KiloPlugin } from "./provider/kilo.js"
+import { KlinchPlugin } from "./provider/klinch.js"
 import { LLMGatewayPlugin } from "./provider/llmgateway.js"
 import { LixPlugin } from "./provider/lix.js"
 import { LMStudioPlugin } from "./provider/lmstudio.js"
@@ -37,6 +39,7 @@ import type { PluginInternal } from "./internal.js"
 
 export const ProviderPlugins: PluginInternal.InternalPlugin[] = [
   AmazonBedrockPlugin,
+  AnymodelPlugin,
   AzurePlugin,
   CerebrasPlugin,
   ChatGPTPlugin,
@@ -50,6 +53,7 @@ export const ProviderPlugins: PluginInternal.InternalPlugin[] = [
   GoogleAntigravityPlugin,
   GoogleVertexPlugin,
   KiloPlugin,
+  KlinchPlugin,
   LLMGatewayPlugin,
   LixPlugin,
   LMStudioPlugin,

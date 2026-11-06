@@ -146,7 +146,21 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
           ? config.password || randomBytes(32).toString("base64url")
           : environmentPassword
             ? Redacted.value(environmentPassword)
-            : randomBytes(32).toString("base64url")
+            : // Arch3 №8: a foreground server used to print its generated
+              // password to the console — the only copy, and visible to
+              // anyone reading the log. The password is now stored in the
+              // 0600 service config instead (reused across restarts, like
+              // the managed service's), and the console only says where to
+              // read it. A password from the environment is never written
+              // to the file: the operator owns that copy.
+              yield* ServiceConfig.password().pipe(
+                Effect.mapError(
+                  (error) =>
+                    new Error("Could not store the generated server password in the service config", {
+                      cause: error,
+                    }),
+                ),
+              )
       if (!password) return yield* Effect.fail(new Error("Missing server password"))
       const instanceID = randomUUID()
       const transform = yield* WebUi.handler()
@@ -234,7 +248,8 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
       if (server === undefined) return
       const url = HttpServer.formatAddress(server.address)
       console.log(options.mode === "stdio" ? JSON.stringify({ url }) : `server listening on ${url}`)
-      if (foreground && !environmentPassword) console.log(`server password ${password}`)
+      if (foreground && !environmentPassword)
+        console.log("server password saved — run `orchestra service get password` to show it")
       if (options.mode === "service") return yield* server.shutdown
       if (options.mode === "stdio") return yield* waitForStdinClose()
       reachedListening = true

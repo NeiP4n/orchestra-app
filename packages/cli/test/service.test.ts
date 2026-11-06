@@ -27,6 +27,25 @@ test("managed service ports are stable per installation channel", () => {
   expect(ServiceConfig.defaultPort("preview-a")).not.toBe(ServiceConfig.defaultPort("preview-b"))
 })
 
+test("generated server password is stored 0600 and retrievable (arch3 №8)", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-password-"))
+  const layer = Global.layerWith({ config: path.join(root, "config"), state: path.join(root, "state") })
+  const run = <A, E>(effect: Effect.Effect<A, E, Global.Service | FileSystem.FileSystem>) =>
+    Effect.runPromise(effect.pipe(Effect.provide(layer), Effect.provide(NodeFileSystem.layer)))
+  try {
+    const first = await run(ServiceConfig.password())
+    expect(first.length).toBeGreaterThan(0)
+    // One private credential across restarts: the second call reuses it.
+    expect(await run(ServiceConfig.password())).toBe(first)
+    expect(await run(ServiceConfig.get("password"))).toBe(first)
+    const file = path.join(root, "config", ServiceConfig.filename())
+    expect(((await fs.stat(file)).mode & 0o777)).toBe(0o600)
+    expect((await Bun.file(file).json()) as { password?: string }).toEqual({ password: first })
+  } finally {
+    await fs.rm(root, { recursive: true, force: true })
+  }
+})
+
 test("service disabled accepts only booleans without changing configuration on invalid input", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-disabled-config-"))
   const layer = Global.layerWith({ config: path.join(root, "config"), state: path.join(root, "state") })

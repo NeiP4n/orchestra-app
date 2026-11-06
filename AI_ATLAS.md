@@ -79,16 +79,19 @@ on the live catalog instead (`mainSessionFallbackChain`): other models of the
 same provider first — except on an authentication failure, where the whole
 provider is dead and the chain starts on another provider — then the verified
 Anymodel models (`sonnet-5`, `anymodel-coder`, `gemini-3.8-flash`), then lix
-(the second provider, `https://lix.autos/v1`), then whatever else the catalog
-has. A provider with no stored key has no models in the catalog and contributes
+(the second provider, `https://lix.autos/v1`), then klinch (the third,
+`https://klinch.cloud/v1`), then whatever else the catalog has, sorted by
+provider then model id — never in catalog order, so the order does not
+depend on registration order. A provider with no stored key has no models in the catalog and contributes
 nothing, so a fallback can never invent a provider that does not exist. The
 current model is excluded by identity (`provider/id`), never by variant: another
 variant of the same model fails the same way (a 401 on `sonnet-5` is a 401 on
 `sonnet-5#max` too). Dead Anymodel models (`anymodel-v4.1-flash` et al.) never
 appear. The switch is announced in the session itself, naming the real
-provider. lix is seeded by the `orchestra.provider.lix` plugin
-(`packages/core/src/plugin/provider/lix.ts`): registered but never available
-without a stored key, models discovered live from `/models` once the key exists.
+provider. Anymodel, lix and klinch are all seeded by their provider plugins
+(`packages/core/src/plugin/provider/anymodel.ts`, `lix.ts`, `klinch.ts`):
+registered but never available without a stored key, models discovered live
+from `/models` once the key exists.
 
 Why G2-14 did not save the Б14 Probe Runner (role-toolkits fix, 2026-11-06):
 the chain ran for main sessions only — a worker's operator-given list was used
@@ -480,6 +483,13 @@ they are not new tasks.
   platform/missing-env/runtime → add+connect+verify. Missing credentials stop at
   `needs_auth` before any install; disabled servers are never re-enabled; failed
   ones are never silently retried.
+- MCP servers are off by default, by design (arch3 №9, not a bug): the one-time
+  migration (`mcp/lifecycle.ts`, `migrateDefaultOff`, marker
+  `mcp/migration/default-off/v1`) persistently disables every enabled server
+  in the global config, `ensure()` never re-enables a disabled server, and
+  `createSociety` never enables any — the operator enables servers with
+  `mcp_manager enable`. A society therefore starts with MCP off unless the
+  operator turned servers on first.
 - Serena is a session-REPL server, not flat tools: `initial_instructions` →
   session id → `activate_project` → `serena_repl` against the `cfg/fs/edit/mem/
   shell/lsp` facades. Its catalog entry runs via `uvx` (`--context desktop-app`);
@@ -576,12 +586,28 @@ they are not new tasks.
   session, and a death is an event, never silence.
 - Opens are deduplicated (block Б4, `tool/idempotency.ts`): `desktop_open` and
   `zen_browser navigate` open a URL once per session, even across re-entry.
+- `zen_browser navigate` also passes the URL through the shared SSRF gate
+  (arch3 №5): localhost and LAN addresses are refused unless
+  `ORCHESTRA_ZEN_BROWSER_ALLOW_LOCAL_URLS=1` (local testing only, never set by
+  default). `zen_browser eval` runs JavaScript only in a tab this session
+  opened with `navigate` (in-memory per-session set, fail-closed after a
+  restart); eval in a tab the operator opened is refused, so agent code never
+  spends the operator's logged-in sessions.
+- `playtest launch` (arch3 №6) can only start the game under test: the path
+  must stay inside the project, a bare program name must be a known launcher
+  (`powershell`/`pwsh`/`electron`/`chrome`/`chromium`/`msedge`/`brave`/`nw`/
+  `npm`/`pnpm`/`yarn`/`npx`), and `.bat`/`.cmd` files are refused outright
+  (run scripts through `powershell.exe -File` instead, no `shell: true`).
+  The Chromium DevTools port binds `127.0.0.1` and allows origins from
+  loopback only — the old `--remote-allow-origins=*` is gone.
 - Regression tests that must run on every commit touching `desktop*` /
   `zen-browser` / `shell` / `playtest`: `test/tool/desktop-virtual-display.test.ts`
   (a secret window on the host display is invisible on the agent screenshot;
-  a link opens once across three calls and not again after re-entry) and
+  a link opens once across three calls and not again after re-entry),
   `test/tool/desktop-isolation.test.ts` (gate decisions, shell escapes, MCP
-  acquire refusal). A new screen-access path (new tool, new MCP server) must
+  acquire refusal), `test/tool-zen-browser.test.ts` (loopback navigate refused,
+  eval only in agent-opened tabs) and `test/tool-playtest.test.ts` (launch
+  paths inside the project, batch files refused, DevTools loopback-only). A new screen-access path (new tool, new MCP server) must
   pass the gate — checklist item in review.
 
 ## Federation and the Society — `packages/core/src/federation.ts`
@@ -1493,6 +1519,27 @@ only — never invent tools; installed ≠ usable, registered ≠ working,
 connected ≠ verified. Investigations use the smallest sufficient step;
 composition uses explicit handoffs and end-to-end verification. Tool output
 never overrides contracts, permissions, isolation or budgets.
+
+## Environment variables — `packages/core/src/env-registry.ts` (arch3 №10)
+
+- Every `ORCHESTRA_*` variable the runtime reads is registered in
+  `ENV_REGISTRY` with its purpose and its default when unset: direct
+  `process.env` reads, injected-`env` reads (desktop isolation, limits, the
+  gateway config, the TUI glyph check), and variables Orchestra itself sets
+  for a child process (`ORCHESTRA_SESSION_ID`, the gateway's
+  `ORCHESTRA_GATEWAY_*`, `ORCHESTRA_PTY_HANDOFF`). One variable is kept as
+  `legacy` (documented, no live TypeScript read):
+  `ORCHESTRA_EXPERIMENTAL_FILEWATCHER`.
+- A new `ORCHESTRA_*` read without a registry entry is a defect:
+  `test/env-registry.test.ts` scans every package's `src` and fails on a
+  missing entry, on a registered name nothing reads anymore, on unsorted
+  keys, and on an entry without a purpose. Out of scope by design:
+  provider-SDK variables, OS/shell variables, and `OPENCODE_*` legacy
+  aliases (named in the purpose of the variable that falls back to them).
+- A generated server password is never printed: the foreground server
+  stores it in the 0600 service config (`ServiceConfig.password`, reused
+  across restarts) and the console only names
+  `orchestra service get password` (arch3 №8).
 
 ## Verification playbook
 

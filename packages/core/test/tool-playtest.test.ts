@@ -121,11 +121,44 @@ describe("PlaytestTool", () => {
     expect(PlaytestTool.locate(misread, "Settings")?.text).toBe("Settngs")
   })
 
-  test("keeps Chromium drawing off-screen and opens its DevTools port", () => {
+  test("keeps Chromium drawing off-screen and opens its DevTools port on loopback only", () => {
     const args = PlaytestTool.chromiumArgs("electron.exe", ["."], ".", 9333)
     expect(args).toContain("--disable-backgrounding-occluded-windows")
     expect(args).toContain("--remote-debugging-port=9333")
+    expect(args).toContain("--remote-debugging-address=127.0.0.1")
+    expect(args).toContain("--remote-allow-origins=http://127.0.0.1:9333,http://localhost:9333")
+    expect(args.join(" ")).not.toContain("--remote-allow-origins=*")
     expect(PlaytestTool.chromiumArgs("game.exe", [], ".", 9333)).toEqual([])
+  })
+
+  test("launch paths stay inside the project (arch3 №6)", () => {
+    const root = "/project/game"
+    expect(PlaytestTool.resolveLaunchTarget("./Game.exe", root)).toBe("/project/game/Game.exe")
+    expect(PlaytestTool.resolveLaunchTarget("bin/Game.exe", root)).toBe("/project/game/bin/Game.exe")
+    expect(PlaytestTool.resolveLaunchTarget("/project/game/Game.exe", root)).toBe("/project/game/Game.exe")
+    expect(() => PlaytestTool.resolveLaunchTarget("/tmp/evil.exe", root)).toThrow("must stay inside the project")
+    expect(() => PlaytestTool.resolveLaunchTarget("../evil.exe", root)).toThrow("must stay inside the project")
+    expect(() => PlaytestTool.resolveLaunchTarget("bin/../../evil.exe", root)).toThrow("must stay inside the project")
+  })
+
+  test("bare launch names are allowlisted, batch files are refused (arch3 №6)", () => {
+    const root = "/project/game"
+    expect(PlaytestTool.resolveLaunchTarget("powershell.exe", root)).toBe("powershell.exe")
+    expect(PlaytestTool.resolveLaunchTarget("pwsh.exe", root)).toBe("pwsh.exe")
+    expect(PlaytestTool.resolveLaunchTarget("electron.exe", root)).toBe("electron.exe")
+    expect(PlaytestTool.resolveLaunchTarget("npm.cmd", root)).toBe("npm.cmd")
+    expect(() => PlaytestTool.resolveLaunchTarget("calc.exe", root)).toThrow("only a known launcher")
+    expect(() => PlaytestTool.resolveLaunchTarget("regedit.exe", root)).toThrow("only a known launcher")
+    expect(() => PlaytestTool.resolveLaunchTarget("launch.bat", root)).toThrow("refuses .bat/.cmd")
+    expect(() => PlaytestTool.resolveLaunchTarget("scripts/run.cmd", root)).toThrow("refuses .bat/.cmd")
+    expect(() => PlaytestTool.resolveLaunchTarget("/project/game/run.bat", root)).toThrow("refuses .bat/.cmd")
+  })
+
+  test("launch working directories stay inside the project (arch3 №6)", () => {
+    const root = "/project/game"
+    expect(PlaytestTool.resolveLaunchDir("bin", root)).toBe("/project/game/bin")
+    expect(() => PlaytestTool.resolveLaunchDir("/tmp", root)).toThrow("must stay inside the project")
+    expect(() => PlaytestTool.resolveLaunchDir("../elsewhere", root)).toThrow("must stay inside the project")
   })
 
   test("maps virtual keys to DOM keys for DevTools input", () => {

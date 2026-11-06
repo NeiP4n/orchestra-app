@@ -1,5 +1,5 @@
 {
-  "$schema": "https://orchestra.ai/theme.json",
+  "$schema": "https://opencode.ai/theme.json",
   "base": {
     "categorical": [
       "cyan",

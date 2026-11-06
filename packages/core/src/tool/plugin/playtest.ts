@@ -67,7 +67,10 @@ const Step = Schema.Struct({
     "skip",
     "wait_stable",
   ]),
-  path: Schema.optionalKey(Schema.String).annotate({ description: "launch: program, .bat/.cmd or file to run" }),
+  path: Schema.optionalKey(Schema.String).annotate({
+    description:
+      "launch: program or file to run, inside the project (a bare launcher name such as powershell.exe or electron.exe is also allowed; .bat/.cmd are refused — run scripts through powershell.exe -File)",
+  }),
   args: Schema.optionalKey(Schema.Array(Schema.String)).annotate({ description: "launch: arguments" }),
   cwd: Schema.optionalKey(Schema.String).annotate({ description: "launch: working directory, default the project" }),
   title: Schema.optionalKey(Schema.String).annotate({
@@ -603,15 +606,14 @@ export const Plugin = {
         if (!step.path) throw new Error("launch needs path")
         log = path.join(dir, "app.log")
         const fd = openSync(log, "a")
-        const target = path.isAbsolute(step.path) || !/[\\/]/.test(step.path) ? step.path : path.resolve(root, step.path)
-        const cwd = step.cwd ? path.resolve(root, step.cwd) : root
+        const target = resolveLaunchTarget(step.path, root)
+        const cwd = step.cwd ? resolveLaunchDir(step.cwd, root) : root
         port = chromiumKind(target, step.args ?? [], cwd) ? await freePort() : undefined
         child = spawn(target, chromiumArgs(target, step.args ?? [], cwd, port), {
           cwd,
           stdio: ["ignore", fd, fd],
           // Started with SW_HIDE, the window never flashes on screen before it is moved away.
           windowsHide: hidden,
-          shell: /\.(bat|cmd)$/i.test(target),
         })
         closeSync(fd)
         const failure = new Promise<never>((_, reject) =>
@@ -1286,13 +1288,89 @@ export function chromiumKind(target: string, args: readonly string[], cwd: strin
 }
 
 // Chromium keeps drawing off-screen with these flags, and the DevTools port gives the
-// playtest its own mouse and keyboard.
+// playtest its own mouse and keyboard. The port listens on loopback only and
+// accepts origins from loopback only: --remote-allow-origins=* used to let
+// any local process or page drive the launched browser.
 export function chromiumArgs(target: string, args: readonly string[], cwd: string, port?: number) {
   const kind = chromiumKind(target, args, cwd)
   if (!kind) return [...args]
-  const flags = [...CHROMIUM_FLAGS, ...(port ? [`--remote-debugging-port=${port}`, "--remote-allow-origins=*"] : [])]
+  const flags = [
+    ...CHROMIUM_FLAGS,
+    ...(port
+      ? [
+          "--remote-debugging-address=127.0.0.1",
+          `--remote-debugging-port=${port}`,
+          `--remote-allow-origins=http://127.0.0.1:${port},http://localhost:${port}`,
+        ]
+      : []),
+  ]
   if (kind === "direct") return [...args, ...flags]
   return [...args, ...(args.includes("--") ? [] : ["--"]), ...flags]
+}
+
+/**
+ * Launchers a bare name may name (arch3 №6): the PowerShell hosts the
+ * fixture scripts run through, the Chromium/Electron binaries playtest
+ * drives, and the package managers that start Electron projects. Anything
+ * else by bare name (calc.exe, regedit.exe, …) is refused — a bare name is
+ * a PATH lookup, and the model must not pick an arbitrary binary.
+ */
+const BARE_LAUNCHERS: ReadonlySet<string> = new Set([
+  "powershell",
+  "pwsh",
+  "electron",
+  "chrome",
+  "chromium",
+  "msedge",
+  "brave",
+  "nw",
+  "npm",
+  "pnpm",
+  "yarn",
+  "npx",
+])
+
+/**
+ * Resolve a launch `path` against the project root (arch3 №6). A path with
+ * a separator must stay inside the project — an absolute path outside it,
+ * or a `..` escape, is refused, so the model can only launch the game under
+ * test, never an arbitrary executable on the machine. A bare name must be a
+ * known launcher (see `BARE_LAUNCHERS`). `.bat`/`.cmd` targets are refused
+ * outright: a batch file is command execution by definition, and Node only
+ * runs it through a shell — run the script through `powershell.exe -File`
+ * instead. Throws with the refusal; `open()` surfaces it as a failed step.
+ */
+export function resolveLaunchTarget(stepPath: string, root: string): string {
+  const lower = stepPath.toLowerCase()
+  const batRefusal = (target: string) =>
+    new Error(
+      `playtest launch refuses .bat/.cmd files (${target}): a batch file is command execution. Run the script through powershell.exe -File instead.`,
+    )
+  if (!/[\\/]/.test(stepPath)) {
+    const name = lower.replace(/\.(exe|cmd)$/, "")
+    if (!BARE_LAUNCHERS.has(name)) {
+      if (lower.endsWith(".bat") || lower.endsWith(".cmd")) throw batRefusal(stepPath)
+      throw new Error(
+        `playtest launch refuses bare program ${stepPath}: only a known launcher (${[...BARE_LAUNCHERS].join(", ")}) or a path inside the project may be launched.`,
+      )
+    }
+    return stepPath
+  }
+  if (lower.endsWith(".bat") || lower.endsWith(".cmd")) throw batRefusal(stepPath)
+  const resolved = path.resolve(root, stepPath)
+  const relative = path.relative(root, resolved)
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+    throw new Error(`playtest launch refuses ${stepPath}: the path must stay inside the project (${root}).`)
+  return resolved
+}
+
+/** Resolve a launch working directory against the project root (arch3 №6). */
+export function resolveLaunchDir(cwd: string, root: string): string {
+  const resolved = path.resolve(root, cwd)
+  const relative = path.relative(root, resolved)
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+    throw new Error(`playtest launch refuses working directory ${cwd}: it must stay inside the project (${root}).`)
+  return resolved
 }
 
 // One compiled helper does every step in-process: window lookup, message input, PrintWindow
