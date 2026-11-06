@@ -38,7 +38,7 @@ const createKey = Effect.fn(function* () {
 const withStubbedFetch = <A, E, R>(status: number, body: unknown, effect: Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
     const originalFetch = globalThis.fetch
-    globalThis.fetch = (async () => Response.json(body, { status })) as typeof fetch
+    globalThis.fetch = (async () => Response.json(body, { status })) as unknown as typeof fetch
     try {
       return yield* effect
     } finally {
@@ -80,7 +80,10 @@ describe("LixPlugin (G2-14)", () => {
 
       const snapshot = yield* providers.snapshot()
       const record = snapshot.records.get(providerID)
-      expect([...(record?.models.values() ?? [])].map((model) => model.id)).toEqual(["lix-chat", "lix-code"])
+      expect([...(record?.models.values() ?? [])].map((model) => model.id)).toEqual([
+        Model.ID.make("lix-chat"),
+        Model.ID.make("lix-code"),
+      ])
       expect(record?.models.get(Model.ID.make("lix-code"))?.name).toBe("Lix Code")
       expect(snapshot.providers.some((provider) => provider.id === providerID)).toBe(true)
     }),

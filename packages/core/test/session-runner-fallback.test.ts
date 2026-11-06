@@ -144,9 +144,11 @@ describe("SessionRunnerLLM.fallbackModel", () => {
 
   test("a refusal of one variant refuses the whole model", () => {
     const cause = failure(new InvalidRequestError({ message: "model_not_found" }))
+    // The current model under another variant is refused, so the run skips
+    // it — but an unrelated model is still a valid fallback.
     expect(
       fallback({ cause, models: [current, next], refused: [model("opencode/big-pickle#max")] }),
-    ).toBeUndefined()
+    ).toEqual(next)
     expect(
       fallback({
         cause,
@@ -184,7 +186,7 @@ describe("mainSessionFallbackChain (G2-14)", () => {
     current: string
     catalog: ReadonlyArray<Model.Info>
   }) => mainSessionFallbackChain({ cause: input.cause, current: model(input.current), catalog: input.catalog })
-  const asFailure = (cause: AIError) => failure(cause)
+  const asFailure = (reason: ConstructorParameters<typeof AIError>[0]["reason"]) => failure(reason)
   const invalidRequest = new InvalidRequestError({ message: "model_not_found" })
   const auth = new AuthenticationError({ message: "Unauthorized" })
   // The B14 catalog: the planner's free provider, the Anymodel models, lix as

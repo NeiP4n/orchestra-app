@@ -53,6 +53,7 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const bus = yield* Bus.Service
+    const models = yield* Model.Service
     const lifecycle = yield* LocationLifecycle.Service
     const store = yield* SessionStore.Service
     const context = yield* SessionContext.Service
@@ -401,13 +402,12 @@ const layer = Layer.effect(
       const listed = Orchestra.sessionModels(loaded.session.metadata)
       // The catalog is read only for a main session; a worker's operator-given list wins.
       // A catalog that cannot be read leaves the session with no fallback instead of
-      // failing the drain on top of the model failure.
+      // failing the drain on top of the model failure. The service is bound once at
+      // the layer top: `nextModel` runs as `SessionStep.attempt`'s `fallback`, whose
+      // type carries no requirements, so it must not yield `Model.Service` itself.
       const catalog =
         listed.length === 0
-          ? yield* Model.Service.pipe(
-              Effect.flatMap((models) => models.available()),
-              Effect.orElseSucceed(() => [] as readonly Model.Info[]),
-            )
+          ? yield* models.available().pipe(Effect.orElseSucceed(() => [] as readonly Model.Info[]))
           : []
       const mainFallbacks =
         listed.length === 0
