@@ -13,6 +13,7 @@ import {
 import type { DueLimits } from "./due.js"
 import type { View } from "./evolve.js"
 import { iso } from "./evolve.js"
+import { fingerprintError, recordRepeat } from "./repeat.js"
 import { SCHEDULE, cronOf, eventRule, typeMatches } from "./rules.js"
 import type { Rule, Rules } from "./rules.js"
 import type { AutoloopFact } from "./schema.js"
@@ -159,6 +160,12 @@ export interface RunRow extends RowData {
   finished_at: string | null
   summary: string | null
   error: string | null
+  /** Fingerprint of the last failure's error (idea #2: repeat-error stop-word). */
+  error_fingerprint: string | null
+  /** Consecutive repeats of that fingerprint, counting the last failure. */
+  error_repeat: number
+  /** JSON string of the last error occurrences `{ fp, at }[]` (idea #2). */
+  error_history: string | null
   usage: Record<string, unknown> | null
   not_before: string
   created_at: string
@@ -515,6 +522,9 @@ const RUN_DEFAULTS: Partial<RunRow> = {
   finished_at: null,
   summary: null,
   error: null,
+  error_fingerprint: null,
+  error_repeat: 0,
+  error_history: null,
   usage: null,
 }
 
@@ -966,10 +976,43 @@ export function retryLater(draft: Draft, run: RunRow, result: Receipt): Rejected
     for (const _ of result[what] ?? []) rejected.push({ what, reason: "неудавшийся раунд может только уведомлять" })
   }
   for (const notice of result.notice ?? []) cardFromReceipt(draft, run, "notice", notice)
-  const failure = { attempts, error, ...unclaimed }
+  // Stop-word on a deadlock (idea #2): the same error three times in a row,
+  // or three times within an hour, stops the run even when retries remain —
+  // retrying the identical failure only burns tokens. The fingerprint and
+  // the history stay on the run row, so the stop card can name what was
+  // tried; an empty error text carries no fingerprint and never trips it.
+  const rawError = (result.error ?? "").trim()
+  const repeat =
+    rawError === "" ? undefined : recordRepeat(run.error_history ?? null, fingerprintError(rawError), draft.now)
+  const failure = {
+    attempts,
+    error,
+    ...unclaimed,
+    ...(repeat === undefined
+      ? {}
+      : {
+          error_fingerprint: repeat.history.at(-1)!.fp,
+          error_repeat: repeat.consecutive,
+          error_history: JSON.stringify(repeat.history),
+        }),
+  }
   if (ruleNamed(draft, run.rule) === undefined) {
     put(draft, "runs", id, failure)
     stopRun(draft, run, "rule-gone", ...ruleGone(run))
+    return rejected
+  }
+  if (repeat?.stuck === true) {
+    const how =
+      repeat.consecutive >= 3
+        ? `${repeat.consecutive} раз подряд`
+        : `${repeat.inWindow} раза за час`
+    const summary = `Та же ошибка повторилась ${how}, автоматические повторы остановлены`
+    const words =
+      `Одна и та же ошибка повторилась ${how} (попыток: ${attempts}, ошибка: ${error}). ` +
+      `Дальнейшие повторы того же самого только жгут токены, поэтому раунд остановлен — ` +
+      `подробности попыток смотрите в сессиях исполнителя, отпечаток ошибки: ${repeat.history.at(-1)!.fp}.`
+    put(draft, "runs", id, failure)
+    stopRun(draft, run, "stopped", summary, words)
     return rejected
   }
   if (attempts >= limits.maxAttempts) {

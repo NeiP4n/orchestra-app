@@ -415,3 +415,84 @@ describe("AutoloopDecide cancelling a task (G2-12)", () => {
     expect(runRow(answered.view, 2)).toMatchObject({ rule: "build", state: "queued" })
   })
 })
+
+describe("AutoloopDecide repeat-error stop-word (idea #2)", () => {
+  const stepWithLimits = (view: View, input: DecideInput, now: number, seq: number, limits: { maxAttempts: number; retryBaseMinutes: number }) => {
+    const result = decide(view, input, now, { rules, tokenSecret: "test-secret", seq, rulesVersion: 1, limits })
+    return { view: result.facts.reduce(evolve, view), value: result.value, facts: result.facts }
+  }
+  const claimWithLimits = (view: View, now: number, claim: string, seq: number, limits: { maxAttempts: number; retryBaseMinutes: number }) => {
+    const claimed = stepWithLimits(view, { type: "claimNext", args: ["worker-1", claim] }, now, seq, limits)
+    return { ...claimed, job: claimed.value as Job }
+  }
+  /** Fail the run once with `error`, starting from a claim at `now`. */
+  const failOnce = (
+    view: View,
+    now: number,
+    seq: number,
+    error: string | undefined,
+    limits: { maxAttempts: number; retryBaseMinutes: number },
+  ) => {
+    const claimed = claimWithLimits(view, now, `claim-${seq}`, seq, limits)
+    expect(claimed.job.run).toBe(1)
+    return stepWithLimits(
+      claimed.view,
+      { type: "finish", args: [1, claimed.job.token, { outcome: "failed", summary: "failed", error }] },
+      now + 1000,
+      seq + 1,
+      limits,
+    )
+  }
+
+  test("the same error three times in a row stops the run even when retries remain", () => {
+    const limits = { maxAttempts: 5, retryBaseMinutes: 1 }
+    let view = ingestTask(emptyView(), T0).view
+    // Same failure, different ports: the fingerprint still says "same error".
+    view = failOnce(view, T0, 2, "connect ECONNREFUSED 127.0.0.1:5432", limits).view
+    expect(runRow(view, 1)).toMatchObject({ state: "queued", attempts: 1, error_repeat: 1 })
+    view = failOnce(view, T0 + 3 * MINUTE, 4, "connect ECONNREFUSED 127.0.0.1:17890", limits).view
+    expect(runRow(view, 1)).toMatchObject({ state: "queued", attempts: 2, error_repeat: 2 })
+    view = failOnce(view, T0 + 8 * MINUTE, 6, "connect ECONNREFUSED 127.0.0.1:5433", limits).view
+
+    expect(runRow(view, 1)).toMatchObject({ state: "cancelled", attempts: 3, error_repeat: 3 })
+    expect(runRow(view, 1)?.["summary"]).toContain("Та же ошибка")
+    expect(typeof runRow(view, 1)?.["error_fingerprint"]).toBe("string")
+    const stopped = cardRows(view).find((card) => card["key"] === "run:1:stopped")
+    expect(stopped?.["text"]).toContain("ECONNREFUSED")
+  })
+
+  test("different errors do not trip the stop-word", () => {
+    const limits = { maxAttempts: 5, retryBaseMinutes: 1 }
+    let view = ingestTask(emptyView(), T0).view
+    view = failOnce(view, T0, 2, "database is locked", limits).view
+    view = failOnce(view, T0 + 3 * MINUTE, 4, "port already in use", limits).view
+    view = failOnce(view, T0 + 8 * MINUTE, 6, "database is locked", limits).view
+
+    expect(runRow(view, 1)).toMatchObject({ state: "queued", attempts: 3, error_repeat: 1 })
+    expect(runRow(view, 1)?.["summary"]).toBeNull()
+  })
+
+  test("three of the same within an hour stop the run even when not consecutive", () => {
+    const limits = { maxAttempts: 10, retryBaseMinutes: 1 }
+    let view = ingestTask(emptyView(), T0).view
+    view = failOnce(view, T0, 2, "database is locked", limits).view
+    view = failOnce(view, T0 + 3 * MINUTE, 4, "port already in use", limits).view
+    view = failOnce(view, T0 + 8 * MINUTE, 6, "database is locked", limits).view
+    view = failOnce(view, T0 + 17 * MINUTE, 8, "port already in use", limits).view
+    view = failOnce(view, T0 + 30 * MINUTE, 10, "database is locked", limits).view
+
+    expect(runRow(view, 1)).toMatchObject({ state: "cancelled", attempts: 5 })
+    expect(runRow(view, 1)?.["summary"]).toContain("Та же ошибка")
+  })
+
+  test("a failure with no error text never trips the stop-word", () => {
+    const limits = { maxAttempts: 5, retryBaseMinutes: 1 }
+    let view = ingestTask(emptyView(), T0).view
+    view = failOnce(view, T0, 2, undefined, limits).view
+    view = failOnce(view, T0 + 3 * MINUTE, 4, undefined, limits).view
+    view = failOnce(view, T0 + 8 * MINUTE, 6, undefined, limits).view
+
+    expect(runRow(view, 1)).toMatchObject({ state: "queued", attempts: 3, error_repeat: 0 })
+    expect(runRow(view, 1)?.["error_fingerprint"]).toBeNull()
+  })
+})
