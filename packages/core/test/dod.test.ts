@@ -41,6 +41,16 @@ async function project(text = FILE) {
 
 const alex = { id: "g-alex", name: "Alex" }
 const bo = { id: "g-bo", name: "Bo" }
+// Two local sessions, as the tool builds them: the session id is the owner id.
+const workerA = { id: "ses_aaaaaaaaaaaa11111111111111", name: "AI 11111111" }
+const workerB = { id: "ses_bbbbbbbbbbbb22222222222222", name: "AI 22222222" }
+
+// Moves the board's (single) lease into the past, as if its five minutes ran out.
+async function expireLease(dir: string) {
+  const file = path.join(dir, Dod.FILE)
+  const text = await Bun.file(file).text()
+  await Bun.write(file, text.replace(/lease_until: "[^"]+"/, 'lease_until: "2000-01-01T00:00:00.000Z"'))
+}
 
 const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect)
 const fails = <A>(effect: Effect.Effect<A, Dod.DodError>) =>
@@ -112,12 +122,12 @@ describe("Dod", () => {
     const dod = await run(Dod.take({ directory: dir.path, id: "L-002", owner: alex }))
     expect(dod.items[1]).toMatchObject({ id: "L-002", state: "IN_PROGRESS", owner: "Alex", ownerID: "g-alex" })
     const text = await Bun.file(path.join(dir.path, Dod.FILE)).text()
-    expect(text).toBe(
-      FILE.replace(
-        '    task_state: NOT_STARTED\n    steps:\n      - "[x] find',
-        '    task_state: IN_PROGRESS\n    owner: "Alex"\n    owner_id: "g-alex"\n    steps:\n      - "[x] find',
-      ),
+    // The claim stamps the lease next to the owner: taken_at and a lease_until five
+    // minutes out. Timestamps move, so the lease lines match by shape, not by value.
+    expect(text).toMatch(
+      /    task_state: IN_PROGRESS\n    owner: "Alex"\n    owner_id: "g-alex"\n    taken_at: "[^"]+"\n    lease_until: "[^"]+"\n    steps:\n      - "\[x\] find/,
     )
+    expect(text).toContain('    what: "Add the check"   # keep this comment\n')
   })
 
   test("two members taking the same item at once cannot both get it", async () => {
@@ -138,8 +148,8 @@ describe("Dod", () => {
     await using dir = await project(FILE + '\n  - id: L-004\n    what: "Last"\n\n')
     await run(Dod.take({ directory: dir.path, id: "L-003", owner: bo }))
     const text = await Bun.file(path.join(dir.path, Dod.FILE)).text()
-    expect(text).toContain(
-      '  - id: L-003\n    what: "Document it"\n    owner: "Bo"\n    owner_id: "g-bo"\n    task_state: IN_PROGRESS\n\n  - id: L-004',
+    expect(text).toMatch(
+      /  - id: L-003\n    what: "Document it"\n    owner: "Bo"\n    owner_id: "g-bo"\n    task_state: IN_PROGRESS\n    taken_at: "[^"]+"\n    lease_until: "[^"]+"\n\n  - id: L-004/,
     )
   })
 
@@ -195,6 +205,109 @@ describe("Dod", () => {
     expect((await run(Dod.read(dir.path, gone))).items[2]).toMatchObject({ owner: "Alex", stale: true })
     const dod = await run(Dod.take({ directory: dir.path, id: "L-003", owner: bo, live: gone }))
     expect(dod.items[2]).toMatchObject({ owner: "Bo", ownerID: "g-bo", state: "IN_PROGRESS" })
+  })
+
+  test("two sessions cannot hold the same item: the second gets a refusal, not a hold", async () => {
+    await using dir = await project()
+    const taken = await run(Dod.take({ directory: dir.path, id: "L-002", owner: workerA }))
+    expect(taken.items[1]).toMatchObject({ ownerID: workerA.id, state: "IN_PROGRESS" })
+    // The claim is on the file, with the session as owner and a five-minute lease.
+    const text = await Bun.file(path.join(dir.path, Dod.FILE)).text()
+    expect(text).toContain(`owner_id: "${workerA.id}"`)
+    const lease = /lease_until: "([^"]+)"/.exec(text)?.[1]
+    expect(lease).toBeDefined()
+    expect(Date.parse(lease!) - Date.now()).toBeGreaterThan(4 * 60_000)
+    expect(Date.parse(lease!) - Date.now()).toBeLessThanOrEqual(5 * 60_000)
+    expect(await fails(Dod.take({ directory: dir.path, id: "L-002", owner: workerB }))).toBe(
+      `L-002 is taken by ${workerA.name}`,
+    )
+    expect(await fails(Dod.check({ directory: dir.path, id: "L-002", step: 1, checked: true, owner: workerB }))).toBe(
+      `L-002 is taken by ${workerA.name}`,
+    )
+    expect(await fails(Dod.block({ directory: dir.path, id: "L-002", owner: workerB, reason: "stuck" }))).toBe(
+      `L-002 is taken by ${workerA.name}`,
+    )
+    expect(await fails(Dod.release({ directory: dir.path, id: "L-002", owner: workerB }))).toBe(
+      `L-002 is taken by ${workerA.name}`,
+    )
+    // `next` skips the item another session holds and hands out a free one instead.
+    expect((await run(Dod.next({ directory: dir.path, owner: workerB }))).id).toBe("L-003")
+    // And the first session still holds its item: its own `next` returns it.
+    expect((await run(Dod.next({ directory: dir.path, owner: workerA }))).id).toBe("L-002")
+  })
+
+  test("an expired lease frees the item: it reads stale and passes to another session", async () => {
+    await using dir = await project()
+    await run(Dod.take({ directory: dir.path, id: "L-003", owner: workerA }))
+    await expireLease(dir.path)
+    expect((await run(Dod.read(dir.path))).items[2]).toMatchObject({ owner: workerA.name, stale: true })
+    const dod = await run(Dod.take({ directory: dir.path, id: "L-003", owner: workerB }))
+    expect(dod.items[2]).toMatchObject({ owner: workerB.name, ownerID: workerB.id, state: "IN_PROGRESS" })
+    expect(await fails(Dod.take({ directory: dir.path, id: "L-003", owner: workerA }))).toBe(
+      `L-003 is taken by ${workerB.name}`,
+    )
+  })
+
+  test("a claim written before leases existed has no lease, so it reads stale too", async () => {
+    await using dir = await project(
+      FILE.replace(
+        '  - id: L-003\n    what: "Document it"\n',
+        '  - id: L-003\n    what: "Document it"\n    owner: "AI deadbeef"\n    owner_id: "ses_deadbeefdeadbeef00000000"\n    task_state: IN_PROGRESS\n',
+      ),
+    )
+    expect((await run(Dod.read(dir.path))).items[2]).toMatchObject({ owner: "AI deadbeef", stale: true })
+    const dod = await run(Dod.take({ directory: dir.path, id: "L-003", owner: workerB }))
+    expect(dod.items[2]).toMatchObject({ owner: workerB.name, ownerID: workerB.id, state: "IN_PROGRESS" })
+  })
+
+  test("checking a step renews the holder's lease", async () => {
+    await using dir = await project()
+    await run(Dod.take({ directory: dir.path, id: "L-002", owner: workerA }))
+    // Push the lease to one second out, then act: the lease must move forward again.
+    const file = path.join(dir.path, Dod.FILE)
+    const before = await Bun.file(file).text()
+    const short = new Date(Date.now() + 1_000).toISOString()
+    await Bun.write(file, before.replace(/lease_until: "[^"]+"/, `lease_until: "${short}"`))
+    await run(Dod.check({ directory: dir.path, id: "L-002", step: 1, checked: true, owner: workerA }))
+    const after = /lease_until: "([^"]+)"/.exec(await Bun.file(file).text())?.[1]
+    expect(after).toBeDefined()
+    expect(Date.parse(after!) - Date.now()).toBeGreaterThan(4 * 60_000)
+  })
+
+  test("releasing a stale item frees it for the next taker", async () => {
+    await using dir = await project()
+    await run(Dod.take({ directory: dir.path, id: "L-003", owner: workerA }))
+    await expireLease(dir.path)
+    const dod = await run(Dod.release({ directory: dir.path, id: "L-003", owner: workerB }))
+    expect(dod.items[2]).toEqual({
+      id: "L-003",
+      what: "Document it",
+      stage: "Ungrouped",
+      state: "NOT_STARTED",
+      done: 0,
+      total: 0,
+    })
+    expect(await Bun.file(path.join(dir.path, Dod.FILE)).text()).not.toContain("lease_until:")
+  })
+
+  test("only the holder's accept records a check; another session is refused", async () => {
+    await using dir = await project(
+      FILE.replace(
+        '      - "[ ] write it"\n',
+        '      - "[x] write it"\n    verification:\n      command: "bun test x"\n',
+      ),
+    )
+    await run(Dod.take({ directory: dir.path, id: "L-002", owner: workerA }))
+    expect(await run(Dod.command({ directory: dir.path, id: "L-002", owner: workerA }))).toBe("bun test x")
+    expect(await fails(Dod.command({ directory: dir.path, id: "L-002", owner: workerB }))).toBe(
+      "Take L-002 before submitting it; only its holder submits",
+    )
+    const input = { directory: dir.path, id: "L-002", command: "bun test x", summary: "3 pass", by: workerB.name }
+    expect(await fails(Dod.accept({ ...input, exitCode: 0, owner: workerB }))).toBe(
+      `L-002 is taken by ${workerA.name}; only its holder submits it`,
+    )
+    const passed = await run(Dod.accept({ ...input, exitCode: 0, by: workerA.name, owner: workerA }))
+    expect(passed.items[1]).toMatchObject({ state: "DONE", owner: workerA.name })
   })
 
   test("an item waits for its unfinished dependencies, and next skips it", async () => {

@@ -366,6 +366,7 @@ const layer = Layer.effect(
             yield* store.context(sessionID),
             yield* Dod.status(location.project.directory),
             yield* DateTime.now,
+            sessionID,
           )
           if (nudge) {
             yield* bus.publish(SessionEvent.Synthetic, {

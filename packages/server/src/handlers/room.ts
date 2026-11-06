@@ -1367,6 +1367,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             exitCode: result.exitCode,
             summary: outputSummary(output, result.exitCode),
             by: owner.name,
+            owner,
           }).pipe(Effect.mapError(dodError))
           const passed = result.exitCode === 0
           if (passed) yield* freeDodPlots(directory, id)

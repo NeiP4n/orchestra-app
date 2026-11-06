@@ -20,6 +20,7 @@ import { permissionLayer } from "./lib/permission"
 import { executeTool, registerToolPlugin, toolIdentity } from "./lib/tool"
 
 const sessionID = Session.ID.make("ses_dod_tool_test")
+const otherSessionID = Session.ID.make("ses_dod_tool_other")
 
 const pluginNode = makeLocationNode({
   name: "test/dod-tool-plugin",
@@ -48,6 +49,14 @@ function harness(directory: string, seen: string[], team: Partial<Orchestra.Inte
 const run = (tools: Tool.Interface, id: string, input: Record<string, unknown>) =>
   executeTool(tools, {
     sessionID,
+    ...toolIdentity,
+    call: { type: "tool-call" as const, id, name: DodTool.name, input },
+  })
+
+// Same call from another session: the board must tell the two apart.
+const runAs = (tools: Tool.Interface, other: Session.ID, id: string, input: Record<string, unknown>) =>
+  executeTool(tools, {
+    sessionID: other,
     ...toolIdentity,
     call: { type: "tool-call" as const, id, name: DodTool.name, input },
   })
@@ -104,6 +113,25 @@ describe("DodTool", () => {
         expect(file).toContain("state: PASSED")
       }).pipe(Effect.provide(harness(directory, seen)))
     }),
+  )
+
+  it.live("two sessions cannot take the same item through the tool", () =>
+    withTempDir(({ path: directory }) =>
+      Effect.gen(function* () {
+        const tools = yield* Tool.Service
+        yield* run(tools, "add", { action: "add", what: "Shared work", steps: ["do it"] })
+        const held = yield* run(tools, "take", { action: "take", id: "L-001" })
+        expect(text(held)).toContain("You hold L-001 now.")
+        // The second session is a different owner: no hold, an honest refusal instead.
+        const refused = yield* runAs(tools, otherSessionID, "take-other", { action: "take", id: "L-001" })
+        expect(refused.error?.message).toContain("L-001 is taken by AI")
+        const none = yield* runAs(tools, otherSessionID, "next-other", { action: "next" })
+        expect(none.error?.message).toContain("No item is ready")
+        // The holder still holds it: its own check works.
+        const checked = yield* run(tools, "check", { action: "check", id: "L-001", step: "1" })
+        expect(text(checked)).toContain("1. [x] do it")
+      }).pipe(Effect.provide(harness(directory, []))),
+    ),
   )
 
   // A project claims its main session too, so being claimed alone must not refuse the

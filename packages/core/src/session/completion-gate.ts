@@ -18,8 +18,10 @@ const limit = () => {
   return Number.isFinite(value) && value >= 0 ? value : 3
 }
 
-// The AI's own items carry this owner on the board; see DodTool.owner. `dod next` stamps the id,
-// older items written by hand carry only the name.
+// The AI's own items carry this owner on boards written before owners were per-session;
+// see DodTool.ownerOf. `dod next` stamps the session id, older items written by hand carry
+// only the name. The gate matches a session's own items by session id first; the shared id
+// below is only the legacy fallback for boards claimed before that change.
 const AI_OWNER = "AI"
 const AI_OWNER_ID = "local-ai"
 const WORK_ACTIONS = new Set(["next", "take", "add", "check", "uncheck"])
@@ -37,6 +39,7 @@ export function check(
   messages: ReadonlyArray<SessionMessage.Info>,
   board: Dod.Status,
   now?: DateTime.DateTime,
+  sessionID?: string,
 ) {
   const max = limit()
   if (max === 0) return undefined
@@ -58,7 +61,7 @@ export function check(
   // the dispatch went stale (see STALE_DISPATCH_MS): then the report is not coming.
   if (hasOutstandingTasks(messages, now)) return undefined
 
-  const open = openItems(messages, board)
+  const open = openItems(messages, board, sessionID)
   if (nudges.length >= max) {
     // The limit is spent, but the board still holds work this session took: one final
     // escalation instead of silence. It does not ask for more work — it asks the session
@@ -79,7 +82,7 @@ export function check(
     ])
   // Every step checked is not DONE: only `dod verify` makes an item DONE, with its evidence.
   // A session that stops here would report the work finished while the board still says otherwise.
-  const unverified = unverifiedItems(messages, board)
+  const unverified = unverifiedItems(messages, board, sessionID)
   const touched = forbiddenTouches(turn)
   if (unverified.length > 0 || touched.length > 0)
     return reminder([
@@ -97,8 +100,8 @@ export function check(
   return undefined
 }
 
-function openItems(messages: ReadonlyArray<SessionMessage.Info>, board: Dod.Status) {
-  return claimedItems(messages, board)
+function openItems(messages: ReadonlyArray<SessionMessage.Info>, board: Dod.Status, sessionID?: string) {
+  return claimedItems(messages, board, sessionID)
     .filter((item) => item.done < item.total)
     .slice(0, 3)
     .map((item) => {
@@ -109,8 +112,8 @@ function openItems(messages: ReadonlyArray<SessionMessage.Info>, board: Dod.Stat
 
 // Every step checked, still not DONE: only `dod verify` makes an item DONE, with its evidence.
 // Without this the session reports the work finished while the board still says otherwise.
-function unverifiedItems(messages: ReadonlyArray<SessionMessage.Info>, board: Dod.Status) {
-  return claimedItems(messages, board)
+function unverifiedItems(messages: ReadonlyArray<SessionMessage.Info>, board: Dod.Status, sessionID?: string) {
+  return claimedItems(messages, board, sessionID)
     .filter((item) => item.done >= item.total)
     .slice(0, 3)
     .map(
@@ -120,8 +123,10 @@ function unverifiedItems(messages: ReadonlyArray<SessionMessage.Info>, board: Do
 }
 
 // Board items this session took or claimed, still open. Shared by the unchecked-steps and
-// the not-verified checks, so both hold the session to the same commitments.
-function claimedItems(messages: ReadonlyArray<SessionMessage.Info>, board: Dod.Status) {
+// the not-verified checks, so both hold the session to the same commitments. "This session"
+// means the ids its own tool calls named, or the items its session id holds — never another
+// worker's items, which share nothing with it but the board.
+function claimedItems(messages: ReadonlyArray<SessionMessage.Info>, board: Dod.Status, sessionID?: string) {
   if (board.type !== "ready") return []
   const calls = messages.flatMap((message) =>
     message.type === "assistant" ? tools(message).filter((tool) => tool.name === "dod") : [],
@@ -134,7 +139,9 @@ function claimedItems(messages: ReadonlyArray<SessionMessage.Info>, board: Dod.S
   return board.items.filter(
     (item) =>
       item.state === "IN_PROGRESS" &&
-      (named.has(item.id) || (item.owner === AI_OWNER && (item.ownerID === undefined || item.ownerID === AI_OWNER_ID))),
+      (named.has(item.id) ||
+        (sessionID !== undefined && item.ownerID === sessionID) ||
+        (item.owner === AI_OWNER && (item.ownerID === undefined || item.ownerID === AI_OWNER_ID))),
   )
 }
 
