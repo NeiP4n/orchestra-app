@@ -2,6 +2,7 @@ export * as McpRoleProfiles from "./role-profiles.js"
 
 import { Note } from "@orchestra/schema/note"
 import { Orchestra } from "@orchestra/schema/orchestra"
+import { RoleToolkits } from "../roles/toolkits.js"
 
 // MCP access profiles for every agent role Orchestra ships, derived — never hand-maintained
 // as a second list the operator has to keep in sync.
@@ -69,16 +70,20 @@ function requiredIn(rules: string, server: string) {
 
 /** The profile of one team role, built-in, edited or custom: derived from its spec alone. */
 export function fromRole(role: Orchestra.RoleSpec & { readonly id: string }): Profile {
-  if (role.tools === undefined)
+  // A role with no explicit list inherits its kind's toolkit (RoleToolkits)
+  // instead of running unrestricted: a planner-invented role used to report
+  // "every server allowed" here, which is how it could load any MCP server.
+  const tools = RoleToolkits.effectiveTools(role)
+  if (tools === undefined)
     return {
       id: role.id,
       kind: "team-role",
       agent: String(Orchestra.role(role.id)),
       unrestricted: true,
       servers: [],
-      note: "The role declares no tool list, which the role contract defines as every tool.",
+      note: "No role to derive a toolkit from, so nothing narrows this profile.",
     }
-  const servers = serversOf(role.tools).map((server) => ({
+  const servers = serversOf(tools).map((server) => ({
     server,
     access: (requiredIn(role.rules, server) ? "required" : "allowed") as Access,
   }))
@@ -88,7 +93,10 @@ export function fromRole(role: Orchestra.RoleSpec & { readonly id: string }): Pr
     agent: String(Orchestra.role(role.id)),
     unrestricted: false,
     servers,
-    note: "Derived from the role's tool list; servers its rules name are required, the rest allowed.",
+    note:
+      role.tools === undefined
+        ? `Derived from the ${RoleToolkits.kindOfRole(role)} kind toolkit (the role declares no tool list); servers its rules name are required, the rest allowed.`
+        : "Derived from the role's tool list; servers its rules name are required, the rest allowed.",
   }
 }
 

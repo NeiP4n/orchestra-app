@@ -16,6 +16,7 @@ import { Mcp } from "../../mcp/index.js"
 import { Model } from "../../model.js"
 import { Orchestra } from "../../orchestra.js"
 import { OrchestraStage } from "../../stage.js"
+import { RoleToolkits } from "../../roles/toolkits.js"
 import { ModelRouter } from "../../session/model-router.js"
 import { Token } from "../../util/token.js"
 import { FormDecision } from "../../form-decision.js"
@@ -1002,12 +1003,19 @@ export const Plugin = {
                   return yield* new ToolFailure({
                     message: `${role?.name ?? "This session"} does not let the Orchestrator change its tools; omit tools`,
                   })
-                const outside = tools?.filter(
-                  (tool) => tool !== "all" && role?.tools && !Orchestra.toolAllowed(role.tools, tool),
-                )
+                // The ceiling is the role's effective toolkit: its explicit list,
+                // or its kind's toolkit when the role declares none (RoleToolkits).
+                // A role without a list used to have no ceiling at all here.
+                const audit = tools ? RoleToolkits.auditTools(role, tools) : undefined
+                const outside = audit?.outside.filter((entry) => entry.tool !== "all")
                 if (outside?.length)
                   return yield* new ToolFailure({
-                    message: `${role?.name} may not use ${outside.join(", ")}; its tools are ${role?.tools?.join(", ")}`,
+                    message: `${role?.name} may not use ${outside.map((entry) => entry.tool).join(", ")}; its tools are ${RoleToolkits.effectiveTools(role)?.join(", ")}`,
+                  })
+                if (tools?.includes("all"))
+                  yield* Effect.logWarning("role runs unrestricted for this task (tools \"all\" lifts its toolkit ceiling)", {
+                    role: role?.id,
+                    kind: role ? RoleToolkits.kindOfRole(role) : undefined,
                   })
                 return {
                   model,

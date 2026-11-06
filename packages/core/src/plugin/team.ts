@@ -14,6 +14,7 @@ import { Federation as FederationDomain } from "../federation.js"
 import { Federation as FederationSchema } from "@orchestra/schema/federation"
 import { KV } from "../kv.js"
 import { Orchestra } from "../orchestra.js"
+import { RoleToolkits } from "../roles/toolkits.js"
 import { Rules } from "../rules.js"
 import { Session } from "../session.js"
 
@@ -21,6 +22,21 @@ const Federation = {
   ...FederationDomain,
   groupSupervisorFromMetadata: FederationSchema.groupSupervisor,
 }
+
+// A role with no explicit tool list runs on its kind's toolkit instead of
+// unrestricted; the journal says so, so an unlisted role is visible rather
+// than silently wide open.
+const warnUnlistedRoles = (roles: ReadonlyArray<Orchestra.Role>) =>
+  Effect.forEach(
+    roles.filter((role) => !role.tools),
+    (role) =>
+      Effect.logWarning("role has no explicit tool list; running on its kind toolkit", {
+        role: role.id,
+        kind: RoleToolkits.kindOfRole(role),
+        tools: RoleToolkits.effectiveTools(role)?.join(", "),
+      }),
+    { discard: true },
+  )
 
 // The team's shared memory of the project, kept in the project itself so people can read and fix it.
 export const NOTES = path.join(".orchestra", "team-notes.md")
@@ -160,6 +176,7 @@ export const Plugin = define({
     const kv = yield* KV.Service
     const sessions = yield* Session.Service
     const team ={ roles: yield* orchestra.roles() }
+    yield* warnUnlistedRoles(team.roles)
     // A session's stored mode wins; without one, the role's default applies. `auto` is an
     // explicit cancellation of the default, not a missing value to replace.
     const modeFor = Effect.fnUntraced(function* (sessionID: SessionID, role: Orchestra.Role) {
@@ -180,6 +197,7 @@ export const Plugin = define({
       Stream.runForEach(() =>
         orchestra.roles().pipe(
           Effect.tap((roles) => Effect.sync(() => (team.roles = roles))),
+          Effect.tap((roles) => warnUnlistedRoles(roles)),
           Effect.andThen(ctx.agent.reload()),
         ),
       ),
@@ -194,8 +212,12 @@ export const Plugin = define({
           item.mode = "primary"
           if (role.model) item.model = Model.Ref.parse(role.model)
           // A role limited to some tools sees only those; the evaluate hook below keeps the
-          // limit even where the operator's config allows a tool for every agent.
-          if (role.tools) item.permissions.push(...Orchestra.toolRules(role.tools))
+          // limit even where the operator's config allows a tool for every agent. A role
+          // with no explicit list inherits its kind's toolkit (RoleToolkits):
+          // an unlisted role used to run unrestricted, which is how a
+          // planner-invented role could load any tool at all.
+          const roleTools = RoleToolkits.effectiveTools(role)
+          if (roleTools) item.permissions.push(...Orchestra.toolRules(roleTools))
           item.permissions.push(
             { action: "question", resource: "*", effect: "allow" },
             { action: "subagent", resource: "*", effect: "deny" },

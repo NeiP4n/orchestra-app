@@ -109,6 +109,13 @@ guidance block. It never widens a role's permissions.
   `packages/core/src/mcp/role-profiles.ts` (`fromRole`) maps the role's native
   actions to catalog servers via `impliedTools`/`toolGroups` in the same schema
   file.
+- A role with no explicit tool list is NOT unrestricted: `packages/core/src/roles/toolkits.ts`
+  (`RoleToolkits`) classifies it into one of seven kinds (orchestrator, scout,
+  architect, coder, tester, reviewer, releaser, general) and hands it that
+  kind's anchor role toolkit (`effectiveTools`); `plugin/team.ts` pushes the
+  resulting permission rules for every role and logs a warning for kind-default
+  roles, and the `sessions` tool refuses per-task tools outside the effective
+  toolkit. The full map is `docs/role-toolkits.md`.
 - `templates` are dynamic team *recommendations* (roles + playbook); a built-in
   project opens only the Orchestrator, which composes the actual team. Removed
   built-ins survive as `legacyTemplates` for compatibility. A template test pins
