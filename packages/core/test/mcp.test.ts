@@ -1714,6 +1714,102 @@ test("adds, disconnects, and reconnects MCP servers at runtime", async () => {
   )
 })
 
+test("circuit breaker pauses a server after repeated failed calls", async () => {
+  await Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const service = yield* Mcp.Service
+        const { circuitBreaker } = yield* Effect.promise(() => import("../src/mcp/catalog"))
+        // The breaker is process-global, so the test owns its server name
+        // and leaves no tripped state behind for the other tests.
+        yield* Effect.ensuring(
+          Effect.gen(function* () {
+            yield* service.add(
+              "breaker-test",
+              new ConfigMCP.Local({
+                type: "local",
+                command: [process.execPath, path.join(import.meta.dir, "fixture/mcp-output-schema.ts")],
+              }),
+            )
+            yield* settled(service, "breaker-test")
+            // The fixture lists tools but answers no tool call, so every
+            // call fails at the transport: three failures trip the breaker.
+            const failed = (name: string) =>
+              service.callTool({ server: "breaker-test", name }).pipe(Effect.flip, Effect.map((error) => error.message))
+            const first = yield* failed("first")
+            expect(first).not.toContain("circuit breaker")
+            const second = yield* failed("first")
+            expect(second).not.toContain("circuit breaker")
+            const third = yield* failed("first")
+            expect(third).not.toContain("circuit breaker")
+            expect(circuitBreaker.getState("breaker-test").status).toBe("unhealthy")
+            // The fourth call never reaches the server: it fails fast with
+            // the breaker message instead of another timeout.
+            const fast = yield* failed("first")
+            expect(fast).toContain("circuit breaker")
+            expect(fast).toContain("3 failed calls")
+            // A manual reconnect is a successful connect, which clears the
+            // pause: the next call reaches the server and fails on its own
+            // terms again instead of the breaker message — one failure
+            // after a reset is degraded, not unhealthy, and the server
+            // stays available.
+            yield* service.connect("breaker-test")
+            const after = yield* failed("first")
+            expect(after).not.toContain("circuit breaker")
+            expect(circuitBreaker.getState("breaker-test").status).toBe("degraded")
+            expect(circuitBreaker.getState("breaker-test").consecutiveFailures).toBe(1)
+            expect(circuitBreaker.isAvailable("breaker-test")).toBe(true)
+          }),
+          Effect.sync(() => circuitBreaker.reset("breaker-test")),
+        )
+      }).pipe(
+        Effect.provide(
+          resourceMcpLayer(
+            new ConfigMCP.Local({
+              type: "local",
+              command: [process.execPath, path.join(import.meta.dir, "fixture/mcp-output-schema.ts")],
+              disabled: true,
+            }),
+          ),
+        ),
+      ),
+    ),
+  )
+})
+
+test("circuit breaker counts a failed connect", async () => {
+  await Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const service = yield* Mcp.Service
+        const { circuitBreaker } = yield* Effect.promise(() => import("../src/mcp/catalog"))
+        yield* Effect.ensuring(
+          Effect.gen(function* () {
+            yield* service.add(
+              "breaker-dead",
+              new ConfigMCP.Local({ type: "local", command: ["orchestra-no-such-server-binary"] }),
+            )
+            const status = yield* settled(service, "breaker-dead")
+            expect(status).toEqual({ status: "failed", error: expect.any(String) })
+            expect(circuitBreaker.getState("breaker-dead").consecutiveFailures).toBeGreaterThanOrEqual(1)
+          }),
+          Effect.sync(() => circuitBreaker.reset("breaker-dead")),
+        )
+      }).pipe(
+        Effect.provide(
+          resourceMcpLayer(
+            new ConfigMCP.Local({
+              type: "local",
+              command: [process.execPath, path.join(import.meta.dir, "fixture/mcp-output-schema.ts")],
+              disabled: true,
+            }),
+          ),
+        ),
+      ),
+    ),
+  )
+})
+
 testEffect(Layer.empty).live(
   "merges MCP defaults into the winning configured server without changing runtime overrides",
   () =>

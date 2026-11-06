@@ -38,7 +38,37 @@ const DEFAULT_CATALOG_TIMEOUT = 30_000
 // killing them mid-download also leaves a broken package in their cache that fails every later start.
 const RUNNER_STARTUP_TIMEOUT = 5 * 60 * 1_000
 const RUNNERS = new Set(["npx", "uvx", "bunx", "pnpx"])
-const DEFAULT_EXECUTION_TIMEOUT = 12 * 60 * 60 * 1_000 // 12 hours
+const DEFAULT_EXECUTION_TIMEOUT = 5 * 60 * 1_000 // 5 minutes: a tool call that runs longer is stuck, not working
+// No MCP call runs without a timeout, whatever the config says: even an
+// explicit per-server timeout is clamped to this hard wall.
+const MAX_EXECUTION_TIMEOUT_MS = 30 * 60 * 1_000
+// Tools that legitimately run longer than the 5-minute default: a language
+// server starting up behind Serena, a remote model answering behind
+// DeepWiki. An entry needs a tool observed to exceed the default — never add
+// one pre-emptively "just in case", or the table becomes a second default.
+// Explicit per-server config still wins over the table.
+const TOOL_EXECUTION_TIMEOUT_MS: Readonly<Record<string, number>> = {
+  "serena:initial_instructions": 10 * 60 * 1_000,
+  "serena:serena_repl": 10 * 60 * 1_000,
+  "deepwiki:ask_question": 10 * 60 * 1_000,
+}
+
+/**
+ * Execution timeout for one tool call, in milliseconds. Explicit per-server
+ * config wins; then the per-tool table; then the 5-minute default. The hard
+ * wall caps everything, so no call runs without a timeout whatever the config
+ * says. `tool` is the raw tool name the server sees (no `<server>_` prefix).
+ */
+export function executionTimeoutFor(
+  server: string,
+  tool: string | undefined,
+  configured: number | undefined,
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const fallback =
+    tool === undefined ? DEFAULT_EXECUTION_TIMEOUT : (TOOL_EXECUTION_TIMEOUT_MS[`${server}:${tool}`] ?? DEFAULT_EXECUTION_TIMEOUT)
+  return Math.min(Limits.timeout(configured, fallback, env), MAX_EXECUTION_TIMEOUT_MS)
+}
 const TERMINATE_TIMEOUT = 1_000
 const toError = (error: unknown) => (error instanceof Error ? error : new Error(String(error)))
 
@@ -137,6 +167,14 @@ export interface Connection {
     readonly sessionID?: Session.ID
     /** Retry only when the server explicitly advertises this tool as read-only. */
     readonly readOnly?: boolean
+    /**
+     * Caller-asserted idempotency key: retrying a transient failure is safe
+     * only when the call is read-only or the caller can prove the same key
+     * will not execute the effect twice (the key travels in `_meta`, so a
+     * server that understands it can dedupe). Without it, a non-read-only
+     * call runs exactly once.
+     */
+    readonly idempotencyKey?: string
   }) => Effect.Effect<CallToolResult, Error>
   readonly onClose: (callback: (reason: string) => void) => void
   readonly onSessionExpired: (callback: () => void) => void
@@ -329,11 +367,15 @@ export const connect = Effect.fnUntraced(function* (
       }),
     )
     const catalog = { timeout: config.timeout?.catalog ?? DEFAULT_CATALOG_TIMEOUT }
-    const execution = Limits.timeout(config.timeout?.execution, DEFAULT_EXECUTION_TIMEOUT)
+    const executionFor = (tool?: string) => executionTimeoutFor(server, tool, config.timeout?.execution)
     const request = <A>(what: string, run: (signal: AbortSignal) => Promise<A>) =>
       Effect.tryPromise({ try: run, catch: failure }).pipe(
         Effect.tapError((error) => Effect.logWarning(`failed to ${what}`, { server, error: error.message })),
       )
+    // Reads are safe to retry on transient failures; a failed read never
+    // changed anything, so a second attempt cannot double-apply an effect.
+    const readRequest = <A>(what: string, run: (signal: AbortSignal) => Promise<A>) =>
+      retrying(what, request(what, run))
     // Listing is read-only, so a transient failure is safe to retry.
     const list = <A>(what: string, run: () => Promise<A>) =>
       retrying(what, Effect.tryPromise({ try: run, catch: (error) => error })).pipe(
@@ -355,13 +397,13 @@ export const connect = Effect.fnUntraced(function* (
         ),
       readResource: (input) => {
         if (!client.getServerCapabilities()?.resources) return Effect.succeed(undefined)
-        return request("read MCP resource", (signal) =>
-          client.readResource({ uri: input.uri }, { signal, timeout: execution }),
+        return readRequest("read MCP resource", (signal) =>
+          client.readResource({ uri: input.uri }, { signal, timeout: executionFor() }),
         )
       },
       prompt: (input) =>
-        request("get MCP prompt", (signal) =>
-          client.getPrompt({ name: input.name, arguments: input.args ?? {} }, { signal, timeout: execution }),
+        readRequest("get MCP prompt", (signal) =>
+          client.getPrompt({ name: input.name, arguments: input.args ?? {} }, { signal, timeout: executionFor() }),
         ),
       callTool: (input) => {
         const run = (signal: AbortSignal) =>
@@ -369,16 +411,29 @@ export const connect = Effect.fnUntraced(function* (
             {
               name: input.name,
               arguments: input.args ?? {},
-              ...(input.sessionID === undefined ? {} : { _meta: { "ai.opencode/sessionID": input.sessionID } }),
+              ...(input.sessionID === undefined && input.idempotencyKey === undefined
+                ? {}
+                : {
+                    _meta: {
+                      ...(input.sessionID === undefined ? {} : { "ai.opencode/sessionID": input.sessionID }),
+                      ...(input.idempotencyKey === undefined
+                        ? {}
+                        : { "ai.opencode/idempotency-key": input.idempotencyKey }),
+                    },
+                  }),
             },
             // Requesting progress keeps long calls active; the execution timeout remains the hard wall.
-            { signal, timeout: execution, onprogress: () => {} },
+            { signal, timeout: executionFor(input.name), onprogress: () => {} },
           )
-        const operation = input.readOnly
-          ? retrying("call read-only MCP tool", Effect.tryPromise({ try: run, catch: (error) => error })).pipe(
+        // Transient failures are retried for read-only tools and for calls
+        // the caller marked idempotent; anything else runs exactly once, so
+        // a retried write can never execute its effect twice.
+        const retryable = input.readOnly === true || input.idempotencyKey !== undefined
+        const operation = retryable
+          ? retrying("call MCP tool", Effect.tryPromise({ try: run, catch: (error) => error })).pipe(
               Effect.mapError(failure),
               Effect.tapError((error) =>
-                Effect.logWarning("failed to call read-only MCP tool", { server, error: error.message }),
+                Effect.logWarning("failed to call MCP tool", { server, error: error.message }),
               ),
             )
           : request("call MCP tool", run)

@@ -98,8 +98,11 @@ guidance block. It never widens a role's permissions.
 The `sessions` tool is how the Orchestrator dispatches role workers.
 
 - **MCP survey gate**: the first role dispatch of a session is refused until the
-  session carries the `orchestra:mcp-survey` stamp, written by `mcp_manager`
-  action `inspect`. One survey per session; an empty assignment after it is valid.
+  session carries a fresh `orchestra:mcp-survey` stamp, written by `mcp_manager`
+  action `inspect`. A survey is fresh for 15 minutes (`SURVEY_TTL_MS` in
+  `packages/core/src/mcp/survey.ts`); after that the fleet may have changed, so
+  the dispatch is refused until the fleet is surveyed again. An empty assignment
+  after a fresh survey is valid.
 - **MCP assignment gate**: every send/create to a role session requires an
   explicit `mcp` object (`distributeMcp`); the role ceiling is enforced, never
   widened.
@@ -228,7 +231,37 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   capability the native tools lack. Current entries: context7, serena,
   rea-anything, playwright, agent-desktop, github, deepwiki, sentry. Servers
   duplicating native tools (filesystem, git, fetch, memory, sequential-thinking,
-  time, generic search) are deliberately absent — do not re-add them.
+  time, generic search) are deliberately absent — do not re-add them; the
+  classes live in `catalog.ts` as `nativeAnalogues` instead, and the selector
+  answers them with native tools.
+- `select.ts` is the smart selector: Russian needs translate to English before
+  matching, every candidate carries a confidence score, and below the threshold
+  (or on a tie at the top) it returns an ask-card instead of guessing. Fallback
+  chains are fixed per server (context7 → deepwiki, serena → native
+  symbols/grep, playwright → agent-desktop); `mcp_manager acquire` walks the
+  chain when the winner is down. Persistent ratings (`ratings.ts`, KV-backed)
+  nudge the ranking; every dispatch records its outcome.
+- `budget.ts`: a session with no stamped limit gets the default limit (50
+  calls/session, `defaultStamp`), not a free pass. A limit may also carry
+  `maxTokens` (estimated output tokens); usage counts calls and output tokens.
+- `client.ts`: no MCP call runs without a timeout — the execution timeout
+  defaults to 5 minutes and is clamped to 30 minutes whatever the config says.
+  Known-slow tools get more from the per-tool table (`executionTimeoutFor`):
+  serena `initial_instructions`/`serena_repl` and deepwiki `ask_question`
+  run 10 minutes; explicit per-server config still wins over the table.
+  Transient failures retry for read-only tools and for calls the caller marked
+  idempotent (`idempotencyKey`); other calls run exactly once.
+- `index.ts`: a server that dies on its own is restarted up to 3 times with
+  growing delays (5s/15s/30s), then stays failed; explicit stops never restart.
+  The circuit breaker (`catalog.ts`, `McpCircuitBreaker`) is wired into the
+  call path: 3 failed calls or connects in a row pause the server (fail fast
+  with a named message instead of hammering it), a successful call or
+  connect clears the pause, and the catalog plugin hides paused servers from
+  session context. Needs-auth is an operator state, not a failure, so it
+  never counts toward the breaker.
+- `instructions.ts`: server instructions are sanitized before they reach the
+  model — terminal escapes and control characters stripped, prompt-injection
+  lines dropped and named in place, never pasted as-is.
 - `acquire.ts`: a server is *healthy* only when connected **and** its tools were
   discovered. `ensure()` = reuse healthy → connect installed → validate
   platform/missing-env/runtime → add+connect+verify. Missing credentials stop at

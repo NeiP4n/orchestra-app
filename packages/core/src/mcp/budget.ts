@@ -56,10 +56,19 @@ import { KVTable } from "../kv/sql.js"
 //   the count is unknowable; resetting it to zero would hand back spent
 //   budget, so the session's MCP calls are refused until the row is
 //   removed (session deletion and the cleanup below do that).
-// - No stamp, no budget. Sessions the Orchestrator never stamped (every
-//   ordinary session) are not gated at all, and calls without a session
-//   have no task to charge. A stamp that is present but malformed fails
-//   closed, because a limit we cannot read is not a limit we may drop.
+// - No stamp, default budget. Sessions the Orchestrator never stamped
+//   (every ordinary session) used to be ungated entirely: a runaway model
+//   could call MCP tools without any cap. They now get the default limit —
+//   50 calls per session, every server — stamped in code at the gate
+//   (`defaultStamp`, epoch "default"), not written to the session. A real
+//   stamp still replaces it: the first reservation under a stamped epoch
+//   atomically replaces the default row, so a task never inherits the
+//   session's earlier ungated usage.
+// - The budget counts output tokens too, not just calls: a limit may carry
+//   `maxTokens`, and every successful call adds its estimated output tokens
+//   to the usage row (`recordOutput`, called by the dispatch point after
+//   the result arrives). A call that would start past the token cap is
+//   refused at reservation time, the same way an exhausted call cap is.
 // - Cleanup is bounded and never touches an active task. When a session's
 //   stamp disappears, its usage row is deleted at the next consult; a
 //   sweep at service start deletes rows whose session is gone or whose
@@ -81,12 +90,30 @@ export interface Limit {
   readonly maxCalls: number
   /** Per-server call caps, for servers in the effective allowlist. */
   readonly perServer: Readonly<Record<string, number>>
+  /** Estimated output tokens allowed for the task, when the Orchestrator set one; absent means calls alone cap it. */
+  readonly maxTokens?: number
 }
 
 /** Calls counted against one epoch of one session's budget. */
 export interface Usage {
   readonly total: number
   readonly perServer: Readonly<Record<string, number>>
+  /** Estimated output tokens of successful calls in this epoch. */
+  readonly tokens: number
+}
+
+/** Default call cap for a session with no stamped limit: 50 calls, every server. */
+export const DEFAULT_UNSTAMPED_MAX_CALLS = 50
+/** Epoch of the default limit: one per session, not per task, since there is no task to bound it. */
+export const DEFAULT_EPOCH = "default"
+
+/** The limit the gate applies to a session with no stamp: the default, stamped in code. */
+export function defaultStamp(): Stamp {
+  return {
+    kind: "limit",
+    limit: { servers: "all", maxCalls: DEFAULT_UNSTAMPED_MAX_CALLS, perServer: {} },
+    epoch: DEFAULT_EPOCH,
+  }
 }
 
 /** What the gate found on a session: no stamp, an unreadable stamp, or a limit with its epoch. */
@@ -111,7 +138,13 @@ const parseLimit = (value: unknown): Limit | undefined => {
         : undefined
   if (servers === undefined || !isCount(value.maxCalls)) return undefined
   if (!isRecord(value.perServer) || !Object.values(value.perServer).every(isCount)) return undefined
-  return { servers, maxCalls: value.maxCalls, perServer: value.perServer as Record<string, number> }
+  if (value.maxTokens !== undefined && !isCount(value.maxTokens)) return undefined
+  return {
+    servers,
+    maxCalls: value.maxCalls,
+    perServer: value.perServer as Record<string, number>,
+    ...(value.maxTokens === undefined ? {} : { maxTokens: value.maxTokens as number }),
+  }
 }
 
 /**
@@ -141,7 +174,14 @@ export interface PersistedUsage extends Usage {
 export const parsePersistedUsage = (value: unknown): PersistedUsage | undefined => {
   if (!isRecord(value) || typeof value.epoch !== "string" || !isCount(value.total)) return undefined
   if (!isRecord(value.perServer) || !Object.values(value.perServer).every(isCount)) return undefined
-  return { epoch: value.epoch, total: value.total, perServer: value.perServer as Record<string, number> }
+  // Rows written before token accounting carry no `tokens`; they spent none by this measure.
+  if (value.tokens !== undefined && !isCount(value.tokens)) return undefined
+  return {
+    epoch: value.epoch,
+    total: value.total,
+    perServer: value.perServer as Record<string, number>,
+    tokens: (value.tokens as number | undefined) ?? 0,
+  }
 }
 
 export const invalidStampMessage = `This session's MCP limit (session metadata "${LIMIT_METADATA_KEY}") is malformed, so its MCP calls are refused until the limit is stamped again.`
@@ -156,9 +196,10 @@ export type Decision =
 
 /**
  * Pure check-and-count over already-read usage: allowlist, then the total
- * cap, then the per-server cap. Denials carry no `next` — a refused call
- * consumes nothing. Reserving is `decide` plus the transactional write in
- * `reserve` below; the two are only ever used together.
+ * cap, then the per-server cap, then the output-token cap when the limit
+ * sets one. Denials carry no `next` — a refused call consumes nothing.
+ * Reserving is `decide` plus the transactional write in `reserve` below;
+ * the two are only ever used together.
  */
 export function decide(input: { readonly limit: Limit; readonly server: string; readonly usage: Usage }): Decision {
   const { limit, server, usage } = input
@@ -179,10 +220,23 @@ export function decide(input: { readonly limit: Limit; readonly server: string; 
       allowed: false,
       message: `MCP budget exhausted for server "${server}" on this task: ${serverUsed} of ${serverCap} allowed calls used. The Orchestrator set this limit; finish with what you have or report back.`,
     }
+  if (limit.maxTokens !== undefined && usage.tokens >= limit.maxTokens)
+    return {
+      allowed: false,
+      message: `MCP output-token budget exhausted for this task: ${usage.tokens} of ${limit.maxTokens} estimated output tokens used. The Orchestrator set this limit; finish with what you have or report back.`,
+    }
   return {
     allowed: true,
-    next: { total: usage.total + 1, perServer: { ...usage.perServer, [server]: serverUsed + 1 } },
+    next: { total: usage.total + 1, perServer: { ...usage.perServer, [server]: serverUsed + 1 }, tokens: usage.tokens },
   }
+}
+
+/** Rough output-token estimate for a call result: ~4 characters per token, text and media alike. */
+export function estimateOutputTokens(
+  content: ReadonlyArray<{ readonly text?: string; readonly data?: string }>,
+): number {
+  const chars = content.reduce((sum, part) => sum + (part.text?.length ?? 0) + (part.data?.length ?? 0), 0)
+  return Math.ceil(chars / 4)
 }
 
 type Db = Database.Interface["db"]
@@ -216,7 +270,7 @@ export function reserve(
             .where(eq(KVTable.key, key))
             .get()
             .pipe(Effect.orDie)
-          let usage: Usage = { total: 0, perServer: {} }
+          let usage: Usage = { total: 0, perServer: {}, tokens: 0 }
           if (row) {
             const persisted = parsePersistedUsage(row.value)
             if (!persisted) return corruptedUsageMessage
@@ -228,6 +282,7 @@ export function reserve(
             epoch: stamp.epoch,
             total: decision.next.total,
             perServer: decision.next.perServer,
+            tokens: decision.next.tokens,
           }
           yield* tx
             .insert(KVTable)
@@ -236,6 +291,42 @@ export function reserve(
             .run()
             .pipe(Effect.orDie)
           return undefined
+        }),
+      { behavior: "immediate" },
+    )
+    .pipe(Effect.orDie)
+}
+
+/**
+ * Add a finished call's estimated output tokens to the session's usage row.
+ * The call itself was already reserved (and counted) before dispatch; this
+ * is the second half of the token budget. No row means the call was never
+ * reserved — nothing to charge — and a failure here never fails the call
+ * it accounts for; the caller ignores it.
+ */
+export function recordOutput(db: Db, sessionID: string, tokens: number): Effect.Effect<void> {
+  if (tokens <= 0) return Effect.void
+  const key = usageKey(sessionID)
+  return db
+    .transaction(
+      (tx) =>
+        Effect.gen(function* () {
+          const row = yield* tx
+            .select({ value: KVTable.value })
+            .from(KVTable)
+            .where(eq(KVTable.key, key))
+            .get()
+            .pipe(Effect.orDie)
+          if (!row) return
+          const persisted = parsePersistedUsage(row.value)
+          if (!persisted) return
+          const value: KV.Value = { ...persisted, tokens: persisted.tokens + Math.round(tokens) }
+          yield* tx
+            .insert(KVTable)
+            .values({ key, value })
+            .onConflictDoUpdate({ target: KVTable.key, set: { value, time_updated: Date.now() } })
+            .run()
+            .pipe(Effect.orDie)
         }),
       { behavior: "immediate" },
     )

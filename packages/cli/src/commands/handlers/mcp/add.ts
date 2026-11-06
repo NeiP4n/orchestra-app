@@ -5,6 +5,7 @@ import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promis
 import { Effect, Option } from "effect"
 import { applyEdits, modify, parse, printParseErrorCode, type ParseError } from "jsonc-parser"
 import { Global } from "@orchestra/util/global"
+import { McpCatalog } from "@orchestra/core/mcp/catalog"
 import { Commands } from "../../commands"
 import { Runtime } from "../../../framework/runtime"
 
@@ -30,6 +31,18 @@ export default Runtime.handler(
     const server = url
       ? { type: "remote" as const, url, ...(headers ? { headers } : {}) }
       : { type: "local" as const, command, ...(environment ? { environment } : {}) }
+
+    // A catalog server that cannot start without credentials fails at
+    // install time, with the missing variables named — not at the first
+    // call, after the operator already believes it works. Non-catalog
+    // names have no known requirements, so nothing is checked for them.
+    const missing = McpCatalog.missing(input.name, server)
+    if (missing.length > 0)
+      return yield* Effect.fail(
+        new Error(
+          `MCP server "${input.name}" needs ${missing.join(", ")} before it can be installed: pass ${missing.map((key) => `--env ${key}=...`).join(" ")} or set the variables in the environment first. Nothing was written.`,
+        ),
+      )
 
     const global = yield* Global.Service
     const configPath = yield* Effect.promise(() => resolveConfigPath(input.global ? global.config : process.cwd()))
@@ -58,7 +71,10 @@ export async function resolveConfigPath(directory: string) {
     )
       return candidate
   }
-  return candidates[0]
+  // No config exists yet: write the new one under .orchestra, so the
+  // project root stays clean and the config lives where Orchestra looks
+  // for project-local settings.
+  return path.join(directory, ".orchestra", "orchestra.json")
 }
 
 export async function writeConfig(configPath: string, name: string, server: unknown) {

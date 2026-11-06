@@ -56,15 +56,16 @@ describe("select", () => {
     expect(McpAcquire.select("browser automation")[0]!.entry.id).toBe(browser[0]!.entry.id)
   })
 
-  test("one generic word is not a match; unicode needs tokenize safely", () => {
+  test("one generic word is not a match; Russian needs translate to the catalog", () => {
     // "use" appears in most catalog entries' usage lines, so
     // it discriminates nothing and must not drag a server in on its own.
     // A rare word may qualify alone: "browser" appears in only 2 entries.
     expect(McpAcquire.select("use")).toEqual([])
     expect(McpAcquire.select("when")).toEqual([])
-    // Cyrillic tokenizes (no crash, no false match against the English catalog),
-    // and a Latin name token inside a mixed-language need still matches by name.
-    expect(McpAcquire.select("автоматизация браузера")).toEqual([])
+    // A Russian need translates before matching: browser automation finds Playwright.
+    expect(McpAcquire.select("автоматизация браузера")[0]!.entry.id).toBe("playwright")
+    expect(McpAcquire.select("документация библиотеки")[0]!.entry.id).toBe("context7")
+    // A Latin name token inside a mixed-language need still matches by name.
     expect(McpAcquire.select("нужен playwright пожалуйста")[0]!.entry.id).toBe("playwright")
   })
 })

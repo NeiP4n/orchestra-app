@@ -19,6 +19,7 @@ import { Database } from "../database/database.js"
 import { SessionStore } from "../session/store.js"
 import { SessionID } from "@orchestra/schema/session-id"
 import { McpBudget } from "./budget.js"
+import { McpRatings } from "./ratings.js"
 import { waitForAbort } from "@orchestra/util/process"
 import { State } from "../state.js"
 import type { McpClient } from "./client.js"
@@ -128,6 +129,8 @@ export interface Interface extends State.Transformable<Editor> {
     readonly sessionID?: Session.ID
     /** Retry only when the caller confirms a read-only MCP tool annotation. */
     readonly readOnly?: boolean
+    /** Caller-asserted idempotency key (see McpClient.Connection.callTool); without it, a non-read-only call runs exactly once. */
+    readonly idempotencyKey?: string
   }) => Effect.Effect<ToolResult, NotFoundError | ToolCallError>
   readonly instructions: () => Effect.Effect<ServerInstructions[]>
   readonly prompts: () => Effect.Effect<Prompt[]>
@@ -168,6 +171,10 @@ export const layer = (options?: Options) =>
       const credentials = yield* Credential.Service
       const sessions = yield* SessionStore.Service
       const database = yield* Database.Service
+      // The circuit breaker (./catalog.ts) is the one live copy: the service
+      // records every connect/call outcome on it, and the catalog plugin
+      // hides tripped servers from session context from the same state.
+      const { circuitBreaker } = yield* Effect.promise(() => import("./catalog.js"))
       const root = yield* Effect.scope
       const fork = yield* FiberSet.makeRuntime<never, void, never>()
 
@@ -180,13 +187,12 @@ export const layer = (options?: Options) =>
       const enforceBudget = Effect.fn("MCP.enforceBudget")(function* (sessionID: Session.ID, server: ServerName) {
         const info = yield* sessions.get(sessionID)
         const stamp = McpBudget.parseStamp(info?.metadata)
-        if (stamp.kind === "none") {
-          // No budget: drop any usage an earlier stamp left behind, so a
-          // finished task's record does not linger (bounded cleanup).
-          yield* McpBudget.removeUsage(database.db, sessionID).pipe(Effect.ignore)
-          return undefined
-        }
-        return yield* McpBudget.reserve(database.db, { sessionID, server, stamp }).pipe(
+        // No stamp means the default limit (50 calls/session), not no limit:
+        // an unstamped session is still gated, just by the code-stamped
+        // default instead of an Orchestrator hand-out. A real stamp replaces
+        // it on the next reservation (new epoch, fresh counters).
+        const effective = stamp.kind === "none" ? McpBudget.defaultStamp() : stamp
+        return yield* McpBudget.reserve(database.db, { sessionID, server, stamp: effective }).pipe(
           Effect.catchCause((cause) =>
             Effect.logWarning("MCP budget reservation failed; refusing the call", { cause, sessionID }).pipe(
               Effect.as(
@@ -205,8 +211,13 @@ export const layer = (options?: Options) =>
         for (const row of yield* McpBudget.listUsage(database.db)) {
           const info = yield* sessions.get(SessionID.make(row.sessionID))
           const stamp = McpBudget.parseStamp(info?.metadata)
-          if (!info || stamp.kind !== "limit" || stamp.epoch !== row.usage?.epoch)
-            yield* McpBudget.removeUsage(database.db, row.sessionID)
+          // A live counter stays: a stamped epoch that still matches, or the
+          // default epoch of a session with no stamp. Anything else is a
+          // finished task's record, or a session that is gone.
+          const live =
+            (stamp.kind === "limit" && stamp.epoch === row.usage?.epoch) ||
+            (stamp.kind === "none" && row.usage?.epoch === McpBudget.DEFAULT_EPOCH)
+          if (!info || !live) yield* McpBudget.removeUsage(database.db, row.sessionID)
         }
       }).pipe(
         Effect.catchCause((cause) => Effect.logWarning("MCP budget usage sweep failed", { cause })),
@@ -447,17 +458,37 @@ export const layer = (options?: Options) =>
           ),
         )
 
+      // A server that dies on its own comes back: up to 3 restarts with
+      // growing delays (5s, 15s, 30s), then it stays failed for the operator
+      // to look at — restarting forever would just hammer a dead server.
+      // Explicit stops never restart: a disconnected server reports
+      // "disabled", a removed one is gone from `entries`, and a server
+      // already reconnected by hand has a live client; all three end the
+      // loop at the first check after the delay.
+      const restartServer = (name: ServerName, entry: ServerEntry) =>
+        Effect.gen(function* () {
+          for (const delay of ["5 seconds", "15 seconds", "30 seconds"] as const) {
+            yield* Effect.sleep(delay)
+            if (entries.get(name) !== entry || entry.client) return
+            if (entry.config.disabled || entry.status.status !== "failed") return
+            yield* Effect.logWarning("mcp server died, restarting", { server: name })
+            yield* startServer(name, entry).pipe(locks.withLock(name))
+            if (entry.client) return
+          }
+        }).pipe(Effect.ignore)
+
       const watch = (name: ServerName, entry: ServerEntry, connection: McpClient.Connection) => {
         const live = whenLive(name, entry, connection)
-        connection.onClose((reason) =>
+        connection.onClose((reason) => {
           live(
             Effect.gen(function* () {
               entry.status = { status: "failed", error: reason }
               yield* stopServer(name, entry)
               yield* bus.publish(McpEvent.StatusChanged, { server: name })
             }),
-          ),
-        )
+          )
+          fork(restartServer(name, entry))
+        })
         // Background refreshes (list-changed) can observe the expiry too; they do not retry, so
         // reconnect here for them. Foreground calls reconnect through `recovering`.
         connection.onSessionExpired(() => fork(recover(name, entry, connection)))
@@ -531,6 +562,10 @@ export const layer = (options?: Options) =>
             entry.tools = result.value.tools.map((tool) => toTool(name, entry, tool))
             entry.prompts = []
             entry.status = { status: "connected" }
+            // A connect that works clears the breaker's failure count: a
+            // server the operator fixed (or that recovered on its own) is
+            // usable again immediately, not after its old failures age out.
+            circuitBreaker.recordSuccess(name)
             watch(name, entry, result.value.connection)
             yield* Effect.logInfo("mcp connected", { server: name, tools: entry.tools.length })
             // The tool registry reads on this event; a late-connecting server has no other way to appear.
@@ -547,6 +582,12 @@ export const layer = (options?: Options) =>
             error instanceof McpClient.NeedsAuthError
               ? { status: "needs_auth", error: error.message }
               : { status: "failed", error: error instanceof Error ? error.message : String(error) }
+          // A failed connect counts toward the breaker like a failed call:
+          // three dead servers in a row pause the server instead of letting
+          // every session pay a fresh startup timeout for it. Needs-auth is
+          // an operator state, not a dead server, so it never counts.
+          if (!(error instanceof McpClient.NeedsAuthError))
+            circuitBreaker.recordFailure(name, error instanceof Error ? error.message : String(error))
           yield* Effect.logWarning("mcp connect failed", { server: name, status: entry.status })
           yield* bus.publish(McpEvent.StatusChanged, { server: name })
         }).pipe(
@@ -754,14 +795,51 @@ export const layer = (options?: Options) =>
               tool: input.name,
               message: unavailable(target.name, target.entry.status),
             })
+          // A server that failed its last calls in a row is paused by the
+          // circuit breaker: fail fast here instead of paying another
+          // startup/execution timeout hammering it. The message names the
+          // pause and the way out (another server, or reconnect), so the
+          // caller can fall back instead of retrying the same dead server.
+          if (!circuitBreaker.isAvailable(target.name)) {
+            const state = circuitBreaker.getState(target.name)
+            return yield* new ToolCallError({
+              server: target.name,
+              tool: input.name,
+              message: `MCP server "${target.name}" is paused by the circuit breaker after ${state.consecutiveFailures} failed calls${state.lastError ? ` (last error: ${state.lastError})` : ""}. Use another server for this job, or reconnect it from /mcps; a successful reconnect clears the pause.`,
+            })
+          }
+          // Every dispatch feeds the persistent rating (success or failure,
+          // latency, output size) and the session's output-token accounting.
+          // Best-effort and silent: a bookkeeping failure never fails the
+          // call it describes.
+          const startedAt = Date.now()
+          const recordOutcome = (ok: boolean, outputTokens = 0, errorMessage?: string) =>
+            Effect.gen(function* () {
+              // The same outcome drives the circuit breaker: a transport
+              // failure counts, a tool answering with an error does not —
+              // that call reached the server and returned, so the server
+              // is alive. A success clears the failure count outright.
+              if (ok) circuitBreaker.recordSuccess(target.name, Date.now() - startedAt)
+              else circuitBreaker.recordFailure(target.name, errorMessage)
+              yield* McpRatings.record(database.db, target.name, {
+                ok,
+                latencyMs: Date.now() - startedAt,
+                outputTokens,
+              }).pipe(Effect.ignore)
+              if (ok && input.sessionID)
+                yield* McpBudget.recordOutput(database.db, input.sessionID, outputTokens).pipe(Effect.ignore)
+            })
           const result = yield* recovering(target.name, target.entry, target.entry.client, (connection) =>
             connection.callTool({
               name: input.name,
               args: input.args,
               sessionID: input.sessionID,
               readOnly: input.readOnly,
+              idempotencyKey: input.idempotencyKey,
             }),
           ).pipe(
+            Effect.tap((res) => recordOutcome(true, McpBudget.estimateOutputTokens(res.content))),
+            Effect.tapError((error) => recordOutcome(false, 0, error.message)),
             Effect.mapError(
               (error) =>
                 new ToolCallError({

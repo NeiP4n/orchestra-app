@@ -236,7 +236,11 @@ export const toolGroups: readonly { id: string; name: string; actions: readonly 
   { id: "desktop", name: "Desktop", actions: ["desktop", "playtest"] },
   { id: "skills", name: "Skills", actions: ["skill", "skill_catalog"] },
   { id: "notes", name: "Notes", actions: ["note", "idea_bank", "plots"] },
-  { id: "android", name: "Android devices", actions: ["android_helper_*"] },
+  // No android group: there is no android_helper MCP server anywhere in the
+  // code (no catalog entry, no tool ever registers android_helper_*), so
+  // offering the group in the team editor granted a capability no role could
+  // reach. Android devices are reached through the Registry (adb programs),
+  // not through MCP — see hub/catalog/mobile.ts.
   { id: "reverse", name: "Reverse engineering", actions: ["rea-anything_*", "rea_*"] },
   { id: "vcs", name: "Version control", actions: ["github_*"] },
   { id: "forge", name: "Tool & MCP Forge", actions: ["mcp_forge", "command_forge", "plugin_forge"] },
@@ -823,8 +827,6 @@ const NOTES = ["note", "idea_bank", "plots"]
 const REVERSE = ["rea-anything_*", "rea_*"]
 const VCS = ["github_*"]
 const FORGE = ["mcp_forge", "command_forge", "plugin_forge"]
-// The android_helper MCP server drives adb devices and emulators, so only roles that touch mobile builds get it.
-const ANDROID = ["android_helper_*"]
 const MCP = ["mcp_*", "context7_*", "deepwiki_*", "serena_*"]
 // Production error data exists only where the team runs Sentry, so only the roles that
 // investigate production failures carry it by default; the editor can add it anywhere.
@@ -867,7 +869,7 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   },
   "backend-developer": { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REVERSE, MCP), hub: SERVER },
   "mobile-developer": {
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, ANDROID),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE),
     hub: [...CODE, "mobile", "process"],
   },
   "desktop-developer": {
@@ -880,16 +882,16 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   "system-administrator": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, SENTRY), hub: [...SERVER, "github", "systemd"] },
   "support-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES), hub: [...SERVER, "windows", "systemd"] },
   debugger: {
-    tools: kit(READ, PROBE, WEB, SCREEN, REVERSE, VCS, SKILLS, NOTES, ANDROID),
+    tools: kit(READ, PROBE, WEB, SCREEN, REVERSE, VCS, SKILLS, NOTES),
     hub: [...SERVER, "mobile"],
   },
   "adaptive-ui-tester": {
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP, ANDROID),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP),
     hub: [...CODE, "data", "network", "process", "mobile", "windows"],
   },
   tester: {
     // The tester drives apps through playtest, browser, and desktop automation; git for checking diffs.
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP, ANDROID),
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP),
     hub: [...CODE, "data", "network", "process", "mobile"],
   },
   reviewer: { tools: kit(READ, PROBE, WEB, ["browser"], SKILLS, NOTES, VCS, REVERSE, FORGE, MCP), hub: [...CODE, "github"] },

@@ -30,6 +30,7 @@
     "@effect/platform-node": "catalog:",
     "@opencode-ai/pty": "0.2.0",
     "@orchestra/client": "workspace:*",
+    "@orchestra/core": "workspace:*",
     "@orchestra/plugin": "workspace:*",
     "@orchestra/schema": "workspace:*",
     "@orchestra/server": "workspace:*",

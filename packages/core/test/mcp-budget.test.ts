@@ -16,7 +16,7 @@ const limit = (overrides?: Partial<McpBudget.Limit>): McpBudget.Limit => ({
 
 const stamp = (value: McpBudget.Limit, epoch = "epoch-1"): McpBudget.Stamp => ({ kind: "limit", limit: value, epoch })
 
-const empty: McpBudget.Usage = { total: 0, perServer: {} }
+const empty: McpBudget.Usage = { total: 0, perServer: {}, tokens: 0 }
 
 describe("McpBudget.parseStamp", () => {
   test("no metadata or no stamp is ungated", () => {
@@ -34,6 +34,17 @@ describe("McpBudget.parseStamp", () => {
       limit: { servers: ["docs"], maxCalls: 3, perServer: { docs: 2 } },
       epoch: "task-9",
     })
+  })
+
+  test("the default stamp gates unstamped sessions at 50 calls", () => {
+    const stamp = McpBudget.defaultStamp()
+    expect(stamp.kind).toBe("limit")
+    if (stamp.kind === "limit") {
+      expect(stamp.limit.maxCalls).toBe(McpBudget.DEFAULT_UNSTAMPED_MAX_CALLS)
+      expect(stamp.limit.maxCalls).toBe(50)
+      expect(stamp.limit.servers).toBe("all")
+      expect(stamp.epoch).toBe(McpBudget.DEFAULT_EPOCH)
+    }
   })
 
   test("a stamp without budgetEpoch falls back to a limit fingerprint", () => {
@@ -62,10 +73,18 @@ describe("McpBudget.parseStamp", () => {
 
 describe("McpBudget.parsePersistedUsage", () => {
   test("parses a well-formed record and rejects the rest", () => {
+    expect(McpBudget.parsePersistedUsage({ epoch: "e", total: 2, perServer: { a: 2 }, tokens: 5 })).toEqual({
+      epoch: "e",
+      total: 2,
+      perServer: { a: 2 },
+      tokens: 5,
+    })
+    // Rows written before token accounting carry no `tokens`; they spent none by this measure.
     expect(McpBudget.parsePersistedUsage({ epoch: "e", total: 2, perServer: { a: 2 } })).toEqual({
       epoch: "e",
       total: 2,
       perServer: { a: 2 },
+      tokens: 0,
     })
     expect(McpBudget.parsePersistedUsage(undefined)).toBeUndefined()
     expect(McpBudget.parsePersistedUsage({ total: 2, perServer: {} })).toBeUndefined()
@@ -83,19 +102,36 @@ describe("McpBudget.decide", () => {
 
   test("the total cap denies at the cap and allows below it", () => {
     const value = limit({ maxCalls: 2 })
-    const below = McpBudget.decide({ limit: value, server: "a", usage: { total: 1, perServer: { a: 1 } } })
-    expect(below).toEqual({ allowed: true, next: { total: 2, perServer: { a: 2 } } })
-    const at = McpBudget.decide({ limit: value, server: "a", usage: { total: 2, perServer: { a: 2 } } })
+    const below = McpBudget.decide({ limit: value, server: "a", usage: { total: 1, perServer: { a: 1 }, tokens: 0 } })
+    expect(below).toEqual({ allowed: true, next: { total: 2, perServer: { a: 2 }, tokens: 0 } })
+    const at = McpBudget.decide({ limit: value, server: "a", usage: { total: 2, perServer: { a: 2 }, tokens: 0 } })
     expect(at.allowed).toBe(false)
     if (!at.allowed) expect(at.message).toContain("MCP budget exhausted for this task")
   })
 
   test("per-server caps are independent of the total", () => {
     const value = limit({ maxCalls: 10, perServer: { a: 1 } })
-    const denied = McpBudget.decide({ limit: value, server: "a", usage: { total: 1, perServer: { a: 1 } } })
+    const denied = McpBudget.decide({ limit: value, server: "a", usage: { total: 1, perServer: { a: 1 }, tokens: 0 } })
     expect(denied.allowed).toBe(false)
     if (!denied.allowed) expect(denied.message).toContain('MCP budget exhausted for server "a"')
-    expect(McpBudget.decide({ limit: value, server: "b", usage: { total: 1, perServer: { a: 1 } } }).allowed).toBe(true)
+    expect(McpBudget.decide({ limit: value, server: "b", usage: { total: 1, perServer: { a: 1 }, tokens: 0 } }).allowed).toBe(true)
+  })
+
+  test("the output-token cap denies once spent, and is ignored when unset", () => {
+    const capped = limit({ maxCalls: 10, maxTokens: 100 })
+    const spent = McpBudget.decide({ limit: capped, server: "a", usage: { total: 1, perServer: { a: 1 }, tokens: 100 } })
+    expect(spent.allowed).toBe(false)
+    if (!spent.allowed) expect(spent.message).toContain("output-token budget exhausted")
+    const open = McpBudget.decide({ limit: capped, server: "a", usage: { total: 1, perServer: { a: 1 }, tokens: 99 } })
+    expect(open.allowed).toBe(true)
+    const nocap = McpBudget.decide({ limit: limit(), server: "a", usage: { total: 1, perServer: { a: 1 }, tokens: 1_000_000 } })
+    expect(nocap.allowed).toBe(true)
+  })
+
+  test("estimateOutputTokens counts roughly four characters per token", () => {
+    expect(McpBudget.estimateOutputTokens([{ text: "x".repeat(400) }])).toBe(100)
+    expect(McpBudget.estimateOutputTokens([{ text: "hi" }, { data: "AAAA" }])).toBe(2)
+    expect(McpBudget.estimateOutputTokens([])).toBe(0)
   })
 })
 
@@ -119,7 +155,7 @@ describe("McpBudget.reserve (in-memory database)", () => {
         expect(yield* McpBudget.reserve(db, { sessionID: "s", server: "a", stamp: value })).toBeUndefined()
         expect(yield* McpBudget.reserve(db, { sessionID: "s", server: "b", stamp: value })).toBeUndefined()
         expect(yield* McpBudget.reserve(db, { sessionID: "s", server: "a", stamp: value })).toContain("exhausted")
-        expect(yield* McpBudget.readUsage(db, "s")).toEqual({ epoch: "epoch-1", total: 2, perServer: { a: 1, b: 1 } })
+        expect(yield* McpBudget.readUsage(db, "s")).toEqual({ epoch: "epoch-1", total: 2, perServer: { a: 1, b: 1 }, tokens: 0 })
       }),
     )
   })
@@ -145,7 +181,26 @@ describe("McpBudget.reserve (in-memory database)", () => {
           "exhausted",
         )
         expect(yield* McpBudget.reserve(db, { sessionID: "s", server: "a", stamp: stamp(value, "e2") })).toBeUndefined()
-        expect(yield* McpBudget.readUsage(db, "s")).toEqual({ epoch: "e2", total: 1, perServer: { a: 1 } })
+        expect(yield* McpBudget.readUsage(db, "s")).toEqual({ epoch: "e2", total: 1, perServer: { a: 1 }, tokens: 0 })
+      }),
+    )
+  })
+
+  test("recordOutput adds output tokens to the row; the token cap then refuses the next call", async () => {
+    await withMemoryDb((db) =>
+      Effect.gen(function* () {
+        const value = stamp(limit({ maxCalls: 10, maxTokens: 100 }))
+        expect(yield* McpBudget.reserve(db, { sessionID: "s", server: "a", stamp: value })).toBeUndefined()
+        yield* McpBudget.recordOutput(db, "s", 60)
+        expect((yield* McpBudget.readUsage(db, "s"))?.tokens).toBe(60)
+        expect(yield* McpBudget.reserve(db, { sessionID: "s", server: "a", stamp: value })).toBeUndefined()
+        yield* McpBudget.recordOutput(db, "s", 60)
+        expect(yield* McpBudget.reserve(db, { sessionID: "s", server: "a", stamp: value })).toContain(
+          "output-token budget exhausted",
+        )
+        // No row, no charge: recording for an unreserved session is a no-op, not a failure.
+        yield* McpBudget.recordOutput(db, "ghost", 10)
+        expect(yield* McpBudget.readUsage(db, "ghost")).toBeUndefined()
       }),
     )
   })
