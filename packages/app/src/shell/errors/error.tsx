@@ -315,6 +315,13 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
     return state?.status === "ready" || state?.status === "download-required" ? state.version : undefined
   }
 
+  // The recovery mini-chat is the fallback entry point when Orchestra itself is broken:
+  // a static page at /recovery that works even when this app cannot load. The error
+  // summary travels in the URL hash so the chat opens with it already pasted.
+  function openRecoveryChat() {
+    location.href = `/recovery#${encodeURIComponent(formattedError().slice(0, 2000))}`
+  }
+
   async function exportDebugLogs() {
     const exportLogs = platform.exportDebugLogs
 
@@ -356,6 +363,9 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
         <div class="flex flex-row items-center justify-center gap-3 flex-wrap max-w-64">
           <Button size="large" onClick={platform.restart}>
             {language.t(platform.platform === "web" ? "error.page.action.reload" : "error.page.action.restart")}
+          </Button>
+          <Button size="large" onClick={openRecoveryChat}>
+            {language.t("error.page.action.fix")}
           </Button>
           <Show when={platform.platform === "desktop" && platform.exportDebugLogs}>
             <Button size="large" variant="ghost" onClick={exportDebugLogs}>

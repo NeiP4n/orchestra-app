@@ -454,6 +454,10 @@ import type {
   ServerAutoloopCardsListOutput,
   ServerAutoloopCardsAnswerInput,
   ServerAutoloopCardsAnswerOutput,
+  ServerRecoveryModelsInput,
+  ServerRecoveryModelsOutput,
+  ServerRecoveryChatInput,
+  ServerRecoveryChatOutput,
   QuotaCheckInput,
   QuotaCheckOutput,
 } from "./types.js"
@@ -3785,6 +3789,33 @@ export function make(options: ClientOptions) {
             requestOptions,
           ),
       },
+    },
+    "server.recovery": {
+      models: (input?: ServerRecoveryModelsInput, requestOptions?: RequestOptions) =>
+        request<ServerRecoveryModelsOutput>(
+          {
+            method: "GET",
+            path: `/api/recovery/models`,
+            query: { location: input?.["location"] },
+            successStatus: 200,
+            declaredStatuses: [400, 401, 404, 503],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      chat: (input: ServerRecoveryChatInput, requestOptions?: RequestOptions) =>
+        request<ServerRecoveryChatOutput>(
+          {
+            method: "POST",
+            path: `/api/recovery/chat`,
+            query: { location: input["location"] },
+            body: { model: input["model"], messages: input["messages"] },
+            successStatus: 200,
+            declaredStatuses: [400, 401, 404, 503],
+            empty: false,
+          },
+          requestOptions,
+        ),
     },
     quota: {
       check: (input: QuotaCheckInput, requestOptions?: RequestOptions) =>

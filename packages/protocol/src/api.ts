@@ -38,6 +38,7 @@ import { ConfigGroup } from "./groups/config.js"
 import { RoomGroup } from "./groups/room.js"
 import { OrchestraGroup } from "./groups/orchestra.js"
 import { AutoloopGroup } from "./groups/autoloop.js"
+import { RecoveryGroup } from "./groups/recovery.js"
 import { QuotaGroup } from "./quota.js"
 
 type LocationGroups<LocationId extends HttpApiMiddleware.AnyId> =
@@ -58,6 +59,7 @@ type LocationGroups<LocationId extends HttpApiMiddleware.AnyId> =
   | HttpApiGroup.AddMiddleware<typeof VcsGroup, LocationId>
   | HttpApiGroup.AddMiddleware<typeof NoteGroup, LocationId>
   | HttpApiGroup.AddMiddleware<typeof ConfigGroup, LocationId>
+  | HttpApiGroup.AddMiddleware<typeof RecoveryGroup, LocationId>
 
 type PtyGroups<LocationId extends HttpApiMiddleware.AnyId, LocationService> = ReturnType<
   typeof makePtyGroup<LocationId, LocationService>
@@ -202,6 +204,7 @@ const makeApiFromGroup = <
     .add(RoomGroup)
     .add(OrchestraGroup)
     .add(AutoloopGroup)
+    .add(RecoveryGroup.middleware(locationMiddleware))
     .add(QuotaGroup)
     .annotateMerge(
       OpenApi.annotations({

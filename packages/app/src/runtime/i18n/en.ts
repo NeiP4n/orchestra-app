@@ -439,6 +439,7 @@ export const dict = {
   "error.page.details.label": "Error Details",
   "error.page.action.restart": "Restart",
   "error.page.action.reload": "Reload",
+  "error.page.action.fix": "Fix with AI",
   "error.page.action.report": "Report Error",
   "error.page.action.reported": "Error Reported",
   "error.page.action.exportLogs": "Export Logs",

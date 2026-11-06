@@ -15281,6 +15281,36 @@ export type ServerAutoloopCardsAnswerInput = {
 
 export type ServerAutoloopCardsAnswerOutput = AutoloopCardAnswerResult
 
+export type ServerRecoveryModelsInput = {
+  readonly location?: { readonly location?: { readonly directory?: string | undefined } | undefined }["location"]
+}
+
+export type ServerRecoveryModelsOutput = {
+  location: LocationPublicRef
+  data: Array<{ providerID: string; id: string; name: string }>
+}
+
+export type ServerRecoveryChatInput = {
+  readonly location?: { readonly location?: { readonly directory?: string | undefined } | undefined }["location"]
+  readonly model: {
+    readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+    readonly messages: ReadonlyArray<{ readonly role: "user" | "assistant"; readonly content: string }>
+  }["model"]
+  readonly messages: {
+    readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+    readonly messages: ReadonlyArray<{ readonly role: "user" | "assistant"; readonly content: string }>
+  }["messages"]
+}
+
+export type ServerRecoveryChatOutput = {
+  reply: string
+  steps: Array<{ tool: string; input: JsonValue; output: string; success: boolean }>
+  fixed?: string
+  inputTokens?: number | "Infinity" | "-Infinity" | "NaN"
+  outputTokens?: number | "Infinity" | "-Infinity" | "NaN"
+  model: ModelRef
+}
+
 export type QuotaCheckInput = {
   readonly modelID: {
     readonly modelID: string

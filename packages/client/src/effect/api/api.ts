@@ -5070,6 +5070,42 @@ export interface ServerAutoloopApi<E = never> {
   }
 }
 
+export type ServerRecoveryModelsInput = { readonly location?: { readonly directory?: string | undefined } | undefined }
+export type ServerRecoveryModelsOutput = {
+  readonly location: Location.PublicRef
+  readonly data: ReadonlyArray<{ readonly providerID: Provider.ID; readonly id: Model.ID; readonly name: string }>
+}
+export type ServerRecoveryModelsOperation<E = never> = (
+  input?: ServerRecoveryModelsInput,
+) => Effect.Effect<ServerRecoveryModelsOutput, E>
+
+export type ServerRecoveryChatInput = {
+  readonly location?: { readonly directory?: string | undefined } | undefined
+  readonly model: Model.Ref
+  readonly messages: ReadonlyArray<{ readonly role: "user" | "assistant"; readonly content: string }>
+}
+export type ServerRecoveryChatOutput = {
+  readonly reply: string
+  readonly steps: ReadonlyArray<{
+    readonly tool: string
+    readonly input: unknown
+    readonly output: string
+    readonly success: boolean
+  }>
+  readonly fixed?: string | undefined
+  readonly inputTokens?: number | undefined
+  readonly outputTokens?: number | undefined
+  readonly model: Model.Ref
+}
+export type ServerRecoveryChatOperation<E = never> = (
+  input: ServerRecoveryChatInput,
+) => Effect.Effect<ServerRecoveryChatOutput, E>
+
+export interface ServerRecoveryApi<E = never> {
+  readonly models: ServerRecoveryModelsOperation<E>
+  readonly chat: ServerRecoveryChatOperation<E>
+}
+
 export type QuotaCheckInput = {
   readonly modelID: string
   readonly contextWindowLimit: number
@@ -5127,5 +5163,6 @@ export interface AppApi<E = never> {
   readonly room: RoomApi<E>
   readonly orchestra: OrchestraApi<E>
   readonly "server.autoloop": ServerAutoloopApi<E>
+  readonly "server.recovery": ServerRecoveryApi<E>
   readonly quota: QuotaApi<E>
 }

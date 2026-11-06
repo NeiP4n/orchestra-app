@@ -29,7 +29,7 @@ Layers flow `schema → protocol → client` and `schema → core → server →
 | Domain engine | `packages/core` | Sessions, runner, tools, MCP, federation, forges, the AI standard. Prompt intake (`src/prompt-intake/`) deep-processes every user prompt before admission. |
 | Providers/models | `packages/ai` | Model transports, provider adapters (incl. the Zen provider), streaming. |
 | Server | `packages/server` | HttpApi handlers (`src/handlers/*`), SSE, authorization. |
-| CLI & service | `packages/cli` | `orchestra serve`, background-service lifecycle, web-UI assets. |
+| CLI & service | `packages/cli` | `orchestra serve`, background-service lifecycle, web-UI assets. Recovery mini-chat page (`services/recovery-page.ts`, served at `/recovery`). |
 | TUI | `packages/tui` | SolidJS/OpenTUI interface: dialogs, sidebar, composer, themes binding. |
 | Web/desktop app | `packages/app` | Web UI; question dock, transcript. Built assets are served by the CLI in production. |
 | Themes | `packages/theme` | Theme registry, TUI token resolution and readability floors. |
@@ -1131,6 +1131,63 @@ the claim path would refuse. Columns come from `task_state`:
 - Verify: `packages/server/test/g2-health.test.ts`,
   `packages/core/test/g2-health-model-catalog.test.ts`,
   `packages/server/test/fetch.test.ts` ("returns LocationNotFoundError…").
+
+## Recovery mini-chat — `packages/core/src/recovery/` (Б12)
+
+The fallback entry point when Orchestra itself is broken and the normal UI
+cannot be entered. It is NOT a general escalation step: it exists only for
+the case "the program itself is broken".
+
+- **Button**: the app error page (`packages/app/src/shell/errors/error.tsx`,
+  the `ErrorBoundary` fallback in `app.tsx` and the session route error
+  fallback) has an «Исправить» button (`error.page.action.fix`: "Fix with
+  AI" / "Исправить") next to Restart/Reload. It navigates to `/recovery`
+  with the error summary in the URL hash, so the chat opens with it pasted.
+- **Page**: `packages/cli/src/services/recovery-page.ts` — plain HTML +
+  vanilla JS, no framework, no build step, no external resources. Served by
+  the CLI web-UI handler (`packages/cli/src/services/web-ui.ts`) at
+  `/recovery` BEFORE the app assets load, so it opens even when
+  `packages/app/dist` is missing or the bundle is broken. Tight CSP
+  (inline script/style only, `connect-src 'self'`). The page itself is
+  unauthenticated (like the sign-in screen); the API calls behind it use the
+  normal server credential and show a sign-in hint on 401.
+- **API** (`packages/protocol/src/groups/recovery.ts`, handlers
+  `packages/server/src/handlers/recovery.ts`): `GET /api/recovery/models`
+  lists only working providers (klinch, lix — Anymodel is down with 502 and
+  is never offered); `POST /api/recovery/chat` runs one autonomous repair
+  round. Registered as a location-middleware group in
+  `packages/protocol/src/api.ts`; the client is regenerated with
+  `bun run generate` from `packages/client`.
+- **Repair agent** (`packages/core/src/recovery/`): `Recovery.Service` is a
+  location node in the per-location graph (`packages/core/src/instance.ts`,
+  `nodes` — next to `Model`/`ModelResolver`, NOT in the server's global
+  `applicationServiceNodes`: a location node there breaks the server layer
+  graph with `Unbound layer node: @orchestra/Location`). It resolves the chosen
+  model through the normal `Model` + `ModelResolver` path (same credential
+  store as sessions), then `runRepairLoop` calls the model with four tools —
+  `read_file`, `write_file`, `list_files`, `run_shell` — up to 12 rounds.
+  Tools are confined to the repo the server runs from (`process.cwd()`):
+  paths cannot escape the root, `.git/` internals and `*.db` files cannot be
+  written directly, and a small denylist refuses destructive shell commands
+  (`rm -rf /`, `rm -rf ~`, `mkfs`, `shutdown`, …). Shell runs time out at
+  60 s. The agent works autonomously — no permission prompts — and ends its
+  answer with an `Исправлено:` line when it fixed something (parsed into
+  `RecoveryResult.fixed`). A model or provider failure is returned as a
+  reply, not an HTTP error: the user is already looking at a broken
+  Orchestra, and a bare 500 with no words helps no one.
+- **After the fix**: the page shows the `Исправлено:` banner with an
+  "Открыть Orchestra" button (back to `/`) and a restart hint
+  (`orchestra service restart`) when code changed.
+- Verify: `packages/core/test/recovery.test.ts` (model filter, repair loop
+  with a scripted test model, tool confinement, shell denylist) and the
+  `/recovery` case in `packages/cli/test/web-ui.test.ts` (page serves without
+  auth or a built shell). Handler rule: yield location services (e.g.
+  `Recovery.Service`) INSIDE each endpoint's `Effect.fn`, never in the group
+  builder — the builder runs at server startup, where no location exists
+  (`Service not found: @orchestra/Recovery`). Web-UI rule: inside
+  `Effect.gen` return the response value directly, never
+  `return Effect.succeed(...)` — the latter returns the Effect object as the
+  response and the request hangs with no bytes.
 
 ## Foreground server lifecycle — `packages/cli/src/services/server-lifecycle.ts` (B14 live fix)
 

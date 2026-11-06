@@ -38,25 +38,31 @@ test("exposes every standard HTTP API group", () => {
     "config",
     "room",
     "orchestra",
+    "server.autoloop",
+    "server.recovery",
+    "quota",
   ])
   expect(Object.keys(client.debug)).toEqual(["location"])
   expect(Object.keys(client.debug.location)).toEqual(["list", "evict"])
   expect(Object.keys(client.message)).toEqual(["list"])
   expect(Object.keys(client.integration)).toEqual(["list", "get", "wellknown", "connect", "oauth", "command"])
   expect(Object.keys(client.integration.wellknown)).toEqual(["add"])
-  expect(Object.keys(client.integration.connect)).toEqual(["key"])
+  expect(Object.keys(client.integration.connect)).toEqual(["key", "external"])
   expect(Object.keys(client.integration.oauth)).toEqual(["connect", "status", "complete", "cancel"])
   expect(Object.keys(client.integration.command)).toEqual(["connect", "status", "cancel"])
   expect(Object.keys(client.websearch)).toEqual(["providers", "query"])
-  expect(Object.keys(client.file)).toEqual(["read", "list", "find"])
-  expect(Object.keys(client.vcs)).toEqual(["get", "base", "status", "branches", "diff"])
+  expect(Object.keys(client.file)).toEqual(["read", "list", "find", "write"])
+  expect(Object.keys(client.vcs)).toEqual(["init", "get", "base", "status", "branch", "diff"])
   expect(Object.keys(client.pty)).toEqual(["list", "create", "get", "update", "remove", "connect"])
   expect(Object.keys(client.pty.connect)).toEqual(["token"])
   expect(Object.keys(client.experimental)).toEqual(["persistentPty"])
   expect(client.experimental.persistentPty.read).toBeFunction()
-  expect(Object.keys(client.shell)).toEqual(["list", "create", "get", "timeout", "output", "remove"])
+  expect(Object.keys(client.shell)).toEqual(["list", "create", "get", "output", "remove"])
   expect(Object.keys(client.project)).toEqual(["list", "update"])
   expect(Object.keys(client.worktree)).toEqual(["list", "create", "remove", "refresh"])
+  expect(Object.keys(client["server.autoloop"])).toEqual(["cards"])
+  expect(Object.keys(client["server.recovery"])).toEqual(["models", "chat"])
+  expect(Object.keys(client.quota)).toEqual(["check"])
 })
 
 test("config.get returns ordered config entries for a location", async () => {
