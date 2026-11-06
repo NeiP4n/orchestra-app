@@ -36,7 +36,7 @@ export const AutoloopGroup = HttpApiGroup.make("server.autoloop")
         identifier: "autoloop.cards.answer",
         summary: "Answer an autoloop card",
         description:
-          "Answer an ask card by option index, free text, or both. The answer is a fact in the journal: it records card.answered and starts a new round when the card belongs to a rule. Answering an already decided card changes nothing.",
+          "Answer an ask card by option index, free text, or both. The answer is a fact in the journal: it records card.answered (with the chosen option) and starts a new round when the card belongs to a rule, except answering “Отменить задачу”, which cancels the task and starts no round. Answering an already decided card changes nothing.",
       }),
     ),
   )
