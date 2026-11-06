@@ -16,6 +16,7 @@ export const make = Effect.fn("Updater.platform")(function* (channel: string) {
   // to the latest GitHub release download feed (electron-updater follows the
   // /releases/latest/download redirect to latest.yml; verify on the first
   // desktop release that the relative file URLs inside it resolve).
+
   const updateUrl =
     process.env.ORCHESTRA_UPDATE_URL?.trim() ||
     (external ? undefined : "https://github.com/NeiP4n/orchestra-app/releases/latest/download")

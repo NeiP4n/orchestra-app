@@ -21,6 +21,7 @@ async function load(channel: string) {
   process.env.ORCHESTRA_CHANNEL = channel
 
   try {
+    // SAFETY: electron-builder config module exports a Configuration object by default
     return (await import(`./electron-builder.config.ts?${channel}`)).default as Configuration
   } finally {
     delete process.env.ORCHESTRA_CHANNEL
@@ -33,6 +34,8 @@ function trimFilter(dir: string, config: Configuration) {
   return new FileMatcher(dir, "", (value: string) => value, [
     "**/*",
     ...(Array.isArray(config.files) ? config.files : []).filter(
+      // SAFETY: electron-builder Configuration.files entries are plain strings or FilePattern objects; a string starting with ! is an exclusion pattern.
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- see SAFETY above
       (value): value is string => typeof value === "string" && value.startsWith("!"),
     ),
   ]).createFilter()
@@ -105,6 +108,7 @@ test.each([
   const previousChannel = process.env.ORCHESTRA_CHANNEL
   const previousSign = process.env.ORCHESTRA_MAC_SIGN
   process.env.ORCHESTRA_CHANNEL = "prod"
+
   if (sign === undefined) delete process.env.ORCHESTRA_MAC_SIGN
   else process.env.ORCHESTRA_MAC_SIGN = sign
 

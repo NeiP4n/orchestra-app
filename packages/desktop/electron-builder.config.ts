@@ -71,8 +71,31 @@ const APP_IDS = {
   prod: "com.nei4pn.orchestra",
 } as const
 
-const getBase = (appId: string): Configuration => ({
-  artifactName: "orchestra-desktop-${os}-${arch}.${ext}",
+const getBase = (appId: string): Configuration => {
+  const mac: Configuration["mac"] = {
+    category: "public.app-category.developer-tools",
+    icon: `resources/icons/icon.icns`,
+    extendInfo: {
+      NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac: true,
+    },
+    hardenedRuntime: true,
+    gatekeeperAssess: false,
+    entitlements: "resources/entitlements.plist",
+    entitlementsInherit: "resources/entitlements.plist",
+    target: ["dmg", "zip"],
+  }
+
+  if (macSignEnabled) {
+    mac.sign = async (options) => {
+      const { sign } = await import("app-builder-lib/out/codeSign/macCodeSign")
+      await sign(macSignOptions(options))
+    }
+
+    mac.notarize = true
+  }
+
+  return {
+    artifactName: "orchestra-desktop-${os}-${arch}.${ext}",
   directories: {
     output: "dist",
     buildResources: "resources",
@@ -124,27 +147,7 @@ const getBase = (appId: string): Configuration => ({
 
     if ((await stat(version)).size === 0) throw new Error(`Bundled CLI version must be a non-empty file: ${version}`)
   },
-  mac: {
-    category: "public.app-category.developer-tools",
-    icon: `resources/icons/icon.icns`,
-    extendInfo: {
-      NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac: true,
-    },
-    hardenedRuntime: true,
-    gatekeeperAssess: false,
-    entitlements: "resources/entitlements.plist",
-    entitlementsInherit: "resources/entitlements.plist",
-    ...(macSignEnabled
-      ? {
-          sign: async (options: CustomMacSignOptions) => {
-            const { sign } = await import("app-builder-lib/out/codeSign/macCodeSign")
-            await sign(macSignOptions(options))
-          },
-          notarize: true,
-        }
-      : {}),
-    target: ["dmg", "zip"],
-  },
+  mac,
   protocols: {
     name: "Orchestra",
     schemes: ["orchestra"],
@@ -177,7 +180,8 @@ const getBase = (appId: string): Configuration => ({
     },
     target: ["AppImage", "deb", "rpm"],
   },
-})
+  }
+}
 
 function getConfig() {
   const appId = APP_IDS[channel]

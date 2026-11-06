@@ -107,6 +107,7 @@ async function copyCliToResources(pkg: string, dest: string) {
   const cli = getCurrentCli()
   await copyFile(join(pkg, "bin", cli.os === "win32" ? "orchestra.exe" : "orchestra"), dest)
   await prepareCli(dest)
+  // SAFETY: the bundled CLI package.json is written by packages/cli/script/build.ts with a string version; a missing version throws on the next line.
   const manifest = (await Bun.file(join(pkg, "package.json")).json()) as { version?: string }
 
   if (!manifest.version) throw new Error(`Bundled CLI package has no version: ${pkg}`)

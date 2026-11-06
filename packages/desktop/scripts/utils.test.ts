@@ -7,8 +7,10 @@ import { copyBuiltCliToResources, getCurrentCli } from "./utils"
 // The desktop embeds the locally built CLI (ORCHESTRA_CLI_DIST): prebuild copies
 // <dist>/<package>/bin/orchestra[.exe] into resources/. A build that writes the binary
 // under any other name must fail loudly here, not at packaging time.
+
 test("copyBuiltCliToResources embeds the built orchestra binary and its version", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "orchestra-cli-dist-"))
+
   try {
     const cli = getCurrentCli()
     const pkgDir = path.join(root, cli.package.replace("@orchestra/", ""))
