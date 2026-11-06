@@ -1,0 +1,92 @@
+import { describe, expect, test } from "bun:test"
+import { Effect } from "effect"
+import { PromptIntake } from "@orchestra/core/prompt-intake/index"
+import type { SessionSchema } from "@orchestra/schema/session"
+import type { IntakeContext } from "@orchestra/core/prompt-intake/types"
+
+const run = <A>(effect: Effect.Effect<A, never>) => Effect.runPromise(effect)
+
+const emptyContext = (): IntakeContext => ({
+  dodItems: [],
+  recentPrompts: [],
+  journalTitles: [],
+  sources: { dod: true, history: true, journal: true },
+})
+
+// The mock disambiguator ignores the session; the cast only satisfies the
+// type of the process input.
+const fakeSession = {} as SessionSchema.Info
+
+const mockDisambiguate: PromptIntake.Disambiguator = () =>
+  Effect.succeed({
+    assumptions: ["Быстрее — цель: ответ за 100 мс"],
+    clarifiedGoal: "Ускорить ответ сервера до 100 мс",
+    modelUsed: true,
+  })
+
+describe("prompt-intake service", () => {
+  test("processPure enriches a clear prompt with goal, DoD, and skills", () => {
+    const result = PromptIntake.processPure({
+      text: "Исправь ошибку в packages/core/src/session/prompt.ts. Сервер падает при пустом промпте.",
+      context: emptyContext(),
+      skills: [
+        { id: "skill-test", name: "testing", description: "Run tests", content: "Run bun test." },
+      ],
+    })
+    expect(result.value.verdict).toBe("execute")
+    expect(result.enrichedPrompt).toContain("Исправь ошибку в packages/core/src/session/prompt.ts.")
+    expect(result.enrichedPrompt).toContain("Цель:")
+    expect(result.enrichedPrompt).toContain("Готово, когда:")
+    expect(result.modelUsed).toBe(false)
+  })
+
+  test("process with a mock model refines an ambiguous prompt and marks model use", async () => {
+    const result = await run(
+      PromptIntake.process({
+        session: fakeSession,
+        text: "сделай лучше",
+        context: emptyContext(),
+        disambiguate: mockDisambiguate,
+      }),
+    )
+    expect(result.modelUsed).toBe(true)
+    expect(result.task.goal).toBe("Ускорить ответ сервера до 100 мс")
+    expect(result.task.ambiguities[0]?.assumption).toBe("Быстрее — цель: ответ за 100 мс")
+  })
+
+  test("process without a disambiguator never uses a model", async () => {
+    const result = await run(
+      PromptIntake.process({ session: fakeSession, text: "сделай лучше", context: emptyContext() }),
+    )
+    expect(result.modelUsed).toBe(false)
+    expect(result.task.ambiguities.length).toBeGreaterThan(0)
+  })
+
+  test("a continuation passes through untouched", async () => {
+    const result = await run(
+      PromptIntake.process({ session: fakeSession, text: "продолжай", context: emptyContext() }),
+    )
+    expect(result.enrichedPrompt).toBe("продолжай")
+    expect(result.value.verdict).toBe("execute")
+    expect(result.modelUsed).toBe(false)
+  })
+
+  test("process never fails, even on an empty prompt", async () => {
+    const result = await run(
+      PromptIntake.process({ session: fakeSession, text: "   ", context: emptyContext() }),
+    )
+    expect(result.value.verdict).toBe("clarify")
+    expect(result.original).toBe("   ")
+  })
+
+  test("a duplicate verdict survives the full pipeline with its evidence", async () => {
+    const context = emptyContext()
+    context.dodItems.push({ id: "S1", title: "Добавить kanban в DoD", state: "DONE" })
+    const result = await run(
+      PromptIntake.process({ session: fakeSession, text: "Добавь kanban в DoD", context }),
+    )
+    expect(result.value.verdict).toBe("skip")
+    expect(result.enrichedPrompt).toContain("Добавить kanban в DoD")
+    expect(result.enrichedPrompt).toContain("Ценность: пропустить")
+  })
+})
