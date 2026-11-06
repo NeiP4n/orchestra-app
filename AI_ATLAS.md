@@ -579,6 +579,65 @@ board, a protected file, or a credential dump in the same turn is flagged. Rules
 a `Rules / DoD / Errors` section, the context governor never elides a
 `rules list` result, and prefix-pin reports rule changes as a diff.
 
+## Independent review — `packages/core/src/review/`
+
+The mechanism for a second pair of eyes, not the review itself: these
+modules are the record and the rules around it. The review content (the
+findings, the marks, the votes, the walked scenario) is written at runtime
+by the reviewing agents; nothing here simulates an agent or fakes a pass.
+All five modules are pure (no Effect, no I/O, no model calls); persistence
+and the runtime prompts that tell a reviewer what to attack live outside
+them.
+
+- Red team (`review/redteam.ts`, idea #1): `startReview` opens a review of
+  a plan/architecture artifact by a group that did not write it (same
+  reviewer as author is refused). Every finding stays `open` until
+  `addressFinding` (with a reference: commit, plan change, test) or
+  `dismissFinding` — a dismissal without a reason is refused. Blocking =
+  open `critical`/`major`; open `minor` findings are recorded but never
+  block on their own.
+- Dual architecture check (`review/dual.ts`, idea #9): `startDualReview`
+  opens two separate review records with no shared state; the two reviewers
+  must differ from each other and from the author. `merge` matches open
+  findings by explicit `key` first, else by normalized summary, and ranks
+  common findings first. Blocking = any common finding, or any single-sided
+  critical/major one. The orchestrator must run the two reviews in isolated
+  sessions — this module cannot enforce that; a merge of two reviews written
+  by one agent in one session is not a dual check.
+- Foreign checklist review (`review/checklist.ts`, idea #7): the reviewer
+  group is assigned by `assignReviewer` (first roster group that is not the
+  author's; deterministic) and must differ from the author group.
+  `fromDod` builds one step per checklist line from the DoD board through
+  its public `Dod.Status` shape only — `dod.ts` is never edited here.
+  Verdict is `pass` only when every step passed, `fail` when any step
+  failed (a fail needs a reason), `pending` while any step is unmarked.
+- User-eyes acceptance (`review/acceptance.ts`, idea #17): `startRun`
+  records a user scenario and its steps in order; `recordStep` marks each
+  step pass/fail with evidence of what the agent actually saw. `mayShip`
+  is true only when the run passed, or was explicitly `defer`red with a
+  reason — a deferred run unblocks delivery but stays recorded as deferred,
+  never as passed.
+- Evidence-weighted voting (`review/vote.ts`, idea #5): a vote weighs 1 +
+  best evidence (test/measurement +2, document +1, opinion +0); one vote
+  per voter, a re-vote replaces the earlier one. `selectJury` draws three
+  agents with a seeded PRNG from the candidates minus the interested
+  parties; `decide` needs all three jurors' votes, a tie is recorded as a
+  tie, never silently broken. Standalone by design: Orchestra has no
+  decision stream to wire into — the council is consult-only, "no project's
+  vote is binding" (`packages/core/src/plugin/agent.ts`), so the
+  `tally`/`decide` record is the decision. Wiring a binding vote into
+  federation would change product policy.
+
+Enforcement — `packages/core/src/session/completion-gate.ts`: `planGate`
+accepts a plan/architecture for coding only when its red-team or merged
+dual review has no open blocking finding; `check(..., reviews?)` takes an
+optional `ReviewGates` (`redTeam`, `dual`, `checklist`, `acceptance`) and
+refuses to let the session stop while any passed-in review blocks. The
+gates are off unless the caller passes a record — the gate enforces only a
+review the session actually opened.
+
+Verify: `bun test test/review/` from `packages/core` (40 tests).
+
 ## Model collections & custom endpoints
 
 - Schema: `packages/schema/src/config/model.ts` (`Collection`/`Collections` —
