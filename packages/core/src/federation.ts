@@ -25,6 +25,7 @@ import { SocietyPreflight } from "./society-preflight.js"
 import { Dod } from "./dod.js"
 import { Rules } from "./rules.js"
 import { SessionHold } from "./session/hold.js"
+import { SessionInbox } from "./session/inbox.js"
 import { SessionMessage } from "./session/message.js"
 import { AbsolutePath } from "./schema.js"
 
@@ -672,6 +673,14 @@ const layer: Layer.Layer<
           metadata: { federation: { project } },
         })
         .pipe(Effect.ignore)
+      // The prompt's advisory wake can miss a freshly created main session
+      // (the same hole Federation.brief works around with an explicit
+      // resume): a ticket delivered to an orchestrator that never starts
+      // strands the whole Society. The delayed resume starts the run for
+      // sure, joining the active execution when the wake already landed.
+      yield* sessions
+        .resume(main.value.id)
+        .pipe(Effect.ignore, Effect.delay("1 second"), Effect.forkIn(layerScope), Effect.asVoid)
     })
 
     // Like `tell`, but the caller learns whether the message actually landed:
@@ -1567,7 +1576,33 @@ const layer: Layer.Layer<
             })
           }
         }
-        if (!held) return
+        if (!held) {
+          // Releasing the hold must wake what the hold parked. A wake
+          // swallowed while held is never retried, and the startup sweep
+          // runs only at boot — without this, the Society's sessions stay
+          // parked with durable work and no future wake, however long the
+          // server keeps running.
+          const group = (yield* groups()).find((item) => item.name === normalized)
+          if (group) {
+            let resumed = 0
+            for (const id of yield* sessionsOfGroup(group)) {
+              const pending = yield* sessions
+                .inbox(id as SessionID)
+                .pipe(Effect.orElseSucceed((): SessionInbox.Info[] => []))
+              if (pending.length === 0) continue
+              resumed++
+              yield* sessions
+                .resume(id as SessionID)
+                .pipe(Effect.ignore, Effect.delay("1 second"), Effect.forkIn(layerScope), Effect.asVoid)
+            }
+            if (resumed > 0)
+              yield* Effect.logInfo("Society released: resuming sessions with pending work", {
+                society: normalized,
+                sessions: resumed,
+              })
+          }
+          return
+        }
         // The hold is already in place, so nothing new starts; stop what is running.
         const group = (yield* groups()).find((item) => item.name === normalized)
         if (!group) return

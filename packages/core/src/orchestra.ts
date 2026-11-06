@@ -18,6 +18,7 @@ import { AbsolutePath } from "./schema.js"
 import { Bus } from "./bus.js"
 import { KV } from "./kv.js"
 import { Session } from "./session.js"
+import { SessionActivation } from "./session/activation.js"
 import { SessionStore } from "./session/store.js"
 import { SessionPlan } from "./session/plan.js"
 import { CompactionPolicy } from "./session/compaction-policy.js"
@@ -375,6 +376,9 @@ const layer: Layer.Layer<
     const global = yield* Global.Service
     const autoloop = yield* Autoloop.Service
     const permissionDelegates = yield* CorePermission.DelegateRegistryService
+    // Background fibers forked from service methods (activation watches,
+    // delayed resumes) live here, not in the caller's scope.
+    const layerScope = yield* Effect.scope
     // Concurrent UI/API opens must converge on one durable main session per project.
     const mainLocks = KeyedMutex.makeUnsafe<ProjectID>()
     // Physical moves wait for sessions to settle; never hold mainLocks during that wait.
@@ -2507,6 +2511,32 @@ const layer: Layer.Layer<
                     ),
                     Effect.mapError((error) => new DispatchError({ message: String(error) })),
                   )
+                // The prompt's advisory wake can be lost for a freshly
+                // created worker, and nothing verified the start — the B14
+                // shape was 26 workers with a delivered task, zero tokens
+                // and no terminal outcome. An explicit resume one second
+                // later starts the run for sure (it joins the active
+                // execution when the wake already landed), and the
+                // activation watch restarts once and escalates when the
+                // worker still has not started after N minutes.
+                yield* sessions
+                  .resume(input.sessionID)
+                  .pipe(Effect.ignore, Effect.delay("1 second"), Effect.forkIn(layerScope), Effect.asVoid)
+                yield* SessionActivation.watch(
+                  { kv, sessions, store: sessionStore },
+                  {
+                    sessionID: input.sessionID,
+                    projectID: project.id,
+                    mainID: main,
+                    messageID,
+                  },
+                ).pipe(
+                  Effect.catchCause((cause) =>
+                    Effect.logWarning("activation watch failed; the dispatch itself stands", { cause }),
+                  ),
+                  Effect.forkIn(layerScope),
+                  Effect.asVoid,
+                )
               }),
             )
           }),

@@ -142,6 +142,21 @@ The `sessions` tool is how the Orchestrator dispatches role workers.
   context block. Deliberately no Protocol/HTTP surface.
 - Dispatch results name the worker's effective model and its source, so an
   inherited flagship is visible instead of silent.
+- **Worker activation**: a dispatch does not trust the prompt's advisory wake.
+  `Orchestra.dispatch` (`packages/core/src/orchestra.ts`) forks an explicit
+  `sessions.resume` one second after the prompt (the same workaround
+  `Federation.brief` already used for fresh sessions) and starts an activation
+  watch (`packages/core/src/session/activation.ts`): a durable KV record
+  (`orchestra/activation/<sessionID>`) with the dispatch time, then a check
+  after N minutes (default 5, `ORCHESTRA_ACTIVATION_CHECK_MINUTES`, clamped
+  1–60). Started means input tokens > 0 or a live execution claim. A worker
+  that has not started is resumed once and checked again; if it still has not
+  started, the watch escalates to the Orchestrator with a durable
+  `<activation-failure>` synthetic message, using the existing error ladder
+  (`SessionEscalate.ladder`), never a human confirmation. A held worker is
+  left alone (the hold release wakes it); a run that ended failed/interrupted
+  is left to its own reporting, and a run that "succeeded" with zero tokens
+  and work still pending counts as not started.
 - Worker sessions receive `patch` but not `write` in their grant; briefs and
   worker guidance assume patch-first editing.
 
@@ -530,6 +545,14 @@ messages and builds the rest with `society_forge generate` and `society_plan`.
   the orientation limit is ten calls with investigation as a valid first dispatch;
   MCP deny rules are replaced per dispatch, never piled onto a reused worker;
   the Orchestrator's reconnaissance travels to the worker whole.
+- Federation tickets wake their target the same way: `tell`
+  (`packages/core/src/federation.ts`) forks the same one-second explicit
+  resume after the prompt, so a ticket delivered to a freshly created
+  Orchestrator cannot strand the Society. Releasing a hold
+  (`Federation.setHold(name, false)`) now resumes the Society's sessions that
+  still have pending inbox work — previously the release only removed the hold
+  key and nothing re-woke the parked sessions (the startup sweep runs only at
+  boot).
 
 ### The standing Society of this repository (permanent)
 

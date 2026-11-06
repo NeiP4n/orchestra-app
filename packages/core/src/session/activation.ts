@@ -2,7 +2,7 @@ export * as SessionActivation from "./activation.js"
 
 import { Effect, Option, Schema } from "effect"
 import { KV } from "../kv.js"
-import { Session } from "./session.js"
+import { Session } from "../session.js"
 import { SessionHold } from "./hold.js"
 import { SessionInbox } from "./inbox.js"
 import { SessionMessage } from "./message.js"
