@@ -428,8 +428,10 @@ messages and builds the rest with `society_forge generate` and `society_plan`.
   an Anymodel key must be stored (credential store first, provider settings
   second) and alive (`GET /models`), and the planner's model must be served.
   A failed preflight refuses the creation with the fix named; without
-  Credential/Provider services in the layer the check is skipped, never a
-  false failure. The same preflight runs at server boot (logged, never
+  the Provider service in the layer the check is skipped, never a
+  false failure — the endpoint cannot be determined from the Credential
+  service alone, and the Federation context does not provide Provider.
+  The same preflight runs at server boot (logged, never
   blocking boot) and gates `resumeGeneration`: a Society whose provider is
   dead is not woken.
 - The team workers are counted, not assumed (`openSocietyTeam`): one retry
