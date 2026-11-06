@@ -52,7 +52,10 @@ section, config key `model_favorites`). Everything else is derived.
   the same chain; callers must not re-encode their own copy.
 - Budget is a **step ceiling, not a spending cap** (`budgetFor` → `stepCeilings`),
   and ceilings bite only under deployment limit enforcement
-  (`ORCHESTRA_ENFORCE_LIMITS`). There is no token or currency budget.
+  (`ORCHESTRA_ENFORCE_LIMITS`). There is no token or currency budget in the
+  model-selection chain. (The `budget` tool, `tool/plugin/budget.ts`, is
+  separate: it stores a per-session token limit and its forecast refuses work
+  once the limit is spent.)
 - Zero configuration is a working state: no favorites, no role model, no policy →
   the run inherits the caller's model.
 - Every dispatch surface must pass `{ favorites, catalog }` into `workerModels` —
@@ -411,6 +414,27 @@ too far behind, so it resyncs instead of missing events.
 roles from specs at runtime. All worker creation goes through
 `Orchestra.workerModels` **with** `{ favorites, catalog }` (see the AI standard
 section). A forge that creates a worker without them is defective.
+
+## Rules as code — `packages/core/src/rules.ts`
+
+Standing rules are data in KV (`rules/<scope>/<id>`), not prompt text, and they
+are enforced in code. Scopes: `society:<name>` > `project:<id>` > `global`;
+a cross-scope contradiction fails with `Rules.ConflictError`, never left for
+the model to resolve. A rulebook that fails to load fails the request with
+`Rules.LoadError` (corrupt entries included) — it never silently becomes
+empty. Scope resolution walks the session's parent chain, includes `lead`
+groups, and a sandbox inherits its source project's rules (and that project's
+societies). At society creation the society's rules are handed to every member
+project's main session as a queued `<society-rules>` inbox message
+(`createSociety`, `federation.ts`). Operator rules are protected: a worker
+cannot remove or rewrite them (`Rules.ProtectedError`), and every edit is
+recorded in `rules/history/`. A saved "always allow" never beats a newer deny
+— denies are checked first in `evaluateInput` and `confirm`. The completion
+gate (`session/completion-gate.ts`) checks after every answer: work the turn
+claimed is not DONE until `dod verify` says so, and a hand edit of the DoD
+board, a protected file, or a credential dump in the same turn is flagged. Rules survive compaction: the summary keeps
+a `Rules / DoD / Errors` section, the context governor never elides a
+`rules list` result, and prefix-pin reports rule changes as a diff.
 
 ## Model collections & custom endpoints
 

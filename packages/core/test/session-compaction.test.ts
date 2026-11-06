@@ -103,6 +103,8 @@ test("compaction prompt preserves detailed work state and relevant files", () =>
   expect(prompt).toContain("### Completed")
   expect(prompt).toContain("### Active")
   expect(prompt).toContain("### Blocked")
+  expect(prompt).toContain("## Rules / DoD / Errors")
+  expect(prompt).toContain("standing rules in force right now, copied verbatim")
   expect(prompt).toContain("## Relevant Files")
 })
 
@@ -149,6 +151,7 @@ test("compaction prompt requires the checkpoint headings in order", () => {
     "### Completed",
     "### Active",
     "### Blocked",
+    "## Rules / DoD / Errors",
     "## Next Move",
     "## Relevant Files",
     "## Important Context",

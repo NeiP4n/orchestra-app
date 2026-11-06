@@ -103,6 +103,46 @@ describe("SessionCompletionGate", () => {
     expect(SessionCompletionGate.check(messages, empty)).toBeUndefined()
   })
 
+  test("wakes a session that checked every step but never called dod verify", () => {
+    const status = board(3)
+    const allChecked: Dod.Status =
+      status.type === "ready"
+        ? { ...status, items: status.items.map((item) => ({ ...item, state: "IN_PROGRESS" as const })) }
+        : status
+    const text = SessionCompletionGate.check(
+      [user("ship it"), assistant("", [{ name: "dod", input: { action: "take", id: "L-1" } }]), assistant("Done.")],
+      allChecked,
+    )
+    expect(text).toContain('L-1 "Ship the feature": 3/3 steps checked, but the item is not verified yet.')
+    expect(text).toContain("Run `dod verify` for it")
+  })
+
+  test("does not let a hand-edited board file pass as DONE", () => {
+    const text = SessionCompletionGate.check(
+      [
+        user("ship it"),
+        assistant("", [{ name: "edit", input: { path: ".orchestra/dod.yaml" } }]),
+        assistant("Done."),
+      ],
+      empty,
+    )
+    expect(text).toContain("The board file .orchestra/dod.yaml was edited by hand this turn.")
+    expect(text).toContain("A hand edit never makes anything DONE.")
+  })
+
+  test("flags a shell command that touches a protected file or dumps the environment", () => {
+    const env = SessionCompletionGate.check(
+      [user("check the setup"), assistant("", [{ name: "shell", input: { command: "cat .env" } }]), assistant("Done.")],
+      empty,
+    )
+    expect(env).toContain("A protected file matching .env* was touched by a shell command this turn.")
+    const dump = SessionCompletionGate.check(
+      [user("check the setup"), assistant("", [{ name: "shell", input: { command: "printenv" } }]), assistant("Done.")],
+      empty,
+    )
+    expect(dump).toContain("prints the host's environment or credentials")
+  })
+
   test("does not nudge while a team subagent task is outstanding", () => {
     const dispatch = assistant("Dispatched worker.", [
       { name: "dod", input: { action: "take", id: "L-1" } },

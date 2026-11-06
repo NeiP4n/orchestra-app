@@ -4,6 +4,7 @@ import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { optional } from "@orchestra/schema/schema"
 import { Effect, Schema } from "effect"
+import { Permission } from "../../permission.js"
 import { zenBridgeServer, ZenBridgeServer } from "../../zen/bridge-server.js"
 
 export const name = "zen_browser"
@@ -129,6 +130,25 @@ export function renderResult(action: string, result: unknown): string {
   return String(result)
 }
 
+/** What a zen_browser call touches, for the permission check: the URL it opens, the code it runs, the selector it clicks, or the tab it acts on. */
+export function resourcesFor(input: Input): ReadonlyArray<string> {
+  switch (input.action) {
+    case "navigate":
+      return [input.url ?? "*"]
+    case "eval":
+      return ["eval"]
+    case "click":
+    case "type":
+      return [input.selector ?? "*"]
+    case "activate":
+    case "close":
+    case "read":
+      return [input.tabId === undefined ? "*" : `tab:${input.tabId}`]
+    default:
+      return ["*"]
+  }
+}
+
 export const run = (input: Input) =>
   Effect.gen(function* () {
     const bridge = getZenBridgeServer()
@@ -182,6 +202,7 @@ export const run = (input: Input) =>
 export const Plugin = {
   id: "orchestra.tool.zen-browser",
   effect: Effect.fn("ZenBrowserTool.Plugin")(function* (ctx: Context) {
+    const permission = yield* Permission.Service
     yield* ctx.tool
       .transform((editor) =>
         editor.add({
@@ -190,12 +211,32 @@ export const Plugin = {
           description,
           input: Input,
           output: Output,
-          execute: (value) =>
-            run(value).pipe(
+          execute: (value, context) =>
+            Effect.gen(function* () {
+              // Zen Browser drives the operator's own browser: tabs, pages, clicks, typed
+              // text, navigation. Nothing here runs without a permission check — a
+              // deny, or an ask the operator refuses, stops the call before the bridge
+              // is even touched.
+              const resources = resourcesFor(value)
+              yield* permission.assert({
+                action: name,
+                resources: [...resources],
+                save: [...resources],
+                sessionID: context.sessionID,
+                agent: context.agent,
+                source: { type: "tool" as const, messageID: context.messageID, id: context.id },
+              })
+              return yield* run(value)
+            }).pipe(
               Effect.map((res) => ({
                 output: res,
                 content: res.output,
               })),
+              Effect.mapError((error) =>
+                error instanceof ToolFailure
+                  ? error
+                  : new ToolFailure({ message: `zen_browser failed: ${String(error)}`, error }),
+              ),
             ),
         }),
       )

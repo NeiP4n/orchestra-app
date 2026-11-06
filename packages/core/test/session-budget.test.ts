@@ -4,9 +4,12 @@ import { Money } from "@orchestra/schema/money"
 import { Provider } from "@orchestra/schema/provider"
 import { SessionMessage } from "@orchestra/schema/session-message"
 import { AbsolutePath } from "@orchestra/core/schema"
+import { Database } from "@orchestra/core/database/database"
+import { KV } from "@orchestra/core/kv"
 import { Location } from "@orchestra/core/location"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
+import { Global } from "@orchestra/util/global"
 import { LayerNode } from "@orchestra/util/effect/layer-node"
 import { SessionStats } from "@orchestra/core/session/stats"
 import { Session } from "@orchestra/core/session"
@@ -15,6 +18,7 @@ import { Tool } from "@orchestra/core/tool"
 import { BudgetTool } from "@orchestra/core/tool/plugin/budget"
 import { DateTime, Effect, Layer } from "effect"
 import { location } from "./fixture/location"
+import { tempGlobalLayer } from "./fixture/global"
 import { it } from "./lib/effect"
 import { executeTool, registerToolPlugin, toolIdentity } from "./lib/tool"
 
@@ -141,21 +145,23 @@ describe("SessionStats.forecastBudget", () => {
 const pluginNode = makeLocationNode({
   name: "test/budget-tool-plugin",
   layer: Layer.effectDiscard(registerToolPlugin(BudgetTool.Plugin)),
-  deps: [Tool.node, Session.node, Model.node],
+  deps: [Tool.node, Session.node, Model.node, KV.node],
 })
 
 const catalog = [{ ...glm, limit: { context: 200_000, output: 32_000 } }]
 
 const harness = (models: ReadonlyArray<unknown> = catalog) =>
-  AppNodeBuilder.build(LayerNode.group([Tool.node, pluginNode]), [
+  AppNodeBuilder.build(LayerNode.group([Tool.node, pluginNode, Database.node, KV.node]), [
     Location.node.replace(
       Layer.succeed(
         Location.Service,
         Location.Service.of(location({ directory: AbsolutePath.make(import.meta.dir) })),
       ),
     ),
-    // This tool only reads history and the model catalog; both boundaries are stubbed so the
-    // test exercises the real aggregation, formatting and tool registration instead of storage.
+    Global.node.replace(tempGlobalLayer),
+    // This tool reads history and the model catalog, and the stored limits from KV; all
+    // three boundaries are stubbed or temporary, so the test exercises the real aggregation,
+    // formatting and tool registration instead of storage.
     Session.node.replace(
       Layer.succeed(
         Session.Service,

@@ -61,7 +61,11 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
       .handle(
         "orchestra.rules.add",
         Effect.fn(function* (ctx) {
-          const added = yield* federation.rules.add(ctx.params.scope, ctx.payload.text)
+          const added = yield* federation.rules.add(ctx.params.scope, ctx.payload.text).pipe(
+            // A scope that cannot be read is a bad request at this boundary: the endpoint
+            // declares only InvalidRequestError, and the load failure stays visible in its message.
+            Effect.mapError((error) => new InvalidRequestError({ message: error.reason, field: "text" })),
+          )
           if (!("rule" in added) || !added.rule)
             return yield* new InvalidRequestError({ message: String("error" in added ? added.error : "Could not add the rule."), field: "text" })
           return { ...added.rule }
@@ -70,7 +74,9 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
       .handle(
         "orchestra.rules.remove",
         Effect.fn(function* (ctx) {
-          yield* federation.rules.remove(ctx.params.scope, ctx.params.id)
+          yield* federation.rules.remove(ctx.params.scope, ctx.params.id).pipe(
+            Effect.mapError((error) => new InvalidRequestError({ message: error.reason })),
+          )
           return HttpApiSchema.NoContent.make()
         }),
       )

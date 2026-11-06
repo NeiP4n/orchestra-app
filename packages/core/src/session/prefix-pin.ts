@@ -104,20 +104,48 @@ const textOf = (message: Message) => message.content.map((part) => (part.type ==
 const update = (pinned: ReadonlyArray<SystemPart>, current: ReadonlyArray<SystemPart>) => {
   const before = new Set(pinned.map((part) => part.text))
   const after = new Set(current.map((part) => part.text))
-  const added = current.filter((part) => !before.has(part.text)).map((part) => part.text)
-  const removed = pinned.filter((part) => !after.has(part.text)).map((part) => summary(part.text))
-  if (added.length === 0 && removed.length === 0)
+  // A rules block is never dumped whole and never reduced to its first line: the model
+  // must see exactly which rules appeared and which disappeared, or a removed rule keeps
+  // being followed from the pinned prompt and an added one is easy to miss.
+  const diff = rulesDiff(
+    pinned.filter((part) => !after.has(part.text)),
+    current.filter((part) => !before.has(part.text)),
+  )
+  const added = current.filter((part) => !before.has(part.text) && !isRulesBlock(part.text))
+  const removed = pinned.filter((part) => !after.has(part.text) && !isRulesBlock(part.text)).map((part) => summary(part.text))
+  if (added.length === 0 && removed.length === 0 && diff.length === 0)
     return Message.system("The system prompt above is current again; earlier system updates no longer apply.")
   return Message.system(
     [
       "Parts of the system prompt changed after this conversation started. The text below is their current version and replaces the earlier version of those parts, including any earlier system update.",
-      ...added.map((text) => `\n${text}`),
+      ...diff,
+      ...added.map((part) => `\n${part.text}`),
       ...(removed.length === 0
         ? []
         : ["\nThese earlier parts of the system prompt no longer apply:", ...removed.map((text) => `- ${text}`)]),
     ].join("\n"),
   )
 }
+
+// The rules change as a diff: added rule lines with `+`, removed ones with `-`. An empty
+// result means the rules did not change, even when another part of the prompt did.
+const rulesDiff = (removed: ReadonlyArray<SystemPart>, added: ReadonlyArray<SystemPart>) => {
+  const oldRules = removed.filter((part) => isRulesBlock(part.text)).flatMap((part) => ruleLines(part.text))
+  const newRules = added.filter((part) => isRulesBlock(part.text)).flatMap((part) => ruleLines(part.text))
+  if (oldRules.length === 0 && newRules.length === 0) return []
+  const gone = oldRules.filter((line) => !newRules.includes(line))
+  const fresh = newRules.filter((line) => !oldRules.includes(line))
+  if (gone.length === 0 && fresh.length === 0) return []
+  return [
+    "Rules changed since this conversation started. Added rules now apply, removed rules no longer apply, and every other rule stays as it was:",
+    ...fresh.map((line) => `+ ${line}`),
+    ...gone.map((line) => `- ${line}`),
+  ]
+}
+
+const isRulesBlock = (text: string) => text.startsWith("# Rules\n") || text === "# Rules"
+
+const ruleLines = (text: string) => text.split("\n").filter((line) => line.startsWith("- ["))
 
 const summary = (text: string) => {
   const line = text.trim().split("\n")[0] ?? ""

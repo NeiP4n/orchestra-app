@@ -5,7 +5,10 @@ import { LayerNode } from "@orchestra/util/effect/layer-node"
 import { Global } from "@orchestra/util/global"
 import { Database } from "@orchestra/core/database/database"
 import { KV } from "@orchestra/core/kv"
+import { Federation } from "@orchestra/core/federation"
+import { Orchestra } from "@orchestra/core/orchestra"
 import { Rules } from "@orchestra/core/rules"
+import { Session } from "@orchestra/core/session"
 import { tempGlobalLayer } from "./fixture/global"
 import { testEffect } from "./lib/effect"
 
@@ -30,15 +33,17 @@ describe("rulebook", () => {
     }),
   )
 
-  it.live("caps a scope and truncates long rules", () =>
+  it.live("caps a scope and refuses long rules instead of cutting them off", () =>
     Effect.gen(function* () {
       const kv = yield* KV.Service
       const scope = Rules.societyScope("Games")
       for (let index = 0; index < Rules.MAX_PER_SCOPE; index++)
         expect((yield* Rules.add(kv, scope, { text: `rule ${index}`, by: "operator" })).rule).toBeDefined()
       expect(yield* Rules.add(kv, scope, { text: "one too many", by: "operator" })).toMatchObject({ error: expect.stringContaining("already has") })
+      // A long rule is refused, not silently cut to 240 characters: the stored text must stay what was written.
       const long = yield* Rules.add(kv, Rules.GLOBAL, { text: "x".repeat(1000), by: "operator" })
-      expect(long.rule?.text.length).toBe(Rules.MAX_TEXT)
+      expect(long.error).toContain(String(Rules.MAX_TEXT))
+      expect(yield* Rules.list(kv, Rules.GLOBAL)).toEqual([])
     }),
   )
 
@@ -64,4 +69,165 @@ describe("rulebook", () => {
       expect(yield* Rules.block(kv, { project: "prj_none", societies: ["Nothing"] })).not.toContain("[Project]")
     }),
   )
+
+  it.live("a worker cannot remove a rule the operator wrote, in any scope, and edits are recorded", () =>
+    Effect.gen(function* () {
+      const kv = yield* KV.Service
+      const scope = Rules.projectScope("prj_guarded")
+      const added = yield* Rules.add(kv, scope, { text: "Never ship on Friday.", by: "operator" })
+      const id = added.rule?.id
+      if (!id) throw new Error("expected a rule")
+      // A worker's remove fails with a typed error, and the rule is still there.
+      const refused = yield* Rules.remove(kv, scope, id).pipe(Effect.flip)
+      expect(refused._tag).toBe("Rules.ProtectedError")
+      expect(yield* Rules.list(kv, scope)).toHaveLength(1)
+      // The operator removes their own rule; a teammate's rule is removable by anyone.
+      expect(yield* Rules.remove(kv, scope, id, { operator: true })).toBe(true)
+      const other = yield* Rules.add(kv, scope, { text: "Use bun, not npm.", by: "team-developer" })
+      if (!other.rule) throw new Error("expected a rule")
+      expect(yield* Rules.remove(kv, scope, other.rule.id)).toBe(true)
+      const entries = yield* Rules.history(kv, scope)
+      expect(entries.map((entry) => entry.action)).toEqual(["add", "remove", "add", "remove"])
+    }),
+  )
+
+  it.live("corrupt stored rules fail the load instead of reading as empty", () =>
+    Effect.gen(function* () {
+      const kv = yield* KV.Service
+      const scope = Rules.projectScope("prj_broken")
+      yield* kv.set(
+        `rules/${scope}`,
+        [
+          { id: "r1", text: "Never edit generated files.", by: "operator", at: 1 },
+          { bogus: true },
+        ] as unknown as KV.Value,
+      )
+      // Display still shows the good rule and says one entry is corrupt.
+      expect((yield* Rules.inspect(kv, scope)).corrupt).toBe(1)
+      expect(yield* Rules.list(kv, scope)).toHaveLength(1)
+      // Anything that acts on the rules refuses to trust a half-loaded scope.
+      const strict = yield* Rules.listStrict(kv, scope).pipe(Effect.flip)
+      expect(strict._tag).toBe("Rules.LoadError")
+      const blocked = yield* Rules.block(kv, { project: "prj_broken", societies: [] }).pipe(Effect.flip)
+      expect(blocked._tag).toBe("Rules.LoadError")
+    }),
+  )
+
+  it.live("a contradiction between scopes is an error, not a judgement call", () =>
+    Effect.gen(function* () {
+      const kv = yield* KV.Service
+      yield* Rules.add(kv, Rules.societyScope("Shop"), { text: "Always run the checks.", by: "operator" })
+      yield* Rules.add(kv, Rules.projectScope("prj_shop"), { text: "Never run the checks.", by: "operator" })
+      const failed = yield* Rules.block(kv, { project: "prj_shop", societies: ["Shop"] }).pipe(Effect.flip)
+      expect(failed._tag).toBe("Rules.ConflictError")
+    }),
+  )
+
+  it.live("lead groups give their President and their projects the society rules", () =>
+    Effect.gen(function* () {
+      const groups = [{ name: "Lead", projects: ["prj_a"], mode: "lead" }]
+      const project = yield* Rules.scopesOf(
+        makeScopes({
+          sessionID: "ses_main",
+          sessions: { ses_main: {} },
+          mainOf: { ses_main: { id: "prj_a" } },
+          groups,
+        }),
+      )
+      expect(project.societies).toEqual(["Lead"])
+      // The President's chat session reads the same society rules.
+      const president = yield* Rules.scopesOf(
+        makeScopes({
+          sessionID: "ses_president",
+          sessions: {
+            ses_president: {
+              metadata: {
+                "orchestra:group-supervisor": { groupName: "Lead", leader: "prj_a", mode: "lead" },
+              },
+            },
+          },
+          groups: [{ name: "Lead", projects: ["prj_a"], mode: "lead", supervisor: "ses_president" }],
+        }),
+      )
+      expect(president).toEqual({ chatOf: "Lead", societies: ["Lead"] })
+    }),
+  )
+
+  it.live("a sandbox session inherits its source project's rules and societies", () =>
+    Effect.gen(function* () {
+      const kv = yield* KV.Service
+      yield* Rules.add(kv, Rules.projectScope("prj_src"), { text: "Use bun, not npm.", by: "operator" })
+      yield* Rules.add(kv, Rules.societyScope("Shop"), { text: "Every project writes its API contract first.", by: "operator" })
+      const scopes = yield* Rules.scopesOf(
+        makeScopes({
+          sessionID: "ses_box",
+          sessions: { ses_box: {} },
+          mainOf: {
+            ses_box: {
+              id: "prj_box",
+              sandbox: { source: "/work/src", home: "/tmp/box", isolation: "environment" },
+            },
+          },
+          projects: [
+            { id: "prj_src", directory: "/work/src" },
+            {
+              id: "prj_box",
+              directory: "/tmp/box/repo",
+              sandbox: { source: "/work/src", home: "/tmp/box", isolation: "environment" },
+            },
+          ],
+          groups: [{ name: "Shop", projects: ["prj_src"], mode: "council" }],
+        }),
+      )
+      expect(scopes.project).toBe("prj_box")
+      expect(scopes.societies).toEqual([])
+      expect(scopes.inherited).toEqual({ projects: ["prj_src"], societies: ["Shop"] })
+      const block = yield* Rules.block(kv, scopes)
+      expect(block).toContain("- [Project (inherited)] Use bun, not npm.")
+      expect(block).toContain("- [Society (inherited)] Every project writes its API contract first.")
+    }),
+  )
+
+  it.live("scopes that cannot be determined fail instead of reading as no rules apply", () =>
+    Effect.gen(function* () {
+      const failed = yield* Rules.scopesOf(
+        makeScopes({
+          sessionID: "ses_main",
+          sessions: { ses_main: {} },
+          groups: undefined,
+        }),
+      ).pipe(Effect.flip)
+      expect(failed._tag).toBe("Rules.ScopesError")
+    }),
+  )
+})
+
+// Minimal stand-ins for the three services scopesOf reads: a session registry, the project
+// registry, and the group registry. Only the methods scopesOf calls are present.
+const makeScopes = (options: {
+  sessionID: string
+  sessions?: Record<string, { parentID?: string; metadata?: Record<string, unknown> }>
+  mainOf?: Record<string, unknown>
+  owners?: Record<string, string>
+  projects?: Array<Record<string, unknown>>
+  groups?: Array<Record<string, unknown>>
+}) => ({
+  sessionID: options.sessionID,
+  sessions: {
+    get: (id: string) => {
+      const found = options.sessions?.[id]
+      return found === undefined
+        ? Effect.fail(new Error(`no session ${id}`))
+        : Effect.succeed({ id, parentID: found.parentID, metadata: found.metadata ?? {} })
+    },
+  } as unknown as Session.Interface,
+  orchestra: {
+    mainOf: (id: string) => Effect.succeed(options.mainOf?.[id]),
+    owners: () => Effect.succeed(options.owners ?? {}),
+    projects: () => Effect.succeed(options.projects ?? []),
+  } as unknown as Orchestra.Interface,
+  federation: {
+    groups: () =>
+      options.groups === undefined ? Effect.fail(new Error("groups unavailable")) : Effect.succeed(options.groups),
+  } as unknown as Federation.Interface,
 })

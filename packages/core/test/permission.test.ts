@@ -536,6 +536,23 @@ describe("Permission", () => {
     }),
   )
 
+  it.effect("a saved allow never beats a newer deny for outside-model confirmations", () =>
+    Effect.gen(function* () {
+      yield* setup()
+      const saved = yield* PermissionSaved.Service
+      yield* saved.add({ projectID: Project.ID.global, action: "bash", resources: ["pwd"] })
+
+      const service = yield* Permission.Service
+      // The saved allow on its own confirms the outside-model request.
+      yield* service.confirm(assertion({ action: "bash", resources: ["pwd"] }))
+
+      // The operator bans bash afterwards: the stale saved allow must not confirm it.
+      yield* setRules([{ action: "bash", resource: "*", effect: "deny" }])
+      const declined = yield* service.confirm(assertion({ action: "bash", resources: ["pwd"] })).pipe(Effect.flip)
+      expect(declined).toBeInstanceOf(Permission.DeclinedError)
+    }),
+  )
+
   it.effect("resolves an asked permission once", () =>
     Effect.gen(function* () {
       yield* setup()

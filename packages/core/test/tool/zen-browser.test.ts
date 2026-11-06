@@ -1,5 +1,18 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { Effect, Exit } from "effect"
+import { Effect, Exit, Layer } from "effect"
+import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
+import { LayerNode } from "@orchestra/util/effect/layer-node"
+import { makeLocationNode } from "@orchestra/util/effect/app-node"
+import { Location } from "@orchestra/core/location"
+import { Permission } from "@orchestra/core/permission"
+import { Session } from "@orchestra/core/session"
+import { Tool } from "@orchestra/core/tool"
+import { AbsolutePath } from "@orchestra/core/schema"
+import { location } from "../fixture/location"
+import { withTempDir } from "../fixture/tmpdir"
+import { it } from "../lib/effect"
+import { permissionLayer } from "../lib/permission"
+import { executeTool, registerToolPlugin, toolIdentity } from "../lib/tool"
 import { ZenBridgeServer } from "../../src/zen/bridge-server.js"
 import {
   getZenBridgeServer,
@@ -371,7 +384,10 @@ describe("zen_browser with mock connected extension", () => {
       | {
           name: string
           output: unknown
-          execute: (val: unknown) => Effect.Effect<{ output: { output: string }; content: string }>
+          execute: (
+            val: unknown,
+            context: unknown,
+          ) => Effect.Effect<{ output: { output: string }; content: string }>
         }
       | undefined
     const mockCtx = {
@@ -388,13 +404,26 @@ describe("zen_browser with mock connected extension", () => {
       },
     }
 
-    await Effect.runPromise(Effect.scoped(Plugin.effect(mockCtx as any)))
+    // The plugin asserts permission before it runs, so registration needs a
+    // Permission service; the test allows everything.
+    await Effect.runPromise(
+      Effect.scoped(Plugin.effect(mockCtx as any)).pipe(
+        Effect.provide(permissionLayer({ assert: () => Effect.void })),
+      ),
+    )
     expect(capturedTool).toBeDefined()
     expect(capturedTool?.name).toBe("zen_browser")
     expect(capturedTool?.output).toBe(Output)
 
     // Execute status action through capturedTool.execute
-    const execRes = await Effect.runPromise(capturedTool!.execute({ action: "status" }))
+    const execRes = await Effect.runPromise(
+      capturedTool!.execute({ action: "status" }, {
+        sessionID: Session.ID.make("ses_zen_browser_test"),
+        agent: toolIdentity.agent,
+        messageID: toolIdentity.messageID,
+        id: "call-zen-register",
+      }),
+    )
     expect(execRes).toHaveProperty("output")
     expect(execRes).toHaveProperty("content")
     expect(execRes.output).toHaveProperty("output")
@@ -675,4 +704,93 @@ describe("HTTP Long-Polling and Heartbeat fallback", () => {
     })
     expect(extRes.headers.get("access-control-allow-origin")).toBe("moz-extension://test-extension-uuid")
   })
+})
+
+const zenPluginNode = makeLocationNode({
+  name: "test/zen-browser-plugin",
+  layer: Layer.effectDiscard(registerToolPlugin(Plugin)),
+  deps: [Tool.node, Permission.node],
+})
+
+const zenHarness = (directory: string, assert: Permission.Interface["assert"]) =>
+  AppNodeBuilder.build(LayerNode.group([Tool.node, zenPluginNode]), [
+    Location.node.replace(
+      Layer.succeed(Location.Service, Location.Service.of(location({ directory: AbsolutePath.make(directory) }))),
+    ),
+    Permission.node.replace(permissionLayer({ assert })),
+  ])
+
+const zenCall = (id: string) => ({
+  sessionID: Session.ID.make("ses_zen_browser_test"),
+  ...toolIdentity,
+  call: {
+    type: "tool-call" as const,
+    id,
+    name,
+    input: { action: "navigate", url: "https://example.com" },
+  },
+})
+
+describe("zen_browser permission gate", () => {
+  it.live("a denied call never reaches the bridge", () =>
+    withTempDir(({ path: directory }) =>
+      Effect.gen(function* () {
+        const bridge = new ZenBridgeServer({ port: 59998 })
+        const prev = getZenBridgeServer()
+        setZenBridgeServer(bridge)
+        try {
+          const tools = yield* Tool.Service
+          const denied = yield* executeTool(tools, zenCall("call-zen-deny"))
+          expect(denied.status).toBe("error")
+          expect(denied.error?.message).toContain("denied for this session")
+          // It stopped at the permission gate, not at the bridge.
+          expect(denied.error?.message).not.toContain("no Zen Browser extension is currently connected")
+        } finally {
+          bridge.stop()
+          setZenBridgeServer(prev)
+        }
+      }).pipe(
+        Effect.provide(
+          zenHarness(
+            directory,
+            () =>
+              Effect.fail(
+                new Permission.BlockedError({
+                  rules: [],
+                  permission: "zen_browser",
+                  resources: ["https://example.com"],
+                  reason: "zen_browser is denied for this session",
+                }),
+              ),
+          ),
+        ),
+      ),
+    ),
+  )
+
+  it.live("an allowed call reaches the bridge and fails there, not at the gate", () =>
+    withTempDir(({ path: directory }) =>
+      Effect.gen(function* () {
+        const bridge = new ZenBridgeServer({ port: 59997 })
+        const prev = getZenBridgeServer()
+        setZenBridgeServer(bridge)
+        try {
+          const tools = yield* Tool.Service
+          const allowed = yield* executeTool(tools, zenCall("call-zen-allow"))
+          // The gate passed, so the call reached the bridge: with no extension connected
+          // run() answers gracefully instead of failing at the gate.
+          expect(allowed.status).toBe("completed")
+          expect(
+            (allowed.content ?? [])
+              .filter((item) => item.type === "text")
+              .map((item) => item.text)
+              .join("\n"),
+          ).toContain("no Zen Browser extension is currently connected")
+        } finally {
+          bridge.stop()
+          setZenBridgeServer(prev)
+        }
+      }).pipe(Effect.provide(zenHarness(directory, () => Effect.void))),
+    ),
+  )
 })
