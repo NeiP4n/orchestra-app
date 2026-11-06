@@ -1,5 +1,6 @@
 export * as McpSelect from "./select.js"
 
+import { DesktopIsolation } from "../desktop-isolation.js"
 import { McpCatalog } from "./catalog.js"
 import { McpRatings } from "./ratings.js"
 
@@ -205,7 +206,13 @@ export function rank(
 ): readonly Match[] {
   const wanted = translateNeed(need)
   if (wanted.length === 0) return []
-  const entries = McpCatalog.forPlatform(platform)
+  // B7: real-screen servers (playwright, agent-desktop) are not candidates
+  // while the real-screen opt-in is invalid — the selector must not hand
+  // the Orchestrator a server it cannot acquire. The native desktop_* tools
+  // on the virtual display are the fallback for these needs.
+  const entries = McpCatalog.forPlatform(platform).filter(
+    (entry) => entry.realScreen !== true || DesktopIsolation.isRealScreenAllowed(process.env, entry.id),
+  )
   const frequency = new Map<string, number>()
   for (const entry of entries)
     for (const token of tokens(`${entry.id} ${entry.name} ${entry.description} ${entry.usage}`))

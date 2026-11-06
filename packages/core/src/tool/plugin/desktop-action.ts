@@ -5,12 +5,15 @@ import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { optional } from "@orchestra/schema/schema"
 import { Effect, Schema } from "effect"
+import { DesktopIsolation } from "../../desktop-isolation.js"
 import { isDesktopCaptureEnabled, makeHost } from "./desktop.js"
 
 export const name = "desktop_action"
 
 export const description = [
   "Act on the screen by name instead of by guessed pixel: press a button in a window, put the keyboard into a field, type into it, or send a media key to whatever player is running.",
+  "",
+  "B7: this tool reads and drives the operator's REAL screen through Windows UI Automation — there is no virtual display for it. It needs the real-screen opt-in (ORCHESTRA_DESKTOP_REAL_SCREEN=on, allowlist naming the app, future expiry) on top of ORCHESTRA_DESKTOP_CAPTURE=on. Without it the call is refused; use the desktop_* tools on the virtual display instead.",
   "",
   "Actions:",
   "  click — the centre of the element named by target (or of the window itself when target is omitted).",
@@ -595,6 +598,10 @@ export const Plugin = {
           message: "Desktop access is off by default. Set ORCHESTRA_DESKTOP_CAPTURE=on to allow it.",
         })
       }
+      // B7: UI Automation drives the operator's real screen, so this tool
+      // needs the real-screen opt-in for the app it would touch.
+      const denial = DesktopIsolation.realScreenDenial(process.env, input.app)
+      if (denial) return yield* new ToolFailure({ message: `desktop_action is blocked: ${denial}` })
       if (process.platform !== "win32") return { output: UNSUPPORTED }
       const invalid = validate(input)
       if (invalid !== undefined) return yield* new ToolFailure({ message: invalid })

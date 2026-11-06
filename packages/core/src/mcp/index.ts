@@ -9,6 +9,8 @@ import { isDeepStrictEqual } from "node:util"
 import { Cause, Context, Effect, Exit, FiberSet, Latch, Layer, Schema, Scope, Semaphore, Stream, Types } from "effect"
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import { Credential } from "../credential.js"
+import { DesktopIsolation } from "../desktop-isolation.js"
+import { McpCatalog } from "./catalog.js"
 import { Bus } from "../bus.js"
 import { Environment } from "../environment/index.js"
 import { Form } from "../form.js"
@@ -783,6 +785,20 @@ export const layer = (options?: Options) =>
         }),
         callTool: Effect.fn("MCP.callTool")(function* (input) {
           const target = yield* requireServer(input.server)
+          // B7: the choke point for every MCP tool call. A real-screen
+          // server (playwright, agent-desktop) refuses here when the
+          // real-screen opt-in is invalid — even when the server was
+          // installed by hand in the config, bypassing acquire(). The
+          // operator's screen is never reached through a stale install.
+          if (McpCatalog.isRealScreenServer(String(target.name))) {
+            const denial = DesktopIsolation.realScreenDenial(process.env, String(target.name))
+            if (denial)
+              return yield* new ToolCallError({
+                server: target.name,
+                tool: input.name,
+                message: `MCP server "${target.name}" drives the operator's real screen and is blocked: ${denial}`,
+              })
+          }
           if (input.sessionID) {
             const denial = yield* enforceBudget(input.sessionID, target.name)
             if (denial)

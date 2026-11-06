@@ -10,6 +10,7 @@ import type { Context } from "@orchestra/plugin/effect/plugin"
 import { Mode } from "@orchestra/schema/mode"
 import type { Tool } from "@orchestra/schema/tool"
 import { Effect, Option, Schema } from "effect"
+import { DesktopIsolation } from "../../desktop-isolation.js"
 import { Location } from "../../location.js"
 import { Permission } from "../../permission.js"
 import { Session } from "../../session.js"
@@ -256,6 +257,19 @@ export const Plugin = {
         if (loud)
           return yield* new ToolFailure({
             message: `Step ${loud.action}: ${loud.input === "real" ? "input: real" : "mode: visible"} is not allowed in the silent Test mode because it uses the operator's mouse, keyboard or screen. Use the default auto mode and message input; they drive the app without disturbing anyone.`,
+          })
+      }
+      // B7: real input and a visible window use the operator's real mouse,
+      // keyboard, and screen — in ANY session, not just a silent one. They
+      // need the real-screen opt-in (ORCHESTRA_DESKTOP_REAL_SCREEN=on,
+      // allowlist, future expiry). The default auto mode and message input
+      // stay on the virtual path and need no opt-in.
+      const loud = steps.find((step) => step.input === "real" || step.mode === "visible" || step.hidden === false)
+      if (loud) {
+        const denial = DesktopIsolation.realScreenDenial(process.env)
+        if (denial)
+          return yield* new ToolFailure({
+            message: `Step ${loud.action}: ${loud.input === "real" ? "input: real" : "mode: visible"} is blocked: ${denial}`,
           })
       }
       yield* permission

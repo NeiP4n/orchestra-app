@@ -2,6 +2,7 @@ export * as McpAcquire from "./acquire.js"
 
 import type { ServerConfig } from "@orchestra/schema/mcp"
 import { Cause, Effect } from "effect"
+import { DesktopIsolation } from "../desktop-isolation.js"
 import { which } from "../util/which.js"
 import { McpCatalog } from "./catalog.js"
 import type { Rating } from "./ratings.js"
@@ -149,6 +150,20 @@ export const ensure: (access: Access, id: string) => Effect.Effect<Ensured> = Ef
   // discovery. If it is still toolless afterwards, the result says so.
   if (before.state !== "configured" && before.state !== "not_installed" && before.state !== "degraded")
     return { ...before, action: "none" as const }
+  // B7: a real-screen server (playwright, agent-desktop) is never installed
+  // or connected while the real-screen opt-in is invalid — not even when it
+  // is already configured. The operator's screen is not a default.
+  const entry = McpCatalog.all.find((item) => item.id === id)
+  if (entry?.realScreen === true) {
+    const denial = DesktopIsolation.realScreenDenial(process.env, id)
+    if (denial)
+      return {
+        ...before,
+        state: "failed" as const,
+        action: "none" as const,
+        detail: `${entry.name} drives the operator's real screen and is blocked: ${denial}`,
+      }
+  }
 
   if (before.state === "not_installed") {
     const entry = McpCatalog.all.find((item) => item.id === id)!

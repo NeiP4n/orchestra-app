@@ -176,8 +176,16 @@ export type Entry = {
   readonly platforms?: readonly NodeJS.Platform[]
   // Environment variables the server exits without, so the Registry can say so before it looks installed.
   readonly requires?: readonly string[]
+  // B7: the server drives the operator's real screen, mouse, or browser
+  // (playwright, agent-desktop). It may only be acquired, selected, or
+  // called when the real-screen opt-in is valid; see desktop-isolation.ts.
+  readonly realScreen?: boolean
   readonly config: ServerConfig
 }
+
+/** Whether a catalog server touches the operator's real screen (block B7). */
+export const isRealScreenServer = (id: string): boolean =>
+  all.some((entry) => entry.id === id && entry.realScreen === true)
 
 const local = (command: string[]): ServerConfig => ({ type: "local", command }) as ServerConfig
 const remote = (url: string): ServerConfig => ({ type: "remote", url }) as ServerConfig
@@ -222,8 +230,9 @@ export const all: readonly Entry[] = [
     description:
       "Drive a real browser: open pages, click, fill forms, read the accessibility tree, and take screenshots.",
     usage:
-      "For web apps: navigate, inspect the page, interact with elements by stable references, and take screenshots to verify the result.",
+      "For web apps: navigate, inspect the page, interact with elements by stable references, and take screenshots to verify the result. B7: this drives the operator's real browser, so it needs the real-screen opt-in (ORCHESTRA_DESKTOP_REAL_SCREEN=on, allowlist naming playwright, future expiry); without it the server is not acquired and its tools refuse.",
     runtime: "npx",
+    realScreen: true,
     config: local(["npx", "-y", "@playwright/mcp@latest", ...(windows ? ["--browser", "msedge"] : [])]),
   },
   {
@@ -232,8 +241,9 @@ export const all: readonly Entry[] = [
     description:
       "Computer use for desktop apps on macOS, Windows, and Linux: see and operate them through the OS accessibility tree, with a ref for every element.",
     usage:
-      "Use to operate a desktop app: snapshot it first, act on element refs (click, type, set-value), then snapshot again to verify the result. Actions are headless by default.",
+      "Use to operate a desktop app: snapshot it first, act on element refs (click, type, set-value), then snapshot again to verify the result. Actions are headless by default. B7: this drives the operator's real screen — it is NOT a virtual display. It needs the real-screen opt-in (ORCHESTRA_DESKTOP_REAL_SCREEN=on, allowlist naming agent-desktop, future expiry); without it the server is not acquired and its tools refuse. Prefer the desktop_* tools on the agent's virtual display. When the opt-in is on, run the server with DISPLAY set to the agent's virtual display (for example :99) so it acts inside that display, not on the operator's screen.",
     runtime: "npx",
+    realScreen: true,
     config: local(["npx", "-y", "agent-desktop", "mcp"]),
   },
   {
