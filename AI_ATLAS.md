@@ -600,9 +600,14 @@ messages and builds the rest with `society_forge generate` and `society_plan`.
   an Anymodel key must be stored (credential store first, provider settings
   second) and alive (`GET /models`), and the planner's model must be served.
   A failed preflight refuses the creation with the fix named; without
-  the Provider service in the layer the check is skipped, never a
-  false failure — the endpoint cannot be determined from the Credential
-  service alone, and the Federation context does not provide Provider.
+  the Provider service in the layer the check is skipped when a key is
+  stored — the endpoint cannot be determined from the Credential
+  service alone, and the Federation context does not provide Provider,
+  so a stored key must not be reported as unconfigured. With no key
+  stored the check still fails with "No Anymodel API key": a missing
+  key is definitive evidence, not a missing endpoint, and the G2-1
+  gates (refuse creation, stay quiet on resume) must not open just
+  because Provider is absent.
   The same preflight runs at server boot (logged, never
   blocking boot) and gates `resumeGeneration`: a Society whose provider is
   dead is not woken.

@@ -173,16 +173,11 @@ export const checkLive = Effect.fn("SocietyPreflight.checkLive")(function* (inpu
       status: "skipped",
       reason: "Credential and Provider services are not in this layer, so the Anymodel key and endpoint cannot be verified here.",
     } satisfies PreflightResult
-  // The endpoint comes from the Provider service alone: when it is absent
-  // from this layer (the Federation context does not provide it), the base
-  // URL cannot be determined at all — and a missing base URL must not be
-  // reported as an unconfigured provider. Skip instead of failing; the
-  // creation path logs the skip as a warning.
-  if (Option.isNone(providers))
-    return {
-      status: "skipped",
-      reason: "Provider service is not in this layer, so the Anymodel endpoint cannot be verified here.",
-    } satisfies PreflightResult
+  // A stored key is read before the Provider check: a missing key is
+  // definitive evidence (the provider is dead), not a missing endpoint.
+  // Only a stored key whose endpoint cannot be determined is unverifiable
+  // and skips — otherwise the G2-1 gates (refuse creation, stay quiet on
+  // resume) silently open whenever the Provider service is absent.
   const stored = Option.isNone(credentials)
     ? []
     : yield* credentials.value
@@ -193,6 +188,17 @@ export const checkLive = Effect.fn("SocietyPreflight.checkLive")(function* (inpu
   const keyEntry = [...stored].reverse().find((item) => item.value.type === "key")
   const credentialKey =
     keyEntry?.value.type === "key" && keyEntry.value.key.trim() !== "" ? keyEntry.value.key : undefined
+  // The endpoint comes from the Provider service alone: when it is absent
+  // from this layer (the Federation context does not provide it), the base
+  // URL cannot be determined at all — and a missing base URL must not be
+  // reported as an unconfigured provider. Skip instead of failing, but only
+  // when a key is stored: with no key the pure check below fails with
+  // "No Anymodel API key", which is the correct definitive answer.
+  if (Option.isNone(providers) && credentialKey !== undefined)
+    return {
+      status: "skipped",
+      reason: "Provider service is not in this layer, so the Anymodel endpoint cannot be verified here.",
+    } satisfies PreflightResult
   const info = Option.isNone(providers)
     ? undefined
     : yield* providers.value
