@@ -150,7 +150,7 @@ export function receiptForReport(input: {
    * from its two independent signals — the worker's CHECKS and the
    * transcript evidence — when both exist.
    */
-  verification?: Array<{ kind: string; detail: string }>
+  verification?: ReadonlyArray<{ kind: string; detail: string }>
 }): Receipt {
   const summary = clipped(input.summary)
   const error = input.error === undefined ? undefined : clipped(input.error)
@@ -164,7 +164,9 @@ export function receiptForReport(input: {
           ...(input.failingTest === undefined ? {} : { failingTest: input.failingTest }),
         }
   const verificationProof =
-    input.verification === undefined ? {} : { verification: input.verification }
+    // The receipt carries a mutable list; the caller may hand over the
+    // read-only array stored in the task marker.
+    input.verification === undefined ? {} : { verification: [...input.verification] }
   if (input.state === "nothing") return { outcome: "nothing", summary }
   if (input.workerRemoved) {
     return { outcome: "failed", summary, error: error ?? "worker session was removed before it could report" }

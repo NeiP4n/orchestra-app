@@ -38,5 +38,29 @@ export const AutoloopHandler = HttpApiBuilder.group(Api, "server.autoloop", (han
           return { card: answered.card, changed: answered.changed, newRunId: answered.newRunId }
         }),
       )
+      .handle(
+        "autoloop.disputes.raise",
+        Effect.fn(function* (ctx) {
+          return yield* AutoloopCards.raiseDispute(ctx.payload).pipe(
+            Effect.catchTag("Autoloop.CardsFailure", (error) => Effect.fail(cardError(-1, error))),
+          )
+        }),
+      )
+      .handle(
+        "autoloop.disputes.resolve",
+        Effect.fn(function* (ctx) {
+          return yield* AutoloopCards.resolveDispute(ctx.params.id, ctx.payload.decision).pipe(
+            Effect.catchTag("Autoloop.CardsFailure", (error) => Effect.fail(cardError(ctx.params.id, error))),
+          )
+        }),
+      )
+      .handle(
+        "autoloop.disputes.escalate",
+        Effect.fn(function* (ctx) {
+          return yield* AutoloopCards.escalateDispute(ctx.params.id).pipe(
+            Effect.catchTag("Autoloop.CardsFailure", (error) => Effect.fail(cardError(ctx.params.id, error))),
+          )
+        }),
+      )
   }),
 )

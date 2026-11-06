@@ -59,6 +59,7 @@ export const DELIVERY_REF = 200
  * option there must rename it here too.
  */
 export const CANCEL_OPTION = "Отменить задачу"
+export const ACCEPT_OPTION = "Принять без проверки"
 
 /** Cycle limits. Numbers live in the Orchestra config; these are the defaults. */
 export interface AutoloopLimits {
@@ -975,9 +976,11 @@ function sweep(draft: Draft) {
     // whether the worker is still around or already gone: before this fix the
     // block below only ran while the worker counted as fresh, so a run of a
     // worker that died for real stayed `claimed` forever and its lane with it.
+    // A run never seen (`seen_at` null) counts as long ago, not as "just
+    // seen": `Date.parse("")` is NaN, and NaN never compares true (m-12).
     const inDoubt = (run: RunRow) =>
       workerOfRun(draft.rules, run.agent) === worker &&
-      Date.parse(run.seen_at ?? "") < now - limits.runLeaseMinutes * MINUTE
+      (Date.parse(run.seen_at ?? "") || 0) < now - limits.runLeaseMinutes * MINUTE
     for (const run of rowsOf(draft.view, "runs")
       .map(({ data }) => data as RunRow)
       .filter((run) => run.state === "claimed" && inDoubt(run))) {
@@ -1015,6 +1018,20 @@ function sweep(draft: Draft) {
         : `${worker} не выходит на связь уже ${minutes} минут, ${waiting.length} задач в очереди или в работе`
     const check = lastSeen === undefined ? "включён ли он и есть ли сеть" : "не выключен ли он, не уснул ли, не пропала ли сеть"
     notify(draft, key, "Исполнитель не на связи", `${situation} (посмотрите, ${check}).`)
+  }
+  // Runs whose agent is gone from the rules have no worker to sweep them:
+  // no heartbeat will ever mention them again, so they stop here instead of
+  // sitting `claimed` forever (m-12).
+  for (const run of rowsOf(draft.view, "runs")
+    .map(({ data }) => data as RunRow)
+    .filter((run) => (run.state === "claimed" || run.state === "unknown") && workerOfRun(draft.rules, run.agent) === undefined)) {
+    stopRun(
+      draft,
+      run,
+      "agent-gone",
+      `Исполнитель «${run.agent}» исчез из правил, раунд остановлен`,
+      `Исполнитель «${run.agent}» исчез из правил (удалён или переименован), этот раунд больше не раздаётся. Чтобы сделать — вызовите событие заново.`,
+    )
   }
   sweepDisputes(draft)
 }
@@ -1238,9 +1255,11 @@ export function retryLater(draft: Draft, run: RunRow, result: Receipt): Rejected
     set(draft, "runs", other.id, null)
     if (other.resume !== null) put(draft, "runs", id, { resume: other.resume })
   }
-  if (!result.notice?.some((notice) => !notice.fyi) && attempts === 3) {
+  // The last retry: at `maxAttempts` the run stops instead of re-queuing,
+  // so a notify keyed on `maxAttempts` itself would never fire (m-11).
+  if (!result.notice?.some((notice) => !notice.fyi) && attempts === limits.maxAttempts - 1) {
     const time = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(notBefore)
-    const words = `Автоматическая обработка не завершилась 3 раза подряд (застряло на: ${error}), в ${time} попробует сама ещё раз.`
+    const words = `Автоматическая обработка не завершается (застряло на: ${error}), в ${time} попробует сама ещё раз — это последняя автоматическая попытка.`
     notify(draft, `run:${id}:failing`, run.rule, words, threadOf(run))
   }
   assignQueued(draft, getRow<RunRow>(draft.view, "runs", id)!)
@@ -1327,7 +1346,7 @@ export function applyReceipt(draft: Draft, run: RunRow, result: Receipt): Reject
           : verificationFailed
             ? `Результат заявлен ${draft.limits.maxVerifyIterations} раз подряд только с одним способом проверки (${summary || "без подробностей"}). Проверьте вторым, независимым способом, или отмените задачу. Что делать дальше?`
             : `Проверка кодом не прошла ${draft.limits.maxVerifyIterations} раз подряд (${summary || "без подробностей"}). Что делать дальше?`,
-        options: ["Исправить и проверить снова", "Принять без проверки", "Отменить задачу"],
+        options: ["Исправить и проверить снова", ACCEPT_OPTION, CANCEL_OPTION],
         recommend: "Исправить и проверить снова",
         ...threadOf(run),
         run: id,
@@ -1400,8 +1419,10 @@ function finish(draft: Draft, id: number, token: string, given: unknown) {
   const usage = result.usage === undefined ? run.usage : { ...(run.usage ?? {}), ...result.usage }
   put(draft, "runs", id, { last_issued: run.issued, last_result: hash, issued: null, session, usage })
   let rejected: Rejected[] = []
-  // Told to stop, one that failed first has stopped all the same: trying again would start what the owner ended.
-  if (result.outcome === "cancelled" || (result.outcome === "failed" && run.cancel_at !== null)) {
+  // Told to stop, whatever it reports next: trying again would start what
+  // the owner ended, and a late "done" must not resurrect a cancelled run
+  // (A-10: before this fix only a failed run honoured `cancel_at`).
+  if (result.outcome === "cancelled" || run.cancel_at !== null) {
     put(draft, "runs", id, {
       state: "cancelled",
       finished_at: draft.at,
@@ -1478,6 +1499,21 @@ function answer(draft: Draft, id: number, given: RowData) {
     }
     return { changed: true, state: "decided", cancelled: true }
   }
+  if (chosen === ACCEPT_OPTION) {
+    // "Принять без проверки" ends the task as done: the operator accepts the
+    // result as-is. The linked run is finished with the card's summary — it
+    // is NOT re-queued for another verification round, or the loop
+    // "verify fails → ask → accept → verify fails" never ends (m-05).
+    const linked = card.run_id !== null ? getRow<RunRow>(draft.view, "runs", card.run_id) : undefined
+    if (
+      linked !== undefined &&
+      (linked.state === "cancelled" || linked.state === "queued" || linked.state === "claimed" || linked.state === "unknown")
+    ) {
+      put(draft, "runs", linked.id, { state: "done", finished_at: draft.at, summary: `принято без проверки: ${card.title}` })
+      closeStopped(draft, linked.id, "принято без проверки")
+    }
+    return { changed: true, state: "decided", accepted: true }
+  }
   if (rule !== undefined) enqueue(draft, rule, eventId, card.lane, card.agent === rule.to ? card.session : null)
   return { changed: true, state: "decided" }
 }
@@ -1546,23 +1582,20 @@ function tick(draft: Draft) {
   const { rules, timezone } = draft.rules
   for (const rule of rules) {
     if (eventRule(rule)) continue
-    const text = cronOf(rule)
-    const cron = parseCron(text)
-    if (cron === null) continue
-    const schedule = getRow<ScheduleRow>(draft.view, "schedules", rule.name)
-    const next = nextRun(cron, now, timezone)
-    if (next === null) continue
-    if (schedule === undefined || schedule.cron !== text) {
-      put(draft, "schedules", rule.name, { rule: rule.name, cron: text, next_at: iso(new Date(next)) })
-      continue
+    try {
+      tickRule(draft, rule, timezone, now)
+    } catch (error) {
+      // One broken rule must not kill the whole tick: the rest keep working,
+      // and the operator gets one card about the broken one (deduped by key
+      // while it stays open; closed when the rules are updated).
+      const message = error instanceof Error ? error.message : String(error)
+      notify(
+        draft,
+        `rules:tick:${digest(`${rule.name}:${message}`)}`,
+        "Правило сломалось при тике",
+        `Правило «${rule.name}» сломалось при тике (${message}), остальные правила работают. Исправьте правило — карточка закроется при обновлении правил.`,
+      )
     }
-    if (now < Date.parse(schedule.next_at)) continue
-    const before = latestBefore(cron, Date.parse(schedule.next_at), now, timezone)
-    const key = `${rule.name}@${iso(new Date(before ?? now))}`
-    if (!rowsOf(draft.view, "events").some(({ data }) => data["source"] === SCHEDULE && data["key"] === key)) {
-      enqueue(draft, rule, recordEvent(draft, SCHEDULE, { id: key, type: "schedule.tick" }, [rule.name]), "")
-    }
-    put(draft, "schedules", rule.name, { next_at: iso(new Date(next)) })
   }
   const dueTimers = rowsOf(draft.view, "timers")
     .map(({ data }) => data as TimerRow)
@@ -1576,6 +1609,27 @@ function tick(draft: Draft) {
     if (rule !== undefined) enqueue(draft, rule, eventId, timer.lane, timer.session)
   }
   sweep(draft)
+}
+
+/** One scheduled rule's turn in the tick. Throws on a broken rule — a bad timezone throws `RangeError` in `Intl`, a missing `cron` throws in `parseCron` — and the caller isolates it. */
+function tickRule(draft: Draft, rule: Rule, timezone: string, now: number) {
+  const text = cronOf(rule)
+  const cron = parseCron(text)
+  if (cron === null) return
+  const schedule = getRow<ScheduleRow>(draft.view, "schedules", rule.name)
+  const next = nextRun(cron, now, timezone)
+  if (next === null) return
+  if (schedule === undefined || schedule.cron !== text) {
+    put(draft, "schedules", rule.name, { rule: rule.name, cron: text, next_at: iso(new Date(next)) })
+    return
+  }
+  if (now < Date.parse(schedule.next_at)) return
+  const before = latestBefore(cron, Date.parse(schedule.next_at), now, timezone)
+  const key = `${rule.name}@${iso(new Date(before ?? now))}`
+  if (!rowsOf(draft.view, "events").some(({ data }) => data["source"] === SCHEDULE && data["key"] === key)) {
+    enqueue(draft, rule, recordEvent(draft, SCHEDULE, { id: key, type: "schedule.tick" }, [rule.name]), "")
+  }
+  put(draft, "schedules", rule.name, { next_at: iso(new Date(next)) })
 }
 
 // --- Minimal five-field cron (minute hour day-of-month month day-of-week) ---
@@ -1716,19 +1770,77 @@ export function latestBefore(cron: CronSet, fromMs: number, toMs: number, timeZo
 }
 
 /** Every input there is, each with its arguments named. What one returns is what the caller is told. */
+/**
+ * A rule set is only stored when every rule in it is usable: a bad rule
+ * used to be stored and then kill every tick from inside (M-04). The old
+ * rules stay when validation throws — the `put` below only runs after it.
+ * Event types are free-form patterns (`*`, `prefix.*`), matched by
+ * `typeMatches`; the kernel has no registry of known types, so the check
+ * is structural: a non-empty list of non-empty strings.
+ */
+function validateRules(rules: Rules): void {
+  const problems: Array<string> = []
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: rules.timezone })
+  } catch {
+    problems.push(`часовой пояс «${rules.timezone}» неизвестен`)
+  }
+  for (const rule of rules.rules) {
+    const name = typeof rule.name === "string" && rule.name.trim() !== "" ? rule.name : "(без имени)"
+    if (name === "(без имени)") problems.push("правило без имени")
+    if (typeof rule.to !== "string" || rules.agents[rule.to] === undefined) {
+      problems.push(`правило «${name}»: исполнитель «${String(rule.to)}» неизвестен`)
+    }
+    const when = rule.when as { source?: unknown; types?: unknown; cron?: unknown } | undefined
+    if (when === undefined || typeof when !== "object") {
+      problems.push(`правило «${name}»: нет when`)
+    } else if ("cron" in when) {
+      if (typeof when.cron !== "string" || parseCron(when.cron) === null) {
+        problems.push(`правило «${name}»: cron «${String(when.cron)}» не разбирается`)
+      }
+    } else {
+      if (typeof when.source !== "string" || when.source.trim() === "") {
+        problems.push(`правило «${name}»: нет when.source`)
+      }
+      if (
+        !Array.isArray(when.types) ||
+        when.types.length === 0 ||
+        when.types.some((type) => typeof type !== "string" || type.trim() === "")
+      ) {
+        problems.push(`правило «${name}»: when.types — непустой список типов событий`)
+      }
+    }
+    if (rule.emits !== undefined) {
+      if (typeof rule.emits.source !== "string" || rule.emits.source.trim() === "") {
+        problems.push(`правило «${name}»: нет emits.source`)
+      }
+      if (
+        !Array.isArray(rule.emits.types) ||
+        rule.emits.types.length === 0 ||
+        rule.emits.types.some((type) => typeof type !== "string" || type.trim() === "")
+      ) {
+        problems.push(`правило «${name}»: emits.types — непустой список типов событий`)
+      }
+    }
+  }
+  if (problems.length > 0) throw new DecideInputError(`правила не приняты: ${problems.join("; ")}`)
+}
+
 const HANDLERS: Record<string, (draft: Draft, ...args: Array<unknown>) => unknown> = {
   rules(draft, given) {
     if (!isRecord(given) || !Array.isArray(given["rules"])) {
       throw new DecideInputError("rules — объект Rules со списком rules")
     }
     const rules = given as unknown as Rules
+    validateRules(rules)
     put(draft, "config", "rules", { value: rules, version: draft.seq })
     const named = new Set(rules.rules.map((rule) => rule.name))
     for (const run of rowsOf(draft.view, "runs")
       .map(({ data }) => data as RunRow)
-      .filter((run) => run.state === "queued")) {
-      if (named.has(run.rule)) assignQueued(draft, run)
-      else stopRun(draft, run, "rule-gone", ...ruleGone(run))
+      .filter((run) => run.state === "queued" || run.state === "claimed" || run.state === "unknown")) {
+      if (named.has(run.rule)) {
+        if (run.state === "queued") assignQueued(draft, run)
+      } else stopRun(draft, run, "rule-gone", ...ruleGone(run))
     }
     closeOpen(draft, (key) => key.startsWith("rules:"), "правила обновлены")
   },

@@ -244,10 +244,27 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   past `workerFreshMinutes`) its unknown runs go back to the queue
   (`unknown → queued`, claim cleared, `not_before` now), so a dead worker
   never blocks a lane forever — a live worker keeps its unknown runs, it may
-  still finish them. The server's startup tick runs this sweep, so a restart
+  still finish them. A run never seen (`seen_at` null) counts as long ago,
+  not as just seen. A claimed run whose agent left the rules stops on sweep
+  (`agent-gone`); removing a rule stops its claimed and unknown runs too,
+  not only the queued ones. The server's startup tick runs this sweep, so a restart
   re-queues dead workers' runs too. Answer: the `card.answered` event
   carries the chosen option in `detail`; answering `Отменить задачу`
-  (`CANCEL_OPTION`) cancels the task and starts no new run.
+  (`CANCEL_OPTION`) cancels the task and starts no new run; answering
+  `Принять без проверки` (`ACCEPT_OPTION`) finishes the linked run as done
+  with the card's summary — it is not re-queued for another verification
+  round. A run told to stop (`cancel_at` set) ends cancelled whatever it
+  reports next, even a late "done". Rules are validated before they are
+  stored (name, `when`, `to` must name a known agent, `cron` must parse,
+  the timezone must exist) — a bad set is rejected with `DecideInputError`
+  and the old rules stay. One broken rule stored earlier cannot kill the
+  tick: its cron step is isolated, the other rules keep firing, and the
+  operator gets one `rules:tick:` notice card about it. The failing-run
+  warning fires on the last retry (`attempts === maxAttempts - 1`), never
+  on a hardcoded third attempt. Claim/finish tokens are
+  `sha256(secret:run:id:issued)`; when no secret is configured the service
+  generates a random 32-byte secret per process, so tokens issued before a
+  restart stop verifying and the run is re-claimed by lease expiry.
 - **Cards (block Б3, подшаг 2)**: `src/autoloop/cards.ts` is the thin layer
   over `store` + `decide` — `listCards` / `listOpenCards`, `createCard`
   (same key while open = duplicate, no new fact), `answerCard` (records
@@ -282,7 +299,16 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
     recorded on the run row (`fix_test_file`, `fix_test_run`) and passes
     through `receiptForReport` in `src/autoloop/orchestrator.ts`. The gate
     keys on the declaration — the kernel cannot tell a fix task from other
-    work, and guessing from the text would misfire.
+    work, and guessing from the text would misfire. The declaration is
+    built in `orchestra.ts` `report()` (`failingTestOf`): a test command
+    that failed (non-zero exit, timeout, kill, or failure markers in its
+    output) before the worker's first file edit, with at least one edit
+    after it — that is the fix. The test file comes from the command or a
+    FAIL line in the output; when no file can be pinned down the run still
+    declares the fix, so the gate asks for the test on the next round. The
+    proof rides in the prepared task marker (`reportFixTask`,
+    `reportFailingTest`) and the project ledger (`fixTask`, `failingTest`),
+    so a crash after preparation still ends the run with what it proved.
   - `kernel/decide.ts` `retryLater` writes exactly one lesson on the second
     failed receipt (idea #11) into the `lessons` collection (`run`, `rule`,
     `text`, `error`, `fingerprint`, `attempts`): attempts only grow, so
@@ -300,10 +326,13 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
     `receiptForReport`. A receipt that declares nothing is exempt by
     design: legacy receipts and read-only work have no second method to
     declare. Unknown kinds are rejected, so a typo cannot pass as a second
-    method. The live wiring that fills `verification` from
-    `orchestra.ts` `report()` (the worker's CHECKS + the transcript
-    evidence) is not done yet — the two signals already exist there, the
-    bridge only has to pass them.
+    method. The live wiring fills `verification` from `orchestra.ts`
+    `report()` (`verificationOf`): the worker's CHECKS plus the transcript
+    evidence — only when both exist and agree (checks ran, none failed,
+    the transcript shows a command ran with no edit after it). The first
+    entry is `test` when a test command ran, else `command`; the second is
+    always `transcript`. Like the fix proof it rides in the prepared task
+    marker (`reportVerification`) and the project ledger (`verification`).
   - `kernel/dispute.ts` + `decide` inputs `raiseDispute` / `resolveDispute` /
     `escalateDispute` + the `disputes` collection (idea #18): the dispute
     ladder agent (15 min) → group-leader (30) → council (60) → orchestrator
@@ -313,7 +342,12 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
     a record for the operator, never a block and never an approval gate.
     The ladder is re-exported from `src/session/runner/escalate.ts` as
     `DisputeLadder` next to the error ladder: errors climb when retries
-    and fallbacks are exhausted, disputes climb when time runs out.
+    and fallbacks are exhausted, disputes climb when time runs out. It is
+    also reachable from prod code, not only tests: `AutoloopCards`
+    `raiseDispute` / `resolveDispute` / `escalateDispute`, the server
+    endpoints `POST /api/autoloop/disputes` (+ `/:id/resolve`,
+    `/:id/escalate`), and `deadlines()` in `kernel/due.ts` wakes the clock
+    on every open dispute, so the tick's `sweepDisputes` climbs it.
 - **`kernel/due.ts`**: `RUN_LEASE = 5 мин`, `WORKER_FRESH = 2 мин`,
   `OFFLINE_AFTER = 10 мин`, `SEEN_EVERY = 1 мин`, `deadlines`,
   `offlineCard`, `workers` / `waitingOn` (unknown runs count as waiting).
@@ -1264,8 +1298,8 @@ the case "the program itself is broken".
   normal server credential and show a sign-in hint on 401.
 - **API** (`packages/protocol/src/groups/recovery.ts`, handlers
   `packages/server/src/handlers/recovery.ts`): `GET /api/recovery/models`
-  lists only working providers (klinch, lix — Anymodel is down with 502 and
-  is never offered); `POST /api/recovery/chat` runs one autonomous repair
+  lists every enabled model in catalog order (the catalog hides providers
+  it cannot serve; no provider is hardcoded in or out); `POST /api/recovery/chat` runs one autonomous repair
   round. The chat input is capped (T3-6): at most 20 messages
   (`Recovery.RecoveryChatTranscript`) of at most 8000 characters each, one
   round at a time per server (a second concurrent request is refused with
@@ -1283,15 +1317,35 @@ the case "the program itself is broken".
   model through the normal `Model` + `ModelResolver` path (same credential
   store as sessions), then `runRepairLoop` calls the model with four tools —
   `read_file`, `write_file`, `list_files`, `run_shell` — up to 12 rounds.
-  Tools are confined to the repo the server runs from (`process.cwd()`):
-  paths cannot escape the root, `.git/` internals and `*.db` files cannot be
-  written directly, and a small denylist refuses destructive shell commands
-  (`rm -rf /`, `rm -rf ~`, `mkfs`, `shutdown`, …). Shell runs time out at
-  60 s. The agent works autonomously — no permission prompts — and ends its
-  answer with an `Исправлено:` line when it fixed something (parsed into
-  `RecoveryResult.fixed`). A model or provider failure is returned as a
-  reply, not an HTTP error: the user is already looking at a broken
-  Orchestra, and a bare 500 with no words helps no one.
+  Tools are confined to the Orchestra checkout (`resolveRepoRoot` in
+  `service.ts`: the ancestor holding `packages/core`, `ORCHESTRA_REPO_ROOT`
+  override, cwd only as a last resort — never the server's working
+  directory, which is the user's project). Paths are resolved with
+  `realpath` (`resolveInRootReal` in `tools.ts`), so a symlink inside the
+  repo that points outside it is refused, including for not-yet-created
+  files; `.env*`, `credentials*`, `*secret*`, `*.pem`, `*.key`, `id_rsa*`,
+  `*.db*`, `*.sqlite*`, `.git/`, `.ssh/` and the config files
+  (`orchestra.json`, `opencode.json` — provider headers there can carry an
+  `Authorization` key) are protected for both reading and writing. Writes
+  publish atomically (temp file + rename). The shell runs in the real root
+  with a 60 s timeout, a 20 000-char command cap, and a denylist that
+  refuses `rm -rf` at any absolute/home/variable path, `find -delete`,
+  `git clean -f`, `git push --force`, `dd … of=`, piping into a shell,
+  `chmod 777`, `curl`/`wget` uploads and any fetch outside localhost.
+  The agent works autonomously — no permission prompts — and ends its
+  answer with an `Исправлено:` line when it fixed something. The verdict
+  parser (`parseFixed` in `agent.ts`) is fail-closed: any `Не исправлено:`
+  / `Not fixed:` anywhere means not fixed, and the positive marker counts
+  only at a line start or right after a sentence boundary, never
+  mid-sentence — a quoted mention is not a verdict. `RecoveryResult.root`
+  says which checkout was actually repaired. A model or provider failure
+  is returned as a reply, not an HTTP error: the user is already looking
+  at a broken Orchestra, and a bare 500 with no words helps no one.
+- **Model list**: `listRecoveryModels` offers every model the catalog
+  reports as available (the catalog already hides providers it cannot
+  serve — no key, disabled plugin), in catalog order. No provider is hardcoded out: Anymodel is offered
+  again when the catalog says it works, and a provider that fails at call
+  time is reported as a reply, not a crash.
 - **After the fix**: the page shows the `Исправлено:` banner with an
   "Открыть Orchestra" button (back to `/`) and a restart hint
   (`orchestra service restart`) when code changed.

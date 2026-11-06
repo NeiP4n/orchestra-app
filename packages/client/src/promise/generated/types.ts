@@ -15312,6 +15312,7 @@ export type ServerRecoveryChatOutput = {
   reply: string
   steps: Array<{ tool: string; input: JsonValue; output: string; success: boolean }>
   fixed?: string
+  root?: string
   inputTokens?: number | "Infinity" | "-Infinity" | "NaN"
   outputTokens?: number | "Infinity" | "-Infinity" | "NaN"
   model: ModelRef

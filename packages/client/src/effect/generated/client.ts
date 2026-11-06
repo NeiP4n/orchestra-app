@@ -456,6 +456,12 @@ import type {
   ServerAutoloopCardsListOutput,
   ServerAutoloopCardsAnswerInput,
   ServerAutoloopCardsAnswerOutput,
+  ServerAutoloopDisputesRaiseInput,
+  ServerAutoloopDisputesRaiseOutput,
+  ServerAutoloopDisputesResolveInput,
+  ServerAutoloopDisputesResolveOutput,
+  ServerAutoloopDisputesEscalateInput,
+  ServerAutoloopDisputesEscalateOutput,
   ServerRecoveryModelsInput,
   ServerRecoveryModelsOutput,
   ServerRecoveryChatInput,
@@ -2729,8 +2735,40 @@ const EndpointServerAutoloopCardsAnswer =
       }).pipe(Effect.mapError(mapClientError)),
     )
 
+const EndpointServerAutoloopDisputesRaise =
+  (raw: RawClient["server.autoloop"]) => (input: ServerAutoloopDisputesRaiseInput) =>
+    preserveEffect<ServerAutoloopDisputesRaiseOutput>()(
+      raw["autoloop.disputes.raise"]({
+        payload: {
+          subject: input["subject"],
+          positionA: input["positionA"],
+          positionB: input["positionB"],
+          level: input["level"],
+        },
+      }).pipe(Effect.mapError(mapClientError)),
+    )
+
+const EndpointServerAutoloopDisputesResolve =
+  (raw: RawClient["server.autoloop"]) => (input: ServerAutoloopDisputesResolveInput) =>
+    preserveEffect<ServerAutoloopDisputesResolveOutput>()(
+      raw["autoloop.disputes.resolve"]({ params: { id: input["id"] }, payload: { decision: input["decision"] } }).pipe(
+        Effect.mapError(mapClientError),
+      ),
+    )
+
+const EndpointServerAutoloopDisputesEscalate =
+  (raw: RawClient["server.autoloop"]) => (input: ServerAutoloopDisputesEscalateInput) =>
+    preserveEffect<ServerAutoloopDisputesEscalateOutput>()(
+      raw["autoloop.disputes.escalate"]({ params: { id: input["id"] } }).pipe(Effect.mapError(mapClientError)),
+    )
+
 const adaptGroupServerAutoloop = (raw: RawClient["server.autoloop"]) => ({
   cards: { list: EndpointServerAutoloopCardsList(raw), answer: EndpointServerAutoloopCardsAnswer(raw) },
+  disputes: {
+    raise: EndpointServerAutoloopDisputesRaise(raw),
+    resolve: EndpointServerAutoloopDisputesResolve(raw),
+    escalate: EndpointServerAutoloopDisputesEscalate(raw),
+  },
 })
 
 const EndpointServerRecoveryModels = (raw: RawClient["server.recovery"]) => (input?: ServerRecoveryModelsInput) =>
