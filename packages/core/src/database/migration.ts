@@ -22,6 +22,23 @@ export type Migration = {
   up: (tx: Transaction) => Effect.Effect<void, unknown, Global.Service>
 }
 
+// G2-8: IDs of migrations not yet applied. Empty for a fresh database (no
+// `migration` journal yet) and for a database with nothing pending — the
+// Database layer backs up before applying only when this is non-empty, so a
+// routine boot never pays for a snapshot it does not need.
+export function pendingMigrations(db: Database) {
+  return Effect.gen(function* () {
+    const journal = yield* db.all<{ name: string }>(
+      sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'migration'`,
+    )
+    if (journal.length === 0) return [] as Array<string>
+    const completed = new Set(
+      (yield* db.all<{ id: string }>(sql`SELECT id FROM ${sql.identifier("migration")}`)).map((row) => row.id),
+    )
+    return migrations.filter((migration) => !completed.has(migration.id)).map((migration) => migration.id)
+  })
+}
+
 // Not serialized here: the Database layer holds a lock scoped to the database
 // it is bootstrapping, since two instances over one file must not race.
 export function apply(db: Database) {

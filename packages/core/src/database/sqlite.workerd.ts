@@ -23,6 +23,12 @@ export const supportsForeignKeyToggle = false
 
 export function checkpointWal(_filename: string): void {}
 
+// G2-8: file restores do not run on workerd — there is no filesystem
+// database to verify — so this refuses loudly instead of pretending.
+export function verifyDatabaseFile(_filename: string): boolean {
+  throw new Error("Database file verification is not available on workerd")
+}
+
 // Minimal structural types for the Durable Object storage API so this adapter
 // does not depend on @cloudflare/workers-types (whose ambient globals conflict
 // with @types/bun). Shapes match the SqlStorage and DurableObjectStorage docs.

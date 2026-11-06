@@ -2,12 +2,13 @@ export * as Database from "./database.js"
 
 import { EffectDrizzleSqlite } from "./drizzle.js"
 import { checkpointWal, sqliteLayer, supportsForeignKeyToggle, supportsTuningPragmas } from "#sqlite"
-import { Context, Effect, Layer, Schema, Semaphore } from "effect"
+import { Cause, Context, Effect, Layer, Schema, Semaphore } from "effect"
 import type { SqlClient } from "effect/unstable/sql"
 import { Global } from "@orchestra/util/global"
 import { closeSync, copyFileSync, existsSync, openSync } from "node:fs"
 import { chmod } from "node:fs/promises"
 import { basename, dirname, isAbsolute, join } from "path"
+import { DatabaseBackup } from "./backup.js"
 import { DatabaseMigration } from "./migration.js"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 
@@ -34,7 +35,13 @@ export class Service extends Context.Service<Service, Interface>()("@orchestra/s
 // releasing a shared semaphore resumes the waiting object's fiber inside the
 // releasing object's I/O context, where its first storage call is rejected as
 // cross-object I/O.
-const databaseLayer = (lock: Effect.Effect<Semaphore.Semaphore>) =>
+const databaseLayer = (
+  lock: Effect.Effect<Semaphore.Semaphore>,
+  // The hook may fail with its own typed errors (a re-raised interruption,
+  // a query error the hook chose not to swallow); the layer turns failures
+  // into defects via `orDie` below, so the channel is `unknown`, not `never`.
+  beforeMigration?: (db: DatabaseShape) => Effect.Effect<void, unknown, never>,
+) =>
   Layer.effect(
     Service,
     Effect.gen(function* () {
@@ -53,7 +60,12 @@ const databaseLayer = (lock: Effect.Effect<Semaphore.Semaphore>) =>
       // Durable Object SQLite always enforces foreign keys and rejects the pragma.
       if (supportsForeignKeyToggle) yield* db.run("PRAGMA foreign_keys = ON")
       const semaphore = yield* lock
-      yield* semaphore.withPermit(DatabaseMigration.apply(db))
+      yield* semaphore.withPermit(
+        Effect.gen(function* () {
+          if (beforeMigration) yield* beforeMigration(db)
+          yield* DatabaseMigration.apply(db)
+        }),
+      )
 
       return { db }
     }).pipe(Effect.orDie),
@@ -75,9 +87,37 @@ export function layer(options: Options = { path: ":memory:" }) {
   return Layer.unwrap(
     Effect.gen(function* () {
       const provide = (filename: string) =>
-        databaseLayer(filename === ":memory:" ? Semaphore.make(1) : Effect.succeed(lockFor(filename))).pipe(
-          Layer.provide(sqliteLayer({ filename })),
-        )
+        databaseLayer(
+          filename === ":memory:" ? Semaphore.make(1) : Effect.succeed(lockFor(filename)),
+          // G2-8: migrations rewrite schema (old ones DROP tables), so a file
+          // database with pending migrations is snapshotted first. In-memory
+          // databases and workerd (no tuning pragmas, no filesystem) skip it.
+          // Best-effort: a failed backup is one loud warning, never a failed boot.
+          filename === ":memory:" || !supportsTuningPragmas
+            ? undefined
+            : (db) =>
+                Effect.gen(function* () {
+                  const pending = yield* DatabaseMigration.pendingMigrations(db)
+                  if (pending.length === 0) return
+                  const result = yield* DatabaseBackup.runBackupCycle(db, {
+                    directory: join(dataDir, "backups"),
+                    database: basename(filename),
+                    keep: 7,
+                  })
+                  yield* Effect.logInfo("database backup before migration", {
+                    backup: result.backup.path,
+                    migrations: pending,
+                  })
+                }).pipe(
+                  Effect.catchCause((cause) =>
+                    Cause.hasInterrupts(cause)
+                      ? Effect.failCause(cause)
+                      : Effect.logWarning("database backup before migration failed; continuing without a fresh backup", {
+                          cause,
+                        }),
+                  ),
+                ),
+        ).pipe(Layer.provide(sqliteLayer({ filename })))
       const envDb = process.env.ORCHESTRA_DB ?? process.env.OPENCODE_DB
       const raw = options.path ?? envDb ?? ":memory:"
       if (raw === ":memory:") return provide(raw)

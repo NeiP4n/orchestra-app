@@ -24,7 +24,21 @@ export const ServerOptions = Schema.Struct({
   pty: Schema.optional(PersistentPty.Options),
   events: Schema.optional(
     Schema.Struct({
+      // G2-7: durable events persist by default (Bus treats an omitted value
+      // as true). Set false only to deliberately drop event history on
+      // restart — never for a live server.
       persist: Schema.optional(Schema.Boolean),
+    }),
+  ),
+  backup: Schema.optional(
+    Schema.Struct({
+      // G2-8: automatic database backups. Enabled by default: one at server
+      // startup (before the first live Society run) and then every
+      // `intervalHours`, keeping the `keep` newest snapshots.
+      enabled: Schema.optional(Schema.Boolean),
+      intervalHours: Schema.optional(Schema.Number),
+      keep: Schema.optional(Schema.Int),
+      directory: Schema.optional(Schema.String),
     }),
   ),
   models: Schema.optional(ModelsDev.Options),

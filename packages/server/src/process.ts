@@ -6,6 +6,7 @@ import { Autoloop } from "@orchestra/core/autoloop/service"
 import { SessionRestart } from "@orchestra/core/session/execution/restart"
 import { Federation } from "@orchestra/core/federation"
 import { Orchestra } from "@orchestra/core/orchestra"
+import { Database } from "@orchestra/core/database/database"
 import { InstallationEvent } from "@orchestra/schema/installation-event"
 import { hasPtyConnectTicketURL } from "@orchestra/protocol/groups/pty"
 import { hasPersistentPtyConnectTicketURL } from "@orchestra/protocol/groups/persistent-pty"
@@ -17,6 +18,7 @@ import { HttpMiddleware, HttpRouter, HttpServer, HttpServerRequest, HttpServerRe
 import { createServer } from "node:http"
 import { ServerAuth } from "./auth"
 import { isAllowedCorsOrigin } from "./cors"
+import { ServerDatabaseBackup } from "./database-backup"
 import { authorizedRequest, unauthorizedResponse } from "./middleware/authorization"
 import { withoutParentSpan } from "./request-tracing"
 import { createRoutes } from "./routes"
@@ -117,6 +119,15 @@ export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
     // limits and the dispatch rules itself, the first time a dispatch runs in
     // a config-bearing context. Until then the kernel defaults apply, and the
     // clock below only ticks once runs exist.
+    // G2-8: back the live database up before the first live run — the startup
+    // hold below resumes founded Societies, so this snapshot is the one a
+    // failed live run (Б14) restores from. Then keep backing up on schedule.
+    // Never fails the boot: a server the operator cannot start cannot be fixed.
+    const { db } = Context.get(context, Database.Service)
+    const global = Context.get(context, Global.Service)
+    yield* ServerDatabaseBackup.start(db, global, options.backup).pipe(
+      Effect.provideService(Scope.Scope, applicationScope),
+    )
     if (lifecycle) {
       yield* installRestartContinuity(
         Context.get(context, Autoloop.Service),

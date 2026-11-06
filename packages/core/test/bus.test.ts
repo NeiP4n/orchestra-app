@@ -109,7 +109,13 @@ const itWithoutLocation = testEffect(
     Bus.node.replace(Bus.configured({ persist: true })),
   ]),
 )
-const itWithoutPersistence = testEffect(AppNodeBuilder.build(LayerNode.group([Database.node, Bus.node])))
+// G2-7: the Bus persists durable events by default, so the no-persistence
+// harness must opt out explicitly — a bare `Bus.configured()` keeps payloads.
+const itWithoutPersistence = testEffect(
+  AppNodeBuilder.build(LayerNode.group([Database.node, Bus.node]), [
+    Bus.node.replace(Bus.configured({ persist: false })),
+  ]),
+)
 
 describe("Bus", () => {
   it.effect("subscribes to multiple event definitions with a discriminated payload union", () =>

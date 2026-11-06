@@ -1,4 +1,5 @@
 import { DatabaseSync, type SQLInputValue } from "node:sqlite"
+import { readFileSync } from "node:fs"
 import { Context, Effect, Layer } from "effect"
 import { Reactivity } from "effect/unstable/reactivity"
 import { SqlClient } from "effect/unstable/sql"
@@ -18,6 +19,26 @@ export function checkpointWal(filename: string): void {
     native.exec("PRAGMA wal_checkpoint(TRUNCATE);")
   } finally {
     native.close()
+  }
+}
+
+// G2-8: a backup is only trusted for restore after this passes — a magic
+// header plus `PRAGMA quick_check` over a read-only connection. Returns
+// false (never throws) for a missing, truncated or corrupt file so the
+// caller can refuse the restore without touching the live database.
+export function verifyDatabaseFile(filename: string): boolean {
+  try {
+    const header = readFileSync(filename).subarray(0, 16)
+    if (header.toString("latin1") !== "SQLite format 3\0") return false
+    const native = new DatabaseSync(filename, { readOnly: true })
+    try {
+      const rows = native.prepare("PRAGMA quick_check").all() as Array<Record<string, unknown>>
+      return rows.length > 0 && rows.every((row) => Object.values(row)[0] === "ok")
+    } finally {
+      native.close()
+    }
+  } catch {
+    return false
   }
 }
 
