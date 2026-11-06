@@ -1608,10 +1608,10 @@ it.live("the kanban board groups the DoD by state for host and guest", () =>
     // The guest board: the free card is takeable, the done card is not.
     const guestBoard = yield* call(`/api/room/${room.id}/guest/dod/board`, { headers: alex })
     expect(guestBoard.status).toBe(200)
-    const guestCards = new Map(
+    const guestCards = new Map<string, { id: string; canTake: boolean }>(
       guestBoard.body.columns
         .flatMap((column: { cards: { id: string; canTake: boolean }[] }) => column.cards)
-        .map((card: { id: string; canTake: boolean }) => [card.id, card]),
+        .map((card: { id: string; canTake: boolean }): [string, { id: string; canTake: boolean }] => [card.id, card]),
     )
     expect(guestCards.get("L-001")?.canTake).toBe(true)
     expect(guestCards.get("L-002")?.canTake).toBe(false)

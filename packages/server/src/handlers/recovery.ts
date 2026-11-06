@@ -20,7 +20,7 @@ const repairRound = Semaphore.makeUnsafe(1)
  */
 export const runRepairRound = <A, R>(
   round: Effect.Effect<A, never, R>,
-  timeout: Duration.DurationInput = "10 minutes",
+  timeout: Duration.Input = "10 minutes",
 ): Effect.Effect<A, ServiceUnavailableError, R> =>
   Effect.gen(function* () {
     const result = yield* repairRound.withPermitsIfAvailable(1)(
@@ -29,7 +29,7 @@ export const runRepairRound = <A, R>(
         Effect.catchTag("TimeoutError", () =>
           Effect.fail(
             new ServiceUnavailableError({
-              message: `The repair round timed out after ${typeof timeout === "string" ? timeout : `${Duration.toMillis(Duration.decode(timeout))}ms`}; try again with a shorter description`,
+              message: `The repair round timed out after ${timeoutLabel(timeout)}; try again with a shorter description`,
               service: "recovery",
             }),
           ),
@@ -43,6 +43,14 @@ export const runRepairRound = <A, R>(
       })
     return result.value
   })
+
+// Human-readable timeout for the 503 message: strings pass through, anything
+// else is parsed back to milliseconds; unparseable input gets a generic label.
+const timeoutLabel = (timeout: Duration.Input): string => {
+  if (typeof timeout === "string") return timeout
+  const parsed = Duration.fromInput(timeout)
+  return Option.isSome(parsed) ? `${Duration.toMillis(parsed.value)}ms` : "the timeout"
+}
 
 export const RecoveryHandler = HttpApiBuilder.group(Api, "server.recovery", (handlers) =>
   Effect.gen(function* () {
