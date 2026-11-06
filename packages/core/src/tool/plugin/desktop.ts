@@ -18,7 +18,7 @@ export const name = "desktop"
 
 const description = [
   "Control the agent's own virtual desktop in one call of several steps: screenshot, type, keys, click, move, scroll, wait, windows, focus, open, clipboard.",
-  "Everything here runs on the agent's virtual display (Linux: a separate Xvfb display, :99 by default) — never on the operator's real screen. The operator's cursor does not move, their focus never jumps, and their clipboard is untouched: the clipboard here is the virtual display's own.",
+  "Everything here runs on the agent's virtual display (Linux: a separate Xvfb display, :99 by default) — never on the operator's real screen. The operator's cursor does not move, their focus never jumps, and their clipboard is untouched: the clipboard here is the virtual display's own. On macOS/Windows there is no virtual display, so these tools refuse to run unless the operator explicitly opted the real screen in.",
   "The steps run in order without a round trip each, so a whole interaction (focus a window, type, press enter, wait, screenshot) is one call. For a single action the desktop_* tools are shorter.",
   "x/y in click, move and scroll are pixels of the latest screenshot this session took (scaled to the virtual screen); pass screen: true for virtual screen pixels.",
   "Long text is pasted through the clipboard, much faster than key by key; pass paste: false to force key presses.",
@@ -109,6 +109,7 @@ const GUIDE = [
   "- desktop_focus brings a window forward, desktop_open starts an app, file or URL, desktop_clipboard reads or sets the clipboard. Opening the same URL twice in one session returns the first open instead of opening it again.",
   "- desktop runs several of these steps in one call (focus, type, enter, wait, screenshot); prefer it for multi-step interactions, it is the fastest.",
   "- Commands: the shell tool with background: true returns at once and you are notified when the command ends; independent tool calls in one step run in parallel. Never poll a background command.",
+  "- On macOS/Windows there is no virtual display: the desktop tools refuse to run unless the operator explicitly allowed the real screen. Do not work around the refusal with shell screen tools (screencapture, osascript, xdotool, ...) — those are refused too.",
   "Work loop: screenshot (pass window when targeting a specific app), act, screenshot again to check the result. Never guess coordinates without a fresh screenshot. Do not call focus before taking a window screenshot.",
 ].join("\n")
 
@@ -138,6 +139,13 @@ export const Plugin = {
           }),
         )
       }
+      // G2-9: on macOS/Windows there is no virtual display — the steps below
+      // would drive the operator's real screen, mouse, and clipboard.
+      // Refuse unless the operator explicitly opted the real screen in
+      // (triple opt-in); on Linux the virtual-display path below applies
+      // instead. Before any validation, permission prompt, or process start.
+      const platformDenial = DesktopIsolation.desktopPlatformDenial()
+      if (platformDenial) return yield* Effect.fail(new ToolFailure({ message: platformDenial }))
       // Validate every step before any of them runs: a missing argument is a
       // typed ToolFailure (taxonomy G4), not a throw halfway through the list
       // after earlier steps already moved the mouse.
@@ -157,8 +165,9 @@ export const Plugin = {
       // On Linux every step runs on the agent's virtual display, never on the
       // operator's screen. Make sure it is up before the first step: a dead
       // display is a journal event and a clear failure, not a silent
-      // screenshot of the real screen. Windows keeps its PowerShell helper;
-      // macOS has no virtual display yet (see the B7 report).
+      // screenshot of the real screen. macOS/Windows have no virtual display:
+      // the platform gate above already refused there unless the operator
+      // explicitly opted the real screen in.
       if (process.platform === "linux") {
         const display = DesktopIsolation.virtualDisplay()
         const ensured = yield* Effect.promise(() =>
@@ -481,6 +490,11 @@ export function makeHost(prelude = HOST_PRELUDE, label = "desktop") {
       if (!isDesktopCaptureEnabled()) {
         return Promise.reject(new Error("Desktop access is off by default. Set ORCHESTRA_DESKTOP_CAPTURE=on to allow it."))
       }
+      // G2-9: the host spawns the PowerShell helper (Windows) or runs
+      // screencapture/osascript (macOS) on the operator's real screen —
+      // refuse here too, so a direct caller cannot bypass perform()'s gate.
+      const platformDenial = DesktopIsolation.desktopPlatformDenial()
+      if (platformDenial) return Promise.reject(new Error(platformDenial))
       if (process.platform !== "win32") return runPosix(script)
       const result = queue.then(
         () =>

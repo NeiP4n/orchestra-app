@@ -152,6 +152,30 @@ export function realScreenDenial(
   return realScreenDecision(env, target, now).reason
 }
 
+/**
+ * Whether the desktop tools may run on this OS at all (G2-9). Linux has
+ * the agent's virtual display (Xvfb `:99`); macOS and Windows do not — there
+ * the desktop tools can only drive the operator's real screen, mouse, and
+ * clipboard, so they need the explicit real-screen opt-in (see
+ * realScreenDecision). Returns the refusal message, or undefined when the
+ * tools may run. An honest refusal, never a silent run on the real screen.
+ * `platform` is a parameter (defaulting to `process.platform`) so tests can
+ * exercise the macOS/Windows refusal on Linux.
+ */
+export function desktopPlatformDenial(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string | undefined {
+  if (platform === "linux") return undefined
+  const denial = realScreenDenial(env)
+  if (denial === undefined) return undefined
+  const os = platform === "darwin" ? "macOS" : platform === "win32" ? "Windows" : platform
+  return (
+    `On ${os} there is no virtual display: the desktop tools can only touch the operator's real screen, ` +
+    `mouse, and clipboard, so they refuse to run. ${denial}`
+  )
+}
+
 /** The X11 socket a display listens on (`:99` → `/tmp/.X11-unix/X99`). */
 export function virtualDisplaySocket(display: string): string | undefined {
   const match = /^:(\d+)(?:\.\d+)?$/.exec(display.trim())
@@ -243,11 +267,17 @@ export function stopVirtualDisplay(display: string): void {
 const DESKTOP_ESCAPE_PATTERNS: ReadonlyArray<{ pattern: RegExp; what: string }> = [
   { pattern: /\bxdotool\b/i, what: "xdotool (moves the operator's real mouse and keyboard)" },
   { pattern: /\bydotool\b/i, what: "ydotool (moves the operator's real mouse and keyboard)" },
+  { pattern: /\bwtype\b/i, what: "wtype (types with the operator's real keyboard on Wayland)" },
   { pattern: /\bscreencapture\b/i, what: "screencapture (screenshots the operator's real screen)" },
   { pattern: /\bgrim\b/i, what: "grim (screenshots a screen outside the virtual display)" },
   { pattern: /\bscrot\b/i, what: "scrot (screenshots a screen outside the virtual display)" },
   { pattern: /\bxwd\b/i, what: "xwd (dumps a window from the operator's screen)" },
   { pattern: /\bimport\b[^|;&]*-window\b/i, what: "ImageMagick import -window (captures a window from the operator's screen)" },
+  // A bare `import` (no -window) captures the whole screen. Only a command
+  // starting a segment counts: `python -c "import os"` is a Python import,
+  // not ImageMagick, and must keep working.
+  { pattern: /(^|[|;&]\s*)(sudo\s+)?import\s/i, what: "ImageMagick import (screenshots the operator's whole screen)" },
+  { pattern: /\bmagick\s+import\b/i, what: "ImageMagick import (screenshots the operator's whole screen)" },
   { pattern: /\bgnome-screenshot\b/i, what: "gnome-screenshot (screenshots the operator's real screen)" },
   { pattern: /\bflameshot\b/i, what: "flameshot (screenshots the operator's real screen)" },
   { pattern: /\bspectacle\b/i, what: "spectacle (screenshots the operator's real screen)" },
@@ -257,6 +287,24 @@ const DESKTOP_ESCAPE_PATTERNS: ReadonlyArray<{ pattern: RegExp; what: string }> 
   { pattern: /\bwl-paste\b/i, what: "wl-paste (reads the operator's clipboard)" },
   { pattern: /\bpbcopy\b/i, what: "pbcopy (writes the operator's clipboard)" },
   { pattern: /\bpbpaste\b/i, what: "pbpaste (reads the operator's clipboard)" },
+  // G2-9: macOS GUI control. osascript drives System Events (clicks, keys,
+  // screenshots); cliclick is the click helper the desktop tool itself
+  // used to need on macOS. Both reach the real screen, never a virtual one.
+  { pattern: /\bosascript\b/i, what: "osascript (drives the operator's real screen, mouse, and keyboard through macOS System Events)" },
+  { pattern: /\bcliclick\b/i, what: "cliclick (clicks with the operator's real mouse on macOS)" },
+  // G2-9: scripted GUI automation libraries. The program name in the command
+  // is what the gate sees: `python -c "import pyautogui; ..."` is caught,
+  // a script file that imports it inside is not — the blacklist is a trip
+  // wire, not a sandbox (see the note on forbiddenDesktopEscape).
+  { pattern: /\bpyautogui\b/i, what: "pyautogui (moves the operator's real mouse and keyboard from Python)" },
+  { pattern: /\bpynput\b/i, what: "pynput (moves the operator's real mouse and keyboard from Python)" },
+  { pattern: /\bpywinauto\b/i, what: "pywinauto (drives the operator's real screen from Python on Windows)" },
+  // G2-9: X window tools that read or drive the real screen's window tree.
+  { pattern: /\bxprop\b/i, what: "xprop (reads windows from the operator's screen)" },
+  { pattern: /\bxwininfo\b/i, what: "xwininfo (reads windows from the operator's screen)" },
+  { pattern: /\bwmctrl\b/i, what: "wmctrl (moves and focuses windows on the operator's screen)" },
+  // G2-9: Android Debug Bridge drives a real attached device's screen and input.
+  { pattern: /\badb\b/i, what: "adb (drives a real Android device's screen and input)" },
   { pattern: /CopyFromScreen/i, what: "CopyFromScreen (screenshots the operator's real screen from PowerShell)" },
   { pattern: /SendKeys/i, what: "SendKeys (types into the operator's focused window from PowerShell)" },
   { pattern: /SetCursorPos/i, what: "SetCursorPos (moves the operator's real mouse from PowerShell)" },
@@ -271,6 +319,12 @@ const DESKTOP_ESCAPE_PATTERNS: ReadonlyArray<{ pattern: RegExp; what: string }> 
  * clean — or when the real-screen opt-in is valid, in which case the operator
  * explicitly allowed it. `DISPLAY=:99` (the virtual display) is fine; any
  * other explicit display is an escape.
+ *
+ * This is a pattern blacklist over the command text, not a sandbox: a
+ * command built at runtime (`eval`, a quoted `bash -c`, a script file that
+ * imports a GUI library inside) can hide from it. The desktop tools and the
+ * MCP real-screen servers are gated separately, so the blacklist is a trip
+ * wire on the shell path, not the only fence.
  */
 export function forbiddenDesktopEscape(command: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
   for (const { pattern, what } of DESKTOP_ESCAPE_PATTERNS) {

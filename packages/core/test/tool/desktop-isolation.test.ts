@@ -129,6 +129,23 @@ describe("B7 shell escapes", () => {
       "powershell -Command \"[OcDesk]::SetCursorPos(10, 10)\"",
       "DISPLAY=:0 xdg-open https://example.com",
       "DISPLAY=$DISPLAY grim shot.png",
+      // G2-9: macOS GUI control and scripted GUI automation.
+      "osascript -e 'tell application \"System Events\" to click at {10, 10}'",
+      "cliclick c:100,100",
+      "python3 -c \"import pyautogui; pyautogui.click(10, 10)\"",
+      "python3 -c \"import pynput; from pynput.mouse import Controller\"",
+      "python3 -c \"import pywinauto; pywinauto.mouse.click()\"",
+      // G2-9: X window tools and Android control.
+      "xprop -root",
+      "xwininfo -root -tree",
+      "wmctrl -l",
+      "adb shell screencap -p /sdcard/shot.png",
+      "wtype hello",
+      // G2-9: a bare ImageMagick import screenshots the whole screen.
+      "import shot.png",
+      "sudo import shot.png",
+      "magick import shot.png",
+      "ls; import shot.png",
     ]) {
       expect(DesktopIsolation.forbiddenDesktopEscape(command, env)).toContain("Refusing")
     }
@@ -136,6 +153,11 @@ describe("B7 shell escapes", () => {
     expect(DesktopIsolation.forbiddenDesktopEscape("git status", env)).toBeUndefined()
     expect(DesktopIsolation.forbiddenDesktopEscape("bun test", env)).toBeUndefined()
     expect(DesktopIsolation.forbiddenDesktopEscape("DISPLAY=:99 echo hi", env)).toBeUndefined()
+    // G2-9: a Python import is not ImageMagick's `import`, and the word
+    // `import` outside a command start is not a screenshot.
+    expect(DesktopIsolation.forbiddenDesktopEscape('python3 -c "import os; print(1)"', env)).toBeUndefined()
+    expect(DesktopIsolation.forbiddenDesktopEscape('python3 -c "from os import path"', env)).toBeUndefined()
+    expect(DesktopIsolation.forbiddenDesktopEscape("echo import", env)).toBeUndefined()
   })
 
   test("a valid real-screen opt-in lets the escape through", () => {
@@ -147,6 +169,33 @@ describe("B7 shell escapes", () => {
     expect(ShellTool.forbiddenCommand("xdotool mousemove 10 10")).toContain("Refusing")
     expect(ShellTool.forbiddenCommand("cat .env")).toContain("protected file")
     expect(ShellTool.forbiddenCommand("ls -la")).toBeUndefined()
+  })
+})
+
+describe("G2-9 desktop platform gate", () => {
+  test("Linux always passes: the agent works on its virtual display", () => {
+    expect(DesktopIsolation.desktopPlatformDenial(envWith({}), "linux")).toBeUndefined()
+    expect(DesktopIsolation.desktopPlatformDenial(envWith({ ORCHESTRA_DESKTOP_CAPTURE: "on" }), "linux")).toBeUndefined()
+    expect(DesktopIsolation.desktopPlatformDenial(optInEnv(), "linux")).toBeUndefined()
+  })
+
+  test("macOS and Windows refuse honestly: no virtual display there", () => {
+    const captureOnly = envWith({ ORCHESTRA_DESKTOP_CAPTURE: "on" })
+    for (const platform of ["darwin", "win32"] as const) {
+      const denied = DesktopIsolation.desktopPlatformDenial(captureOnly, platform)
+      expect(denied).toContain("no virtual display")
+      expect(denied).toContain("refuse to run")
+      expect(denied).toContain("ORCHESTRA_DESKTOP_REAL_SCREEN")
+    }
+    expect(DesktopIsolation.desktopPlatformDenial(captureOnly, "darwin")).toContain("macOS")
+    expect(DesktopIsolation.desktopPlatformDenial(captureOnly, "win32")).toContain("Windows")
+    // Without capture at all the refusal still names the missing virtual display.
+    expect(DesktopIsolation.desktopPlatformDenial(envWith({}), "darwin")).toContain("no virtual display")
+  })
+
+  test("a valid real-screen opt-in lets macOS/Windows through (operator's explicit choice)", () => {
+    expect(DesktopIsolation.desktopPlatformDenial(optInEnv(), "darwin")).toBeUndefined()
+    expect(DesktopIsolation.desktopPlatformDenial(optInEnv(), "win32")).toBeUndefined()
   })
 })
 

@@ -6,6 +6,7 @@ import type { SessionHooks } from "@orchestra/plugin/effect/session"
 import type { ShellCreateBefore } from "@orchestra/plugin/effect/shell"
 import type { Tool } from "@orchestra/schema/tool"
 import { Deferred, Effect, Option, Schema, Scope } from "effect"
+import { DesktopIsolation } from "../../desktop-isolation.js"
 import { Environment } from "../../environment/index.js"
 import { FileAccess } from "../../file-access.js"
 import { Job } from "../../job.js"
@@ -218,6 +219,12 @@ export const Plugin = {
     )
 
     const prepare = Effect.fn("HubTool.prepare")(function* (invocation: ShellCreateBefore, context: Tool.Context) {
+      // G2-9: the hub renders curated commands, but a rendered command can
+      // still reach the operator's real screen (a future catalog entry, an
+      // argument landing in a screen tool). Same gate as the shell tool:
+      // refuse before anything spawns.
+      const escape = DesktopIsolation.forbiddenDesktopEscape(invocation.command)
+      if (escape) return yield* Effect.fail(new Error(escape))
       const source = { type: "tool" as const, messageID: context.messageID, id: context.id }
       const target = yield* access.resolve({ path: invocation.cwd, kind: "directory" })
       invocation.cwd = target.absolute
