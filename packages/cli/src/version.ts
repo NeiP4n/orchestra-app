@@ -82,8 +82,8 @@ function releaseVersion() {
   return FALLBACK_VERSION
 }
 
-// An Orchestra source install has its own updater: release/* tags and the lan-rooms
-// development branch are managed by source-release.ts. Do not send these checkouts to the
+// An Orchestra source install has its own updater: the releases.json registry on main
+// and the lan-rooms development branch are managed by source-release.ts. Do not send these checkouts to the
 // public updater, otherwise /upgrade checks the public update source instead of git.
 // The marker is kept in the repository and is not shipped by normal package installations.
 const ORCHESTRA_PLUS_PLUS_SOURCE =

@@ -21,6 +21,7 @@ async function load(channel: string) {
   process.env.ORCHESTRA_CHANNEL = channel
 
   try {
+    // SAFETY: electron-builder config module exports a Configuration object by default
     return (await import(`./electron-builder.config.ts?${channel}`)).default as Configuration
   } finally {
     delete process.env.ORCHESTRA_CHANNEL
@@ -33,6 +34,8 @@ function trimFilter(dir: string, config: Configuration) {
   return new FileMatcher(dir, "", (value: string) => value, [
     "**/*",
     ...(Array.isArray(config.files) ? config.files : []).filter(
+      // SAFETY: electron-builder Configuration.files entries are plain strings or FilePattern objects; a string starting with ! is an exclusion pattern.
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- see SAFETY above
       (value): value is string => typeof value === "string" && value.startsWith("!"),
     ),
   ]).createFilter()
@@ -98,6 +101,39 @@ test.each(["beta", "prod"])("auto update uses custom ORCHESTRA_UPDATE_URL for %s
   }
 })
 
+test.each([
+  { sign: "1", signed: true },
+  { sign: undefined, signed: false },
+])("mac signing is $signed when ORCHESTRA_MAC_SIGN is $sign", async ({ sign, signed }) => {
+  const previousChannel = process.env.ORCHESTRA_CHANNEL
+  const previousSign = process.env.ORCHESTRA_MAC_SIGN
+  process.env.ORCHESTRA_CHANNEL = "prod"
+
+  if (sign === undefined) delete process.env.ORCHESTRA_MAC_SIGN
+  else process.env.ORCHESTRA_MAC_SIGN = sign
+
+  try {
+    // SAFETY: electron-builder config module exports a Configuration object by default
+    const config = (await import(`./electron-builder.config.ts?mac-sign-${sign ?? "off"}-${Date.now()}`))
+      .default as Configuration
+
+    if (signed) {
+      expect(config.mac?.sign).toBeFunction()
+      expect(config.mac?.notarize).toBe(true)
+    } else {
+      expect(config.mac?.sign).toBeUndefined()
+      expect(config.mac?.notarize).toBeUndefined()
+    }
+  } finally {
+    delete process.env.ORCHESTRA_CHANNEL
+    delete process.env.ORCHESTRA_MAC_SIGN
+
+    if (previousChannel !== undefined) process.env.ORCHESTRA_CHANNEL = previousChannel
+
+    if (previousSign !== undefined) process.env.ORCHESTRA_MAC_SIGN = previousSign
+  }
+})
+
 test("Linux launcher desktop entry", async () => {
   const desktop = await Bun.file(path.join(import.meta.dirname, "resources/linux/orchestra-desktop.desktop")).text()
   expect(desktop).toContain("Exec=/opt/Orchestra/orchestra %U")
@@ -107,7 +143,6 @@ test("Linux launcher desktop entry", async () => {
 
 test("shared packaging defaults", async () => {
   const config = await load("dev")
-  expect(config.mac?.sign).toBeFunction()
   expect(config.dmg?.sign).not.toBe(true)
   expect(config.mac?.extendInfo?.NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac).toBe(true)
   const include = path.join(import.meta.dirname, "resources/windows/installer.nsh")

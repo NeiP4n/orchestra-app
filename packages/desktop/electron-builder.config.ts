@@ -58,14 +58,44 @@ const channel = (() => {
   return "dev"
 })()
 
+// macOS signing and notarization need a Developer ID certificate in the keychain plus
+// Apple ID credentials (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID). The
+// release workflow sets ORCHESTRA_MAC_SIGN=1 only when those secrets exist; without it
+// the mac build is unsigned (and the workflow says so in its summary) instead of
+// failing halfway through packaging.
+const macSignEnabled = process.env.ORCHESTRA_MAC_SIGN === "1"
+
 const APP_IDS = {
   dev: "com.nei4pn.orchestra.dev",
   beta: "com.nei4pn.orchestra.beta",
   prod: "com.nei4pn.orchestra",
 } as const
 
-const getBase = (appId: string): Configuration => ({
-  artifactName: "orchestra-desktop-${os}-${arch}.${ext}",
+const getBase = (appId: string): Configuration => {
+  const mac: Configuration["mac"] = {
+    category: "public.app-category.developer-tools",
+    icon: `resources/icons/icon.icns`,
+    extendInfo: {
+      NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac: true,
+    },
+    hardenedRuntime: true,
+    gatekeeperAssess: false,
+    entitlements: "resources/entitlements.plist",
+    entitlementsInherit: "resources/entitlements.plist",
+    target: ["dmg", "zip"],
+  }
+
+  if (macSignEnabled) {
+    mac.sign = async (options) => {
+      const { sign } = await import("app-builder-lib/out/codeSign/macCodeSign")
+      await sign(macSignOptions(options))
+    }
+
+    mac.notarize = true
+  }
+
+  return {
+    artifactName: "orchestra-desktop-${os}-${arch}.${ext}",
   directories: {
     output: "dist",
     buildResources: "resources",
@@ -117,23 +147,7 @@ const getBase = (appId: string): Configuration => ({
 
     if ((await stat(version)).size === 0) throw new Error(`Bundled CLI version must be a non-empty file: ${version}`)
   },
-  mac: {
-    category: "public.app-category.developer-tools",
-    icon: `resources/icons/icon.icns`,
-    extendInfo: {
-      NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac: true,
-    },
-    hardenedRuntime: true,
-    gatekeeperAssess: false,
-    entitlements: "resources/entitlements.plist",
-    entitlementsInherit: "resources/entitlements.plist",
-    sign: async (options) => {
-      const { sign } = await import("app-builder-lib/out/codeSign/macCodeSign")
-      await sign(macSignOptions(options))
-    },
-    notarize: true,
-    target: ["dmg", "zip"],
-  },
+  mac,
   protocols: {
     name: "Orchestra",
     schemes: ["orchestra"],
@@ -166,7 +180,8 @@ const getBase = (appId: string): Configuration => ({
     },
     target: ["AppImage", "deb", "rpm"],
   },
-})
+  }
+}
 
 function getConfig() {
   const appId = APP_IDS[channel]

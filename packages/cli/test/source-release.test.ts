@@ -6,6 +6,8 @@ import path from "node:path"
 import { SourceRelease } from "../src/services/source-release"
 
 // A published repository with two releases and a friend's install pinned to the older one.
+// Releases are recorded in releases.json on main, not as git tags: each entry points at
+// its bump commit's SHA, and the registry itself lands in the commit after the bump.
 async function setup() {
   const root = await mkdtemp(path.join(tmpdir(), "opencode-pp-release-"))
   const origin = path.join(root, "origin")
@@ -22,15 +24,29 @@ async function setup() {
   await $`${process.execPath} install`.cwd(origin).quiet()
   await git(["add", "-A"])
   await git(["commit", "-qm", "one"])
-  await git(["tag", "release/1.0.0"])
+  const sha1 = (await $`git -C ${origin} rev-parse HEAD`.quiet().text()).trim()
   await writeFile(path.join(origin, "notes.txt"), "two")
   await git(["add", "-A"])
   await git(["commit", "-qm", "two"])
-  await git(["tag", "release/1.2.0"])
-  await git(["tag", "release/not-a-version"])
+  const sha2 = (await $`git -C ${origin} rev-parse HEAD`.quiet().text()).trim()
+  await writeFile(
+    path.join(origin, "releases.json"),
+    JSON.stringify(
+      {
+        releases: [
+          { version: "1.0.0", commit: sha1, date: "2026-11-06", channel: "latest", notes: "First." },
+          { version: "1.2.0", commit: sha2, date: "2026-11-06", channel: "latest", notes: "Second." },
+        ],
+      },
+      null,
+      2,
+    ),
+  )
+  await git(["add", "-A"])
+  await git(["commit", "-qm", "registry"])
   await $`git clone -q ${origin} ${install}`.quiet()
-  await $`git -C ${install} checkout -q --detach release/1.0.0`.quiet()
-  return { root, origin, install, [Symbol.asyncDispose]: () => rm(root, { recursive: true, force: true }) }
+  await $`git -C ${install} checkout -q --detach ${sha1}`.quiet()
+  return { root, origin, install, sha1, sha2, [Symbol.asyncDispose]: () => rm(root, { recursive: true, force: true }) }
 }
 
 test("a pinned install sees and moves to the newest release", async () => {
@@ -43,10 +59,54 @@ test("a pinned install sees and moves to the newest release", async () => {
   expect(await Bun.file(path.join(repo.install, "notes.txt")).text()).toBe("two")
 })
 
+test("applying an unknown version fails without moving the install", async () => {
+  await using repo = await setup()
+  await expect(SourceRelease.apply("9.9.9", repo.install)).rejects.toThrow("not recorded in releases.json")
+  expect(await SourceRelease.current(repo.install)).toBe("1.0.0")
+})
+
 test("a checkout on a branch is a development tree and never updates", async () => {
   await using repo = await setup()
   await $`git -C ${repo.install} checkout -q main`.quiet()
   expect(await SourceRelease.current(repo.install)).toBeUndefined()
+})
+
+test("a detached checkout at an unreleased commit has no current version", async () => {
+  await using repo = await setup()
+  await $`git -C ${repo.install} checkout -q --detach ${repo.sha2}`.quiet()
+  // Move origin/main past the registry: the 1.2.0 entry still matches sha2.
+  expect(await SourceRelease.current(repo.install)).toBe("1.2.0")
+  await $`git -C ${repo.install} checkout -q --detach origin/main`.quiet()
+  expect(await SourceRelease.current(repo.install)).toBeUndefined()
+})
+
+test("the beta channel follows beta entries, the latest channel ignores them", async () => {
+  await using repo = await setup()
+  const identity = {
+    GIT_AUTHOR_NAME: "t",
+    GIT_AUTHOR_EMAIL: "t@t",
+    GIT_COMMITTER_NAME: "t",
+    GIT_COMMITTER_EMAIL: "t@t",
+  }
+  await writeFile(path.join(repo.origin, "notes.txt"), "three")
+  await $`git -C ${repo.origin} add -A`.quiet()
+  await $`git -C ${repo.origin} commit -qm three`.env({ ...process.env, ...identity }).quiet()
+  const sha3 = (await $`git -C ${repo.origin} rev-parse HEAD`.quiet().text()).trim()
+  const registry = JSON.parse(await Bun.file(path.join(repo.origin, "releases.json")).text())
+  registry.releases.push({ version: "1.3.0", commit: sha3, date: "2026-11-06", channel: "beta", notes: "Beta." })
+  await writeFile(path.join(repo.origin, "releases.json"), JSON.stringify(registry, null, 2))
+  await $`git -C ${repo.origin} add -A`.quiet()
+  await $`git -C ${repo.origin} commit -qm registry-beta`.env({ ...process.env, ...identity }).quiet()
+
+  expect(await SourceRelease.latest(repo.install)).toBe("1.2.0")
+  const previous = process.env.ORCHESTRA_RELEASE_CHANNEL
+  try {
+    process.env.ORCHESTRA_RELEASE_CHANNEL = "beta"
+    expect(await SourceRelease.latest(repo.install)).toBe("1.3.0")
+  } finally {
+    if (previous === undefined) delete process.env.ORCHESTRA_RELEASE_CHANNEL
+    else process.env.ORCHESTRA_RELEASE_CHANNEL = previous
+  }
 })
 
 test("a branch without an upstream follows the matching origin branch", async () => {
@@ -99,7 +159,7 @@ test("the newest release is chosen by version, not by name order", () => {
 // follows the branch the way running the installer again would.
 test("a detached release install follows an untagged main commit after the latest release", async () => {
   await using repo = await setup()
-  // Add a commit to main without tagging it as a release. A release-pinned install must still see it.
+  // Add a commit to main without a registry entry for it. A release-pinned install must still see it.
   await writeFile(path.join(repo.origin, "notes.txt"), "three")
   await $`git -C ${repo.origin} add -A`.quiet()
   await $`git -C ${repo.origin} commit -qm three`.env({
@@ -109,7 +169,8 @@ test("a detached release install follows an untagged main commit after the lates
     GIT_COMMITTER_NAME: "t",
     GIT_COMMITTER_EMAIL: "t@t",
   }).quiet()
-  expect(await SourceRelease.install(repo.install)).toEqual({ type: "behind", branch: "main", behind: 2 })
+  // Behind by three: the 1.2.0 bump, the registry commit, and the new commit.
+  expect(await SourceRelease.install(repo.install)).toEqual({ type: "behind", branch: "main", behind: 3 })
 })
 
 test("main is preferred as the install branch when both main and lan-rooms exist", async () => {
@@ -173,7 +234,7 @@ test("a detached install without releases follows the installer's branch", async
 // `two`, where notes.txt changed upstream; only the move itself is stubbed out.
 async function edited() {
   const repo = await setup()
-  const move = () => $`git -C ${repo.install} checkout -q --detach release/1.2.0`.quiet().then(() => undefined)
+  const move = () => $`git -C ${repo.install} checkout -q --detach ${repo.sha2}`.quiet().then(() => undefined)
   return { ...repo, move }
 }
 
@@ -216,12 +277,18 @@ test("an edit to a file the update also changes waits in the stash too", async (
     GIT_COMMITTER_EMAIL: "t@t",
   }
   await writeFile(path.join(repo.origin, "notes.txt"), "three")
+  await $`git -C ${repo.origin} add -A`.quiet()
   await $`git -C ${repo.origin} commit -qam three`.env({ ...process.env, ...identity }).quiet()
-  await $`git -C ${repo.origin} tag release/1.3.0`.quiet()
-  await $`git -C ${repo.install} fetch -q --tags origin`.quiet()
-  await $`git -C ${repo.install} checkout -q --detach release/1.2.0`.quiet()
+  const sha3 = (await $`git -C ${repo.origin} rev-parse HEAD`.quiet().text()).trim()
+  const registry = JSON.parse(await Bun.file(path.join(repo.origin, "releases.json")).text())
+  registry.releases.push({ version: "1.3.0", commit: sha3, date: "2026-11-06", channel: "latest", notes: "Third." })
+  await writeFile(path.join(repo.origin, "releases.json"), JSON.stringify(registry, null, 2))
+  await $`git -C ${repo.origin} add -A`.quiet()
+  await $`git -C ${repo.origin} commit -qam registry-1.3.0`.env({ ...process.env, ...identity }).quiet()
+  await $`git -C ${repo.install} fetch -q origin`.quiet()
+  await $`git -C ${repo.install} checkout -q --detach ${repo.sha2}`.quiet()
   await writeFile(path.join(repo.install, "notes.txt"), "my own notes")
-  const move = () => $`git -C ${repo.install} checkout -q --detach release/1.3.0`.quiet().then(() => undefined)
+  const move = () => $`git -C ${repo.install} checkout -q --detach ${sha3}`.quiet().then(() => undefined)
   expect(await SourceRelease.keepingEdits(repo.install, move)).toEqual({ type: "stashed", files: ["notes.txt"] })
   expect(await SourceRelease.current(repo.install)).toBe("1.3.0")
   expect(await Bun.file(path.join(repo.install, "notes.txt")).text()).toBe("three")

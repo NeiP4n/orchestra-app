@@ -54,7 +54,7 @@ try {
   if (tokenOpenApi.status !== 200) throw new Error("Compiled application rejected query authentication")
   await verifyWebUi(info.url)
   if ((await pluginIDs(info.url, headers)).includes("smoke")) throw new Error("Smoke plugin existed before creation")
-  const plugin = path.join(root, ".opencode", "plugins", "smoke.ts")
+  const plugin = path.join(root, ".orchestra", "plugins", "smoke.ts")
   await fs.writeFile(plugin, pluginSource())
   await waitForPlugin(info.url, headers, plugin)
 

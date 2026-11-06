@@ -1472,6 +1472,145 @@ target, and prints the record's Verify steps. It refuses when tracked
 files have uncommitted changes (unless `--force`) and when the release
 has no plan — a release without a written plan cannot roll back in one step.
 
+## CI/CD and releases (block D2)
+
+Own versioning from 1.0.0 (never upstream opencode 2.0.24). A release is a commit on
+`main` plus an entry in `releases.json` — no git tags, because tags cannot be created
+through the snapshot-push flow that publishes this repo. A release is two commits: the
+bump commit (version in 39 `package.json` files + `bun.lock` + `CHANGELOG.md`) and the
+registry commit (`releases.json` entry pointing at the bump commit's SHA — the SHA is
+only known after the first commit, so the entry can never live inside the commit it
+describes). `packages/kernel` (0.1.0) and `packages/plugin-antigravity-auth` (2.1.2)
+keep their own versions; `packages/posts`, `packages/script`, `packages/storybook`
+have no version field.
+
+- Registry: `releases.json` at the root (`{releases: [{version, commit, date,
+  channel, notes, yanked?}]}`), newest first. Parser/validator:
+  `packages/cli/src/services/release-registry.ts` (`parseRegistry`, `latestEntry`,
+  `entryForVersion`, `cliUpdateManifest`); tests
+  `packages/cli/test/release-registry.test.ts`. Strict: semver, 40-hex commit,
+  `YYYY-MM-DD`, channel `latest`|`beta`, non-empty notes, unique versions.
+- CHANGELOG: `CHANGELOG.md` (Keep a Changelog). Generator `script/changelog.ts`
+  (`bun script/changelog.ts 1.1.0 [--dry-run] [--notes ...] [--from <ref>] [--to <ref>]
+  [--date ...] [--channel ...]`): groups conventional commits since the newest
+  registry entry's commit, `BREAKING CHANGE`/`!` → Breaking, merge commits skipped.
+- Bump: `script/bump-version.ts 1.1.0 [--channel beta] [--notes ...] [--dry-run]`
+  validates (semver, newer than root, not already registered, clean tree, on `main`),
+  bumps every workspace `package.json` whose version equals the old root version,
+  refreshes `bun.lock` via `bun install`, prepends the CHANGELOG section, commits
+  twice, never pushes. Needs a git identity — the release workflow provides it via
+  `setup-git-committer`; a bare clone fails at the first `git commit` ("Author
+  identity unknown").
+- Local release: `bun run release:pp 1.2.0 [--channel beta] [--notes ...]`
+  (`script/release-pp.ts`) runs the bump flow and prints the next steps (push via the
+  snapshot flow, then run the release workflow). The file must keep existing:
+  `packages/cli/src/version.ts` uses its presence as the source-install marker
+  (`ORCHESTRA_LOCAL`).
+- CI: `check.yml` + `test.yml` run on `main` (push/PR); `quality-gates.yml` also runs
+  on `main` since D2. `check.yml`'s check job has `timeout-minutes: 20`. The full
+  `bun run check` fails today on pre-existing core errors (prompt-intake,
+  `session/prompt` — 17 errors, 0 in `packages/cli/src`), so the release workflow's
+  check job runs scoped checks instead (no new `packages/cli/src` typecheck errors,
+  release-machinery tests, smoke script); the full-check gate is pending Б15.
+- `release.yml` (manual, `workflow_dispatch` with `version` + `channel` + `notes`,
+  one at a time): check → bump (two commits + push via the GitHub App token from
+  `setup-git-committer`, `vars.ORCHESTRA_APP_ID` / `secrets.ORCHESTRA_APP_SECRET`)
+  → build-cli (matrix linux-x64 / darwin-arm64 / windows-x64 via
+  `packages/cli/script/build.ts --target=orchestra-<os>-<arch>`, SHA-256 each binary)
+  → publish (`gh release create v<version>` with the binaries, then
+  `script/update-manifests.ts` refreshes `update/<channel>/cli/npm` + `update/install`
+  and commits them). The tag `v<version>` is cut by `gh release create` so the
+  updater's GitHub fallback and the desktop feed keep working.
+- `release-desktop.yml` (manual, input `version` of an existing GitHub Release):
+  per-OS job builds the CLI for the runner's platform first (baseline targets on
+  x64 — `orchestra-linux-x64-baseline`, `orchestra-windows-x64-baseline`,
+  `orchestra-darwin-arm64` on arm64 macOS — matching
+  `packages/desktop/scripts/utils.ts`), then `packages/desktop` `package:*` with
+  `ORCHESTRA_UPDATE_URL` set to the GitHub download feed and `ORCHESTRA_CLI_DIST`
+  pointing at the CLI dist. Installers + `latest*.yml` are uploaded to the release
+  with `gh release upload --clobber`. macOS signs + notarizes only when
+  `ORCHESTRA_MAC_SIGN=1` (workflow sets it when all five Apple secrets exist);
+  Windows signing skips itself when the Azure secrets are absent
+  (`script/sign-windows.ps1`); unsigned builds are recorded in the job summary.
+  The desktop feed always uses the `latest` channel (`platform.ts` hardcodes it).
+- Source installs update from the registry, not tags:
+  `packages/cli/src/services/source-release.ts` — `latest()` reads
+  `origin/main:releases.json` (narrow fetch of `main` only), `current()` matches
+  HEAD against a registry entry (local file first, then origin), `apply(version)`
+  checks out the entry's commit detached. Channel via `ORCHESTRA_RELEASE_CHANNEL=beta`
+  (default `latest`). Tests `packages/cli/test/source-release.test.ts` use a fixture
+  repo with a registry commit (no tags anywhere).
+- Update host, variant (a) static (the default): manifests in-repo under `update/` —
+  `update/<channel>/cli/npm` is `{version, metadata: {package: "@orchestra/cli"}}`
+  (built by `cliUpdateManifest`), `update/install` is a copy of `installer/get.sh`
+  refreshed by `release.yml`. The updater's code default is
+  `https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/update`
+  (`DEFAULT_UPDATE_URL` / `resolveUpdateUrl()` in `packages/cli/src/services/updater.ts`;
+  an explicit `ORCHESTRA_UPDATE_URL` always wins). When the static host fetch fails,
+  the updater falls back to `githubRelease()` (GitHub Releases API); an explicitly
+  configured host failing is fatal. The curl upgrade path downloads
+  `${updateURL}/install` and runs it with `--version <v> --no-modify-path`
+  (`installer/get.sh` resolves the version's commit from `releases.json` with awk,
+  default = newest non-yanked `latest` entry, fallback = main tip when the registry
+  cannot be read; unknown `--version` exits 1). The Windows one-command installer
+  `opencode-pp-install.ps1` installs the newest release from the same registry
+  (repo `NeiP4n/orchestra-app`, branch `main`); it was not run on Windows in D2.
+  Desktop default feed is `https://github.com/NeiP4n/orchestra-app/releases/latest/download`
+  (`packages/gui-extensions/src/updater/platform.ts`, except the beta-mac external
+  path which needs the Worker JSON protocol — no default there); desktop User-Agent is
+  `orchestra/...` since D2. electron-updater following the `/releases/latest/download`
+  redirect to `latest.yml` is assumed, not yet verified on a real desktop release.
+- Update host, variant (b) Cloudflare Worker + D1: documented only, in
+  `services/update/ORCHESTRA.md` (fork checklist: rename worker/domain/D1, repoint
+  the OIDC audience + publish-auth repository/workflow-ref, retarget
+  `script/update-artifact.ts`). Not deployed: no `CLOUDFLARE_API_TOKEN` /
+  `CLOUDFLARE_ACCOUNT_ID` on the VM, no domain picked. The Worker is the only path
+  with staged IP rollouts; the static host has none.
+- Canary: channels in `releases.json` + `update/` manifests (`latest` vs `beta`);
+  release to `beta` first, soak, then promote by editing that entry's channel to
+  `latest` (one commit) + `bun script/update-manifests.ts --channel latest`, or cut
+  a new patch version straight to `latest`. The registry keeps one entry per version,
+  so the same version cannot be bumped twice.
+- Smoke: `sh script/release-smoke.sh` — registry parses + CHANGELOG covers the
+  current version, all workflow/action YAML files parse, `bun
+  packages/cli/script/build.ts --single`, `bun packages/cli/script/service-smoke.ts`,
+  `bump-version --dry-run 9.9.9`, `update-manifests --dry-run`. This is the 8 GB
+  substitute: the full `clean-build.sh --smoke` needs a machine with 16 GB or more
+  (its typecheck OOMs here). Verified green end-to-end on 2026-11-06 (all 5 steps).
+  Two pre-existing defects the smoke run exposed and fixed in D2: (1) the compiled
+  CLI could not serve at all — `packages/plugin-antigravity-auth/src/v2.ts`
+  resolved `@ai-sdk/google` with a bare `import.meta.resolve` at module top level,
+  which throws in a compiled binary (no node_modules layout); fixed by falling back
+  to the bare specifier, which Core rewrites to the bundled native Google transport.
+  (2) `service-smoke.ts` created `.orchestra/plugins` but wrote the smoke plugin
+  to `.opencode/plugins/smoke.ts` (ENOENT); fixed to write where it mkdirs.
+  Stale-dist trap (found while verifying fix 1): the CLI bundles
+  `@orchestra/plugin-antigravity-auth` from its COMMITTED `dist/`, not from `src/`
+  — a source fix reaches no binary until `bun run --cwd
+  packages/plugin-antigravity-auth build` runs. `release.yml`, `release-desktop.yml`
+  and `release-smoke.sh` all rebuild that dist before building the CLI; it is the
+  only workspace package whose exports point at `dist/`.
+- Deleted in D2: `.github/workflows/publish.yml` + `.github/workflows/deploy.yml`
+  (both fully dead, `anomalyco/opencode`-gated) and `script/release.ts` (dispatched
+  the dead `publish.yml`). Snapshot push cannot delete remote files — the remote
+  copies must be deleted separately. Left in place, noted: `script/update-artifact.ts`
+  (posts to `opencode.ai/update`, only used by the deleted `publish.yml`),
+  `script/version.ts` (no caller left after the `publish.yml` removal),
+  `installer/install.sh` (builds a Rust binary from `crates/orchestra`, which does
+  not exist in the repo), root `install.sh` (duplicates `installer/get.sh`, Termux
+  value). `opencode.yml` / `review.yml` (live OpenCode agents in CI) are NOT D2's
+  to remove — they belong to the opencode-removal block.
+- Known gaps: npm publish of `@orchestra/cli` does not exist yet (no publishConfig,
+  no npm token) — the updater's npm/bun/yarn/pnpm methods install
+  `<package>@<version>` from npm and will fail at install time until then; the
+  source-install path via `releases.json` is the working one. Desktop first-run
+  unverified (no live desktop release yet; the `bin/opencode` → `bin/orchestra` fix
+  in `packages/desktop/scripts/utils.ts` and the mac-signing gate in
+  `electron-builder.config.ts` are covered by tests, not by a packaged app).
+  `ORCHESTRA_MAC_SIGN` secrets do not exist yet, so the first desktop release will
+  be unsigned. `update/<channel>/cli/homebrew` has no manifest (no formula) —
+  brew checks fall through to GitHub releases and report "no Homebrew formula yet".
+
 ## The whole approach — one loop, not a pile of features
 
 Every subsystem above is one station in a single operating loop. An AI working

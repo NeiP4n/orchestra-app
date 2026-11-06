@@ -1,0 +1,11 @@
+{
+  "releases": [
+    {
+      "channel": "latest",
+      "commit": "6cb819619d708dae3577af8d7dfb0762e47c3c2a",
+      "date": "2026-11-06",
+      "notes": "First Orchestra release: own versioning from 1.0.0, autoloop safety core, independent review, rules and memory, DoD zones and kanban, verification quality, server watchdog, role toolkits, activation fix, prompt-intake module, native skill marketplace, recovery mini-chat, desktop and serve redesign with the Fan mark.",
+      "version": "1.0.0"
+    }
+  ]
+}

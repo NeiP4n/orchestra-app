@@ -1,0 +1,151 @@
+name: release-desktop
+
+# Desktop release (D2): builds the desktop app for one platform per runner and attaches
+# the installers plus the electron-updater feed files (latest*.yml) to an EXISTING GitHub
+# Release (created by release.yml). Run it by hand from the Actions tab after the CLI
+# release exists — `gh release view v<version>` fails the job fast when it does not.
+# The desktop embeds the locally built CLI: the job builds the CLI for the runner's
+# platform first (baseline targets on x64, matching packages/desktop/scripts/utils.ts)
+# and passes it via ORCHESTRA_CLI_DIST; the prod prebuild refuses to run without it.
+# Signing: macOS signs + notarizes only when the Apple secrets exist
+# (ORCHESTRA_MAC_SIGN=1, see electron-builder.config.ts); Windows signing skips itself
+# when the Azure secrets are absent (script/sign-windows.ps1). Unsigned builds are
+# recorded in the job summary, not hidden. The desktop feed always uses the `latest`
+# channel (platform.ts hardcodes it) — a beta desktop release is a follow-up.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version of the existing GitHub Release to attach to (e.g. 1.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-desktop
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            cli_target: orchestra-linux-x64-baseline
+            package_script: package:linux
+          - os: macos-26
+            cli_target: orchestra-darwin-arm64
+            package_script: package:mac
+          - os: windows-2025
+            cli_target: orchestra-windows-x64-baseline
+            package_script: package:win
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Check the release exists
+        run: gh release view "v${{ inputs.version }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The embedded CLI must match the desktop's expected package layout
+      # (packages/desktop/scripts/utils.ts): baseline on x64 runners.
+      # Rebuild the Antigravity plugin dist first: the CLI bundles it from
+      # its committed dist/ (see release.yml), and a stale dist ships stale
+      # plugin code silently.
+      - name: Rebuild workspace dists bundled by the CLI
+        run: bun run --cwd packages/plugin-antigravity-auth build
+
+      - name: Build the CLI for this platform
+        run: bun packages/cli/script/build.ts --target=${{ matrix.cli_target }}
+        env:
+          ORCHESTRA_VERSION: ${{ inputs.version }}
+          ORCHESTRA_CHANNEL: latest
+
+      - name: Check for Apple signing secrets
+        if: matrix.os == 'macos-26'
+        id: macsign
+        run: |
+          if [ -n "${{ secrets.APPLE_CERTIFICATE }}" ] && [ -n "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" ] && [ -n "${{ secrets.APPLE_ID }}" ] && [ -n "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" ] && [ -n "${{ secrets.APPLE_TEAM_ID }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Import Apple signing certificate
+        if: matrix.os == 'macos-26' && steps.macsign.outputs.enabled == 'true'
+        uses: apple-actions/import-codesign-certs@8f3fb608891dd2244cdab3d69cd68c0d37a7fe93 # v2.0.0
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Check for Azure signing secrets
+        if: matrix.os == 'windows-2025'
+        id: winsign
+        run: |
+          if [ -n "${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}" ] && [ -n "${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}" ] && [ -n "${{ secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE }}" ] && [ -n "${{ secrets.AZURE_CLIENT_ID }}" ] && [ -n "${{ secrets.AZURE_TENANT_ID }}" ] && [ -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Trusted Signing authenticates through the Azure CLI credential, so the login
+      # must happen before the build when signing is enabled.
+      - name: Azure login
+        if: matrix.os == 'windows-2025' && steps.winsign.outputs.enabled == 'true'
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build desktop
+        run: bun run ${{ matrix.package_script }}
+        working-directory: packages/desktop
+        env:
+          ORCHESTRA_CHANNEL: latest
+          ORCHESTRA_UPDATE_URL: https://github.com/NeiP4n/orchestra-app/releases/latest/download
+          ORCHESTRA_CLI_DIST: ${{ github.workspace }}/packages/cli/dist
+          ORCHESTRA_MAC_SIGN: ${{ steps.macsign.outputs.enabled == 'true' && '1' || '0' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+          AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE: ${{ secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE }}
+
+      - name: Upload installers and the update feed to the release
+        run: |
+          FILES="$(find packages/desktop/dist -maxdepth 1 -type f \( -name 'latest*.yml' -o -name 'orchestra-desktop-*' \) | sort)"
+          if [ -z "$FILES" ]; then echo "No desktop artifacts in packages/desktop/dist" >&2; exit 1; fi
+          echo "$FILES"
+          # shellcheck disable=SC2086
+          gh release upload "v${{ inputs.version }}" --clobber $FILES
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Record signing in the job summary
+        run: |
+          {
+            echo "## Desktop build (${{ matrix.os }})"
+            echo "- Version: ${{ inputs.version }}"
+            if [ "${{ matrix.os }}" = "macos-26" ]; then
+              if [ "${{ steps.macsign.outputs.enabled }}" = "true" ]; then echo "- macOS signing: signed + notarized"; else echo "- macOS signing: UNSIGNED (no Apple secrets)"; fi
+            fi
+            if [ "${{ matrix.os }}" = "windows-2025" ]; then
+              if [ "${{ steps.winsign.outputs.enabled }}" = "true" ]; then echo "- Windows signing: signed (Azure Trusted Signing)"; else echo "- Windows signing: UNSIGNED (no Azure secrets)"; fi
+            fi
+            if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then echo "- Linux signing: n/a (no signing configured)"; fi
+          } >> "$GITHUB_STEP_SUMMARY"

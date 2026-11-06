@@ -4,18 +4,51 @@ import { $ } from "bun"
 import path from "node:path"
 import { existsSync } from "node:fs"
 import { parseReleaseVersion } from "./updater-action"
+import { entryForVersion, latestEntry, parseRegistry, readRegistryFile } from "./release-registry"
+import type { ReleaseChannel, ReleaseEntry } from "./release-registry"
 
-const PREFIX = "release/"
+// Releases are recorded in releases.json on main — no git tags, because tags cannot be
+// created through the snapshot-push flow that publishes this repo. A release entry points
+// at its bump commit's SHA, so resolving a version means reading the registry, not a tag.
 const DEFAULT_INSTALL_BRANCH = "main"
 const checkout = path.resolve(import.meta.dir, "../../../..")
 const DEPENDENCY_TIMEOUT_MS = 5 * 60 * 1000
 const VALIDATION_TIMEOUT_MS = 2 * 60 * 1000
 
+/** The registry channel this install follows: beta only when explicitly opted in. */
+export function registryChannel(): ReleaseChannel {
+  return process.env.ORCHESTRA_RELEASE_CHANNEL?.trim() === "beta" ? "beta" : "latest"
+}
+
+/** Read the registry from origin/main (narrow fetch of the main branch only). */
+async function registryFromOrigin(root: string): Promise<ReleaseEntry[] | undefined> {
+  await $`git -C ${root} fetch --quiet origin +refs/heads/main:refs/remotes/origin/main`.quiet()
+  const show = await $`git -C ${root} show origin/main:releases.json`.quiet().nothrow()
+  if (show.exitCode !== 0) return undefined
+  try {
+    return parseRegistry(JSON.parse(show.text()))
+  } catch {
+    return undefined
+  }
+}
+
+/** The release this checkout is pinned to: the registry entry whose commit is HEAD. */
 export async function current(root = checkout) {
   const branch = await $`git -C ${root} symbolic-ref -q HEAD`.quiet().nothrow()
   if (branch.exitCode === 0) return undefined
-  const tag = await $`git -C ${root} describe --tags --exact-match --match ${PREFIX + "*"} HEAD`.quiet().nothrow().text()
-  return version(tag.trim())
+  const head = (await $`git -C ${root} rev-parse HEAD`.quiet().text()).trim()
+  if (!head) return undefined
+  const local = readRegistryFile(path.join(root, "releases.json"))
+  const localMatch = local?.find((entry) => entry.commit === head)
+  if (localMatch) return localMatch.version
+  // The entry for a release is recorded in the registry commit that follows its bump
+  // commit, so a checkout pinned to the bump commit itself never carries its own entry
+  // locally — resolve it from origin/main instead. Offline, this is just "unknown".
+  const remote = await registryFromOrigin(root).then(
+    (entries) => entries,
+    () => undefined,
+  )
+  return remote?.find((entry) => entry.commit === head)?.version
 }
 
 export async function detached(root = checkout) {
@@ -23,19 +56,22 @@ export async function detached(root = checkout) {
 }
 
 export async function latest(root = checkout) {
-  const listing = await $`git -C ${root} ls-remote --tags --refs origin ${PREFIX + "*"}`.quiet().text()
-  return newest(
-    listing.split("\n").map((line) => version(line.split("\t")[1]?.replace("refs/tags/", "") ?? "")).filter((item): item is string => item !== undefined),
-  )
+  const entries = await registryFromOrigin(root)
+  if (!entries) return undefined
+  return latestEntry(entries, registryChannel())?.version
 }
 
 export async function apply(release: string, root = checkout) {
-  await $`git -C ${root} fetch --tags origin`.quiet()
+  const entries = await registryFromOrigin(root)
+  const entry = entries ? entryForVersion(entries, release) : undefined
+  if (parseReleaseVersion(release) && !entry) {
+    throw new Error(`Release ${release} is not recorded in releases.json on origin/main`)
+  }
   return keepingEdits(root, async () => {
     const previous = (await $`git -C ${root} rev-parse HEAD`.quiet().text()).trim()
     try {
-      if (parseReleaseVersion(release)) {
-        await $`git -C ${root} checkout --detach ${"refs/tags/" + PREFIX + release}`.quiet()
+      if (entry) {
+        await $`git -C ${root} checkout --detach ${entry.commit}`.quiet()
       } else {
         await checkoutDevelopmentBranch(root)
       }
@@ -87,12 +123,6 @@ export async function keepingEdits(root: string, move: () => Promise<void>): Pro
 
 export function newest(versions: readonly string[]) {
   return versions.toSorted((a, b) => Bun.semver.order(b, a))[0]
-}
-
-function version(tag: string) {
-  if (!tag.startsWith(PREFIX)) return undefined
-  const value = tag.slice(PREFIX.length)
-  return parseReleaseVersion(value) ? value : undefined
 }
 
 async function refreshTracking(root: string, target: string) {
