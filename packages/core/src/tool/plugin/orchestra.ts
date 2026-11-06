@@ -16,6 +16,7 @@ import { Mcp } from "../../mcp/index.js"
 import { Model } from "../../model.js"
 import { Orchestra } from "../../orchestra.js"
 import { OrchestraStage } from "../../stage.js"
+import { RoleToolkits } from "../../roles/toolkits.js"
 import { ModelRouter } from "../../session/model-router.js"
 import { Token } from "../../util/token.js"
 import { FormDecision } from "../../form-decision.js"
@@ -566,8 +567,20 @@ export const Output = Schema.Struct({
 /**
  * A delegated task runs an explicit reasoning level, never the provider's silent default: a model
  * that offers variants must be named with one, as `provider/model#variant` or through the role's
- * own variant, and an unknown one is refused with the list to choose from.
+ * own variant, and an unknown one is refused with the list to choose from. When neither names
+ * one, the catalog default is filled in instead of refusing — a planner that passes a bare
+ * `provider/model` (Б14: sonnet-5.5 with no variant, guessed wrong and got a tool error) gets
+ * the middle reasoning level rather than a dead end. The dispatch result names the model the
+ * worker will run, variant included, so the applied default is visible, never silent.
  */
+export const DEFAULT_VARIANT = "medium"
+
+/** The variant a bare `provider/model` gets: the middle level when offered, else the first. */
+export function defaultVariant(variants: ReadonlyArray<string>): string | undefined {
+  if (variants.includes(DEFAULT_VARIANT)) return DEFAULT_VARIANT
+  return variants[0]
+}
+
 export const resolveVariant = Effect.fnUntraced(function* (
   ref: Model.Ref,
   role: Orchestra.Role | undefined,
@@ -582,14 +595,13 @@ export const resolveVariant = Effect.fnUntraced(function* (
   // A model without variants runs exactly as before, with or without a role variant.
   if (!known || known.variants.length === 0) return ref
   const names = known.variants.map((variant) => variant.id as string)
-  if (chosen === undefined)
+  if (chosen === undefined) return withVariant(defaultVariant(names))
+  if (!names.includes(chosen)) {
+    const suggestion = defaultVariant(names)
     return yield* new ToolFailure({
-      message: `This model requires a reasoning variant: pass ${ref.providerID}/${ref.id}#<id> or set role.variant. Available: ${names.join(", ")}`,
+      message: `Variant "${chosen}" is not available for "${ref.providerID}/${ref.id}". Available: ${names.join(", ")}${suggestion ? `. Did you mean #${suggestion}?` : ""}`,
     })
-  if (!names.includes(chosen))
-    return yield* new ToolFailure({
-      message: `Variant "${chosen}" is not available for "${ref.providerID}/${ref.id}". Available: ${names.join(", ")}`,
-    })
+  }
   return withVariant(chosen)
 })
 
@@ -1002,12 +1014,19 @@ export const Plugin = {
                   return yield* new ToolFailure({
                     message: `${role?.name ?? "This session"} does not let the Orchestrator change its tools; omit tools`,
                   })
-                const outside = tools?.filter(
-                  (tool) => tool !== "all" && role?.tools && !Orchestra.toolAllowed(role.tools, tool),
-                )
+                // The ceiling is the role's effective toolkit: its explicit list,
+                // or its kind's toolkit when the role declares none (RoleToolkits).
+                // A role without a list used to have no ceiling at all here.
+                const audit = tools ? RoleToolkits.auditTools(role, tools) : undefined
+                const outside = audit?.outside.filter((entry) => entry.tool !== "all")
                 if (outside?.length)
                   return yield* new ToolFailure({
-                    message: `${role?.name} may not use ${outside.join(", ")}; its tools are ${role?.tools?.join(", ")}`,
+                    message: `${role?.name} may not use ${outside.map((entry) => entry.tool).join(", ")}; its tools are ${RoleToolkits.effectiveTools(role)?.join(", ")}`,
+                  })
+                if (tools?.includes("all"))
+                  yield* Effect.logWarning("role runs unrestricted for this task (tools \"all\" lifts its toolkit ceiling)", {
+                    role: role?.id,
+                    kind: role ? RoleToolkits.kindOfRole(role) : undefined,
                   })
                 return {
                   model,
@@ -1188,9 +1207,15 @@ export const Plugin = {
               })
               // Every dispatch result names the model the worker will run and where
               // that choice came from, so an inherited flagship is visible as the
-              // default it is instead of passing as a decision.
-              const modelNote = (model: { providerID: string; id: string } | undefined, source: string) =>
-                model ? ` Model: ${model.providerID}/${model.id} (${source}).` : ""
+              // default it is instead of passing as a decision. The variant rides
+              // along: a default the tool filled in (#medium) must read as one.
+              const modelNote = (
+                model: { providerID: string; id: string; variant?: string } | undefined,
+                source: string,
+              ) =>
+                model
+                  ? ` Model: ${model.providerID}/${model.id}${model.variant && model.variant !== "default" ? `#${model.variant}` : ""} (${source}).`
+                  : ""
               const busy = (sessionID: SessionSchema.ID) =>
                 Effect.gen(function* () {
                   if ((yield* orchestra.pending(sessionID)) === undefined) return

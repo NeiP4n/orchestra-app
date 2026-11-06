@@ -7,6 +7,8 @@ import { Effect, Option, Schema } from "effect"
 import { Federation } from "../../federation.js"
 import { Database } from "../../database/database.js"
 import { SessionHistory } from "../../session/history.js"
+import { SessionStore } from "../../session/store.js"
+import { SocietyStatus } from "../../society-status.js"
 import { Orchestra } from "../../orchestra.js"
 import { Permission } from "../../permission.js"
 import { Session } from "../../session.js"
@@ -78,7 +80,7 @@ const guide = [
   "A group-bound President/Society session is a chat owned by one named project group, not by the coordinator project. In such a chat peers, policy, linked, inbox and outbox cover the group's own members only, and the changing actions (send, decide, reply, set_policy, link, unlink, set_group, remove_group, link_group) are not available: creating the chat or project activity must not contact other projects. President can inspect sanitized status on request; it never dispatches tickets.",
   "In Council mode, open Society and send a task or question. Only in response to that explicit operator request should the Council call consult_all, which sends the same read-only task to every member project's main Orchestrator in parallel and gathers all proposals back into Society.",
   "In lead mode the group chat runs the President agent, which sits above the member Orchestrators. A member Orchestrator may use report_president with name, subject and body to send a status or escalation to that President chat; the report wakes the President and never creates a ticket.",
-  "Actions: project sessions use peers, policy, send, inbox, outbox, decide, reply, link, unlink and linked. group_status summarizes sanitized activity and tickets; consult_all starts a Council round; contribute submits a member Orchestrator's proposal; report_president reports to a lead-mode President.",
+  "Actions: project sessions use peers, policy, send, inbox, outbox, decide, reply, link, unlink and linked. group_status summarizes sanitized activity and tickets plus society-wide live-agent counts (running/waiting/succeeded/failed, counts only); consult_all starts a Council round; contribute submits a member Orchestrator's proposal; report_president reports to a lead-mode President.",
   "Group configuration: projects lists the local projects with their ids, names and whether each project's own Orchestrator session exists; group_create creates a group from exact project ids and a mode (it refuses to replace a group that already has a chat); group_add and group_remove change its projects; group_edit renames it or changes its mode; group_delete removes it; group_chat creates the group's single chat (Президент in lead mode, Общество in council mode) in the group's own directory. groups and set_group remain the raw read/replace pair.",
   "Every project already has its own Orchestrator from the moment it was created; group configuration only edits group membership and creates the group's own chat.",
 ].join("\n")
@@ -163,6 +165,9 @@ export const Plugin = {
     const federation = yield* Federation.Service
     const orchestra = yield* Orchestra.Service
     const sessions = yield* Session.Service
+    // The claim store is optional the way checkLive treats its services: a
+    // layer without it reports claims as unavailable, never as zero running.
+    const store = yield* Effect.serviceOption(SessionStore.Service)
     const permission = yield* Permission.Service
     const database = yield* Database.Service
 
@@ -618,8 +623,32 @@ export const Plugin = {
                   }
 
                   // Cross-project status is deliberately limited to sanitized activity signals and ticket metadata.
-                  // Do not query Orchestra.sessions(), foreign outcomes or active session IDs here.
+                  // Do not query foreign outcomes or active session IDs here — except as aggregate
+                  // counts: `society` below is numbers only (SocietyStatus), no session IDs,
+                  // titles or names, so a Group Orchestrator may know how many agents work
+                  // without seeing which sessions they are. The Б14 planner counted 0 workers
+                  // in its own project while 27 worked elsewhere; per-project counts fix that,
+                  // and `waiting` (a delivered task nobody started) must never read as working.
                   const activity = yield* federation.activity(group.name)
+                  const claimed = Option.isSome(store) ? new Set(yield* store.value.listSuspended()) : new Set<string>()
+                  const claimsAvailable = Option.isSome(store)
+                  const society = SocietyStatus.summarize({
+                    projects: yield* Effect.forEach(
+                      group.projects,
+                      (id) =>
+                        orchestra.sessions(id).pipe(
+                          Effect.map((listed) => ({
+                            id,
+                            sessions: listed.map((session) => ({
+                              ...(session.outcome ? { outcome: session.outcome } : {}),
+                              claimed: claimed.has(session.id),
+                            })),
+                          })),
+                          Effect.orElseSucceed(() => ({ id, sessions: [] as ReadonlyArray<SocietyStatus.SessionSnapshot> })),
+                        ),
+                      { concurrency: "unbounded" },
+                    ),
+                  })
                   const coordinatorID = group.projects[0]
                   const linked = coordinatorID ? yield* federation.linked(coordinatorID) : []
                   const linkedIDs = new Set([coordinatorID, ...linked.map((item) => item.id)])
@@ -665,9 +694,20 @@ export const Plugin = {
                         coordinator: coordinatorID,
                         supervisor: group.supervisor ?? null,
                         projects: rows,
+                        society: {
+                          total: society.total,
+                          running: society.running,
+                          waiting: society.waiting,
+                          succeeded: society.succeeded,
+                          failed: society.failed,
+                          interrupted: society.interrupted,
+                          live: society.live,
+                          claimsAvailable,
+                          perProject: society.projects,
+                        },
                         recentTickets,
                         privacy:
-                          "Project session IDs, worker names, transcripts and files are not exposed to the Group Orchestrator. Status is based on sanitized activity transitions and federation ticket metadata.",
+                          "Project session IDs, worker names, transcripts and files are not exposed to the Group Orchestrator. Status is based on sanitized activity transitions and federation ticket metadata, plus aggregate session counts only (society): running means a session holds an execution claim right now, waiting means a delivered task nobody started — it is not working.",
                       },
                       null,
                       2,

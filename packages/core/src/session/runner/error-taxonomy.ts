@@ -191,24 +191,35 @@ export const MAIN_SESSION_FALLBACK_MODELS: ReadonlyArray<string> = [
  * models in the catalog and contributes nothing.
  *
  * Order: the current provider first (its other models are the cheapest
- * switch for a model-level refusal) — except on an authentication failure,
- * where the whole provider is dead (a 401 on one model means a 401 on all
- * of them) and the chain starts on another provider. Then the verified
- * Anymodel models, then lix as the second provider, then whatever else the
- * catalog has, in catalog order. Dead Anymodel models never appear. The
- * current model itself is excluded by identity, never by variant (see
- * `fallbackModel`): another variant of the same model fails the same way.
+ * switch for a model-level refusal) — except on an authentication failure
+ * or a gateway failure (502/503/504), where the whole provider is dead (a
+ * 401 on one model means a 401 on all of them; a 502 means the gateway is
+ * down, not the model) and the chain starts on another provider. Then the
+ * verified Anymodel models, then lix as the second provider, then whatever
+ * else the catalog has, in catalog order. Dead Anymodel models never
+ * appear. Providers in `coolingDown` — a 429 another session caught, or a
+ * 502 this process already recorded — are skipped outright: switching to a
+ * model of a provider that just refused the whole process only earns the
+ * same refusal. The current model itself is excluded by identity, never by
+ * variant (see `fallbackModel`): another variant of the same model fails
+ * the same way.
  */
 export function mainSessionFallbackChain(input: {
   readonly cause: AIError
   readonly current: Model.Ref
   readonly catalog: ReadonlyArray<Model.Info>
+  readonly coolingDown?: ReadonlySet<string>
 }): ReadonlyArray<Model.Ref> {
   const authFailure = input.cause.reason._tag === "Authentication"
+  const providerDown =
+    input.cause.reason._tag === "ProviderInternal" &&
+    [502, 503, 504].includes(input.cause.reason.http?.status ?? 0)
+  const wholeProviderDead = authFailure || providerDown
   const seen = new Set<string>([`${input.current.providerID}/${input.current.id}`])
   const push = (ref: Model.Ref): Model.Ref | undefined => {
     if (ref.providerID === "anymodel" && isDeadModelId(ref.id)) return undefined
-    if (authFailure && ref.providerID === input.current.providerID) return undefined
+    if (wholeProviderDead && ref.providerID === input.current.providerID) return undefined
+    if (input.coolingDown?.has(ref.providerID)) return undefined
     const identity = `${ref.providerID}/${ref.id}`
     if (seen.has(identity)) return undefined
     seen.add(identity)
@@ -218,7 +229,7 @@ export function mainSessionFallbackChain(input: {
   const inCatalog = (ref: Model.Ref) =>
     input.catalog.some((info) => info.providerID === ref.providerID && info.id === ref.id)
   const fromCatalog = (info: Model.Info) => Model.Ref.make({ providerID: info.providerID, id: info.id })
-  const sameProvider = authFailure
+  const sameProvider = wholeProviderDead
     ? []
     : [
         ...verified.filter((ref) => ref.providerID === input.current.providerID && inCatalog(ref)),

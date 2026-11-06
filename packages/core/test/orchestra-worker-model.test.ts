@@ -172,6 +172,35 @@ describe("Orchestra.workerModels favorites", () => {
     })
   })
 
+  test("a favorite on a cooling-down provider is skipped, live ones come first", () => {
+    // The Б14 planner assigned the dead Anymodel to workers while it gave
+    // 502; the cooldown from that failure must move the assignment to a live
+    // provider. The favorites list itself is untouched — only the pick skips.
+    const favorites = [favorite("anymodel/sonnet-5"), favorite("klinch/sonnet-4-5")]
+    expect(
+      shown(Orchestra.workerModels(undefined, guessed("Build", "Builder"), { favorites, downProviders: ["anymodel"] })),
+    ).toEqual({ model: "klinch/sonnet-4-5" })
+    expect(
+      shown(Orchestra.workerModels(undefined, guessed("Build", "Builder"), { favorites, downProviders: ["klinch"] })),
+    ).toEqual({ model: "anymodel/sonnet-5" })
+    expect(shown(Orchestra.workerModels(undefined, guessed("Build", "Builder"), { favorites }))).toEqual({
+      model: "anymodel/sonnet-5",
+      models: ["klinch/sonnet-4-5"],
+    })
+  })
+
+  test("a role's own model on a down provider still wins: the author's deliberate choice", () => {
+    const favorites = [favorite("anymodel/sonnet-5")]
+    expect(
+      shown(
+        Orchestra.workerModels(undefined, role({ model: "anymodel/sonnet-5" }), {
+          favorites,
+          downProviders: ["anymodel"],
+        }),
+      ),
+    ).toEqual({ model: "anymodel/sonnet-5" })
+  })
+
   it.live("reads the pinned models from the orchestra config and hands them to a worker", () =>
     Effect.gen(function* () {
       const favorites = yield* Orchestra.workerFavorites
@@ -217,15 +246,17 @@ describe("resolveVariant", () => {
   const failure = (model: string, variant: string | undefined, available = catalog(["low", "high"])) =>
     Effect.runSync(Effect.flip(resolveVariant(Model.Ref.parse(model), roleWith(variant), available)))
 
-  test("refuses a model that offers variants when none is named", () => {
-    expect(failure("zen/glm-4.6", undefined).message).toBe(
-      "This model requires a reasoning variant: pass zen/glm-4.6#<id> or set role.variant. Available: low, high",
-    )
+  test("fills in the catalog default when no variant is named (Б14 sonnet-5.5)", () => {
+    // A bare provider/model used to be refused and the planner guessed a
+    // variant wrong. Now the middle level is filled in: #medium when the
+    // model offers it, else the first variant the catalog lists.
+    expect(ref(resolve("zen/glm-4.6", undefined))).toBe("zen/glm-4.6#low")
+    expect(ref(resolve("zen/glm-4.6", undefined, catalog(["low", "medium", "high"])))).toBe("zen/glm-4.6#medium")
   })
 
-  test("refuses a variant the model does not offer", () => {
+  test("refuses a variant the model does not offer, suggesting the default", () => {
     expect(failure("zen/glm-4.6#max", undefined).message).toBe(
-      'Variant "max" is not available for "zen/glm-4.6". Available: low, high',
+      'Variant "max" is not available for "zen/glm-4.6". Available: low, high. Did you mean #low?',
     )
   })
 

@@ -1,6 +1,6 @@
 export * as SessionContextGovernor from "./context-governor.js"
 
-import { Message, type ContentPart, type ToolResultPart } from "@orchestra/ai"
+import { Message, type ContentPart, type ToolCallPart, type ToolResultPart } from "@orchestra/ai"
 
 // On by default. Turn it off with the "Context governor" setting (experimental.context_governor in the config),
 // or with ORCHESTRA_CONTEXT_GOVERNOR=0, which also overrides the setting; =1 forces it on.
@@ -9,8 +9,11 @@ import { Message, type ContentPart, type ToolResultPart } from "@orchestra/ai"
 // A coding session spends most of its prompt on tool output the model read once and never needed again:
 // file reads, grep and shell results from fifty steps ago are re-sent on every step. Compaction fixes that
 // by summarizing, which is slow, lossy and runs late. The governor is the cheap step before it. When a request
-// grows past the soft limit it replaces old, bulky tool outputs with a one-line stub in the request only; the
-// durable history keeps every byte, the call arguments stay visible, and the model can run the tool again.
+// grows past the soft limit it replaces old, bulky tool outputs AND old, bulky tool-call arguments with a
+// one-line stub in the request only; the durable history keeps every byte, and the model can run the tool
+// again. The arguments matter as much as the outputs: a planner that dispatches a 4k brief to every worker
+// re-sends all of them on every step (the Б14 planner grew 78k → 672k input in ~7 minutes), and the
+// result-only governor could not shrink that at all — the calls are the prompt.
 //
 // The prompt cache is the other half of the design. Eliding a little on every step would rewrite the prefix
 // on every step and cost more than it saves. So elision is a ratchet: a per-session watermark marks how much
@@ -103,11 +106,21 @@ const apply = (messages: ReadonlyArray<Message>, watermark: number, policy: Poli
     : messages.map((message, index) => (index < watermark ? elide(message, policy.min) : message))
 
 const elide = (message: Message, min: number) => {
-  if (message.role !== "tool" || !message.content.some((part) => elidable(part, min))) return message
-  return new Message({
-    ...message,
-    content: message.content.map((part) => (elidable(part, min) ? stub(part as ToolResultPart) : part)),
-  })
+  if (message.role === "tool") {
+    if (!message.content.some((part) => elidable(part, min))) return message
+    return new Message({
+      ...message,
+      content: message.content.map((part) => (elidable(part, min) ? stub(part as ToolResultPart) : part)),
+    })
+  }
+  if (message.role === "assistant") {
+    if (!message.content.some((part) => callElidable(part, min))) return message
+    return new Message({
+      ...message,
+      content: message.content.map((part) => (callElidable(part, min) ? stubCall(part as ToolCallPart) : part)),
+    })
+  }
+  return message
 }
 
 // A result that carries an image is elided like any other: a screenshot from fifty steps ago is re-sent
@@ -127,6 +140,29 @@ const stub = (part: ToolResultPart): ToolResultPart => {
     result: {
       type: "text",
       value: `[${part.name} output elided: ${media ? "an image or other binary payload" : `${resultChars(part.result)} characters`} from an earlier step. The call above shows what ran. Do not guess or reconstruct the output; run it again if you need it.]`,
+    },
+  }
+}
+
+// A bulky call keeps its name and id — the model still sees what ran —
+// but its arguments shrink to a note plus the first 200 characters, enough
+// to recognise the brief without re-sending all of it. Calls the KEPT set
+// names (dod, rules, …) keep their arguments: a rule or a DoD entry is a
+// decision, and eliding it would let the model forget what it was told.
+// Provider-executed calls are left alone, like provider-executed results.
+const callElidable = (part: ContentPart, min: number) =>
+  part.type === "tool-call" &&
+  !part.providerExecuted &&
+  !KEPT.has(part.name) &&
+  (JSON.stringify(part.input)?.length ?? 0) >= min
+
+const stubCall = (part: ToolCallPart): ToolCallPart => {
+  const json = JSON.stringify(part.input) ?? ""
+  return {
+    ...part,
+    input: {
+      _elided: `[${part.name} arguments elided: ${json.length} characters from an earlier step. The result below shows what it returned. Do not guess or reconstruct the arguments; run the tool again if you need them.]`,
+      _preview: json.slice(0, 200),
     },
   }
 }

@@ -114,7 +114,9 @@ describe("MCP role profiles", () => {
       { server: "context7", access: "required" },
       { server: "serena", access: "allowed" },
     ])
-    // A role with no tool list is unrestricted by the role contract, and says so.
+    // A role with no tool list inherits its kind's toolkit (RoleToolkits),
+    // not the whole catalog: the "General" kind gets the generalist floor,
+    // which still leaves production-error servers such as sentry outside.
     const open = fromRole({
       id: "open",
       name: "Open",
@@ -123,8 +125,9 @@ describe("MCP role profiles", () => {
       category: "General",
       readOnly: false,
     })
-    expect(open.unrestricted).toBe(true)
-    expect(allows(open, "sentry")).toBe(true)
+    expect(open.unrestricted).toBe(false)
+    expect(allows(open, "sentry")).toBe(false)
+    expect(allows(open, "context7")).toBe(true)
   })
 
   test("missingRequired reports only required servers that are absent", () => {

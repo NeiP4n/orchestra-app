@@ -45,7 +45,14 @@ section, config key `model_favorites`). Everything else is derived.
   work the cheapest first; `effortFor` classifies by role category+name) →
   the role's own model → the `orchestra.worker` policy (category entry before the
   general one) → inherit the caller's model. Unavailable models are skipped, never
-  retried blindly, and dropped from fallbacks too.
+  retried blindly, and dropped from fallbacks too. So are the favorites of a
+  provider inside a recorded cooldown (`AiStandard.downProviders`, read from
+  the `ProviderCooldown` map over the catalog when `workerModels` gets no
+  explicit list): a 502 marks the whole provider down for a minute, and the
+  pick moves to a live provider while the favorites list itself never changes.
+  The role's own model keeps its exemption from that guard, like the
+  dead-model guard — the author's deliberate choice, covered by the runtime
+  fallback.
 - The live implementation of the chain is `Orchestra.workerModels` in
   `packages/core/src/orchestra.ts`, fed by `Orchestra.workerPolicy` and
   `Orchestra.workerFavorites`. `AiStandard.decideModel` is the reference statement of
@@ -83,6 +90,20 @@ provider. lix is seeded by the `orchestra.provider.lix` plugin
 (`packages/core/src/plugin/provider/lix.ts`): registered but never available
 without a stored key, models discovered live from `/models` once the key exists.
 
+Why G2-14 did not save the Б14 Probe Runner (role-toolkits fix, 2026-11-06):
+the chain ran for main sessions only — a worker's operator-given list was used
+alone — and `fallbackModel` refused every retryable cause, so a 502 retried
+the same dead provider twice and then failed without ever switching. Now the
+live-catalog chain is appended AFTER a worker's own list, so an exhausted list
+crosses providers; `fallbackModel` no longer re-checks retryability, because
+`step.ts` only calls it after the retry policy already declined (retries
+spent), so a retryable cause there means "change the model". A gateway failure
+(502/503/504) is treated like an authentication failure — the whole provider
+is down, not one model — and the retry policy records it in the shared
+provider cooldown (`ProviderCooldown.noteProviderDown`), so the chain also
+skips providers that are cooling down from a 429 or a 502 this process
+already saw.
+
 ## Modes — `packages/schema/src/mode.ts`
 
 A mode is rails for a run: step ceiling, read-only flag, preloaded tools, one
@@ -109,6 +130,13 @@ guidance block. It never widens a role's permissions.
   `packages/core/src/mcp/role-profiles.ts` (`fromRole`) maps the role's native
   actions to catalog servers via `impliedTools`/`toolGroups` in the same schema
   file.
+- A role with no explicit tool list is NOT unrestricted: `packages/core/src/roles/toolkits.ts`
+  (`RoleToolkits`) classifies it into one of seven kinds (orchestrator, scout,
+  architect, coder, tester, reviewer, releaser, general) and hands it that
+  kind's anchor role toolkit (`effectiveTools`); `plugin/team.ts` pushes the
+  resulting permission rules for every role and logs a warning for kind-default
+  roles, and the `sessions` tool refuses per-task tools outside the effective
+  toolkit. The full map is `docs/role-toolkits.md`.
 - `templates` are dynamic team *recommendations* (roles + playbook); a built-in
   project opens only the Orchestrator, which composes the actual team. Removed
   built-ins survive as `legacyTemplates` for compatibility. A template test pins
@@ -526,6 +554,13 @@ Orchestrator and synthesizes the answers.
   action; results return to the chat as `<group-council-results>`.
 - Federation tickets (inbox/outbox/decide/reply) are model-tool surface by
   design; there is no HTTP endpoint for them or for starting a round.
+- `group_status` also reports the Society's live agents society-wide
+  (`packages/core/src/society-status.ts`): per-project and total counts of
+  running (holds an execution claim), waiting (a delivered task nobody
+  started — never read as working), succeeded, failed and interrupted
+  sessions, plus `live` (did not die). Counts only, never session IDs,
+  titles or names; when the claim store is unavailable in the layer the
+  output says `claimsAvailable: false` instead of reporting zero running.
 - A federation group is **not** the society_forge "Society" feature; do not
   conflate them.
 
@@ -696,7 +731,12 @@ gate (`session/completion-gate.ts`) checks after every answer: work the turn
 claimed is not DONE until `dod verify` says so, and a hand edit of the DoD
 board, a protected file, or a credential dump in the same turn is flagged. Rules survive compaction: the summary keeps
 a `Rules / DoD / Errors` section, the context governor never elides a
-`rules list` result, and prefix-pin reports rule changes as a diff.
+`rules list` result, and prefix-pin reports rule changes as a diff. The
+governor also stubs old, bulky tool-call arguments (name and id stay, the
+first 200 characters stay as a preview); calls named `dod`/`rules` keep
+their arguments, like their results. Measured on a planner-like transcript
+of 8 dispatches with 4k briefs: 18_647 → 6_033 estimated tokens (−68%;
+the results-only governor reached 11_824).
 
 A new Society starts with six default rules (`Rules.DEFAULT_SOCIETY_RULES`,
 seeded by `createSociety` into an empty society scope only): ask three questions

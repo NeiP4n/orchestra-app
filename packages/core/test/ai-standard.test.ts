@@ -3,6 +3,7 @@ import { Agent } from "@orchestra/schema/agent"
 import { Model } from "@orchestra/schema/model"
 import { Money } from "@orchestra/schema/money"
 import { Provider } from "@orchestra/schema/provider"
+import { ProviderCooldown } from "@orchestra/ai"
 import { AiStandard } from "@orchestra/core/ai-standard"
 import { Orchestra } from "@orchestra/core/orchestra"
 
@@ -56,6 +57,18 @@ describe("AiStandard.rankFavorites", () => {
   test("a pinned variant is never re-ranked away", () => {
     const ranked = AiStandard.rankFavorites([ref("zen/glm-4.6#low")], "depth", catalog)
     expect(ranked.map(shown)).toEqual(["zen/glm-4.6#low"])
+  })
+})
+
+describe("AiStandard.downProviders", () => {
+  test("reports only the catalog providers inside a recorded cooldown", () => {
+    // A provider id no other test uses, so the 60 s cooldown this records
+    // cannot leak into another test's catalog.
+    const testCatalog = [modelInfo("down-provider-test", "model-a"), modelInfo("opencode", "kimi-free")]
+    expect(AiStandard.downProviders(testCatalog)).toEqual([])
+    ProviderCooldown.noteProviderDown("down-provider-test")
+    expect(AiStandard.downProviders(testCatalog)).toEqual(["down-provider-test"])
+    expect(AiStandard.downProviders(undefined)).toEqual([])
   })
 })
 

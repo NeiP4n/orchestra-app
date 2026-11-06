@@ -1,6 +1,7 @@
 export * as AiStandard from "./ai-standard.js"
 
 import { Agent } from "@orchestra/schema/agent"
+import { ProviderCooldown } from "@orchestra/ai"
 import { Model } from "./model.js"
 
 // THE SINGLE AI STANDARD
@@ -100,6 +101,21 @@ function effortOf(model: Model.Ref, order: ReadonlyArray<string>, catalog: Reado
 function priceOf(model: Model.Ref, catalog: ReadonlyArray<Model.Info> | undefined) {
   const tier = infoOf(model, catalog)?.cost[0]
   return tier === undefined ? Number.MAX_SAFE_INTEGER : tier.input + tier.output
+}
+
+/**
+ * Providers in the catalog that are inside a recorded cooldown right now:
+ * a 429, or a 502/503/504 that marked the whole provider down (see
+ * `ProviderCooldown`). Choosing from the favorites must skip them and put a
+ * live provider first. The favorites list itself never changes here — the
+ * operator owns it; this only reads the live health at decision time. A
+ * restart clears every cooldown, so a provider that recovered is live again.
+ */
+export const downProviders = (catalog: ReadonlyArray<Model.Info> | undefined): ReadonlyArray<string> => {
+  if (catalog === undefined) return []
+  const down = new Set<string>()
+  for (const item of catalog) if (ProviderCooldown.isCoolingDown(item.providerID)) down.add(item.providerID)
+  return [...down]
 }
 
 /**

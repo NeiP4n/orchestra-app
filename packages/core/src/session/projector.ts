@@ -440,6 +440,27 @@ function projectIdle(
   })
 }
 
+// A resumed session is running, not whatever its last run ended as:
+// `idle_outcome` is the LAST idle outcome, and nothing cleared it when a
+// new drain started — so the Б14 planner kept reading "failed" while it
+// was actually working. Clearing it here (and only here — a shutdown
+// interruption keeps the claim and the outcome for restart recovery) makes
+// the outcome describe the current run, not the previous one.
+function projectRunning(db: DatabaseService, event: typeof SessionEvent.Execution.Started.Type) {
+  return Effect.gen(function* () {
+    yield* run(db, event)
+    yield* db
+      .update(SessionTable)
+      .set({
+        idle_outcome: null,
+        time_updated: sql`${SessionTable.time_updated}`,
+      })
+      .where(eq(SessionTable.id, event.data.sessionID))
+      .run()
+      .pipe(Effect.orDie)
+  })
+}
+
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const bus = yield* Bus.Service
@@ -677,6 +698,7 @@ const layer = Layer.effectDiscard(
         delivery: event.data.delivery,
       }),
     )
+    yield* bus.project(SessionEvent.Execution.Started, (event) => projectRunning(db, event))
     yield* bus.project(SessionEvent.Execution.Succeeded, (event) => projectIdle(db, event))
     yield* bus.project(SessionEvent.Execution.Failed, (event) => projectIdle(db, event))
     yield* bus.project(SessionEvent.Execution.Interrupted, (event) => projectIdle(db, event))

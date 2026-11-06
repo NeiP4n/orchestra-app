@@ -93,6 +93,14 @@ export const policy = (sessionID: SessionSchema.ID) =>
         // clears it and waiting would only stall the other sessions.
         if (input.cause.reason._tag === "RateLimit" && !isFreeTierAddressCap(input.cause))
           ProviderCooldown.noteRateLimit(String(input.model.providerID), hint)
+        // A 502/503/504 is the gateway down, not one model: every other
+        // session must stop spending retries against this provider and the
+        // fallback chain must start on another one (see `fallbackModel`).
+        if (
+          input.cause.reason._tag === "ProviderInternal" &&
+          [502, 503, 504].includes(input.cause.reason.http?.status ?? 0)
+        )
+          ProviderCooldown.noteProviderDown(String(input.model.providerID))
         const cooldownDelay = ProviderCooldown.cooldownDelayMs(String(input.model.providerID), hint)
         const delay = Math.max(Math.ceil(Duration.toMillis(duration)), cooldownDelay)
         // A hint past the cap is not clamped into a shorter wait: retrying

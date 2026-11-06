@@ -622,6 +622,34 @@ describe("SessionProjector", () => {
     }),
   )
 
+  it.effect("clears the last idle outcome when a new drain starts (stale outcome)", () =>
+    Effect.gen(function* () {
+      const db = yield* seedSession()
+      const bus = yield* Bus.Service
+      const outcome = () =>
+        db
+          .select({ idleOutcome: SessionTable.idle_outcome })
+          .from(SessionTable)
+          .where(eq(SessionTable.id, sessionID))
+          .get()
+          .pipe(Effect.orDie)
+
+      // The Б14 planner kept reading "failed" while it was actually working:
+      // the outcome is the LAST idle outcome, and nothing cleared it on resume.
+      yield* bus.publish(SessionEvent.Execution.Failed, {
+        sessionID,
+        error: { type: "provider.internal", message: "Unavailable" },
+      })
+      expect((yield* outcome())?.idleOutcome).toBe("failed")
+
+      yield* bus.publish(SessionEvent.Execution.Started, { sessionID })
+      expect((yield* outcome())?.idleOutcome).toBeNull()
+
+      yield* bus.publish(SessionEvent.Execution.Succeeded, { sessionID })
+      expect((yield* outcome())?.idleOutcome).toBe("succeeded")
+    }),
+  )
+
   it.effect("updates only the newest incomplete assistant projection", () =>
     Effect.gen(function* () {
       const db = yield* seedSession()
