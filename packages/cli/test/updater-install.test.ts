@@ -62,6 +62,7 @@ function fixture(
               const url = input instanceof Request ? input.url : input.toString()
               requests.push(url)
               if (new URL(url).hostname === "formulae.brew.sh") return Response.json({ versions: { stable: "2.0.21" } })
+              if (new URL(url).hostname === "api.github.com") return Response.json({ tag_name: "v2.3.4" })
               return Response.json({ version: "2.3.4", metadata: { package: releasePackage } })
             },
             { preconnect: fetch.preconnect },
@@ -341,17 +342,16 @@ it.live("Homebrew formula opencode is ignored as a supported brew formula", () =
   )
 })
 
-it.live("без ORCHESTRA_UPDATE_URL сеть не вызывается", () =>
+it.live("без ORCHESTRA_UPDATE_URL latest берётся из GitHub-релиза Orchestra", () =>
   Effect.gen(function* () {
     const test = yield* fixture()
     delete process.env.ORCHESTRA_UPDATE_URL
-    const checkResult = yield* test.updater.check()
-    expect(checkResult).toBeUndefined()
-    const runResult = yield* test.updater.run()
-    expect(runResult).toBeUndefined()
-    const latestError = yield* test.updater.latest().pipe(Effect.flip)
-    expect(latestError).toBeDefined()
-    expect(test.requests).toEqual([])
+    // В исходной установке (ORCHESTRA_LOCAL) check/run идут через git, а не через
+    // сеть — поэтому здесь проверяется сам fallback: latest() без URL читает
+    // релиз Orchestra с GitHub, а не сервис обновлений.
+    const latestVersion = yield* test.updater.latest()
+    expect(latestVersion).toBe("2.3.4")
+    expect(test.requests).toEqual(["https://api.github.com/repos/NeiP4n/orchestra-app/releases/latest"])
   }),
 )
 
