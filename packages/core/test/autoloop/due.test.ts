@@ -193,3 +193,43 @@ describe("AutoloopDue deadlines", () => {
     expect(Date.parse(due["requeue:1"]!.at)).toBe(T0)
   })
 })
+
+describe("AutoloopDue dispute deadlines", () => {
+  const disputeRow = (overrides: Record<string, unknown>) => ({
+    id: 1,
+    subject: "format",
+    position_a: "JSON",
+    position_b: "YAML",
+    level: "agent",
+    deadline: new Date(T0 + 15 * MINUTE).toISOString(),
+    state: "open",
+    decision: null,
+    created_at: new Date(T0).toISOString(),
+    updated_at: new Date(T0).toISOString(),
+    ...overrides,
+  })
+
+  test("an open dispute wakes the clock at its deadline", () => {
+    const view = withRows({
+      disputes: {
+        1: disputeRow({}),
+        2: disputeRow({ id: 2, state: "resolved", decision: "JSON it is" }),
+        3: disputeRow({ id: 3, level: "operator", deadline: "", state: "noted" }),
+      },
+    })
+
+    const due = deadlines(view, T0, rules)
+    expect(due["dispute:1"]).toEqual({ kind: "dispute", key: "1", at: new Date(T0 + 15 * MINUTE).toISOString() })
+    expect(due["dispute:2"]).toBeUndefined()
+    expect(due["dispute:3"]).toBeUndefined()
+  })
+
+  test("an overdue dispute wakes the clock now", () => {
+    const view = withRows({
+      disputes: { 1: disputeRow({ deadline: new Date(T0 - MINUTE).toISOString() }) },
+    })
+
+    const due = deadlines(view, T0, rules)
+    expect(due["dispute:1"]).toEqual({ kind: "dispute", key: "1", at: new Date(T0).toISOString() })
+  })
+})

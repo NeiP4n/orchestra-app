@@ -304,6 +304,37 @@ describe("AutoloopCards delivery", () => {
 })
 
 describe("AutoloopCards disputes", () => {
+  test("raising a dispute returns its id, level and deadline; resolving stops it", async () => {
+    await run(
+      Effect.gen(function* () {
+        const raised = yield* AutoloopCards.raiseDispute(
+          { subject: "format", positionA: "JSON", positionB: "YAML" },
+          { now: T0 },
+        )
+        expect(raised).toMatchObject({ dispute: 1, level: "agent", deadline: new Date(T0 + 15 * MINUTE).toISOString() })
+
+        const resolved = yield* AutoloopCards.resolveDispute(raised.dispute, "JSON it is", { now: T0 + 1000 })
+        expect(resolved).toEqual({ resolved: true })
+        const again = yield* AutoloopCards.resolveDispute(raised.dispute, "JSON it is", { now: T0 + 2000 })
+        expect(again).toEqual({ resolved: false })
+      }),
+    )
+  })
+
+  test("escalating moves the dispute up one rung", async () => {
+    await run(
+      Effect.gen(function* () {
+        const raised = yield* AutoloopCards.raiseDispute(
+          { subject: "format", positionA: "JSON", positionB: "YAML" },
+          { now: T0 },
+        )
+        const moved = yield* AutoloopCards.escalateDispute(raised.dispute, { now: T0 + 1000 })
+        expect(moved).toMatchObject({ escalated: true, level: "group-leader" })
+        expect(moved.reason).toContain("group-leader")
+      }),
+    )
+  })
+
   test("two answers racing on one card: exactly one changes it", async () => {
     await run(
       Effect.gen(function* () {

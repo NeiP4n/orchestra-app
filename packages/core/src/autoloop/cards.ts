@@ -292,6 +292,51 @@ export function markFailed(channel: string, id: number, version: number, error: 
   })
 }
 
+/** What raising a dispute takes: two positions and the level it starts at. */
+export interface RaiseDisputeInput {
+  subject: string
+  positionA: string
+  positionB: string
+  level?: "agent" | "group-leader" | "council" | "orchestrator" | "operator"
+}
+
+/**
+ * Raise a dispute on the timed ladder: it opens at the given level (or
+ * `agent`), climbs one rung when its deadline passes (the clock wakes on
+ * the due — see `deadlines`), and reaches the operator as a note, never
+ * blocking work. This is the ladder's entry point: before it, `raiseDispute`
+ * in the kernel had no callers at all (M-03).
+ */
+export function raiseDispute(input: RaiseDisputeInput, env?: CardsEnv) {
+  return Effect.gen(function* () {
+    const opened = yield* openJournal
+    const { value } = yield* commitDecided(
+      opened,
+      { type: "raiseDispute", args: [input.subject, input.positionA, input.positionB, input.level] },
+      env,
+    )
+    return value as { dispute: number; level: string; deadline: string }
+  })
+}
+
+/** Resolve an open dispute with a decision: it stops climbing. */
+export function resolveDispute(id: number, decision: string, env?: CardsEnv) {
+  return Effect.gen(function* () {
+    const opened = yield* openJournal
+    const { value } = yield* commitDecided(opened, { type: "resolveDispute", args: [id, decision] }, env)
+    return { resolved: value as boolean }
+  })
+}
+
+/** Move an open dispute up one rung now, without waiting for its deadline. */
+export function escalateDispute(id: number, env?: CardsEnv) {
+  return Effect.gen(function* () {
+    const opened = yield* openJournal
+    const { value } = yield* commitDecided(opened, { type: "escalateDispute", args: [id] }, env)
+    return value as { escalated: boolean; reason: string; level: string; state: string }
+  })
+}
+
 /** Publish what changed about cards, so the SSE stream can tell the human. */
 export function publish(publisher: CardPublisher, events: ReadonlyArray<CardChange>) {
   return Effect.gen(function* () {

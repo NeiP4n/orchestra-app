@@ -140,6 +140,14 @@ export function deadlines(view: View, now: number, rules: Rules, limits: DueLimi
     const notBefore = timeOf(delivery, "not_before")
     if (notBefore > now) add("delivery", `${String(delivery["card_id"])}:${text(delivery, "channel")}`, notBefore)
   }
+  // Open disputes climb the ladder on their deadline (see `sweepDisputes`):
+  // without a due the clock sleeps past it and the dispute never moves.
+  // A dispute with no deadline (the operator level, already noted) has
+  // nothing to wake for.
+  for (const dispute of rowsOf(view, "disputes").filter((row) => row["state"] === "open")) {
+    const at = Date.parse(text(dispute, "deadline") ?? "")
+    if (!Number.isNaN(at)) add("dispute", String(dispute["id"]), Math.max(now, at))
+  }
   for (const worker of workers(view, rules)) {
     const seen = view["seen"]?.[`worker:${worker}`] as Row | undefined
     const waiting = waitingOn(view, worker, rules)

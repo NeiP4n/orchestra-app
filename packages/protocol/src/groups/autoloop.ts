@@ -40,10 +40,53 @@ export const AutoloopGroup = HttpApiGroup.make("server.autoloop")
       }),
     ),
   )
+  .add(
+    HttpApiEndpoint.post("autoloop.disputes.raise", "/api/autoloop/disputes", {
+      payload: AutoloopCard.RaiseDispute,
+      success: AutoloopCard.RaiseDisputeResult,
+      error: errors,
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "autoloop.disputes.raise",
+        summary: "Raise a dispute",
+        description:
+          "Raise a dispute between two positions on the timed ladder: it opens at the given level (or agent), climbs one rung when its deadline passes, and reaches the operator as a note. Nothing blocks while a dispute is open.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post("autoloop.disputes.resolve", "/api/autoloop/disputes/:id/resolve", {
+      params: { id: Schema.NumberFromString },
+      payload: AutoloopCard.ResolveDispute,
+      success: AutoloopCard.ResolveDisputeResult,
+      error: errors,
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "autoloop.disputes.resolve",
+        summary: "Resolve a dispute",
+        description:
+          "Resolve an open dispute with a decision: it stops climbing the ladder. Resolving an already resolved dispute changes nothing.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post("autoloop.disputes.escalate", "/api/autoloop/disputes/:id/escalate", {
+      params: { id: Schema.NumberFromString },
+      success: AutoloopCard.EscalateDisputeResult,
+      error: errors,
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "autoloop.disputes.escalate",
+        summary: "Escalate a dispute",
+        description:
+          "Move an open dispute up one rung now, without waiting for its deadline. Reaching the operator records it as a note for the operator.",
+      }),
+    ),
+  )
   .annotateMerge(
     OpenApi.annotations({
       title: "autoloop",
       description:
-        "Native autoloop cards: questions the cycle asks a human, and the answers. Card events also arrive on the event stream as autoloop.card.created / answered / updated.",
+        "Native autoloop cards: questions the cycle asks a human, and the answers. Card events also arrive on the event stream as autoloop.card.created / answered / updated. Disputes climb a timed ladder (agent → group-leader → council → orchestrator → operator) and never block work.",
     }),
   )

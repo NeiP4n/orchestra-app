@@ -5064,10 +5064,47 @@ export type ServerAutoloopCardsAnswerOperation<E = never> = (
   input: ServerAutoloopCardsAnswerInput,
 ) => Effect.Effect<ServerAutoloopCardsAnswerOutput, E>
 
+export type ServerAutoloopDisputesRaiseInput = {
+  readonly subject: string
+  readonly positionA: string
+  readonly positionB: string
+  readonly level?: ("agent" | "group-leader" | "council" | "orchestrator" | "operator") | undefined
+}
+export type ServerAutoloopDisputesRaiseOutput = {
+  readonly dispute: number
+  readonly level: "agent" | "group-leader" | "council" | "orchestrator" | "operator"
+  readonly deadline: string
+}
+export type ServerAutoloopDisputesRaiseOperation<E = never> = (
+  input: ServerAutoloopDisputesRaiseInput,
+) => Effect.Effect<ServerAutoloopDisputesRaiseOutput, E>
+
+export type ServerAutoloopDisputesResolveInput = { readonly id: number; readonly decision: string }
+export type ServerAutoloopDisputesResolveOutput = { readonly resolved: boolean }
+export type ServerAutoloopDisputesResolveOperation<E = never> = (
+  input: ServerAutoloopDisputesResolveInput,
+) => Effect.Effect<ServerAutoloopDisputesResolveOutput, E>
+
+export type ServerAutoloopDisputesEscalateInput = { readonly id: number }
+export type ServerAutoloopDisputesEscalateOutput = {
+  readonly escalated: boolean
+  readonly reason: string
+  readonly level: "agent" | "group-leader" | "council" | "orchestrator" | "operator"
+  readonly state: string
+}
+export type ServerAutoloopDisputesEscalateOperation<E = never> = (
+  input: ServerAutoloopDisputesEscalateInput,
+) => Effect.Effect<ServerAutoloopDisputesEscalateOutput, E>
+
 export interface ServerAutoloopApi<E = never> {
   readonly cards: {
     readonly list: ServerAutoloopCardsListOperation<E>
     readonly answer: ServerAutoloopCardsAnswerOperation<E>
+  }
+  readonly disputes: {
+    readonly raise: ServerAutoloopDisputesRaiseOperation<E>
+    readonly resolve: ServerAutoloopDisputesResolveOperation<E>
+    readonly escalate: ServerAutoloopDisputesEscalateOperation<E>
   }
 }
 

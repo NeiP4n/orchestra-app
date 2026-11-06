@@ -55,6 +55,50 @@ export const AnswerResult = Schema.Struct({
 }).annotate({ identifier: "AutoloopCard.AnswerResult" })
 export interface AnswerResult extends Schema.Schema.Type<typeof AnswerResult> {}
 
+/** The rungs of the dispute ladder: agent → group-leader → council → orchestrator → operator. */
+export const DisputeLevel = Schema.Literals(["agent", "group-leader", "council", "orchestrator", "operator"]).annotate({
+  identifier: "AutoloopCard.DisputeLevel",
+})
+export type DisputeLevel = typeof DisputeLevel.Type
+
+/** What raising a dispute takes: two positions and the level it starts at (default `agent`). */
+export const RaiseDispute = Schema.Struct({
+  subject: Schema.String,
+  positionA: Schema.String,
+  positionB: Schema.String,
+  level: optional(DisputeLevel),
+}).annotate({ identifier: "AutoloopCard.RaiseDispute" })
+export interface RaiseDispute extends Schema.Schema.Type<typeof RaiseDispute> {}
+
+/** What raising a dispute gives back: its id, level, and deadline (empty when it went straight to the operator). */
+export const RaiseDisputeResult = Schema.Struct({
+  dispute: Schema.Int,
+  level: DisputeLevel,
+  deadline: Schema.String,
+}).annotate({ identifier: "AutoloopCard.RaiseDisputeResult" })
+export interface RaiseDisputeResult extends Schema.Schema.Type<typeof RaiseDisputeResult> {}
+
+/** What resolving a dispute takes: the decision. */
+export const ResolveDispute = Schema.Struct({
+  decision: Schema.String,
+}).annotate({ identifier: "AutoloopCard.ResolveDispute" })
+export interface ResolveDispute extends Schema.Schema.Type<typeof ResolveDispute> {}
+
+/** What resolving a dispute gives back: whether it was still open. */
+export const ResolveDisputeResult = Schema.Struct({
+  resolved: Schema.Boolean,
+}).annotate({ identifier: "AutoloopCard.ResolveDisputeResult" })
+export interface ResolveDisputeResult extends Schema.Schema.Type<typeof ResolveDisputeResult> {}
+
+/** What escalating a dispute gives back: whether it moved, and where it stands now. */
+export const EscalateDisputeResult = Schema.Struct({
+  escalated: Schema.Boolean,
+  reason: Schema.String,
+  level: DisputeLevel,
+  state: Schema.String,
+}).annotate({ identifier: "AutoloopCard.EscalateDisputeResult" })
+export interface EscalateDisputeResult extends Schema.Schema.Type<typeof EscalateDisputeResult> {}
+
 const cardData = { card: Card }
 
 /** A card appeared: a human is being asked something, or told something. */
