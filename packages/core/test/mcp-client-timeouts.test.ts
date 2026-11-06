@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { executionTimeoutFor } from "../src/mcp/client"
 
-// Limits only apply while ORCHESTRA_ENFORCE_LIMITS=1; without it every
-// timeout resolves to the 30-minute hard wall (see Limits.timeout).
+// Limits apply by default (G2-3); only ORCHESTRA_DISABLE_LIMITS=1 (or the
+// legacy ORCHESTRA_ENFORCE_LIMITS=0) lifts them, and then every timeout
+// resolves to the 30-minute hard wall (see Limits.timeout).
 const enforced = { ORCHESTRA_ENFORCE_LIMITS: "1" }
-const unenforced = { ORCHESTRA_ENFORCE_LIMITS: "0" }
+const unenforced = { ORCHESTRA_DISABLE_LIMITS: "1" }
 
 describe("executionTimeoutFor", () => {
   test("defaults to 5 minutes for an ordinary tool", () => {

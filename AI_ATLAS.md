@@ -51,9 +51,10 @@ section, config key `model_favorites`). Everything else is derived.
   `Orchestra.workerFavorites`. `AiStandard.decideModel` is the reference statement of
   the same chain; callers must not re-encode their own copy.
 - Budget is a **step ceiling, not a spending cap** (`budgetFor` → `stepCeilings`),
-  and ceilings bite only under deployment limit enforcement
-  (`ORCHESTRA_ENFORCE_LIMITS`). There is no token or currency budget in the
-  model-selection chain. (The `budget` tool, `tool/plugin/budget.ts`, is
+  enforced by default (`Limits`; opt out only with `ORCHESTRA_DISABLE_LIMITS`).
+  A drain additionally stops on its wall-clock/token budget (`Limits`:
+  4 h / 10M estimated prompt tokens by default). There is no token or currency
+  budget in the model-selection chain. (The `budget` tool, `tool/plugin/budget.ts`, is
   separate: it stores a per-session token limit and its forecast refuses work
   once the limit is spent.)
 - Zero configuration is a working state: no favorites, no role model, no policy →

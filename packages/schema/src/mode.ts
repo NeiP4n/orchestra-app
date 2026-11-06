@@ -336,7 +336,7 @@ export function guidanceBlock(mode: Spec) {
     mode.guidance,
     ...(mode.readOnly ? ["This mode is read-only: do not edit project files."] : []),
     // A step budget in the prompt made models report "done" early to stay under it. The budget
-    // stays a configured ceiling (ORCHESTRA_ENFORCE_LIMITS); the model is told to finish instead.
+    // stays a configured ceiling (enforced by default; see `Limits`); the model is told to finish instead.
     FINISH,
   ].join("\n")
 }
