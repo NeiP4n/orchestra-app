@@ -385,3 +385,24 @@ describe("AutoloopOrchestrator fix-task proof passthrough (idea #6)", () => {
     })
   })
 })
+
+describe("AutoloopOrchestrator verification passthrough (idea #14)", () => {
+  const base = { state: "done" as const, outcome: "complete" as const, summary: "ok", workerRemoved: false }
+  const verification = [
+    { kind: "command", detail: "CHECKS: 3 executed, 0 failed" },
+    { kind: "transcript", detail: "commands ran, no edits after the last run" },
+  ]
+
+  test("declared verification rides onto the done receipt", () => {
+    expect(receiptForReport({ ...base, verification })).toMatchObject({ outcome: "done", verification })
+  })
+
+  test("verification rides only on receipts that claim success", () => {
+    expect(receiptForReport({ ...base, state: "failed", verification })).not.toHaveProperty("verification")
+    expect(receiptForReport({ ...base, outcome: "partial", verification })).toMatchObject({
+      outcome: "done",
+      verifyFailed: true,
+      verification,
+    })
+  })
+})

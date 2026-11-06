@@ -615,3 +615,72 @@ describe("AutoloopDecide lesson after the second failure (idea #11)", () => {
     expect(runRow(view, 1)).toMatchObject({ state: "queued", attempts: 3 })
   })
 })
+
+describe("AutoloopDecide two independent verification methods (idea #14)", () => {
+  const finishDone = (view: View, now: number, seq: number, receipt: Record<string, unknown>) => {
+    const claimed = claimTask(view, now, `claim-${seq}`, seq)
+    expect(claimed.job.run).toBe(1)
+    return step(claimed.view, { type: "finish", args: [1, claimed.job.token, receipt] }, now + 1000, seq + 1)
+  }
+  const twoWays = [
+    { kind: "test", detail: "bun test: 12 pass" },
+    { kind: "command", detail: "bun run check on the changed package: clean" },
+  ]
+
+  test("one declared method counts a verification round, not done", () => {
+    let view = ingestTask(emptyView(), T0).view
+    view = finishDone(view, T0, 2, {
+      outcome: "done",
+      summary: "built",
+      verification: [{ kind: "test", detail: "bun test: 12 pass" }],
+    }).view
+    expect(runRow(view, 1)).toMatchObject({
+      state: "queued",
+      verifyIterations: 1,
+      error: "проверка заявлена только одним способом: нужен второй, независимый",
+    })
+  })
+
+  test("two entries of the same kind are still one method", () => {
+    let view = ingestTask(emptyView(), T0).view
+    view = finishDone(view, T0, 2, {
+      outcome: "done",
+      summary: "built",
+      verification: [
+        { kind: "test", detail: "bun test a: pass" },
+        { kind: "test", detail: "bun test b: pass" },
+      ],
+    }).view
+    expect(runRow(view, 1)).toMatchObject({ state: "queued", verifyIterations: 1 })
+  })
+
+  test("two methods of different kinds finish done and are recorded on the run", () => {
+    let view = ingestTask(emptyView(), T0).view
+    view = finishDone(view, T0, 2, { outcome: "done", summary: "built", verification: twoWays }).view
+    expect(runRow(view, 1)).toMatchObject({ state: "done", verifyIterations: 0 })
+    expect(runRow(view, 1)?.["verification"]).toEqual(twoWays)
+  })
+
+  test("a receipt that declares no verification is accepted as before", () => {
+    let view = ingestTask(emptyView(), T0).view
+    view = finishDone(view, T0, 2, { outcome: "done", summary: "built" }).view
+    expect(runRow(view, 1)).toMatchObject({ state: "done", verifyIterations: 0 })
+    expect(runRow(view, 1)?.["verification"]).toBeNull()
+  })
+
+  test("an unknown verification kind is rejected as a bad receipt", () => {
+    const ingested = ingestTask(emptyView(), T0)
+    const claimed = claimTask(ingested.view, T0)
+    expect(() =>
+      decide(
+        claimed.view,
+        {
+          type: "finish",
+          args: [1, claimed.job.token, { outcome: "done", summary: "built", verification: [{ kind: "vibes", detail: "looks fine" }] }],
+        },
+        T0 + 1000,
+        env(3),
+      ),
+    ).toThrow("verification")
+  })
+})

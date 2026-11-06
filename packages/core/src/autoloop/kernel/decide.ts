@@ -170,6 +170,8 @@ export interface RunRow extends RowData {
   fix_test_file: string | null
   /** Failing-test proof for a bug-fix run (idea #6): recorded failing run. */
   fix_test_run: string | null
+  /** Declared independent verification methods (idea #14), if any. */
+  verification: Array<{ kind: string; detail: string }> | null
   usage: Record<string, unknown> | null
   not_before: string
   created_at: string
@@ -368,7 +370,27 @@ export interface Receipt {
   fixTask?: boolean
   /** The failing test that reproduces the bug: test file + recorded failing run. */
   failingTest?: { file: string; run: string }
+  /**
+   * Independent verification methods used for this result (idea #14).
+   * A done receipt that declares verification must carry at least two
+   * entries of different kinds — one check can lie, two independent ones
+   * almost never do. A receipt without the field is accepted as before:
+   * legacy receipts and read-only work have no second method to declare,
+   * and the exemption is explicit (see `applyReceipt`), not a silent hole.
+   */
+  verification?: Array<{ kind: string; detail: string }>
 }
+
+/**
+ * The verification kinds a receipt may declare (idea #14): `test` (an
+ * automated test), `command` (a command / check run), `manual` (a human or
+ * agent checking by hand), `review` (an independent check by another
+ * agent), `transcript` (the Orchestrator's own transcript evidence).
+ * Unknown kinds are rejected in `parseResult` so a typo cannot silently
+ * pass as a second method.
+ */
+export const VERIFICATION_KINDS = ["test", "command", "manual", "review", "transcript"] as const
+export type VerificationKind = (typeof VERIFICATION_KINDS)[number]
 
 export interface Rejected {
   what?: string
@@ -531,6 +553,26 @@ export function parseResult(given: unknown): Receipt {
       throw new DecideInputError("квитанция.failingTest — file и run до 500 знаков")
     }
   }
+  const verification = given["verification"]
+  if (verification !== undefined) {
+    if (!Array.isArray(verification) || verification.length > 5) {
+      throw new DecideInputError("квитанция.verification — список до 5 способов проверки")
+    }
+    for (const item of verification) {
+      if (
+        !isRecord(item) ||
+        typeof item["kind"] !== "string" ||
+        !(VERIFICATION_KINDS as ReadonlyArray<string>).includes(item["kind"]) ||
+        typeof item["detail"] !== "string" ||
+        item["detail"] === "" ||
+        item["detail"].length > 500
+      ) {
+        throw new DecideInputError(
+          `квитанция.verification — { kind, detail }, kind один из: ${VERIFICATION_KINDS.join(", ")}`,
+        )
+      }
+    }
+  }
   return {
     outcome,
     summary: optText(given["summary"], "квитанция.summary", 2000),
@@ -550,6 +592,13 @@ export function parseResult(given: unknown): Receipt {
       failingTest === undefined
         ? undefined
         : { file: failingTest["file"] as string, run: failingTest["run"] as string },
+    verification:
+      verification === undefined
+        ? undefined
+        : (verification as Array<{ kind: string; detail: string }>).map((item) => ({
+            kind: item["kind"] as string,
+            detail: item["detail"] as string,
+          })),
   }
 }
 
@@ -575,6 +624,7 @@ const RUN_DEFAULTS: Partial<RunRow> = {
   error_history: null,
   fix_test_file: null,
   fix_test_run: null,
+  verification: null,
   usage: null,
 }
 
@@ -1156,12 +1206,26 @@ export function applyReceipt(draft: Draft, run: RunRow, result: Receipt): Reject
   // declaration: the kernel cannot tell a fix task from other work on its
   // own, and guessing from the text would misfire.
   const testGateFailed = result.outcome === "done" && result.fixTask === true && result.failingTest === undefined
-  const verifyError = testGateFailed ? "исправление заявлено без падающего теста" : "проверка не прошла"
+  // Two independent checks (idea #14): a done receipt that declares
+  // verification must name at least two methods of different kinds. One
+  // method is not a check — it is a claim. A receipt that declares nothing
+  // is exempt by design (see the `verification` field): legacy receipts
+  // and read-only work have no second method to declare.
+  const declaredKinds = new Set((result.verification ?? []).map((item) => item.kind))
+  const verificationFailed =
+    result.outcome === "done" && result.verification !== undefined && declaredKinds.size < 2
+  const verifyError = testGateFailed
+    ? "исправление заявлено без падающего теста"
+    : verificationFailed
+      ? "проверка заявлена только одним способом: нужен второй, независимый"
+      : "проверка не прошла"
   const fixProof =
     result.failingTest === undefined
       ? {}
       : { fix_test_file: result.failingTest.file, fix_test_run: result.failingTest.run }
-  if (result.verifyFailed === true || testGateFailed) {
+  const verificationProof =
+    result.verification === undefined ? {} : { verification: result.verification }
+  if (result.verifyFailed === true || testGateFailed || verificationFailed) {
     const verifyIterations = run.verifyIterations + 1
     for (const notice of result.notice ?? []) cardFromReceipt(draft, run, "notice", notice)
     for (const later of result.later ?? []) scheduleReview(draft, run, later)
@@ -1173,6 +1237,7 @@ export function applyReceipt(draft: Draft, run: RunRow, result: Receipt): Reject
         verifyIterations,
         error: verifyError,
         ...fixProof,
+        ...verificationProof,
       })
       closeStopped(draft, id, summary)
       createCard(draft, {
@@ -1181,7 +1246,9 @@ export function applyReceipt(draft: Draft, run: RunRow, result: Receipt): Reject
         title: "Проверка не проходит",
         text: testGateFailed
           ? `Исправление заявлено ${draft.limits.maxVerifyIterations} раз подряд без падающего теста (${summary || "без подробностей"}). Приложите тест, который повторяет баг, или отмените задачу. Что делать дальше?`
-          : `Проверка кодом не прошла ${draft.limits.maxVerifyIterations} раз подряд (${summary || "без подробностей"}). Что делать дальше?`,
+          : verificationFailed
+            ? `Результат заявлен ${draft.limits.maxVerifyIterations} раз подряд только с одним способом проверки (${summary || "без подробностей"}). Проверьте вторым, независимым способом, или отмените задачу. Что делать дальше?`
+            : `Проверка кодом не прошла ${draft.limits.maxVerifyIterations} раз подряд (${summary || "без подробностей"}). Что делать дальше?`,
         options: ["Исправить и проверить снова", "Принять без проверки", "Отменить задачу"],
         recommend: "Исправить и проверить снова",
         ...threadOf(run),
@@ -1196,6 +1263,7 @@ export function applyReceipt(draft: Draft, run: RunRow, result: Receipt): Reject
       summary,
       error: verifyError,
       ...fixProof,
+      ...verificationProof,
     })
     return rejected
   }
@@ -1206,6 +1274,7 @@ export function applyReceipt(draft: Draft, run: RunRow, result: Receipt): Reject
     error: null,
     cancel_at: null,
     ...fixProof,
+    ...verificationProof,
   })
   closeOpen(draft, (key) => key === `run:${id}:failing`, "потом получилось")
   closeOpen(draft, (key) => key === `run:${id}:unknown`, "результат вернулся")

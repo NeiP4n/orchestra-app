@@ -143,6 +143,14 @@ export function receiptForReport(input: {
   fixTask?: boolean
   /** The failing test that reproduces the bug: test file + recorded failing run. */
   failingTest?: { file: string; run: string }
+  /**
+   * Independent verification methods the worker used (idea #14). Passed
+   * through to the receipt: the kernel requires two of different kinds
+   * when the field is present. The caller in `orchestra.ts` builds these
+   * from its two independent signals — the worker's CHECKS and the
+   * transcript evidence — when both exist.
+   */
+  verification?: Array<{ kind: string; detail: string }>
 }): Receipt {
   const summary = clipped(input.summary)
   const error = input.error === undefined ? undefined : clipped(input.error)
@@ -155,6 +163,8 @@ export function receiptForReport(input: {
           fixTask: true as const,
           ...(input.failingTest === undefined ? {} : { failingTest: input.failingTest }),
         }
+  const verificationProof =
+    input.verification === undefined ? {} : { verification: input.verification }
   if (input.state === "nothing") return { outcome: "nothing", summary }
   if (input.workerRemoved) {
     return { outcome: "failed", summary, error: error ?? "worker session was removed before it could report" }
@@ -162,7 +172,7 @@ export function receiptForReport(input: {
   if (input.state === "failed") return { outcome: "failed", summary, error }
   if (input.state === "stopped") return { outcome: "cancelled", summary }
   if (input.state === "recovered") {
-    if (input.outcome === "complete") return { outcome: "done", summary, ...fixProof }
+    if (input.outcome === "complete") return { outcome: "done", summary, ...fixProof, ...verificationProof }
     if (input.outcome === "partial") {
       return {
         outcome: "done",
@@ -170,17 +180,18 @@ export function receiptForReport(input: {
         verifyFailed: true,
         error: error ?? "recovered partially: the check did not pass",
         ...fixProof,
+        ...verificationProof,
       }
     }
     return { outcome: "failed", summary, error: error ?? "recovered without a terminal event" }
   }
   if (input.outcome === "partial") {
-    return { outcome: "done", summary, verifyFailed: true, error: error ?? "check did not pass: work is partial", ...fixProof }
+    return { outcome: "done", summary, verifyFailed: true, error: error ?? "check did not pass: work is partial", ...fixProof, ...verificationProof }
   }
   if (input.outcome === "failed" || input.outcome === "incomplete") {
     return { outcome: "failed", summary, error }
   }
-  return { outcome: "done", summary, ...fixProof }
+  return { outcome: "done", summary, ...fixProof, ...verificationProof }
 }
 
 /**
