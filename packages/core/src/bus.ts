@@ -178,7 +178,13 @@ interface Options {
   readonly beforeAggregateRead?: (aggregateID: string) => Effect.Effect<void>
   /** Maximum durable rows read per page while replaying or tailing an aggregate log. */
   readonly logReadPageSize?: number
-  /** Retain durable event payloads for historical log reads and replay. */
+  /**
+   * Retain durable event payloads for historical log reads and replay.
+   * Defaults to true: a durable event that is not persisted is lost on
+   * restart, which is exactly the "after re-entering, nothing remembers"
+   * failure. Pass false only for throwaway runtimes (tests, benchmarks)
+   * that never need their event history back.
+   */
   readonly persist?: boolean
 }
 
@@ -204,7 +210,11 @@ export function configured(options?: Options) {
         const durableLocks = KeyedMutex.makeUnsafe<string>()
         const { db } = yield* Database.Service
         const logReadPageSize = options?.logReadPageSize ?? 512
-        const persist = options?.persist ?? false
+        // G2-7: durable events persist by default. `persist: false` used to
+        // be the default, so a plain `orchestra serve` kept the sequence rows
+        // but dropped every payload — the durable history was gone after a
+        // restart. Opt out explicitly when the history is truly disposable.
+        const persist = options?.persist ?? true
         const sessions = new Map<SessionID, Location.Ref>()
         const sessionRouteCache = new Map<SessionID, readonly Location.Ref[]>()
         // Keep routing separate from the public event, and retain its snapshot

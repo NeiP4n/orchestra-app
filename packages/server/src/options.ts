@@ -24,6 +24,9 @@ export const ServerOptions = Schema.Struct({
   pty: Schema.optional(PersistentPty.Options),
   events: Schema.optional(
     Schema.Struct({
+      // G2-7: durable events persist by default (Bus treats an omitted value
+      // as true). Set false only to deliberately drop event history on
+      // restart — never for a live server.
       persist: Schema.optional(Schema.Boolean),
     }),
   ),
