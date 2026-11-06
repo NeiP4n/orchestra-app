@@ -2,6 +2,10 @@ export * as SessionCompletionGate from "./completion-gate.js"
 
 import { DateTime } from "effect"
 import type { Dod } from "../dod.js"
+import { ReviewAcceptance } from "../review/acceptance.js"
+import { ReviewChecklist } from "../review/checklist.js"
+import { ReviewDual } from "../review/dual.js"
+import { ReviewRedTeam } from "../review/redteam.js"
 import type { SessionMessage } from "./message.js"
 import { RoomRules } from "@orchestra/schema/room-rules"
 
@@ -11,6 +15,80 @@ import { RoomRules } from "@orchestra/schema/room-rules"
 // instead of the work. Everything it reads is durable (history and the DoD board), so a session
 // resumed after a restart or a provider limit is held to the same commitments.
 export const MetadataKey = "orchestra:completion-gate"
+
+// Independent-review gates (ideas #1, #7, #9, #17; `packages/core/src/review/`).
+// All four are optional and off unless the caller passes them: the gate only
+// enforces a review the session actually opened. The review records are
+// written at runtime by the reviewing agents; this gate only reads them and
+// refuses to let the session stop while one blocks.
+// - redTeam: a plan/architecture the red team still blocks (open critical or
+//   major findings) is not accepted — address the findings or dismiss them
+//   with a reason first (`planGate` is the same check for plan acceptance
+//   before coding starts).
+// - dual: the merged dual review blocks the same way; a hole both sides
+//   found is named first.
+// - checklist: a task whose foreign checklist review did not pass is not
+//   done — a failed step names what is wrong, an unmarked step is not a pass.
+// - acceptance: delivery is blocked until the user-eyes acceptance run
+//   passed, or was explicitly deferred with a reason.
+export interface ReviewGates {
+  readonly redTeam?: ReviewRedTeam.Review
+  readonly dual?: ReviewDual.MergedReview
+  readonly checklist?: ReviewChecklist.ChecklistReview
+  readonly acceptance?: ReviewAcceptance.AcceptanceRun
+}
+
+/**
+ * Plan acceptance (idea #1, #9): a plan or architecture is accepted for
+ * coding only when its red-team review — or its merged dual review — has no
+ * open blocking finding. Returns the reason it is not accepted, or undefined
+ * when it is. The completion gate calls this too; the orchestrator calls it
+ * directly before coding starts.
+ */
+export function planGate(input: {
+  readonly redTeam?: ReviewRedTeam.Review
+  readonly dual?: ReviewDual.MergedReview
+}): string | undefined {
+  const lines: Array<string> = []
+  if (input.redTeam) {
+    const blocking = ReviewRedTeam.blockingFindings(input.redTeam)
+    if (blocking.length > 0)
+      lines.push(
+        `Red-team review ${input.redTeam.id} blocks this plan: ${blocking.map((finding) => `${finding.severity} "${finding.summary}"`).join("; ")}. Address each finding or dismiss it with a reason — a hole is never waved away silently.`,
+      )
+  }
+  if (input.dual) {
+    const blocking = ReviewDual.blockingFindings(input.dual)
+    if (blocking.length > 0)
+      lines.push(
+        `Dual review blocks this architecture: ${blocking.map((entry) => `${entry.severity}${entry.confirmedByBoth ? " (found by both sides — fix first)" : ""} "${entry.summary}"`).join("; ")}. Address each finding or dismiss it with a reason.`,
+      )
+  }
+  return lines.length > 0 ? lines.join("\n") : undefined
+}
+
+// Lines the gate adds when a passed-in review record blocks completion, or
+// undefined when every passed-in review allows it.
+function reviewReminder(reviews: ReviewGates | undefined): Array<string> | undefined {
+  if (!reviews) return undefined
+  const lines: Array<string> = []
+  const plan = planGate(reviews)
+  if (plan) lines.push(`Plan acceptance: ${plan}`)
+  if (reviews.checklist) {
+    const verdict = ReviewChecklist.verdict(reviews.checklist)
+    if (verdict === "fail")
+      lines.push(
+        `Checklist review ${reviews.checklist.id} failed ${reviews.checklist.itemId}: ${ReviewChecklist.failedSteps(reviews.checklist).map((step) => `#${step.index} "${step.text}" — ${step.reason}`).join("; ")}. Fix what failed and ask the foreign reviewer to mark the steps again.`,
+      )
+    else if (verdict === "pending")
+      lines.push(
+        `Checklist review ${reviews.checklist.id} of ${reviews.checklist.itemId} is not finished: ${ReviewChecklist.pendingSteps(reviews.checklist).map((step) => `#${step.index} "${step.text}"`).join(", ")} still unmarked. A task is not done until its foreign reviewer marks every DoD step.`,
+      )
+  }
+  if (reviews.acceptance && !ReviewAcceptance.mayShip(reviews.acceptance))
+    lines.push(`Acceptance: ${ReviewAcceptance.blockingReason(reviews.acceptance)} Do not report the work delivered until the user-eyes run passes, or defer it with a named reason.`)
+  return lines.length > 0 ? ["Independent review blocks completion:", ...lines] : undefined
+}
 
 // ORCHESTRA_COMPLETION_NUDGES=0 turns the gate off; the default allows three wake-ups per user turn.
 const limit = () => {
@@ -40,6 +118,7 @@ export function check(
   board: Dod.Status,
   now?: DateTime.DateTime,
   sessionID?: string,
+  reviews?: ReviewGates,
 ) {
   const max = limit()
   if (max === 0) return undefined
@@ -91,6 +170,11 @@ export function check(
       ...touched,
       "Run `dod verify` for each finished item now; a hand edit of the board file never makes anything DONE, and a protected file touched along the way stays off limits. Stop only when every item is verified (`dod verify`), blocked (`dod block` with the reason), or waiting on a decision only the user can make (ask it).",
     ])
+  // Independent review gates: a plan the red team still blocks, a foreign
+  // checklist review that did not pass, or an unfinished acceptance run all
+  // hold the session here, even when the board itself is clean.
+  const review = reviewReminder(reviews)
+  if (review) return reminder(review)
   const paragraph = text.split(/\n\s*\n/).at(-1)?.trim() ?? ""
   if (PROMISE.test(paragraph))
     return reminder([
