@@ -33,7 +33,9 @@ export const RecoveryGroup = HttpApiGroup.make("server.recovery")
       query: LocationQuery,
       payload: Schema.Struct({
         model: Model.Ref,
-        messages: Schema.Array(Recovery.RecoveryChatMessage),
+        // At most 20 messages (T3-6): one request is at most one repair round, not an
+        // unbounded transcript fed to the model.
+        messages: Recovery.RecoveryChatTranscript,
       }),
       success: Recovery.RecoveryResult,
       error: ServiceUnavailableError,
@@ -44,7 +46,7 @@ export const RecoveryGroup = HttpApiGroup.make("server.recovery")
           identifier: "recovery.chat",
           summary: "Repair round",
           description:
-            "One autonomous repair round with the chosen model: it reads and edits the Orchestra repo, runs shell commands and tests, and reports what it fixed. A model or provider failure is returned as a reply, not an HTTP error.",
+            "One autonomous repair round with the chosen model: it reads and edits the Orchestra repo, runs shell commands and tests, and reports what it fixed. A model or provider failure is returned as a reply, not an HTTP error. One round runs at a time per server (a second concurrent request is refused with 503) and a round times out after 10 minutes.",
         }),
       ),
   )

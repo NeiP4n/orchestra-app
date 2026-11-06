@@ -83,7 +83,7 @@ function loadModels(){
       modelSelect.innerHTML = '';
       if(!list.length){
         modelSelect.innerHTML = '<option value="">Нет рабочих моделей</option>';
-        modelError.textContent = 'Нет доступных моделей klinch/lix. Проверьте ключи провайдеров в настройках.';
+        modelError.textContent = 'Нет доступных рабочих моделей. Проверьте ключи провайдеров в настройках.';
         return;
       }
       list.forEach(function(m){

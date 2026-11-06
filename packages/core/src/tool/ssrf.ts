@@ -12,7 +12,8 @@ import { Effect } from "effect"
 // fetch, MCP OAuth discovery — not a webfetch-only helper. Every URL a caller touches —
 // the requested one and every redirect target — must resolve to a public address first. DNS
 // failures fail closed: a host that cannot be checked cannot be fetched, since a real fetch
-// would fail on it anyway.
+// would fail on it anyway. New outgoing fetches go through `fetchPublic` below, which is
+// the one shared implementation of gate-on-every-hop; do not invent another redirect loop.
 //
 // Deliberately NOT blocked: 198.18.0.0/15 (benchmarking space — this sandbox's resolver
 // answers public names from it) and the TEST-NET documentation ranges. The list below is
@@ -60,10 +61,58 @@ function isPrivateIPv6(address: string): boolean {
   // An IPv4 tail ( ::ffff:127.0.0.1, ::127.0.0.1 ) carries a v4 address: judge the tail.
   const tail = lower.split(":").at(-1)
   if (tail !== undefined && tail.includes(".")) return isPrivateIPv4(tail)
-  const first = Number.parseInt(lower.split(":", 1)[0] ?? "", 16)
-  if (!Number.isInteger(first)) return false
+  const groups = parseIPv6Groups(lower)
+  if (groups === undefined) return false
+  const first = groups[0] ?? 0
   // fe80::/10 link-local, fc00::/7 unique-local.
-  return (first >= 0xfe80 && first <= 0xfebf) || (first >= 0xfc00 && first <= 0xfdff)
+  if ((first >= 0xfe80 && first <= 0xfebf) || (first >= 0xfc00 && first <= 0xfdff)) return true
+  // 100::/64 discard-only: no host lives there, so nothing legitimate fetches it.
+  if (first === 0x0100 && groups[1] === 0 && groups[2] === 0 && groups[3] === 0) return true
+  // Only IPv4-embedding prefixes carry a v4 address in their last 32 bits:
+  // ::ffff:0:0/96 (IPv4-mapped, ::ffff:7f00:1 is 127.0.0.1), ::/96
+  // (IPv4-compatible, ::7f00:1 is 127.0.0.1) and 64:ff9b::/96 (NAT64 —
+  // the translator dials the embedded IPv4, private included). A public
+  // address whose tail merely looks like a private IPv4 (2606:4700:4700::1111
+  // ends in 0.0.17.17) is NOT private: judging every tail as IPv4 would
+  // block real public IPv6 hosts, so the prefix check comes first.
+  const embedded =
+    (groups[0] === 0 &&
+      groups[1] === 0 &&
+      groups[2] === 0 &&
+      groups[3] === 0 &&
+      groups[4] === 0 &&
+      (groups[5] === 0 || groups[5] === 0xffff)) ||
+    (groups[0] === 0x64 && groups[1] === 0xff9b && groups[2] === 0 && groups[3] === 0 && groups[4] === 0)
+  if (!embedded) return false
+  const octets = [(groups[6]! >> 8) & 0xff, groups[6]! & 0xff, (groups[7]! >> 8) & 0xff, groups[7]! & 0xff]
+  return isPrivateIPv4(octets.join("."))
+}
+
+// The eight 16-bit groups of an IPv6 literal, expanding one "::" run. Returns
+// undefined for a shape no literal has (the caller already knows isIP said 6,
+// so this only guards against hand-built strings reaching the helper).
+function parseIPv6Groups(address: string): readonly number[] | undefined {
+  const parsePart = (part: string): number[] | undefined => {
+    if (part === "") return []
+    const out: number[] = []
+    for (const chunk of part.split(":")) {
+      if (!/^[0-9a-f]{1,4}$/.test(chunk)) return undefined
+      out.push(Number.parseInt(chunk, 16))
+    }
+    return out
+  }
+  const halves = address.split("::")
+  if (halves.length > 2) return undefined
+  if (halves.length === 1) {
+    const groups = parsePart(halves[0] ?? "")
+    return groups !== undefined && groups.length === 8 ? groups : undefined
+  }
+  const left = parsePart(halves[0] ?? "")
+  const right = parsePart(halves[1] ?? "")
+  if (left === undefined || right === undefined) return undefined
+  const missing = 8 - left.length - right.length
+  if (missing < 0) return undefined
+  return [...left, ...Array<number>(missing).fill(0), ...right]
 }
 
 /** True when the hostname itself is local, before any DNS lookup. */
@@ -117,6 +166,90 @@ export const assertPublicUrl = (input: string): Effect.Effect<URL, Error> =>
  */
 export const assertPublicUrlPromise = (input: string): Promise<URL> =>
   Effect.runPromise(assertPublicUrl(input))
+
+const isRedirectStatus = (status: number) =>
+  status === 301 || status === 302 || status === 303 || status === 307 || status === 308
+
+export interface FetchPublicInput {
+  readonly url: string
+  readonly method?: string
+  readonly headers?: RequestInit["headers"]
+  readonly body?: RequestInit["body"]
+  /** Total budget for the whole redirect chain, not per hop. */
+  readonly timeoutMs?: number
+  readonly signal?: RequestInit["signal"]
+  readonly fetchFn?: (url: string, init: RequestInit) => Promise<Response>
+  /** Test-only: skip the gate but keep the manual redirect loop (never in production). */
+  readonly allowPrivateUrl?: boolean
+}
+
+/**
+ * Fetches a URL through the SSRF gate with redirects followed by hand, one hop at a time, so
+ * every hop is gated before it is requested — the pattern webfetch, Code Mode and Forge
+ * already use. A transparent client redirect can otherwise carry a public URL to
+ * 169.254.169.254 or localhost, and a 307/308 can carry a POST body (an OAuth token
+ * exchange, with a client secret in it) to another origin. So: credentials never follow a
+ * redirect to another origin, and a request with a body is never re-sent to one — that
+ * redirect is refused outright. A body that cannot be sent twice (a stream) refuses any
+ * 307/308 redirect. The timeout is one deadline for the whole chain.
+ *
+ * DNS-rebinding TOCTOU (T3-8), honestly: the gate runs immediately before each fetch, with
+ * no caller code between the check and the connect, so the window is as small as a plain
+ * fetch allows — but the resolver can still answer differently at connect time. Closing
+ * that last gap needs connecting to the pinned IP with TLS verified by name, which plain
+ * fetch cannot do (it needs a custom dispatcher). Literal IPs have no such window: there
+ * is no DNS lookup to rebind.
+ */
+export async function fetchPublic(input: FetchPublicInput): Promise<Response> {
+  const fetchFn = input.fetchFn ?? fetch
+  const headers = new Headers(input.headers)
+  const externalSignal = input.signal ?? undefined
+  let current = input.url
+  let method = input.method ?? "GET"
+  let body = input.body
+  const deadline = input.timeoutMs !== undefined ? Date.now() + input.timeoutMs : undefined
+  for (let redirects = 0; ; redirects++) {
+    if (!input.allowPrivateUrl) await assertPublicUrlPromise(current)
+    const remaining = deadline === undefined ? undefined : Math.max(0, deadline - Date.now())
+    const timeoutSignal = remaining === undefined ? undefined : AbortSignal.timeout(remaining)
+    const signal =
+      externalSignal === undefined
+        ? timeoutSignal
+        : timeoutSignal === undefined
+          ? externalSignal
+          : AbortSignal.any([externalSignal, timeoutSignal])
+    const response = await fetchFn(current, {
+      method,
+      headers,
+      body: method === "GET" || method === "HEAD" ? undefined : (body ?? undefined),
+      redirect: "manual",
+      ...(signal ? { signal } : {}),
+    })
+    if (!isRedirectStatus(response.status)) return response
+    if (redirects >= MAX_REDIRECTS) throw new Error(`Too many redirects (maximum ${MAX_REDIRECTS})`)
+    const location = response.headers.get("location")
+    if (!location) throw new Error(`Redirect from ${current} has no location`)
+    const next = new URL(location, current)
+    if (next.origin !== new URL(current).origin) {
+      headers.delete("authorization")
+      headers.delete("cookie")
+      if (body !== undefined && body !== null && method !== "GET" && method !== "HEAD")
+        throw new Error(`Refusing to follow a redirect to ${next.origin}: the request carries a body`)
+    }
+    if (
+      (response.status === 307 || response.status === 308) &&
+      body instanceof ReadableStream
+    )
+      throw new Error(`Refusing to follow a redirect from ${current}: the request body cannot be sent twice`)
+    // A redirect body is never read: drop it so the connection can be reused.
+    response.body?.cancel().catch(() => {})
+    current = next.toString()
+    if (response.status === 303) {
+      method = "GET"
+      body = undefined
+    }
+  }
+}
 
 /**
  * Synchronous half of the gate: refuses a non-http(s) URL, a local hostname, or a literal

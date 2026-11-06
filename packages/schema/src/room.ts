@@ -70,6 +70,11 @@ export const Member = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   role: Role,
+  // The group the host assigned the member to, for DoD zone checks: the group that owns
+  // a zone may take its items. Absent when the host assigned none — the member is then
+  // foreign to every zone. Only the host sets it, through room.member.update; a guest
+  // never names its own group (a self-asserted group would let any guest into any zone).
+  group: Schema.String.pipe(Schema.optional),
   // A random key the guest's client keeps across joins.
   device: Schema.String.pipe(Schema.optional),
   // Programs explicitly approved by the host for this member in this room only.

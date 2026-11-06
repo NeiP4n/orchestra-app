@@ -489,16 +489,33 @@ they are not new tasks.
   `*.local`), literal private/loopback IPs, and hostnames that resolve to a
   private address. DNS failure fails closed. Deliberately not blocked:
   198.18.0.0/15 (benchmarking space — the sandbox resolver answers public names
-  from it) and the TEST-NET documentation ranges.
+  from it) and the TEST-NET documentation ranges. IPv6 literals with an
+  IPv4 tail are judged on the tail in both spellings: dotted (`::ffff:127.0.0.1`)
+  and hex (`::ffff:7f00:1`, `::7f00:1`, `::ffff:a9fe:a9fe` = 169.254.169.254) —
+  but only under an IPv4-embedding prefix (`::ffff:0:0/96`, `::/96`,
+  `64:ff9b::/96` NAT64); a public address whose tail merely looks like a
+  private IPv4 (`2606:4700:4700::1111`) stays public. `100::/64` (discard) is
+  refused as well.
+- Redirects are followed by hand through one shared helper, `Ssrf.fetchPublic`
+  (gate on every hop, `redirect: "manual"`, max 5 hops, one timeout deadline
+  for the whole chain): credentials never follow a redirect to another origin,
+  and a request with a body is never re-sent to one. New outgoing fetches use
+  it; do not invent another redirect loop. Residual risk, stated plainly:
+  the gate checks the name immediately before the connect, so a resolver that
+  answers differently at connect time (DNS-rebinding TOCTOU) is not closed —
+  closing it needs connecting to the pinned IP with TLS verified by name,
+  which plain fetch cannot do. Literal IPs have no such window.
 - Guarded call sites: `webfetch` (every URL and every redirect hop), remote MCP
   connect (`mcp/client.ts` — the checked URL is the one the transport dials),
-  provider discovery (`provider-discovery.ts` — the gate runs before the API key
-  is attached to any header), MCP Forge validation + `fromOpenApi` (literal
+  provider discovery (`provider-discovery.ts` — `Ssrf.fetchPublic`, so the gate
+  runs on the base URL and on every redirect hop before the API key is attached
+  to any header), MCP Forge validation + `fromOpenApi` (literal
   check) and the generated runtime (its own embedded copy of the gate, because
   generated code cannot import Orchestra modules; redirects followed by hand,
   one hop at a time), Code Mode fetch (`codemode/web.ts`, manual redirects),
-  MCP OAuth discovery/token fetches (`mcp/oauth.ts`), and `mcp_forge` remote
-  registration (`tool/plugin/mcp-forge.ts`).
+  MCP OAuth discovery/token fetches (`mcp/oauth.ts` — `gatedSend` is
+  `Ssrf.fetchPublic`, so a 307/308 never re-sends a token-exchange body to
+  another origin), and `mcp_forge` remote registration (`tool/plugin/mcp-forge.ts`).
 - `allowPrivateUrl` is a test-only escape hatch for loopback fixture servers
   (`mcp/index.ts` layer options → pool → client → oauth). Production callers
   never pass it; a remote MCP server on a private or loopback address is refused
@@ -1042,9 +1059,15 @@ the claim path would refuse. Columns come from `task_state`:
   ownerGroup, mine), `counts` (total, done, inProgress, blocked, failed,
   free). `status` is `disabled` when the room has no `dod.yaml`.
 - API (`packages/protocol/src/groups/room.ts`): `room.dod.board` (host,
-  GET `/api/room/:roomID/dod/board`) and `room.guest.dod.board` (guest,
-  optional `group` query — without it the guest is foreign to every zone,
-  matching claim behaviour). Both are in `GUEST_PATHS`, or the auth
+  GET `/api/room/:roomID/dod/board`) and `room.guest.dod.board` (guest).
+  The guest's group comes from the member record (`Room.Member.group`,
+  assigned by the host through `room.member.update` — omitted keeps the
+  group, an empty string clears it), never from the request: the old
+  self-asserted `?group=` query is gone, and a guest without a group is
+  foreign to every zone. The claim path (`room.guest.dod.claim`) passes the
+  same member group to `Dod.take`/`Dod.next`, so board and claim agree:
+  a zone member can take its zone's cards, and the board never offers a
+  card the take would refuse. Both are in `GUEST_PATHS`, or the auth
   middleware blocks guest tokens. Server handlers in
   `packages/server/src/handlers/room.ts`; the guest handler strips `verify`
   from cards (`hideBoardExecution`, mirroring `hideDodExecution`). The
@@ -1155,7 +1178,13 @@ the case "the program itself is broken".
   `packages/server/src/handlers/recovery.ts`): `GET /api/recovery/models`
   lists only working providers (klinch, lix — Anymodel is down with 502 and
   is never offered); `POST /api/recovery/chat` runs one autonomous repair
-  round. Registered as a location-middleware group in
+  round. The chat input is capped (T3-6): at most 20 messages
+  (`Recovery.RecoveryChatTranscript`) of at most 8000 characters each, one
+  round at a time per server (a second concurrent request is refused with
+  503 — `runRepairRound` in the handler, exported for tests), and a round
+  times out after 10 minutes. Both handlers call `requireLocationDirectory()`
+  first (T3-11), so a missing directory answers 404 like the other catalogs.
+  Registered as a location-middleware group in
   `packages/protocol/src/api.ts`; the client is regenerated with
   `bun run generate` from `packages/client`.
 - **Repair agent** (`packages/core/src/recovery/`): `Recovery.Service` is a
@@ -1236,9 +1265,12 @@ replacement fought it for the port. This section is the fix, for
 - Watchdog: `scripts/server-watchdog.sh` runs `serve` from the worktree
   and restarts it only on unclean exits (exit code, state file, live lock
   holder), with backoff 5/10/20/40/60s capped at 60s and a restart cap
-  (default 5, `ORCHESTRA_WATCHDOG_MAX_RESTARTS` /
-  `ORCHESTRA_WATCHDOG_BACKOFF_BASE`). A clean shutdown or a lock held by a
-  live server stops it (exit 0); past the cap it gives up loudly (exit 1).
+  (default 5 inside a 600s sliding window, `ORCHESTRA_WATCHDOG_MAX_RESTARTS` /
+  `ORCHESTRA_WATCHDOG_WINDOW_SECONDS` / `ORCHESTRA_WATCHDOG_BACKOFF_BASE`). A
+  lock counts as held only when the pid is alive and started at the lock's
+  startedAt (a recycled pid is detected and the stale lock ignored). A clean
+  shutdown or a lock held by a live server stops it (exit 0); past the cap it
+  gives up loudly (exit 1).
   It is a shell loop, not an in-process supervisor: a supervisor inside
   the process it watches cannot report its own SIGKILL.
 - Deliberately NOT covered: `orchestra serve --service` (already owns

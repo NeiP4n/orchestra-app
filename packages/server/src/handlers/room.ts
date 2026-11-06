@@ -736,7 +736,16 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         "room.member.update",
         Effect.fn(function* (ctx) {
           const member = yield* memberOf(ctx.params.roomID, ctx.params.guestID)
-          return { data: yield* rooms.saveMember(ctx.params.roomID, { ...member, role: ctx.payload.role }) }
+          // A group is host-assigned only: omitted keeps the member's group, an empty
+          // string clears it. A guest never names its own group anywhere in the API.
+          const group = ctx.payload.group?.trim() || undefined
+          return {
+            data: yield* rooms.saveMember(ctx.params.roomID, {
+              ...member,
+              role: ctx.payload.role,
+              ...(ctx.payload.group === undefined ? {} : { group }),
+            }),
+          }
         }),
       )
       .handle(
@@ -1230,7 +1239,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               type: "guest",
               id: joined.member.id,
               name: joined.member.name,
-              ...(ctx.query.group ? { group: ctx.query.group } : {}),
+              // The group is server truth from the member record, never the request:
+              // a self-asserted ?group= used to open any zone on the board.
+              ...(joined.member.group ? { group: joined.member.group } : {}),
             },
             live: yield* live(),
           }).pipe(
@@ -1274,15 +1285,23 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           }
           const alive = yield* live()
           const before = yield* Dod.read(directory, alive).pipe(Effect.mapError(dodError))
+          // The group travels with the claim, so a member of the zone that owns the item
+          // can take it — before this, a guest claim never carried a group and every
+          // zoned item was refused to every guest, whatever the board showed.
+          const group = joined.member.group
           const taken = ctx.payload.next
-            ? yield* Dod.next({ directory, owner, live: alive }).pipe(Effect.mapError(dodError))
+            ? yield* Dod.next({ directory, owner, live: alive, ...(group ? { group } : {}) }).pipe(
+                Effect.mapError(dodError),
+              )
             : yield* Effect.gen(function* () {
                 const id = ctx.payload.id?.trim()
                 if (!id)
                   return yield* new InvalidRequestError({ message: "Name the item to take, or pass next", field: "id" })
                 return {
                   id,
-                  dod: yield* Dod.take({ directory, id, owner, live: alive }).pipe(Effect.mapError(dodError)),
+                  dod: yield* Dod.take({ directory, id, owner, live: alive, ...(group ? { group } : {}) }).pipe(
+                    Effect.mapError(dodError),
+                  ),
                 }
               })
           const previous = before.items.find((item) => item.id === taken.id)

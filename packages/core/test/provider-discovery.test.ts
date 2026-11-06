@@ -44,7 +44,8 @@ describe("discoverModels", () => {
     })
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.models.map((model) => model.id)).toEqual(["m1", "m2"])
-    expect((seen?.headers as Record<string, string>).authorization).toBe("Bearer sk-secret")
+    // fetchPublic hands the fetch a Headers instance, not the plain record.
+    expect(new Headers(seen?.headers).get("authorization")).toBe("Bearer sk-secret")
   })
 
   test("classifies auth, unsupported and http failures without leaking the key", async () => {
@@ -83,6 +84,46 @@ describe("discoverModels", () => {
     })
     expect(invalid).toMatchObject({ ok: false, error: { kind: "invalid-url" } })
     expect(called).toBe(false)
+  })
+
+  test("follows a redirect to a public models URL", async () => {
+    const seen: string[] = []
+    const result = await discoverModels({ baseURL: "https://8.8.8.8/v1" }, async (url) => {
+      seen.push(url)
+      if (url === "https://8.8.8.8/v1/models")
+        return new Response(null, { status: 302, headers: { location: "https://1.1.1.1/v1/models" } })
+      return json({ data: [{ id: "m1" }] })
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.models.map((model) => model.id)).toEqual(["m1"])
+    expect(seen).toEqual(["https://8.8.8.8/v1/models", "https://1.1.1.1/v1/models"])
+  })
+
+  test("refuses a redirect to a private address and never sends the key there", async () => {
+    const seen: string[] = []
+    const result = await discoverModels({ baseURL: "https://8.8.8.8/v1", apiKey: "sk-secret" }, async (url) => {
+      seen.push(url)
+      if (seen.length === 1)
+        return new Response(null, { status: 302, headers: { location: "http://169.254.169.254/x" } })
+      return json({ data: [{ id: "m1" }] })
+    })
+    expect(result).toMatchObject({ ok: false, error: { kind: "invalid-url" } })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.message).toContain("Refusing to fetch")
+    expect(seen).toEqual(["https://8.8.8.8/v1/models"])
+    expect(JSON.stringify(result)).not.toContain("sk-secret")
+  })
+
+  test("strips the key when a redirect crosses origins", async () => {
+    const seenAuth: Array<string | null> = []
+    const result = await discoverModels({ baseURL: "https://8.8.8.8/v1", apiKey: "sk-secret" }, async (url, init) => {
+      seenAuth.push(new Headers(init.headers).get("authorization"))
+      if (url === "https://8.8.8.8/v1/models")
+        return new Response(null, { status: 302, headers: { location: "https://1.1.1.1/v1/models" } })
+      return json({ data: [{ id: "m1" }] })
+    })
+    expect(result.ok).toBe(true)
+    expect(seenAuth).toEqual(["Bearer sk-secret", null])
   })
 
   test("refuses a private or loopback base URL before the key is sent", async () => {

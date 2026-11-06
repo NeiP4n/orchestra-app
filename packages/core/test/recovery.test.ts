@@ -21,7 +21,7 @@ const layer = Layer.merge(testLLM, TestLLM.clientLayer.pipe(Layer.provide(testLL
 const it = testEffect(layer)
 
 describe("recovery model list", () => {
-  test("offers only working providers, klinch first", () => {
+  test("offers every enabled model in catalog order, no provider is excluded by name", () => {
     const models = listRecoveryModels([
       { providerID: "anymodel", id: "opus-5", name: "Opus 5" },
       { providerID: "lix", id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash" },
@@ -29,8 +29,10 @@ describe("recovery model list", () => {
       { providerID: "opencode", id: "crouton-alpha-free", name: "Crouton Alpha Free" },
     ] as unknown as ReadonlyArray<Model.Info>)
     expect(models.map((item) => `${item.providerID}/${item.id}`)).toEqual([
-      "klinch/claude-sonnet-4-5",
+      "anymodel/opus-5",
       "lix/deepseek-v4.1-flash",
+      "klinch/claude-sonnet-4-5",
+      "opencode/crouton-alpha-free",
     ])
   })
 

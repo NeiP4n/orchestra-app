@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { Server, WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/server"
 import { ConfigMCP } from "@orchestra/schema/config/mcp"
 import { McpClient } from "@orchestra/core/mcp/client"
+import { McpOAuth } from "@orchestra/core/mcp/oauth"
 import { Effect, Exit } from "effect"
 import { hostEnvironmentLayer } from "./fixture/environment"
 
@@ -60,6 +61,53 @@ describe("MCP SSRF gate", () => {
     )
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) expect(String(exit.cause)).toContain("Refusing to fetch")
+  })
+
+  test("the transport fetch refuses a private URL outright (T3-3 first hop)", async () => {
+    const fetchFn = await Effect.runPromise(McpOAuth.loggedFetch({ server: "ssrf-fixture" }))
+    await expect(fetchFn("http://169.254.169.254/latest/meta-data/")).rejects.toThrow("Refusing to fetch")
+  })
+
+  test("the transport fetch follows a same-origin redirect by hand but never re-sends a body cross-origin (T3-3)", async () => {
+    const second = Bun.serve({
+      port: 0,
+      fetch: async (request) => {
+        const body = await request.text()
+        return new Response(JSON.stringify({ sawBody: body }), { headers: { "content-type": "application/json" } })
+      },
+    })
+    const first = Bun.serve({
+      port: 0,
+      fetch: (request) => {
+        const url = new URL(request.url)
+        if (url.pathname === "/same")
+          return new Response(null, { status: 302, headers: { location: "/final" } })
+        if (url.pathname === "/final") return new Response(JSON.stringify({ ok: true }))
+        if (url.pathname === "/cross")
+          return new Response(null, { status: 307, headers: { location: `${second.url}token` } })
+        return new Response("not found", { status: 404 })
+      },
+    })
+    try {
+      const fetchFn = await Effect.runPromise(
+        McpOAuth.loggedFetch({ server: "redirect-fixture", allowPrivateUrl: true }),
+      )
+      const same = await fetchFn(`${first.url}same`)
+      expect(same.status).toBe(200)
+      expect(await same.json()).toEqual({ ok: true })
+      // A 307 to another origin must not carry the token-exchange body (with its
+      // client secret) with it — not even in the test-only loopback mode.
+      await expect(
+        fetchFn(`${first.url}cross`, {
+          method: "POST",
+          headers: { authorization: "Bearer sk-secret" },
+          body: new URLSearchParams({ grant_type: "refresh_token", client_secret: "shh" }),
+        }),
+      ).rejects.toThrow("Refusing to follow a redirect")
+    } finally {
+      first.stop(true)
+      second.stop(true)
+    }
   })
 
   test("connects to a loopback server only with the explicit test opt-in", async () => {
