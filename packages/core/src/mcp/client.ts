@@ -94,6 +94,37 @@ const isTransient = (error: unknown) =>
     : (error instanceof TypeError && "code" in error) ||
       (error instanceof Error && /timed out waiting for response headers/i.test(error.message))
 
+/**
+ * True when a local MCP command spawns the official filesystem server
+ * (`@modelcontextprotocol/server-filesystem`, whose bin is
+ * `mcp-server-filesystem`): the only server the client passes `--read-only`
+ * to. Anything else is left alone — appending an unknown flag to another
+ * server would break its startup.
+ */
+export function isFilesystemServerCommand(command: ReadonlyArray<string>): boolean {
+  return command.some((part) => {
+    // Any path segment names the server: the package
+    // (@modelcontextprotocol/server-filesystem), its bin
+    // (mcp-server-filesystem), or its built entry point
+    // (.../server-filesystem/dist/index.js).
+    const segments = part.split(/[\\/]/)
+    return segments.includes("server-filesystem") || segments.includes("mcp-server-filesystem")
+  })
+}
+
+/**
+ * Spawn arguments for a local MCP server: the configured args, plus upstream
+ * `--read-only` (servers v2.3.0) when the server is a filesystem server and
+ * `readOnly` is set. Upstream parses options anywhere on the command line,
+ * so appending after the allowed directories is safe. A flag already present
+ * in the config is never duplicated.
+ */
+export function localSpawnArgs(config: typeof ConfigMCP.Local.Type): ReadonlyArray<string> {
+  const [, ...args] = config.command
+  if (config.readOnly !== true || !isFilesystemServerCommand(config.command)) return args
+  return args.includes("--read-only") ? args : [...args, "--read-only"]
+}
+
 export type { GetPromptResult, Prompt, ReadResourceResult, Resource, Tool }
 export type ResourceTemplate = ResourceTemplateType
 
@@ -302,11 +333,17 @@ export const connect = Effect.fnUntraced(function* (
 
   const exit = yield* Effect.gen(function* () {
     if (config.type === "local") {
-      const [command, ...args] = config.command
+      const [command] = config.command
+      // A read-only flag on any other server would break its startup, so it
+      // is silently dropped there — but loudly enough to notice in the log.
+      if (config.readOnly === true && !isFilesystemServerCommand(config.command))
+        yield* Effect.logWarning("readOnly is set for a non-filesystem MCP server; the flag is ignored", {
+          server,
+        })
       const transport = yield* McpStdio.make({
         server,
         command,
-        args,
+        args: localSpawnArgs(config),
         cwd: config.cwd ? path.resolve(directory, config.cwd) : directory,
         environment: {
           ...(command === "opencode" ? { BUN_BE_BUN: "1" } : {}),
