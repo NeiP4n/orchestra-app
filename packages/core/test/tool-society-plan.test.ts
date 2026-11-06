@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Option } from "effect"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
 import { makeGlobalNode, makeLocationNode } from "@orchestra/util/effect/app-node"
 import { LayerNode } from "@orchestra/util/effect/layer-node"
@@ -9,6 +9,7 @@ import { Bus } from "@orchestra/core/bus"
 import { Agent } from "@orchestra/core/agent"
 import { Job } from "@orchestra/core/job"
 import { LocationServiceMap } from "@orchestra/core/location-service-map"
+import { Model } from "@orchestra/schema/model"
 import { Orchestra } from "@orchestra/core/orchestra"
 import { Federation } from "@orchestra/core/federation"
 import { Session } from "@orchestra/core/session"
@@ -31,6 +32,9 @@ import { executeTool, registerToolPlugin, toolIdentity } from "./lib/tool"
 import { permissionLayer } from "./lib/permission"
 
 // Group configuration never runs a session, so every execution stays idle.
+// B10: society_plan apply is all-or-nothing — every chat is validated before
+// anything changes, and the applied plan is stored per project so workers
+// created later inherit it. No live models: sessions never run.
 const idleExecution = makeGlobalNode({
   service: SessionExecution.Service,
   layer: Layer.succeed(
@@ -107,6 +111,23 @@ const setup = Effect.gen(function* () {
   return { a, b }
 })
 
+const foundSociety = (name: string) =>
+  Effect.gen(function* () {
+    const federation = yield* Federation.Service
+    const orchestra = yield* Orchestra.Service
+    const root = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-society-plan-")))
+    const created = yield* federation
+      .createSociety({ goal: "Plan the chats", name, directory: root.path, team: "system" })
+      .pipe(Effect.timeoutOption("30 seconds"))
+    expect(Option.isSome(created)).toBe(true)
+    const society = Option.getOrThrow(created)
+    const group = (yield* federation.groups()).find((item) => item.name === name)!
+    const team = (yield* orchestra.projects()).find(
+      (project) => project.id === group.projects.find((id) => id !== society.project.id),
+    )!
+    return { society, group, planner: society.project, team }
+  })
+
 const run = (tools: Tool.Interface, sessionID: Session.ID, id: string, input: Record<string, unknown>) =>
   executeTool(tools, {
     sessionID,
@@ -135,6 +156,14 @@ const text = (result: { readonly content?: ReadonlyArray<Tool.Content>; readonly
   } catch {
     return output
   }
+}
+
+const outputText = (result: { readonly content?: ReadonlyArray<Tool.Content>; readonly error?: unknown }) => {
+  const output = (result.content ?? [])
+    .filter((item) => item.type === "text")
+    .map((item) => item.text)
+    .join("\n")
+  return output
 }
 
 describe("SocietyPlanTool storage", () => {
@@ -200,5 +229,86 @@ describe("SocietyPlanTool storage", () => {
       expect(refused).toContain("not a positive USD limit")
       expect((yield* federation.groups()).find((group) => group.name === "Shop")?.budget).toBe(Money.USD.make(100))
     }),
+  )
+})
+
+describe("SocietyPlanTool apply", () => {
+  it.live("a bad chat in the batch changes nothing: validation runs before any write", () =>
+    Effect.gen(function* () {
+      const federation = yield* Federation.Service
+      const sessions = yield* Session.Service
+      const tools = yield* Tool.Service
+      const { planner, team } = yield* foundSociety("PlanAtomic")
+      const result = yield* run(tools, planner.main!, "apply-bad", {
+        action: "apply",
+        chats: [
+          { project: team.id, model: "anymodel/sonnet-5.5", budget: 1_000_000 },
+          { project: planner.id, budget: -5 },
+        ],
+      })
+      expect(result.status).toBe("error")
+      // Nothing was half-applied: the good chat kept its old model and no
+      // budget, no plan was stored, generation never moved.
+      const teamMain = yield* sessions.get(team.main!)
+      expect(teamMain.model).toBeUndefined()
+      expect(SessionPlan.parseBudget(teamMain.metadata?.[SessionPlan.BUDGET_KEY])).toBeUndefined()
+      expect(yield* federation.societyPlanFor(team.id)).toBeUndefined()
+      expect((yield* federation.generation("PlanAtomic"))?.stage).toBe("founded")
+    }),
+    60_000,
+  )
+
+  it.live("apply sets the chats, stores the plan per project and records planned", () =>
+    Effect.gen(function* () {
+      const federation = yield* Federation.Service
+      const sessions = yield* Session.Service
+      const tools = yield* Tool.Service
+      const { planner, team } = yield* foundSociety("PlanApplied")
+      const result = yield* run(tools, planner.main!, "apply-good", {
+        action: "apply",
+        chats: [
+          { project: planner.id, model: "anymodel/opus-5.5", budget: 5_000_000 },
+          { project: team.id, model: "anymodel/sonnet-5.5", budget: 10_000_000, cache: true, context: 500000, mcp: ["context7"] },
+        ],
+      })
+      expect(result.status).toBe("completed")
+      expect(outputText(result)).toContain("budget 10000000 tokens")
+      const plannerMain = yield* sessions.get(planner.main!)
+      expect(plannerMain.model?.id).toBe(Model.ID.make("opus-5.5"))
+      expect(SessionPlan.parseBudget(plannerMain.metadata?.[SessionPlan.BUDGET_KEY])).toBe(5_000_000)
+      const teamMain = yield* sessions.get(team.main!)
+      expect(teamMain.model?.id).toBe(Model.ID.make("sonnet-5.5"))
+      expect(SessionPlan.parseBudget(teamMain.metadata?.[SessionPlan.BUDGET_KEY])).toBe(10_000_000)
+      expect(teamMain.metadata?.[SessionPlan.CACHE_KEY]).toBe("auto")
+      expect(teamMain.metadata?.[SessionPlan.CONTEXT_KEY]).toBe(500000)
+      const stored = yield* federation.societyPlanFor(team.id)
+      expect(stored?.budget).toBe(10_000_000)
+      expect(stored?.mcp).toEqual(["context7"])
+      expect((yield* federation.generation("PlanApplied"))?.stage).toBe("planned")
+      // Status shows the stored plan, not just the live chats.
+      const status = yield* run(tools, planner.main!, "status-after", { action: "status" })
+      expect(status.status).toBe("completed")
+      expect(outputText(status)).toContain("budget 10000000 tokens")
+    }),
+    60_000,
+  )
+
+  it.live("only the planner project or the Society chat may apply", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const orchestra = yield* Orchestra.Service
+      const tools = yield* Tool.Service
+      const { team } = yield* foundSociety("PlanForbidden")
+      // A team worker is neither the planner nor the Society chat.
+      const worker = (yield* orchestra.sessions(team.id))[0]!
+      const result = yield* run(tools, worker.id, "apply-forbidden", {
+        action: "apply",
+        chats: [{ project: team.id, budget: 100 }],
+      })
+      expect(result.status).toBe("error")
+      expect(JSON.stringify(result.error)).toContain("society_plan works in a Society")
+      expect((yield* sessions.get(worker.id)).metadata?.[SessionPlan.BUDGET_KEY]).toBeUndefined()
+    }),
+    60_000,
   )
 })

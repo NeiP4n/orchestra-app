@@ -11,8 +11,13 @@ import { Bus } from "@orchestra/core/bus"
 import { Agent } from "@orchestra/core/agent"
 import { Job } from "@orchestra/core/job"
 import { LocationServiceMap } from "@orchestra/core/location-service-map"
+import { Model } from "@orchestra/schema/model"
+import { Provider } from "@orchestra/schema/provider"
 import { Orchestra } from "@orchestra/core/orchestra"
 import { Federation } from "@orchestra/core/federation"
+import { Rules } from "@orchestra/core/rules"
+import { SessionPlan } from "@orchestra/core/session/plan"
+import { Society } from "@orchestra/core/society"
 import { Session } from "@orchestra/core/session"
 import { SessionExecution } from "@orchestra/core/session/execution"
 import { SessionHold } from "@orchestra/core/session/hold"
@@ -591,6 +596,247 @@ describe("Federation", () => {
     }),
   )
 
+  // B10: a Society is built by code, not by hoping the planner read the
+  // prompt. These tests found real Societies through the Federation service
+  // (no live models: sessions never run) and check the generation record,
+  // the readiness count and the stored plan.
+  const foundSociety = (name: string, goal = "Ship the whole app", team = "system") =>
+    Effect.gen(function* () {
+      const federation = yield* Federation.Service
+      const orchestra = yield* Orchestra.Service
+      const root = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-society-b10-")))
+      const created = yield* federation
+        .createSociety({ goal, name, directory: root.path, ...(team ? { team } : {}) })
+        .pipe(Effect.timeoutOption("30 seconds"))
+      expect(Option.isSome(created)).toBe(true)
+      const society = Option.getOrThrow(created)
+      const group = (yield* federation.groups()).find((item) => item.name === name)!
+      const planner = society.project
+      const teamProject = (yield* orchestra.projects()).find(
+        (project) => project.id === group.projects.find((id) => id !== planner.id),
+      )!
+      return { society, group, planner, team: teamProject }
+    })
+
+  it.live("records a founded generation and confirms the kickoff reached the planner", () =>
+    Effect.gen(function* () {
+      const { society, planner } = yield* foundSociety("KickoffTest", "Ship the whole app")
+      expect(society.generation).toEqual({ stage: "founded", kickoffDelivered: true })
+      const generation = yield* (yield* Federation.Service).generation("KickoffTest")
+      expect(generation?.stage).toBe("founded")
+      expect(generation?.kickoffDelivered).toBe(true)
+      expect(generation?.goal).toBe("Ship the whole app")
+      expect((yield* texts(planner)).some((text) => text.includes("Ship the whole app"))).toBe(true)
+    }),
+  )
+
+  it.live("generation only moves forward, never back", () =>
+    Effect.gen(function* () {
+      const federation = yield* Federation.Service
+      yield* federation.recordGeneration("ForwardOnly", "generated")
+      expect((yield* federation.generation("ForwardOnly"))?.stage).toBe("generated")
+      yield* federation.recordGeneration("ForwardOnly", "planned")
+      expect((yield* federation.generation("ForwardOnly"))?.stage).toBe("planned")
+      // A late "generated" or "founded" never rewinds a Society that already ran society_plan apply.
+      yield* federation.recordGeneration("ForwardOnly", "generated")
+      expect((yield* federation.generation("ForwardOnly"))?.stage).toBe("planned")
+      yield* federation.recordGeneration("ForwardOnly", "founded")
+      expect((yield* federation.generation("ForwardOnly"))?.stage).toBe("planned")
+      expect(yield* federation.generation("No such society")).toBeUndefined()
+    }),
+  )
+
+  it.live("a stalled founded Society resumes: the goal is delivered again, exactly once", () =>
+    Effect.gen(function* () {
+      const federation = yield* Federation.Service
+      const kv = yield* KV.Service
+      const { planner } = yield* foundSociety("ResumeTest", "Resume the build")
+      // A crash between found and generate leaves exactly this: founded, stale, kickoff lost.
+      yield* kv.set(
+        "federation/society-generation/ResumeTest",
+        Society.encodeGeneration({ stage: "founded", updated: 0, kickoffDelivered: false, goal: "Resume the build" }),
+      )
+      expect((yield* federation.generation("ResumeTest"))?.kickoffDelivered).toBe(false)
+      yield* federation.resumeGeneration("ResumeTest")
+      const after = yield* federation.generation("ResumeTest")
+      expect(after?.stage).toBe("founded")
+      expect(after?.kickoffDelivered).toBe(true)
+      // Same message id as the original kickoff, so the planner's inbox keeps one copy of the goal.
+      expect((yield* texts(planner)).filter((text) => text.includes("Resume the build"))).toHaveLength(1)
+    }),
+  )
+
+  it.live("resume is a no-op once generation ran, and never releases an operator hold", () =>
+    Effect.gen(function* () {
+      const federation = yield* Federation.Service
+      yield* foundSociety("ResumeNoop", "Hold the line")
+      yield* federation.recordGeneration("ResumeNoop", "generated")
+      yield* federation.setHold("ResumeNoop", true)
+      const before = yield* federation.generation("ResumeNoop")
+      yield* federation.resumeGeneration("ResumeNoop")
+      expect(yield* federation.generation("ResumeNoop")).toEqual(before)
+      expect(yield* federation.holds()).toEqual(["ResumeNoop"])
+    }),
+  )
+
+  it.live("societyStatus counts living agents, models and budgets, and names what is missing", () =>
+    Effect.gen(function* () {
+      const federation = yield* Federation.Service
+      yield* foundSociety("StatusTest", "Count the crew")
+      const status = yield* federation.societyStatus("StatusTest")
+      expect(status.target).toBe(30)
+      expect(status.minimum).toBe(21)
+      // Planner main plus team main plus the eleven template workers.
+      expect(status.agents).toBe(13)
+      expect(status.alive).toBe(13)
+      expect(status.ready).toBe(false)
+      expect(status.generation.stage).toBe("founded")
+      expect(status.generation.kickoffDelivered).toBe(true)
+      expect(status.generation.stalled).toBe(false)
+      expect(status.missing).toContain("13/21 agents (target 30)")
+      expect(status.missing).toContain("society_plan apply never ran (generation is founded)")
+      expect(status.missing).toContain("no chat has a recorded budget")
+      expect(status.missing.some((item) => item.includes("without a model"))).toBe(true)
+      const teamRow = status.projects.find((item) => item.agents === 12)!
+      expect(teamRow.alive).toBe(12)
+      const unknown = yield* federation.societyStatus("No such society")
+      expect(unknown.ready).toBe(false)
+      expect(unknown.agents).toBe(0)
+      expect(unknown.missing).toEqual(["no Society by that name"])
+    }),
+  )
+
+  it.live("a stored society plan reaches a worker created later", () =>
+    Effect.gen(function* () {
+      const federation = yield* Federation.Service
+      const sessions = yield* Session.Service
+      const orchestra = yield* Orchestra.Service
+      const { team } = yield* foundSociety("PlanTest", "Plan the crew")
+      // The planner's apply, stored per project: model, budget, cache, context, MCP.
+      yield* federation.recordSocietyPlan(team.id, {
+        model: "anymodel/sonnet-5.5",
+        budget: 1_000_000,
+        cache: true,
+        context: 500000,
+        mcp: ["context7"],
+      })
+      expect((yield* federation.societyPlanFor(team.id))?.budget).toBe(1_000_000)
+      expect((yield* federation.societyPlanFor(team.id))?.mcp).toEqual(["context7"])
+      // A worker created after the plan still gets it.
+      const members = yield* orchestra.sessions(team.id)
+      const worker = yield* orchestra.createMember({ project: team, agent: members[0]!.agent!, title: "Late worker" })
+      yield* federation.applyStoredPlan(worker.id)
+      const info = yield* sessions.get(worker.id)
+      expect(info.model?.id).toBe(Model.ID.make("sonnet-5.5"))
+      expect(SessionPlan.parseBudget(info.metadata?.[SessionPlan.BUDGET_KEY])).toBe(1_000_000)
+      expect(info.metadata?.[SessionPlan.CACHE_KEY]).toBe("auto")
+      expect(info.metadata?.[SessionPlan.CONTEXT_KEY]).toBe(500000)
+      // No plan, no change: a project without one leaves the session alone.
+      const { planner } = yield* foundSociety("PlanTestTwo", "Plan nothing")
+      const untouched = yield* sessions.get(planner.main!)
+      yield* federation.applyStoredPlan(planner.main!)
+      expect(yield* sessions.get(planner.main!)).toEqual(untouched)
+    }),
+  )
+
+  it.live("society rules reach a new project's sessions", () =>
+    Effect.gen(function* () {
+      const federation = yield* Federation.Service
+      const sessions = yield* Session.Service
+      const orchestra = yield* Orchestra.Service
+      const kv = yield* KV.Service
+      const { team } = yield* foundSociety("RulesTest", "Rule the crew")
+      const added = yield* federation.rules.add(
+        "society:RulesTest",
+        "Never rewrite the plan without telling the planner.",
+      )
+      expect(added.rule).toBeDefined()
+      const members = yield* orchestra.sessions(team.id)
+      const scopes = yield* Rules.scopesOf({ sessionID: members[0]!.id, sessions, orchestra, federation })
+      expect(scopes.societies).toContain("RulesTest")
+      expect(yield* Rules.block(kv, scopes)).toContain("Never rewrite the plan without telling the planner.")
+    }),
+  )
+
+  it.live("baseProjects returns the built-in four by default", () =>
+    Effect.gen(function* () {
+      const federation = yield* Federation.Service
+      expect((yield* federation.baseProjects()).map((item) => item.key)).toEqual([
+        "planner",
+        "architects",
+        "coders",
+        "testers",
+      ])
+    }),
+  )
+
+  it.live(
+    "dry run: a Society of 30 living agents, all with models, a budget and rules, is ready",
+    () =>
+      Effect.gen(function* () {
+        const federation = yield* Federation.Service
+        const sessions = yield* Session.Service
+        const orchestra = yield* Orchestra.Service
+        const kv = yield* KV.Service
+        const { planner, team } = yield* foundSociety("DryRun", "Build the dry-run society")
+        // The planner's team is 13 agents (2 mains + 11 template workers); the
+        // planner tops it up with sessions create (newInstance=true), one
+        // worker per role, until the Society counts 30 living agents.
+        const members = yield* orchestra.sessions(team.id)
+        const agents = members.map((member) => member.agent)
+        const mid = Model.Ref.make({ id: Model.ID.make("sonnet-5.5"), providerID: Provider.ID.make("anymodel") })
+        const cheap = Model.Ref.make({ id: Model.ID.make("anymodel-coder"), providerID: Provider.ID.make("anymodel") })
+        for (let index = 0; index < 17; index++)
+          yield* orchestra.createMember({
+            project: team,
+            agent: agents[index % agents.length]!,
+            title: `Extra worker ${index + 1}`,
+            model: index % 2 === 0 ? mid : cheap,
+          })
+        const before = yield* federation.societyStatus("DryRun")
+        expect(before.agents).toBe(30)
+        expect(before.alive).toBe(30)
+        expect(before.ready).toBe(false)
+        // The planner's society_plan apply, stored per project so every chat
+        // — mains included — gets the model and the budget.
+        yield* federation.recordSocietyPlan(planner.id, { model: "anymodel/opus-5.5", budget: 5_000_000 })
+        yield* federation.recordSocietyPlan(team.id, {
+          model: "anymodel/sonnet-5.5",
+          budget: 10_000_000,
+          cache: true,
+          context: 500000,
+          mcp: ["context7"],
+        })
+        const ids = [
+          planner.main!,
+          team.main!,
+          ...(yield* orchestra.sessions(team.id)).map((member) => member.id),
+        ]
+        expect(ids).toHaveLength(30)
+        yield* Effect.forEach(ids, (id) => federation.applyStoredPlan(id), { concurrency: 4 })
+        yield* federation.recordGeneration("DryRun", "planned")
+        // Rules are distributed by scope: every session of a member project
+        // carries the Society's rules, including the workers created last.
+        yield* federation.rules.add("society:DryRun", "Testers never fix product code themselves.")
+        const scopes = yield* Rules.scopesOf({
+          sessionID: ids[ids.length - 1]!,
+          sessions,
+          orchestra,
+          federation,
+        })
+        expect(yield* Rules.block(kv, scopes)).toContain("Testers never fix product code themselves.")
+        const status = yield* federation.societyStatus("DryRun")
+        expect(status.agents).toBe(30)
+        expect(status.alive).toBe(30)
+        expect(status.withModel).toBe(30)
+        expect(status.budgetChats).toBe(30)
+        expect(status.generation.stage).toBe("planned")
+        expect(status.ready).toBe(true)
+        expect(status.missing).toEqual([])
+      }),
+    120_000,
+  )
+
   it.live(
     "creates the whole Society while other sessions hold their dispatch locks",
     () =>
@@ -620,10 +866,15 @@ describe("Federation", () => {
         const group = (yield* federation.groups()).find((item) => item.name === "LoadTest")!
         expect(group.projects).toHaveLength(2)
         const team = group.projects.find((project) => project !== society.project.id)!
-        // Eight template roles plus the team project's own Orchestrator.
+        // Every role of the team template, plus the team project's own Orchestrator.
+        const system = (yield* orchestra.templates()).find((item) => item.id === "system")!
         const teamProject = (yield* orchestra.projects()).find((project) => project.id === team)!
         expect(teamProject.main).toBeDefined()
-        expect(yield* orchestra.sessions(team)).toHaveLength(8)
+        const teamSessions = yield* orchestra.sessions(team)
+        expect(teamSessions).toHaveLength(system.members.length)
+        expect(teamSessions.map((session) => session.agent).toSorted()).toEqual(
+          system.members.map((member) => member.agent).toSorted(),
+        )
         expect(society.project.main).toBeDefined()
         // The busy project's marker was not redirected by the creation.
         expect(yield* kv.get(`orchestra/task/${a.main!}`)).toBe(marker)

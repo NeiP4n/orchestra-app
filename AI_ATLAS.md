@@ -295,6 +295,45 @@ Orchestrator and synthesizes the answers.
 - A federation group is **not** the society_forge "Society" feature; do not
   conflate them.
 
+### The Society feature (`society_forge`) — `packages/core/src/society.ts`, `federation.ts`
+
+A Society is founded from a goal (`society_forge found` → `Federation.createSociety`):
+a planner project plus an optional team project. The planner plans in its first
+messages and builds the rest with `society_forge generate` and `society_plan`.
+
+- Base projects come from the operator's `orchestra.society.baseProjects` config
+  when it is set and complete, otherwise the built-in four (planner, architects,
+  coders, testers). A configured entry missing a field falls back to the built-ins.
+- A project created from a built-in team template opens one worker per template
+  role at once — in `createSociety` for the team project and in `generate` for
+  base and extra projects — never zero workers. Operator-saved templates open
+  their saved roster at creation instead.
+- Generation is tracked in the federation KV store (`founded` → `generated` →
+  `planned`, forward only): `generate` records `generated`, `society_plan apply`
+  records `planned`. The goal is delivered to the planner with confirmation
+  (retried); a `founded` Society whose planner never generated is resumed on
+  startup (`resumeGeneration`, same message id, so the goal is delivered once).
+- Readiness is code, not a prompt: `societyStatus` counts living agents (target
+  30, minimum 21), agents with a model, chats with a recorded budget, and the
+  generation stage, and names what is still missing. A Society is ready only
+  with more than 20 living agents, every one with a model, `society_plan apply`
+  run, and at least one recorded budget.
+- `society_plan apply` is all-or-nothing (validate everything, then apply, rolling
+  back on a midway failure) and stores the plan per project, so workers created
+  later inherit the model, context threshold, cache switch, budget and the one
+  MCP assignment for the whole Society. Budget is a field (`orchestra.budget-tokens`),
+  not prose. Rules reach new projects by scope (`society:<name>`).
+- Model table (`society.ts`, verified against Anymodel 2026-11-05): strong
+  `opus-5.5`, mid `sonnet-5.5`, cheap `anymodel-coder` (quality work), fallback
+  `sonnet-5`. Dead models (`anymodel-reasoner`, `anymodel-v4.1-flash`, `fable-5.1`,
+  `gpt-6-astra`, `gpt-6-sol`, `gpt-6.1-sol`) are never a primary or a fallback;
+  `workerModels` also gives cheap work the cheap model instead of the
+  Orchestrator's flagship. Building the Society (`society_forge found/generate`,
+  `society_plan apply`) is exempt from the 6-message rule and resets its count;
+  the orientation limit is ten calls with investigation as a valid first dispatch;
+  MCP deny rules are replaced per dispatch, never piled onto a reused worker;
+  the Orchestrator's reconnaissance travels to the worker whole.
+
 ### The standing Society of this repository (permanent)
 
 `orchestra-society` is the permanent council group of this project. It is

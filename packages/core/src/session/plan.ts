@@ -8,6 +8,19 @@ import { Option, Schema } from "effect"
 // caching off for a chat whose prefix is never reused.
 export const CONTEXT_KEY = "compaction_threshold"
 export const CACHE_KEY = "orchestra.cache"
+// A chat's token budget, set by the Society's planner with society_plan
+// apply: a field the code stores and checks, not a number buried in prose.
+export const BUDGET_KEY = "orchestra.budget-tokens"
+
+/** A token budget: a positive whole number of tokens, nothing else. */
+export function parseBudget(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isInteger(value) && value > 0 ? value : undefined
+  if (typeof value === "string") {
+    const parsed = Number(value.trim().replace(/[,_\\s]/g, ""))
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
+  }
+  return undefined
+}
 
 /**
  * A chat's context threshold. Tokens are absolute; a share of the model's window is what the planner can
