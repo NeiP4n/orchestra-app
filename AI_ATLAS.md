@@ -277,6 +277,50 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
 - agent-desktop drives real apps through the OS accessibility tree; GTK3 apps
   without atk-bridge may be invisible to it — that is an app limitation, not a
   server failure.
+- B7 (desktop isolation): agent-desktop and playwright are `realScreen` servers.
+  They are never acquired (`acquire.ts: ensure()`) nor called (`index.ts:
+  MCP.callTool`, the choke point for every MCP tool call) while the real-screen
+  opt-in is invalid — even when installed by hand in the config. The selector
+  (`select.ts`) still matches them; the gate lives in acquire/call, not in ranking.
+
+## Desktop isolation — `packages/core/src/desktop-isolation.ts` (block Б7)
+
+- The agent never touches the operator's real screen, mouse, or clipboard.
+  Every `desktop_*` action runs on the agent's own virtual display — Linux: a
+  separate Xvfb display (`:99` by default, `ORCHESTRA_VIRTUAL_DISPLAY` to
+  change it), `DISPLAY` pinned to it for every spawned child (screenshot,
+  input, clipboard, `xdg-open`). A screenshot can only ever show the virtual
+  screen. Windows keeps its PowerShell helper and playtest's hidden/behind
+  ladder; macOS has no virtual display yet — desktop tools there still use the
+  real screen behind `ORCHESTRA_DESKTOP_CAPTURE=on` and are NOT isolated.
+- `ORCHESTRA_DESKTOP_CAPTURE=on` means ONLY "the virtual display is allowed".
+  The real screen needs a separate explicit opt-in: `ORCHESTRA_DESKTOP_REAL_SCREEN=on`
+  AND `ORCHESTRA_DESKTOP_REAL_SCREEN_ALLOWLIST` (comma-separated app names) AND a
+  future `ORCHESTRA_DESKTOP_REAL_SCREEN_UNTIL` (ISO date). Any piece missing,
+  expired, or not naming the app → the action is refused with a plain-language
+  error, never run "somehow". Rollback is a deny: remove the opt-in and every
+  real-screen path refuses.
+- Gated by that opt-in: `desktop_action`/`desktop_inspect` (Windows UI Automation
+  has no virtual display), playtest `input: real` / `mode: visible` (in any
+  session, not just silent ones), `zen_browser` (all actions except `status`),
+  MCP `agent-desktop`/`playwright` (acquire + callTool), and shell escapes
+  (`xdotool`/`ydotool`/`screencapture`/`grim`/`scrot`/`xwd`/`import -window`/
+  `xclip`/`xsel`/`wl-copy`/`wl-paste`/`pbcopy`/`pbpaste`/PowerShell
+  `SendKeys`/`SetCursorPos`/`mouse_event`/`keybd_event`/`CopyFromScreen`/clipboard,
+  explicit `DISPLAY` to anything but the virtual display). Shell-spawned GUI apps
+  get `DISPLAY` pinned to the virtual display when capture is on (Linux).
+- Virtual-display state is a journal fact (`journal.ts`: `recordDisplayEvent`,
+  type `desktop.display`, states `started`/`alive`/`died`): which display, whose
+  session, and a death is an event, never silence.
+- Opens are deduplicated (block Б4, `tool/idempotency.ts`): `desktop_open` and
+  `zen_browser navigate` open a URL once per session, even across re-entry.
+- Regression tests that must run on every commit touching `desktop*` /
+  `zen-browser` / `shell` / `playtest`: `test/tool/desktop-virtual-display.test.ts`
+  (a secret window on the host display is invisible on the agent screenshot;
+  a link opens once across three calls and not again after re-entry) and
+  `test/tool/desktop-isolation.test.ts` (gate decisions, shell escapes, MCP
+  acquire refusal). A new screen-access path (new tool, new MCP server) must
+  pass the gate — checklist item in review.
 
 ## Federation and the Society — `packages/core/src/federation.ts`
 
