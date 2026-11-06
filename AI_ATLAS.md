@@ -1283,15 +1283,36 @@ the case "the program itself is broken".
   model through the normal `Model` + `ModelResolver` path (same credential
   store as sessions), then `runRepairLoop` calls the model with four tools —
   `read_file`, `write_file`, `list_files`, `run_shell` — up to 12 rounds.
-  Tools are confined to the repo the server runs from (`process.cwd()`):
-  paths cannot escape the root, `.git/` internals and `*.db` files cannot be
-  written directly, and a small denylist refuses destructive shell commands
-  (`rm -rf /`, `rm -rf ~`, `mkfs`, `shutdown`, …). Shell runs time out at
-  60 s. The agent works autonomously — no permission prompts — and ends its
-  answer with an `Исправлено:` line when it fixed something (parsed into
-  `RecoveryResult.fixed`). A model or provider failure is returned as a
-  reply, not an HTTP error: the user is already looking at a broken
-  Orchestra, and a bare 500 with no words helps no one.
+  Tools are confined to the Orchestra checkout (`resolveRepoRoot` in
+  `service.ts`: the ancestor holding `packages/core`, `ORCHESTRA_REPO_ROOT`
+  override, cwd only as a last resort — never the server's working
+  directory, which is the user's project). Paths are resolved with
+  `realpath` (`resolveInRootReal` in `tools.ts`), so a symlink inside the
+  repo that points outside it is refused, including for not-yet-created
+  files; `.env*`, `credentials*`, `*secret*`, `*.pem`, `*.key`, `id_rsa*`,
+  `*.db*`, `*.sqlite*`, `.git/`, `.ssh/` and the config files
+  (`orchestra.json`, `opencode.json` — provider headers there can carry an
+  `Authorization` key) are protected for both reading and writing. Writes
+  publish atomically (temp file + rename). The shell runs in the real root
+  with a 60 s timeout, a 20 000-char command cap, and a denylist that
+  refuses `rm -rf` at any absolute/home/variable path, `find -delete`,
+  `git clean -f`, `git push --force`, `dd … of=`, piping into a shell,
+  `chmod 777`, `curl`/`wget` uploads and any fetch outside localhost.
+  The agent works autonomously — no permission prompts — and ends its
+  answer with an `Исправлено:` line when it fixed something. The verdict
+  parser (`parseFixed` in `agent.ts`) is fail-closed: any `Не исправлено:`
+  / `Not fixed:` anywhere means not fixed, and the positive marker counts
+  only at a line start or right after a sentence boundary, never
+  mid-sentence — a quoted mention is not a verdict. `RecoveryResult.root`
+  says which checkout was actually repaired. A model or provider failure
+  is returned as a reply, not an HTTP error: the user is already looking
+  at a broken Orchestra, and a bare 500 with no words helps no one.
+- **Model list**: `listRecoveryModels` offers every model the catalog
+  reports as available (the catalog already hides providers it cannot
+  serve — no key, disabled plugin), klinch and lix first, then the rest
+  in catalog order. No provider is hardcoded out: Anymodel is offered
+  again when the catalog says it works, and a provider that fails at call
+  time is reported as a reply, not a crash.
 - **After the fix**: the page shows the `Исправлено:` banner with an
   "Открыть Orchestra" button (back to `/`) and a restart hint
   (`orchestra service restart`) when code changed.

@@ -136,6 +136,7 @@ export const runRepairLoop = Effect.fn("RecoveryAgent.runRepairLoop")(function* 
       return {
         reply: response.text,
         steps,
+        root: input.root,
         ...(parseFixed(response.text) ? { fixed: parseFixed(response.text) } : {}),
         ...(inputTokens ? { inputTokens } : {}),
         ...(outputTokens ? { outputTokens } : {}),
@@ -162,6 +163,7 @@ export const runRepairLoop = Effect.fn("RecoveryAgent.runRepairLoop")(function* 
   return {
     reply: `${lastText}\n\n(Достигнут лимит шагов (${maxSteps}) — починка не завершена. Опишите, что осталось, и я продолжу.)`,
     steps,
+    root: input.root,
     ...(inputTokens ? { inputTokens } : {}),
     ...(outputTokens ? { outputTokens } : {}),
     model: input.ref,

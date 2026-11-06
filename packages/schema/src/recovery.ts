@@ -44,6 +44,8 @@ export const RecoveryResult = Schema.Struct({
   steps: Schema.Array(RecoveryStep),
   /** What was fixed, when the agent said so (its `Исправлено:` line). */
   fixed: Schema.String.pipe(optional),
+  /** The repo root the round actually repaired (never the server's cwd). */
+  root: Schema.String.pipe(optional),
   inputTokens: Schema.Number.pipe(optional),
   outputTokens: Schema.Number.pipe(optional),
   model: Model.Ref,
