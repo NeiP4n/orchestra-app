@@ -176,6 +176,22 @@ export interface RunRow extends RowData {
   rules_version: number
 }
 
+/** One lesson from a twice-failed run (idea #11), in the `lessons` collection. */
+export interface LessonRow extends RowData {
+  /** The run that failed twice. */
+  run: number
+  rule: string
+  /** The one lesson, in plain words: what failed and what it means. */
+  text: string
+  /** The error text the lesson is about. */
+  error: string
+  /** Fingerprint of that error, when the failure carried one (idea #2). */
+  fingerprint: string | null
+  /** Attempts at the time the lesson was written (always 2). */
+  attempts: number
+  created_at: string
+}
+
 export interface EventRow extends RowData {
   id: number
   source: string
@@ -1029,6 +1045,31 @@ export function retryLater(draft: Draft, run: RunRow, result: Receipt): Rejected
           error_repeat: repeat.consecutive,
           error_history: JSON.stringify(repeat.history),
         }),
+  }
+  // Post-failure review (idea #11): on the second failure the run writes
+  // exactly ONE lesson into the `lessons` collection of the journal — the
+  // durable shared memory the society reads through `getView` (the
+  // three-level memory of Б17 does not exist yet, and the kernel is pure,
+  // so the lesson cannot go to the Memory service from here). Attempts only
+  // grow, so `attempts === 2` fires once per run: a third failure adds no
+  // second lesson. The lesson names the error and its fingerprint, not a
+  // verdict about the cause — the cause is for the society to judge from
+  // the worker sessions. It is written before the rule-gone stop below, so
+  // a twice-failed run is recorded even when its rule has disappeared.
+  if (attempts === 2) {
+    const fingerprint = repeat === undefined ? null : repeat.history.at(-1)!.fp
+    const text =
+      `Урок (правило «${run.rule}», раунд ${id}): ${error}. Попыток: 2.` +
+      (fingerprint === null ? "" : ` Отпечаток ошибки: ${fingerprint}.`)
+    put(draft, "lessons", `run:${id}`, {
+      run: id,
+      rule: run.rule,
+      text: text.slice(0, 500),
+      error: error.slice(0, 500),
+      fingerprint,
+      attempts,
+      created_at: draft.at,
+    })
   }
   if (ruleNamed(draft, run.rule) === undefined) {
     put(draft, "runs", id, failure)

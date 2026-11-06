@@ -559,3 +559,59 @@ describe("AutoloopDecide test-before-fix gate (idea #6)", () => {
     ).toThrow("failingTest")
   })
 })
+
+describe("AutoloopDecide lesson after the second failure (idea #11)", () => {
+  const lessonRows = (view: View) => Object.values(view["lessons"] ?? {}) as Array<Record<string, unknown>>
+  const failOnce = (view: View, now: number, seq: number, error: string) => {
+    const claimed = claimTask(view, now, `claim-${seq}`, seq)
+    expect(claimed.job.run).toBe(1)
+    return step(
+      claimed.view,
+      { type: "finish", args: [1, claimed.job.token, { outcome: "failed", summary: "failed", error }] },
+      now + 1000,
+      seq + 1,
+    )
+  }
+
+  test("the first failure writes no lesson; the second writes exactly one", () => {
+    let view = ingestTask(emptyView(), T0).view
+    view = failOnce(view, T0, 2, "database is locked").view
+    expect(lessonRows(view)).toHaveLength(0)
+    expect(runRow(view, 1)).toMatchObject({ state: "queued", attempts: 1 })
+
+    view = failOnce(view, T0 + 6 * MINUTE, 4, "database is locked").view
+    expect(runRow(view, 1)).toMatchObject({ state: "cancelled", attempts: 2 })
+    const lessons = lessonRows(view)
+    expect(lessons).toHaveLength(1)
+    expect(lessons[0]).toMatchObject({ run: 1, rule: "build", attempts: 2, error: "database is locked" })
+    expect(lessons[0]?.["text"]).toContain("Урок")
+    expect(typeof lessons[0]?.["fingerprint"]).toBe("string")
+  })
+
+  test("a third failure adds no second lesson", () => {
+    const limits = { maxAttempts: 5, retryBaseMinutes: 1 }
+    let view = ingestTask(emptyView(), T0).view
+    const fail = (current: View, now: number, seq: number, error: string) => {
+      const result = decide(
+        current,
+        { type: "claimNext", args: ["worker-1", `claim-${seq}`] },
+        now,
+        { rules, tokenSecret: "test-secret", seq, rulesVersion: 1, limits },
+      )
+      const claimed = { view: result.facts.reduce(evolve, current), job: result.value as Job }
+      const finished = decide(
+        claimed.view,
+        { type: "finish", args: [1, claimed.job.token, { outcome: "failed", summary: "failed", error }] },
+        now + 1000,
+        { rules, tokenSecret: "test-secret", seq: seq + 1, rulesVersion: 1, limits },
+      )
+      return finished.facts.reduce(evolve, claimed.view)
+    }
+    view = fail(view, T0, 2, "database is locked")
+    view = fail(view, T0 + 3 * MINUTE, 4, "port already in use")
+    expect(lessonRows(view)).toHaveLength(1)
+    view = fail(view, T0 + 8 * MINUTE, 6, "database is locked")
+    expect(lessonRows(view)).toHaveLength(1)
+    expect(runRow(view, 1)).toMatchObject({ state: "queued", attempts: 3 })
+  })
+})

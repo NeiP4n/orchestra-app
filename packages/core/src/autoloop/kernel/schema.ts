@@ -24,6 +24,10 @@ export const COLLECTIONS = [
   "keys",
   "config",
   "due",
+  /** One-lesson reviews of twice-failed runs (idea #11). */
+  "lessons",
+  /** Timed dispute ladder (idea #18). */
+  "disputes",
 ] as const
 export type ProjectionCollection = (typeof COLLECTIONS)[number]
 
