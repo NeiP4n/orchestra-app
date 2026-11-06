@@ -18,14 +18,45 @@ export const SOCIETY_MIN_AGENTS = 21
 // Society is resumed instead of left frozen.
 export const SOCIETY_GENERATION_TIMEOUT_MS = 30 * 60 * 1000
 
-// The Anymodel model table, verified 2026-11-05 in three chat-test rounds
-// against https://anymodel.ghostly.su/v1/models (12 models). Model ids are
-// matched against the catalog, so the provider id comes from what the
-// account actually has instead of a hardcoded guess.
+// The Anymodel model table, verified 2026-11-06 in live chat tests
+// against https://anymodel.ghostly.su/v1/models (17 models, up from 12 on
+// 2026-11-05). Model ids are matched against the catalog, so the provider id
+// comes from what the account actually has instead of a hardcoded guess.
 export const STRONG_MODEL_ID = "opus-5.5"
 export const MID_MODEL_ID = "sonnet-5.5"
 export const CHEAP_MODEL_ID = "anymodel-coder"
 export const FALLBACK_MODEL_ID = "sonnet-5"
+
+// Cheap flash alternative, answered in the 2026-11-06 chat test: the fast
+// cheap fallback next to anymodel-coder (see MAIN_SESSION_FALLBACK_MODELS).
+export const CHEAP_FLASH_MODEL_ID = "gemini-3.8-flash"
+// Reasoning model, answered in the 2026-11-06 chat test: the reasoning
+// fallback next to opus-5.5 for work where a mistake costs the most.
+export const REASONING_MODEL_ID = "grok-4.7"
+
+// Every model id the Anymodel /models listing returned on 2026-11-06, in
+// listing order: the catalog snapshot the tests pin, so a model that leaves
+// the account (or a new one that arrives) fails loudly instead of silently
+// changing which tier and fallback ids resolve.
+export const ANYMODEL_MODEL_IDS: ReadonlyArray<string> = [
+  "anymodel-coder",
+  "anymodel-reasoner",
+  "anymodel-v4.1-flash",
+  "fable-5.1",
+  "gemini-3.5-flash-lite",
+  "gemini-3.6-flash",
+  "gemini-3.8-flash",
+  "gemini-4-argon",
+  "gpt-6-astra",
+  "gpt-6-luna",
+  "gpt-6-sol",
+  "gpt-6.1-sol",
+  "grok-4.7",
+  "opus-5",
+  "opus-5.5",
+  "sonnet-5",
+  "sonnet-5.5",
+]
 
 // Dead in all three rounds (mostly timeouts — provider overload, not a
 // single outage): never a primary, never a fallback, anywhere.

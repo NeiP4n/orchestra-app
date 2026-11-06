@@ -686,9 +686,13 @@ messages and builds the rest with `society_forge generate` and `society_plan`.
   later inherit the model, context threshold, cache switch, budget and the one
   MCP assignment for the whole Society. Budget is a field (`orchestra.budget-tokens`),
   not prose. Rules reach new projects by scope (`society:<name>`).
-- Model table (`society.ts`, verified against Anymodel 2026-11-05): strong
-  `opus-5.5`, mid `sonnet-5.5`, cheap `anymodel-coder` (quality work), fallback
-  `sonnet-5`. Dead models (`anymodel-reasoner`, `anymodel-v4.1-flash`, `fable-5.1`,
+- Model table (`society.ts`, verified against Anymodel 2026-11-06, 17 models):
+  strong `opus-5.5`, mid `sonnet-5.5`, cheap `anymodel-coder` (quality work),
+  fallback `sonnet-5`; cheap flash alternative `gemini-3.8-flash` (also a
+  main-session fallback after `anymodel-coder`), reasoning `grok-4.7` next to
+  `opus-5.5`. The other new models (`gemini-3.5-flash-lite`, `gemini-3.6-flash`,
+  `gemini-4-argon`) are catalogued in `ANYMODEL_MODEL_IDS` but have no assigned
+  role yet. Dead models (`anymodel-reasoner`, `anymodel-v4.1-flash`, `fable-5.1`,
   `gpt-6-astra`, `gpt-6-sol`, `gpt-6.1-sol`) are never a primary or a fallback;
   `workerModels` also gives cheap work the cheap model instead of the
   Orchestrator's flagship. Building the Society (`society_forge found/generate`,
