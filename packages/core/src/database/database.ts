@@ -2,7 +2,7 @@ export * as Database from "./database.js"
 
 import { EffectDrizzleSqlite } from "./drizzle.js"
 import { checkpointWal, sqliteLayer, supportsForeignKeyToggle, supportsTuningPragmas } from "#sqlite"
-import { Context, Effect, Layer, Schema, Semaphore } from "effect"
+import { Cause, Context, Effect, Layer, Schema, Semaphore } from "effect"
 import type { SqlClient } from "effect/unstable/sql"
 import { Global } from "@orchestra/util/global"
 import { closeSync, copyFileSync, existsSync, openSync } from "node:fs"
@@ -107,9 +107,11 @@ export function layer(options: Options = { path: ":memory:" }) {
                   })
                 }).pipe(
                   Effect.catchCause((cause) =>
-                    Effect.logWarning("database backup before migration failed; continuing without a fresh backup", {
-                      cause,
-                    }),
+                    Cause.hasInterrupts(cause)
+                      ? Effect.failCause(cause)
+                      : Effect.logWarning("database backup before migration failed; continuing without a fresh backup", {
+                          cause,
+                        }),
                   ),
                 ),
         ).pipe(Layer.provide(sqliteLayer({ filename })))

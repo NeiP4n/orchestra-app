@@ -3,7 +3,7 @@ export * as ServerDatabaseBackup from "./database-backup"
 import { Database } from "@orchestra/core/database/database"
 import { DatabaseBackup } from "@orchestra/core/database/backup"
 import { Global } from "@orchestra/util/global"
-import { Duration, Effect } from "effect"
+import { Cause, Duration, Effect } from "effect"
 import path from "node:path"
 
 /**
@@ -68,7 +68,12 @@ export const start = Effect.fn("ServerDatabaseBackup.start")(function* (
   if (options?.enabled === false) return
   const interval = Duration.hours(options?.intervalHours ?? DEFAULT_INTERVAL_HOURS)
   const cycle = runCycle(db, global, options).pipe(
-    Effect.catchCause((cause) => Effect.logWarning("database backup failed", { cause })),
+    Effect.catchCause((cause) =>
+      // An interrupted backup is the server shutting down, not a failed
+      // backup: let the interruption end the fiber instead of logging it
+      // as a warning and scheduling another cycle.
+      Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logWarning("database backup failed", { cause }),
+    ),
   )
   yield* Effect.forkScoped(Effect.forever(cycle.pipe(Effect.andThen(Effect.sleep(interval)))))
 })
