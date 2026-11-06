@@ -35,25 +35,30 @@ const SYSTEM_PROMPT = `Ты — агент восстановления Orchestr
 
 Отвечай на русском.`
 
-const FIXED_PREFIXES = ["исправлено:", "fixed:"]
+const NOT_FIXED_PREFIXES = ["не исправлено:", "not fixed:"]
 
 /**
- * The agent's `Исправлено:` line, when it wrote one. The marker may sit at
- * the start of its own line (as the system prompt asks) or mid-sentence;
- * the text after the colon, up to the end of that line, is the fix summary.
+ * The agent's `Исправлено:` line, when it wrote one — fail-closed. Any
+ * `Не исправлено:` / `Not fixed:` anywhere in the reply means NOT fixed,
+ * even when a positive marker appears too: "Не исправлено:" contains the
+ * positive substring, so a substring search reads it as fixed. The
+ * positive marker counts only at the start of a line or right after a
+ * sentence boundary ("Готово. Исправлено: …"), never mid-sentence — a
+ * quote or an error dump mentioning the phrase is not a verdict. The last
+ * such marker wins, and its text up to the end of the line is the summary.
  */
 export function parseFixed(reply: string): string | undefined {
   const lower = reply.toLowerCase()
-  const positions = FIXED_PREFIXES.map((prefix) => lower.indexOf(prefix)).filter((position) => position >= 0)
-  if (positions.length === 0) return undefined
-  const start = Math.min(...positions)
-  const after = reply.slice(start)
-  const colon = after.indexOf(":")
-  const fixed = after
-    .slice(colon + 1)
-    .split("\n")[0]
-    ?.trim()
-  return fixed ? fixed : undefined
+  if (NOT_FIXED_PREFIXES.some((prefix) => lower.includes(prefix))) return undefined
+  const pattern = /(?:^|[.!?]\s+)(исправлено:|fixed:)\s*([^\n]*)/gim
+  let last: string | undefined
+  let match = pattern.exec(reply)
+  while (match !== null) {
+    const text = match[2]?.trim()
+    if (text) last = text
+    match = pattern.exec(reply)
+  }
+  return last
 }
 
 /**

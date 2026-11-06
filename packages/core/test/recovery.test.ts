@@ -149,6 +149,18 @@ describe("recovery fixed-line parsing", () => {
   test("finds the Исправлено line", () => {
     expect(parseFixed("Что-то сломалось.\nИсправлено: починил конфиг.")).toBe("починил конфиг.")
     expect(parseFixed("Fixed: rebuilt the app.")).toBe("rebuilt the app.")
+    expect(parseFixed("Готово. Исправлено: прочитал файл.")).toBe("прочитал файл.")
     expect(parseFixed("Ничего не починил.")).toBeUndefined()
+  })
+
+  test("«Не исправлено» never parses as fixed, even with a positive marker nearby", () => {
+    expect(parseFixed("Не исправлено: не могу починить.")).toBeUndefined()
+    expect(parseFixed("Not fixed: cannot repair.")).toBeUndefined()
+    expect(parseFixed("Не исправлено: сломано.\nИсправлено: починил.")).toBeUndefined()
+  })
+
+  test("a quoted mention of the marker is not a verdict", () => {
+    expect(parseFixed("Как сказано в 'Исправлено: починил', это не так.")).toBeUndefined()
+    expect(parseFixed("Ошибка: expected 'Исправлено:' at the end.")).toBeUndefined()
   })
 })
