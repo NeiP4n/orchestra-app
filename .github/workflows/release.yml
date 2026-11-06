@@ -1,0 +1,224 @@
+name: release
+
+# Orchestra's own release pipeline (D2). A release is two commits on main — the bump
+# commit (version + CHANGELOG) and the registry commit (the releases.json entry pointing
+# at the bump commit's SHA) — created by script/bump-version.ts, plus a GitHub Release
+# holding the CLI binaries and static update manifests in update/. The `gh release
+# create` step cuts a v<version> tag so the updater's GitHub fallback and the desktop
+# feed keep working; the registry itself never needs tags.
+# Run it by hand from the Actions tab. Canary: release to `beta` first, soak, then
+# promote by editing that entry's channel to `latest` in releases.json (one commit)
+# and running `bun script/update-manifests.ts --channel latest` — or cut a new patch
+# version straight to `latest`. The registry keeps one entry per version, so the same
+# version cannot be bumped twice.
+# The full `bun run check` gate is pending B15: today it fails on pre-existing core
+# errors (prompt-intake, session/prompt), so the check job runs scoped checks instead —
+# no new typecheck errors in packages/cli/src, the release machinery tests, and the
+# release smoke script.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (semver, e.g. 1.1.0)"
+        required: true
+        type: string
+      channel:
+        description: "Release channel (beta first, soak, then latest)"
+        required: true
+        default: latest
+        type: choice
+        options: [latest, beta]
+      notes:
+        description: "Release notes (one line; also used as the CHANGELOG intro)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: release checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      # Scoped typecheck gate: the full `bun run check` fails today on pre-existing
+      # core errors, so fail only on NEW errors in the release-touched package.
+      - name: No new typecheck errors in packages/cli/src
+        run: |
+          cd packages/cli
+          bun typecheck > /tmp/typecheck.log 2>&1 || true
+          if grep "error TS" /tmp/typecheck.log | grep "packages/cli/src"; then
+            echo "New typecheck errors in packages/cli/src:"
+            grep "error TS" /tmp/typecheck.log | grep "packages/cli/src"
+            exit 1
+          fi
+          echo "packages/cli/src: no typecheck errors"
+
+      - name: Release machinery tests
+        run: |
+          cd packages/cli
+          bun test test/release-registry.test.ts test/release-notes.test.ts test/source-release.test.ts test/updater-install.test.ts test/updater-cache.test.ts test/updater-error.test.ts test/upgrade.test.ts
+
+      - name: Release smoke script
+        run: sh script/release-smoke.sh
+
+  bump:
+    name: bump version and register release
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      # The bump script commits twice; it needs a git identity, which this action
+      # provides from the Orchestra GitHub App (vars ORCHESTRA_APP_ID, secrets
+      # ORCHESTRA_APP_SECRET) and wires into the remote for the push below.
+      - name: Setup git committer
+        id: committer
+        uses: ./.github/actions/setup-git-committer
+        with:
+          opencode-app-id: ${{ vars.ORCHESTRA_APP_ID }}
+          opencode-app-secret: <redacted>
+
+      - name: Bump version and register the release
+        id: bump
+        run: |
+          if [ -n "${{ inputs.notes }}" ]; then
+            bun script/bump-version.ts "${{ inputs.version }}" --channel "${{ inputs.channel }}" --notes "${{ inputs.notes }}"
+          else
+            bun script/bump-version.ts "${{ inputs.version }}" --channel "${{ inputs.channel }}"
+          fi
+          echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: <redacted>
+
+      - name: Push the release commits
+        run: git push origin main
+        env:
+          GH_TOKEN: <redacted>
+
+  build-cli:
+    name: build CLI (${{ matrix.target }})
+    needs: bump
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: orchestra-linux-x64
+            os: ubuntu-latest
+          - target: orchestra-darwin-arm64
+            os: macos-26
+          - target: orchestra-windows-x64
+            os: windows-2025
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Build CLI
+        run: bun packages/cli/script/build.ts --target=${{ matrix.target }}
+        env:
+          ORCHESTRA_VERSION: ${{ needs.bump.outputs.version }}
+          ORCHESTRA_CHANNEL: ${{ inputs.channel }}
+
+      - name: SHA-256 the binary
+        shell: bash
+        run: |
+          BIN="$(ls packages/cli/dist/*/bin/orchestra*)"
+          sha256sum "$BIN" > "$BIN.sha256"
+          cat "$BIN.sha256"
+
+      - name: Upload CLI binary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cli-${{ matrix.target }}
+          path: |
+            packages/cli/dist/*/bin/orchestra*
+          if-no-files-found: error
+
+  publish:
+    name: publish GitHub Release and update manifests
+    needs: [bump, build-cli]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Setup git committer
+        id: committer
+        uses: ./.github/actions/setup-git-committer
+        with:
+          opencode-app-id: ${{ vars.ORCHESTRA_APP_ID }}
+          opencode-app-secret: <redacted>
+
+      - name: Download CLI binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          pattern: cli-*
+
+      - name: Create the GitHub Release
+        run: |
+          mkdir -p release-assets
+          cp dist/cli-orchestra-linux-x64/cli-linux-x64/bin/orchestra release-assets/orchestra-linux-x64
+          cp dist/cli-orchestra-darwin-arm64/cli-darwin-arm64/bin/orchestra release-assets/orchestra-darwin-arm64
+          cp dist/cli-orchestra-windows-x64/cli-windows-x64/bin/orchestra.exe release-assets/orchestra-windows-x64.exe
+          cd release-assets
+          sha256sum orchestra-linux-x64 > orchestra-linux-x64.sha256
+          sha256sum orchestra-darwin-arm64 > orchestra-darwin-arm64.sha256
+          sha256sum orchestra-windows-x64.exe > orchestra-windows-x64.exe.sha256
+          cd ..
+          NOTES="${{ inputs.notes }}"
+          if [ -z "$NOTES" ]; then NOTES="Orchestra ${{ inputs.version }} (${{ inputs.channel }}). See CHANGELOG.md for details."; fi
+          gh release create "v${{ inputs.version }}" --title "${{ inputs.version }}" --notes "$NOTES" release-assets/*
+        env:
+          GH_TOKEN: <redacted>
+
+      # The manifests point the built-in static update host at this release; the
+      # installer copy keeps update/install identical to installer/get.sh.
+      - name: Refresh the static update manifests
+        run: bun script/update-manifests.ts --channel "${{ inputs.channel }}"
+
+      - name: Commit and push the manifests
+        run: |
+          git add update/
+          git commit -m "chore(release): update manifests for ${{ inputs.version }}"
+          git push origin main
+        env:
+          GH_TOKEN: <redacted>

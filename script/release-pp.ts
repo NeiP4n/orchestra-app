@@ -1,30 +1,41 @@
 #!/usr/bin/env bun
-// Publishes an Orchestra release: tags HEAD as release/<version>
-// and pushes the tag. Installed copies see it on their next update check.
-//
-//   bun run release:pp 1.2.0            pushes to the "backup" remote
-//   bun run release:pp 1.2.0 origin     pushes to another remote
-import { $ } from "bun"
+// Cut an Orchestra release locally: runs the bump flow (script/bump-version.ts),
+// which commits twice on main — the bump commit (version + CHANGELOG) and the registry
+// commit (the releases.json entry pointing at the bump commit's SHA). Nothing is
+// pushed and no tag is created: pushes go through the snapshot flow, and the binaries
+// plus the GitHub Release are produced by the release workflow afterwards.
+//   bun run release:pp 1.2.0 [--channel beta] [--notes "..."]
+// This file must keep existing: packages/cli/src/version.ts uses its presence as the
+// source-install marker (ORCHESTRA_LOCAL).
+import path from "node:path"
 
-const version = process.argv[2]
-const remote = process.argv[3] ?? "backup"
+const root = path.resolve(import.meta.dir, "..")
+const args = process.argv.slice(2)
+const version = args.find((arg) => !arg.startsWith("--"))
+const flag = (name: string) => {
+  const index = args.indexOf(name)
+  return index === -1 ? undefined : args[index + 1]
+}
+if (!version || !/^\d+\.\d+\.\d+$/.test(version))
+  fail("Usage: bun run release:pp <major.minor.patch> [--channel latest|beta] [--notes ...]")
 
-if (!version || !/^\d+\.\d+\.\d+$/.test(version)) fail("Usage: bun run release:pp <major.minor.patch> [remote]")
-if ((await $`git status --porcelain --untracked-files=no`.quiet().text()).trim())
-  fail("Commit or stash your changes first: a release is exactly the committed HEAD.")
-const tag = `release/${version}`
-if ((await $`git tag -l ${tag}`.quiet().text()).trim()) fail(`${tag} already exists.`)
+const bump = ["bun", path.join(root, "script", "bump-version.ts"), version]
+const channel = flag("--channel")
+if (channel) bump.push("--channel", channel)
+const notes = flag("--notes")
+if (notes) bump.push("--notes", notes)
 
-const published = (await $`git ls-remote --tags --refs ${remote} release/*`.quiet().text())
-  .split("\n")
-  .map((line) => line.split("refs/tags/release/")[1])
-  .filter((item): item is string => Boolean(item))
-const newest = published.toSorted((a, b) => Bun.semver.order(b, a))[0]
-if (newest && Bun.semver.order(version, newest) <= 0) fail(`${version} must be newer than the published ${newest}.`)
+const proc = Bun.spawn(bump, { cwd: root, stdout: "inherit", stderr: "inherit" })
+const code = await proc.exited
+if (code !== 0) process.exit(code)
 
-await $`git tag -a ${tag} -m ${`Orchestra ${version}`}`
-await $`git push ${remote} ${tag}`
-console.log(`Released ${tag} to ${remote}. Installed copies get it from the update prompt in Orchestra.`)
+console.log("")
+console.log("Next steps:")
+console.log("  1. Push the two release commits through the normal snapshot flow.")
+console.log("  2. Run the release workflow (Actions → release) with the same version")
+console.log("     and channel — it builds the CLI binaries, creates the GitHub Release")
+console.log("     and refreshes the static update manifests.")
+console.log("  3. Optionally run the release-desktop workflow for the desktop installers.")
 
 function fail(message: string): never {
   console.error(message)
