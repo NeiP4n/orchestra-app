@@ -19,7 +19,40 @@ import { Ssrf } from "../ssrf.js"
 export const name = "webfetch"
 export const MAX_RESPONSE_BYTES = MAX_MARKDOWN_BYTES
 export const DEFAULT_TIMEOUT_SECONDS = 30
-export const MAX_TIMEOUT_SECONDS = 120
+export const MAX_TIMEOUT_SECONDS = 600
+// Upstream fetch server (modelcontextprotocol/servers v2.3.0) timeout window,
+// in milliseconds: per-call timeout_ms, FETCH_TIMEOUT_MS env, default 30 s,
+// range 100–600_000. The native tool keeps its legacy per-call `timeout` in
+// seconds alongside `timeout_ms`; both clamp into this window.
+export const MIN_TIMEOUT_MS = 100
+export const MAX_TIMEOUT_MS = 600_000
+export const DEFAULT_TIMEOUT_MS = 30_000
+export const FETCH_TIMEOUT_MS_ENV = "FETCH_TIMEOUT_MS"
+
+/**
+ * Effective fetch timeout in milliseconds. Precedence: per-call `timeout_ms`,
+ * then per-call `timeout` in seconds, then the `FETCH_TIMEOUT_MS` env default,
+ * then 30 s. Everything clamps into the upstream 100–600_000 ms window, so a
+ * stale env value or an over-eager model can neither spin forever nor ask for
+ * less than a round trip.
+ */
+export function resolveFetchTimeoutMs(
+  input: { readonly timeout?: number; readonly timeout_ms?: number },
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const fromEnv = () => {
+    const raw = env[FETCH_TIMEOUT_MS_ENV]
+    if (raw === undefined) return undefined
+    const parsed = Number.parseInt(raw, 10)
+    return Number.isSafeInteger(parsed) ? parsed : undefined
+  }
+  const requested =
+    input.timeout_ms ??
+    (input.timeout !== undefined ? input.timeout * 1_000 : undefined) ??
+    fromEnv() ??
+    DEFAULT_TIMEOUT_MS
+  return Math.min(Math.max(requested, MIN_TIMEOUT_MS), MAX_TIMEOUT_MS)
+}
 
 export const description = `Fetch content from an HTTP or HTTPS URL and return it as text, markdown, or HTML. Markdown is the default.
 
@@ -33,7 +66,15 @@ export const Input = Schema.Struct({
     .annotate({ description: "The format to return the content in. Defaults to markdown." })
     .pipe(Schema.withDecodingDefaultKey(Effect.succeed("markdown" as const))),
   timeout: Schema.optionalKey(Timeout).annotate({
-    description: `Optional timeout in seconds (maximum: ${MAX_TIMEOUT_SECONDS})`,
+    description: `Optional timeout in seconds (maximum: ${MAX_TIMEOUT_SECONDS}); timeout_ms wins when both are given.`,
+  }),
+  timeout_ms: Schema.optionalKey(
+    Schema.Int.check(
+      Schema.isGreaterThanOrEqualTo(MIN_TIMEOUT_MS),
+      Schema.isLessThanOrEqualTo(MAX_TIMEOUT_MS),
+    ),
+  ).annotate({
+    description: `Optional timeout in milliseconds (${MIN_TIMEOUT_MS}–${MAX_TIMEOUT_MS}); wins over timeout when both are given.`,
   }),
 })
 
@@ -181,7 +222,7 @@ export const Plugin = {
                 return { body: yield* collectBody(response), contentType }
               }).pipe(
                 Effect.timeoutOrElse({
-                  duration: Duration.seconds(input.timeout ?? DEFAULT_TIMEOUT_SECONDS),
+                  duration: Duration.millis(resolveFetchTimeoutMs(input)),
                   orElse: () => Effect.fail(new Error("Request timed out")),
                 }),
               )
