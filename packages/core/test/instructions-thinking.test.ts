@@ -80,6 +80,24 @@ describe("InstructionThinking", () => {
   })
 })
 
+describe("InstructionBuiltIns task method", () => {
+  const plain = builtIns(FSUtil.resolve("/repo"))
+
+  plain.effect("asks three questions before code and does the riskiest part first", () =>
+    Effect.gen(function* () {
+      const context = yield* InstructionBuiltIns.Service
+      const initialized = yield* readInitial(yield* context.load())
+
+      expect(Object.keys(initialized.values)).toContain("core/ask-first")
+      expect(Object.keys(initialized.values)).toContain("core/riskiest-first")
+      expect(initialized.text).toContain("<ask-first>")
+      expect(initialized.text).toContain("exactly three questions")
+      expect(initialized.text).toContain("<riskiest-first>")
+      expect(initialized.text).toContain("riskiest, least-known part of a task first")
+    }),
+  )
+})
+
 describe("InstructionBuiltIns thinking rules", () => {
   const plain = builtIns(FSUtil.resolve("/repo"))
   const shipping = builtIns(repository)

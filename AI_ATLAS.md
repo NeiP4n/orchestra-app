@@ -579,6 +579,64 @@ board, a protected file, or a credential dump in the same turn is flagged. Rules
 a `Rules / DoD / Errors` section, the context governor never elides a
 `rules list` result, and prefix-pin reports rule changes as a diff.
 
+A new Society starts with six default rules (`Rules.DEFAULT_SOCIETY_RULES`,
+seeded by `createSociety` into an empty society scope only): ask three questions
+before coding, write an ADR for big decisions, write a handoff before any stop,
+30-minute read-only cold start, riskiest part first, record verified outcomes in
+the knowledge map. Seeding is idempotent and never rewrites a Society's own rules.
+Two of those rules also live as built-in session instructions
+(`core/ask-first`, `core/riskiest-first` in `instructions/builtins.ts`), so a lone
+session without a Society hears them too.
+
+## ADRs — `packages/core/src/adr.ts`
+
+Big decisions are written down once, in `.orchestra/decisions/adr-NNNN.md`
+(Context, Decision, Alternatives considered with why each lost, Consequences),
+with `create` / `list` / `read` / `search` over the project's directory. Numbers
+come from the files already there; a file that does not parse as an ADR is skipped,
+never fatal. This layout is the one the .orchestra-files block (B16) must adopt
+when it lands — there is no second decisions directory. The orchestrator's
+standing prompt points here (`plugin/agent.ts`), and the default society rules
+make writing one mandatory before the implementing code.
+
+## Session handoffs — `packages/core/src/session/handoff.ts`, `session/execution.ts`
+
+Before any pause or stop, the agent writes `.orchestra/sessions/<id>/handoff.md`
+(where it stopped, what works, what does not, the next step) — a default society
+rule. The execution layer also writes one: on an interrupted or failed terminal
+outcome it leaves a *stub* (marked `<!-- orchestra-handoff-stub -->`, with
+"(not recorded)" placeholders) when no handoff exists, refreshes an existing stub,
+and never overwrites an agent-written handoff. Writing the stub is best-effort
+inside settlement: an interruption stays an interruption, anything else is a
+warning. The layout follows the three-level memory design (L3, session level);
+`memory.md` in the same folder is not this module's job.
+
+## Sprint cold start — `packages/core/src/sprint.ts`
+
+`Sprint.start` opens a 30-minute read-only phase for a project, recorded as a
+marker file `.orchestra/sprint.json` (`startedAt`, `readOnlyUntil`, `minutes`,
+`startedBy`); `isReadOnly` / `remainingMs` / `checkWrite` read it, `end` closes it
+early. A corrupt phase file reads as no phase, never a stuck one. The phase is
+enforced by the default society rule and by `checkWrite` (which refuses `edit`,
+`write`, `patch`, `shell` with the minutes left) — it is NOT a hard gate on the
+tools themselves: the write tools each check Permission on their own path, with no
+shared choke point, so a model that ignores both the rule and `checkWrite` can
+still write. The marker makes the violation visible; it does not make it impossible.
+
+## Knowledge map — `packages/core/src/knowledge-map.ts`
+
+Who is strong at what, by verified outcomes, not by claims. KV keys
+`knowledge-map/<scope>/<agent>` (`project:<id>` or `society:<name>` scopes, never
+shared across them) hold per-area scores: +10 per DONE, +5 more when done on the
+first try, −5 per FAILED, clamped 0–100, starting at 0. `record` / `get` / `list` /
+`bestFor` (highest score, then most tasks; agents with no record in the area are
+not ranked). The only writer wired in is the `dod` tool: on `verify`, a DONE or
+FAILED item records the outcome for the verifying agent in the item's stage (its
+group; "general" when ungrouped), detached via `Effect.forkDetach` and skipped
+entirely in layers without KV — the board already says DONE/FAILED, so a map
+write never turns a verify call into a failure. No code assigns tasks by skill
+yet: `bestFor` is the query API waiting for that consumer (follow-up).
+
 ## Model collections & custom endpoints
 
 - Schema: `packages/schema/src/config/model.ts` (`Collection`/`Collections` —

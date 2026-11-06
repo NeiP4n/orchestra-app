@@ -162,6 +162,26 @@ export const history = (kv: KV.Interface, scope: string): Effect.Effect<Readonly
 
 export type AddResult = { readonly error: string; readonly rule?: undefined } | { readonly rule: Rule; readonly error?: undefined }
 
+// The standing rules a new Society starts with (approach ideas #3, #4, #10, #12, #13, #24).
+// Every text stays within MAX_TEXT, so seeding can never trip the length refusal in `add`.
+// They are seeded by the operator (`by: "operator"`), so a worker cannot remove them —
+// the operator can, like any operator rule. A Society that already has its own rules
+// keeps them: seeding only fills an empty society scope, it never rewrites one.
+export const DEFAULT_SOCIETY_RULES: ReadonlyArray<string> = [
+  "Before writing code for a task, first write exactly 3 questions about what is unclear in it, then work from the answers.",
+  "A big decision — a library, architecture, or module boundary — needs an ADR in .orchestra/decisions/adr-NNNN.md before the code that implements it.",
+  "Before any pause or stop, write .orchestra/sessions/<id>/handoff.md: where you stopped, what works, what does not, and the next step.",
+  "The first 30 minutes of a sprint are reading code and asking questions only; writing code is forbidden until the read-only phase ends.",
+  "Do the riskiest, least-known part of a task first, not the easiest part; fail fast and cheap, while the rest is still undone.",
+  "When a task is verified DONE or FAILED, record the outcome in the knowledge map, so the next assignment uses facts, not claims.",
+]
+
+/** Adds every default society rule the scope does not already have. Adding is idempotent: a rule whose text is already present is skipped, never duplicated. */
+export const seedDefaults = (kv: KV.Interface, scope: string): Effect.Effect<void, LoadError> =>
+  Effect.forEach(DEFAULT_SOCIETY_RULES, (text) =>
+    add(kv, scope, { text, by: "operator" }).pipe(Effect.asVoid),
+  ).pipe(Effect.asVoid)
+
 export const add = (kv: KV.Interface, scope: string, input: { text: string; by: string }): Effect.Effect<AddResult, LoadError> =>
   Effect.gen(function* () {
     const text = input.text.replace(/\s+/g, " ").trim()

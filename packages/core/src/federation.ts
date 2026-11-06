@@ -1711,11 +1711,26 @@ const layer: Layer.Layer<
         for (let attempt = 2; taken.has(name); attempt++) name = `${base} ${attempt}`
         // The Society's standing rules are read before anything is created: a rulebook that
         // cannot be read must fail the creation here, not hand its projects an empty rulebook.
-        const societyRules = yield* Rules.listStrict(kv, Rules.societyScope(name)).pipe(
+        // A Society with no rules of its own starts with the defaults (Rules.DEFAULT_SOCIETY_RULES:
+        // ask-first, ADR, handoff, cold start, riskiest-first, knowledge map), so a new
+        // Society runs the approach from its first task instead of discovering it later.
+        let societyRules = yield* Rules.listStrict(kv, Rules.societyScope(name)).pipe(
           Effect.mapError(
             (error) => new FederationError({ message: `Could not read the rules of Society "${name}": ${String(error)}` }),
           ),
         )
+        if (societyRules.length === 0) {
+          yield* Rules.seedDefaults(kv, Rules.societyScope(name)).pipe(
+            Effect.mapError(
+              (error) => new FederationError({ message: `Could not seed the rules of Society "${name}": ${String(error)}` }),
+            ),
+          )
+          societyRules = yield* Rules.listStrict(kv, Rules.societyScope(name)).pipe(
+            Effect.mapError(
+              (error) => new FederationError({ message: `Could not read the rules of Society "${name}": ${String(error)}` }),
+            ),
+          )
+        }
         // The folder is the operator's choice, so it must be a full path they can find again.
         const chosen = input.directory?.trim()
         const parent = chosen ? chosen.replace(/^~(?=$|[\\/])/, os.homedir()) : undefined

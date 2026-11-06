@@ -7,6 +7,7 @@ import { Job } from "../job.js"
 import { Instance } from "../instance/service.js"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { SessionEvent } from "./event.js"
+import { SessionHandoff } from "./handoff.js"
 import { SessionHold } from "./hold.js"
 import { SessionRunCoordinator } from "./run-coordinator.js"
 import { SessionRunner } from "./runner/index.js"
@@ -159,6 +160,11 @@ export const layer = Layer.effect(
                 { sessionID, reason: outcome.reason },
                 outcome.reason === "shutdown" ? undefined : releaseOnCommit(sessionID),
               )
+              // A stopped session leaves a handoff stub behind, so a resumed session or a
+              // replacement agent finds where it stopped even when the agent never wrote
+              // one itself. The stub never overwrites an agent-written handoff, and a
+              // failure to write it must not fail the settlement.
+              yield* writeHandoffStub(sessionID, outcome.reason)
               return
             }
             yield* bus.publish(
@@ -169,9 +175,31 @@ export const layer = Layer.effect(
               },
               releaseOnCommit(sessionID),
             )
+            yield* writeHandoffStub(sessionID, "failed")
           }),
         ),
     })
+
+    // Best-effort handoff stub for a stopped session (see session/handoff.ts): the
+    // session's project directory comes from the store, and anything that goes wrong
+    // here is a warning, never a failed settlement.
+    const writeHandoffStub = (sessionID: SessionSchema.ID, reason: SessionHandoff.Reason) =>
+      Effect.gen(function* () {
+        const session = yield* store.get(sessionID)
+        if (!session) return
+        yield* SessionHandoff.writeStubIfMissing(session.location.directory, sessionID, reason)
+      }).pipe(
+        // An interruption stays an interruption; anything else is a warning, so a
+        // handoff that cannot be written never fails the settlement it rides on.
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.interrupt
+            : Effect.logWarning("Could not write session handoff stub", {
+                sessionID,
+                error: Cause.pretty(cause),
+              }),
+        ),
+      )
 
     return Service.of({
       active: coordinator.active,
