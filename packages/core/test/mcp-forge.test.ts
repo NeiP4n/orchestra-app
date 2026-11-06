@@ -58,7 +58,8 @@ describe("mcp forge", () => {
     )
   })
 
-  test("turns OpenAPI operations into HTTP tools", () => {    const document = {
+  test("turns OpenAPI operations into HTTP tools", () => {
+    const document = {
       openapi: "3.0.0",
       info: { title: "Pets", version: "1" },
       servers: [{ url: "https://api.example.com/v1/" }],

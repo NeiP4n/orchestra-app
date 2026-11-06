@@ -284,6 +284,33 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   opt-in is invalid — even when installed by hand in the config. The selector
   (`select.ts`) still matches them; the gate lives in acquire/call, not in ranking.
 
+## SSRF gate — `packages/core/src/tool/ssrf.ts` (Б13, extended in G2-2)
+
+- One shared gate for every outgoing URL: `Ssrf.assertPublicUrl` (Effect),
+  `assertPublicUrlPromise` (plain async), `assertPublicLiteralUrl` (sync, no DNS).
+  It refuses non-http(s) URLs, local hostnames (`localhost`, `*.localhost`,
+  `*.local`), literal private/loopback IPs, and hostnames that resolve to a
+  private address. DNS failure fails closed. Deliberately not blocked:
+  198.18.0.0/15 (benchmarking space — the sandbox resolver answers public names
+  from it) and the TEST-NET documentation ranges.
+- Guarded call sites: `webfetch` (every URL and every redirect hop), remote MCP
+  connect (`mcp/client.ts` — the checked URL is the one the transport dials),
+  provider discovery (`provider-discovery.ts` — the gate runs before the API key
+  is attached to any header), MCP Forge validation + `fromOpenApi` (literal
+  check) and the generated runtime (its own embedded copy of the gate, because
+  generated code cannot import Orchestra modules; redirects followed by hand,
+  one hop at a time), Code Mode fetch (`codemode/web.ts`, manual redirects),
+  MCP OAuth discovery/token fetches (`mcp/oauth.ts`), and `mcp_forge` remote
+  registration (`tool/plugin/mcp-forge.ts`).
+- `allowPrivateUrl` is a test-only escape hatch for loopback fixture servers
+  (`mcp/index.ts` layer options → pool → client → oauth). Production callers
+  never pass it; a remote MCP server on a private or loopback address is refused
+  unless the caller explicitly opts in.
+- Not gated, by design: fixed hosts and operator-configured instance URLs
+  (`plugin/provider/*`, ollama/lmstudio fixed origins), operator pairing room
+  URLs (`peer.ts`), CLI-operator URLs (`session/import.ts`, updater env URL,
+  gateway upstream), and the same-origin browser POST in `oauth/page.ts`.
+
 ## Desktop isolation — `packages/core/src/desktop-isolation.ts` (block Б7)
 
 - The agent never touches the operator's real screen, mouse, or clipboard.

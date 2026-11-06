@@ -278,7 +278,8 @@ describe("MCP OAuth", () => {
     expect(stale.rows.size).toBe(0)
   })
 
-  test("shares concurrent refreshes for the same token", async () => {    let requests = 0
+  test("shares concurrent refreshes for the same token", async () => {
+    let requests = 0
     const pending = Promise.withResolvers<void>()
     const server = Bun.serve({
       port: 0,
