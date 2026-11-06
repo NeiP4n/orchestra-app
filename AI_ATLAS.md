@@ -428,6 +428,13 @@ Orchestrator and synthesizes the answers.
   action; results return to the chat as `<group-council-results>`.
 - Federation tickets (inbox/outbox/decide/reply) are model-tool surface by
   design; there is no HTTP endpoint for them or for starting a round.
+- `group_status` also reports the Society's live agents society-wide
+  (`packages/core/src/society-status.ts`): per-project and total counts of
+  running (holds an execution claim), waiting (a delivered task nobody
+  started — never read as working), succeeded, failed and interrupted
+  sessions, plus `live` (did not die). Counts only, never session IDs,
+  titles or names; when the claim store is unavailable in the layer the
+  output says `claimsAvailable: false` instead of reporting zero running.
 - A federation group is **not** the society_forge "Society" feature; do not
   conflate them.
 
