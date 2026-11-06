@@ -24,6 +24,7 @@ function fixture(
   failCleanup = false,
   releasePackage = name,
   formula?: string,
+  failHosts: readonly string[] = [],
 ) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
@@ -61,6 +62,7 @@ function fixture(
             async (input: string | URL | Request) => {
               const url = input instanceof Request ? input.url : input.toString()
               requests.push(url)
+              if (failHosts.includes(new URL(url).hostname)) return new Response("not found", { status: 404 })
               if (new URL(url).hostname === "formulae.brew.sh") return Response.json({ versions: { stable: "2.0.21" } })
               if (new URL(url).hostname === "api.github.com") return Response.json({ tag_name: "v2.3.4" })
               return Response.json({ version: "2.3.4", metadata: { package: releasePackage } })
@@ -342,16 +344,33 @@ it.live("Homebrew formula opencode is ignored as a supported brew formula", () =
   )
 })
 
-it.live("без ORCHESTRA_UPDATE_URL latest берётся из GitHub-релиза Orchestra", () =>
+it.live("без ORCHESTRA_UPDATE_URL latest берётся со встроенного static-хоста", () =>
   Effect.gen(function* () {
     const test = yield* fixture()
     delete process.env.ORCHESTRA_UPDATE_URL
     // В исходной установке (ORCHESTRA_LOCAL) check/run идут через git, а не через
-    // сеть — поэтому здесь проверяется сам fallback: latest() без URL читает
-    // релиз Orchestra с GitHub, а не сервис обновлений.
+    // сеть — поэтому здесь проверяется сам latest(): без URL он читает встроенный
+    // static-хост (raw.githubusercontent), а не сервис обновлений.
     const latestVersion = yield* test.updater.latest()
     expect(latestVersion).toBe("2.3.4")
-    expect(test.requests).toEqual(["https://api.github.com/repos/NeiP4n/orchestra-app/releases/latest"])
+    expect(test.requests).toEqual([
+      `https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/update/local/cli/npm?current=${encodeURIComponent(ORCHESTRA_VERSION)}`,
+    ])
+  }),
+)
+
+it.live("когда static-хост отвечает 404, latest падает обратно на GitHub-релиз Orchestra", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture(() => ({}), "@orchestra/cli", false, "@orchestra/cli", undefined, [
+      "raw.githubusercontent.com",
+    ])
+    delete process.env.ORCHESTRA_UPDATE_URL
+    const latestVersion = yield* test.updater.latest()
+    expect(latestVersion).toBe("2.3.4")
+    expect(test.requests).toEqual([
+      `https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/update/local/cli/npm?current=${encodeURIComponent(ORCHESTRA_VERSION)}`,
+      "https://api.github.com/repos/NeiP4n/orchestra-app/releases/latest",
+    ])
   }),
 )
 

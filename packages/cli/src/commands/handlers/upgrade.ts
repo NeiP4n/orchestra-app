@@ -14,10 +14,11 @@ export default Runtime.handler(
       intro("Upgrade")
       const updater = yield* Updater.Service
 
-      // Orchestra source installs update from release/* tags or the configured development
-      // branch. Never ask the public updater for a source checkout: that would offer
-      // an upstream OpenCode version (for example 2.0.32) instead of the fork's update.
-      if (ORCHESTRA_LOCAL) {
+      // Orchestra source installs update from the releases.json registry on main or
+      // the configured development branch. Never ask the public updater for a source
+      // checkout unless ORCHESTRA_UPDATE_URL is set explicitly: that would offer an
+      // upstream OpenCode version (for example 2.0.32) instead of the fork's update.
+      if (ORCHESTRA_LOCAL && !process.env.ORCHESTRA_UPDATE_URL?.trim()) {
         const status = yield* updater.check()
         if (!status) {
           outro("Already up to date")
@@ -33,12 +34,6 @@ export default Runtime.handler(
           Effect.tap(() => Effect.sync(() => progress.stop("Update complete"))),
           Effect.tapCause(() => Effect.sync(() => progress.stop("Update failed", 1))),
         )
-        outro("Done")
-        return
-      }
-
-      if (!process.env.ORCHESTRA_UPDATE_URL?.trim()) {
-        log.warn("Updates are disabled: ORCHESTRA_UPDATE_URL is not set.")
         outro("Done")
         return
       }

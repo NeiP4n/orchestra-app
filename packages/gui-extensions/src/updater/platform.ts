@@ -9,12 +9,20 @@ const updateClient = pkg.autoUpdater
 const restartTimeout = 10_000
 
 export const make = Effect.fn("Updater.platform")(function* (channel: string) {
-  const updateUrl = process.env.ORCHESTRA_UPDATE_URL
+  const external = requiresStableMacInstaller(process.platform, channel)
+  // The beta-mac path fetches the update-service JSON protocol, which the GitHub
+  // releases page cannot serve — without an explicit ORCHESTRA_UPDATE_URL the
+  // updater stays disabled there, same as before. Every other platform defaults
+  // to the latest GitHub release download feed (electron-updater follows the
+  // /releases/latest/download redirect to latest.yml; verify on the first
+  // desktop release that the relative file URLs inside it resolve).
+  const updateUrl =
+    process.env.ORCHESTRA_UPDATE_URL?.trim() ||
+    (external ? undefined : "https://github.com/NeiP4n/orchestra-app/releases/latest/download")
 
   if (!updateUrl) return undefined
 
-  const external = requiresStableMacInstaller(process.platform, channel)
-  const userAgent = `opencode/${channel === "prod" ? "latest" : channel}/${app.getVersion()}/desktop`
+  const userAgent = `orchestra/${channel === "prod" ? "latest" : channel}/${app.getVersion()}/desktop`
   const runFork = Effect.runForkWith(yield* Effect.context())
   updateClient.logger = {
     info: (...args) => runFork(Effect.logInfo(...args)),

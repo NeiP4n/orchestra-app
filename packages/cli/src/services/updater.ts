@@ -22,6 +22,18 @@ export type CheckResult =
 
 export const DEFAULT_UPDATE_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 
+// The built-in update host (variant (a) in the D2 design): static manifests served from
+// the repository itself, `update/<channel>/cli/<distribution>`, refreshed by the release
+// workflow. An explicitly configured ORCHESTRA_UPDATE_URL always wins; the default only
+// applies when the operator set nothing. There is no Homebrew manifest on the static
+// host (no formula exists yet) — a brew check falls through to GitHub releases, which
+// reports that honestly.
+export const DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/update"
+
+export function resolveUpdateUrl(): string {
+  return process.env.ORCHESTRA_UPDATE_URL?.trim() || DEFAULT_UPDATE_URL
+}
+
 /**
  * The update policy when the user has not chosen one: only notify. An update installs a
  * new binary and restarts the background service on version mismatch, so silently
@@ -290,67 +302,76 @@ const make = Effect.gen(function* () {
   }
 
   const release = Effect.fnUntraced(function* (method?: Method) {
-    const updateURL = process.env.ORCHESTRA_UPDATE_URL?.trim()
-    if (!updateURL) {
-      // No update service configured: fall back to Orchestra's own GitHub
-      // releases, never to the upstream OpenCode registry.
-      return yield* githubRelease(method)
-    }
+    const updateURL = resolveUpdateUrl()
     const distribution = method === "brew" ? "homebrew" : "npm"
     const base = updateURL.replace(/\/+$/, "")
-    const response = yield* Effect.tryPromise({
-      try: (signal) =>
-        fetch(
-          `${base}/${encodeURIComponent(channel)}/${encodeURIComponent(ORCHESTRA_ARTIFACT)}/${distribution}?current=${encodeURIComponent(ORCHESTRA_VERSION)}`,
-          { signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]) },
-        ),
-      catch: (cause) =>
-        new UpgradeError(
-          {
-            title: "Could not check for Orchestra updates",
-            detail: errorDetail(cause),
-            retry: "Check your network, then run orchestra upgrade again.",
-          },
-          { cause },
-        ),
-    })
-    if (!response.ok)
-      return yield* Effect.fail(
-        new UpgradeError({
-          title: "Could not check for Orchestra updates",
-          detail: `The update service returned HTTP ${response.status}.`,
-          retry: "Try again in a few minutes.",
-        }),
-      )
-    const data: { version?: string; metadata?: { package?: string } } =
-      yield* Effect.tryPromise({
-        try: () => response.json(),
+    const service = yield* fetchReleaseManifest(base, distribution).pipe(
+      Effect.map((data) => ({ ok: true as const, data })),
+      Effect.catch((cause) => Effect.succeed({ ok: false as const, cause })),
+    )
+    if (service.ok) return service.data
+    // The built-in static host is best-effort: before the first release (or for a
+    // distribution with no manifest) it answers 404, so fall back to GitHub releases.
+    // An explicitly configured host is the operator's choice — its failure is fatal.
+    if (!process.env.ORCHESTRA_UPDATE_URL?.trim()) return yield* githubRelease(method)
+    return yield* Effect.fail(service.cause)
+  })
+
+  const fetchReleaseManifest = (base: string, distribution: string) =>
+    Effect.gen(function* () {
+      const response = yield* Effect.tryPromise({
+        try: (signal) =>
+          fetch(
+            `${base}/${encodeURIComponent(channel)}/${encodeURIComponent(ORCHESTRA_ARTIFACT)}/${distribution}?current=${encodeURIComponent(ORCHESTRA_VERSION)}`,
+            { signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]) },
+          ),
         catch: (cause) =>
           new UpgradeError(
             {
-              title: "Could not read the Orchestra update information",
+              title: "Could not check for Orchestra updates",
               detail: errorDetail(cause),
-              retry: "Try again in a few minutes.",
+              retry: "Check your network, then run orchestra upgrade again.",
             },
             { cause },
           ),
       })
-    const version = data.version
-    const packageName = data.metadata?.package
-    if (!version || !packageName)
-      return yield* Effect.fail(
-        new UpgradeError({
-          title: "Could not read the Orchestra update information",
-          detail: "The update service returned incomplete release information.",
-          retry: "Try again in a few minutes.",
-        }),
-      )
-    return { package: packageName, version }
-  })
+      if (!response.ok)
+        return yield* Effect.fail(
+          new UpgradeError({
+            title: "Could not check for Orchestra updates",
+            detail: `The update service returned HTTP ${response.status}.`,
+            retry: "Try again in a few minutes.",
+          }),
+        )
+      const data: { version?: string; metadata?: { package?: string } } =
+        yield* Effect.tryPromise({
+          try: () => response.json(),
+          catch: (cause) =>
+            new UpgradeError(
+              {
+                title: "Could not read the Orchestra update information",
+                detail: errorDetail(cause),
+                retry: "Try again in a few minutes.",
+              },
+              { cause },
+            ),
+        })
+      const version = data.version
+      const packageName = data.metadata?.package
+      if (!version || !packageName)
+        return yield* Effect.fail(
+          new UpgradeError({
+            title: "Could not read the Orchestra update information",
+            detail: "The update service returned incomplete release information.",
+            retry: "Try again in a few minutes.",
+          }),
+        )
+      return { package: packageName, version }
+    })
 
   // Latest Orchestra release from our own GitHub repository. Used when no
   // update service is configured (ORCHESTRA_UPDATE_URL unset). Release tags
-  // are `v<version>` as cut by the publish workflow from our own code.
+  // are `v<version>` as cut by the release workflow from our own code.
   const githubRelease = Effect.fnUntraced(function* (method?: Method) {
     if (method === "brew") {
       return yield* Effect.fail(
@@ -524,16 +545,7 @@ const make = Effect.gen(function* () {
           )
         }
         if (method === "curl") {
-          const updateURL = process.env.ORCHESTRA_UPDATE_URL?.trim()
-          if (!updateURL) {
-            return yield* Effect.fail(
-              new UpgradeError({
-                title: "Could not download the Orchestra installer",
-                detail: "ORCHESTRA_UPDATE_URL is not set.",
-                retry: "Set ORCHESTRA_UPDATE_URL to enable updates.",
-              }),
-            )
-          }
+          const updateURL = resolveUpdateUrl()
           const installURL = process.env.ORCHESTRA_INSTALL_URL?.trim() || `${updateURL.replace(/\/+$/, "")}/install`
           const bash = yield* installerBash()
           yield* fs.makeDirectory(global.cache, { recursive: true })
@@ -577,10 +589,12 @@ const make = Effect.gen(function* () {
   })
 
   const inspect = Effect.fnUntraced(function* () {
-    if (ORCHESTRA_LOCAL) {
-      // Source installs use Orchestra release tags or the development branch, never the public
-      // update service. A release checkout checks release/* first; a lan-rooms
-      // checkout then falls through to its own branch tracking.
+    if (ORCHESTRA_LOCAL && !process.env.ORCHESTRA_UPDATE_URL?.trim()) {
+      // Source installs use the releases.json registry on main or the development
+      // branch, never the public update service. A release checkout checks the
+      // registry first; a lan-rooms checkout then falls through to its own branch
+      // tracking. An explicitly configured ORCHESTRA_UPDATE_URL overrides this and
+      // sends the checkout to the update service instead.
       const release = yield* sourceRelease()
       if (release?.available) return { policy: "notify" as const, version: release.available }
 
