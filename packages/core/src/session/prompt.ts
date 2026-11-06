@@ -6,16 +6,21 @@ import { SessionInbox } from "@orchestra/schema/session-inbox"
 import type { Session } from "@orchestra/schema/session"
 import type { SessionMessage } from "@orchestra/schema/session-message"
 import { FSUtil } from "@orchestra/util/fs-util"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import path from "path"
 import { fileURLToPath } from "url"
+import { Autoloop } from "../autoloop/service.js"
+import { Dod } from "../dod.js"
 import { Image } from "../image.js"
 import { Instance } from "../instance/service.js"
+import { Location } from "../location.js"
 import { Mime } from "../mime.js"
 import { Plugin } from "../plugin/service.js"
 import { PluginHooks } from "../plugin/hooks.js"
+import { PromptIntake } from "../prompt-intake/index.js"
 import { Skill } from "../skill.js"
 import { AttachmentError, SkillNotFoundError } from "./error.js"
+import { SessionStore } from "./store.js"
 
 export type Input = {
   text: string
@@ -51,6 +56,10 @@ export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
       delivery: request.input.delivery ?? "steer",
     })
     const input = event.prompt
+    // Deep-process the prompt before the agent sees it: value check, structured
+    // task, recommended skills. Best-effort — a failure here never blocks
+    // admission, the raw prompt goes through untouched.
+    const intake = yield* runPromptIntake({ session: request.session, text: input.text })
     const files = input.files
       ? yield* Effect.forEach(input.files, materializeAttachment, { concurrency: 8 })
       : undefined
@@ -79,18 +88,127 @@ export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
       type: "user",
       payload: SessionInbox.UserPayload.make({
         ...Prompt.make({
-          text: input.text,
+          text: intake?.enrichedPrompt ?? input.text,
           agents: input.agents,
           files,
           skills: selected?.length ? selected : undefined,
         }),
-        metadata: event.metadata,
+        metadata: intake
+          ? {
+              ...event.metadata,
+              intake: {
+                verdict: intake.value.verdict,
+                goal: intake.task.goal,
+                questions: intake.value.questions,
+                skills: intake.skills.map((skill) => skill.id),
+                modelUsed: intake.modelUsed,
+              },
+            }
+          : event.metadata,
         resumeOnStart: request.input.resume !== false,
       }),
       delivery: SessionInbox.Delivery.make(event.delivery),
     } satisfies SessionInbox.Item
   }).pipe(instances.provide(request.session))
 })
+
+/**
+ * Runs the prompt intake for one incoming user prompt. Gathers the value
+ * checker's sources from what this scope can reach (DoD, recent user
+ * prompts in this session, autoloop journal titles) and hands the prompt
+ * to the intake service when it is wired, else to the pure pipeline.
+ * Returns undefined on any failure: admission must never depend on it.
+ */
+const runPromptIntake = Effect.fn("SessionPrompt.intake")(function* (input: {
+  session: Session.Info
+  text: string
+}) {
+  return yield* Effect.gen(function* () {
+    const location = yield* Effect.serviceOption(Location.Service)
+    const store = yield* Effect.serviceOption(SessionStore.Service)
+    const autoloop = yield* Effect.serviceOption(Autoloop.Service)
+    const intakeService = yield* Effect.serviceOption(PromptIntake.Service)
+
+    let dodItems: Array<PromptIntake.DodItemRef> = []
+    let dodAvailable = false
+    if (Option.isSome(location)) {
+      const status = yield* Dod.status(location.value.project.directory).pipe(Effect.option)
+      if (status && status.type === "ready") {
+        dodAvailable = true
+        dodItems = status.items.map((item) => ({ id: item.id, title: item.what, state: item.state }))
+      }
+    }
+
+    let recentPrompts: Array<PromptIntake.RecentPromptRef> = []
+    let historyAvailable = false
+    if (Option.isSome(store)) {
+      const messages = yield* store.value
+        .messages({ sessionID: input.session.id, limit: 10, order: "desc", type: "user" })
+        .pipe(Effect.option)
+      if (messages) {
+        historyAvailable = true
+        recentPrompts = messages
+          .filter((message) => message.type === "user")
+          .map((message) => ({ text: message.text }))
+      }
+    }
+
+    let journalTitles: Array<PromptIntake.JournalRef> = []
+    let journalAvailable = false
+    if (Option.isSome(autoloop)) {
+      const view = yield* autoloop.value.getView().pipe(Effect.option)
+      if (view) {
+        journalAvailable = true
+        journalTitles = journalTitlesFromView(view)
+      }
+    }
+
+    const context: PromptIntake.IntakeContext = {
+      dodItems,
+      recentPrompts,
+      journalTitles,
+      sources: { dod: dodAvailable, history: historyAvailable, journal: journalAvailable },
+    }
+    if (Option.isSome(intakeService)) {
+      return yield* intakeService.value.process({
+        session: input.session,
+        text: input.text,
+        context,
+        disambiguate: PromptIntake.disambiguateWithModel,
+      })
+    }
+    return PromptIntake.processPure({ text: input.text, context })
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Effect.logWarning("prompt intake failed, continuing with raw prompt", { cause }).pipe(
+        Effect.as(undefined),
+      ),
+    ),
+  )
+})
+
+// Titles of autoloop cards and runs, for the duplicate check. The view is
+// an untyped record of collections, so only rows with a string title count.
+function journalTitlesFromView(view: Record<string, Record<string, unknown>>): Array<PromptIntake.JournalRef> {
+  const titles: Array<PromptIntake.JournalRef> = []
+  for (const collection of ["cards", "runs"]) {
+    for (const row of Object.values(view[collection] ?? {})) {
+      if (typeof row !== "object" || row === null) continue
+      const data = row as Record<string, unknown>
+      if (typeof data.title !== "string") continue
+      titles.push({
+        title: data.title,
+        outcome:
+          typeof data.outcome === "string"
+            ? data.outcome
+            : typeof data.state === "string"
+              ? data.state
+              : undefined,
+      })
+    }
+  }
+  return titles.slice(0, 20)
+}
 
 const materializeAttachment = Effect.fn("SessionPrompt.materializeAttachment")(function* (
   input: PromptInput.FileAttachment,

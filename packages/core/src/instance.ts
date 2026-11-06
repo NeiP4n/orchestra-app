@@ -25,6 +25,7 @@ import { Mcp } from "./mcp/index.js"
 import { Permission } from "./permission.js"
 import { Plugin } from "./plugin.js"
 import { PluginHooks } from "./plugin/hooks.js"
+import { PromptIntake } from "./prompt-intake/index.js"
 import { InstancePlugins } from "./plugin/instance.js"
 import { PluginSupervisor } from "./plugin/supervisor.js"
 import { WorktreeStrategies } from "./worktree/strategies.js"
@@ -87,6 +88,7 @@ const nodes = [
   Pty.node,
   Shell.node,
   Skill.node,
+  PromptIntake.node,
   InstructionBuiltIns.node,
   InstructionDiscovery.node,
   FileAccess.node,
