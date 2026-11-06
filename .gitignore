@@ -52,6 +52,10 @@ tsconfig.tsbuildinfo
 !.orchestra/project.json
 !.orchestra/index.yaml
 !.orchestra/zones.yaml
+!.orchestra/mcp.yaml
+!.orchestra/integrations/
+!.orchestra/integrations/*
+!.orchestra/INTEGRATE.md
 .freebuff/
 .ideas/
 .zed/

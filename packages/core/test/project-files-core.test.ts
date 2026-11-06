@@ -150,28 +150,36 @@ describe("ProjectFiles snapshots", () => {
 })
 
 describe("ProjectFiles sync and restore frameworks", () => {
-  test("syncAll with no syncers writes index and health and reports nothing failed", async () => {
+  test("syncAll runs the registered syncers and reports nothing failed", async () => {
     const dir = await fixture()
     await write(dir, "dod.yaml", "task_id: X\nleaves: []\n")
     const report = await run(
-      // No syncers are registered in the core commit, so the KV is never
-      // touched; the framework path (index + health refresh) is what is tested.
+      // The S3 syncers are registered, so they run: a missing mcp.yaml
+      // and a missing skill registry are ok (fresh project), and
+      // INTEGRATE.md is regenerated. The framework path (index + health
+      // refresh) is what is tested, plus that no syncer failed.
       ProjectFiles.ProjectFilesSync.syncAll(dir, { kv: undefined as never }),
     )
-    expect(report.files).toEqual([])
+    expect(report.files.length).toBeGreaterThan(0)
+    expect(report.files.every((file) => file.status === "ok")).toBe(true)
+    expect(report.files.map((file) => file.file)).toContain("INTEGRATE.md")
     expect(await readFile(path.join(dir, ".orchestra", "index.yaml"), "utf8")).toContain("dod.yaml")
     expect(await readFile(path.join(dir, ".orchestra", "health.json"), "utf8")).toContain("checkedAt")
   })
 
-  test("restoreFromFiles with no restorers reports nothing and refreshes index and health", async () => {
+  test("restoreFromFiles runs the registered restorers, reports nothing failed, refreshes index and health", async () => {
     const dir = await fixture()
     await write(dir, "dod.yaml", "task_id: X\nleaves: []\n")
     const report = await run(
-      // No restorers are registered in the core commit, so the KV is never
-      // touched; the framework path (index + health refresh) is what is tested.
+      // The S3 restorers are registered, so they run: file-owned state
+      // is skipped, INTEGRATE.md is regenerated. Nothing fails on a
+      // fresh project, and the framework path (index + health refresh)
+      // is what is tested.
       ProjectFiles.ProjectFilesRestore.restoreFromFiles(dir, { kv: undefined as never }),
     )
-    expect(report.entries).toEqual([])
+    expect(report.entries.length).toBeGreaterThan(0)
+    expect(report.entries.every((entry) => entry.status !== "failed")).toBe(true)
+    expect(report.entries.map((entry) => entry.file)).toContain("INTEGRATE.md")
     expect(await readFile(path.join(dir, ".orchestra", "index.yaml"), "utf8")).toContain("dod.yaml")
   })
 
