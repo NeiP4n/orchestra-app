@@ -49,14 +49,9 @@ const FALLBACK_VERSION =
 const VERSION = await (async () => {
   if (!IS_PREVIEW) {
     if (env.ORCHESTRA_VERSION) return env.ORCHESTRA_VERSION
-    const version = await fetch("https://registry.npmjs.org/@opencode%2fcli/latest")
-      .then((res) => {
-        if (!res.ok) throw new Error(res.statusText)
-        return res.json()
-      })
-      .then((data: any) => data.version)
-    if (semver.lt(version, "2.0.0")) return "2.0.0"
-    const [major, minor, patch] = version.split(".").map((x: string) => Number(x) || 0)
+    // The release version comes from Orchestra's own package.json, never from
+    // the upstream OpenCode npm registry.
+    const [major, minor, patch] = FALLBACK_VERSION.split(".").map((x: string) => Number(x) || 0)
     const t = env.ORCHESTRA_BUMP?.toLowerCase()
     if (t === "major") return `${major + 1}.0.0`
     if (t === "minor") return `${major}.${minor + 1}.0`
@@ -122,4 +117,4 @@ export const Script = {
     return team
   },
 }
-console.log(`opencode script`, JSON.stringify(Script, null, 2))
+console.log(`orchestra script`, JSON.stringify(Script, null, 2))

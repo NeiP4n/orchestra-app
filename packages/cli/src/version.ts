@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import path from "path"
 
 declare const ORCHESTRA_VERSION: string
@@ -11,13 +11,26 @@ declare const ORCHESTRA_ARTIFACT: string
 // client as below 1.18.0. Resolve the tagged release like the build script does, and fall
 // back to a known-good floor when there is no tag or git is unavailable.
 const MINIMUM_ANNOUNCED_VERSION = "1.18.0"
-const FALLBACK_VERSION = "2.0.0"
 
 // The tag describes the checkout these sources were cut from, not wherever the CLI happens
 // to be started: a project directory is the cwd, so a lookup that follows cwd silently falls
 // back for every project that is not this repository, and the announced version stops matching
 // the build the free tier is asked to accept.
 const REPO_ROOT = path.resolve(import.meta.dir, "../../..")
+
+// The fallback version comes from Orchestra's own package.json, never from upstream.
+function packageJsonVersion(): string | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(path.join(REPO_ROOT, "package.json"), "utf8")) as {
+      version?: unknown
+    }
+    return typeof parsed.version === "string" ? parsed.version : undefined
+  } catch {
+    return undefined
+  }
+}
+
+const FALLBACK_VERSION = packageJsonVersion() ?? "2.0.0"
 
 function gitTagVersion(): string | undefined {
   try {
