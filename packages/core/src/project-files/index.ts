@@ -14,6 +14,7 @@ import { ProjectFilesRestorersState } from "./restorers-state.js"
 import { ProjectFilesRestorersData } from "./restorers-data.js"
 import { ProjectFilesRestorersIntegrations } from "./restorers-integrations.js"
 import { ProjectFilesSnapshot } from "./snapshot.js"
+import { ProjectFilesState } from "./files-state.js"
 import { ProjectFilesSync } from "./sync.js"
 import { ProjectFilesSyncersState } from "./syncers-state.js"
 import { ProjectFilesSyncersData } from "./syncers-data.js"
@@ -34,6 +35,7 @@ export {
   ProjectFilesRestorersData,
   ProjectFilesRestorersIntegrations,
   ProjectFilesSnapshot,
+  ProjectFilesState,
   ProjectFilesSync,
   ProjectFilesSyncersState,
   ProjectFilesSyncersData,

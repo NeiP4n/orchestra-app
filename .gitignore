@@ -56,6 +56,15 @@ tsconfig.tsbuildinfo
 !.orchestra/integrations/
 !.orchestra/integrations/*
 !.orchestra/INTEGRATE.md
+!.orchestra/orchestra.json
+!.orchestra/rules.yaml
+!.orchestra/tasks.yaml
+!.orchestra/decisions.yaml
+!.orchestra/decisions/
+!.orchestra/decisions/*
+!.orchestra/society.yaml
+!.orchestra/budget.yaml
+!.orchestra/briefing.md
 .freebuff/
 .ideas/
 .zed/

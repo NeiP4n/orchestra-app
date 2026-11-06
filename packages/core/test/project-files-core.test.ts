@@ -3,26 +3,26 @@ import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { Effect } from "effect"
-import { Database } from "@orchestra/core/database/database"
-import { ProjectFiles } from "@orchestra/core/project-files/index"
+import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
+import { LayerNode } from "@orchestra/util/effect/layer-node"
 import { Global } from "@orchestra/util/global"
+import { Database } from "@orchestra/core/database/database"
+import { KV } from "@orchestra/core/kv"
+import { ProjectFiles } from "@orchestra/core/project-files/index"
+import { tempGlobalLayer } from "./fixture/global"
+import { testEffect } from "./lib/effect"
 
 // The framework functions carry the Database.Service requirement for the
-// syncers/restorers they call, so effects that run syncAll/restoreFromFiles
-// run on a real in-memory database — never a mock. (S2's journal and
-// quarantine syncers need it; without it they report failed, which is
-// what the framework does for a syncer that cannot run.)
-const runDb = <A, E>(effect: Effect.Effect<A, E, Database.Service>) =>
-  Effect.runPromise(
-    effect.pipe(
-      Effect.provide(Database.layer({ path: ":memory:" })),
-      Effect.provideService(Global.Service, Global.make({ data: path.join(process.cwd(), ".test-data") })),
-      Effect.scoped,
-    ),
-  )
+// syncers/restorers they call; the slices register real ones, so these
+// tests run them against a real temp database + KV instead of casting the
+// service away. Pure-format tests below still use the cast, which is
+// safe there because they never touch a syncer or restorer.
+const it = testEffect(
+  AppNodeBuilder.build(LayerNode.group([Database.node, KV.node]), [Global.node.replace(tempGlobalLayer)]),
+)
 
-// Effects that touch no database (index, health, snapshots) run without
-// a layer; the cast is safe because no syncer runs in them.
+// Pure-format tests below never touch a syncer or restorer, so the
+// Database.Service requirement is never used and the cast is safe there.
 const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.runPromise(effect as Effect.Effect<A, E, never>)
 
@@ -166,42 +166,49 @@ describe("ProjectFiles snapshots", () => {
 })
 
 describe("ProjectFiles sync and restore frameworks", () => {
-  test("syncAll runs the registered syncers and reports nothing failed", async () => {
-    const dir = await fixture()
-    await write(dir, "dod.yaml", "task_id: X\nleaves: []\n")
-    const report = await runDb(
-      // The S2/S3 syncers are registered, so they run: a missing mcp.yaml
-      // and a missing skill registry are ok (fresh project), the journal
-      // logs start empty, and INTEGRATE.md is regenerated. Runs on a real
-      // in-memory database because the S2 journal syncers need it. The
-      // framework path (index + health refresh) is what is tested, plus
-      // that no syncer failed.
-      ProjectFiles.ProjectFilesSync.syncAll(dir, { kv: undefined as never }),
-    )
-    expect(report.files.length).toBeGreaterThan(0)
-    expect(report.files.every((file) => file.status === "ok")).toBe(true)
-    expect(report.files.map((file) => file.file)).toContain("INTEGRATE.md")
-    expect(await readFile(path.join(dir, ".orchestra", "index.yaml"), "utf8")).toContain("dod.yaml")
-    expect(await readFile(path.join(dir, ".orchestra", "health.json"), "utf8")).toContain("checkedAt")
-  })
+  // All three slices register real syncers, so syncAll runs them against
+  // a real temp database + KV: the state syncers mirror empty KV stores
+  // and the DoD/ADR projections, the data syncers mirror the empty
+  // journal, the integration syncers validate the (absent) mcp.yaml —
+  // all ok — then the index and health refresh.
+  it.live("syncAll runs the registered syncers and writes index and health", () =>
+    Effect.gen(function* () {
+      const dir = yield* Effect.tryPromise(() => fixture())
+      yield* Effect.tryPromise(() => write(dir, "dod.yaml", "task_id: X\nleaves: []\n"))
+      const kv = yield* KV.Service
+      const report = yield* ProjectFiles.ProjectFilesSync.syncAll(dir, { kv })
+      expect(report.files.every((file) => file.status === "ok")).toBe(true)
+      expect(report.files.map((file) => file.file)).toContain("rules.yaml")
+      expect(report.files.map((file) => file.file)).toContain("tasks.yaml")
+      expect(report.files.map((file) => file.file)).toContain("kanban.yaml")
+      expect(report.files.map((file) => file.file)).toContain("INTEGRATE.md")
+      expect(yield* Effect.tryPromise(() => readFile(path.join(dir, ".orchestra", "index.yaml"), "utf8"))).toContain(
+        "dod.yaml",
+      )
+      expect(yield* Effect.tryPromise(() => readFile(path.join(dir, ".orchestra", "health.json"), "utf8"))).toContain(
+        "checkedAt",
+      )
+    }),
+  )
 
-  test("restoreFromFiles runs the registered restorers, reports nothing failed, refreshes index and health", async () => {
-    const dir = await fixture()
-    await write(dir, "dod.yaml", "task_id: X\nleaves: []\n")
-    const report = await runDb(
-      // The S2/S3 restorers are registered, so they run: file-owned state
-      // is skipped, INTEGRATE.md is regenerated, the quarantine file is
-      // absent (skipped). Runs on a real in-memory database because the
-      // S2 quarantine restorer needs it. Nothing fails on a fresh
-      // project, and the framework path (index + health refresh) is what
-      // is tested.
-      ProjectFiles.ProjectFilesRestore.restoreFromFiles(dir, { kv: undefined as never }),
-    )
-    expect(report.entries.length).toBeGreaterThan(0)
-    expect(report.entries.every((entry) => entry.status !== "failed")).toBe(true)
-    expect(report.entries.map((entry) => entry.file)).toContain("INTEGRATE.md")
-    expect(await readFile(path.join(dir, ".orchestra", "index.yaml"), "utf8")).toContain("dod.yaml")
-  })
+  // All three slices register real restorers; with no mirror files
+  // present each one skips — except INTEGRATE.md, which the S3 restorer
+  // regenerates — and the index and health still refresh.
+  it.live("restoreFromFiles skips absent mirrors and refreshes index and health", () =>
+    Effect.gen(function* () {
+      const dir = yield* Effect.tryPromise(() => fixture())
+      yield* Effect.tryPromise(() => write(dir, "dod.yaml", "task_id: X\nleaves: []\n"))
+      const kv = yield* KV.Service
+      const report = yield* ProjectFiles.ProjectFilesRestore.restoreFromFiles(dir, { kv })
+      expect(report.entries.every((entry) => entry.status !== "failed")).toBe(true)
+      expect(report.entries.map((entry) => entry.file)).toContain("rules.yaml")
+      expect(report.entries.map((entry) => entry.file)).toContain("quarantine.jsonl")
+      expect(report.entries.map((entry) => entry.file)).toContain("INTEGRATE.md")
+      expect(yield* Effect.tryPromise(() => readFile(path.join(dir, ".orchestra", "index.yaml"), "utf8"))).toContain(
+        "dod.yaml",
+      )
+    }),
+  )
 
   test("every git-tracked file has a negation in the repo root .gitignore", async () => {
     const gitignore = await readFile(path.join(import.meta.dir, "..", "..", "..", ".gitignore"), "utf8")
