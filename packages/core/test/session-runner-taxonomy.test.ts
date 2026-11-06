@@ -18,6 +18,7 @@ import {
   TABLE,
   classifyError,
 } from "@orchestra/core/session/runner/error-taxonomy"
+import { Society } from "@orchestra/core/society"
 import { ladder } from "@orchestra/core/session/runner/escalate"
 
 const failure = (reason: ConstructorParameters<typeof AIError>[0]["reason"]) => new AIError({ reason })
@@ -161,8 +162,17 @@ describe("SessionErrorTaxonomy", () => {
   })
 
   test("main-session fallbacks are only the working Anymodel models", () => {
-    expect(MAIN_SESSION_FALLBACK_MODELS).toEqual(["anymodel/sonnet-5", "anymodel/anymodel-coder", "anymodel/gemini-3.8-flash"])
+    expect(MAIN_SESSION_FALLBACK_MODELS).toEqual([
+      "anymodel/sonnet-5",
+      "anymodel/anymodel-coder",
+      "anymodel/gemini-3.8-flash",
+    ])
     expect(MAIN_SESSION_FALLBACK_MODELS).not.toContain("anymodel/anymodel-v4.1-flash")
+    // Every fallback must exist in the catalog snapshot, so the runner can
+    // never fall back to a model the account does not have.
+    for (const ref of MAIN_SESSION_FALLBACK_MODELS) {
+      expect(Society.ANYMODEL_MODEL_IDS).toContain(ref.split("/")[1])
+    }
   })
 })
 

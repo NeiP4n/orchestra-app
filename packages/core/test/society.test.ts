@@ -32,7 +32,19 @@ describe("Society model table", () => {
     ]) {
       expect(Society.isDeadModelId(id)).toBe(true)
     }
-    for (const id of ["anymodel-coder", "gpt-6-luna", "sonnet-5", "sonnet-5.5", "opus-5", "opus-5.5"]) {
+    for (const id of [
+      "anymodel-coder",
+      "gpt-6-luna",
+      "sonnet-5",
+      "sonnet-5.5",
+      "opus-5",
+      "opus-5.5",
+      "gemini-3.5-flash-lite",
+      "gemini-3.6-flash",
+      "gemini-3.8-flash",
+      "gemini-4-argon",
+      "grok-4.7",
+    ]) {
       expect(Society.isDeadModelId(id)).toBe(false)
     }
     // anymodel-v4.1-flash is dead in all three test rounds: it is never the
@@ -41,10 +53,54 @@ describe("Society model table", () => {
     expect(Society.isDeadModelId(Society.FALLBACK_MODEL_ID)).toBe(false)
   })
 
+  test("the catalog lists all 17 Anymodel models from the 2026-11-06 listing", () => {
+    expect(Society.ANYMODEL_MODEL_IDS).toEqual([
+      "anymodel-coder",
+      "anymodel-reasoner",
+      "anymodel-v4.1-flash",
+      "fable-5.1",
+      "gemini-3.5-flash-lite",
+      "gemini-3.6-flash",
+      "gemini-3.8-flash",
+      "gemini-4-argon",
+      "gpt-6-astra",
+      "gpt-6-luna",
+      "gpt-6-sol",
+      "gpt-6.1-sol",
+      "grok-4.7",
+      "opus-5",
+      "opus-5.5",
+      "sonnet-5",
+      "sonnet-5.5",
+    ])
+    expect(new Set(Society.ANYMODEL_MODEL_IDS).size).toBe(Society.ANYMODEL_MODEL_IDS.length)
+    // Every id the table names — tiers, fallback, dead list and the two new
+    // profiles — must exist in the catalog, so no fallback can point at a
+    // model the account does not have.
+    for (const id of [
+      Society.STRONG_MODEL_ID,
+      Society.MID_MODEL_ID,
+      Society.CHEAP_MODEL_ID,
+      Society.FALLBACK_MODEL_ID,
+      Society.CHEAP_FLASH_MODEL_ID,
+      Society.REASONING_MODEL_ID,
+      ...Society.DEAD_MODEL_IDS,
+    ]) {
+      expect(Society.ANYMODEL_MODEL_IDS).toContain(id)
+    }
+  })
+
   test("strong, mid and cheap tiers name the verified working models", () => {
     expect(Society.modelIdForTier("strong")).toBe("opus-5.5")
     expect(Society.modelIdForTier("mid")).toBe("sonnet-5.5")
     expect(Society.modelIdForTier("cheap")).toBe("anymodel-coder")
+  })
+
+  test("the new profiles name the models the 2026-11-06 chat test verified alive", () => {
+    expect(Society.CHEAP_FLASH_MODEL_ID).toBe("gemini-3.8-flash")
+    expect(Society.REASONING_MODEL_ID).toBe("grok-4.7")
+    expect(Society.isDeadModelId(Society.CHEAP_FLASH_MODEL_ID)).toBe(false)
+    expect(Society.isDeadModelId(Society.REASONING_MODEL_ID)).toBe(false)
   })
 
   test("quality work runs cheap, planning runs strong, the rest runs mid", () => {
