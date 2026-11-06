@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import { recommendSkills, type SkillRef } from "@orchestra/core/prompt-intake/skills"
+import { recommendSkills, valueVerdictForMarketplace, type SkillRef } from "@orchestra/core/prompt-intake/skills"
 import { understand } from "@orchestra/core/prompt-intake/understand"
+import { checkValue } from "@orchestra/core/prompt-intake/value"
 import type { IntakeContext } from "@orchestra/core/prompt-intake/types"
 
 const emptyContext = (): IntakeContext => ({
@@ -44,5 +45,39 @@ describe("prompt-intake skill recommendations", () => {
   test("an empty catalog recommends nothing", () => {
     const task = understand("Протестируй исправление", emptyContext())
     expect(recommendSkills(task, [])).toEqual([])
+  })
+})
+
+describe("prompt-intake value verdict for the skill marketplace", () => {
+  test("an executable prompt proceeds, with the checker's reasons", () => {
+    const assessment = checkValue("Исправь ошибку в packages/core/src/session/prompt.ts: сервер падает при пустом промпте", emptyContext())
+    expect(assessment.verdict).toBe("execute")
+    const verdict = valueVerdictForMarketplace(assessment)
+    expect(verdict.proceed).toBe(true)
+    expect(verdict.reason).toBe(assessment.reasons.join(" "))
+  })
+
+  test("a duplicate prompt does not proceed (marketplace must not search)", () => {
+    const context = emptyContext()
+    context.dodItems.push({
+      id: "S1",
+      title: "Исправить ошибку сервера при пустом промпте",
+      state: "IN_PROGRESS",
+    })
+    const assessment = checkValue("Исправь ошибку сервера при пустом промпте", context)
+    expect(assessment.verdict).toBe("merge")
+    expect(valueVerdictForMarketplace(assessment).proceed).toBe(false)
+  })
+
+  test("an already-done prompt does not proceed", () => {
+    const context = emptyContext()
+    context.dodItems.push({
+      id: "S1",
+      title: "Добавь kanban в DoD",
+      state: "DONE",
+    })
+    const assessment = checkValue("Добавь kanban в DoD", context)
+    expect(assessment.verdict).toBe("skip")
+    expect(valueVerdictForMarketplace(assessment).proceed).toBe(false)
   })
 })

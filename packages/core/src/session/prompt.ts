@@ -98,6 +98,7 @@ export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
               ...event.metadata,
               intake: {
                 verdict: intake.value.verdict,
+                valueVerdict: intake.valueVerdict,
                 goal: intake.task.goal,
                 questions: intake.value.questions,
                 skills: intake.skills.map((skill) => skill.id),

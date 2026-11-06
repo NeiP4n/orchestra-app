@@ -99,6 +99,8 @@ export type IntakeContext = {
 export type IntakeResult = {
   readonly original: string
   readonly value: ValueAssessment
+  /** The value verdict in the native skill marketplace's shape, for pickSkillsForTask. */
+  readonly valueVerdict: import("../skill-marketplace/types.js").ValueVerdict
   readonly task: StructuredTask
   readonly skills: ReadonlyArray<SkillRecommendation>
   /** Original prompt verbatim, followed by the structured interpretation the agent receives. */
