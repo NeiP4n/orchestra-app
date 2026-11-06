@@ -953,6 +953,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                     hover={hover}
                     setHover={setHover}
                     load={() => client.api.room.dod.get({ roomID: room.id })}
+                    loadBoard={() => client.api.room.dod.board({ roomID: room.id })}
                     release={(id) => client.api.room.dod.release({ roomID: room.id, id })}
                     feed={(after, wait) => client.api.room.feed({ roomID: room.id, after, wait })}
                   />
@@ -1000,6 +1001,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                     hover={hover}
                     setHover={setHover}
                     load={() => roomClient(room).room.guest.dod.get({ roomID: room.roomID })}
+                    loadBoard={() => roomClient(room).room.guest.dod.board({ roomID: room.roomID })}
                     take={(id) =>
                       roomClient(room).room.guest.dod.claim(
                         id ? { roomID: room.roomID, id, take: true } : { roomID: room.roomID, next: true, take: true },

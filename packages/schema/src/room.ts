@@ -2,7 +2,7 @@ export * as Room from "./room.js"
 
 import { Schema } from "effect"
 import { ascending } from "./identifier.js"
-import { PositiveInt, statics } from "./schema.js"
+import { optional, PositiveInt, statics } from "./schema.js"
 import { Rules } from "./room-rules.js"
 import { SessionID } from "./session-id.js"
 
@@ -210,6 +210,79 @@ export const Dod = Schema.Struct({
   check: Schema.Struct({ exitCode: Schema.Number, output: Schema.String }).pipe(Schema.optional),
 }).annotate({ identifier: "Room.Dod" })
 export interface Dod extends Schema.Schema.Type<typeof Dod> {}
+
+// One card of the kanban board over the room's DoD: the item plus who may take
+// it and whether it sits in a foreign zone. The board never offers a card the
+// take would refuse: canTake mirrors Dod.mayClaim, so a card shown as takeable
+// is one the viewer can actually take.
+export const DodBoardCard = Schema.Struct({
+  id: Schema.String,
+  what: Schema.String,
+  stage: Schema.String,
+  // The file's task_state: NOT_STARTED, IN_PROGRESS, BLOCKED, FAILED, DONE or OUT_OF_SCOPE.
+  state: Schema.String,
+  // Steps checked and steps in all.
+  done: Schema.Number,
+  total: Schema.Number,
+  // The name of whoever took the card; absent while it is free.
+  owner: optional(Schema.String),
+  // The room member who holds it; absent for items the host's own people or AIs marked.
+  ownerID: optional(Schema.String),
+  // True when the viewer holds this card.
+  mine: Schema.Boolean,
+  // The holder left the room or has been silent past the lease, so anyone may take it over.
+  stale: optional(Schema.Boolean),
+  // Items this one depends on that are not finished yet; it cannot be taken before them.
+  waits: optional(Schema.Array(Schema.String)),
+  // The card's verification.command, which the host runs when the holder submits the card.
+  verify: optional(Schema.String),
+  // The zone this card belongs to (the zone named by its group), when one exists.
+  zone: optional(Schema.String),
+  // The group owning that zone.
+  zoneOwner: optional(Schema.String),
+  // The viewer's group holds a pass into the zone.
+  hasPass: Schema.Boolean,
+  // The viewer may take this card now; when false, takeRefusal says why.
+  canTake: Schema.Boolean,
+  takeRefusal: optional(Schema.String),
+  // A foreign zone without a pass: visible on the board, but not takeable.
+  readOnly: Schema.Boolean,
+}).annotate({ identifier: "Room.DodBoardCard" })
+export interface DodBoardCard extends Schema.Schema.Type<typeof DodBoardCard> {}
+
+export const DodBoardColumn = Schema.Struct({
+  id: Schema.Literals(["todo", "in_progress", "blocked", "failed", "done"]),
+  title: Schema.String,
+  cards: Schema.Array(DodBoardCard),
+}).annotate({ identifier: "Room.DodBoardColumn" })
+export interface DodBoardColumn extends Schema.Schema.Type<typeof DodBoardColumn> {}
+
+// The kanban board over the room's DoD: the same items grouped into columns by
+// state, with who holds each card and whether the viewer may take it. A guest
+// sees its own cards marked and foreign zones read-only; the host sees all.
+export const DodBoard = Schema.Struct({
+  // Explicit observation from the host: missing configuration is not a successful empty board.
+  status: optional(Schema.Literals(["ready", "disabled"])),
+  columns: Schema.Array(DodBoardColumn),
+  zones: Schema.Array(
+    Schema.Struct({
+      name: Schema.String,
+      ownerGroup: Schema.String,
+      // True when the viewer's group owns this zone.
+      mine: Schema.Boolean,
+    }),
+  ),
+  counts: Schema.Struct({
+    total: Schema.Number,
+    done: Schema.Number,
+    inProgress: Schema.Number,
+    blocked: Schema.Number,
+    failed: Schema.Number,
+    // Cards nobody holds (or whose holder's lease ran out) with nothing waiting on them.
+    free: Schema.Number,
+  }),
+}).annotate({ identifier: "Room.DodBoard" })
+export interface DodBoard extends Schema.Schema.Type<typeof DodBoard> {}
 
 // What happened in a room, newest last: who came and went, who took, gave back, submitted
 // or ran what. The host keeps the latest events in memory; a restart starts the feed anew.

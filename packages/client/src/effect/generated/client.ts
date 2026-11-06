@@ -303,6 +303,8 @@ import type {
   RoomRemoveOutput,
   RoomDodGetInput,
   RoomDodGetOutput,
+  RoomDodBoardInput,
+  RoomDodBoardOutput,
   RoomDodReleaseInput,
   RoomDodReleaseOutput,
   RoomFeedInput,
@@ -327,6 +329,8 @@ import type {
   RoomGuestRunOutput,
   RoomGuestDodGetInput,
   RoomGuestDodGetOutput,
+  RoomGuestDodBoardInput,
+  RoomGuestDodBoardOutput,
   RoomGuestDodClaimInput,
   RoomGuestDodClaimOutput,
   RoomGuestDodSubmitInput,
@@ -1991,6 +1995,11 @@ const EndpointRoomDodGet = (raw: RawClient["server.room"]) => (input: RoomDodGet
     raw["room.dod.get"]({ params: { roomID: input["roomID"] } }).pipe(Effect.mapError(mapClientError)),
   )
 
+const EndpointRoomDodBoard = (raw: RawClient["server.room"]) => (input: RoomDodBoardInput) =>
+  preserveEffect<RoomDodBoardOutput>()(
+    raw["room.dod.board"]({ params: { roomID: input["roomID"] } }).pipe(Effect.mapError(mapClientError)),
+  )
+
 const EndpointRoomDodRelease = (raw: RawClient["server.room"]) => (input: RoomDodReleaseInput) =>
   preserveEffect<RoomDodReleaseOutput>()(
     raw["room.dod.release"]({ params: { roomID: input["roomID"] }, payload: { id: input["id"] } }).pipe(
@@ -2086,6 +2095,13 @@ const EndpointRoomGuestRun = (raw: RawClient["server.room"]) => (input: RoomGues
 const EndpointRoomGuestDodGet = (raw: RawClient["server.room"]) => (input: RoomGuestDodGetInput) =>
   preserveEffect<RoomGuestDodGetOutput>()(
     raw["room.guest.dod.get"]({ params: { roomID: input["roomID"] } }).pipe(Effect.mapError(mapClientError)),
+  )
+
+const EndpointRoomGuestDodBoard = (raw: RawClient["server.room"]) => (input: RoomGuestDodBoardInput) =>
+  preserveEffect<RoomGuestDodBoardOutput>()(
+    raw["room.guest.dod.board"]({ params: { roomID: input["roomID"] }, query: { group: input["group"] } }).pipe(
+      Effect.mapError(mapClientError),
+    ),
   )
 
 const EndpointRoomGuestDodClaim = (raw: RawClient["server.room"]) => (input: RoomGuestDodClaimInput) =>
@@ -2355,7 +2371,7 @@ const adaptGroupRoom = (raw: RawClient["server.room"]) => ({
   create: EndpointRoomCreate(raw),
   update: EndpointRoomUpdate(raw),
   remove: EndpointRoomRemove(raw),
-  dod: { get: EndpointRoomDodGet(raw), release: EndpointRoomDodRelease(raw) },
+  dod: { get: EndpointRoomDodGet(raw), board: EndpointRoomDodBoard(raw), release: EndpointRoomDodRelease(raw) },
   feed: EndpointRoomFeed(raw),
   code: EndpointRoomCode(raw),
   public: EndpointRoomPublic(raw),
@@ -2374,6 +2390,7 @@ const adaptGroupRoom = (raw: RawClient["server.room"]) => ({
     run: EndpointRoomGuestRun(raw),
     dod: {
       get: EndpointRoomGuestDodGet(raw),
+      board: EndpointRoomGuestDodBoard(raw),
       claim: EndpointRoomGuestDodClaim(raw),
       submit: EndpointRoomGuestDodSubmit(raw),
     },

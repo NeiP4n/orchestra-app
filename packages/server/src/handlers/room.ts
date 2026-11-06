@@ -8,6 +8,8 @@ import { Plot } from "@orchestra/core/plot"
 import { Passport } from "@orchestra/core/passport"
 import { RoomRules } from "@orchestra/schema/room-rules"
 import { Dod } from "@orchestra/core/dod"
+import { DodKanban } from "@orchestra/core/dod-kanban"
+import { Zones } from "@orchestra/core/zones"
 import path from "node:path"
 import { Session } from "@orchestra/core/session"
 import { SessionEvent } from "@orchestra/schema/session-event"
@@ -275,7 +277,9 @@ function remoteAddress(request: HttpServerRequest.HttpServerRequest) {
   return address
 }
 
-function invalidDod(error: Dod.DodError) {
+// The board reads the DoD and the zone registry, so its error is the union
+// of both; both carry a message, so one mapper serves every DoD handler.
+function invalidDod(error: Dod.DodError | Zones.ZonesError) {
   return new InvalidRequestError({ message: error.message })
 }
 
@@ -302,6 +306,22 @@ function hideDodExecution<T extends Room.Dod>(dod: T): T {
   // The most recent check output is execution data too, not merely the verification command.
   const { check: _check, ...result } = safe
   return result as T
+}
+
+// The same, for the kanban board: verification commands are hidden from guests
+// whose room hides execution, while the card's state and holder stay visible.
+function hideBoardExecution(board: Room.DodBoard): Room.DodBoard {
+  return {
+    ...board,
+    columns: board.columns.map((column) => ({
+      ...column,
+      cards: column.cards.map((card) => {
+        const cardSafe = { ...card }
+        delete cardSafe.verify
+        return cardSafe
+      }),
+    })),
+  }
 }
 
 // The handover note of a DoD item: L-003 keeps its notes in dod-l-003.
@@ -1158,6 +1178,17 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         }),
       )
       .handle(
+        "room.dod.board",
+        Effect.fn(function* (ctx) {
+          const room = yield* rooms.get(ctx.params.roomID).pipe(Effect.catchTag("Room.NotFoundError", missingRoom))
+          return yield* DodKanban.board({
+            directory: yield* roomDirectory(room),
+            viewer: { type: "host" },
+            live: yield* live(),
+          }).pipe(Effect.mapError(invalidDod))
+        }),
+      )
+      .handle(
         "room.dod.release",
         Effect.fn(function* (ctx) {
           const room = yield* rooms.get(ctx.params.roomID).pipe(Effect.catchTag("Room.NotFoundError", missingRoom))
@@ -1185,6 +1216,34 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             : dod
           const safe = rules?.hideExecution ? hideDodExecution(visible) : visible
           return RoomRules.sanitizeScreenshots(forGuest(safe, joined.member), !!rules?.hideScreenshots)
+        }),
+      )
+      .handle(
+        "room.guest.dod.board",
+        Effect.fn(function* (ctx) {
+          const joined = yield* guestOf(ctx.params.roomID)
+          const directory = yield* roomDirectory(joined.room)
+          let rules = yield* effectiveRules(joined.room, directory)
+          const board = yield* DodKanban.board({
+            directory,
+            viewer: {
+              type: "guest",
+              id: joined.member.id,
+              name: joined.member.name,
+              ...(ctx.query.group ? { group: ctx.query.group } : {}),
+            },
+            live: yield* live(),
+          }).pipe(
+            Effect.mapError((error) => new InvalidRequestError({
+              message: rules?.hidePaths ? redactRoomValue(error.message, [directory]) : error.message,
+            })),
+          )
+          rules = yield* effectiveRules(joined.room, directory)
+          const visible = rules?.hidePaths
+            ? redactRoomValue(board, [joined.room.directory ?? "", directory].filter(Boolean))
+            : board
+          const safe = rules?.hideExecution ? hideBoardExecution(visible) : visible
+          return RoomRules.sanitizeScreenshots(safe, !!rules?.hideScreenshots)
         }),
       )
       .handle(

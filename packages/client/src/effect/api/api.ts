@@ -2903,6 +2903,10 @@ export type RoomDodGetInput = { readonly roomID: Room.ID }
 export type RoomDodGetOutput = Room.Dod
 export type RoomDodGetOperation<E = never> = (input: RoomDodGetInput) => Effect.Effect<RoomDodGetOutput, E>
 
+export type RoomDodBoardInput = { readonly roomID: Room.ID }
+export type RoomDodBoardOutput = Room.DodBoard
+export type RoomDodBoardOperation<E = never> = (input: RoomDodBoardInput) => Effect.Effect<RoomDodBoardOutput, E>
+
 export type RoomDodReleaseInput = { readonly roomID: Room.ID; readonly id: string }
 export type RoomDodReleaseOutput = Room.Dod
 export type RoomDodReleaseOperation<E = never> = (input: RoomDodReleaseInput) => Effect.Effect<RoomDodReleaseOutput, E>
@@ -3022,6 +3026,12 @@ export type RoomGuestDodGetOutput = Room.Dod
 export type RoomGuestDodGetOperation<E = never> = (
   input: RoomGuestDodGetInput,
 ) => Effect.Effect<RoomGuestDodGetOutput, E>
+
+export type RoomGuestDodBoardInput = { readonly roomID: Room.ID; readonly group?: string | undefined }
+export type RoomGuestDodBoardOutput = Room.DodBoard
+export type RoomGuestDodBoardOperation<E = never> = (
+  input: RoomGuestDodBoardInput,
+) => Effect.Effect<RoomGuestDodBoardOutput, E>
 
 export type RoomGuestDodClaimInput = {
   readonly roomID: Room.ID
@@ -4613,7 +4623,11 @@ export interface RoomApi<E = never> {
   readonly create: RoomCreateOperation<E>
   readonly update: RoomUpdateOperation<E>
   readonly remove: RoomRemoveOperation<E>
-  readonly dod: { readonly get: RoomDodGetOperation<E>; readonly release: RoomDodReleaseOperation<E> }
+  readonly dod: {
+    readonly get: RoomDodGetOperation<E>
+    readonly board: RoomDodBoardOperation<E>
+    readonly release: RoomDodReleaseOperation<E>
+  }
   readonly feed: RoomFeedOperation<E>
   readonly code: RoomCodeOperation<E>
   readonly public: RoomPublicOperation<E>
@@ -4632,6 +4646,7 @@ export interface RoomApi<E = never> {
     readonly run: RoomGuestRunOperation<E>
     readonly dod: {
       readonly get: RoomGuestDodGetOperation<E>
+      readonly board: RoomGuestDodBoardOperation<E>
       readonly claim: RoomGuestDodClaimOperation<E>
       readonly submit: RoomGuestDodSubmitOperation<E>
     }

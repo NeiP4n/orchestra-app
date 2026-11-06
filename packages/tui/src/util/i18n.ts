@@ -11,6 +11,11 @@ const ruExtra: Record<string, string> = {
   Council: "Совет",
   Groups: "Группы",
   Tree: "Дерево",
+  board: "доска",
+  list: "список",
+  "read-only": "только чтение",
+  Zones: "Зоны",
+  yours: "твоя",
   ...ruContext,
   // Mesh
   Mesh: "Mesh",

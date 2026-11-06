@@ -80,6 +80,8 @@ const GUEST_PATHS = [
   /^\/api\/room\/[^/]+\/guest\/run$/,
   // room.guest.dod.get, room.guest.dod.claim
   /^\/api\/room\/[^/]+\/guest\/dod$/,
+  // room.guest.dod.board
+  /^\/api\/room\/[^/]+\/guest\/dod\/board$/,
   // room.guest.dod.submit
   /^\/api\/room\/[^/]+\/guest\/dod\/submit$/,
   // room.guest.feed
@@ -186,6 +188,20 @@ export const RoomGroup = HttpApiGroup.make("server.room")
         identifier: "room.dod.get",
         summary: "Read a room's DoD",
         description: "The items of the shared project's Definition of Done, with the guests who took them.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.get("room.dod.board", "/api/room/:roomID/dod/board", {
+      params: { roomID: Room.ID },
+      success: Room.DodBoard,
+      error: [RoomNotFoundError, SessionNotFoundError, InvalidRequestError],
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "room.dod.board",
+        summary: "Read a room's DoD as a kanban board",
+        description:
+          "The shared project's Definition of Done grouped into kanban columns by state, with who holds each card and whether the viewer may take it. Cards in a foreign zone are read-only without a pass.",
       }),
     ),
   )
@@ -390,6 +406,22 @@ export const RoomGroup = HttpApiGroup.make("server.room")
         identifier: "room.guest.dod.get",
         summary: "Read the shared project's DoD",
         description: "The items of the host project's Definition of Done, with who took each one.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.get("room.guest.dod.board", "/api/room/:roomID/guest/dod/board", {
+      params: { roomID: Room.ID },
+      // The guest's group, for zone checks: without it the guest is foreign to every zone.
+      query: Schema.Struct({ group: Schema.String.pipe(Schema.optional) }),
+      success: Room.DodBoard,
+      error: [UnauthorizedError, RoomNotFoundError, SessionNotFoundError, InvalidRequestError],
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "room.guest.dod.board",
+        summary: "Read the shared project's DoD as a kanban board",
+        description:
+          "The host project's Definition of Done grouped into kanban columns by state, with who holds each card and whether the calling guest may take it. The guest's own cards are marked; cards in a foreign zone are read-only without a pass.",
       }),
     ),
   )

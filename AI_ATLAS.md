@@ -918,12 +918,13 @@ The board (`dod.yaml`, lease 5 min, `LEASE_MS`) is guarded on the claim path
   holds is not a new claim and is never blocked. Known gap: `dod check` and
   `dod block` claim a free item without the guards, so they can push a group
   past 3 in work.
-- **Zones (idea #25, pending block Б11 kanban+zones)**: the registry
+- **Zones (idea #25)**: the registry
   `.orchestra/zones.yaml` (`packages/core/src/zones.ts`) maps zone → owner
   group; taking an item from a foreign zone needs a pass
   (`Zones.grantPass`, tool `dod zone_pass`), but a stale claim is an
   automatic pass, so a jam never lasts forever. A caller without a group is
   foreign to every owned zone; a project without a registry has no zones.
+  The kanban board below renders zones from the same registry.
 - **Contracts (idea #21)**: module interfaces and data formats are fixed in
   writing in `.orchestra/contracts.md` (`packages/core/src/contracts.ts`,
   template via `Contracts.initialize`) before coding; implementation work
@@ -937,6 +938,67 @@ The board (`dod.yaml`, lease 5 min, `LEASE_MS`) is guarded on the claim path
   (`standby.takeover`, `wip.refusal`, `zone.refusal`, `zone.auto-pass`),
   best-effort: a failed write never fails the claim it records.
   Tests: `packages/core/test/dod-guards.test.ts`.
+
+## DoD kanban board (block Б11) — `packages/core/src/dod-kanban.ts`
+
+The kanban is a VIEW over the DoD, not a second store: it reads the same
+`dod.yaml` leaves and the same zone registry, and it never offers a card
+the claim path would refuse. Columns come from `task_state`:
+
+- `todo` = `NOT_STARTED`, `in_progress` = `IN_PROGRESS`,
+  `blocked` = `BLOCKED`, `failed` = `FAILED`,
+  `done` = `DONE` + `OUT_OF_SCOPE`; an unknown state lands in `todo`
+  with its real state kept on the card.
+- A card shows owner, steps done/total, zone, and whether the viewer may
+  take it. `canTake` is exactly `Dod.mayClaim(...) === undefined` (the same
+  function the claim path uses), so the board and the take tool cannot
+  disagree: basic refusal, WIP limit, and zone pass are all honoured.
+- A foreign-zone card is read-only for the viewer (no take, reason shown);
+  an explicit pass or a stale claim in a foreign zone makes it takeable.
+  The host view never takes: `canTake` is false everywhere with the reason
+  "Only guests take items; the host frees them" — the host frees held
+  cards instead.
+- The board shape is `Room.DodBoard` (`packages/schema/src/room.ts`):
+  `columns[]` (`DodBoardColumn`: id, title, cards), `zones[]` (name,
+  ownerGroup, mine), `counts` (total, done, inProgress, blocked, failed,
+  free). `status` is `disabled` when the room has no `dod.yaml`.
+- API (`packages/protocol/src/groups/room.ts`): `room.dod.board` (host,
+  GET `/api/room/:roomID/dod/board`) and `room.guest.dod.board` (guest,
+  optional `group` query — without it the guest is foreign to every zone,
+  matching claim behaviour). Both are in `GUEST_PATHS`, or the auth
+  middleware blocks guest tokens. Server handlers in
+  `packages/server/src/handlers/room.ts`; the guest handler strips `verify`
+  from cards (`hideBoardExecution`, mirroring `hideDodExecution`). The
+  generated client (`bun run generate` from `packages/client`) exposes
+  `room.dod.board` / `room.guest.dod.board` and `room.dod.release`.
+- TUI (`packages/tui/src/component/room-dod.tsx`): `RoomDodRows` takes an
+  optional `loadBoard` prop and gains a `board`/`list` toggle (shown only
+  when a board loaded). The board renders the 5 columns side by side with
+  a zones legend; a blocked reason sits on its own line under the card (a
+  finished card shows none — the Done column already says it). The board
+  loads and reloads together with the list (room-feed long-poll + 5s poll),
+  so no new transport. Wired at all call sites: `project-tree.tsx`
+  (hosted: `room.dod.board`; joined: `room.guest.dod.board`) and
+  `room-chat.tsx` (guest board). Shared take/submit/release actions live in
+  `DodItemActions`; freeing another person's card still needs a second
+  click.
+- Web app (`packages/app/src/dod/route.tsx`, route
+  `/server/:serverKey/room/:roomID/dod`): the host board — 5 columns in a
+  grid (stacked on narrow screens), 5s poll, a release button on held
+  cards. Copy uses `dod.board.*` i18n keys
+  (`packages/app/src/runtime/i18n/en.ts`); the host's generic take refusal
+  is not shown (it would repeat on every card), `waits` is shown instead.
+- Tests: `packages/core/test/dod-kanban.test.ts` (15: columns, owner/mine,
+  refusals, foreign zone, pass, stale auto-pass, WIP limit, host view,
+  counts, zones, disabled, no-zones),
+  `packages/tui/test/component/room-dod.test.tsx` (13: 9 list + 4 board —
+  toggle, zones line, foreign-zone read-only, take from the board), and
+  `packages/server/test/room.test.ts` ("the kanban board groups the DoD by
+  state for host and guest": host board grouped, nothing takeable; guest
+  board free card takeable, done card not; 401 without a guest token).
+  Verify: `bun test test/dod-kanban.test.ts test/dod.test.ts` in
+  `packages/core`; `bun test test/component/room-dod.test.tsx` in
+  `packages/tui`; `bun typecheck` in `packages/app`.
 
 
 ## Model collections & custom endpoints
