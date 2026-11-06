@@ -197,8 +197,9 @@ The native autoloop cycle (block Б2) keeps its state in the journal, not in
 process memory. One source of truth, in the existing `orchestra-local.db`.
 
 - **Tables** (`autoloop_facts`, `autoloop_projections`,
-  `autoloop_projection_meta`, `autoloop_projection_refs`), created by Drizzle
-  migration `20261105171218_oval_joystick` from `src/autoloop/sql.ts`. Never a
+  `autoloop_projection_meta`, `autoloop_projection_refs`,
+  `autoloop_quarantine`), created by Drizzle
+  migration `20261105171218_oval_joystick` (plus `20261106144629_unknown_major_mapleleaf` for the quarantine table) from `src/autoloop/sql.ts`. Never a
   separate `hub.db`; never touch another table from this module.
 - **`kernel/schema.ts`**: fact shape (`id`, `type`, `collection`, `key`, `data`,
   `refs`), projection collections, `FORMAT = "autoloop-kernel-v1"`.
@@ -211,6 +212,17 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   `commitLatest` reads the latest sequence inside the same transaction.
   `readLog` / `iterateLog` / `openView` are the reads. Projections are
   disposable: `rebuild` from the journal restores the same state.
+  **Quarantine** (arch3 A3-11): a poisoned fact is never deleted — the
+  journal is the evidence — but `quarantine(seq, reason)` marks it in
+  `autoloop_quarantine` and rebuilds the projections in the same
+  transaction without it, so it stops affecting decisions at once and no
+  later rebuild replays it; `unquarantine(seq)` plays it again the same
+  way. A rebuild that skips quarantined facts logs the skipped count.
+  Operator commands: `orchestra autoloop quarantine <seq> --reason ...`,
+  `unquarantine <seq>`, `quarantine-list` (the mutating two need the
+  server stopped, like `db restore`). `openView` falls back to the
+  journal's real latest sequence when the stored `last_seq` is damaged
+  instead of returning `NaN` (arch3 №51).
 - **`kernel/decide.ts`** (block Б3, подшаг 1): pure `decide(view, input, now, env)` — no
   Effect, no I/O. Handlers `ingest / claimNext / started / finish / cancel /
   answer / resolve / nextCard / delivered / failed / tick / sweep / heartbeat /
@@ -701,8 +713,10 @@ too far behind, so it resyncs instead of missing events.
   so the server's idempotent reconcile never duplicates the message.
   A stream interrupted after the first tokens publishes a failed receipt
   with the partial output and continues in a new round. Resume-on-start
-  resumes only when the autoloop journal says the run did not finish
-  (`packages/core/src/journal.ts` — `hasUnfinishedRun`).
+  resumes by its own rules in `packages/core/src/session/execution/restart.ts` —
+  it does NOT ask the autoloop journal: `Journal.hasUnfinishedRun` exists
+  and answers, but nothing calls it today (arch3 №23), and `readErrors`
+  has no reader outside tests.
 - **Storage as data**: `society_plan apply` stores planner decisions
   (role, model, context, cache) in KV under
   `federation/society-plan/<group>/<project|society>/<role>` and `status`
@@ -720,7 +734,17 @@ too far behind, so it resyncs instead of missing events.
 - **Database backup**: `packages/core/src/database/backup.ts`
   (`backupDatabase` via `VACUUM INTO`, `restoreDatabase`, only while the
   server is stopped) and `PRAGMA synchronous = FULL` for critical writes.
-  Durable events persist by default (G2-7: `Bus` keeps payloads unless
+  A backup is a **pair — database + credential key** (arch3 A3-01): the
+  key file is copied next to the backup as `<backup>.key` (0600), and a
+  backup refuses to be written when the live database holds sealed
+  credentials and no usable key is available — a database backup without
+  its key cannot decrypt anything after a key loss, and the server will
+  not start. Legacy OAuth tokens in `account`/`control_account` are sealed
+  with the same key by migration `20261106120000_seal_legacy_account_tokens`
+  (arch3 A3-04); a database copied from upstream opencode carries them
+  sealed from the first boot. A freshly written backup is verified (magic header +
+  `PRAGMA quick_check`) before it counts, and a corrupt one is deleted
+  on the spot (A3-02). Durable events persist by default (G2-7: `Bus` keeps payloads unless
   `persist: false` is passed explicitly — a plain `orchestra serve` used to
   drop them on restart). Backups run themselves (G2-8): the Node server takes
   one at startup — before the startup hold resumes Societies — and then one
@@ -729,12 +753,15 @@ too far behind, so it resyncs instead of missing events.
   pending migrations is snapshotted before the migration runs
   (`DatabaseMigration.pendingMigrations`, best-effort, never fails the boot).
   Restore is atomic: the backup is verified (magic header +
-  `PRAGMA quick_check`) before the live file is touched, the live file and
+  `PRAGMA quick_check`) before the live file is touched, the key is proven
+  to open the backup's sealed rows before anything is replaced, the live file and
   its `-wal`/`-shm` sidecars are moved aside to
   `<database>.pre-restore-<timestamp>` instead of deleted, the copy is
   verified again, and a failed copy or verification moves the live database
   back — a corrupt backup can no longer destroy the live database. Rotation
-  (`pruneBackups`) deletes only old timestamped backup files.
+  (`pruneBackups`) deletes pruned backups together with their `.key`
+  siblings. The operator entry point is `orchestra db restore <backup>`
+  (A3-03; `--force` only when the server is certainly stopped).
   `restoreDatabase` still needs the server stopped: an open connection would
   keep writing to the replaced inode.
 - **Atomic file writes**: `packages/core/src/file-mutation.ts` writes via a
@@ -810,7 +837,13 @@ the network.
   ones above and shadow them by name. Storage is one JSON file per level
   (`<root>/native-skills/skills.json`) plus an append-only journal
   (`journal.jsonl`): every mismatch resolution, install and use is one
-  human-readable line with its reason.
+  human-readable line with its reason. A damaged registry reads as an empty
+  level but says so (`loadLevelDetailed` returns `degraded + damage`, logged
+  with the file path), and installing or uninstalling over it is refused —
+  the old code saved an empty registry over the damage (arch3 A3-09).
+  Installs and uninstalls at one level serialize under a Flock, and the
+  skill text itself is written atomically (A3-10). The journal rotates at
+  256 KiB, keeping one older copy (A3-12).
 - **Factory (`factory.ts`)**: given the outputs a task needs and the inputs
   the caller has, it chains skills so each step's inputs are fed by the task
   or an earlier step (backward chaining, max depth 5, max 8 steps). Trying a
@@ -951,7 +984,9 @@ outcome it leaves a *stub* (marked `<!-- orchestra-handoff-stub -->`, with
 "(not recorded)" placeholders) when no handoff exists, refreshes an existing stub,
 and never overwrites an agent-written handoff. Writing the stub is best-effort
 inside settlement: an interruption stays an interruption, anything else is a
-warning. The layout follows the three-level memory design (L3, session level);
+warning. Both writers run under one cross-process lock per file and write
+atomically (temp + rename, arch3 A3-16): the stub's read-then-write used to
+race the agent's write and could clobber a real handoff. The layout follows the three-level memory design (L3, session level);
 `memory.md` in the same folder is not this module's job.
 
 ## Sprint cold start — `packages/core/src/sprint.ts`
@@ -984,7 +1019,13 @@ yet: `bestFor` is the query API waiting for that consumer (follow-up).
 
 The board (`dod.yaml`, lease 5 min, `LEASE_MS`) is guarded on the claim path
 (`Dod.take` / `Dod.next` / `Dod.takeover`, tool `dod` in
-`packages/core/src/tool/plugin/dod.ts`):
+`packages/core/src/tool/plugin/dod.ts`). A write is a compare-and-swap:
+the file is re-read under a cross-process lock (Flock per file, arch3
+№32/№34 — the old lock was process-local, so the CLI board and the server
+could both pass the unchanged check and the later rename silently dropped
+the earlier take) and retried up to 10 times when another writer saved in
+between; the replacement itself goes through a temp file + rename, and the
+Windows fallback never unlinks the live file first (arch3 A3-14).
 
 - **Standby (idea #19)**: an item names a reserve agent (`standby` /
   `standby_id`, set by `dod add`); when the holder's lease expires the
