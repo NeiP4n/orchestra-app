@@ -5,6 +5,7 @@ import { Credential } from "./credential.js"
 import { Model } from "./model.js"
 import { Provider } from "./provider.js"
 import { discoverModels } from "./provider-discovery.js"
+import { ANYMODEL_PROVIDER_ID } from "./session/runner/error-taxonomy.js"
 import { Society } from "./society.js"
 import { Integration } from "@orchestra/schema/integration"
 
@@ -20,7 +21,7 @@ import { Integration } from "@orchestra/schema/integration"
 // `checkLive` reads the three services out of the ambient context (all
 // optional — a layer without them gets `skipped`, never a false failure).
 
-export const ANYMODEL_PROVIDER_ID = "anymodel"
+export { ANYMODEL_PROVIDER_ID } from "./session/runner/error-taxonomy.js"
 
 export type PreflightFailureReason = "no-credential" | "no-provider" | "auth" | "unreachable" | "no-planner-model"
 

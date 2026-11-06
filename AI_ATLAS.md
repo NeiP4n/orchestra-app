@@ -79,16 +79,19 @@ on the live catalog instead (`mainSessionFallbackChain`): other models of the
 same provider first — except on an authentication failure, where the whole
 provider is dead and the chain starts on another provider — then the verified
 Anymodel models (`sonnet-5`, `anymodel-coder`, `gemini-3.8-flash`), then lix
-(the second provider, `https://lix.autos/v1`), then whatever else the catalog
-has. A provider with no stored key has no models in the catalog and contributes
+(the second provider, `https://lix.autos/v1`), then klinch (the third,
+`https://klinch.cloud/v1`), then whatever else the catalog has, sorted by
+provider then model id — never in catalog order, so the order does not
+depend on registration order. A provider with no stored key has no models in the catalog and contributes
 nothing, so a fallback can never invent a provider that does not exist. The
 current model is excluded by identity (`provider/id`), never by variant: another
 variant of the same model fails the same way (a 401 on `sonnet-5` is a 401 on
 `sonnet-5#max` too). Dead Anymodel models (`anymodel-v4.1-flash` et al.) never
 appear. The switch is announced in the session itself, naming the real
-provider. lix is seeded by the `orchestra.provider.lix` plugin
-(`packages/core/src/plugin/provider/lix.ts`): registered but never available
-without a stored key, models discovered live from `/models` once the key exists.
+provider. Anymodel, lix and klinch are all seeded by their provider plugins
+(`packages/core/src/plugin/provider/anymodel.ts`, `lix.ts`, `klinch.ts`):
+registered but never available without a stored key, models discovered live
+from `/models` once the key exists.
 
 Why G2-14 did not save the Б14 Probe Runner (role-toolkits fix, 2026-11-06):
 the chain ran for main sessions only — a worker's operator-given list was used

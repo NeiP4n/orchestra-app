@@ -167,6 +167,21 @@ export const LIX_PROVIDER_ID = "lix"
 export const LIX_BASE_URL = "https://lix.autos/v1"
 
 /**
+ * The other two seeded providers (arch3 №4): Anymodel and klinch are
+ * OpenAI-compatible gateways like lix, seeded by their own provider plugins
+ * (`plugin/provider/anymodel.ts`, `plugin/provider/klinch.ts`) so a clean
+ * install has them registered without manual configuration. No key lives
+ * here — each key comes only from the credential store (integration
+ * "anymodel" / "klinch"); without it the provider is registered but never
+ * available, and the fallback chain below never invents a model it cannot
+ * call. Models are discovered live from /models once the key exists.
+ */
+export const ANYMODEL_PROVIDER_ID = "anymodel"
+export const ANYMODEL_BASE_URL = "https://anymodel.ghostly.su/v1"
+export const KLINCH_PROVIDER_ID = "klinch"
+export const KLINCH_BASE_URL = "https://klinch.cloud/v1"
+
+/**
  * Fallback models for the project's main session, which carries no
  * operator-given model list. Only models that answered in Anymodel
  * chat tests: sonnet-5 and anymodel-coder in the 2026-11-05 rounds,
@@ -195,8 +210,11 @@ export const MAIN_SESSION_FALLBACK_MODELS: ReadonlyArray<string> = [
  * or a gateway failure (502/503/504), where the whole provider is dead (a
  * 401 on one model means a 401 on all of them; a 502 means the gateway is
  * down, not the model) and the chain starts on another provider. Then the
- * verified Anymodel models, then lix as the second provider, then whatever
- * else the catalog has, in catalog order. Dead Anymodel models never
+ * verified Anymodel models, then lix as the second provider, then klinch
+ * as the third, then whatever else the catalog has — the tail sorted by
+ * provider then model id, so the order never depends on the catalog's
+ * insertion order (arch3 №4: klinch used to land in the tail at an
+ * arbitrary position). Dead Anymodel models never
  * appear. Providers in `coolingDown` — a 429 another session caught, or a
  * 502 this process already recorded — are skipped outright: switching to a
  * model of a provider that just refused the whole process only earns the
@@ -229,16 +247,24 @@ export function mainSessionFallbackChain(input: {
   const inCatalog = (ref: Model.Ref) =>
     input.catalog.some((info) => info.providerID === ref.providerID && info.id === ref.id)
   const fromCatalog = (info: Model.Info) => Model.Ref.make({ providerID: info.providerID, id: info.id })
+  // The tail is sorted, not catalog order: the catalog's insertion order is
+  // an accident of registration, and a fallback must not depend on it.
+  const byProviderThenId = (a: Model.Info, b: Model.Info) =>
+    a.providerID.localeCompare(b.providerID) || a.id.localeCompare(b.id)
   const sameProvider = wholeProviderDead
     ? []
     : [
         ...verified.filter((ref) => ref.providerID === input.current.providerID && inCatalog(ref)),
-        ...input.catalog.filter((info) => info.providerID === input.current.providerID).map(fromCatalog),
+        ...[...input.catalog]
+          .filter((info) => info.providerID === input.current.providerID)
+          .sort(byProviderThenId)
+          .map(fromCatalog),
       ]
   const crossProvider = [
     ...verified.filter(inCatalog),
     ...input.catalog.filter((info) => info.providerID === LIX_PROVIDER_ID).map(fromCatalog),
-    ...input.catalog.map(fromCatalog),
+    ...input.catalog.filter((info) => info.providerID === KLINCH_PROVIDER_ID).map(fromCatalog),
+    ...[...input.catalog].sort(byProviderThenId).map(fromCatalog),
   ]
   return [...sameProvider, ...crossProvider].flatMap((ref) => {
     const next = push(ref)
