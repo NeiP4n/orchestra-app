@@ -34,7 +34,7 @@
     },
     "packages/ai": {
       "name": "@orchestra/ai",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@aws-sdk/credential-providers": "3.1057.0",
         "@orchestra/schema": "workspace:*",
@@ -56,7 +56,7 @@
     },
     "packages/app": {
       "name": "@orchestra/app",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@corvu/drawer": "catalog:",
         "@dnd-kit/abstract": "0.5.0",
@@ -113,7 +113,7 @@
     },
     "packages/cli": {
       "name": "@orchestra/cli",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "bin": {
         "orchestra": "./bin/orchestra.cjs",
         "orchestra2": "./bin/orchestra2.cjs",
@@ -181,7 +181,7 @@
     },
     "packages/client": {
       "name": "@orchestra/client",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@orchestra/protocol": "workspace:*",
         "@orchestra/schema": "workspace:*",
@@ -206,7 +206,7 @@
     },
     "packages/codemode": {
       "name": "@orchestra/codemode",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "acorn": "8.15.0",
         "effect": "catalog:",
@@ -219,7 +219,7 @@
     },
     "packages/console/app": {
       "name": "@orchestra/console-app",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@cloudflare/vite-plugin": "1.15.2",
         "@ibm/plex": "6.4.1",
@@ -255,7 +255,7 @@
     },
     "packages/console/core": {
       "name": "@orchestra/console-core",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@aws-sdk/client-sts": "3.782.0",
         "@jsx-email/render": "1.1.1",
@@ -282,7 +282,7 @@
     },
     "packages/console/function": {
       "name": "@orchestra/console-function",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@openauthjs/openauth": "0.0.0-20250322224806",
         "@orchestra/console-core": "workspace:*",
@@ -299,7 +299,7 @@
     },
     "packages/console/mail": {
       "name": "@orchestra/console-mail",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@jsx-email/all": "2.2.3",
         "@jsx-email/cli": "1.4.3",
@@ -323,7 +323,7 @@
     },
     "packages/console/support": {
       "name": "@orchestra/console-support",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@cloudflare/vite-plugin": "1.15.2",
         "@orchestra/console-core": "workspace:*",
@@ -343,7 +343,7 @@
     },
     "packages/core": {
       "name": "@orchestra/core",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@ai-sdk/cohere": "3.0.27",
         "@ai-sdk/perplexity": "3.0.26",
@@ -410,7 +410,7 @@
     },
     "packages/desktop": {
       "name": "@orchestra/desktop",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@zip.js/zip.js": "2.7.62",
         "electron-context-menu": "5.0.0",
@@ -455,7 +455,7 @@
     },
     "packages/enterprise": {
       "name": "@orchestra/enterprise",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@hono/standard-validator": "catalog:",
         "@opencode-ai/sdk": "1.18.21",
@@ -492,7 +492,7 @@
     },
     "packages/function": {
       "name": "@orchestra/function",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@octokit/auth-app": "8.0.1",
         "@octokit/rest": "catalog:",
@@ -508,7 +508,7 @@
     },
     "packages/gui-extensions": {
       "name": "@orchestra/gui-extensions",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@betteroffice/docx": "0.4.3",
         "@betteroffice/fonts": "0.4.0",
@@ -557,7 +557,7 @@
     },
     "packages/http-recorder": {
       "name": "@orchestra/http-recorder",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@effect/platform-node-shared": "4.0.0-rc.112",
       },
@@ -576,7 +576,7 @@
     },
     "packages/httpapi-codegen": {
       "name": "@orchestra/httpapi-codegen",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "effect": "catalog:",
         "prettier": "3.6.2",
@@ -598,7 +598,7 @@
     },
     "packages/latex": {
       "name": "@orchestra/latex",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@opentui/core": "catalog:",
         "@orchestra/plugin": "workspace:*",
@@ -612,7 +612,7 @@
     },
     "packages/merman": {
       "name": "@orchestra/merman",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@opentui/core": "catalog:",
         "@orchestra/plugin": "workspace:*",
@@ -627,7 +627,7 @@
     },
     "packages/plugin": {
       "name": "@orchestra/plugin",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@ai-sdk/provider": "3.0.8",
         "@orchestra/ai": "workspace:*",
@@ -687,7 +687,7 @@
     },
     "packages/plugin-browser": {
       "name": "@orchestra/plugin-browser",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@orchestra/plugin": "workspace:*",
         "@orchestra/schema": "workspace:*",
@@ -717,7 +717,7 @@
     },
     "packages/protocol": {
       "name": "@orchestra/protocol",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@orchestra/schema": "workspace:*",
         "effect": "catalog:",
@@ -732,7 +732,7 @@
     },
     "packages/schema": {
       "name": "@orchestra/schema",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@standard-schema/spec": "catalog:",
         "effect": "catalog:",
@@ -756,7 +756,7 @@
     },
     "packages/sdk": {
       "name": "@orchestra/sdk",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@orchestra/client": "workspace:*",
         "@orchestra/core": "workspace:*",
@@ -777,7 +777,7 @@
     },
     "packages/server": {
       "name": "@orchestra/server",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@effect/platform-node": "catalog:",
         "@effect/platform-node-shared": "catalog:",
@@ -798,7 +798,7 @@
     },
     "packages/session-ui": {
       "name": "@orchestra/session-ui",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@kobalte/core": "catalog:",
         "@orchestra/client": "workspace:*",
@@ -833,7 +833,7 @@
     },
     "packages/simulation": {
       "name": "@orchestra/simulation",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@opentui/core": "catalog:",
         "@orchestra/ai": "workspace:*",
@@ -853,7 +853,7 @@
     },
     "packages/stats/app": {
       "name": "@orchestra/stats-app",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@ibm/plex": "6.4.1",
         "@kobalte/core": "catalog:",
@@ -887,7 +887,7 @@
     },
     "packages/stats/core": {
       "name": "@orchestra/stats-core",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@aws-sdk/client-athena": "3.933.0",
         "@planetscale/database": "1.19.0",
@@ -906,7 +906,7 @@
     },
     "packages/stats/server": {
       "name": "@orchestra/stats-server",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@aws-sdk/client-firehose": "3.933.0",
         "@effect/platform-node": "catalog:",
@@ -952,7 +952,7 @@
     },
     "packages/theme": {
       "name": "@orchestra/theme",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@opentui/core": "catalog:",
         "effect": "catalog:",
@@ -966,7 +966,7 @@
     },
     "packages/tui": {
       "name": "@orchestra/tui",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@opentui/core": "catalog:",
         "@opentui/keymap": "catalog:",
@@ -1000,7 +1000,7 @@
     },
     "packages/ui": {
       "name": "@orchestra/ui",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@kobalte/core": "catalog:",
         "@pierre/diffs": "catalog:",
@@ -1036,7 +1036,7 @@
     },
     "packages/util": {
       "name": "@orchestra/util",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@effect/opentelemetry": "4.0.0-rc.112",
         "@effect/platform-node": "4.0.0-rc.112",
@@ -1075,7 +1075,7 @@
     },
     "packages/web": {
       "name": "@orchestra/web",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "@astrojs/cloudflare": "12.6.3",
         "@astrojs/markdown-remark": "6.3.1",
@@ -1133,7 +1133,7 @@
     },
     "services/update": {
       "name": "@orchestra/update",
-      "version": "2.0.24",
+      "version": "1.0.0",
       "dependencies": {
         "jose": "6.0.11",
         "semver": "catalog:",

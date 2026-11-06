@@ -11,6 +11,15 @@ import { SkillMarketplaceScan } from "./scan.js"
 import { SkillMarketplaceSearch } from "./search.js"
 import { SkillMarketplaceStore } from "./store.js"
 import { SkillMarketplaceUpstream } from "./upstream.js"
+import { SkillMarketplaceManifest } from "./manifest.js"
+import { SkillMarketplaceResolve } from "./resolve.js"
+import { SkillMarketplaceBudget } from "./budget.js"
+import { SkillMarketplaceLevels } from "./levels.js"
+import { SkillMarketplaceFactory } from "./factory.js"
+import { SkillMarketplaceRules } from "./rules.js"
+import { SkillMarketplacePick } from "./pick.js"
+import { SkillMarketplaceNative } from "./native.js"
+import { SkillMarketplaceTypes } from "./types.js"
 
 export {
   SkillMarketplaceRead,
@@ -19,6 +28,15 @@ export {
   SkillMarketplaceSearch,
   SkillMarketplaceStore,
   SkillMarketplaceUpstream,
+  SkillMarketplaceManifest,
+  SkillMarketplaceResolve,
+  SkillMarketplaceBudget,
+  SkillMarketplaceLevels,
+  SkillMarketplaceFactory,
+  SkillMarketplaceRules,
+  SkillMarketplacePick,
+  SkillMarketplaceNative,
+  SkillMarketplaceTypes,
 }
 
 export type SearchInput = SkillMarketplaceSearch.Input
