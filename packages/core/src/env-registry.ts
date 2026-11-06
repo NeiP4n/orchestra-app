@@ -409,6 +409,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Mark the script build as a release build (any value).",
     default: "Preview build.",
   },
+  ORCHESTRA_RELEASE_CHANNEL: {
+    purpose: "Release channel for the update host (\"beta\" selects beta releases, anything else selects latest).",
+    default: "\"latest\".",
+  },
   ORCHESTRA_REPO_CLONE_GITHUB_BASE_URL: {
     purpose: "Base URL for cloning GitHub repositories.",
     default: "github.com (falls back to OPENCODE_REPO_CLONE_GITHUB_BASE_URL).",
