@@ -260,6 +260,23 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   and the next `dispatch` claims it (FIFO, any worker) — re-execution of
   re-queued runs is Б4's job.
 - **Tests**: `packages/core/test/autoloop/` — no network, no models.
+- **Shadow orchestrator (idea #8)**: `src/autoloop/shadow.ts` is the
+  mechanism only — no model, no judgements of its own. `collectDecisions`
+  reads finished runs / answered cards / recorded events for a day from a
+  `View` (kernel files untouched, journal read-only); `summarizeDecisions`
+  counts outcomes, agents, rules, failures and retries;
+  `renderSessionPrompt` builds the shadow session's template (a
+  disagreement needs a journal fact with its `run:<n>` / `card:<n>` /
+  `event:<n>` id); `renderDigest` / `renderDigestFromDisagreements` compose
+  the digest; `writeSessionPrompt` / `writeDigest` store it under
+  `<data>/society/shadow/` as `shadow-prompt-YYYY-MM-DD.md` /
+  `shadow-digest-YYYY-MM-DD.md`. The digest content is written by an
+  agent session. Daily trigger is `script/shadow-digest.ts` (`--prepare`
+  / `--finalize --session-text <file>`, `--db` / `--society-dir` override;
+  the DB is opened read-only) plus a system cron line — the server has no
+  scheduler for arbitrary scripts. Docs: `docs/shadow-orchestrator.md`.
+  Tests: `packages/core/test/autoloop/shadow.test.ts` — fabricated views,
+  no DB.
 
 ## MCP — `packages/core/src/mcp/`
 
@@ -742,6 +759,22 @@ never overrides contracts, permissions, isolation or budgets.
   `packages/client`, and include the regenerated client in the change.
 - A claim is verified only when the check ran and its output was seen. Report
   NOT RUN items as not run.
+- Mutation testing (idea #15): `bun script/mutation-check.ts <target>
+  <test>` mutates one comparison / condition / constant / `&&`|`||` at a
+  time, runs the tests on each mutant in a temp copy of the package (the
+  working tree is never touched), and reports survivors — tests that stay
+  green. Exit 0 only when every mutant is killed. Critical modules —
+  autoloop kernel, rules, DoD, completion-gate, SSRF gate, key encryption —
+  get a mutation-check run whenever their logic changes; a survivor is a
+  task (write the catching test or record why the mutation is harmless).
+  Docs: `docs/mutation-check.md`.
+- Clean build (idea #16): `script/clean-build.sh` builds the project from
+  scratch in a fresh worktree (install, build schema/protocol/core/server/
+  cli, typecheck, lint; `--tests` adds core tests, `--smoke` is install +
+  typecheck core only). A handover counts as done only with a passed
+  clean-build recorded in `.orchestra/clean-build-log.md`
+  (`--record` writes it). Full typecheck needs >= 16 GB; on the 8 GB VM
+  use `--smoke`. Docs: `docs/clean-build.md`.
 
 ## The whole approach — one loop, not a pile of features
 
