@@ -758,3 +758,213 @@ describe("AutoloopDecide timed dispute ladder (idea #18)", () => {
     ).toThrow("такого спора нет")
   })
 })
+
+describe("AutoloopDecide arch3-core fixes", () => {
+  /** Five failed code checks in a row: the run stops and asks a human. */
+  const driveToVerifyAsk = (view: View) => {
+    let current = ingestTask(view, T0).view
+    for (let round = 1; round <= 5; round += 1) {
+      const now = T0 + round * MINUTE
+      const claimed = claimTask(current, now, `claim-${round}`, round + 1)
+      const finished = step(
+        claimed.view,
+        { type: "finish", args: [1, claimed.job.token, { outcome: "done", summary: "still broken", verifyFailed: true }] },
+        now + 1000,
+        round + 2,
+      )
+      current = finished.view
+    }
+    return current
+  }
+
+  test("m-11: a failing run warns on its last retry, not on a hardcoded third attempt", () => {
+    const ingested = ingestTask(emptyView(), T0)
+    const firstClaim = claimTask(ingested.view, T0)
+    const failedOnce = step(
+      firstClaim.view,
+      { type: "finish", args: [1, firstClaim.job.token, { outcome: "failed", error: "boom" }] },
+      T0 + 1000,
+      3,
+    )
+
+    // Defaults allow 2 attempts: after the first failure one retry is left,
+    // so the warning fires now (before the fix it waited for a third attempt
+    // that can never happen).
+    expect(runRow(failedOnce.view, 1)).toMatchObject({ state: "queued", attempts: 1 })
+    const warning = cardRows(failedOnce.view).find((card) => card["key"] === "run:1:failing")
+    expect(warning).toMatchObject({ kind: "notice", state: "open" })
+    expect(String(warning?.["text"])).toContain("последняя автоматическая попытка")
+  })
+
+  test("m-05: answering 'Принять без проверки' finishes the run as done", () => {
+    const view = driveToVerifyAsk(emptyView())
+    const ask = cardRows(view).find((card) => card["key"] === "run:1:verify")
+    expect(ask?.["options"]).toEqual(["Исправить и проверить снова", "Принять без проверки", "Отменить задачу"])
+
+    const answered = step(view, { type: "answer", args: [ask!["id"], { choice: 1, by: "satria" }] }, T0 + 6 * MINUTE, 8)
+
+    expect(answered.value).toMatchObject({ changed: true, state: "decided", accepted: true })
+    expect(runRow(answered.view, 1)).toMatchObject({ state: "done" })
+    expect(String(runRow(answered.view, 1)?.["summary"])).toContain("принято без проверки")
+    expect(runRow(answered.view, 2)).toBeUndefined()
+    const event = eventRows(answered.view).find((row) => row["type"] === "card.answered")
+    expect(event?.["detail"]).toContain("Принять без проверки")
+  })
+
+  test("A-10: a run told to stop ends cancelled even when it reports done", () => {
+    const ingested = ingestTask(emptyView(), T0)
+    const claimed = claimTask(ingested.view, T0)
+    const marked = step(claimed.view, { type: "cancel", args: [1] }, T0 + 1000, 3)
+    expect(runRow(marked.view, 1)?.["cancel_at"]).toBe(new Date(T0 + 1000).toISOString())
+
+    const finished = step(
+      marked.view,
+      { type: "finish", args: [1, claimed.job.token, { outcome: "done", summary: "built anyway" }] },
+      T0 + 2000,
+      4,
+    )
+
+    expect(runRow(finished.view, 1)).toMatchObject({ state: "cancelled" })
+    expect(runRow(finished.view, 1)?.["finished_at"]).toBe(new Date(T0 + 2000).toISOString())
+  })
+
+  test("m-12: removing a rule stops its claimed runs too, not only the queued ones", () => {
+    const ingested = ingestTask(emptyView(), T0)
+    const claimed = claimTask(ingested.view, T0)
+    const removed = step(claimed.view, { type: "rules", args: [emptyRules("UTC")] }, T0 + 1000, 3)
+
+    expect(runRow(removed.view, 1)).toMatchObject({ state: "cancelled" })
+    expect(String(runRow(removed.view, 1)?.["summary"])).toContain("исчезло")
+  })
+
+  test("m-12: a claimed run whose agent left the rules stops on tick", () => {
+    const ingested = ingestTask(emptyView(), T0)
+    const claimed = claimTask(ingested.view, T0)
+    // The rule stays, but its agent is replaced: the claimed run's agent
+    // ("coder") no longer exists, so no worker can ever finish it.
+    const retargeted: Rules = {
+      ...rules,
+      agents: { tester: { name: "tester", worker: "worker-2", use: "test", access: "read" } },
+      rules: [{ ...rules.rules[0]!, to: "tester" }],
+    }
+    const updated = step(claimed.view, { type: "rules", args: [retargeted] }, T0 + 1000, 3)
+    expect(runRow(updated.view, 1)).toMatchObject({ state: "claimed", agent: "coder" })
+
+    // The stored rules only take effect as the env of the next tick (the
+    // service reads them from the journal); pass them here directly.
+    const retargetedEnv: DecideEnv = { rules: retargeted, tokenSecret: "test-secret", seq: 4, rulesVersion: 1 }
+    const tickResult = decide(updated.view, { type: "tick", args: [] }, T0 + 6 * MINUTE, retargetedEnv)
+    const ticked = { view: tickResult.facts.reduce(evolve, updated.view) }
+    expect(runRow(ticked.view, 1)).toMatchObject({ state: "cancelled" })
+    expect(String(runRow(ticked.view, 1)?.["summary"])).toContain("исчез из правил")
+  })
+
+  test("m-12: a claimed run never seen (seen_at null) still goes back to the queue", () => {
+    // A run from an older journal, or one claimed by a path that never
+    // stamped it: `Date.parse("")` is NaN, and NaN never compares true.
+    const view: View = {
+      runs: {
+        "1": {
+          id: 1,
+          rule: "build",
+          agent: "coder",
+          grp: "build",
+          lane: "",
+          state: "claimed",
+          attempts: 0,
+          verifyIterations: 0,
+          claim: "claim-1",
+          issued: 1,
+          last_issued: null,
+          last_result: null,
+          last_answer: null,
+          cancel_at: null,
+          resume: null,
+          session: "worker-1",
+          link: null,
+          claimed_at: new Date(T0).toISOString(),
+          seen_at: null,
+          finished_at: null,
+          summary: null,
+          error: null,
+          error_fingerprint: null,
+          error_repeat: 0,
+          error_history: null,
+          fix_test_file: null,
+          fix_test_run: null,
+          verification: null,
+          usage: null,
+          not_before: new Date(T0).toISOString(),
+          created_at: new Date(T0).toISOString(),
+          rules_version: 1,
+        },
+      },
+    }
+    const ticked = step(view, { type: "tick", args: [] }, T0 + 6 * MINUTE + 1000, 2)
+
+    expect(runRow(ticked.view, 1)).toMatchObject({ state: "queued", claim: null })
+    expect(cardRows(ticked.view).map((card) => card["key"])).toContain("run:1:unknown")
+  })
+
+  test("M-04: broken rules are rejected and the stored rules stay", () => {
+    const stored = step(emptyView(), { type: "rules", args: [rules] }, T0)
+    expect(stored.view["config"]?.["rules"]).toBeDefined()
+
+    const badAgent: Rules = { ...rules, rules: [{ ...rules.rules[0]!, to: "ghost" }] }
+    expect(() => decide(stored.view, { type: "rules", args: [badAgent] }, T0 + 1000, env(2))).toThrow("правила не приняты")
+    const badCron: Rules = { ...rules, rules: [{ ...rules.rules[0]!, when: { cron: "not a cron" } }] }
+    expect(() => decide(stored.view, { type: "rules", args: [badCron] }, T0 + 1000, env(2))).toThrow("правила не приняты")
+    const badZone: Rules = { ...rules, timezone: "Mars/Olympus" }
+    expect(() => decide(stored.view, { type: "rules", args: [badZone] }, T0 + 1000, env(2))).toThrow("правила не приняты")
+    const nameless: Rules = { ...rules, rules: [{ ...rules.rules[0]!, name: "  " }] }
+    expect(() => decide(stored.view, { type: "rules", args: [nameless] }, T0 + 1000, env(2))).toThrow("правила не приняты")
+
+    // The stored rules are untouched: a new event still routes to "build".
+    const ingested = step(stored.view, { type: "ingest", args: ["user", { id: "evt-1", type: "task.created", subject: "task-1", summary: "make it" }] }, T0 + 2000, 3)
+    expect(ingested.value).toMatchObject({ routed: ["build"] })
+  })
+
+  test("M-04: one broken rule does not kill the tick", () => {
+    const mixed: Rules = {
+      ...emptyRules("UTC"),
+      agents: { coder: { name: "coder", worker: "worker-1", use: "code", access: "edit" } },
+      channels: {},
+      rules: [
+        { name: "nightly", when: { cron: "0 22 * * *" }, to: "coder", cwd: "/tmp/work", group: "nightly", tell: "needed" },
+        // A rule stored before validation existed: no cron and no source,
+        // so `parseCron(undefined)` throws inside the tick.
+        { name: "broken", when: {} as never, to: "coder", cwd: "/tmp/work", group: "broken", tell: "needed" },
+      ],
+    }
+    const mixedEnv: DecideEnv = { rules: mixed, tokenSecret: "test-secret", seq: 1, rulesVersion: 1 }
+    const at = Date.parse("2026-11-05T21:59:00.000Z")
+    const first = decide(emptyView(), { type: "tick", args: [] }, at, mixedEnv)
+    const view = first.facts.reduce(evolve, emptyView())
+    const second = decide(view, { type: "tick", args: [] }, at + MINUTE, { ...mixedEnv, seq: 2 })
+    const fired = second.facts.reduce(evolve, view)
+
+    expect(runRow(fired, 1)).toMatchObject({ rule: "nightly", state: "queued" })
+    const complaint = cardRows(fired).find((card) => String(card["key"]).startsWith("rules:tick:"))
+    expect(complaint).toMatchObject({ kind: "notice", state: "open" })
+    expect(String(complaint?.["text"])).toContain("«broken»")
+  })
+
+  test("M-04: a bad timezone in stored rules does not kill the tick either", () => {
+    // The timezone only bites when a cron rule is evaluated, so the env
+    // needs one; an event-only rule set never touches `Intl`.
+    const badZone: Rules = {
+      ...emptyRules("Mars/Olympus"),
+      agents: { coder: { name: "coder", worker: "worker-1", use: "code", access: "edit" } },
+      channels: {},
+      rules: [
+        { name: "nightly", when: { cron: "0 22 * * *" }, to: "coder", cwd: "/tmp/work", group: "nightly", tell: "needed" },
+      ],
+    }
+    const badEnv: DecideEnv = { rules: badZone, tokenSecret: "test-secret", seq: 1, rulesVersion: 1 }
+    const ticked = decide(emptyView(), { type: "tick", args: [] }, T0, badEnv)
+    const view = ticked.facts.reduce(evolve, emptyView())
+
+    const complaint = cardRows(view).find((card) => String(card["key"]).startsWith("rules:tick:"))
+    expect(complaint).toMatchObject({ kind: "notice", state: "open" })
+  })
+})

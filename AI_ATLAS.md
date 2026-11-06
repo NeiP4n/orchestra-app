@@ -244,10 +244,27 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   past `workerFreshMinutes`) its unknown runs go back to the queue
   (`unknown → queued`, claim cleared, `not_before` now), so a dead worker
   never blocks a lane forever — a live worker keeps its unknown runs, it may
-  still finish them. The server's startup tick runs this sweep, so a restart
+  still finish them. A run never seen (`seen_at` null) counts as long ago,
+  not as just seen. A claimed run whose agent left the rules stops on sweep
+  (`agent-gone`); removing a rule stops its claimed and unknown runs too,
+  not only the queued ones. The server's startup tick runs this sweep, so a restart
   re-queues dead workers' runs too. Answer: the `card.answered` event
   carries the chosen option in `detail`; answering `Отменить задачу`
-  (`CANCEL_OPTION`) cancels the task and starts no new run.
+  (`CANCEL_OPTION`) cancels the task and starts no new run; answering
+  `Принять без проверки` (`ACCEPT_OPTION`) finishes the linked run as done
+  with the card's summary — it is not re-queued for another verification
+  round. A run told to stop (`cancel_at` set) ends cancelled whatever it
+  reports next, even a late "done". Rules are validated before they are
+  stored (name, `when`, `to` must name a known agent, `cron` must parse,
+  the timezone must exist) — a bad set is rejected with `DecideInputError`
+  and the old rules stay. One broken rule stored earlier cannot kill the
+  tick: its cron step is isolated, the other rules keep firing, and the
+  operator gets one `rules:tick:` notice card about it. The failing-run
+  warning fires on the last retry (`attempts === maxAttempts - 1`), never
+  on a hardcoded third attempt. Claim/finish tokens are
+  `sha256(secret:run:id:issued)`; when no secret is configured the service
+  generates a random 32-byte secret per process, so tokens issued before a
+  restart stop verifying and the run is re-claimed by lease expiry.
 - **Cards (block Б3, подшаг 2)**: `src/autoloop/cards.ts` is the thin layer
   over `store` + `decide` — `listCards` / `listOpenCards`, `createCard`
   (same key while open = duplicate, no new fact), `answerCard` (records
