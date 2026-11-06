@@ -72,7 +72,9 @@ export interface Status {
 const empty = { total: 0, running: 0, succeeded: 0, failed: 0, interrupted: 0, waiting: 0, live: 0 }
 
 function countProject(project: ProjectSnapshot): ProjectStatus {
-  const status: ProjectStatus = { id: project.id, ...empty }
+  // No annotation here on purpose: the accumulator is mutated below, and
+  // `ProjectStatus` is all-readonly. The return still checks against it.
+  const status = { id: project.id, ...empty }
   for (const session of project.sessions) {
     status.total++
     if (session.claimed) status.running++
