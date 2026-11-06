@@ -331,9 +331,11 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   separate Xvfb display (`:99` by default, `ORCHESTRA_VIRTUAL_DISPLAY` to
   change it), `DISPLAY` pinned to it for every spawned child (screenshot,
   input, clipboard, `xdg-open`). A screenshot can only ever show the virtual
-  screen. Windows keeps its PowerShell helper and playtest's hidden/behind
-  ladder; macOS has no virtual display yet — desktop tools there still use the
-  real screen behind `ORCHESTRA_DESKTOP_CAPTURE=on` and are NOT isolated.
+  screen. macOS and Windows have no virtual display (G2-9): the `desktop_*`
+  tools refuse there with a plain-language error ("no virtual display")
+  unless the operator explicitly opted the real screen in — they never run
+  silently on the real screen. Windows keeps its PowerShell helper and
+  playtest's hidden/behind ladder behind that same opt-in.
 - `ORCHESTRA_DESKTOP_CAPTURE=on` means ONLY "the virtual display is allowed".
   The real screen needs a separate explicit opt-in: `ORCHESTRA_DESKTOP_REAL_SCREEN=on`
   AND `ORCHESTRA_DESKTOP_REAL_SCREEN_ALLOWLIST` (comma-separated app names) AND a
@@ -341,15 +343,21 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   expired, or not naming the app → the action is refused with a plain-language
   error, never run "somehow". Rollback is a deny: remove the opt-in and every
   real-screen path refuses.
-- Gated by that opt-in: `desktop_action`/`desktop_inspect` (Windows UI Automation
-  has no virtual display), playtest `input: real` / `mode: visible` (in any
-  session, not just silent ones), `zen_browser` (all actions except `status`),
-  MCP `agent-desktop`/`playwright` (acquire + callTool), and shell escapes
-  (`xdotool`/`ydotool`/`screencapture`/`grim`/`scrot`/`xwd`/`import -window`/
-  `xclip`/`xsel`/`wl-copy`/`wl-paste`/`pbcopy`/`pbpaste`/PowerShell
-  `SendKeys`/`SetCursorPos`/`mouse_event`/`keybd_event`/`CopyFromScreen`/clipboard,
-  explicit `DISPLAY` to anything but the virtual display). Shell-spawned GUI apps
-  get `DISPLAY` pinned to the virtual display when capture is on (Linux).
+- Gated by that opt-in: `desktop_*` itself on macOS/Windows (G2-9 platform
+  gate: `desktopPlatformDenial`, Linux always passes), `desktop_action`/
+  `desktop_inspect` (Windows UI Automation has no virtual display), playtest
+  `input: real` / `mode: visible` (in any session, not just silent ones),
+  `zen_browser` (all actions except `status`), MCP `agent-desktop`/
+  `playwright` (acquire + callTool), and shell escapes (`xdotool`/`ydotool`/
+  `wtype`/`screencapture`/`grim`/`scrot`/`xwd`/`import -window`/bare `import`/
+  `gnome-screenshot`/`flameshot`/`spectacle`/`xclip`/`xsel`/`wl-copy`/
+  `wl-paste`/`pbcopy`/`pbpaste`/`osascript`/`cliclick`/`pyautogui`/`pynput`/
+  `pywinauto`/`xprop`/`xwininfo`/`wmctrl`/`adb`/PowerShell `SendKeys`/
+  `SetCursorPos`/`mouse_event`/`keybd_event`/`CopyFromScreen`/clipboard,
+  explicit `DISPLAY` to anything but the virtual display). The shell gate
+  applies to the shell tool AND the hub tool (both run `shell.create`; the
+  hub's `prepare` calls the same `forbiddenDesktopEscape`). Shell-spawned GUI
+  apps get `DISPLAY` pinned to the virtual display when capture is on (Linux).
 - Virtual-display state is a journal fact (`journal.ts`: `recordDisplayEvent`,
   type `desktop.display`, states `started`/`alive`/`died`): which display, whose
   session, and a death is an event, never silence.
