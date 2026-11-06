@@ -51,4 +51,29 @@ describe("session handoff", () => {
     const kept = await readFile(SessionHandoff.pathFor(directory, "ses_abc"), "utf8")
     expect(kept).toContain("Ship it.")
   })
+
+  test("an agent handoff racing a stub refresh is never clobbered by the stub", async () => {
+    const directory = await project()
+    for (let round = 0; round < 20; round++) {
+      const id = `ses_race_${round}`
+      await run(SessionHandoff.writeStubIfMissing(directory, id, "inactivity"))
+      // The stub has already read a stub and is about to refresh it while
+      // the agent writes the real handoff. Without the lock, the stub's
+      // write can land after the agent's and the real handoff is lost.
+      await Promise.all([
+        run(
+          SessionHandoff.write(directory, id, {
+            reason: "user",
+            works: "Everything works.",
+            broken: "Nothing broken.",
+            nextStep: `Ship it ${round}.`,
+          }),
+        ),
+        run(SessionHandoff.writeStubIfMissing(directory, id, "shutdown")),
+      ])
+      const text = await readFile(SessionHandoff.pathFor(directory, id), "utf8")
+      expect(text).toContain(`Ship it ${round}.`)
+      expect(text).not.toContain(SessionHandoff.STUB_MARKER)
+    }
+  })
 })

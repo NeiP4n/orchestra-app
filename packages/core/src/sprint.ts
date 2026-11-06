@@ -1,9 +1,9 @@
 export * as Sprint from "./sprint.js"
 
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import path from "node:path"
+import { readFile, rm } from "node:fs/promises"
 import { Effect, Schema } from "effect"
 import { ProjectDirs } from "./project-dirs.js"
+import { WriteAtomic } from "./write-atomic.js"
 
 // Cold start of a sprint (approach idea #12): the first 30 minutes are reading code and
 // asking questions only; writing code is forbidden until the read-only phase ends.
@@ -58,10 +58,9 @@ export const start = Effect.fn("Sprint.start")(function* (
   }
   const destination = pathFor(directory)
   yield* Effect.tryPromise({
-    try: async () => {
-      await mkdir(path.dirname(destination), { recursive: true })
-      await writeFile(destination, JSON.stringify(phase), "utf8")
-    },
+    // A3-16: atomic — a torn sprint file reads as no phase, silently
+    // dropping the read-only window.
+    try: () => WriteAtomic.writeAtomic(destination, JSON.stringify(phase)),
     catch: (cause) => new SprintError({ message: `Could not start the sprint: ${cause instanceof Error ? cause.message : String(cause)}` }),
   })
   return phase
