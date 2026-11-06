@@ -64,6 +64,25 @@ section, config key `model_favorites`). Everything else is derived.
   workspace and society forges all do. A call site that omits them silently
   disables Feature for its workers; treat that as a defect.
 
+## Main-session model fallback — `packages/core/src/session/runner/llm.ts`, `error-taxonomy.ts` (G2-14)
+
+A worker that is refused outright continues on the next model the operator gave
+it. The project's main session carries no operator-given list, so it falls back
+on the live catalog instead (`mainSessionFallbackChain`): other models of the
+same provider first — except on an authentication failure, where the whole
+provider is dead and the chain starts on another provider — then the verified
+Anymodel models (`sonnet-5`, `anymodel-coder`, `gemini-3.8-flash`), then lix
+(the second provider, `https://lix.autos/v1`), then whatever else the catalog
+has. A provider with no stored key has no models in the catalog and contributes
+nothing, so a fallback can never invent a provider that does not exist. The
+current model is excluded by identity (`provider/id`), never by variant: another
+variant of the same model fails the same way (a 401 on `sonnet-5` is a 401 on
+`sonnet-5#max` too). Dead Anymodel models (`anymodel-v4.1-flash` et al.) never
+appear. The switch is announced in the session itself, naming the real
+provider. lix is seeded by the `orchestra.provider.lix` plugin
+(`packages/core/src/plugin/provider/lix.ts`): registered but never available
+without a stored key, models discovered live from `/models` once the key exists.
+
 ## Modes — `packages/schema/src/mode.ts`
 
 A mode is rails for a run: step ceiling, read-only flag, preloaded tools, one
