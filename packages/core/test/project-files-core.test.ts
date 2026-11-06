@@ -38,6 +38,14 @@ const write = async (dir: string, rel: string, contents: string): Promise<void> 
   await writeFile(file, contents, "utf8")
 }
 
+// A descriptor with base "project" lives in the project directory, a
+// sibling of .orchestra/ — not inside it.
+const writeProject = async (dir: string, rel: string, contents: string): Promise<void> => {
+  const file = path.join(dir, rel)
+  await mkdir(path.dirname(file), { recursive: true })
+  await writeFile(file, contents, "utf8")
+}
+
 describe("ProjectFiles index", () => {
   test("generates an index listing files, excluding itself, snapshots as one entry", async () => {
     const dir = await fixture()
@@ -57,6 +65,10 @@ describe("ProjectFiles index", () => {
     expect(snapshots?.count).toBe(1)
     const mystery = index.entries.find((entry) => entry.path === "mystery.txt")
     expect(mystery?.kind).toBe("unknown")
+    // A file inside a registered directory inherits its kind instead of
+    // being "unknown": notes/plan.md is a note, not an unregistered file.
+    const plan = index.entries.find((entry) => entry.path === "notes/plan.md")
+    expect(plan?.kind).toBe("notes")
     const dod = index.entries.find((entry) => entry.path === "dod.yaml")
     expect(dod?.sha256).toMatch(/^[0-9a-f]{64}$/)
     const readBack = await run(ProjectFiles.ProjectFilesIndex.readIndex(dir))
@@ -79,16 +91,19 @@ describe("ProjectFiles health", () => {
   test("healthy when every registered file exists and parses", async () => {
     const dir = await fixture()
     for (const descriptor of ProjectFiles.ProjectFilesRegistry.allDescriptors()) {
+      const put = descriptor.base === "project" ? writeProject : write
       if (descriptor.dir) {
-        await mkdir(path.join(dir, ".orchestra", descriptor.rel), { recursive: true })
+        await mkdir(path.join(dir, descriptor.base === "project" ? "" : ".orchestra", descriptor.rel), {
+          recursive: true,
+        })
       } else if (descriptor.rel.endsWith(".yaml") || descriptor.rel.endsWith(".yml")) {
-        await write(dir, descriptor.rel, "key: value\n")
+        await put(dir, descriptor.rel, "key: value\n")
       } else if (descriptor.rel.endsWith(".json")) {
-        await write(dir, descriptor.rel, "{}\n")
+        await put(dir, descriptor.rel, "{}\n")
       } else if (descriptor.rel.endsWith(".jsonl")) {
-        await write(dir, descriptor.rel, "{}\n")
+        await put(dir, descriptor.rel, "{}\n")
       } else {
-        await write(dir, descriptor.rel, "text\n")
+        await put(dir, descriptor.rel, "text\n")
       }
     }
     await run(ProjectFiles.ProjectFilesIndex.refreshIndex(dir))
@@ -128,6 +143,28 @@ describe("ProjectFiles health", () => {
     expect(rules?.detail).toBe("file has 0 rules, database has 3")
     const stored = JSON.parse(await readFile(path.join(dir, ".orchestra", "health.json"), "utf8"))
     expect(stored.status).toBe(report.status)
+  })
+
+  test("a base-project file at the wrong place does not satisfy the check", async () => {
+    const dir = await fixture()
+    // The native skill registry lives at <project>/native-skills/, not
+    // inside .orchestra/: a copy in the wrong place leaves the real one
+    // missing, so health is degraded, not healthy.
+    await write(dir, "native-skills/skills.json", "{}\n")
+    await run(ProjectFiles.ProjectFilesIndex.refreshIndex(dir))
+    const report = await run(ProjectFiles.ProjectFilesHealth.checkHealth(dir))
+    const skills = report.files.find((file) => file.path === "native-skills/skills.json")
+    expect(skills?.status).toBe("missing")
+    expect(report.status).toBe("degraded")
+  })
+})
+
+describe("ProjectFiles registry", () => {
+  test("descriptorForPath inherits the enclosing directory descriptor", () => {
+    expect(ProjectFiles.ProjectFilesRegistry.descriptorForPath("notes/plan.md")?.kind).toBe("notes")
+    expect(ProjectFiles.ProjectFilesRegistry.descriptorForPath("reports/round-1.md")?.kind).toBe("report")
+    expect(ProjectFiles.ProjectFilesRegistry.descriptorForPath("dod.yaml")?.kind).toBe("board")
+    expect(ProjectFiles.ProjectFilesRegistry.descriptorForPath("mystery.txt")).toBeUndefined()
   })
 })
 

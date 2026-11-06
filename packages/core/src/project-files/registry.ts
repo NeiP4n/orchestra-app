@@ -167,6 +167,22 @@ export const allDescriptors = (): ReadonlyArray<FileDescriptor> => [
 export const descriptorFor = (rel: string): FileDescriptor | undefined =>
   allDescriptors().find((descriptor) => descriptor.rel === rel)
 
+/**
+ * Descriptor for a file path: the exact descriptor when one exists,
+ * otherwise the longest enclosing directory descriptor — a file inside
+ * `notes/` is a note, a file inside `reports/` is a report. Files under
+ * no registered directory stay unregistered (`undefined`) and the index
+ * lists them as `unknown`, never hiding them.
+ */
+export const descriptorForPath = (rel: string): FileDescriptor | undefined => {
+  const exact = descriptorFor(rel)
+  if (exact !== undefined) return exact
+  const enclosing = allDescriptors()
+    .filter((descriptor) => descriptor.dir && rel.startsWith(descriptor.rel))
+    .sort((a, b) => b.rel.length - a.rel.length)
+  return enclosing[0]
+}
+
 /** Relative paths versioned in git, for the `.gitignore` split. Directories keep their trailing slash. */
 export const gitTrackedRels = (): ReadonlyArray<string> =>
   allDescriptors()

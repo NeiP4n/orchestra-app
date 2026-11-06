@@ -65,12 +65,14 @@ const checkOne = (
 ): Effect.Effect<FileHealth, ProjectFilesErrors.ProjectFileError> =>
   Effect.gen(function* () {
     if (descriptor.dir) {
-      const exists = yield* ProjectFilesFormat.exists(ProjectFilesPaths.writePath(directory, descriptor.rel))
+      const exists = yield* ProjectFilesFormat.exists(
+        ProjectFilesPaths.writePath(directory, descriptor.rel, descriptor.base),
+      )
       return { path: descriptor.rel, status: exists ? "ok" : "missing" }
     }
     const detail = divergent.get(descriptor.rel)
     if (detail !== undefined) return { path: descriptor.rel, status: "divergent", detail }
-    const file = ProjectFilesPaths.readPath(directory, descriptor.rel)
+    const file = ProjectFilesPaths.readPath(directory, descriptor.rel, descriptor.base)
     const exists = yield* ProjectFilesFormat.exists(file)
     if (!exists) return { path: descriptor.rel, status: "missing" }
     const text = yield* ProjectFilesFormat.readText(file)

@@ -21,7 +21,15 @@ import { ProjectFilesRegistry } from "./registry.js"
  * stale); the `snapshots/` subtree is one entry with a count, not one
  * entry per file inside every snapshot; an unregistered file is listed
  * as `unknown` — visible, never hidden — so the next sync either
- * registers it or the health check flags it.
+ * registers it or the health check flags it. A file inside a registered
+ * directory (say `notes/plan.md`) inherits that directory's kind and
+ * purpose instead of being `unknown`.
+ *
+ * The index covers `.orchestra/` only. A descriptor with base `project`
+ * (the native skill registry, a sibling of `.orchestra/`) is discovered
+ * through the registry and health-checked by `checkHealth`, not listed
+ * here — its path is relative to the project directory, not to this
+ * manifest.
  */
 
 export const IndexEntry = Schema.Struct({
@@ -84,7 +92,7 @@ const countSnapshots = (directory: string): Effect.Effect<number> =>
   }).pipe(Effect.catch(() => Effect.succeed(0)))
 
 const entryFor = (file: WalkedFile, updatedAt: string, size: number, hash: string): IndexEntry => {
-  const descriptor = ProjectFilesRegistry.descriptorFor(file.rel)
+  const descriptor = ProjectFilesRegistry.descriptorForPath(file.rel)
   return {
     path: file.rel,
     kind: descriptor?.kind ?? "unknown",
