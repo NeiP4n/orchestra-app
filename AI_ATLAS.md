@@ -732,6 +732,17 @@ A failing window blocks the sprint. The scratch worktree lives under
 `$HOME/.cache/orchestra-integration` (`--scratch-dir` overrides it; `/tmp`
 is too small on machines where it is a small tmpfs).
 
+## Release rollback — `scripts/rollback.sh` (idea #23)
+
+Every release writes its rollback plan ahead, in
+`.orchestra/releases/<version>/rollback.md` (template
+`docs/rollback-template.md`, flow `docs/release-rollback.md`), naming the
+previous good release as `Target:`. The helper verifies the target, tags
+the current HEAD as `rollback/<version>-before-<sha>`, resets to the
+target, and prints the record's Verify steps. It refuses when tracked
+files have uncommitted changes (unless `--force`) and when the release
+has no plan — a release without a written plan cannot roll back in one step.
+
 ## The whole approach — one loop, not a pile of features
 
 Every subsystem above is one station in a single operating loop. An AI working
