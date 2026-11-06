@@ -7,10 +7,12 @@ import { ToolFailure } from "@orchestra/ai"
 import { optional } from "@orchestra/schema/schema"
 import { Effect, Schema } from "effect"
 import { Dod } from "../../dod.js"
+import { Contracts } from "../../contracts.js"
 import { Location } from "../../location.js"
 import { Orchestra } from "../../orchestra.js"
 import { Passport } from "../../passport.js"
 import { Permission } from "../../permission.js"
+import { Zones } from "../../zones.js"
 
 export const name = "dod"
 
@@ -27,12 +29,15 @@ export const Input = Schema.Struct({
     "item",
     "next",
     "take",
+    "takeover",
     "check",
     "uncheck",
     "block",
     "release",
     "add",
     "verify",
+    "contracts_accept",
+    "zone_pass",
   ]).annotate({
     description: "What to do with the project's Definition of Done board",
   }),
@@ -43,7 +48,15 @@ export const Input = Schema.Struct({
   ),
   reason: optional(Schema.String.annotate({ description: "block: what the item is stuck on; omit to unblock" })),
   what: optional(Schema.String.annotate({ description: "add: the outcome the item delivers, one line" })),
-  group: optional(Schema.String.annotate({ description: "add: stage or group the item belongs to" })),
+  group: optional(
+    Schema.String.annotate({
+      description:
+        "add: stage or group the item belongs to; take/next/takeover: your group, for zone checks; zone_pass: the group the pass is granted to",
+    }),
+  ),
+  zone: optional(Schema.String.annotate({ description: "zone_pass: the zone to grant a pass into" })),
+  standby: optional(Schema.String.annotate({ description: "add: name of the reserve agent for the item" })),
+  standby_id: optional(Schema.String.annotate({ description: "add: id of the reserve agent for the item" })),
   steps: optional(Schema.Array(Schema.String).annotate({ description: "add: checkable steps, in order" })),
   command: optional(
     Schema.String.annotate({ description: "add: shell command whose exit code 0 proves the item done" }),
@@ -60,13 +73,16 @@ export const description = [
   "Actions:",
   "  show — open items with state, checked steps and holder; finished items by ID only.",
   "  item — one item (id) with its numbered steps and verification command.",
-  "  next — take the first item that is free and whose dependencies are done; your own unfinished item comes first.",
-  "  take — take item id before working on it.",
+  "  next — take the first item that is free and whose dependencies are done; your own unfinished item comes first. Pass your group so zone checks see you as its member.",
+  "  take — take item id before working on it. Pass your group for zone checks; at most 3 tasks in work per group, a 4th waits in queue.",
+  "  takeover — as the item's recorded standby, take over a stalled item (id) whose holder's lease expired.",
   "  check / uncheck — mark step (number from item) of item id as done or not done; check it as soon as it is really done.",
   "  block — mark item id BLOCKED with reason; without reason it goes back to IN_PROGRESS.",
   "  release — give item id back unfinished.",
-  "  add — add an item: what, optional id, group, steps, command (verification) and depends_on. Creates the board when the project has none.",
+  "  add — add an item: what, optional id, group, steps, command (verification), depends_on, and standby/standby_id for the reserve agent that picks it up if its holder stalls. Creates the board when the project has none.",
   "  verify — run item id's verification command; exit code 0 with every step checked makes it DONE with recorded evidence, otherwise FAILED.",
+  "  contracts_accept — accept the project's module contracts, so implementation work may start.",
+  "  zone_pass — grant group a pass into zone, so it may take items from that zone.",
   "",
   "Rules: take an item before working on it; add the user's multi-step work to the board if it is not there; an item becomes DONE only through verify, never by editing dod.yaml; report item IDs and states in your answer.",
 ].join("\n")
@@ -115,13 +131,28 @@ export const Plugin = {
         case "item":
           return yield* describe(yield* need(input.id, "id"))
         case "next": {
-          const taken = yield* Dod.next({ directory, owner })
+          const taken = yield* Dod.next({ directory, owner, group: input.group })
           return [`You hold ${taken.id} now.`, yield* describe(taken.id)].join("\n\n")
         }
         case "take": {
           const id = yield* need(input.id, "id")
-          yield* Dod.take({ directory, id, owner })
+          yield* Dod.take({ directory, id, owner, group: input.group })
           return [`You hold ${id} now.`, yield* describe(id)].join("\n\n")
+        }
+        case "takeover": {
+          const id = yield* need(input.id, "id")
+          yield* Dod.takeover({ directory, id, owner, group: input.group })
+          return [`You took ${id} over from its stalled holder.`, yield* describe(id)].join("\n\n")
+        }
+        case "contracts_accept": {
+          const accepted = yield* Contracts.accept(directory, owner.name)
+          return `Module contracts accepted by ${accepted.acceptedBy} at ${accepted.acceptedAt}; implementation work may start.`
+        }
+        case "zone_pass": {
+          const zone = yield* need(input.zone, "zone")
+          const group = yield* need(input.group, "group")
+          yield* Zones.grantPass(directory, { zone, group, by: owner.name })
+          return `Group ${group} may now take items from zone ${zone}.`
         }
         case "check":
         case "uncheck": {
@@ -162,6 +193,9 @@ export const Plugin = {
             steps: input.steps,
             verify: input.command,
             dependsOn: input.depends_on,
+            standby: input.standby
+              ? { name: input.standby, id: input.standby_id?.trim() || input.standby }
+              : undefined,
           })
           return [`Added ${added.id}. Take it before you start on it.`, yield* describe(added.id)].join("\n\n")
         }
@@ -211,7 +245,7 @@ export const Plugin = {
       const { item, steps } = yield* Dod.detail(directory, id)
       return [
         `${item.id} [${item.state}] ${item.what}`,
-        `Stage: ${item.stage} · steps ${item.done}/${item.total}${item.owner ? ` · held by ${item.owner}${item.stale ? " (lease expired)" : ""}` : " · free"}`,
+        `Stage: ${item.stage} · steps ${item.done}/${item.total}${item.owner ? ` · held by ${item.owner}${item.stale ? " (lease expired)" : ""}` : " · free"}${item.standby ? ` · standby ${item.standby}` : ""}`,
         ...(item.waits?.length ? [`Waits for: ${item.waits.join(", ")}`] : []),
         ...steps.map((step, index) => `  ${index + 1}. ${step}`),
         item.verify ? `Verification: ${item.verify}` : "Verification: none; the user accepts this item by hand.",
