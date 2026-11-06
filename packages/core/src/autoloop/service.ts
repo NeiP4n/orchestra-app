@@ -1,5 +1,6 @@
 export * as Autoloop from "./service.js"
 
+import { randomBytes } from "node:crypto"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { Cause, Context, Deferred, Duration, Effect, Layer, Option, PubSub, Ref, Schema, Scope, Semaphore, Stream } from "effect"
 import { Bus } from "../bus.js"
@@ -101,7 +102,12 @@ export interface Options {
   rules?: Rules
   /** Cycle limits; anything missing falls back to `decide`'s defaults. */
   limits?: Partial<AutoloopLimits>
-  /** Secret the claim/finish tokens are derived from (credential store). */
+  /** Secret the claim/finish tokens are derived from (credential store).
+   * When absent, a random 32-byte secret is generated per process: tokens
+   * are `sha256(secret:run:id:issued)`, so an empty secret makes every token
+   * predictable from the journal alone (M-01). The price is that tokens
+   * issued before a restart stop verifying — a run claimed across a restart
+   * is re-claimed by lease expiry instead of finished, never lost. */
   tokenSecret?: string
 }
 
@@ -342,7 +348,7 @@ const make = (options: Options = {}) =>
       rules: yield* Ref.make(options.rules),
       limits: yield* Ref.make(options.limits),
       configured: yield* Ref.make(false),
-      tokenSecret: options.tokenSecret,
+      tokenSecret: options.tokenSecret ?? randomBytes(32).toString("hex"),
       bus,
       database,
       changes: yield* PubSub.unbounded<View>(),

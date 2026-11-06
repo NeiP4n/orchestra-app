@@ -9,6 +9,7 @@ import { Database } from "@orchestra/core/database/database"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
 import { LayerNode } from "@orchestra/util/effect/layer-node"
 import { Autoloop } from "@orchestra/core/autoloop/service"
+import { createRun, finishRun } from "@orchestra/core/autoloop/orchestrator"
 import type { RunRow } from "@orchestra/core/autoloop/kernel/decide"
 import { emptyRules } from "@orchestra/core/autoloop/kernel/rules"
 import type { Rules } from "@orchestra/core/autoloop/kernel/rules"
@@ -464,6 +465,63 @@ describe("AutoloopService delivery", () => {
         dbPath,
       )
       expect(events.map((event) => event.type)).toContain("autoloop.card.created")
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("AutoloopService claim tokens", () => {
+  test("a claim token from one process does not verify in another", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "orchestra-autoloop-secret-"))
+    const dbPath = path.join(dir, "autoloop.db")
+    try {
+      const events: Array<{ type: string; data: unknown }> = []
+      const created = await runManual(
+        Effect.gen(function* () {
+          const svc = yield* Autoloop.Service
+          const created = yield* createRun(svc, {
+            sessionID: "worker-1",
+            projectID: "project-1",
+            text: "fix the bug",
+            messageID: "msg-1",
+          })
+          expect(created).not.toBeNull()
+          return created!
+        }),
+        stubBus(events, false),
+        dbPath,
+      )
+      // A new service instance over the same journal has a different secret,
+      // so the old token must not verify: the run cannot be finished by it.
+      const failure = await runManual(
+        Effect.gen(function* () {
+          const svc = yield* Autoloop.Service
+          return yield* finishRun(svc, { ...created, receipt: { outcome: "done", summary: "fixed" } }).pipe(Effect.flip)
+        }),
+        stubBus(events, false),
+        dbPath,
+      )
+      expect(failure).toMatchObject({ code: "forbidden" })
+      // The normal flow still works inside one process: claim and finish
+      // with the same service instance.
+      await runManual(
+        Effect.gen(function* () {
+          const svc = yield* Autoloop.Service
+          const second = yield* createRun(svc, {
+            sessionID: "worker-2",
+            projectID: "project-1",
+            text: "fix the other bug",
+            messageID: "msg-2",
+          })
+          expect(second).not.toBeNull()
+          expect(yield* finishRun(svc, { ...second!, receipt: { outcome: "done", summary: "fixed" } })).toMatchObject({
+            status: "finished",
+          })
+        }),
+        stubBus(events, false),
+        dbPath,
+      )
     } finally {
       await fs.rm(dir, { recursive: true, force: true })
     }
