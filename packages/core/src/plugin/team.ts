@@ -214,7 +214,9 @@ export const Plugin = define({
           Effect.flatMap((scopes) => Rules.block(kv, scopes)),
           Effect.catchCause((cause) =>
             Cause.hasInterruptsOnly(cause)
-              ? Effect.failCause(cause)
+              // The hook's effect never fails: only the interrupt reasons are rethrown,
+              // so a stopped session stays stopped instead of turning into a rules failure.
+              ? Effect.failCause(Cause.fromReasons<never>(cause.reasons.filter(Cause.isInterruptReason)))
               : Effect.succeed(
                   `# Rules could not be loaded\nThe rulebook failed to load (${Cause.pretty(cause)}), so no rule can be trusted to apply. Do not start work on the task until the rules load: report this failure and stop.`,
                 ),
