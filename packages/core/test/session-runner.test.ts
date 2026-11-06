@@ -53,6 +53,7 @@ import { SessionExecution } from "@orchestra/core/session/execution"
 import { SessionRunCoordinator } from "@orchestra/core/session/run-coordinator"
 import { SessionRunner } from "@orchestra/core/session/runner/index"
 import { SessionRunnerLLM } from "@orchestra/core/session/runner/llm"
+import { StepFailedError } from "@orchestra/core/session/error"
 import { SessionRunnerModel } from "@orchestra/core/session/runner/model"
 import { SessionUsage } from "@orchestra/core/session/usage"
 import { PluginSupervisor } from "@orchestra/core/plugin/supervisor"
@@ -6664,5 +6665,70 @@ describe("SessionRunnerLLM", () => {
     expect(defect).toBeInstanceOf(Error)
     if (!(defect instanceof Error)) return
     expect(defect.message).toBe("Tool input delta before start: call-1")
+  })
+
+  // G2-3: limits are on by default. A model that keeps calling tools must be
+  // stopped by the drain token budget after its first step, with the stop
+  // visible in the session — not by running until the provider or the
+  // process gives up.
+  scenario("stops a looping model at the drain token budget instead of running on", function* (s) {
+    const previous = process.env.ORCHESTRA_DRAIN_TOKEN_BUDGET
+    process.env.ORCHESTRA_DRAIN_TOKEN_BUDGET = "1"
+    try {
+      const synthetics: Array<string> = []
+      yield* s.bus.subscribe(SessionEvent.Synthetic).pipe(
+        Stream.filter((event) => event.data.sessionID === sessionID),
+        Stream.runForEach((event) =>
+          Effect.sync(() => {
+            synthetics.push(event.data.text)
+          }),
+        ),
+        Effect.forkScoped({ startImmediately: true }),
+      )
+      yield* s.admit("Keep working forever")
+      yield* s.llm.push(
+        TestLLM.tool("call-echo", "echo", { text: "again" }),
+        TestLLM.tool("call-echo-2", "echo", { text: "again" }),
+        TestLLM.text("Done", "text-done"),
+      )
+
+      const failure = yield* s.resume.pipe(Effect.flip)
+      expect(failure).toBeInstanceOf(StepFailedError)
+      if (!(failure instanceof StepFailedError)) return
+      expect(failure.error.type).toBe("limit.reached")
+      expect(failure.error.message).toContain("token budget")
+      // Exactly one model call happened: the second step never started.
+      expect(s.requests).toHaveLength(1)
+      expect(synthetics.some((text) => text.includes("token budget"))).toBe(true)
+    } finally {
+      if (previous === undefined) delete process.env.ORCHESTRA_DRAIN_TOKEN_BUDGET
+      else process.env.ORCHESTRA_DRAIN_TOKEN_BUDGET = previous
+    }
+  })
+
+  // The same looping model runs to its own finish while limits are disabled:
+  // the opt-out must actually opt out, or it is a trap.
+  scenario("does not stop the same looping model while limits are disabled", function* (s) {
+    const previousBudget = process.env.ORCHESTRA_DRAIN_TOKEN_BUDGET
+    const previousDisable = process.env.ORCHESTRA_DISABLE_LIMITS
+    process.env.ORCHESTRA_DRAIN_TOKEN_BUDGET = "1"
+    process.env.ORCHESTRA_DISABLE_LIMITS = "1"
+    try {
+      yield* s.admit("Keep working")
+      yield* s.llm.push(
+        TestLLM.tool("call-echo", "echo", { text: "again" }),
+        TestLLM.tool("call-echo-2", "echo", { text: "again" }),
+        TestLLM.text("Done", "text-done"),
+      )
+
+      yield* s.resume
+
+      expect(s.requests).toHaveLength(3)
+    } finally {
+      if (previousBudget === undefined) delete process.env.ORCHESTRA_DRAIN_TOKEN_BUDGET
+      else process.env.ORCHESTRA_DRAIN_TOKEN_BUDGET = previousBudget
+      if (previousDisable === undefined) delete process.env.ORCHESTRA_DISABLE_LIMITS
+      else process.env.ORCHESTRA_DISABLE_LIMITS = previousDisable
+    }
   })
 })

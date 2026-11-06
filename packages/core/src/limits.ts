@@ -1,9 +1,21 @@
-// Orchestra imposes no limits of its own by default. Setting ORCHESTRA_ENFORCE_LIMITS=1 restores
-// the configured ceilings (agent steps, mode steps, tool execution timeouts).
+// Orchestra enforces its own limits by default: step ceilings, tool execution
+// timeouts, and per-drain wall-clock/token budgets. Limits are a deployment
+// safety net, not operator configuration — a runaway agent on paid models must
+// stop by itself, so "no limits" is an explicit opt-out, never the default.
+//
+// Opt out only with ORCHESTRA_DISABLE_LIMITS=1 (or ORCHESTRA_ENFORCE_LIMITS=0).
+// ORCHESTRA_ENFORCE_LIMITS=1 still forces enforcement on. Any other value —
+// including a typo — keeps enforcement on: a misspelled switch must never
+// silently reopen the tap.
 // Provider-side limits (rate limits, context windows) are not ours to lift and are handled by
 // retry and compaction instead.
-export const enforced = (env: Record<string, string | undefined> = process.env) =>
-  env.ORCHESTRA_ENFORCE_LIMITS === "1" || env.ORCHESTRA_ENFORCE_LIMITS === "true"
+export const enforced = (env: Record<string, string | undefined> = process.env) => {
+  const disable = env.ORCHESTRA_DISABLE_LIMITS
+  if (disable === "1" || disable === "true") return false
+  const enforce = env.ORCHESTRA_ENFORCE_LIMITS
+  if (enforce === "0" || enforce === "false") return false
+  return true
+}
 
 /** Smallest configured ceiling, or undefined when none applies. */
 export const steps = (
@@ -27,6 +39,55 @@ export const timeout = (
 ) => {
   if (configured !== undefined) return configured
   return enforced(env) ? fallback : UNBOUNDED_MS
+}
+
+// Drain budgets: the backstop under the step ceiling. A ceiling tells the
+// model to finish; a budget stops the drain itself when the model does not —
+// retries, continuations, or a turn that keeps admitting new input. Both are
+// per drain (one resume), generous enough for a normal long session, and
+// tunable without touching code. A non-positive or unparsable value falls back
+// to the default: only the disable switch above turns budgets off, never a typo.
+
+/** Default wall-clock budget for one session drain: 4 hours. */
+export const DEFAULT_DRAIN_WALL_CLOCK_MS = 4 * 60 * 60 * 1_000
+
+/** Default estimated prompt-token budget for one session drain: 10M tokens. */
+export const DEFAULT_DRAIN_TOKEN_BUDGET = 10_000_000
+
+const positiveInt = (value: string | undefined, fallback: number) => {
+  if (value === undefined) return fallback
+  const parsed = Number.parseInt(value, 10)
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback
+}
+
+/** Wall-clock budget for one drain in milliseconds, or undefined while limits are disabled. */
+export const drainWallClockMs = (env: Record<string, string | undefined> = process.env) =>
+  enforced(env) ? positiveInt(env.ORCHESTRA_DRAIN_WALL_CLOCK_MS, DEFAULT_DRAIN_WALL_CLOCK_MS) : undefined
+
+/** Estimated prompt-token budget for one drain, or undefined while limits are disabled. */
+export const drainTokenBudget = (env: Record<string, string | undefined> = process.env) =>
+  enforced(env) ? positiveInt(env.ORCHESTRA_DRAIN_TOKEN_BUDGET, DEFAULT_DRAIN_TOKEN_BUDGET) : undefined
+
+export interface DrainBudgetState {
+  /** `Clock.currentTimeMillis` when the drain started. */
+  readonly startedAtMs: number
+  /** Estimated prompt tokens spent by this drain so far (measured + estimated). */
+  readonly tokensUsed: number
+}
+
+export type DrainBudgetExceeded = "wall-clock" | "tokens"
+
+/** Pure check: which drain budget (if any) this state has already spent. */
+export const drainBudgetExceeded = (
+  state: DrainBudgetState,
+  nowMs: number,
+  env: Record<string, string | undefined> = process.env,
+): DrainBudgetExceeded | undefined => {
+  const wallClock = drainWallClockMs(env)
+  if (wallClock !== undefined && nowMs - state.startedAtMs >= wallClock) return "wall-clock"
+  const tokens = drainTokenBudget(env)
+  if (tokens !== undefined && state.tokensUsed >= tokens) return "tokens"
+  return undefined
 }
 
 export * as Limits from "./limits.js"

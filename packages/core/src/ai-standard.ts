@@ -44,12 +44,13 @@ import { Model } from "./model.js"
 //    supplies the default ceiling by effort class (`budgetFor`): the runner
 //    applies it through `stepCeilings` whenever the agent itself configures
 //    no steps, and never above a ceiling the agent or the mode configures.
-//    Whether ceilings bite at all is a deployment switch (`Limits`:
-//    ORCHESTRA_ENFORCE_LIMITS) — with enforcement off, no ceiling applies,
-//    including this one. Nothing here limits money: a step can cost cents
-//    or dollars, and no token or currency budget exists in the system.
-//    Cost pressure comes from ranking (speed work prefers cheaper models),
-//    not from a guaranteed cap. The operator still fills no budget form.
+//    Ceilings bite by default: `Limits` enforces them unless the deployment
+//    explicitly opts out (`ORCHESTRA_DISABLE_LIMITS`). Nothing here limits
+//    money: a step can cost cents or dollars, and the step ceiling is not a
+//    spending cap — the runner's per-drain wall-clock/token budget (`Limits`)
+//    is only a safety backstop that stops a runaway drain. Cost pressure
+//    comes from ranking (speed work prefers cheaper models), not from a
+//    guaranteed cap. The operator still fills no budget form.
 // 8. When nothing at all is configured — no favorites, no role model, no
 //    policy — the run inherits the caller's model and the default agent
 //    (`build`, else the first selectable primary agent). Zero configuration
@@ -225,8 +226,8 @@ export interface Budget {
 
 // The standard's step budget: depth work gets room to think, speed work is
 // kept short. These are ceilings for `Limits.steps`, not operator-facing
-// settings — `Limits` decides whether enforcement is on for a deployment,
-// and a step ceiling is never a cap on spend (see point 7 above).
+// settings — `Limits` enforces them by default, and a step ceiling is never
+// a cap on spend (see point 7 above).
 const BudgetByEffort: Record<Effort, number> = { depth: 120, speed: 40 }
 
 export const budgetFor = (effort: Effort): Budget => ({ steps: BudgetByEffort[effort], source: "standard" })

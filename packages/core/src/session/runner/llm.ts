@@ -7,7 +7,7 @@ import { Model } from "@orchestra/schema/model"
 import { Orchestra } from "@orchestra/schema/orchestra"
 import { SessionError } from "@orchestra/schema/session-error"
 import { and, desc, eq, sql } from "drizzle-orm"
-import { Cause, DateTime, Effect, Exit, FiberMap, Layer } from "effect"
+import { Cause, Clock, DateTime, Effect, Exit, FiberMap, Layer } from "effect"
 import { Database } from "../../database/database.js"
 import { Bus } from "../../bus.js"
 import { AiStandard } from "../../ai-standard.js"
@@ -73,6 +73,10 @@ const layer = Layer.effect(
       let step = input.continuation?.step ?? 1
       let entering = true
       const promotable = input.promotable ?? "input"
+      // The drain budget is the backstop under the per-turn step ceiling: one
+      // drain (one resume) may spend at most the wall-clock/token budget in
+      // `Limits`, however many turns it admits while it runs.
+      const drainBudget = { startedAtMs: yield* Clock.currentTimeMillis, tokensUsed: 0 }
       if (!force && !continuing) {
         const pending = yield* SessionInbox.nextPromotable(db, sessionID, "input")
         if (!pending) return DrainResult.Complete()
@@ -207,7 +211,9 @@ const layer = Layer.effect(
       while (true) {
         const next = yield* advanceToStep()
         if (next._tag !== "Ready") return next
-        continuing = yield* runStep(next.context, step, refused)
+        const exceeded = Limits.drainBudgetExceeded(drainBudget, yield* Clock.currentTimeMillis)
+        if (exceeded) return yield* failDrainBudget(sessionID, exceeded, drainBudget)
+        continuing = yield* runStep(next.context, step, refused, drainBudget)
         step++
         force = false
         entering = false
@@ -226,6 +232,7 @@ const layer = Layer.effect(
       first: SessionContext.Loaded,
       step: number,
       refused: Set<string>,
+      drainBudget: { startedAtMs: number; tokensUsed: number },
     ) {
       const sessionID = first.session.id
       let assistantMessageID = SessionMessage.ID.create()
@@ -237,6 +244,10 @@ const layer = Layer.effect(
       // The current model is refused from the start, so a fallback never picks it back.
       refused.add(modelKey(first.model.ref))
       while (true) {
+        // A retry or continuation inside one step is still the same drain, so
+        // the budget is checked on every attempt, not just between steps.
+        const exceeded = Limits.drainBudgetExceeded(drainBudget, yield* Clock.currentTimeMillis)
+        if (exceeded) return yield* failDrainBudget(sessionID, exceeded, drainBudget)
         // Reuse boundary preparation once; retries refresh context without delivering more input.
         const loaded = initial ?? (yield* prepareContext(sessionID).pipe(Effect.flatMap(context.load)))
         initial = undefined
@@ -276,6 +287,11 @@ const layer = Layer.effect(
           initial: loaded.initial,
           messages: loaded.messages,
         })
+        // The prompt estimate is the drain's token spend: measured tokens the
+        // provider already reported plus the text since, counted once per
+        // request so a looping model cannot hide behind a stale anchor.
+        const promptEstimate = SessionCompaction.estimatePrompt(loaded)
+        drainBudget.tokensUsed += promptEstimate.measured + promptEstimate.estimated
         const prepared = yield* context.request.primary({
           session: loaded.session,
           agent: loaded.agent.id,
@@ -288,7 +304,7 @@ const layer = Layer.effect(
           // Keep tool definitions on the final Step to preserve the provider's cached prefix.
           toolChoice: stepLimitReached ? "none" : undefined,
           webSocket: "session",
-          inputTokens: SessionCompaction.estimatePrompt(loaded),
+          inputTokens: promptEstimate,
         })
         const outcome = yield* steps.attempt({
           isLocationClosed: lifecycle.isClosed,
@@ -465,6 +481,36 @@ const layer = Layer.effect(
           })
         }
       }
+    })
+
+    // A drain that hits its wall-clock or token budget stops here, in the
+    // session itself, instead of running on: the operator and the orchestrator
+    // read the stop as their next instruction, and a new prompt resumes the
+    // session with a fresh budget.
+    const failDrainBudget = Effect.fn("SessionRunner.failDrainBudget")(function* (
+      sessionID: SessionSchema.ID,
+      reason: Limits.DrainBudgetExceeded,
+      budget: { readonly startedAtMs: number; readonly tokensUsed: number },
+    ) {
+      const nowMs = yield* Clock.currentTimeMillis
+      const configured = reason === "wall-clock" ? Limits.drainWallClockMs() : Limits.drainTokenBudget()
+      const kind = reason === "wall-clock" ? "wall-clock" : "token"
+      const spent =
+        reason === "wall-clock" ? `${nowMs - budget.startedAtMs} ms` : `${budget.tokensUsed} estimated prompt tokens`
+      const tune = reason === "wall-clock" ? "ORCHESTRA_DRAIN_WALL_CLOCK_MS" : "ORCHESTRA_DRAIN_TOKEN_BUDGET"
+      const message = `Session drain stopped: ${kind} budget of ${configured} reached (${spent} spent). The session stopped instead of running on; send a new prompt to resume it with a fresh budget, or raise ${tune}. Limits can be switched off entirely with ORCHESTRA_DISABLE_LIMITS=1, which is not recommended for live runs.`
+      yield* bus.publish(SessionEvent.Synthetic, {
+        sessionID,
+        text: message,
+        description: "Drain limit reached",
+      })
+      yield* Effect.logWarning("session drain stopped at its limit instead of running on", {
+        sessionID,
+        reason,
+        spent,
+        budget: configured,
+      })
+      return yield* new StepFailedError({ error: { type: "limit.reached", message } })
     })
 
     return Service.of({ drain })

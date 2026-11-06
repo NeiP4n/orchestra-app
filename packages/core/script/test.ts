@@ -23,7 +23,8 @@ const environment = {
   ),
   HOME: home,
   ORCHESTRA_TEST_HOME: home,
-  // Existing runner tests exercise the enforced ceilings; unlimited is the default and is covered in limits.test.ts.
+  // Existing runner tests exercise the enforced ceilings. Enforcement is on by
+  // default; the pin below only makes the test environment explicit.
   ORCHESTRA_ENFORCE_LIMITS: "1",
   // Tests match messages from git and other tools in English; a localized system would
   // otherwise translate them. Only messages change; the encoding and formats stay.
