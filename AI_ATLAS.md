@@ -1184,6 +1184,16 @@ the claim path would refuse. Columns come from `task_state`:
   `human: true` (also in `kanban.yaml` and the `dod` tool's lines), and
   `counts.free` excludes it for guests — for the host it still counts as
   free, since the host works it by hand.
+- Cheap answers (Kanzo's format, one call = one action): the agent-facing
+  reads use one plain-text line per card — `Dod.renderItemLine`
+  (`ID [STATE] title (done/total)` plus owner, waits, `for a human`,
+  steps and verification when present), shared by the prompt section
+  (`Dod.renderStatus`: the JSON body is gone) and the `dod` tool. The room
+  API keeps JSON for the UI. Measured on a 12-card board with the local
+  chars/4 estimate: JSON body ≈357 tokens vs text lines ≈174 tokens
+  (0.49×); the longest card line is 31 tokens and the take
+  acknowledgement ("You hold L-002 now.") is 5 — inside Kanzo's 10–60
+  tokens per response.
 - The board shape is `Room.DodBoard` (`packages/schema/src/room.ts`):
   `columns[]` (`DodBoardColumn`: id, title, cards), `zones[]` (name,
   ownerGroup, mine), `counts` (total, done, inProgress, blocked, failed,
@@ -1223,6 +1233,9 @@ the claim path would refuse. Columns come from `task_state`:
 - Tests: `packages/core/test/dod-kanban.test.ts` (16: columns, owner/mine,
   refusals, foreign zone, pass, stale auto-pass, WIP limit, host view,
   counts, zones, disabled, no-zones, human card),
+  `packages/core/test/dod.test.ts` (34, incl. the token-cost test for the
+  text board), `packages/core/test/dod-guards.test.ts` (incl. the human
+  take/takeover/next refusal),
   `packages/tui/test/component/room-dod.test.tsx` (13: 9 list + 4 board —
   toggle, zones line, foreign-zone read-only, take from the board), and
   `packages/server/test/room.test.ts` ("the kanban board groups the DoD by

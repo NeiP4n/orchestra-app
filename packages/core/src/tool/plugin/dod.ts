@@ -314,13 +314,7 @@ function board(dod: Room.Dod) {
   return [
     `DoD: ${closed.length}/${dod.items.length} done.`,
     ...(open.length === 0 ? [] : [`Open (${open.length}):`]),
-    ...open.map(
-      (item) =>
-        `- ${item.id} [${item.state}] ${clip(item.what)} (${item.done}/${item.total})` +
-        (item.owner ? ` · ${item.owner}${item.stale ? " (lease expired)" : ""}` : "") +
-        (item.waits?.length ? ` · waits for ${item.waits.join(", ")}` : "") +
-        (item.human ? " · for a human" : ""),
-    ),
+    ...open.map((item) => `- ${Dod.renderItemLine({ ...item, what: clip(item.what) })}`),
     ...(closed.length === 0 ? [] : [`Closed: ${closed.map((item) => item.id).join(", ")}.`]),
   ].join("\n")
 }
