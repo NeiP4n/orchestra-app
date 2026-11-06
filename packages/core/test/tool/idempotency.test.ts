@@ -19,7 +19,7 @@ const fakeKV = (): { kv: KV.Interface; store: Map<string, KV.Value> } => {
   return { kv, store }
 }
 
-const run = <A>(effect: Effect.Effect<A>) => Effect.runPromise(effect)
+const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect)
 
 describe("Idempotency keys", () => {
   test("the same session, action and target hash to one key; anything else differs", () => {

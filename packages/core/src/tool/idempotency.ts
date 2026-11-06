@@ -103,12 +103,12 @@ export const record = (kv: KV.Interface, input: Input, result: string, now = Dat
  * return the first run's result and `duplicate: true`, without running
  * again. A failed run stores nothing, so a later retry may still run.
  */
-export const dedup = (
+export const dedup = <E>(
   kv: KV.Interface,
   input: Input,
-  run: Effect.Effect<string, unknown>,
+  run: Effect.Effect<string, E>,
   now = Date.now(),
-): Effect.Effect<{ readonly duplicate: boolean; readonly result: string }, unknown> =>
+): Effect.Effect<{ readonly duplicate: boolean; readonly result: string }, E> =>
   Effect.gen(function* () {
     const existing = yield* check(kv, input, now)
     if (existing !== undefined) return { duplicate: true, result: existing.result }
