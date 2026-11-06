@@ -308,7 +308,8 @@ function resourceMcpLayer(
       )
     }),
   ).pipe(
-    Layer.provideMerge(Mcp.layer(options)),
+    // The fixture servers in these tests are loopback; the SSRF gate refuses them by default.
+    Layer.provideMerge(Mcp.layer({ ...options, allowPrivateUrl: true })),
     Layer.provideMerge(Form.layer),
     Layer.provide(
       Layer.mergeAll(
@@ -383,8 +384,12 @@ function resourceMcpLayer(
   )
 }
 
+// Tests spin up loopback fixture servers, which the SSRF gate refuses by default: the flag
+// below opts the test helper into them. Production callers never pass it.
 const connect = (server: string, config: typeof ConfigMCP.Server.Type, directory: string) =>
-  McpClient.connect(server, config, directory).pipe(Effect.provide(hostEnvironmentLayer))
+  McpClient.connect(server, config, directory, undefined, undefined, undefined, {
+    allowPrivateUrl: true,
+  }).pipe(Effect.provide(hostEnvironmentLayer))
 
 // Reads no longer wait for startup, so tests that assert on a connected server settle it first.
 const settled = (service: Mcp.Interface, name = "resources") =>

@@ -72,6 +72,11 @@ export function isBlockedHostname(hostname: string): boolean {
   return host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")
 }
 
+/** A URL hostname keeps IPv6 literals in brackets (`[::1]`); the address itself has none. */
+function literalHost(hostname: string): string {
+  return hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname
+}
+
 /**
  * Refuses a URL whose host is local or resolves to a private address, and returns the
  * parsed URL otherwise. Only http(s) URLs are fetchable; anything else is refused here
@@ -88,8 +93,9 @@ export const assertPublicUrl = (input: string): Effect.Effect<URL, Error> =>
     const host = url.hostname
     if (isBlockedHostname(host))
       return yield* Effect.fail(new Error(`Refusing to fetch ${input}: ${host} is a local address`))
-    if (isIP(host) !== 0) {
-      if (isPrivateAddress(host))
+    const literal = literalHost(host)
+    if (isIP(literal) !== 0) {
+      if (isPrivateAddress(literal))
         return yield* Effect.fail(new Error(`Refusing to fetch ${input}: ${host} is a private or loopback address`))
       return url
     }
@@ -128,7 +134,8 @@ export function assertPublicLiteralUrl(input: string): URL {
   if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("URL must use http:// or https://")
   if (isBlockedHostname(url.hostname))
     throw new Error(`Refusing to fetch ${input}: ${url.hostname} is a local address`)
-  if (isIP(url.hostname) !== 0 && isPrivateAddress(url.hostname))
+  const literal = literalHost(url.hostname)
+  if (isIP(literal) !== 0 && isPrivateAddress(literal))
     throw new Error(`Refusing to fetch ${input}: ${url.hostname} is a private or loopback address`)
   return url
 }

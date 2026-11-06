@@ -408,8 +408,9 @@ async function assertPublicUrl(input) {
   if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("URL must use http:// or https://")
   const host = url.hostname
   if (isBlockedHostname(host)) throw new Error("Refusing to fetch " + input + ": " + host + " is a local address")
-  if (isIP(host) !== 0) {
-    if (isPrivateAddress(host)) throw new Error("Refusing to fetch " + input + ": " + host + " is a private or loopback address")
+  const literal = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host
+  if (isIP(literal) !== 0) {
+    if (isPrivateAddress(literal)) throw new Error("Refusing to fetch " + input + ": " + host + " is a private or loopback address")
     return url
   }
   let resolved

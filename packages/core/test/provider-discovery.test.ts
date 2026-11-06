@@ -84,4 +84,29 @@ describe("discoverModels", () => {
     expect(invalid).toMatchObject({ ok: false, error: { kind: "invalid-url" } })
     expect(called).toBe(false)
   })
+
+  test("refuses a private or loopback base URL before the key is sent", async () => {
+    for (const baseURL of [
+      "http://169.254.169.254/",
+      "http://127.0.0.1:17890/",
+      "http://localhost:11434/",
+      "http://10.0.0.5/v1",
+      "http://192.168.1.10/v1",
+    ]) {
+      let called = false
+      let seenHeaders: unknown
+      const result = await discoverModels({ baseURL, apiKey: "sk-secret" }, async (_url, init) => {
+        called = true
+        seenHeaders = init?.headers
+        return json({ data: [{ id: "m1" }] })
+      })
+      expect(result, baseURL).toMatchObject({ ok: false, error: { kind: "invalid-url" } })
+      expect(result.ok).toBe(false)
+      if (!result.ok) expect(result.error.message).toContain("Refusing to fetch")
+      // The fetch never ran, so the saved key never left the process.
+      expect(called, baseURL).toBe(false)
+      expect(seenHeaders).toBeUndefined()
+      expect(JSON.stringify(result)).not.toContain("sk-secret")
+    }
+  })
 })

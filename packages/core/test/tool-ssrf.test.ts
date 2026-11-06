@@ -40,6 +40,38 @@ describe("Ssrf.isPrivateAddress", () => {
   })
 })
 
+describe("Ssrf.assertPublicUrlPromise", () => {
+  test("refuses a private URL and allows a public one, like the Effect", async () => {
+    await expect(Ssrf.assertPublicUrlPromise("http://169.254.169.254/")).rejects.toThrow("Refusing to fetch")
+    await expect(Ssrf.assertPublicUrlPromise("http://127.0.0.1:17890/")).rejects.toThrow(
+      "private or loopback address",
+    )
+    expect((await Ssrf.assertPublicUrlPromise("https://example.com/")).hostname).toBe("example.com")
+  })
+})
+
+describe("Ssrf.assertPublicLiteralUrl", () => {
+  test("refuses local hostnames and literal private IPs without a DNS lookup", () => {
+    for (const url of [
+      "http://localhost/",
+      "http://127.0.0.1:9000/",
+      "http://10.0.0.5/admin",
+      "http://169.254.169.254/latest/meta-data/",
+      "http://[::1]/",
+      "http://printer.local/",
+    ]) {
+      expect(() => Ssrf.assertPublicLiteralUrl(url), url).toThrow("Refusing to fetch")
+    }
+    expect(() => Ssrf.assertPublicLiteralUrl("file:///etc/passwd")).toThrow("http:// or https://")
+    expect(() => Ssrf.assertPublicLiteralUrl("not a url")).toThrow("not a valid URL")
+  })
+
+  test("allows public literals and hostnames it cannot judge without DNS", () => {
+    expect(Ssrf.assertPublicLiteralUrl("https://1.1.1.1/").toString()).toBe("https://1.1.1.1/")
+    expect(Ssrf.assertPublicLiteralUrl("https://example.com/v1").hostname).toBe("example.com")
+  })
+})
+
 describe("Ssrf.assertPublicUrl", () => {
   test("refuses loopback, private and metadata addresses without touching the network", async () => {
     for (const url of [
