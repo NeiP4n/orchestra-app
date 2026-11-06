@@ -594,6 +594,7 @@ export type RoomMemberView = {
   id: string
   name: string
   role: "viewer" | "member" | "helper" | "cohost" | "trusted"
+  group?: string | undefined
   device?: string | undefined
   approvedPrograms?: Array<string> | undefined
   address?: string | undefined
@@ -606,6 +607,7 @@ export type RoomMember = {
   id: string
   name: string
   role: "viewer" | "member" | "helper" | "cohost" | "trusted"
+  group?: string | undefined
   device?: string | undefined
   approvedPrograms?: Array<string> | undefined
   address?: string | undefined
@@ -14099,10 +14101,7 @@ export type RoomGuestDodGetInput = { readonly roomID: { readonly roomID: string 
 
 export type RoomGuestDodGetOutput = RoomDod
 
-export type RoomGuestDodBoardInput = {
-  readonly roomID: { readonly roomID: string }["roomID"]
-  readonly group?: { readonly group?: string | undefined }["group"]
-}
+export type RoomGuestDodBoardInput = { readonly roomID: { readonly roomID: string }["roomID"] }
 
 export type RoomGuestDodBoardOutput = RoomDodBoard
 
@@ -14243,7 +14242,14 @@ export type RoomMemberListOutput = { data: Array<RoomMemberView> }["data"]
 export type RoomMemberUpdateInput = {
   readonly roomID: { readonly roomID: string; readonly guestID: string }["roomID"]
   readonly guestID: { readonly roomID: string; readonly guestID: string }["guestID"]
-  readonly role: { readonly role: "viewer" | "member" | "helper" | "cohost" | "trusted" }["role"]
+  readonly role: {
+    readonly role: "viewer" | "member" | "helper" | "cohost" | "trusted"
+    readonly group?: string | undefined
+  }["role"]
+  readonly group?: {
+    readonly role: "viewer" | "member" | "helper" | "cohost" | "trusted"
+    readonly group?: string | undefined
+  }["group"]
 }
 
 export type RoomMemberUpdateOutput = { data: RoomMember }["data"]

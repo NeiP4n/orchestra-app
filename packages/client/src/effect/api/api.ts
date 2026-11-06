@@ -3027,7 +3027,7 @@ export type RoomGuestDodGetOperation<E = never> = (
   input: RoomGuestDodGetInput,
 ) => Effect.Effect<RoomGuestDodGetOutput, E>
 
-export type RoomGuestDodBoardInput = { readonly roomID: Room.ID; readonly group?: string | undefined }
+export type RoomGuestDodBoardInput = { readonly roomID: Room.ID }
 export type RoomGuestDodBoardOutput = Room.DodBoard
 export type RoomGuestDodBoardOperation<E = never> = (
   input: RoomGuestDodBoardInput,
@@ -3150,6 +3150,7 @@ export type RoomMemberUpdateInput = {
   readonly roomID: Room.ID
   readonly guestID: string
   readonly role: "viewer" | "member" | "helper" | "cohost" | "trusted"
+  readonly group?: string | undefined
 }
 export type RoomMemberUpdateOutput = Room.Member
 export type RoomMemberUpdateOperation<E = never> = (

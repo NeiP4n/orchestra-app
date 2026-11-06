@@ -2103,9 +2103,7 @@ const EndpointRoomGuestDodGet = (raw: RawClient["server.room"]) => (input: RoomG
 
 const EndpointRoomGuestDodBoard = (raw: RawClient["server.room"]) => (input: RoomGuestDodBoardInput) =>
   preserveEffect<RoomGuestDodBoardOutput>()(
-    raw["room.guest.dod.board"]({ params: { roomID: input["roomID"] }, query: { group: input["group"] } }).pipe(
-      Effect.mapError(mapClientError),
-    ),
+    raw["room.guest.dod.board"]({ params: { roomID: input["roomID"] } }).pipe(Effect.mapError(mapClientError)),
   )
 
 const EndpointRoomGuestDodClaim = (raw: RawClient["server.room"]) => (input: RoomGuestDodClaimInput) =>
@@ -2225,7 +2223,7 @@ const EndpointRoomMemberUpdate = (raw: RawClient["server.room"]) => (input: Room
   preserveEffect<RoomMemberUpdateOutput>()(
     raw["room.member.update"]({
       params: { roomID: input["roomID"], guestID: input["guestID"] },
-      payload: { role: input["role"] },
+      payload: { role: input["role"], group: input["group"] },
     }).pipe(
       Effect.mapError(mapClientError),
       Effect.map((value) => value.data),

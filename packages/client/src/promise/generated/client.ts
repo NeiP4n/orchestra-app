@@ -2912,7 +2912,6 @@ export function make(options: ClientOptions) {
               {
                 method: "GET",
                 path: `/api/room/${encodeURIComponent(input.roomID)}/guest/dod/board`,
-                query: { group: input["group"] },
                 successStatus: 200,
                 declaredStatuses: [400, 401, 404],
                 empty: false,
@@ -3155,7 +3154,7 @@ export function make(options: ClientOptions) {
             {
               method: "PATCH",
               path: `/api/room/${encodeURIComponent(input.roomID)}/member/${encodeURIComponent(input.guestID)}`,
-              body: { role: input["role"] },
+              body: { role: input["role"], group: input["group"] },
               successStatus: 200,
               declaredStatuses: [400, 401, 404],
               empty: false,

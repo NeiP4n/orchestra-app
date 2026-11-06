@@ -412,8 +412,6 @@ export const RoomGroup = HttpApiGroup.make("server.room")
   .add(
     HttpApiEndpoint.get("room.guest.dod.board", "/api/room/:roomID/guest/dod/board", {
       params: { roomID: Room.ID },
-      // The guest's group, for zone checks: without it the guest is foreign to every zone.
-      query: Schema.Struct({ group: Schema.String.pipe(Schema.optional) }),
       success: Room.DodBoard,
       error: [UnauthorizedError, RoomNotFoundError, SessionNotFoundError, InvalidRequestError],
     }).annotateMerge(
@@ -421,7 +419,7 @@ export const RoomGroup = HttpApiGroup.make("server.room")
         identifier: "room.guest.dod.board",
         summary: "Read the shared project's DoD as a kanban board",
         description:
-          "The host project's Definition of Done grouped into kanban columns by state, with who holds each card and whether the calling guest may take it. The guest's own cards are marked; cards in a foreign zone are read-only without a pass.",
+          "The host project's Definition of Done grouped into kanban columns by state, with who holds each card and whether the calling guest may take it. The guest's own cards are marked; cards in a foreign zone are read-only without a pass. The guest's group comes from the member record the host assigned (room.member.update), never from the request: a guest without a group is foreign to every zone.",
       }),
     ),
   )
@@ -657,14 +655,20 @@ export const RoomGroup = HttpApiGroup.make("server.room")
   .add(
     HttpApiEndpoint.patch("room.member.update", "/api/room/:roomID/member/:guestID", {
       params: { roomID: Room.ID, guestID: Schema.String },
-      payload: Schema.Struct({ role: Room.Role }),
+      payload: Schema.Struct({
+        role: Room.Role,
+        // The group the member belongs to, for DoD zone checks. Omitted keeps the
+        // current group; an empty string clears it. Only the host sets it.
+        group: Schema.String.pipe(Schema.optional),
+      }),
       success: Schema.Struct({ data: Room.Member }),
       error: [RoomNotFoundError, InvalidRequestError],
     }).annotateMerge(
       OpenApi.annotations({
         identifier: "room.member.update",
-        summary: "Change a member's role",
-        description: "Let a guest only watch, also write, or also answer the model's permission requests.",
+        summary: "Change a member's role and group",
+        description:
+          "Let a guest only watch, also write, or also answer the model's permission requests; and assign the group whose DoD zone the guest may work in. A guest without a group is foreign to every zone.",
       }),
     ),
   )

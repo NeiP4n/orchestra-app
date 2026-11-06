@@ -1059,9 +1059,15 @@ the claim path would refuse. Columns come from `task_state`:
   ownerGroup, mine), `counts` (total, done, inProgress, blocked, failed,
   free). `status` is `disabled` when the room has no `dod.yaml`.
 - API (`packages/protocol/src/groups/room.ts`): `room.dod.board` (host,
-  GET `/api/room/:roomID/dod/board`) and `room.guest.dod.board` (guest,
-  optional `group` query — without it the guest is foreign to every zone,
-  matching claim behaviour). Both are in `GUEST_PATHS`, or the auth
+  GET `/api/room/:roomID/dod/board`) and `room.guest.dod.board` (guest).
+  The guest's group comes from the member record (`Room.Member.group`,
+  assigned by the host through `room.member.update` — omitted keeps the
+  group, an empty string clears it), never from the request: the old
+  self-asserted `?group=` query is gone, and a guest without a group is
+  foreign to every zone. The claim path (`room.guest.dod.claim`) passes the
+  same member group to `Dod.take`/`Dod.next`, so board and claim agree:
+  a zone member can take its zone's cards, and the board never offers a
+  card the take would refuse. Both are in `GUEST_PATHS`, or the auth
   middleware blocks guest tokens. Server handlers in
   `packages/server/src/handlers/room.ts`; the guest handler strips `verify`
   from cards (`hideBoardExecution`, mirroring `hideDodExecution`). The

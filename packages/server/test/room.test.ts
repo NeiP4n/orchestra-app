@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { mkdir } from "node:fs/promises"
 import { SessionExecution } from "@orchestra/core/session/execution"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { Effect, Fiber, Layer, Schedule } from "effect"
@@ -1618,6 +1619,91 @@ it.live("the kanban board groups the DoD by state for host and guest", () =>
     // No guest token, no guest board.
     expect((yield* call(`/api/room/${room.id}/guest/dod/board`)).status).toBe(401)
   }).pipe(Effect.scoped),
+)
+
+it.live("a guest's kanban group comes from the host-assigned member record, not the query", () =>
+  Effect.gen(function* () {
+    const { call, room, code, directory } = yield* setup
+    yield* Effect.promise(() => mkdir(path.join(directory, ".orchestra"), { recursive: true }))
+    yield* Effect.promise(() =>
+      Bun.write(
+        path.join(directory, ".opencode", "dod.yaml"),
+        [
+          "leaves:",
+          "  - id: L-001",
+          '    what: "Build the parser"',
+          '    group: "Team A"',
+          "    task_state: NOT_STARTED",
+          "  - id: L-002",
+          '    what: "Write the tests"',
+          '    group: "Team A"',
+          "    task_state: NOT_STARTED",
+          "",
+        ].join("\n"),
+      ),
+    )
+    yield* Effect.promise(() =>
+      Bun.write(
+        path.join(directory, ".orchestra", "zones.yaml"),
+        ["zones:", '  - name: "Team A"', '    owner_group: "team-a"', "passes: []", ""].join("\n"),
+      ),
+    )
+    const join = (name: string) =>
+      call("/api/room/join", { method: "POST", body: { code, name } }).pipe(
+        Effect.map((response) => response.body),
+      )
+    const alex = yield* join("Alex")
+    const alexHeaders = { authorization: `Bearer ${alex.token}` }
+    const bo = yield* join("Bo")
+    const boHeaders = { authorization: `Bearer ${bo.token}` }
+    const card = (board: { columns: { cards: { id: string; canTake: boolean }[] }[] }, id: string) =>
+      board.columns.flatMap((column) => column.cards).find((entry) => entry.id === id)
+    const board = (headers: Record<string, string>, query = "") =>
+      call(`/api/room/${room.id}/guest/dod/board${query}`, { headers })
+
+    // No group assigned yet: the zoned card is not takeable, and a self-asserted
+    // ?group=team-a changes nothing — the board reads the member record, not the query.
+    expect(card((yield* board(boHeaders)).body, "L-001")?.canTake).toBe(false)
+    expect(card((yield* board(boHeaders, "?group=team-a")).body, "L-001")?.canTake).toBe(false)
+    expect(
+      (yield* call(`/api/room/${room.id}/guest/dod`, { method: "POST", headers: boHeaders, body: { id: "L-001", take: true } }))
+        .body.message,
+    ).toContain("a pass from its owner")
+
+    // The host assigns Alex to team-a: the board offers the card and the claim succeeds.
+    const updated = yield* call(`/api/room/${room.id}/member/${alex.guest.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { role: "member", group: "team-a" },
+    })
+    expect(updated.status).toBe(200)
+    expect(updated.body.data.group).toBe("team-a")
+    expect(card((yield* board(alexHeaders)).body, "L-001")?.canTake).toBe(true)
+    const taken = yield* call(`/api/room/${room.id}/guest/dod`, {
+      method: "POST",
+      headers: alexHeaders,
+      body: { id: "L-001", take: true },
+    })
+    expect(taken.body.taken).toBe("L-001")
+
+    // The group travels with `next` too: Bo, now in team-a, is handed the other zoned card.
+    expect(
+      (
+        yield* call(`/api/room/${room.id}/member/${bo.guest.id}`, {
+          method: "PATCH",
+          headers: host,
+          body: { role: "member", group: "team-a" },
+        })
+      ).body.data.group,
+    ).toBe("team-a")
+    const next = yield* call(`/api/room/${room.id}/guest/dod`, {
+      method: "POST",
+      headers: boHeaders,
+      body: { next: true, take: true },
+    })
+    expect(next.body.taken).toBe("L-002")
+  }).pipe(Effect.scoped),
+  { timeout: 30_000 },
 )
 
 it.live(
