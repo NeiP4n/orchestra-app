@@ -57,7 +57,7 @@ export function Home() {
           <HomeSessions sessions={sessions} search={search} scroll={scroll} />
         </div>
       </ScrollView>
-      <div class="relative hidden shrink-0 px-3 py-2 md:block lg:hidden">
+      <div class="relative shrink-0 px-3 py-2 lg:hidden">
         <HomeUtilityNav
           class="flex"
           onOpenSettings={projects.utility.settings}

@@ -2,7 +2,6 @@ import { createMemo, For, Show, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { Icon } from "@orchestra/ui/icon"
-import { IconButton } from "@orchestra/ui/icon-button"
 import { Menu } from "@orchestra/ui/menu"
 import { Tooltip } from "@orchestra/ui/tooltip"
 import { useLanguage } from "@/runtime/i18n/language"
@@ -33,15 +32,17 @@ export function RecentlyClosedTabsMenu(props: {
         fallback={
           <Tooltip placement="bottom" value={props.tooltip}>
             <Menu.Context.Trigger
-              as={IconButton}
+              as="button"
               type="button"
-              variant="ghost-muted"
-              size="large"
-              class="shrink-0"
-              icon={<Icon name="plus" />}
+              class="flex h-7 shrink-0 items-center gap-1.5 rounded-[6px] px-2 text-[13px] leading-4 text-v2-text-text-faint hover:bg-v2-background-bg-layer-02 hover:text-v2-text-text-base focus-visible:outline-none focus-visible:bg-v2-background-bg-layer-02"
               onClick={props.onNewTab}
               aria-label={language.t("command.session.new")}
-            />
+            >
+              <Icon name="plus" class="shrink-0" />
+              {/* The label shows on wide screens: a new session is the main
+                  action here, not just another icon. */}
+              <span class="hidden min-w-0 truncate xl:block">{language.t("command.session.new")}</span>
+            </Menu.Context.Trigger>
           </Tooltip>
         }
       >

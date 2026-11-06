@@ -15,7 +15,7 @@ import { useSettings } from "@/settings/model"
 import { WindowsAppMenu } from "./windows-menu"
 import { applyPath, backPath, forwardPath, type HistoryLocation } from "./history"
 import { OrchestraLogo } from "@/providers/orchestra-logo"
-import { NeuralDot } from "@orchestra/ui/neural-field"
+import { NeuralDot, NeuralLine } from "@orchestra/ui/neural-field"
 import { TitlebarTabStrip } from "@/shell/titlebar/tab-strip"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { createMediaQuery } from "@solid-primitives/media"
@@ -146,12 +146,16 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
   ])
 
   return (
+    <div
+      data-slot="titlebar-wrap"
+      hidden={hideVerticalTitlebar()}
+      class="shrink-0 relative flex flex-col"
+      classList={{ "order-last": bottom() }}
+    >
     <header
       data-slot="titlebar-v2"
-      hidden={hideVerticalTitlebar()}
       classList={{
-        "shrink-0 relative flex flex-row h-9 bg-v2-background-bg-deep overflow-visible": true,
-        "order-last": bottom(),
+        "flex flex-row h-9 bg-v2-background-bg-deep overflow-visible": true,
       }}
       style={{
         height:
@@ -773,6 +777,19 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                 <Show when={!props.verticalTabs}>
                   <div class="relative z-20 flex shrink-0 items-center justify-end gap-0 overflow-visible">
                     <TitlebarItems items={titlebarItems} />
+                    {/* Settings are always one click away in the titlebar,
+                        not only on medium screens via the home footer. */}
+                    <Tooltip placement="bottom" value={language.t("sidebar.settings")} class="shrink-0">
+                      <IconButton
+                        type="button"
+                        variant="ghost-muted"
+                        size="large"
+                        class="shrink-0"
+                        icon={<Icon name="settings-gear" />}
+                        onClick={openSettings}
+                        aria-label={language.t("sidebar.settings")}
+                      />
+                    </Tooltip>
                     <TitlebarRightMount />
                   </div>
                 </Show>
@@ -782,6 +799,13 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
         </Match>
       </Switch>
     </header>
+      {/* The living divider under the titlebar: an impulse is an agent
+          event somewhere in the system. In silence it is a plain border.
+          For a bottom titlebar it sits above the bar instead. */}
+      <div class="h-1.5 w-full shrink-0" classList={{ "order-first": bottom() }}>
+        <NeuralLine />
+      </div>
+    </div>
   )
 }
 
