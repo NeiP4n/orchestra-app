@@ -128,6 +128,9 @@ describe("web UI", () => {
               expect(body).toContain("восстановление")
               expect(body).toContain("/api/recovery/models")
               expect(body).toContain("/api/recovery/chat")
+              // T3-13: the page must not name providers — the empty-list
+              // message is generic and the list comes from the API.
+              expect(body).not.toContain("klinch/lix")
             } else {
               yield* Effect.promise(() => response.arrayBuffer())
             }
