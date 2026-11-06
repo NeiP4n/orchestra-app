@@ -1265,9 +1265,12 @@ replacement fought it for the port. This section is the fix, for
 - Watchdog: `scripts/server-watchdog.sh` runs `serve` from the worktree
   and restarts it only on unclean exits (exit code, state file, live lock
   holder), with backoff 5/10/20/40/60s capped at 60s and a restart cap
-  (default 5, `ORCHESTRA_WATCHDOG_MAX_RESTARTS` /
-  `ORCHESTRA_WATCHDOG_BACKOFF_BASE`). A clean shutdown or a lock held by a
-  live server stops it (exit 0); past the cap it gives up loudly (exit 1).
+  (default 5 inside a 600s sliding window, `ORCHESTRA_WATCHDOG_MAX_RESTARTS` /
+  `ORCHESTRA_WATCHDOG_WINDOW_SECONDS` / `ORCHESTRA_WATCHDOG_BACKOFF_BASE`). A
+  lock counts as held only when the pid is alive and started at the lock's
+  startedAt (a recycled pid is detected and the stale lock ignored). A clean
+  shutdown or a lock held by a live server stops it (exit 0); past the cap it
+  gives up loudly (exit 1).
   It is a shell loop, not an in-process supervisor: a supervisor inside
   the process it watches cannot report its own SIGKILL.
 - Deliberately NOT covered: `orchestra serve --service` (already owns
