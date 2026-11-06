@@ -817,6 +817,71 @@ yet: `bestFor` is the query API waiting for that consumer (follow-up).
   `packages/core/test/g2-health-model-catalog.test.ts`,
   `packages/server/test/fetch.test.ts` ("returns LocationNotFoundError…").
 
+## Foreground server lifecycle — `packages/cli/src/services/server-lifecycle.ts` (B14 live fix)
+
+B14 (2026-11-06): the live foreground server (pid 31637) died silently —
+no error in `serve6.log` (it ends with benign ENOENT `team-notes.md`
+warnings), no OOM-killer trace the operator could read (`dmesg_restrict=1`
+on this machine, so "dmesg is clean" is unverifiable; core dumps off,
+`ulimit -c 0`), memory at the limit. The exact cause was NOT established;
+OOM-kill under memory pressure is the most likely hypothesis, unproven.
+Nothing noticed the death: the next start had no idea the previous run
+ended uncleanly, and the old process had ignored SIGTERM while the
+replacement fought it for the port. This section is the fix, for
+`orchestra serve` in default (foreground) mode only:
+
+- PID lock: `ServerLifecycle.acquireLock` in the data directory, one file
+  per port (`server-<port>.lock`, `server.lock` when the OS picks the port),
+  created exclusively (`wx`) with `{pid, hostname, port, mode, startedAt}`.
+  A second foreground start fails fast with `ServerAlreadyRunningError`
+  naming the live incumbent's pid, start time and port, instead of
+  fighting it for the port or silently sharing the database. A lock naming
+  a dead pid is stale and is reclaimed, loudly. Released by a finalizer.
+- Shutdown marker: `server-state.json` in the data directory, written at
+  startup with `cleanShutdown: false` and updated to `true` with
+  `{at, reason}` on graceful shutdown. A start that finds no clean marker
+  reports the previous run as UNCLEAN — in the Effect log (the opencode log
+  file) AND as one `[lifecycle] ...` line on stdout, so it is visible in
+  `serve.log` next to "server listening" (Effect logs never reach that
+  file). Verdicts: `first` / `clean` / `unclean` / `unknown` (corrupt state
+  never blocks a start).
+- The marker is written by a FINALIZER keyed on `reachedListening`, not by
+  code after `waitForTermination()`: `NodeRuntime.runMain` interrupts the
+  main fiber on SIGINT/SIGTERM — and its signal handler was registered
+  before ours, so the interruption's finalizers run before our own signal
+  listener even fires (verified live: the finalizer logged before "signal
+  received"). The generator therefore never continues past the wait. The
+  finalizer is the last one registered, so the first to run on scope close
+  (LIFO), before any wedged server finalizer can block it. The recorded
+  signal refines the reason when the resume wins the race; otherwise the
+  marker says "graceful shutdown".
+- `waitForTermination` owns SIGINT as well as SIGHUP/SIGTERM: before this
+  fix, Ctrl-C killed the process through the default disposition, so no
+  finalizer — and no shutdown marker — ever ran for the most common
+  foreground stop. It also starts the 10s forced-exit clock at signal
+  receipt, not after the finalizers: a wedged PTY/database finalizer must
+  not make SIGTERM look ignored (the B14 class).
+- Watchdog: `scripts/server-watchdog.sh` runs `serve` from the worktree
+  and restarts it only on unclean exits (exit code, state file, live lock
+  holder), with backoff 5/10/20/40/60s capped at 60s and a restart cap
+  (default 5, `ORCHESTRA_WATCHDOG_MAX_RESTARTS` /
+  `ORCHESTRA_WATCHDOG_BACKOFF_BASE`). A clean shutdown or a lock held by a
+  live server stops it (exit 0); past the cap it gives up loudly (exit 1).
+  It is a shell loop, not an in-process supervisor: a supervisor inside
+  the process it watches cannot report its own SIGKILL.
+- Deliberately NOT covered: `orchestra serve --service` (already owns
+  startup through ServiceClaim + registration; sharing one state file
+  between the modes would confuse the verdict) and `serve --stdio` (owned
+  by the parent's lease). `/health` is unchanged: it is unauthenticated
+  and by design carries no pids or paths.
+- Verify: `packages/cli/test/server-lifecycle.test.ts` (7 tests, real temp
+  dirs, no mocks) and the live scratch-server checks (scratch config/data
+  dirs, ports 17891+, SIGKILL/SIGTERM/SIGINT/second-instance/watchdog).
+  NOTE: full `bun typecheck` in `packages/cli` does not fit this 7.7 GB
+  VM — killed by the OOM-killer 3 times (SIGKILL, 0 TS errors reported)
+  even with no other typecheck running; verify types on a bigger machine.
+  Lint on the changed files is clean (`oxlint`, 0 warnings/errors).
+
 ## Interactive responses — `packages/schema/src/interactive.ts`
 
 Structured operator questions (decision / comparison / approval / plan /
