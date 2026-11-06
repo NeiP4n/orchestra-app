@@ -106,9 +106,9 @@ export const record = (kv: KV.Interface, input: Input, result: string, now = Dat
 export const dedup = (
   kv: KV.Interface,
   input: Input,
-  run: Effect.Effect<string>,
+  run: Effect.Effect<string, unknown>,
   now = Date.now(),
-): Effect.Effect<{ readonly duplicate: boolean; readonly result: string }> =>
+): Effect.Effect<{ readonly duplicate: boolean; readonly result: string }, unknown> =>
   Effect.gen(function* () {
     const existing = yield* check(kv, input, now)
     if (existing !== undefined) return { duplicate: true, result: existing.result }
