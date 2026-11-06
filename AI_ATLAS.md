@@ -721,6 +721,17 @@ never overrides contracts, permissions, isolation or budgets.
 - A claim is verified only when the check ran and its output was seen. Report
   NOT RUN items as not run.
 
+## Integration window — `scripts/integration-window.sh` (idea #22)
+
+Once per sprint, before the sprint's work is declared done, the branch
+merges into a scratch worktree of `main` and typecheck + tests run per
+package, sequentially — never the root `bun run check`, which runs out of
+memory on small machines (`docs/integration-window.md`). Only committed
+work is merged; the live checkout is never touched and nothing is pushed.
+A failing window blocks the sprint. The scratch worktree lives under
+`$HOME/.cache/orchestra-integration` (`--scratch-dir` overrides it; `/tmp`
+is too small on machines where it is a small tmpfs).
+
 ## The whole approach — one loop, not a pile of features
 
 Every subsystem above is one station in a single operating loop. An AI working
