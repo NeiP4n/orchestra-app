@@ -494,10 +494,11 @@ const layer = Layer.effect(
     ) {
       const nowMs = yield* Clock.currentTimeMillis
       const configured = reason === "wall-clock" ? Limits.drainWallClockMs() : Limits.drainTokenBudget()
+      const kind = reason === "wall-clock" ? "wall-clock" : "token"
       const spent =
         reason === "wall-clock" ? `${nowMs - budget.startedAtMs} ms` : `${budget.tokensUsed} estimated prompt tokens`
       const tune = reason === "wall-clock" ? "ORCHESTRA_DRAIN_WALL_CLOCK_MS" : "ORCHESTRA_DRAIN_TOKEN_BUDGET"
-      const message = `Session drain stopped: ${reason} budget of ${configured} reached (${spent} spent). The session stopped instead of running on; send a new prompt to resume it with a fresh budget, or raise ${tune}. Limits can be switched off entirely with ORCHESTRA_DISABLE_LIMITS=1, which is not recommended for live runs.`
+      const message = `Session drain stopped: ${kind} budget of ${configured} reached (${spent} spent). The session stopped instead of running on; send a new prompt to resume it with a fresh budget, or raise ${tune}. Limits can be switched off entirely with ORCHESTRA_DISABLE_LIMITS=1, which is not recommended for live runs.`
       yield* bus.publish(SessionEvent.Synthetic, {
         sessionID,
         text: message,
