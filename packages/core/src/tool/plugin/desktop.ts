@@ -7,6 +7,8 @@ import path from "node:path"
 import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { Effect, Schema } from "effect"
+import { DesktopIsolation } from "../../desktop-isolation.js"
+import { Journal } from "../../journal.js"
 import { Permission } from "../../permission.js"
 import { KV } from "../../kv.js"
 import { Idempotency } from "../idempotency.js"
@@ -15,9 +17,10 @@ import type { Tool } from "@orchestra/schema/tool"
 export const name = "desktop"
 
 const description = [
-  "Control this computer's desktop in one call of several steps: screenshot, type, keys, click, move, scroll, wait, windows, focus, open, clipboard.",
+  "Control the agent's own virtual desktop in one call of several steps: screenshot, type, keys, click, move, scroll, wait, windows, focus, open, clipboard.",
+  "Everything here runs on the agent's virtual display (Linux: a separate Xvfb display, :99 by default) — never on the operator's real screen. The operator's cursor does not move, their focus never jumps, and their clipboard is untouched: the clipboard here is the virtual display's own.",
   "The steps run in order without a round trip each, so a whole interaction (focus a window, type, press enter, wait, screenshot) is one call. For a single action the desktop_* tools are shorter.",
-  "x/y in click, move and scroll are pixels of the latest screenshot this session took (scaled to the real screen); pass screen: true for real screen pixels.",
+  "x/y in click, move and scroll are pixels of the latest screenshot this session took (scaled to the virtual screen); pass screen: true for virtual screen pixels.",
   "Long text is pasted through the clipboard, much faster than key by key; pass paste: false to force key presses.",
   "Keys: combinations like ctrl+s, ctrl+shift+t, alt+tab, win+r, enter, esc, tab, f5, up, pagedown.",
 ].join("\n")
@@ -31,7 +34,7 @@ const Step = Schema.Struct({
   keys: Schema.optionalKey(Schema.String).annotate({ description: "For keys: a combination such as ctrl+shift+s" }),
   x: Schema.optionalKey(Schema.Number),
   y: Schema.optionalKey(Schema.Number),
-  screen: Schema.optionalKey(Schema.Boolean).annotate({ description: "x/y are real screen pixels, not screenshot pixels" }),
+  screen: Schema.optionalKey(Schema.Boolean).annotate({ description: "x/y are virtual screen pixels, not screenshot pixels" }),
   button: Schema.optionalKey(Schema.Literals(["left", "right", "middle"])),
   double: Schema.optionalKey(Schema.Boolean),
   amount: Schema.optionalKey(Schema.Number).annotate({ description: "For scroll: notches, positive scrolls down" }),
@@ -65,7 +68,7 @@ type Shot = {
 const Coordinate = Schema.optionalKey(Schema.Number).annotate({
   description: "Pixels of the latest screenshot unless screen is true",
 })
-const Screen = Schema.optionalKey(Schema.Boolean).annotate({ description: "x/y are real screen pixels" })
+const Screen = Schema.optionalKey(Schema.Boolean).annotate({ description: "x/y are virtual screen pixels" })
 const Button = Schema.optionalKey(Schema.Literals(["left", "right", "middle"]))
 
 // One-action shortcuts: a model reaches for a named tool more readily than for a step list.
@@ -99,8 +102,8 @@ export const names = [
 // Told to every session that has these tools, so the model knows they exist and how to use them.
 const GUIDE = [
   "# Computer tools",
-  "You can see and operate this computer, not only its files:",
-  "- desktop_screenshot captures the full screen or a specific window by title or HWND (window parameter). It captures background and covered windows directly without moving cursor or raising/focusing windows — do NOT call focus before screenshot.",
+  "You can see and operate the agent's own virtual desktop, not the operator's computer:",
+  "- desktop_screenshot captures the virtual display, or a specific window by title or HWND (window parameter). It captures background and covered windows directly without moving cursor or raising/focusing windows — do NOT call focus before screenshot.",
   "- desktop_windows lists windows with their process name, title, and HWND.",
   "- desktop_type for text (long text is pasted, fast), desktop_keys for shortcuts (ctrl+s, alt+tab, win+r, enter).",
   "- desktop_focus brings a window forward, desktop_open starts an app, file or URL, desktop_clipboard reads or sets the clipboard. Opening the same URL twice in one session returns the first open instead of opening it again.",
@@ -109,9 +112,12 @@ const GUIDE = [
   "Work loop: screenshot (pass window when targeting a specific app), act, screenshot again to check the result. Never guess coordinates without a fresh screenshot. Do not call focus before taking a window screenshot.",
 ].join("\n")
 
-export function isDesktopCaptureEnabled(): boolean {
-  const env = process.env.ORCHESTRA_DESKTOP_CAPTURE?.trim().toLowerCase()
-  return env === "on" || env === "1" || env === "true" || env === "enabled" || env === "yes"
+/**
+ * `ORCHESTRA_DESKTOP_CAPTURE=on` allows ONLY the virtual display. The real
+ * screen is never reachable through these tools; see desktop-isolation.ts.
+ */
+export function isDesktopCaptureEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return DesktopIsolation.isDesktopCaptureEnabled(env)
 }
 
 export const Plugin = {
@@ -148,6 +154,41 @@ export const Plugin = {
           source: { type: "tool", messageID: context.messageID, id: context.id },
         })
         .pipe(Effect.mapError((error) => new ToolFailure({ message: "Permission denied: desktop", error })))
+      // On Linux every step runs on the agent's virtual display, never on the
+      // operator's screen. Make sure it is up before the first step: a dead
+      // display is a journal event and a clear failure, not a silent
+      // screenshot of the real screen. Windows keeps its PowerShell helper;
+      // macOS has no virtual display yet (see the B7 report).
+      if (process.platform === "linux") {
+        const display = DesktopIsolation.virtualDisplay()
+        const ensured = yield* Effect.promise(() =>
+          DesktopIsolation.ensureVirtualDisplay(display).then(
+            (status) => ({ ok: true as const, status }),
+            (error: unknown) => ({ ok: false as const, error }),
+          ),
+        )
+        if (!ensured.ok) {
+          yield* Journal.recordDisplayEvent({
+            display,
+            state: "died",
+            sessionID: context.sessionID,
+            detail: { message: ensured.error instanceof Error ? ensured.error.message : String(ensured.error) },
+          }).pipe(Effect.ignore)
+          return yield* Effect.fail(
+            new ToolFailure({
+              message: ensured.error instanceof Error ? ensured.error.message : String(ensured.error),
+              error: ensured.error,
+            }),
+          )
+        }
+        if (ensured.status.started)
+          yield* Journal.recordDisplayEvent({
+            display,
+            state: "started",
+            sessionID: context.sessionID,
+            detail: { pid: ensured.status.pid },
+          }).pipe(Effect.ignore)
+      }
       const lines: string[] = []
       const images: { uri: string; mime: string; name: string }[] = []
       for (const [index, step] of steps.entries()) {
@@ -789,12 +830,20 @@ if (-not $p) { throw "No window title contains: ${title.replace(/"/g, "'")}" }
 
 // macOS and Linux run each step as its own short command: screencapture/osascript on macOS,
 // and grim or scrot plus xdotool or ydotool on Linux.
+//
+// B7: on Linux every child runs with DISPLAY pinned to the agent's virtual
+// display. The operator's display (whatever DISPLAY the server started with)
+// is never inherited: a screenshot reads the virtual screen, a click moves
+// the virtual pointer, and the clipboard is the virtual display's own. There
+// is no code path here that addresses the real screen.
 async function runPosix(script: string): Promise<string> {
   const [kind = "", ...args] = script.split("\t")
   const mac = process.platform === "darwin"
+  const env = mac ? process.env : { ...process.env, ...DesktopIsolation.agentDisplayEnv() }
+  const display = mac ? undefined : DesktopIsolation.virtualDisplay()
   const exec = (command: string, argv: string[]) =>
     new Promise<string>((resolve, reject) => {
-      const child = spawn(command, argv, { stdio: ["ignore", "pipe", "pipe"] })
+      const child = spawn(command, argv, { stdio: ["ignore", "pipe", "pipe"], env })
       let out = ""
       let err = ""
       child.stdout.on("data", (chunk) => (out += chunk))
@@ -818,13 +867,43 @@ async function runPosix(script: string): Promise<string> {
     case "screenshot": {
       const [file = "", width = "1280"] = args
       const png = file.replace(/\.jpg$/, ".png")
-      await first(mac ? [["screencapture", ["-x", "-t", "jpg", file]]] : [["grim", [png]], ["scrot", ["-o", png]], ["import", ["-window", "root", png]]])
-      if (!mac)
+      if (mac) {
+        await first([["screencapture", ["-x", "-t", "jpg", file]]])
+        await exec("sips", ["--resampleWidth", width, file])
+        return `0 0 ${width} 0`
+      }
+      // ffmpeg's x11grab reads the virtual display straight from the X
+      // server (no -video_size: it grabs the whole virtual screen), so the
+      // screenshot can never contain the operator's screen. grim/scrot/
+      // import stay as fallbacks; they inherit the virtual DISPLAY above.
+      const grabbed = await exec("ffmpeg", [
+        "-y",
+        "-loglevel",
+        "error",
+        "-f",
+        "x11grab",
+        "-i",
+        display ?? ":99",
+        "-frames:v",
+        "1",
+        "-vf",
+        `scale=${width}:-1`,
+        file,
+      ]).then(
+        () => true,
+        () => false,
+      )
+      if (!grabbed) {
+        await first([
+          ["grim", [png]],
+          ["scrot", ["-o", png]],
+          ["import", ["-window", "root", png]],
+        ])
         await first([
           ["convert", [png, "-resize", `${width}x`, "-quality", "80", file]],
           ["ffmpeg", ["-y", "-loglevel", "error", "-i", png, "-vf", `scale=${width}:-1`, file]],
         ])
-      if (mac) await exec("sips", ["--resampleWidth", width, file])
+      }
       return `0 0 ${width} 0`
     }
     case "type":
@@ -858,7 +937,9 @@ async function runPosix(script: string): Promise<string> {
         ? exec("osascript", ["-e", `tell application ${JSON.stringify(args[0] ?? "")} to activate`])
         : first([["wmctrl", ["-a", args[0] ?? ""]], ["xdotool", ["search", "--name", args[0] ?? "", "windowactivate"]]])
     case "open":
-      spawn(mac ? "open" : "xdg-open", [args.join("\t")], { detached: true, stdio: "ignore" }).unref()
+      // The opened app inherits the virtual display, so a browser or file
+      // opens on the agent's screen, never on the operator's.
+      spawn(mac ? "open" : "xdg-open", [args.join("\t")], { detached: true, stdio: "ignore", env }).unref()
       return `opened ${args.join("\t")}`
     case "clipboard-read":
       return mac
@@ -868,7 +949,7 @@ async function runPosix(script: string): Promise<string> {
       const text = args.join("\t")
       const copy = (command: string, argv: string[]) =>
         new Promise<string>((resolve, reject) => {
-          const child = spawn(command, argv, { stdio: ["pipe", "ignore", "pipe"] })
+          const child = spawn(command, argv, { stdio: ["pipe", "ignore", "pipe"], env })
           child.on("error", (error) => reject(new Error(`${command} is not available: ${error.message}`)))
           child.on("exit", (code) =>
             code === 0 ? resolve(`copied ${text.length} characters`) : reject(new Error(`${command} exited with ${code}`)),

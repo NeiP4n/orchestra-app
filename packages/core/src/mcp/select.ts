@@ -205,6 +205,10 @@ export function rank(
 ): readonly Match[] {
   const wanted = translateNeed(need)
   if (wanted.length === 0) return []
+  // B7 note: rank is a pure matcher and still offers real-screen servers
+  // (playwright, agent-desktop). The gate lives where it can be enforced:
+  // acquire() refuses to install/connect them and MCP.callTool refuses to
+  // call them while the real-screen opt-in is invalid.
   const entries = McpCatalog.forPlatform(platform)
   const frequency = new Map<string, number>()
   for (const entry of entries)

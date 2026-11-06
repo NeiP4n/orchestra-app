@@ -13,6 +13,7 @@ import { ChildProcess } from "effect/unstable/process"
 import { AppProcess } from "@orchestra/util/process"
 import { RoomRules } from "@orchestra/schema/room-rules"
 import { Config } from "../../config.js"
+import { DesktopIsolation } from "../../desktop-isolation.js"
 import { Environment } from "../../environment/index.js"
 import { Job } from "../../job.js"
 import { FileAccess } from "../../file-access.js"
@@ -260,6 +261,12 @@ export const Plugin = {
                     invocation.env.OPENCODE = "1"
                     invocation.env.AI_AGENT ||= "opencode"
                     invocation.env.ORCHESTRA_SESSION_ID = context.sessionID
+                    // B7: on Linux a shell-spawned GUI app inherits this
+                    // display. Pin it to the agent's virtual display when
+                    // desktop capture is on, so `xdg-open` opens on the
+                    // agent's screen, never on the operator's.
+                    if (process.platform === "linux" && DesktopIsolation.isDesktopCaptureEnabled())
+                      invocation.env.DISPLAY = DesktopIsolation.virtualDisplay()
                     finalTimeout = yield* prepare(invocation, context)
                   }),
               )
@@ -353,7 +360,11 @@ export function forbiddenCommand(command: string): string | undefined {
     return `Refusing to run a command that touches protected file "${file}": secret and credential files are off limits to the AI.`
   if (RoomRules.commandLeaksCredentials(command))
     return "Refusing to run a command that prints the host's environment or credentials."
-  return undefined
+  // B7: a shell escape to the operator's real screen, mouse, or clipboard
+  // (xdotool, screencapture, xclip, PowerShell SendKeys, ...) is refused
+  // unless the real-screen opt-in is valid. The desktop_* tools are the
+  // sanctioned path: they work on the agent's virtual display.
+  return DesktopIsolation.forbiddenDesktopEscape(command)
 }
 
 // Translate common POSIX mistakes into concrete alternatives without mutating the command.

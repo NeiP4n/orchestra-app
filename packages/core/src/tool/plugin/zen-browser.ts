@@ -4,6 +4,8 @@ import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { optional } from "@orchestra/schema/schema"
 import { Effect, Option, Schema } from "effect"
+import { DesktopIsolation } from "../../desktop-isolation.js"
+import { KV } from "../../kv.js"
 import { Permission } from "../../permission.js"
 import { zenBridgeServer, ZenBridgeServer } from "../../zen/bridge-server.js"
 import { Idempotency } from "../idempotency.js"
@@ -13,6 +15,8 @@ export const name = "zen_browser"
 export const description = [
   "Direct interaction with Zen Browser via WebSocket bridge:",
   "view open tabs, read page content, execute JavaScript, click elements, type text, navigate URLs, and control media playback (YouTube, Spotify, SoundCloud, etc.).",
+  "",
+  "This is the operator's own browser, so every action except status needs the real-screen opt-in (ORCHESTRA_DESKTOP_REAL_SCREEN=on, allowlist naming zen-browser, and a future ORCHESTRA_DESKTOP_REAL_SCREEN_UNTIL). Without it the call is refused.",
   "",
   "Actions:",
   "  status — check connection status with the Zen Browser extension (Orchestra Companion).",
@@ -217,10 +221,29 @@ export const run = (input: Input) =>
     return { output: renderResult(input.action, raw) }
   })
 
+/**
+ * B7: zen_browser drives the operator's own browser — their tabs, pages,
+ * clicks, and typed text. Every action except `status` (which only says
+ * whether the bridge is connected) needs the real-screen opt-in for the
+ * `zen-browser` app: ORCHESTRA_DESKTOP_REAL_SCREEN=on, an allowlist naming
+ * `zen-browser`, and a future ORCHESTRA_DESKTOP_REAL_SCREEN_UNTIL.
+ * Returns the refusal message, or undefined when the action may run.
+ */
+export function deniedByRealScreenGate(input: Input, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (input.action === "status") return undefined
+  const denial = DesktopIsolation.realScreenDenial(env, "zen-browser")
+  if (denial === undefined) return undefined
+  return `zen_browser ${input.action} is blocked: ${denial}`
+}
+
 export const Plugin = {
   id: "orchestra.tool.zen-browser",
   effect: Effect.fn("ZenBrowserTool.Plugin")(function* (ctx: Context) {
     const permission = yield* Permission.Service
+    // Optional: without a KV store the navigate dedup is skipped, but the
+    // tool still works (the desktop plugin requires KV; test layers may not
+    // provide it — same pattern as playtest's optional Session service).
+    const kv = Option.getOrUndefined(yield* Effect.serviceOption(KV.Service))
     yield* ctx.tool
       .transform((editor) =>
         editor.add({
@@ -231,6 +254,10 @@ export const Plugin = {
           output: Output,
           execute: (value, context) =>
             Effect.gen(function* () {
+              // B7 gate first: a denied real-screen action never reaches the
+              // permission prompt or the bridge.
+              const gated = deniedByRealScreenGate(value)
+              if (gated) return yield* new ToolFailure({ message: gated })
               // Zen Browser drives the operator's own browser: tabs, pages, clicks, typed
               // text, navigation. Nothing here runs without a permission check — a
               // deny, or an ask the operator refuses, stops the call before the bridge
@@ -244,6 +271,26 @@ export const Plugin = {
                 agent: context.agent,
                 source: { type: "tool" as const, messageID: context.messageID, id: context.id },
               })
+              // A navigate is an external action (block B4): the same session
+              // navigating to the same URL twice — a crash, a resume, or a
+              // model that repeats itself — must not open a second tab.
+              // A failed check never blocks the navigation.
+              if (value.action === "navigate" && value.url !== undefined && kv !== undefined) {
+                const existing = yield* Idempotency.check(kv, {
+                  sessionID: context.sessionID,
+                  action: "zen_browser navigate",
+                  target: value.url,
+                }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+                if (existing !== undefined)
+                  return { output: `already open: ${value.url.trim()} (duplicate skipped, opened earlier)` }
+                const result = yield* run(value)
+                yield* Idempotency.record(
+                  kv,
+                  { sessionID: context.sessionID, action: "zen_browser navigate", target: value.url },
+                  result.output,
+                ).pipe(Effect.ignore)
+                return result
+              }
               return yield* run(value)
             }).pipe(
               Effect.map((res) => ({

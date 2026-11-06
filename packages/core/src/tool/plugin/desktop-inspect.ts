@@ -4,12 +4,15 @@ import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { optional } from "@orchestra/schema/schema"
 import { Effect, Schema } from "effect"
+import { DesktopIsolation } from "../../desktop-isolation.js"
 import { isDesktopCaptureEnabled, makeHost } from "./desktop.js"
 
 export const name = "desktop_inspect"
 
 export const description = [
   "Read the screen as a structure instead of pixels: the windows on the desktop and the controls inside them, with the exact click point of each one.",
+  "",
+  "B7: this tool reads the operator's REAL screen through Windows UI Automation — there is no virtual display for it. It needs the real-screen opt-in (ORCHESTRA_DESKTOP_REAL_SCREEN=on, non-empty allowlist, future expiry) on top of ORCHESTRA_DESKTOP_CAPTURE=on. Without it the call is refused; use desktop_screenshot on the virtual display instead.",
   "",
   "Actions:",
   "  focused вЂ” the window that has the keyboard focus and its interactive controls.",
@@ -483,6 +486,11 @@ export const Plugin = {
           message: "Desktop access is off by default. Set ORCHESTRA_DESKTOP_CAPTURE=on to allow it.",
         })
       }
+      // B7: UI Automation reads the operator's real screen, so this tool
+      // needs the real-screen opt-in (no single app to name: any non-empty
+      // allowlist with a future expiry will do).
+      const denial = DesktopIsolation.realScreenDenial(process.env)
+      if (denial) return yield* new ToolFailure({ message: `desktop_inspect is blocked: ${denial}` })
       if (process.platform !== "win32") return { output: UNSUPPORTED }
       const query = input.query?.trim() ?? ""
       if (input.action === "find" && query === "")

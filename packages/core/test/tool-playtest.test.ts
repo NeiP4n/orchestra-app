@@ -56,8 +56,14 @@ const text = (result: { readonly content?: ReadonlyArray<Tool.Content> }) =>
     .join("\n")
 
 describe("PlaytestTool", () => {
-  it.live("refuses real input and a visible window in a silent tester session", () =>
-    withTempDir(({ path: directory }) => {
+  it.live("refuses real input and a visible window in a silent tester session", () => {
+    // This test exercises the quiet-session refusal, not the capture gate:
+    // the capture gate runs first in perform(), so the test turns the
+    // virtual display on for itself instead of depending on another test
+    // file leaking ORCHESTRA_DESKTOP_CAPTURE=on into the shared process.
+    const prevCapture = process.env.ORCHESTRA_DESKTOP_CAPTURE
+    process.env.ORCHESTRA_DESKTOP_CAPTURE = "on"
+    return withTempDir(({ path: directory }) => {
       const seen: string[] = []
       return Effect.gen(function* () {
         const tools = yield* Tool.Service
@@ -78,8 +84,15 @@ describe("PlaytestTool", () => {
         // The refusal comes before any permission prompt or process start.
         expect(seen).toEqual([])
       }).pipe(Effect.provide(harness(directory, seen)))
-    }),
-  )
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          if (prevCapture === undefined) delete process.env.ORCHESTRA_DESKTOP_CAPTURE
+          else process.env.ORCHESTRA_DESKTOP_CAPTURE = prevCapture
+        }),
+      ),
+    )
+  })
 
   test("maps key combinations to virtual keys", () => {
     expect(PlaytestTool.virtualKeys("ctrl+shift+s")).toEqual({ modifiers: [0x11, 0x10], key: 0x53 })
