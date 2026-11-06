@@ -221,6 +221,22 @@ describe("openSocietyTeam (G2-15)", () => {
     expect(result.unverifiedRoles).toHaveLength(1)
   })
 
+  test("reports zero live workers when every role fails twice", async () => {
+    const { open } = opener(new Map([[roles[0].id, 2], [roles[1].id, 2], [roles[2].id, 2]]))
+    const result = await Effect.runPromise(
+      openSocietyTeam({ roles, open, verify: () => Effect.succeed(true) }),
+    )
+    // Zero live is the outcome createSociety treats as a failed creation, not
+    // a Society with an empty team: every role failed, nothing opened.
+    expect(result).toEqual({
+      expected: 3,
+      opened: 0,
+      live: 0,
+      failedRoles: [roles[0].id, roles[1].id, roles[2].id],
+      unverifiedRoles: [],
+    })
+  })
+
   test("an empty roster is zero across the board", async () => {
     const { open } = opener(new Map())
     const result = await Effect.runPromise(

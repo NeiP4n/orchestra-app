@@ -9,6 +9,7 @@ import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { Database } from "@orchestra/core/database/database"
 import { Bus } from "@orchestra/core/bus"
 import { Agent } from "@orchestra/core/agent"
+import { Credential } from "@orchestra/core/credential"
 import { Job } from "@orchestra/core/job"
 import { LocationServiceMap } from "@orchestra/core/location-service-map"
 import { Model } from "@orchestra/schema/model"
@@ -717,6 +718,60 @@ describe("Federation", () => {
       expect(society.team.live).toBe(11)
       expect(society.team.failedRoles).toEqual([])
       expect(society.team.unverifiedRoles).toEqual([])
+    }),
+  )
+
+  // A Credential service that stores nothing: with it in the context the
+  // preflight sees no Anymodel key anywhere and fails before any network
+  // call, so these tests exercise the gates without touching a live provider.
+  const noCredentialLayer = Layer.succeed(
+    Credential.Service,
+    Credential.Service.of({
+      all: () => Effect.succeed([]),
+      list: () => Effect.succeed([]),
+      get: () => Effect.succeed(undefined),
+      create: () => Effect.die(new Error("noCredentialLayer: create is not used here")),
+      activate: () => Effect.die(new Error("noCredentialLayer: activate is not used here")),
+      update: () => Effect.die(new Error("noCredentialLayer: update is not used here")),
+      remove: () => Effect.die(new Error("noCredentialLayer: remove is not used here")),
+    }),
+  )
+
+  it.live("createSociety refuses before creating anything when no Anymodel key is stored (G2-1)", () =>
+    Effect.gen(function* () {
+      const federation = yield* Federation.Service
+      const root = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-society-g2-")))
+      // B14 founded a Society with no key and learned it only from the first
+      // model's 401. Now the refusal names the missing key, and no group,
+      // project, or generation record is left behind.
+      const error = yield* federation
+        .createSociety({ goal: "Ship the whole app", name: "NoKeySociety", directory: root.path, team: "system" })
+        .pipe(Effect.provide(noCredentialLayer), Effect.flip)
+      expect(error.message).toContain("No Anymodel API key")
+      expect((yield* federation.groups()).some((item) => item.name === "NoKeySociety")).toBe(false)
+      expect(yield* federation.generation("NoKeySociety")).toBeUndefined()
+    }),
+  )
+
+  it.live("resumeGeneration does not wake a Society whose provider is dead (G2-1)", () =>
+    Effect.gen(function* () {
+      const federation = yield* Federation.Service
+      yield* foundSociety("ResumeGateTest", "Ship the whole app")
+      const before = (yield* federation.generation("ResumeGateTest"))?.updated
+      expect(before).toBeDefined()
+      // Let the clock move, so an ungated resume would stamp a new `updated`.
+      yield* Effect.sleep("10 millis")
+      yield* federation.resumeGeneration("ResumeGateTest").pipe(Effect.provide(noCredentialLayer))
+      // The gate leaves the Society founded and quiet: no re-delivery, no
+      // new stamp, so the operator fixes the key and retries instead of
+      // watching it stall again.
+      expect((yield* federation.generation("ResumeGateTest"))?.updated).toBe(before)
+      expect((yield* federation.generation("ResumeGateTest"))?.stage).toBe("founded")
+      // Positive control: without the dead provider, the same resume does run
+      // and stamps a new `updated`.
+      yield* Effect.sleep("10 millis")
+      yield* federation.resumeGeneration("ResumeGateTest")
+      expect((yield* federation.generation("ResumeGateTest"))?.updated).not.toBe(before)
     }),
   )
 
