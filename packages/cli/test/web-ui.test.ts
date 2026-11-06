@@ -4,6 +4,7 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { HttpServer, HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { createServer } from "node:http"
+import { createHash } from "node:crypto"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -276,6 +277,70 @@ describe("web UI", () => {
           const legacy = yield* Effect.promise(() => fetch(`${origin}/assets/missing.js`))
           expect(legacy.status).toBe(200)
           expect(yield* Effect.promise(() => legacy.text())).toContain("embedded")
+        }),
+      ).pipe(Effect.provide(NodeFileSystem.layer)),
+    )
+  })
+
+  test("serves index.html with an external theme preload script without a CSP hash and serves the preload file", async () => {
+    // The source index.html references the theme preload as an external
+    // file (script-src 'self' covers it), so the CSP carries no sha256
+    // hash here — a hash is only added for the inline script the vite
+    // build produces (see the next test).
+    const index =
+      '<!doctype html><html><head><script id="orchestra-theme-preload-script" src="/orchestra-theme-preload.js"></script></head><body>app</body></html>'
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const transform = yield* WebUi.handler({
+            assets: {
+              "index.html": index,
+              "orchestra-theme-preload.js": "document.documentElement.dataset.theme='dark'",
+            },
+          })
+          const http = yield* NodeHttpServer.make(createServer, { host: "127.0.0.1", port: 0 })
+          yield* http.serve(transform(Effect.succeed(HttpServerResponse.empty({ status: 404 }))))
+          const origin = HttpServer.formatAddress(http.address)
+
+          const page = yield* Effect.promise(() => fetch(`${origin}/`))
+          expect(page.status).toBe(200)
+          const csp = page.headers.get("content-security-policy") ?? ""
+          expect(csp).toContain("script-src 'self'")
+          expect(csp).not.toContain("sha256-")
+          expect(csp).toContain("frame-ancestors 'self'")
+          expect(yield* Effect.promise(() => page.text())).toContain("orchestra-theme-preload.js")
+
+          const preload = yield* Effect.promise(() => fetch(`${origin}/orchestra-theme-preload.js`))
+          expect(preload.status).toBe(200)
+          expect(yield* Effect.promise(() => preload.text())).toContain("dataset.theme")
+        }),
+      ).pipe(Effect.provide(NodeFileSystem.layer)),
+    )
+  })
+
+  test("hashes the inline theme preload script in built HTML so the browser runs it", async () => {
+    // The vite build inlines the theme preload into index.html
+    // (packages/app/vite.js: inlineThemePreload), so the served HTML
+    // carries an inline script — the CSP must hash its exact content,
+    // or the browser blocks it under script-src 'self'. Removing the
+    // hash (arch3 №7a as first written) would break the built app.
+    const inlineScript = "document.documentElement.dataset.theme='dark'"
+    const index =
+      `<!doctype html><html><head><script id="orchestra-theme-preload-script">${inlineScript}</script></head><body>app</body></html>`
+    const expectedHash = createHash("sha256").update(inlineScript).digest("base64")
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const transform = yield* WebUi.handler({ assets: { "index.html": index } })
+          const http = yield* NodeHttpServer.make(createServer, { host: "127.0.0.1", port: 0 })
+          yield* http.serve(transform(Effect.succeed(HttpServerResponse.empty({ status: 404 }))))
+          const origin = HttpServer.formatAddress(http.address)
+
+          const page = yield* Effect.promise(() => fetch(`${origin}/`))
+          expect(page.status).toBe(200)
+          const csp = page.headers.get("content-security-policy") ?? ""
+          expect(csp).toContain(`'sha256-${expectedHash}'`)
+          expect(csp).toContain("frame-ancestors 'self'")
         }),
       ).pipe(Effect.provide(NodeFileSystem.layer)),
     )
