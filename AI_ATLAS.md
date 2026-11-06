@@ -483,6 +483,13 @@ they are not new tasks.
   platform/missing-env/runtime → add+connect+verify. Missing credentials stop at
   `needs_auth` before any install; disabled servers are never re-enabled; failed
   ones are never silently retried.
+- MCP servers are off by default, by design (arch3 №9, not a bug): the one-time
+  migration (`mcp/lifecycle.ts`, `migrateDefaultOff`, marker
+  `mcp/migration/default-off/v1`) persistently disables every enabled server
+  in the global config, `ensure()` never re-enables a disabled server, and
+  `createSociety` never enables any — the operator enables servers with
+  `mcp_manager enable`. A society therefore starts with MCP off unless the
+  operator turned servers on first.
 - Serena is a session-REPL server, not flat tools: `initial_instructions` →
   session id → `activate_project` → `serena_repl` against the `cfg/fs/edit/mem/
   shell/lsp` facades. Its catalog entry runs via `uvx` (`--context desktop-app`);
