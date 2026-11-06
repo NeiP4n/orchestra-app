@@ -66,27 +66,32 @@ const empty = (agent: string, name?: string): AgentMap => ({ agent, ...(name ? {
 /** Records one verified outcome for an agent in an area, and returns the agent's updated map. */
 export const record = Effect.fn("KnowledgeMap.record")(function* (kv: KV.Interface, scope: string, input: RecordInput) {
   const key = keyFor(scope, input.agent)
-  const stored = yield* kv.get(key)
-  const current = isAgentMap(stored) ? stored : empty(input.agent, input.name)
-  const area = input.area.trim() || "general"
-  const previous = current.skills[area] ?? { score: 0, tasks: 0, firstTry: 0, updatedAt: 0 }
-  const firstTry = input.outcome === "done" && input.firstTry === true
-  const next: SkillScore = {
-    score: Math.min(
-      MAX_SCORE,
-      Math.max(0, previous.score + (input.outcome === "done" ? DONE_POINTS + (firstTry ? FIRST_TRY_BONUS : 0) : -FAILED_POINTS)),
-    ),
-    tasks: previous.tasks + 1,
-    firstTry: previous.firstTry + (firstTry ? 1 : 0),
-    updatedAt: Date.now(),
-  }
-  const updated: AgentMap = {
-    agent: current.agent,
-    ...(input.name ?? current.name ? { name: input.name ?? current.name } : {}),
-    skills: { ...current.skills, [area]: next },
-  }
-  yield* kv.set(key, updated as unknown as KV.Value)
-  return updated
+  // A3-07: the read and the write happen in one immediate transaction
+  // (KV.atomicUpdate): two parallel `verify` outcomes for one agent used to
+  // race get-then-set and lose one of them.
+  const written = yield* kv.atomicUpdate(key, (stored) => {
+    const current = isAgentMap(stored) ? stored : empty(input.agent, input.name)
+    const area = input.area.trim() || "general"
+    const previous = current.skills[area] ?? { score: 0, tasks: 0, firstTry: 0, updatedAt: 0 }
+    const firstTry = input.outcome === "done" && input.firstTry === true
+    const next: SkillScore = {
+      score: Math.min(
+        MAX_SCORE,
+        Math.max(0, previous.score + (input.outcome === "done" ? DONE_POINTS + (firstTry ? FIRST_TRY_BONUS : 0) : -FAILED_POINTS)),
+      ),
+      tasks: previous.tasks + 1,
+      firstTry: previous.firstTry + (firstTry ? 1 : 0),
+      updatedAt: Date.now(),
+    }
+    const updated: AgentMap = {
+      agent: current.agent,
+      ...(input.name ?? current.name ? { name: input.name ?? current.name } : {}),
+      skills: { ...current.skills, [area]: next },
+    }
+    return updated as unknown as KV.Value
+  })
+  if (written === undefined) return yield* Effect.die(new Error(`KnowledgeMap.record lost the write for ${key}`))
+  return written as unknown as AgentMap
 })
 
 /** One agent's map in a scope, or undefined when the agent has no record there. */
@@ -97,8 +102,17 @@ export const get = Effect.fn("KnowledgeMap.get")(function* (kv: KV.Interface, sc
 
 /** Every agent with a record in a scope. Corrupt entries are skipped, never fatal. */
 export const list = Effect.fn("KnowledgeMap.list")(function* (kv: KV.Interface, scope: string) {
-  const found = yield* kv.scan({ prefix: `${PREFIX}${scope}/` })
-  return found.entries.filter((entry) => isAgentMap(entry.value)).map((entry) => entry.value as unknown as AgentMap)
+  // A3-06: `scan` defaults to 100 entries, so one page silently dropped
+  // every agent past the hundredth. Page to the end of the cursor instead.
+  const found: Array<KV.Entry> = []
+  let after: string | undefined
+  for (;;) {
+    const page = yield* kv.scan({ prefix: `${PREFIX}${scope}/`, limit: 1000, ...(after ? { after } : {}) })
+    found.push(...page.entries)
+    if (page.next === undefined) break
+    after = page.next
+  }
+  return found.filter((entry) => isAgentMap(entry.value)).map((entry) => entry.value as unknown as AgentMap)
 })
 
 /** The strongest agents in an area, best first: highest score, then most tasks. Agents with no record in the area are not ranked — unknown is not weak, and not strong either. */
