@@ -18,17 +18,18 @@ const save = (
 ) => Effect.runPromise(SkillMarketplaceStore.save(skills, meta, directory))
 
 describe("skill catalog cache in the project", () => {
-  test("the cache lives inside the project's own .opencode directory", async () => {
+  test("the cache lives inside the project's own .orchestra directory", async () => {
     await using tmp = await tmpdir()
 
-    expect(SkillMarketplaceStore.DIRECTORY).toBe(".opencode/skill-catalog")
+    expect(SkillMarketplaceStore.DIRECTORY).toBe(".orchestra/skill-catalog")
     expect(path.isAbsolute(SkillMarketplaceStore.DIRECTORY)).toBe(false)
 
     await save(rows(), { updatedAt: 1_784_000_000_000 }, cacheIn(tmp.path))
 
     // The rows travel with the project directory, so two projects never share what they saw.
-    expect(await Bun.file(path.join(tmp.path, ".opencode/skill-catalog/skills.jsonl")).exists()).toBe(true)
-    expect(await readdir(cacheIn(tmp.path))).toEqual(["meta.json", "skills.jsonl"])
+    expect(await Bun.file(path.join(tmp.path, ".orchestra/skill-catalog/skills.jsonl")).exists()).toBe(true)
+    // Directory order is filesystem order, not a contract: only the set matters.
+    expect((await readdir(cacheIn(tmp.path))).sort()).toEqual(["meta.json", "skills.jsonl"])
   })
 
   test("rows survive a save and load unchanged", async () => {
@@ -90,7 +91,7 @@ describe("skill catalog cache in the project", () => {
   test("a damaged line costs the whole cache and names the line", async () => {
     await using tmp = await tmpdir()
     await save(rows(), { updatedAt: 1 }, cacheIn(tmp.path))
-    const file = path.join(tmp.path, ".opencode/skill-catalog/skills.jsonl")
+    const file = path.join(tmp.path, ".orchestra/skill-catalog/skills.jsonl")
     const lines = (await readFile(file, "utf8")).trimEnd().split("\n")
     await writeFile(file, [lines[0], lines[1], '{"id":"half a row"', ...lines.slice(2)].join("\n"))
 
@@ -107,7 +108,7 @@ describe("skill catalog cache in the project", () => {
     await using tmp = await tmpdir()
     await save(rows(), { updatedAt: 1 }, cacheIn(tmp.path))
     await writeFile(
-      path.join(tmp.path, ".opencode/skill-catalog/skills.jsonl"),
+      path.join(tmp.path, ".orchestra/skill-catalog/skills.jsonl"),
       JSON.stringify({ ...DECODED[0], description: "x".repeat(70_000) }),
     )
 
@@ -121,7 +122,7 @@ describe("skill catalog cache in the project", () => {
   test("damaged meta leaves the rows: it is provenance, not data", async () => {
     await using tmp = await tmpdir()
     await save(rows(), { updatedAt: 42 }, cacheIn(tmp.path))
-    await writeFile(path.join(tmp.path, ".opencode/skill-catalog/meta.json"), "{ half a meta")
+    await writeFile(path.join(tmp.path, ".orchestra/skill-catalog/meta.json"), "{ half a meta")
 
     expect((await load(cacheIn(tmp.path))).skills.size).toBe(rows().size)
     expect(await meta(cacheIn(tmp.path))).toEqual(SkillMarketplaceStore.emptyMeta)
