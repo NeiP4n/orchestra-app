@@ -5,7 +5,7 @@ import { Context, Effect, Layer, Option } from "effect"
 import type { SessionSchema } from "../session/schema.js"
 import { Skill } from "../skill.js"
 import type { Disambiguator } from "./model.js"
-import { recommendSkills, type SkillRef } from "./skills.js"
+import { recommendSkills, valueVerdictForMarketplace, type SkillRef } from "./skills.js"
 import { isContinuation } from "./normalize.js"
 import type {
   Disambiguation,
@@ -101,9 +101,11 @@ export function processPure(input: {
   skills?: ReadonlyArray<SkillRef>
 }): IntakeResult {
   if (isContinuation(input.text)) {
+    const value = checkValue(input.text, input.context)
     return {
       original: input.text,
-      value: checkValue(input.text, input.context),
+      value,
+      valueVerdict: valueVerdictForMarketplace(value),
       task: understand(input.text, input.context),
       skills: [],
       enrichedPrompt: input.text,
@@ -116,6 +118,7 @@ export function processPure(input: {
   return {
     original: input.text,
     value,
+    valueVerdict: valueVerdictForMarketplace(value),
     task,
     skills: recommended,
     enrichedPrompt: buildEnrichedPrompt(input.text, value, task, recommended),
@@ -130,9 +133,11 @@ export const process = Effect.fn("PromptIntake.process")(function* (input: {
   disambiguate?: Disambiguator
 }): Effect.Effect<IntakeResult, never> {
   if (isContinuation(input.text)) {
+    const value = checkValue(input.text, input.context)
     return {
       original: input.text,
-      value: checkValue(input.text, input.context),
+      value,
+      valueVerdict: valueVerdictForMarketplace(value),
       task: understand(input.text, input.context),
       skills: [],
       enrichedPrompt: input.text,
@@ -157,6 +162,7 @@ export const process = Effect.fn("PromptIntake.process")(function* (input: {
   return {
     original: input.text,
     value,
+    valueVerdict: valueVerdictForMarketplace(value),
     task,
     skills: recommended,
     enrichedPrompt: buildEnrichedPrompt(input.text, value, task, recommended),

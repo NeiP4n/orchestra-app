@@ -1,7 +1,21 @@
 export * as PromptIntakeSkills from "./skills.js"
 
 import { stem, tokens } from "./normalize.js"
-import type { SkillRecommendation, StructuredTask } from "./types.js"
+import type { ValueVerdict } from "../skill-marketplace/types.js"
+import type { SkillRecommendation, StructuredTask, ValueAssessment } from "./types.js"
+
+/**
+ * Bridges prompt-intake's value verdict to the native skill marketplace:
+ * the marketplace only searches and loads skills when the value checker
+ * says the prompt should execute. A refusal (clarify/merge/skip) means
+ * no search and no load — pass this verdict to pickSkillsForTask.
+ */
+export function valueVerdictForMarketplace(assessment: ValueAssessment): ValueVerdict {
+  return {
+    proceed: assessment.verdict === "execute",
+    reason: assessment.reasons.join(" ") || undefined,
+  }
+}
 
 // Russian task-word stems mapped to the English words skill names and
 // content use. Keys are stems (so "документацию" and "документация" both
