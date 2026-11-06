@@ -1172,7 +1172,13 @@ the case "the program itself is broken".
   `packages/server/src/handlers/recovery.ts`): `GET /api/recovery/models`
   lists only working providers (klinch, lix — Anymodel is down with 502 and
   is never offered); `POST /api/recovery/chat` runs one autonomous repair
-  round. Registered as a location-middleware group in
+  round. The chat input is capped (T3-6): at most 20 messages
+  (`Recovery.RecoveryChatTranscript`) of at most 8000 characters each, one
+  round at a time per server (a second concurrent request is refused with
+  503 — `runRepairRound` in the handler, exported for tests), and a round
+  times out after 10 minutes. Both handlers call `requireLocationDirectory()`
+  first (T3-11), so a missing directory answers 404 like the other catalogs.
+  Registered as a location-middleware group in
   `packages/protocol/src/api.ts`; the client is regenerated with
   `bun run generate` from `packages/client`.
 - **Repair agent** (`packages/core/src/recovery/`): `Recovery.Service` is a

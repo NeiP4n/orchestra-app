@@ -16,12 +16,17 @@ export const RecoveryModel = Schema.Struct({
   name: Schema.String,
 })
 
-/** One message of the recovery chat transcript. */
+/** One message of the recovery chat transcript. Content is capped at 8000 characters (T3-6):
+ * an unbounded transcript is an unbounded model context, paid for by the operator. */
 export interface RecoveryChatMessage extends Schema.Schema.Type<typeof RecoveryChatMessage> {}
 export const RecoveryChatMessage = Schema.Struct({
   role: Schema.Literals(["user", "assistant"]),
-  content: Schema.String,
+  content: Schema.String.check(Schema.isMaxLength(8000)),
 })
+
+/** The whole transcript of one repair round: at most 20 messages (T3-6). */
+export type RecoveryChatTranscript = Schema.Schema.Type<typeof RecoveryChatTranscript>
+export const RecoveryChatTranscript = Schema.Array(RecoveryChatMessage).check(Schema.isMaxLength(20))
 
 /** One tool call the repair agent made, with its (truncated) result. */
 export interface RecoveryStep extends Schema.Schema.Type<typeof RecoveryStep> {}
