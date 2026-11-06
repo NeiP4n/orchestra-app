@@ -58,6 +58,13 @@ const channel = (() => {
   return "dev"
 })()
 
+// macOS signing and notarization need a Developer ID certificate in the keychain plus
+// Apple ID credentials (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID). The
+// release workflow sets ORCHESTRA_MAC_SIGN=1 only when those secrets exist; without it
+// the mac build is unsigned (and the workflow says so in its summary) instead of
+// failing halfway through packaging.
+const macSignEnabled = process.env.ORCHESTRA_MAC_SIGN === "1"
+
 const APP_IDS = {
   dev: "com.nei4pn.orchestra.dev",
   beta: "com.nei4pn.orchestra.beta",
@@ -127,11 +134,15 @@ const getBase = (appId: string): Configuration => ({
     gatekeeperAssess: false,
     entitlements: "resources/entitlements.plist",
     entitlementsInherit: "resources/entitlements.plist",
-    sign: async (options) => {
-      const { sign } = await import("app-builder-lib/out/codeSign/macCodeSign")
-      await sign(macSignOptions(options))
-    },
-    notarize: true,
+    ...(macSignEnabled
+      ? {
+          sign: async (options: CustomMacSignOptions) => {
+            const { sign } = await import("app-builder-lib/out/codeSign/macCodeSign")
+            await sign(macSignOptions(options))
+          },
+          notarize: true,
+        }
+      : {}),
     target: ["dmg", "zip"],
   },
   protocols: {
