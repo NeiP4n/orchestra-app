@@ -4,10 +4,12 @@ import { asc, desc, eq } from "drizzle-orm"
 import { Cause, Context, Effect, Layer, Schema } from "effect"
 import { Credential } from "@orchestra/schema/credential"
 import { Integration } from "@orchestra/schema/integration"
+import { Global } from "@orchestra/util/global"
 import { Database } from "./database/database.js"
 import { Bus } from "./bus.js"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { CredentialTable } from "./credential/sql.js"
+import { CredentialEncryption } from "./credential/encryption.js"
 import { ErrorSummary } from "./util/error-summary.js"
 
 export const ID = Credential.ID
@@ -24,6 +26,9 @@ export type External = Credential.External
 
 export const Value = Credential.Value
 export type Value = Credential.Value
+
+/** What the `credential.value` column holds: a sealed envelope, or a legacy plaintext value awaiting migration. */
+export type StoredValue = CredentialEncryption.StoredValue
 
 export const Event = Credential.Event
 
@@ -62,19 +67,136 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@orchestra/Credential") {}
 
+type Codec =
+  | { readonly mode: "encrypted"; readonly key: Buffer; readonly keyFile: string }
+  | { readonly mode: "plaintext"; readonly reason: string }
+
+const hasEncryptedRows = (db: Database.Interface["db"]) =>
+  db
+    .select({ value: CredentialTable.value })
+    .from(CredentialTable)
+    .all()
+    .pipe(
+      Effect.orDie,
+      Effect.map((rows) => rows.some((row) => CredentialEncryption.isEnvelope(row.value))),
+    )
+
+// How credentials are sealed. Encrypted whenever the key file is usable;
+// plaintext only when the key cannot be persisted at all (a filesystem
+// without a durable data directory, e.g. the workerd profile), with a loud
+// warning — never silently.
+const resolveCodec = (
+  db: Database.Interface["db"],
+  dataDir: string,
+): Effect.Effect<Codec, CredentialEncryption.DecryptionError> =>
+  Effect.gen(function* () {
+    const keyFile = CredentialEncryption.resolveKeyFile(dataDir)
+    const key = yield* CredentialEncryption.loadOrCreateKeyEffect(keyFile).pipe(
+      Effect.catchTag("CredentialEncryption.KeyFileError", (error) =>
+        Effect.gen(function* () {
+          if (error.reason === "unavailable") {
+            yield* Effect.logWarning("credential store encryption unavailable, credentials stay in plaintext", {
+              keyFile,
+              detail: error.detail,
+            })
+            return undefined
+          }
+          // A corrupt key file is only safe to replace when nothing is sealed with the lost key.
+          const encrypted = yield* hasEncryptedRows(db)
+          if (encrypted)
+            return yield* Effect.fail(
+              new CredentialEncryption.DecryptionError({
+                reason:
+                  `credential key file ${keyFile} is corrupt (${error.detail}) and the database holds encrypted credentials: ` +
+                  "restore the key file from backup, or delete the encrypted credential rows and re-enter the keys",
+              }),
+            )
+          yield* Effect.logWarning("credential key file corrupt with no encrypted credentials, generating a fresh key", {
+            keyFile,
+            detail: error.detail,
+          })
+          return yield* CredentialEncryption.regenerateKeyEffect(keyFile).pipe(
+            Effect.mapError(
+              (regenerateError) =>
+                new CredentialEncryption.DecryptionError({
+                  reason: `cannot regenerate credential key file ${keyFile}: ${regenerateError.detail}`,
+                }),
+            ),
+          )
+        })),
+    )
+    return key === undefined
+      ? { mode: "plaintext", reason: "key file unavailable" }
+      : { mode: "encrypted", key, keyFile }
+  })
+
+// Seal every legacy plaintext row and trial-open every sealed row, in one
+// transaction: a row the current key cannot open fails startup honestly
+// instead of surfacing as garbage later. No re-entry: plaintext rows are
+// sealed with their own values, nothing is dropped.
+const migrateStoredValues = (
+  db: Database.Interface["db"],
+  codec: Codec,
+): Effect.Effect<{ readonly migrated: number; readonly verified: number }> =>
+  Effect.gen(function* () {
+    if (codec.mode === "plaintext") return { migrated: 0, verified: 0 }
+    const decode = Schema.decodeUnknownSync(Value)
+    return yield* db
+      .transaction((tx) =>
+        Effect.gen(function* () {
+          const rows = yield* tx.select().from(CredentialTable).all().pipe(Effect.orDie)
+          let migrated = 0
+          let verified = 0
+          for (const row of rows) {
+            if (CredentialEncryption.isEnvelope(row.value)) {
+              CredentialEncryption.decodeStored(codec.key, row.value, row.id)
+              verified += 1
+              continue
+            }
+            const sealed = CredentialEncryption.encodeStored(codec.key, decode(row.value))
+            yield* tx
+              .update(CredentialTable)
+              .set({ value: sealed })
+              .where(eq(CredentialTable.id, row.id))
+              .run()
+              .pipe(Effect.orDie)
+            migrated += 1
+          }
+          return { migrated, verified }
+        }),
+      )
+      .pipe(Effect.orDie)
+  })
+
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const db = (yield* Database.Service).db
     const bus = yield* Bus.Service
+    const global = yield* Global.Service
     const decode = Schema.decodeUnknownSync(Value)
+    // The credential layer stays infallible: a corrupt key is a startup
+    // defect (the message carries the recovery steps), and consumers rely on
+    // the node's error being never. Every other fallible call in this layer
+    // is orDie'd the same way.
+    const codec = yield* resolveCodec(db, global.data).pipe(Effect.orDie)
+    const migration = yield* migrateStoredValues(db, codec)
+    if (codec.mode === "encrypted")
+      yield* Effect.logInfo("credential store encrypted at rest", {
+        keyFile: codec.keyFile,
+        migrated: migration.migrated,
+        verified: migration.verified,
+      })
     const stored = (row: typeof CredentialTable.$inferSelect) => {
       if (!row.integration_id) return
       return new Info({
         id: row.id,
         integrationID: row.integration_id,
         label: row.label,
-        value: decode(row.value),
+        value:
+          codec.mode === "encrypted"
+            ? CredentialEncryption.decodeStored(codec.key, row.value, row.id)
+            : decode(row.value),
       })
     }
     const storedRows = (rows: ReadonlyArray<typeof CredentialTable.$inferSelect>) =>
@@ -82,6 +204,9 @@ const layer = Layer.effect(
         const credential = stored(row)
         return credential ? [credential] : []
       })
+    // Seal a value for storage; plaintext only in degraded mode (no key file).
+    const seal = (value: Value) =>
+      codec.mode === "encrypted" ? CredentialEncryption.encodeStored(codec.key, value) : value
 
     return Service.of({
       all: Effect.fn("Credential.all")(() =>
@@ -137,7 +262,7 @@ const layer = Layer.effect(
                   id: credential.id,
                   integration_id: credential.integrationID,
                   label: credential.label,
-                  value: credential.value,
+                  value: seal(credential.value),
                   active: activate,
                 })
                 .run()
@@ -228,7 +353,7 @@ const layer = Layer.effect(
         if (updates.label === credential.label && updates.value === undefined) return
         const updated = yield* db
           .update(CredentialTable)
-          .set({ label: updates.label, value: updates.value })
+          .set({ label: updates.label, value: updates.value === undefined ? undefined : seal(updates.value) })
           .where(eq(CredentialTable.id, id))
           .returning({ id: CredentialTable.id })
           .get()
@@ -325,4 +450,4 @@ const layer = Layer.effect(
   }),
 )
 
-export const node = makeGlobalNode({ service: Service, layer, deps: [Database.node, Bus.node] })
+export const node = makeGlobalNode({ service: Service, layer, deps: [Database.node, Bus.node, Global.node] })

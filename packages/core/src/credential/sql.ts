@@ -6,7 +6,11 @@ export const CredentialTable = sqliteTable("credential", {
   id: text().$type<Credential.ID>().primaryKey(),
   integration_id: text().$type<Credential.Info["integrationID"]>(),
   label: text().notNull(),
-  value: text({ mode: "json" }).$type<Credential.Value>().notNull(),
+  // G2-10: the value is stored sealed (`CredentialEncryption.Envelope`) once
+  // the credential store has encrypted it; legacy plaintext values still
+  // decode until the startup migration seals them. The column stays TEXT —
+  // no DDL change — the envelope is a JSON object like the value was.
+  value: text({ mode: "json" }).$type<Credential.StoredValue>().notNull(),
   connector_id: text(),
   method_id: text(),
   active: integer({ mode: "boolean" }),
