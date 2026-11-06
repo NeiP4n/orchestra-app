@@ -23,6 +23,82 @@ import { Database } from "./database/database.js"
  */
 
 export const ERROR_TYPE = "error.recorded"
+export const DISPLAY_EVENT_TYPE = "desktop.display"
+
+export interface DisplayEvent {
+  /** The virtual display, e.g. `:99`. */
+  readonly display: string
+  readonly state: "started" | "alive" | "died"
+  readonly sessionID?: string
+  readonly detail?: Record<string, unknown>
+  readonly time?: number
+}
+
+export interface StoredDisplayEvent {
+  readonly id: string
+  readonly time?: number
+  readonly display: string
+  readonly state: "started" | "alive" | "died"
+  readonly sessionID?: string
+  readonly detail?: Record<string, unknown>
+}
+
+/**
+ * Virtual-display state (block B7) is a journal fact, like errors: which
+ * display, whose session it serves, and whether it started or died. A dead
+ * display is an event in the journal, never silence. Best-effort, same as
+ * recordError: no database in scope means the record is skipped, never a
+ * second failure.
+ */
+export const recordDisplayEvent = (input: DisplayEvent): Effect.Effect<void, never, never> =>
+  Effect.gen(function* () {
+    const db = Option.getOrUndefined(yield* Effect.serviceOption(Database.Service))
+    if (db === undefined) return
+    const fact: AutoloopFact = {
+      id: `desktop:${input.display}:${input.state}:${randomUUID()}`,
+      type: DISPLAY_EVENT_TYPE,
+      time: input.time ?? Date.now(),
+      data: {
+        display: input.display,
+        state: input.state,
+        ...(input.sessionID ? { sessionID: input.sessionID } : {}),
+        ...(input.detail ? { detail: input.detail } : {}),
+      },
+    }
+    yield* AutoloopStore.commitLatest([fact]).pipe(
+      Effect.provideService(Database.Service, db),
+      Effect.ignore,
+    )
+  }).pipe(Effect.catchCause(() => Effect.void))
+
+const DisplayData = Schema.Struct({
+  display: Schema.String,
+  state: Schema.Literals(["started", "alive", "died"]),
+  sessionID: Schema.optional(Schema.String),
+  detail: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+})
+const decodeDisplayData = Schema.decodeUnknownOption(DisplayData)
+
+/** Every recorded virtual-display event, in journal order. */
+export const readDisplayEvents = (): Effect.Effect<ReadonlyArray<StoredDisplayEvent>, unknown, Database.Service> =>
+  Effect.gen(function* () {
+    const facts = yield* AutoloopStore.readLog()
+    return facts.flatMap((fact): Array<StoredDisplayEvent> => {
+      if (fact.type !== DISPLAY_EVENT_TYPE) return []
+      const data = Option.getOrUndefined(decodeDisplayData(fact.data))
+      if (!data) return []
+      return [
+        {
+          id: fact.id,
+          time: fact.time,
+          display: data.display,
+          state: data.state,
+          ...(data.sessionID ? { sessionID: data.sessionID } : {}),
+          ...(data.detail ? { detail: data.detail } : {}),
+        },
+      ]
+    })
+  })
 
 export interface ErrorRecord {
   readonly source: string
