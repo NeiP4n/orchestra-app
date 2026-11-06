@@ -656,6 +656,92 @@ Two of those rules also live as built-in session instructions
 (`core/ask-first`, `core/riskiest-first` in `instructions/builtins.ts`), so a lone
 session without a Society hears them too.
 
+## Native skill marketplace — `packages/core/src/skill-marketplace/`
+
+The in-Orchestra counterpart to the upstream catalog in the same folder
+(`index.ts`: skillsmp.com MCP search, cached rows, SKILL.md fetched from
+GitHub, SkillSpector-style scan). The catalog answers "what exists out
+there"; the native marketplace answers "what is installed here, at which
+level, and how do the pieces fit into a working factory". It never reaches
+the network.
+
+- **Manifest (`manifest.ts`)**: a native skill carries a manifest in the YAML
+  frontmatter of its SKILL.md — `name`, `version` (semver), `purpose`,
+  `inputs`/`outputs` (named ports `name:type`, types `text | json | list |
+  file | code | plan | report`), `depends` (`name@range`, ranges `^ ~ >= <=
+  > <`, exact, `*`), `rules`. There is no YAML parser in core, so the
+  frontmatter is read by a strict line parser; a broken manifest refuses the
+  install instead of guessing. A skill without a manifest gets a derived one
+  (`version 0.0.0`, no ports, `derived: true`): it can run alone, never
+  chained, because its inputs and outputs are unknown.
+- **Three levels (`levels.ts`)**: `society > project > session`. A society
+  skill is visible everywhere below it; a project skill to its project and
+  its sessions; a session skill only to its session. Lower levels inherit the
+  ones above and shadow them by name. Storage is one JSON file per level
+  (`<root>/native-skills/skills.json`) plus an append-only journal
+  (`journal.jsonl`): every mismatch resolution, install and use is one
+  human-readable line with its reason.
+- **Factory (`factory.ts`)**: given the outputs a task needs and the inputs
+  the caller has, it chains skills so each step's inputs are fed by the task
+  or an earlier step (backward chaining, max depth 5, max 8 steps). Trying a
+  producer is transactional: a producer whose inputs cannot be satisfied
+  leaves nothing behind. A factory that needs more than 8 steps is refused —
+  it is a project, not a pipeline.
+- **Mismatches, settled at install/build time (`resolve.ts`), never while a
+  skill runs**: I/O (same name+type flows as-is; a convertible type gets an
+  adapter from a closed list — `code` never converts implicitly); version
+  (highest version satisfying the range wins, otherwise a refusal naming the
+  available versions, never a silent downgrade); rules (a skill rule
+  contradicting a society rule refuses the install — society rules are hard;
+  contradicting a project/session rule drops the skill's rule, the scope
+  rule wins, journaled). Contradiction is narrow and explicit: an exact
+  duplicate is deduped, only a clear negation (`never X` vs `always X`)
+  counts.
+- **Rules (`rules.ts`)**: install runs two checks — the static scan (a DO NOT
+  INSTALL score refuses, with the findings named) and the rule check above.
+  When a skill's text is lazily loaded, the scope rules that bind it are
+  prepended as a short block (highest level first, priority stated). Every
+  use is recorded in the journal (`levels.recordUsage`), so the rules a skill
+  followed survive between runs.
+- **No overload**: the compact index (`SkillRef`: name, purpose, ports,
+  version, level) is the only thing a search touches. Full skill text is
+  read lazily, only for the skill a task actually uses, and only while the
+  token budget allows it. `pick.ts` is the one function prompt-intake calls:
+  `pickSkillsForTask({ goal, context, index, outputs, inputs, value,
+  maxSkills })` ranks the compact index (name hits 100, purpose hits 10,
+  same weights as the catalog search), composes a factory when outputs are
+  given, and never loads full text. It takes the value verdict
+  prompt-intake's value checker produced (`ValueVerdict { proceed, reason
+  }`): a refused request is not searched at all. The verdict maps to
+  prompt-intake's real `ValueAssessment` as `proceed = verdict ===
+  "execute"`, `reason = reasons.join(" ")` — `clarify`, `merge` and `skip`
+  all mean "do not search".
+- **Token budget (`budget.ts`)**: one request may spend 10,000 tokens on
+  marketplace-loaded skill text by default (`DEFAULT_PER_REQUEST_TOKENS`,
+  override `ORCHESTRA_TOKEN_BUDGET_PER_REQUEST`), warns at 80%, and stops
+  at 100% — the spend is refused, so the total never passes the cap. The
+  budget is created fresh per request, so one request can never spend
+  another's. Estimation is local (`~4 chars/token`, errs high).
+  `compactTranscript` shrinks a transcript extractively without a model
+  call (first message kept, newest kept, middle stubbed); a model-based
+  summarizer is a caller-provided `Compactor` hook, never a marketplace
+  dependency.
+- **Service (`native.ts`)**: `SkillMarketplaceNative.Service` wires the
+  above: `install` (manifest + scan + rule checks, writes the SKILL.md under
+  the level's registry), `uninstall`, `list`, `effective`, `index`,
+  `pick`, `composeFactory`, `loadSkill` (the only call that reads a SKILL.md;
+  refuses with `BudgetExceeded` past the budget, re-scans the text, prepends
+  the rule block, records the use). Production layer: project from Location,
+  society from `ORCHESTRA_SOCIETY_ROOT`, session from
+  `ORCHESTRA_SESSION_ROOT` when set; a level without a directory is empty,
+  not an error.
+- **Tests**: `packages/core/test/skill-marketplace-native.test.ts` covers
+  manifest parse/derive/semver, install + effective resolution + shadowing,
+  factory (chain, adapter, refusal, derived skill), the three mismatch
+  types, budget (warn/stop, load refusal, compaction), lazy load (pick
+  returns refs only; load reads only the requested skill), and the
+  value-verdict skip.
+
 ## Independent review — `packages/core/src/review/`
 
 The mechanism for a second pair of eyes, not the review itself: these
