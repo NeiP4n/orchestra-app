@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { SocietyPreflight } from "../src/society-preflight"
 import { Credential } from "../src/credential"
+import { Integration } from "@orchestra/schema/integration"
 import { openSocietyTeam } from "../src/federation"
 import { Orchestra } from "../src/orchestra"
 import { Orchestra as OrchestraSchema } from "@orchestra/schema/orchestra"
@@ -160,7 +161,35 @@ describe("SocietyPreflight.checkLive", () => {
   test("is skipped when Credential is present but Provider is not (no false failure)", async () => {
     // Regression: the Federation context provides Credential but not
     // Provider, so the endpoint cannot be determined. That must skip, not
-    // report the provider as unconfigured.
+    // report the provider as unconfigured — the live case had a key stored,
+    // so the stub stores one too: a missing key is definitive, not
+    // unverifiable, and fails instead (see the next test).
+    const stored = new Credential.Info({
+      id: Credential.ID.make("cred_anymodel"),
+      integrationID: Integration.ID.make("anymodel"),
+      label: "Anymodel",
+      value: Credential.Key.make({ type: "key", key: "sk-test-key" }),
+    })
+    const stub = {
+      all: () => Effect.succeed([stored]),
+      list: () => Effect.succeed([stored]),
+      get: () => Effect.succeed(stored),
+      create: () => Effect.fail(new Error("unused") as never),
+      activate: () => Effect.succeed(undefined as void),
+      update: () => Effect.succeed(undefined as void),
+      remove: () => Effect.succeed(undefined as void),
+    } satisfies Credential.Interface
+    const result = await Effect.runPromise(
+      SocietyPreflight.checkLive().pipe(Effect.provideService(Credential.Service, stub)),
+    )
+    expect(result.status).toBe("skipped")
+  })
+
+  test("fails when no key is stored and Provider is not (a missing key is definitive)", async () => {
+    // The same layer shape as the skip above, but with an empty store:
+    // "no key" can be determined from Credential alone, so the check must
+    // fail with no-credential — otherwise the G2-1 gates (refuse creation,
+    // stay quiet on resume) silently open whenever Provider is absent.
     const stub = {
       all: () => Effect.succeed([] as Credential.Info[]),
       list: () => Effect.succeed([] as Credential.Info[]),
@@ -173,7 +202,11 @@ describe("SocietyPreflight.checkLive", () => {
     const result = await Effect.runPromise(
       SocietyPreflight.checkLive().pipe(Effect.provideService(Credential.Service, stub)),
     )
-    expect(result.status).toBe("skipped")
+    expect(result.status).toBe("failed")
+    if (result.status === "failed") {
+      expect(result.reason).toBe("no-credential")
+      expect(result.message).toContain("No Anymodel API key")
+    }
   })
 })
 
