@@ -241,6 +241,24 @@ describe("Project.resolve", () => {
     }),
   )
 
+  it.live("the project binding is written atomically and leaves no temp file behind", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      const project = yield* Project.Service
+
+      const result = yield* project.resolve(abs(tmp.path))
+      const names = yield* Effect.promise(() => fs.readdir(path.join(tmp.path, ".orchestra")))
+      expect(names).toEqual(["project.json"])
+      const binding = yield* Effect.promise(() =>
+        fs.readFile(path.join(tmp.path, ".orchestra", "project.json"), "utf8").then((raw) => JSON.parse(raw)),
+      )
+      expect(binding).toEqual({ id: result.id, version: 1 })
+    }),
+  )
+
   it.live("records the canonical directory in the worktree inventory for markerless projects", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireRelease(

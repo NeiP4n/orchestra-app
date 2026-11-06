@@ -8,6 +8,7 @@ import { Location } from "../location.js"
 import { SkillMarketplaceLevels } from "./levels.js"
 import { SkillMarketplaceManifest } from "./manifest.js"
 import { SkillMarketplaceRules } from "./rules.js"
+import { SkillMarketplaceStore } from "./store.js"
 import { SkillMarketplaceFactory } from "./factory.js"
 import { SkillMarketplacePick } from "./pick.js"
 import { Budget, BudgetExceeded, estimateTokens } from "./budget.js"
@@ -112,14 +113,17 @@ export const layerWith = (options: LayerOptions) =>
           if (!check.ok) return yield* new InstallError({ message: check.reason })
           if (check.journal !== undefined) yield* SkillMarketplaceLevels.appendJournal(roots, input.level, check.journal)
           const target = contentPath(input.level, manifest.name)
-          yield* Effect.tryPromise({
-            try: async () => {
-              const { mkdir, writeFile } = await import("node:fs/promises")
-              await mkdir(path.dirname(target), { recursive: true })
-              await writeFile(target, input.content.endsWith("\n") ? input.content : `${input.content}\n`)
-            },
-            catch: (error) => new InstallError({ message: `the skill text could not be written: ${text(error)}` }),
-          })
+          // A3-10: the skill text goes through writeAtomic (temp + rename),
+          // like the registry next to it — a crash mid-write used to leave
+          // a torn SKILL.md behind while the registry already pointed at it.
+          yield* SkillMarketplaceStore.writeAtomic(
+            target,
+            input.content.endsWith("\n") ? input.content : `${input.content}\n`,
+          ).pipe(
+            Effect.mapError(
+              (error) => new InstallError({ message: `the skill text could not be written: ${error.message}` }),
+            ),
+          )
           const skill: NativeSkill = { manifest, level: input.level, source: input.source, contentPath: target }
           yield* SkillMarketplaceLevels.install(roots, skill).pipe(
             Effect.mapError((error) => new InstallError({ message: error.message })),
@@ -219,10 +223,6 @@ export const layerWith = (options: LayerOptions) =>
           .replace(/[^a-z0-9]+/g, "-")
           .replace(/^-+|-+$/g, "")
         return slug === "" ? "skill" : slug
-      }
-
-      function text(error: unknown) {
-        return error instanceof globalThis.Error ? error.message : String(error)
       }
     }),
   )

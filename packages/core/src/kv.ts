@@ -29,6 +29,17 @@ export interface Interface {
   readonly set: (key: string, value: Value) => Effect.Effect<void>
   readonly remove: (key: string) => Effect.Effect<void>
   readonly scan: (options: ScanOptions) => Effect.Effect<ScanResult>
+  /**
+   * A3-07: atomically read a key, compute a new value, and write it back —
+   * one immediate transaction, so concurrent updates never lose each other
+   * (a bare get-then-set drops one of two parallel writes). Returning
+   * `undefined` deletes the key. Returns the written value, or `undefined`
+   * when the key was deleted.
+   */
+  readonly atomicUpdate: (
+    key: string,
+    update: (current: Value | undefined) => Value | undefined,
+  ) => Effect.Effect<Value | undefined>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@orchestra/KV") {}
@@ -56,6 +67,34 @@ const layer = Layer.effect(
       }),
       remove: Effect.fn("KV.remove")(function* (key) {
         yield* db.delete(KVTable).where(eq(KVTable.key, key)).run().pipe(Effect.orDie)
+      }),
+      atomicUpdate: Effect.fn("KV.atomicUpdate")(function* (key, update) {
+        return yield* db
+          .transaction(
+            (tx) =>
+              Effect.gen(function* () {
+                const row = yield* tx
+                  .select({ value: KVTable.value })
+                  .from(KVTable)
+                  .where(eq(KVTable.key, key))
+                  .get()
+                  .pipe(Effect.orDie)
+                const next = update(row?.value)
+                if (next === undefined) {
+                  yield* tx.delete(KVTable).where(eq(KVTable.key, key)).run().pipe(Effect.orDie)
+                  return undefined
+                }
+                yield* tx
+                  .insert(KVTable)
+                  .values({ key, value: next })
+                  .onConflictDoUpdate({ target: KVTable.key, set: { value: next, time_updated: Date.now() } })
+                  .run()
+                  .pipe(Effect.orDie)
+                return next
+              }),
+            { behavior: "immediate" },
+          )
+          .pipe(Effect.orDie)
       }),
       scan: Effect.fn("KV.scan")(function* (options) {
         const limit = Number.isNaN(options.limit) ? 100 : Math.min(Math.max(Math.floor(options.limit ?? 100), 1), 1000)

@@ -1,9 +1,10 @@
 export * as Adr from "./adr.js"
 
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises"
+import { readdir, readFile } from "node:fs/promises"
 import path from "node:path"
 import { Effect, Schema } from "effect"
 import { ProjectDirs } from "./project-dirs.js"
+import { WriteAtomic } from "./write-atomic.js"
 
 // Architecture Decision Records: one short file per big decision, all in one place
 // (`.orchestra/decisions/adr-NNNN.md`) with search, so a later session — or a new agent —
@@ -130,10 +131,9 @@ export const create = Effect.fn("Adr.create")(function* (directory: string, inpu
   if (!record.title || !record.context || !record.decision)
     return yield* fail("An ADR needs a title, context and decision; an empty one records nothing.")
   yield* Effect.tryPromise({
-    try: async () => {
-      await mkdir(dir, { recursive: true })
-      await writeFile(path.join(dir, fileName(number)), render(record), "utf8")
-    },
+    // A3-16: atomic — a torn ADR is worse than a missing one, because the
+    // next read takes it for a decision.
+    try: () => WriteAtomic.writeAtomic(path.join(dir, fileName(number)), render(record)),
     catch: (cause) => fail(`Could not write ${fileName(number)}: ${cause instanceof Error ? cause.message : String(cause)}`),
   })
   return record

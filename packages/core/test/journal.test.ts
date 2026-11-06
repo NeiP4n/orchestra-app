@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
-import { Effect } from "effect"
+import { Effect, Logger } from "effect"
 import { Database } from "@orchestra/core/database/database"
 import { AutoloopStore } from "@orchestra/core/autoloop/kernel/store"
 import type { AutoloopFact } from "@orchestra/core/autoloop/kernel/schema"
@@ -53,8 +53,19 @@ describe("Journal", () => {
     )
   })
 
-  test("recording without a database in scope is a silent no-op", async () => {
-    await Effect.runPromise(Journal.recordError({ source: "test", kind: "x", message: "no db here" }))
+  test("recording without a database in scope logs the dropped error instead of vanishing", async () => {
+    const logged: Array<unknown> = []
+    await Effect.runPromise(
+      Journal.recordError({ source: "test", kind: "x", message: "no db here" }).pipe(
+        Effect.provideService(
+          Logger.CurrentLoggers,
+          new Set([Logger.make((entry) => logged.push(entry.message))]),
+        ),
+      ),
+    )
+    // Effect logs a warning as [message, ...args], not a plain string.
+    expect(logged.some((message) => JSON.stringify(message).includes("dropping a recorded error"))).toBe(true)
+    expect(logged.some((message) => JSON.stringify(message).includes("no db here"))).toBe(true)
   })
 
   test("hasUnfinishedRun follows the runs projection", async () => {

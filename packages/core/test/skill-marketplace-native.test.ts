@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test"
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
+import path from "node:path"
 import { Effect } from "effect"
 import { SkillMarketplaceManifest } from "@orchestra/core/skill-marketplace/manifest"
 import { SkillMarketplaceResolve } from "@orchestra/core/skill-marketplace/resolve"
@@ -9,6 +11,8 @@ import { SkillMarketplacePick } from "@orchestra/core/skill-marketplace/pick"
 import { SkillMarketplaceNative } from "@orchestra/core/skill-marketplace/native"
 import type { NativeSkill } from "@orchestra/core/skill-marketplace/types"
 import { tmpdir } from "./fixture/tmpdir"
+// Levels.install serializes under Flock, which needs its global set.
+import "@orchestra/util/global"
 
 const GATHER = `---
 name: gather
@@ -141,6 +145,88 @@ describe("levels", () => {
     const index = SkillMarketplaceLevels.compactIndex(effective)
     expect(JSON.stringify(index)).not.toContain("Ask and collect notes")
     expect(index.find((entry) => entry.name === "gather")?.purpose).toBe("Gather notes for a question.")
+  })
+
+  test("a damaged registry reads as empty but refuses install and uninstall", async () => {
+    await using tmp = await tmpdir()
+    const roots = { society: undefined, project: `${tmp.path}/project`, session: undefined }
+    const file = path.join(roots.project, "native-skills", "skills.json")
+    mkdirSync(path.dirname(file), { recursive: true })
+    writeFileSync(file, "{not json")
+    // Reading a damaged level is an empty level — but loudly.
+    const loaded = await run(SkillMarketplaceLevels.loadLevelDetailed(roots, "project"))
+    expect(loaded.skills).toEqual([])
+    expect(loaded.degraded).toBe(true)
+    expect(loaded.damage).toContain("not valid JSON")
+    expect(await run(SkillMarketplaceLevels.loadLevel(roots, "project"))).toEqual([])
+    // Installing or uninstalling over the damage is refused, and the file
+    // survives untouched: the old code saved an empty registry over it.
+    const gather = skill(SkillMarketplaceManifest.parse(GATHER).manifest, "project", `${tmp.path}/gather.md`)
+    const install = await Effect.runPromiseExit(SkillMarketplaceLevels.install(roots, gather))
+    expect(install._tag).toBe("Failure")
+    const uninstall = await Effect.runPromiseExit(SkillMarketplaceLevels.uninstall(roots, "gather", "project"))
+    expect(uninstall._tag).toBe("Failure")
+    expect(readFileSync(file, "utf8")).toBe("{not json")
+  })
+
+  test("concurrent installs at one level never lose a skill", async () => {
+    await using tmp = await tmpdir()
+    const roots = { society: undefined, project: `${tmp.path}/project`, session: undefined }
+    const skills = [GATHER, SUMMARIZE, RENDER, JSON_SOURCE, TEXT_SINK].map((content, index) =>
+      skill(
+        SkillMarketplaceManifest.parse(content).manifest,
+        "project",
+        `${tmp.path}/skill-${index}.md`,
+      ),
+    )
+    await Promise.all(skills.map((entry) => run(SkillMarketplaceLevels.install(roots, entry))))
+    const listed = await run(SkillMarketplaceLevels.loadLevel(roots, "project"))
+    expect(listed.map((entry) => entry.manifest.name).sort()).toEqual([
+      "gather",
+      "json-source",
+      "render",
+      "summarize",
+      "text-sink",
+    ])
+  })
+
+  test("the journal rotates at the size cap", async () => {
+    await using tmp = await tmpdir()
+    const roots = { society: undefined, project: `${tmp.path}/project`, session: undefined }
+    const dir = path.join(roots.project, "native-skills")
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path.join(dir, "journal.jsonl"), `${"x".repeat(300 * 1024)}\n`)
+    await run(
+      SkillMarketplaceLevels.appendJournal(roots, "project", {
+        at: 1,
+        kind: "install",
+        skill: "gather",
+        level: "project",
+        problem: "installed",
+        decision: "installed",
+      }),
+    )
+    expect(existsSync(path.join(dir, "journal.jsonl.1"))).toBe(true)
+    expect(statSync(path.join(dir, "journal.jsonl.1")).size).toBeGreaterThan(300 * 1024)
+    const lines = readFileSync(path.join(dir, "journal.jsonl"), "utf8").trim().split("\n")
+    expect(lines).toHaveLength(1)
+    expect(JSON.parse(lines[0]).skill).toBe("gather")
+  })
+
+  test("native install writes the skill text and registers it", async () => {
+    await using tmp = await tmpdir()
+    const roots = { society: undefined, project: `${tmp.path}/project`, session: undefined }
+    const program = Effect.gen(function* () {
+      const svc = yield* SkillMarketplaceNative.Service
+      return yield* svc.install({ content: GATHER, level: "project", source: "local", rules: [] })
+    })
+    const installed = await Effect.runPromise(
+      program.pipe(Effect.provide(SkillMarketplaceNative.layerWith({ roots }))),
+    )
+    expect(installed.manifest.name).toBe("gather")
+    expect(readFileSync(installed.contentPath, "utf8")).toBe(GATHER)
+    const listed = await run(SkillMarketplaceLevels.loadLevel(roots, "project"))
+    expect(listed.map((entry) => entry.manifest.name)).toEqual(["gather"])
   })
 })
 

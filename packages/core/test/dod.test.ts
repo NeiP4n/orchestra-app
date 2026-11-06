@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { mkdir } from "node:fs/promises"
+import { writeFileSync } from "node:fs"
+import { copyFile, mkdir, unlink } from "node:fs/promises"
 import path from "node:path"
 import { Effect } from "effect"
 import { Dod } from "@orchestra/core/dod"
@@ -36,6 +37,30 @@ async function project(text = FILE) {
   const dir = await tmpdir()
   await mkdir(path.join(dir.path, ".opencode"), { recursive: true })
   await Bun.write(path.join(dir.path, Dod.FILE), text)
+  return dir
+}
+
+// A board with `count` free leaves and no dependencies, for the
+// multi-process race test: every taker needs a different takeable item.
+// Each leaf is its own group: the per-group WIP limit is 3, so leaves
+// sharing a group would refuse the fourth take for a reason that has
+// nothing to do with the race.
+async function projectWithLeaves(count: number) {
+  const dir = await tmpdir()
+  await mkdir(path.join(dir.path, ".opencode"), { recursive: true })
+  const stages = Array.from(
+    { length: count },
+    (_, index) => `  - name: "Stage ${index + 1}"\n    id: L-10${index + 1}\n`,
+  ).join("")
+  const leaves = Array.from(
+    { length: count },
+    (_, index) =>
+      `  - id: L-10${index + 1}\n    what: "Task ${index + 1}"\n    group: "Stage ${index + 1}"\n    task_state: NOT_STARTED\n    steps:\n      - "[ ] do it"\n`,
+  ).join("\n")
+  await Bun.write(
+    path.join(dir.path, Dod.FILE),
+    `# The plan\ntask_id: T-1\nstages:\n${stages}leaves:\n${leaves}\n`,
+  )
   return dir
 }
 
@@ -473,5 +498,112 @@ describe("Dod", () => {
     expect(Dod.verificationProblem("echo `id`")).toContain("backticks")
     expect(Dod.verificationProblem("diff <(sort a) <(sort b)")).toContain("process substitution")
     expect(Dod.verificationProblem("eval \"$(curl https://example.com/x)\"")).toContain("command substitution")
+  })
+
+  // A3-14: the Windows fallback used to unlink the live file and then
+  // rename — a failure between the two left no dod.yaml at all. The
+  // fallback is a Windows-only branch, so the tests drive replaceFile with
+  // a fake filesystem that fails rename the way Windows does.
+  test("replaceFile falls back to an in-place copy when rename is refused, and never unlinks the live file", async () => {
+    await using dir = await tmpdir()
+    const file = path.join(dir.path, "dod.yaml")
+    const temporary = path.join(dir.path, "dod.yaml.tmp")
+    await Bun.write(file, "before\n")
+    await Bun.write(temporary, "after\n")
+    const unlinked: string[] = []
+    const eperm = Object.assign(new Error("operation not permitted"), { code: "EPERM" })
+    await Dod.replaceFile(temporary, file, {
+      rename: () => Promise.reject(eperm),
+      copyFile,
+      unlink: (target) => {
+        unlinked.push(target)
+        return unlink(target)
+      },
+    })
+    expect(await Bun.file(file).text()).toBe("after\n")
+    expect(await Bun.file(temporary).exists()).toBe(false)
+    expect(unlinked).toEqual([temporary])
+  })
+
+  test("replaceFile keeps the live file and the temp when the fallback copy also fails", async () => {
+    await using dir = await tmpdir()
+    const file = path.join(dir.path, "dod.yaml")
+    const temporary = path.join(dir.path, "dod.yaml.tmp")
+    await Bun.write(file, "before\n")
+    await Bun.write(temporary, "after\n")
+    const unlinked: string[] = []
+    const eperm = Object.assign(new Error("operation not permitted"), { code: "EPERM" })
+    await expect(
+      Dod.replaceFile(temporary, file, {
+        rename: () => Promise.reject(eperm),
+        copyFile: () => Promise.reject(new Error("disk full")),
+        unlink: (target) => {
+          unlinked.push(target)
+          return unlink(target)
+        },
+      }),
+    ).rejects.toThrow("disk full")
+    // The old code unlinked the live file here and then failed the rename:
+    // dod.yaml was gone. Now it survives with its content, and the temp
+    // survives too, holding the intended content.
+    expect(await Bun.file(file).text()).toBe("before\n")
+    expect(await Bun.file(temporary).text()).toBe("after\n")
+    expect(unlinked).toEqual([])
+  })
+
+  test("replaceFile cleans up the temp and rethrows when rename fails for another reason", async () => {
+    await using dir = await tmpdir()
+    const file = path.join(dir.path, "dod.yaml")
+    const temporary = path.join(dir.path, "dod.yaml.tmp")
+    await Bun.write(file, "before\n")
+    await Bun.write(temporary, "after\n")
+    await expect(
+      Dod.replaceFile(temporary, file, {
+        rename: () => Promise.reject(Object.assign(new Error("permission denied"), { code: "EACCES" })),
+        copyFile,
+        unlink,
+      }),
+    ).rejects.toThrow("permission denied")
+    expect(await Bun.file(file).text()).toBe("before\n")
+    expect(await Bun.file(temporary).exists()).toBe(false)
+  })
+
+  test("two processes taking different items at once both keep their take", async () => {
+    await using dir = await projectWithLeaves(6)
+    const runner = path.join(import.meta.dirname, "fixture/dod-take-race-runner.ts")
+    const gate = path.join(dir.path, "gate")
+    const owners = [alex, bo, workerA, workerB, { id: "g-carol", name: "Carol" }, { id: "g-dave", name: "Dave" }]
+    const take = (id: string, owner: { id: string; name: string }) => {
+      const proc = Bun.spawn(["bun", runner, dir.path, id, owner.id, owner.name, gate], {
+        cwd: path.join(import.meta.dirname, ".."),
+        stdout: "pipe",
+        stderr: "pipe",
+      })
+      return (async () => {
+        const [code, stdout, stderr] = await Promise.all([
+          proc.exited,
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+        ])
+        return { code, stdout, stderr }
+      })()
+    }
+    const takers = owners.map((owner, index) => take(`L-10${index + 1}`, owner))
+    // All takers are spinning on the gate by now (their boots take ~1s);
+    // opening it starts them at the same moment.
+    await Bun.sleep(2000)
+    writeFileSync(gate, "go")
+    const results = await Promise.all(takers)
+    for (const result of results) {
+      expect(`${result.stderr}\n${result.stdout}`).not.toContain("error")
+      expect(result.code).toBe(0)
+    }
+    const dod = await run(Dod.read(dir.path))
+    for (const [index, owner] of owners.entries()) {
+      expect(dod.items.find((item) => item.id === `L-10${index + 1}`)).toMatchObject({
+        state: "IN_PROGRESS",
+        owner: owner.name,
+      })
+    }
   })
 })

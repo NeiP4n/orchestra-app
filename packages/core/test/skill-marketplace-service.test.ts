@@ -191,7 +191,7 @@ describe("skill catalog in a project", () => {
     const read = await service((catalog) => catalog.read({ name: "react-patterns" }))
 
     // The skill path keeps the "/" the marketplace builds it with, whatever the platform joins with.
-    const applied = `${path.join(project, ".opencode/skills")}/react-patterns/SKILL.md`
+    const applied = `${path.join(project, ".orchestra/skills")}/react-patterns/SKILL.md`
     // A fresh read comes from GitHub and says so; the copy it leaves is named separately.
     expect(read.source).toBe("https://raw.githubusercontent.com/affaan-m/ECC/main/.kiro/skills/react-patterns/SKILL.md")
     expect(read.applied).toBe(applied)

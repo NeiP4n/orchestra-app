@@ -1,9 +1,16 @@
 export * as SessionHandoff from "./handoff.js"
 
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { Effect, Schema } from "effect"
+import { Flock } from "@orchestra/util/flock"
+// Handoff writers are plain functions with no layer, but the lock below needs
+// Flock's global (the state directory). Importing Global sets it as a module
+// side effect, so the lock never throws "Flock global not set" no matter who
+// imports this module first.
+import "@orchestra/util/global"
 import { ProjectDirs } from "../project-dirs.js"
+import { WriteAtomic } from "../write-atomic.js"
 
 // A handoff is what makes a stop cheap: where the session stopped, what works, what does
 // not, and the next step — written before any pause, so a resumed session or a replacement
@@ -64,16 +71,33 @@ export const render = (input: Input): string => {
 
 const fail = (message: string) => new HandoffError({ message })
 
+// Both writers share one file, so both run under one lock (A3-16): the
+// agent's write and the execution layer's stub used to race — the stub's
+// read-then-write could clobber a real handoff written between the two.
+// The lock is per file, so different sessions never wait on each other.
+const locked = <A>(destination: string, sessionID: string, effect: Effect.Effect<A, HandoffError>) =>
+  Effect.scoped(
+    Flock.effect(`handoff:${destination}`).pipe(
+      Effect.andThen(effect),
+      Effect.mapError((cause) =>
+        cause instanceof HandoffError
+          ? cause
+          : fail(`Could not lock the handoff for ${sessionID}: ${cause instanceof Error ? cause.message : String(cause)}`),
+      ),
+    ),
+  )
+
 /** Writes the agent's handoff, replacing whatever was there — including a stub. */
 export const write = Effect.fn("SessionHandoff.write")(function* (directory: string, sessionID: string, input: Input) {
   const destination = pathFor(directory, sessionID)
-  yield* Effect.tryPromise({
-    try: async () => {
-      await mkdir(path.dirname(destination), { recursive: true })
-      await writeFile(destination, render(input), "utf8")
-    },
-    catch: (cause) => fail(`Could not write handoff for ${sessionID}: ${cause instanceof Error ? cause.message : String(cause)}`),
-  })
+  return yield* locked(
+    destination,
+    sessionID,
+    Effect.tryPromise({
+      try: () => WriteAtomic.writeAtomic(destination, render(input)),
+      catch: (cause) => fail(`Could not write handoff for ${sessionID}: ${cause instanceof Error ? cause.message : String(cause)}`),
+    }),
+  )
 })
 
 /** Writes a stub when no handoff exists, refreshes an existing stub, and leaves an agent-written handoff alone. Never fails the caller for a missing directory: a stop with nowhere to write is reported, not fatal. */
@@ -83,31 +107,34 @@ export const writeStubIfMissing = Effect.fn("SessionHandoff.writeStubIfMissing")
   reason: Reason,
 ) {
   const destination = pathFor(directory, sessionID)
-  const existing = yield* Effect.tryPromise({
-    try: async () => {
-      try {
-        return await readFile(destination, "utf8")
-      } catch (cause) {
-        if (typeof cause === "object" && cause !== null && "code" in cause && cause.code === "ENOENT") return undefined as string | undefined
-        throw cause
+  return yield* locked(
+    destination,
+    sessionID,
+    Effect.gen(function* () {
+      const existing = yield* Effect.tryPromise({
+        try: async () => {
+          try {
+            return await readFile(destination, "utf8")
+          } catch (cause) {
+            if (typeof cause === "object" && cause !== null && "code" in cause && cause.code === "ENOENT") return undefined as string | undefined
+            throw cause
+          }
+        },
+        catch: (cause) =>
+          fail(`Could not read handoff for ${sessionID}: ${cause instanceof Error ? cause.message : String(cause)}`),
+      })
+      if (existing !== undefined && !existing.startsWith(STUB_MARKER)) return "kept" as const
+      const stub: Input = {
+        reason,
+        works: "(not recorded — the session stopped before writing a handoff)",
+        broken: "(not recorded — the session stopped before writing a handoff)",
+        nextStep: "Read the session history and the DoD board, then write a real handoff before continuing.",
       }
-    },
-    catch: (cause) =>
-      fail(`Could not read handoff for ${sessionID}: ${cause instanceof Error ? cause.message : String(cause)}`),
-  })
-  if (existing !== undefined && !existing.startsWith(STUB_MARKER)) return "kept" as const
-  const stub: Input = {
-    reason,
-    works: "(not recorded — the session stopped before writing a handoff)",
-    broken: "(not recorded — the session stopped before writing a handoff)",
-    nextStep: "Read the session history and the DoD board, then write a real handoff before continuing.",
-  }
-  yield* Effect.tryPromise({
-    try: async () => {
-      await mkdir(path.dirname(destination), { recursive: true })
-      await writeFile(destination, [STUB_MARKER, render(stub)].join("\n"), "utf8")
-    },
-    catch: (cause) => fail(`Could not write handoff stub for ${sessionID}: ${cause instanceof Error ? cause.message : String(cause)}`),
-  })
-  return existing === undefined ? ("created" as const) : ("refreshed" as const)
+      yield* Effect.tryPromise({
+        try: () => WriteAtomic.writeAtomic(destination, [STUB_MARKER, render(stub)].join("\n")),
+        catch: (cause) => fail(`Could not write handoff stub for ${sessionID}: ${cause instanceof Error ? cause.message : String(cause)}`),
+      })
+      return existing === undefined ? ("created" as const) : ("refreshed" as const)
+    }),
+  )
 })

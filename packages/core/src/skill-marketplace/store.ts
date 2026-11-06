@@ -1,11 +1,11 @@
 export * as SkillMarketplaceStore from "./store.js"
 
-import crypto from "crypto"
 import fs from "fs/promises"
 import path from "path"
 import { Effect, Option, Result, Schema } from "effect"
 import { SkillMarketplace } from "@orchestra/schema/skill-marketplace"
 import { ProjectDirs } from "../project-dirs.js"
+import { WriteAtomic } from "../write-atomic.js"
 
 /**
  * The cache lives inside the project, beside the other project state, so what an agent can
@@ -138,17 +138,9 @@ export const loadMeta = (directory: string): Effect.Effect<Meta> =>
  * skill-text writers, which have the same reason to be all-or-nothing.
  */
 export const writeAtomic = (destination: string, contents: string): Effect.Effect<void, StoreError> =>
-  attempt(async () => {
-    await fs.mkdir(path.dirname(destination), { recursive: true })
-    const temporary = `${destination}.${process.pid}.${crypto.randomUUID()}.tmp`
-    try {
-      await fs.writeFile(temporary, contents)
-      await fs.rename(temporary, destination)
-    } catch (error) {
-      await fs.rm(temporary, { force: true }).catch(() => undefined)
-      throw error
-    }
-  }).pipe(failed(`write ${path.basename(destination)}`))
+  attempt(() => WriteAtomic.writeAtomic(destination, contents)).pipe(
+    failed(`write ${path.basename(destination)}`),
+  )
 
 /**
  * Replaces the cache in one atomic step: a temporary file in the same directory is written and

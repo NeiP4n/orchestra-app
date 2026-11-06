@@ -2,6 +2,7 @@ export * as ServerDatabaseBackup from "./database-backup"
 
 import { Database } from "@orchestra/core/database/database"
 import { DatabaseBackup } from "@orchestra/core/database/backup"
+import { CredentialEncryption } from "@orchestra/core/credential/encryption"
 import { Global } from "@orchestra/util/global"
 import { Cause, Duration, Effect } from "effect"
 import path from "node:path"
@@ -45,10 +46,15 @@ export const runCycle = Effect.fn("ServerDatabaseBackup.runCycle")(function* (
     directory,
     database: path.basename(file),
     keep: options?.keep ?? DEFAULT_KEEP,
+    // A3-01: the backup is a pair — database + credential key — so a
+    // restored database can still open its sealed credentials.
+    keyFile: CredentialEncryption.resolveKeyFile(global.data),
   })
   yield* Effect.logInfo("database backup completed", {
     backup: result.backup.path,
     sizeBytes: result.backup.sizeBytes,
+    keyBackedUp: result.backup.keyBackedUp,
+    ...(result.backup.keyPath ? { keyBackup: result.backup.keyPath } : {}),
     pruned: result.pruned.deleted.length,
   })
   return result.backup.path

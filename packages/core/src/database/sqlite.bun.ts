@@ -42,6 +42,25 @@ export function verifyDatabaseFile(filename: string): boolean {
   }
 }
 
+// A3-01: read the stored `credential.value` cells out of a database file, so
+// a restore can prove the backup's key opens its sealed rows before the live
+// database is touched. Returns [] when the file has no credential table (a
+// database from before credentials existed) — never throws for a missing
+// table, so callers can treat "no rows" as "no sealed secrets".
+export function readCredentialValues(filename: string): Array<string> {
+  try {
+    const native = new Database(filename, { readonly: true })
+    try {
+      const rows = native.query("SELECT value FROM credential").all() as Array<Record<string, unknown>>
+      return rows.map((row) => String(row["value"] ?? ""))
+    } finally {
+      native.close()
+    }
+  } catch {
+    return []
+  }
+}
+
 interface Config extends Sqlite.ClientConfig {
   readonly filename: string
   readonly readonly?: boolean

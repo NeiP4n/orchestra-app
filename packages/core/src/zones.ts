@@ -1,8 +1,15 @@
 export * as Zones from "./zones.js"
 
+import { randomUUID } from "node:crypto"
 import { mkdir, rename, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { Effect, Option, Schema } from "effect"
+import { Flock } from "@orchestra/util/flock"
+// Zones are plain functions with no layer, but the lock below needs Flock's
+// global (the state directory). Importing Global sets it as a module side
+// effect, so the lock never throws "Flock global not set" no matter who
+// imports this module first.
+import "@orchestra/util/global"
 import { ProjectDirs } from "./project-dirs.js"
 
 export class ZonesError extends Schema.TaggedError<ZonesError>()("Zones.Error", {
@@ -101,8 +108,12 @@ export const save = Effect.fn("Zones.save")(function* (directory: string, regist
   yield* Effect.tryPromise({
     try: async () => {
       await mkdir(path.dirname(file), { recursive: true })
-      const temporary = path.join(path.dirname(file), `.zones-${Date.now()}.tmp`)
-      await writeFile(temporary, render(registry), { flag: "wx", mode: 0o644 })
+      // A3-08 (m-07): the temp name carries pid + UUID — two processes
+      // saving in the same millisecond used to collide on `.zones-<ms>.tmp`
+      // and fail one of them. A3-13: 0600, like the database and the
+      // credential key, not the 0644 this used to write.
+      const temporary = path.join(path.dirname(file), `.zones-${process.pid}-${randomUUID()}.tmp`)
+      await writeFile(temporary, render(registry), { flag: "wx", mode: 0o600 })
       await rename(temporary, file)
     },
     catch: (cause) =>
@@ -111,6 +122,24 @@ export const save = Effect.fn("Zones.save")(function* (directory: string, regist
       }),
   })
 })
+
+// A3-08: load→mutate→save must be one serialized step — two agents
+// registering zones (or granting passes) at once used to read the same
+// registry and lose one of the writes. Flock serializes across processes,
+// the way memory writes do. Runs in the caller's scope, like Memory's lock.
+const locked = <A>(directory: string, effect: Effect.Effect<A, ZonesError>) =>
+  Effect.scoped(
+    Flock.effect(`zones:${path.resolve(directory)}`).pipe(
+      Effect.andThen(effect),
+      Effect.mapError((cause) =>
+        cause instanceof ZonesError
+          ? cause
+          : new ZonesError({
+              message: `Could not lock zones registry in ${directory}: ${cause instanceof Error ? cause.message : String(cause)}`,
+            }),
+      ),
+    ),
+  )
 
 function render(registry: Registry) {
   const lines = [HEADER]
@@ -190,28 +219,38 @@ export const register = Effect.fn("Zones.register")(function* (
   if (!name) return yield* new ZonesError({ message: "Name the zone" })
   const ownerGroup = zone.ownerGroup.trim()
   if (!ownerGroup) return yield* new ZonesError({ message: `Zone ${name} needs an owner group` })
-  const registry = yield* load(directory)
-  const next: Registry = {
-    zones: [
-      ...registry.zones.filter((entry) => entry.name !== name),
-      { name, owner_group: ownerGroup, ...(zone.ownerID ? { owner_id: zone.ownerID } : {}) },
-    ],
-    passes: registry.passes,
-  }
-  yield* save(directory, next)
-  return next
+  return yield* locked(
+    directory,
+    Effect.gen(function* () {
+      const registry = yield* load(directory)
+      const next: Registry = {
+        zones: [
+          ...registry.zones.filter((entry) => entry.name !== name),
+          { name, owner_group: ownerGroup, ...(zone.ownerID ? { owner_id: zone.ownerID } : {}) },
+        ],
+        passes: registry.passes,
+      }
+      yield* save(directory, next)
+      return next
+    }),
+  )
 })
 
 /** Removes a zone and every pass into it. Fails when the zone does not exist. */
 export const unregister = Effect.fn("Zones.unregister")(function* (directory: string, name: string) {
-  const registry = yield* load(directory)
-  if (!registry.zones.some((zone) => zone.name === name))
-    return yield* new ZonesError({ message: `There is no zone ${JSON.stringify(name)}` })
-  yield* save(directory, {
-    zones: registry.zones.filter((zone) => zone.name !== name),
-    passes: registry.passes.filter((pass) => pass.zone !== name),
-  })
-  return registry.zones.filter((zone) => zone.name !== name)
+  return yield* locked(
+    directory,
+    Effect.gen(function* () {
+      const registry = yield* load(directory)
+      if (!registry.zones.some((zone) => zone.name === name))
+        return yield* new ZonesError({ message: `There is no zone ${JSON.stringify(name)}` })
+      yield* save(directory, {
+        zones: registry.zones.filter((zone) => zone.name !== name),
+        passes: registry.passes.filter((pass) => pass.zone !== name),
+      })
+      return registry.zones.filter((zone) => zone.name !== name)
+    }),
+  )
 })
 
 /** Grants the group a pass into the zone. The pass is recorded with who gave it. */
@@ -219,22 +258,27 @@ export const grantPass = Effect.fn("Zones.grantPass")(function* (
   directory: string,
   input: { zone: string; group: string; by: string },
 ) {
-  const registry = yield* load(directory)
-  if (!registry.zones.some((zone) => zone.name === input.zone))
-    return yield* new ZonesError({ message: `There is no zone ${JSON.stringify(input.zone)} to pass into` })
-  const group = input.group.trim()
-  if (!group) return yield* new ZonesError({ message: "A pass needs a group to grant it to" })
-  const pass: Pass = {
-    zone: input.zone,
-    group,
-    granted_at: new Date().toISOString(),
-    granted_by: input.by,
-  }
-  yield* save(directory, {
-    zones: registry.zones,
-    passes: [...registry.passes.filter((entry) => !(entry.zone === pass.zone && entry.group === pass.group)), pass],
-  })
-  return pass
+  return yield* locked(
+    directory,
+    Effect.gen(function* () {
+      const registry = yield* load(directory)
+      if (!registry.zones.some((zone) => zone.name === input.zone))
+        return yield* new ZonesError({ message: `There is no zone ${JSON.stringify(input.zone)} to pass into` })
+      const group = input.group.trim()
+      if (!group) return yield* new ZonesError({ message: "A pass needs a group to grant it to" })
+      const pass: Pass = {
+        zone: input.zone,
+        group,
+        granted_at: new Date().toISOString(),
+        granted_by: input.by,
+      }
+      yield* save(directory, {
+        zones: registry.zones,
+        passes: [...registry.passes.filter((entry) => !(entry.zone === pass.zone && entry.group === pass.group)), pass],
+      })
+      return pass
+    }),
+  )
 })
 
 /** Takes a pass back. Fails when no such pass exists. */
@@ -242,13 +286,18 @@ export const revokePass = Effect.fn("Zones.revokePass")(function* (
   directory: string,
   input: { zone: string; group: string },
 ) {
-  const registry = yield* load(directory)
-  if (!passFor(registry, input.zone, input.group))
-    return yield* new ZonesError({
-      message: `Group ${JSON.stringify(input.group)} has no pass into zone ${JSON.stringify(input.zone)}`,
-    })
-  yield* save(directory, {
-    zones: registry.zones,
-    passes: registry.passes.filter((pass) => !(pass.zone === input.zone && pass.group === input.group)),
-  })
+  return yield* locked(
+    directory,
+    Effect.gen(function* () {
+      const registry = yield* load(directory)
+      if (!passFor(registry, input.zone, input.group))
+        return yield* new ZonesError({
+          message: `Group ${JSON.stringify(input.group)} has no pass into zone ${JSON.stringify(input.zone)}`,
+        })
+      yield* save(directory, {
+        zones: registry.zones,
+        passes: registry.passes.filter((pass) => !(pass.zone === input.zone && pass.group === input.group)),
+      })
+    }),
+  )
 })

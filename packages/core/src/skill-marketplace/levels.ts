@@ -1,8 +1,14 @@
 export * as SkillMarketplaceLevels from "./levels.js"
 
-import { appendFile, mkdir } from "node:fs/promises"
+import { appendFile, mkdir, readFile, rename, rm, stat } from "node:fs/promises"
 import path from "path"
-import { Effect, Option, Schema } from "effect"
+import { Effect, Option, Result, Schema } from "effect"
+import { Flock } from "@orchestra/util/flock"
+// Levels are plain functions with no layer, but the lock below needs Flock's
+// global (the state directory). Importing Global sets it as a module side
+// effect, so the lock never throws "Flock global not set" no matter who
+// imports this module first.
+import "@orchestra/util/global"
 import { SkillMarketplaceStore } from "./store.js"
 import type { JournalEntry, Level, NativeSkill, PortType, SkillRef, Usage } from "./types.js"
 import { LEVELS } from "./types.js"
@@ -26,6 +32,14 @@ import { LEVELS } from "./types.js"
 export const REGISTRY_DIR = "native-skills"
 export const SKILLS_FILE = "skills.json"
 export const JOURNAL_FILE = "journal.jsonl"
+
+/**
+ * A3-12: the journal is append-only — one line per install and per skill
+ * run — and nothing ever rotated it. At this size it rolls over to
+ * `journal.jsonl.1` (one older copy kept); rotation never blocks the work
+ * the journal records.
+ */
+export const JOURNAL_MAX_BYTES = 256 * 1024
 
 /** Where each level's registry lives. A level without a directory is empty, not an error. */
 export interface Roots {
@@ -66,34 +80,100 @@ const dirOf = (roots: Roots, level: Level): string | undefined =>
 
 const registryDir = (root: string) => path.join(root, REGISTRY_DIR)
 
-/** Reads one level's installed skills. A missing or damaged file is an empty level, not a failure. */
-export const loadLevel = (roots: Roots, level: Level): Effect.Effect<readonly NativeSkill[]> =>
+const registryFile = (roots: Roots, level: Level): string | undefined => {
+  const dir = dirOf(roots, level)
+  return dir === undefined ? undefined : path.join(registryDir(dir), SKILLS_FILE)
+}
+
+const code = (error: unknown): string =>
+  error !== null && typeof error === "object" && "code" in error ? String(error.code) : ""
+
+const message = (error: unknown): string => (error instanceof globalThis.Error ? error.message : String(error))
+
+const toSkill = (record: {
+  manifest: {
+    name: string
+    version: string
+    purpose: string
+    inputs: ReadonlyArray<{ name: string; type: PortType }>
+    outputs: ReadonlyArray<{ name: string; type: PortType }>
+    depends: ReadonlyArray<{ name: string; range: string }>
+    rules: ReadonlyArray<string>
+    derived: boolean
+  }
+  level: Level
+  source: string
+  contentPath: string
+}): NativeSkill => ({
+  manifest: {
+    name: record.manifest.name,
+    version: record.manifest.version,
+    purpose: record.manifest.purpose,
+    inputs: record.manifest.inputs.map((port) => ({ name: port.name, type: port.type as PortType })),
+    outputs: record.manifest.outputs.map((port) => ({ name: port.name, type: port.type as PortType })),
+    depends: record.manifest.depends,
+    rules: record.manifest.rules,
+    derived: record.manifest.derived,
+  },
+  level: record.level,
+  source: record.source,
+  contentPath: record.contentPath,
+})
+
+/**
+ * What one level's registry file holds — the rows, plus whether the file
+ * itself is damaged. A missing file is an empty level, not damage (a fresh
+ * project has no registry yet); a file that exists but cannot be read or
+ * parsed is damage, and the caller must know: the level reads as empty, and
+ * installing over it would destroy the damaged file (A3-09). The same shape
+ * as the catalog store's `Index` (`store.ts`), which this module used to
+ * contradict by returning `[]` silently.
+ */
+export interface LevelLoad {
+  readonly skills: readonly NativeSkill[]
+  readonly degraded: boolean
+  readonly damage: string | undefined
+}
+
+const emptyLoad: LevelLoad = { skills: [], degraded: false, damage: undefined }
+const damaged = (damage: string): LevelLoad => ({ skills: [], degraded: true, damage })
+
+/** Reads one level's installed skills, saying honestly when its registry is damaged. */
+export const loadLevelDetailed = (roots: Roots, level: Level): Effect.Effect<LevelLoad> =>
   Effect.gen(function* () {
-    const dir = dirOf(roots, level)
-    if (dir === undefined) return []
-    const file = path.join(registryDir(dir), SKILLS_FILE)
-    const raw = yield* Effect.tryPromise({ try: () => Bun.file(file).text(), catch: () => undefined }).pipe(Effect.option)
-    if (Option.isNone(raw)) return []
-    const json = Schema.decodeUnknownOption(Schema.UnknownFromJsonString)(raw.value)
-    if (json._tag === "None") return []
+    const file = registryFile(roots, level)
+    if (file === undefined) return emptyLoad
+    const read = yield* Effect.tryPromise({ try: () => readFile(file, "utf8"), catch: (cause) => cause }).pipe(
+      Effect.result,
+    )
+    if (Result.isFailure(read))
+      return code(read.failure) === "ENOENT" ? emptyLoad : damaged(`the registry file cannot be read: ${message(read.failure)}`)
+    const json = Schema.decodeUnknownOption(Schema.UnknownFromJsonString)(read.success)
+    if (Option.isNone(json)) return damaged("the registry file is not valid JSON")
     const parsed = Schema.decodeUnknownOption(RegistrySchema)(json.value)
-    if (parsed._tag === "None" || parsed.value.version !== 1) return []
-    return parsed.value.skills.map((record) => ({
-      manifest: {
-        name: record.manifest.name,
-        version: record.manifest.version,
-        purpose: record.manifest.purpose,
-        inputs: record.manifest.inputs.map((port) => ({ name: port.name, type: port.type as PortType })),
-        outputs: record.manifest.outputs.map((port) => ({ name: port.name, type: port.type as PortType })),
-        depends: record.manifest.depends,
-        rules: record.manifest.rules,
-        derived: record.manifest.derived,
-      },
-      level: record.level,
-      source: record.source,
-      contentPath: record.contentPath,
-    }))
+    if (Option.isNone(parsed) || parsed.value.version !== 1)
+      return damaged("the registry file is not a level registry (expected version 1)")
+    return { skills: parsed.value.skills.map(toSkill), degraded: false, damage: undefined }
   })
+
+/**
+ * Reads one level's installed skills. A missing file is an empty level, not
+ * a failure. A damaged file is also an empty level — but loudly: the damage
+ * is logged with the file path, so "no skills" never hides "registry broken".
+ * Installing or uninstalling over a damaged registry is refused (see below).
+ */
+export const loadLevel = (roots: Roots, level: Level): Effect.Effect<readonly NativeSkill[]> =>
+  loadLevelDetailed(roots, level).pipe(
+    Effect.tap((loaded) =>
+      loaded.degraded
+        ? Effect.logWarning("skill registry is damaged; the level reads as empty", {
+            level,
+            damage: loaded.damage,
+          })
+        : Effect.void,
+    ),
+    Effect.map((loaded) => loaded.skills),
+  )
 
 const saveLevel = (roots: Roots, level: Level, skills: readonly NativeSkill[]): Effect.Effect<void, RegistryError> =>
   Effect.gen(function* () {
@@ -115,6 +195,17 @@ export const appendJournal = (roots: Roots, level: Level, entry: JournalEntry): 
     yield* Effect.tryPromise({
       try: async () => {
         await mkdir(path.dirname(target), { recursive: true })
+        // A3-12: rotate at the size cap, keeping one older copy. Rotation is
+        // best-effort like the append itself: any failure here still ends in
+        // the append attempt below, and the journal never fails its caller.
+        try {
+          if ((await stat(target)).size >= JOURNAL_MAX_BYTES) {
+            await rm(`${target}.1`, { force: true })
+            await rename(target, `${target}.1`)
+          }
+        } catch {
+          // No journal yet, or rotation failed: append anyway.
+        }
         await appendFile(target, `${JSON.stringify(entry)}\n`)
       },
       catch: () => undefined,
@@ -132,32 +223,85 @@ export const recordUsage = (roots: Roots, usage: Usage): Effect.Effect<void> =>
     decision: `Outcome ${usage.outcome}; ${usage.tokens} tokens of skill text were loaded.`,
   })
 
-/** Installs a skill at a level, replacing a skill of the same name at that level. */
+/**
+ * Installs a skill at a level, replacing a skill of the same name at that level.
+ *
+ * A3-09: installing over a damaged registry is refused — the old code read
+ * the damage as `[]` and saved an empty registry over it, destroying the
+ * file. A3-10: the load→save runs under a Flock, so two parallel installs
+ * of different skills at one level cannot lose one of them.
+ */
 export const install = (roots: Roots, skill: NativeSkill): Effect.Effect<void, RegistryError> =>
-  Effect.gen(function* () {
-    const current = yield* loadLevel(roots, skill.level)
-    const next = [...current.filter((entry) => entry.manifest.name !== skill.manifest.name), skill]
-    yield* saveLevel(roots, skill.level, next)
-    yield* appendJournal(roots, skill.level, {
-      at: Date.now(),
-      kind: "install",
-      skill: skill.manifest.name,
-      level: skill.level,
-      problem: `Skill "${skill.manifest.name}" v${skill.manifest.version} installed from ${skill.source}.`,
-      decision: `Installed at level ${skill.level}; a skill of the same name at this level was replaced.`,
-    })
-  })
+  locked(roots, skill.level, "install",
+    Effect.gen(function* () {
+      const loaded = yield* loadLevelDetailed(roots, skill.level)
+      if (loaded.degraded)
+        return yield* new RegistryError({
+          message:
+            `Refusing to install over a damaged ${skill.level} registry ` +
+            `(${registryFile(roots, skill.level)}): ${loaded.damage}. ` +
+            `Fix or remove the file, then install again.`,
+        })
+      const next = [...loaded.skills.filter((entry) => entry.manifest.name !== skill.manifest.name), skill]
+      yield* saveLevel(roots, skill.level, next)
+      yield* appendJournal(roots, skill.level, {
+        at: Date.now(),
+        kind: "install",
+        skill: skill.manifest.name,
+        level: skill.level,
+        problem: `Skill "${skill.manifest.name}" v${skill.manifest.version} installed from ${skill.source}.`,
+        decision: `Installed at level ${skill.level}; a skill of the same name at this level was replaced.`,
+      })
+    }),
+  )
 
-/** Removes a skill from a level. Removing a skill that is not there is a no-op. */
+/**
+ * Removes a skill from a level. Removing a skill that is not there is a no-op.
+ * Refuses over a damaged registry, like install (A3-09), and serializes with
+ * installs under the same lock (A3-10).
+ */
 export const uninstall = (roots: Roots, name: string, level: Level): Effect.Effect<void, RegistryError> =>
-  Effect.gen(function* () {
-    const current = yield* loadLevel(roots, level)
-    yield* saveLevel(
-      roots,
-      level,
-      current.filter((entry) => entry.manifest.name !== name),
-    )
-  })
+  locked(roots, level, "uninstall",
+    Effect.gen(function* () {
+      const loaded = yield* loadLevelDetailed(roots, level)
+      if (loaded.degraded)
+        return yield* new RegistryError({
+          message:
+            `Refusing to uninstall over a damaged ${level} registry ` +
+            `(${registryFile(roots, level)}): ${loaded.damage}. ` +
+            `Fix or remove the file, then uninstall again.`,
+        })
+      yield* saveLevel(
+        roots,
+        level,
+        loaded.skills.filter((entry) => entry.manifest.name !== name),
+      )
+    }),
+  )
+
+// Serialize one level's load→save across processes (A3-10), the way Zones
+// does. A level without a directory has nothing to lock.
+const locked = <A>(
+  roots: Roots,
+  level: Level,
+  operation: string,
+  effect: Effect.Effect<A, RegistryError>,
+): Effect.Effect<A, RegistryError> => {
+  const dir = dirOf(roots, level)
+  if (dir === undefined) return effect
+  return Effect.scoped(
+    Flock.effect(`skill-levels:${path.resolve(registryDir(dir))}`).pipe(
+      Effect.andThen(effect),
+      Effect.mapError((cause) =>
+        cause instanceof RegistryError
+          ? cause
+          : new RegistryError({
+              message: `Could not lock the ${level} skill registry to ${operation}: ${cause instanceof Error ? cause.message : String(cause)}`,
+            }),
+      ),
+    ),
+  )
+}
 
 /**
  * The skills visible to a session: society, then project, then session,

@@ -40,6 +40,7 @@ describe("AutoloopStore", () => {
           { name: "autoloop_projection_meta" },
           { name: "autoloop_projection_refs" },
           { name: "autoloop_projections" },
+          { name: "autoloop_quarantine" },
         ])
         expect(yield* db.get(sql`SELECT id FROM migration WHERE id = ${autoloopMigration.id}`)).toEqual({
           id: autoloopMigration.id,
@@ -66,6 +67,21 @@ describe("AutoloopStore", () => {
         expect(yield* db.get(sql`SELECT value FROM autoloop_projection_meta WHERE key = 'last_seq'`)).toEqual({
           value: "1",
         })
+      }),
+    )
+  })
+
+  test("openView falls back to the journal's latest sequence when the stored one is damaged", async () => {
+    await run(
+      Effect.gen(function* () {
+        const { db } = yield* Database.Service
+        yield* AutoloopStore.commitLatest([queued("f1", "run_1")])
+        yield* db.run(sql`UPDATE autoloop_projection_meta SET value = 'not-a-number' WHERE key = 'last_seq'`)
+        const opened = yield* AutoloopStore.openView()
+        // The old code returned Number('not-a-number') — NaN — which then
+        // poisoned every caller comparing against lastSeq.
+        expect(Number.isNaN(opened.lastSeq)).toBe(false)
+        expect(opened.lastSeq).toBe(1)
       }),
     )
   })

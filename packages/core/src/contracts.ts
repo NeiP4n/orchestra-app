@@ -1,9 +1,8 @@
 export * as Contracts from "./contracts.js"
 
-import { mkdir } from "node:fs/promises"
-import path from "node:path"
 import { Effect, Schema } from "effect"
 import { ProjectDirs } from "./project-dirs.js"
+import { WriteAtomic } from "./write-atomic.js"
 
 export class ContractsError extends Schema.TaggedError<ContractsError>()("Contracts.Error", {
   message: Schema.String,
@@ -68,10 +67,8 @@ export const initialize = Effect.fn("Contracts.initialize")(function* (directory
   })
   if (exists) return "existing" as const
   yield* Effect.tryPromise({
-    try: async () => {
-      await mkdir(path.dirname(file), { recursive: true })
-      await Bun.write(file, TEMPLATE)
-    },
+    // A3-16: atomic — a torn contracts.md reads as a gate that never existed.
+    try: () => WriteAtomic.writeAtomic(file, TEMPLATE),
     catch: (cause) =>
       new ContractsError({
         message: `Could not write ${file}: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -129,7 +126,7 @@ export const accept = Effect.fn("Contracts.accept")(function* (directory: string
   const next = setLine(setLine(text, "Status", "accepted"), "Accepted-by", byName)
   const stamped = setLine(next, "Accepted-at", now)
   yield* Effect.tryPromise({
-    try: () => Bun.write(file, stamped),
+    try: () => WriteAtomic.writeAtomic(file, stamped),
     catch: (cause) =>
       new ContractsError({
         message: `Could not write ${file}: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -172,7 +169,7 @@ export const recordChange = Effect.fn("Contracts.recordChange")(function* (
   const entry = `- ${new Date().toISOString().slice(0, 10)} | ${summary} | decided by ${input.decidedBy.trim() || "unknown"} | reason: ${input.reason.trim() || "-"} | ADR: ${input.adr?.trim() || "-"}`
   const next = appendToLog(text, entry)
   yield* Effect.tryPromise({
-    try: () => Bun.write(file, next),
+    try: () => WriteAtomic.writeAtomic(file, next),
     catch: (cause) =>
       new ContractsError({
         message: `Could not write ${file}: ${cause instanceof Error ? cause.message : String(cause)}`,

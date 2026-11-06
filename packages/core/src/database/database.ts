@@ -10,6 +10,7 @@ import { chmod } from "node:fs/promises"
 import { basename, dirname, isAbsolute, join } from "path"
 import { DatabaseBackup } from "./backup.js"
 import { DatabaseMigration } from "./migration.js"
+import { CredentialEncryption } from "../credential/encryption.js"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 
 export const DEFAULT_DATABASE_FILE = "orchestra-local.db"
@@ -103,6 +104,10 @@ export function layer(options: Options = { path: ":memory:" }) {
                     directory: join(dataDir, "backups"),
                     database: basename(filename),
                     keep: 7,
+                    // A3-01: the pre-migration snapshot is a pair too — a
+                    // migration that rewrites the credential table is exactly
+                    // when the key next to it matters most.
+                    keyFile: CredentialEncryption.resolveKeyFile(dataDir),
                   })
                   yield* Effect.logInfo("database backup before migration", {
                     backup: result.backup.path,

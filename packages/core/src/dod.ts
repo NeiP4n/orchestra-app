@@ -5,6 +5,12 @@ import { appendFile, chmod, copyFile, link, mkdir, open, rename, stat, unlink, w
 import path from "node:path"
 import { Effect, Option, Schema } from "effect"
 import type { Room } from "@orchestra/schema/room"
+import { Flock } from "@orchestra/util/flock"
+// commit() is plain async with no layer, but the lock below needs Flock's
+// global (the state directory). Importing Global sets it as a module side
+// effect, so the lock never throws "Flock global not set" no matter who
+// imports this module first.
+import "@orchestra/util/global"
 import { Contracts } from "./contracts.js"
 import { Instructions } from "./instructions/index.js"
 import { ProjectDirs } from "./project-dirs.js"
@@ -104,7 +110,10 @@ const TITLE = 70
 const STEP_LINES = 6
 const STEP = /^\s*\[(x|X)\]/
 // Another writer can save between this read and this write; a few fresh tries settle it.
-const ATTEMPTS = 3
+// Ten, not three: with the cross-process lock (arch3 №32/№34) a lost check is a retry
+// instead of a silent lost take, and a society of agents taking items at once needs the
+// budget to cover real contention — six simultaneous takers already exhaust three.
+const ATTEMPTS = 10
 
 const Leaf = Schema.Struct({
   id: Schema.String,
@@ -874,47 +883,53 @@ function commit(file: string, before: string, after: string, sourceFile?: string
     } catch {
       // Ignore mode retrieval/setting failures on environments where chmod is restricted
     }
-    try {
-      await rename(temporary, file)
-    } catch (error: any) {
-      if (
-        error?.code === "EPERM" ||
-        error?.code === "EEXIST" ||
-        error?.code === "EBUSY" ||
-        process.platform === "win32"
-      ) {
-        try {
-          await copyFile(temporary, file)
-          await unlink(temporary).catch(() => {})
-        } catch {
-          try {
-            await unlink(file)
-            await rename(temporary, file)
-          } catch {
-            await copyFile(temporary, file)
-            await unlink(temporary).catch(() => {})
-          }
-        }
-      } else {
-        throw error
-      }
-    }
+    await replaceFile(temporary, file)
     return true
   })
 }
 
+// Replaces a file with a temp file. Exported for tests: the Windows fallback
+// below cannot be exercised on Linux, and the invariant is what A3-14 is
+// about — the live file is never unlinked before its replacement is in
+// place. The old fallback deleted dod.yaml and then renamed, so a failure
+// between the two left no dod.yaml at all.
+export async function replaceFile(
+  temporary: string,
+  file: string,
+  fs: Pick<typeof import("node:fs/promises"), "rename" | "copyFile" | "unlink"> = { rename, copyFile, unlink },
+) {
+  try {
+    await fs.rename(temporary, file)
+    return
+  } catch (error: any) {
+    if (
+      error?.code !== "EPERM" &&
+      error?.code !== "EEXIST" &&
+      error?.code !== "EBUSY" &&
+      process.platform !== "win32"
+    ) {
+      await fs.unlink(temporary).catch(() => {})
+      throw error
+    }
+    // Windows cannot always rename over a file another process has open
+    // (antivirus, an editor). Overwrite in place instead — and never unlink
+    // the live file first. If the copy fails midway the file may be torn,
+    // but it still exists, the temp still holds the intended content, and
+    // the error propagates instead of a silent loss.
+    await fs.copyFile(temporary, file)
+    await fs.unlink(temporary).catch(() => {})
+  }
+}
+
 // Two guests taking items at once would both pass the unchanged-file check before either
 // renames, and the later write would drop the earlier take, so writes to one file run in turn.
-const writing = new Map<string, Promise<unknown>>()
-
-function exclusive<A>(file: string, write: () => Promise<A>) {
-  const result = (writing.get(file) ?? Promise.resolve()).then(write)
-  const settled = result.catch(() => undefined)
-  writing.set(file, settled)
-  void settled.then(() => {
-    if (writing.get(file) === settled) writing.delete(file)
-  })
-  return result
+// The lock is cross-process (Flock), not the old process-local Map: the CLI board and the
+// server write the same dod.yaml, and the Map only serialized writers inside one process
+// (arch3 №32/№34). commit() is plain async, so the lock runs on its own scope here.
+function exclusive<A>(file: string, write: () => Promise<A>): Promise<A> {
+  return Effect.runPromise(
+    Effect.scoped(Flock.effect(`dod:${file}`).pipe(Effect.andThen(Effect.promise(write)))),
+  )
 }
 
 // Sets or removes top-level scalar fields of one item, touching no other line. The item is
