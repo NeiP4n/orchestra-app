@@ -1,6 +1,7 @@
 export * as AutoloopDecide from "./decide.js"
 
 import { createHash } from "node:crypto"
+import { pendingReplies, replayMissed, stopCheck } from "./attention.js"
 import {
   advanceDispute,
   deadlineFor,
@@ -1385,8 +1386,17 @@ export function applyReceipt(draft: Draft, run: RunRow, result: Receipt): Reject
     const card = rowsOf(draft.view, "cards")
       .map(({ data }) => data as CardRow)
       .find((open) => open.id === item.card && open.state === "open")
-    if (card !== undefined) closeCard(draft, card, item.reason.trim(), `раунд ${id}`)
-    else rejected.push({ card: item.card, reason: "карточка не в области проверки этого раунда" })
+    if (card !== undefined) {
+      // Thread-aware reply enforcement (Agora 0.8.5): квитанция закрывает
+      // только карточки своего треда (правило + lane) или свои собственные
+      // (`run_id`); чужая карточка — не ответ, а ответ мимо треда, и она
+      // остаётся открытой для того, кому задана.
+      if (card.run_id !== id && !(card.rule === run.rule && card.lane === run.lane)) {
+        rejected.push({ card: item.card, reason: "карточка не в треде этого раунда" })
+        continue
+      }
+      closeCard(draft, card, item.reason.trim(), `раунд ${id}`)
+    } else rejected.push({ card: item.card, reason: "карточка не в области проверки этого раунда" })
   }
   for (const ask of result.ask ?? []) cardFromReceipt(draft, run, "ask", ask)
   for (const notice of result.notice ?? []) cardFromReceipt(draft, run, "notice", notice)
@@ -1419,6 +1429,36 @@ function finish(draft: Draft, id: number, token: string, given: unknown) {
   const usage = result.usage === undefined ? run.usage : { ...(run.usage ?? {}), ...result.usage }
   put(draft, "runs", id, { last_issued: run.issued, last_result: hash, issued: null, session, usage })
   let rejected: Rejected[] = []
+  // Stop-хук (Agora 0.8.6): воркер не завершается без результата, пока в его
+  // треде ждут ответа. `cancelled` и `nothing` — это остановка без сдачи:
+  // `failed` перепоручает задачу очереди через retryLater, `done` сдаёт
+  // результат, им guard не нужен. Операторская отмена (`cancel_at`) и
+  // раунд `unknown` (воркер уже замолчал — остановка уже случилась)
+  // не блокируются: их некому заставить ответить, а sweep и так вернёт
+  // раунд в очередь. Ошибка самой проверки не блокирует остановку
+  // бесконечно (fail-open, как у Agora): остановка разрешена, а о
+  // сломанной проверке остаётся карточка в журнале.
+  if ((result.outcome === "cancelled" || result.outcome === "nothing") && run.cancel_at === null && run.state === "claimed") {
+    try {
+      const pending = pendingReplies(draft.view, run)
+      if (pending.length > 0) {
+        const names = pending.map((reply) => `«${reply.title}» (карточка ${reply.card})`).join(", ")
+        throw new DecideConflictError(
+          `воркер не может остановиться: в треде ${run.rule}/${run.lane} ждут ответа: ${names}. Ответьте на вопросы или передайте задачу, потом завершайтесь.`,
+        )
+      }
+    } catch (error) {
+      if (error instanceof DecideConflictError) throw error
+      const message = error instanceof Error ? error.message : String(error)
+      notify(
+        draft,
+        `run:${id}:stopcheck-failed`,
+        run.rule,
+        `Проверка неотвеченных вопросов перед остановкой сломалась (${message}), остановка разрешена — проверьте тред вручную.`,
+        threadOf(run),
+      )
+    }
+  }
   // Told to stop, whatever it reports next: trying again would start what
   // the owner ended, and a late "done" must not resurrect a cancelled run
   // (A-10: before this fix only a failed run honoured `cancel_at`).
@@ -1442,6 +1482,22 @@ function finish(draft: Draft, id: number, token: string, given: unknown) {
 function answer(draft: Draft, id: number, given: RowData) {
   const card = getRow<CardRow>(draft.view, "cards", id)
   if (card === undefined) throw new DecideNotFoundError("такой карточки нет")
+  // Thread-aware reply enforcement (Agora 0.8.5): ответ, который называет
+  // свой тред, обязан называть тред этой карточки. Без `thread` проверка
+  // не срабатывает — старые вызовы без треда работают как раньше, а
+  // ответ мимо треда с явным тредом отклоняется, а не записывается.
+  const thread = given["thread"]
+  if (thread !== undefined) {
+    if (!isRecord(thread)) throw new DecideInputError("answer.thread — объект { rule, lane }")
+    const rule = thread["rule"]
+    const lane = thread["lane"]
+    if (rule !== undefined && (typeof rule !== "string" || rule !== card.rule)) {
+      throw new DecideInputError("ответ не в тот тред: правило карточки другое")
+    }
+    if (lane !== undefined && (typeof lane !== "string" || lane !== card.lane)) {
+      throw new DecideInputError("ответ не в тот тред: lane карточки другой")
+    }
+  }
   if (given["channel"] !== undefined) {
     const channel = String(given["channel"])
     const allowed = draft.rules.channels[channel]?.answerers
@@ -1934,6 +1990,18 @@ const HANDLERS: Record<string, (draft: Draft, ...args: Array<unknown>) => unknow
   },
 
   heartbeat: (draft, worker, running) => heartbeat(draft, needStr(worker, "heartbeat.worker"), running),
+
+  /** Stop-хук (Agora 0.8.6): можно ли воркеру останавливаться — чтение, фактов нет. */
+  stopCheck: (draft, worker, runId) =>
+    stopCheck(
+      draft.view,
+      needStr(worker, "stopCheck.worker"),
+      draft.rules,
+      runId === undefined ? undefined : needNum(runId, "stopCheck.run"),
+    ),
+
+  /** Replay пропущенного (Agora 0.8.4): что пришло, пока воркера не было, — чтение, фактов нет. */
+  replay: (draft, worker) => replayMissed(draft.view, needStr(worker, "replay.worker"), draft.rules, draft.now),
 
   channelSeen(draft, name) {
     const seen = getRow<RowData>(draft.view, "seen", `channel:${String(name)}`)

@@ -348,6 +348,33 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
     endpoints `POST /api/autoloop/disputes` (+ `/:id/resolve`,
     `/:id/escalate`), and `deadlines()` in `kernel/due.ts` wakes the clock
     on every open dispute, so the tick's `sweepDisputes` climbs it.
+- **Coordination attention (Agora MCP 0.8.4–0.8.6 patterns, news run 7, Б8/Б14)**:
+  `kernel/attention.ts` is pure reads over the journal — no new tables, no
+  foreign code, no MCP client. A thread is the (rule, lane) pair the kernel
+  already uses. (a) Stop-хук: `pendingReplies` lists the open ask-cards in
+  a run's thread that the run did not ask itself; `finish` refuses a
+  worker's own `cancelled` / `nothing` receipt while any are open
+  (`DecideConflictError` naming the cards — nothing is committed, the run
+  stays claimed, and the sweep later re-queues it to another worker, so
+  the thread is never dropped); `done` passes, `failed` retries through
+  `retryLater`, an operator cancel (`cancel_at`) bypasses the guard, and a
+  check failure never blocks the stop forever (fail-open, as in Agora: the
+  stop is allowed and a `run:<id>:stopcheck-failed` notice card is written
+  into the journal). The `stopCheck` decide input answers whether a worker
+  may stop, checking at most 5 open threads and reporting `threadsChecked`
+  / `threadsTotal` / `truncated`. (b) Thread-aware replies: a receipt may
+  `resolve` only cards of its own thread (rule + lane) or its own
+  (`run_id`); anything else is rejected with "карточка не в треде этого
+  раунда" and stays open. `answer` rejects an explicit `thread` that does
+  not match the card's thread; answers without a thread work as before.
+  Receipt ask/notice cards were already keyed
+  `thread:<rule>:<lane>:<name>`. (c) Missed-attention replay: the `replay`
+  decide input returns what arrived while a worker was away — routed
+  events whose run is not finished, and open ask-cards in threads the
+  worker's rules serve — since its last `seen`, floored at 24 hours,
+  chronological, capped at 50, with `droppedOlderThan24h` counting what
+  fell off the window. Both new inputs are reads: they commit no facts.
+  Tests: `packages/core/test/autoloop/attention.test.ts` — 9 tests.
 - **`kernel/due.ts`**: `RUN_LEASE = 5 мин`, `WORKER_FRESH = 2 мин`,
   `OFFLINE_AFTER = 10 мин`, `SEEN_EVERY = 1 мин`, `deadlines`,
   `offlineCard`, `workers` / `waitingOn` (unknown runs count as waiting).
