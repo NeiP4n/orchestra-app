@@ -738,7 +738,7 @@ messages and builds the rest with `society_forge generate` and `society_plan`.
   MCP assignment for the whole Society. Budget is a field (`orchestra.budget-tokens`),
   not prose. Rules reach new projects by scope (`society:<name>`).
 - Model table (`society.ts`, verified against Anymodel 2026-11-06,
-  re-verified 2026-11-07, still 17 models in the same order):
+  re-verified twice on 2026-11-07 (run6 + run7), still 17 models in the same order):
   strong `opus-5.5`, mid `sonnet-5.5`, cheap `anymodel-coder` (quality work),
   fallback `sonnet-5`; cheap flash alternative `gemini-3.8-flash` (also a
   main-session fallback after `anymodel-coder`), reasoning `grok-4.7` next to
@@ -746,7 +746,9 @@ messages and builds the rest with `society_forge generate` and `society_plan`.
   `gemini-4-argon`) are catalogued in `ANYMODEL_MODEL_IDS` but have no assigned
   role yet. Checked 2026-11-07 and absent at Anymodel, so not catalogued:
   `gpt-6.1-terra` (cheap worker / computer-use candidate), `mistral-large-4`
-  (open-weight coder), `ripple-65b` (cheap open coder); the absence test in
+  (open-weight coder), `ripple-65b` (cheap open coder), `deepseek-v4.1-flash-1017`
+  (cheapest popular open worker, 24.8% of OpenRouter tokens), `deepseek-v4.1-flash`,
+  `glm-5.3-flash` (output price down 81.5%); the absence test in
   `society.test.ts` fails loudly when one arrives. Terra, when it arrives, is
   a worker candidate only with monitoring outside the agent itself (Б13: Terra
   agents fell into destructive-action scenarios more often in OpenAI's own
