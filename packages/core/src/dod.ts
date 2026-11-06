@@ -143,6 +143,10 @@ const decodeLeaf = Schema.decodeUnknownOption(Leaf)
 // Every action by the holder renews it, so work in progress never loses its item mid-step.
 export const LEASE_MS = 5 * 60_000
 
+// A heartbeat renews a lease once it has under this long left, so a long step or tool
+// call does not let it lapse mid-work — and never writes when nothing is due.
+export const HEARTBEAT_WINDOW_MS = 2 * 60_000
+
 // WIP limit (idea #20): at most three tasks in work per group (stage) — the items in
 // IN_PROGRESS or BLOCKED occupy the "in work" column, the rest wait in queue. A
 // fourth concurrent claim is refused until one of the three finishes or is freed.
@@ -179,6 +183,13 @@ export type Owner = { id: string; name: string }
 // silent past the lease, so the item it held reads as free again.
 export type Live = (ownerID: string) => boolean
 
+// Whether a holder's session is provably running right now. Unlike `Live`, this never
+// frees a live lease on its own: it only keeps a lease whose time ran out from reading
+// as stale while the holder is still working — the lease is a silence timer, and a
+// running session is not silent. An idle session (waiting for the next prompt) is not
+// `active`, so its items still go stale once the lease expires.
+export type Active = (ownerID: string) => boolean
+
 // A project has three distinct observations: no board is configured, a board was read,
 // or the board could not be observed. Keep errors out of "empty" so an unavailable board can
 // never look like completed work.
@@ -193,7 +204,7 @@ export type Status =
     }
   | { readonly type: "error"; readonly directory: string; readonly reason: string }
 
-export const status = Effect.fn("Dod.status")(function* (directory: string, live?: Live) {
+export const status = Effect.fn("Dod.status")(function* (directory: string, live?: Live, active?: Active) {
   const loaded = yield* load(directory).pipe(
     Effect.map((value) => ({ type: "loaded" as const, value })),
     Effect.catchTag("Dod.Error", (error) => Effect.succeed({ type: "error" as const, reason: error.message })),
@@ -204,7 +215,7 @@ export const status = Effect.fn("Dod.status")(function* (directory: string, live
   const parsed = yield* leaves(loaded.value).pipe(
     Effect.map((list) => ({
       type: "loaded" as const,
-      items: toItems(list, live),
+      items: toItems(list, live, active),
       steps: new Map(list.map((leaf) => [leaf.id, leaf.steps ?? []])),
     })),
     Effect.catchTag("Dod.Error", (error) => Effect.succeed({ type: "error" as const, reason: error.message })),
@@ -308,8 +319,8 @@ function renderStatus(board: Status) {
 
 // The items in file order, which is the order of the work. A missing file is explicitly
 // disabled; a present but empty file is a valid, empty board.
-export const read = Effect.fn("Dod.read")(function* (directory: string, live?: Live) {
-  const board = yield* status(directory, live)
+export const read = Effect.fn("Dod.read")(function* (directory: string, live?: Live, active?: Active) {
+  const board = yield* status(directory, live, active)
   if (board.type === "error") return yield* new DodError({ message: board.reason })
   if (board.type === "disabled") return { items: [], status: "disabled" } satisfies Room.Dod
   return { items: board.items, status: "ready" } satisfies Room.Dod
@@ -402,7 +413,8 @@ export function mayClaim(item: Room.DodItem, owner: Owner, all: readonly Room.Do
 
 // Marks the item as the owner's and in progress. Fails on an item that is finished, that
 // someone else holds, or that waits for items not yet finished. An item whose holder's
-// lease ran out passes to the new owner, whose work continues from its checked steps.
+// lease ran out passes to the new owner — to the recorded standby when the item names
+// one, to anyone when it names none — whose work continues from its checked steps.
 // The guards apply on every start: the WIP limit (idea #20) and the zone pass
 // (idea #25), and the contracts gate (idea #21). A standby taking over a stalled
 // item, and an automatic zone pass on a stale claim, are recorded in the event log.
@@ -411,6 +423,8 @@ export const take = Effect.fn("Dod.take")(function* (input: {
   id: string
   owner: Owner
   live?: Live
+  // The holder's session is running right now, so an expired lease does not read stale.
+  active?: Active
   // The caller's group, for zone checks: without it the caller is foreign to every zone.
   group?: string
 }) {
@@ -426,11 +440,9 @@ export const take = Effect.fn("Dod.take")(function* (input: {
       return outcome.refusal
     }
     note = outcome.note
-    const fields = claim(input.owner)
-    if (!outcome.takeover) return fields
-    const now = new Date()
-    return { ...fields, took_over_at: now.toISOString(), took_over_by: input.owner.name }
-  }).pipe(
+    if (!outcome.takeover) return claim(input.owner)
+    return takeoverFields(input.owner)
+  }, undefined, input.active).pipe(
     Effect.tapError(() =>
       note?.event === "wip.refusal" || note?.event === "zone.refusal"
         ? recordEvent(input.directory, note)
@@ -452,6 +464,7 @@ export const takeover = Effect.fn("Dod.takeover")(function* (input: {
   id: string
   owner: Owner
   live?: Live
+  active?: Active
   group?: string
 }) {
   yield* gate(input.directory)
@@ -468,14 +481,9 @@ export const takeover = Effect.fn("Dod.takeover")(function* (input: {
       note = outcome.note
       return outcome.refusal
     }
-    const now = new Date()
     note = { event: "standby.takeover", item: item.id, owner: input.owner.id, from: item.owner ?? "" }
-    return {
-      ...claim(input.owner),
-      took_over_at: now.toISOString(),
-      took_over_by: input.owner.name,
-    }
-  }).pipe(
+    return takeoverFields(input.owner)
+  }, undefined, input.active).pipe(
     Effect.tapError(() =>
       note?.event === "wip.refusal" || note?.event === "zone.refusal"
         ? recordEvent(input.directory, note)
@@ -488,10 +496,10 @@ export const takeover = Effect.fn("Dod.takeover")(function* (input: {
 // Takes the first item, in the order of the work, that the owner may start: free and with
 // everything it depends on finished. The owner's own unfinished item comes back first.
 // Items the WIP limit or a zone pass blocks are skipped, not returned to fail in take.
-export const next = Effect.fn("Dod.next")(function* (input: { directory: string; owner: Owner; live?: Live; group?: string }) {
+export const next = Effect.fn("Dod.next")(function* (input: { directory: string; owner: Owner; live?: Live; active?: Active; group?: string }) {
   yield* gate(input.directory)
   const zones = yield* loadZones(input.directory)
-  const list = (yield* read(input.directory, input.live)).items
+  const list = (yield* read(input.directory, input.live, input.active)).items
   const options = { group: input.group, zones }
   const item =
     list.find((entry) => entry.ownerID === input.owner.id && !FINISHED.has(entry.state)) ??
@@ -504,12 +512,12 @@ export const next = Effect.fn("Dod.next")(function* (input: { directory: string;
 // Frees the item. With an owner, only that owner's item — or an item whose lease ran out,
 // which nobody holds any more; without one, as the host, any.
 // An item nobody started goes back to NOT_STARTED; one with checked steps stays in progress.
-export const release = Effect.fn("Dod.release")(function* (input: { directory: string; id: string; owner?: Owner }) {
+export const release = Effect.fn("Dod.release")(function* (input: { directory: string; id: string; owner?: Owner; active?: Active }) {
   return yield* change(input.directory, input.id, undefined, (item) => {
     if (input.owner && item.owner && !owns(item, input.owner) && !item.stale)
       return `${item.id} is taken by ${item.owner}`
     return free(item)
-  })
+  }, undefined, input.active)
 })
 
 // Frees every unfinished item a member held, for a member who left or was removed.
@@ -609,23 +617,26 @@ export const accept = Effect.fn("Dod.accept")(function* (input: {
 })
 
 // One item with its step lines as written, for whoever works on it.
-export const detail = Effect.fn("Dod.detail")(function* (directory: string, id: string) {
+export const detail = Effect.fn("Dod.detail")(function* (directory: string, id: string, active?: Active) {
   const text = yield* load(directory)
   if (text === undefined) return yield* new DodError({ message: `This project has no DoD (${FILE})` })
   const list = yield* leaves(text)
-  const item = toItems(list).find((entry) => entry.id === id)
+  const item = toItems(list, undefined, active).find((entry) => entry.id === id)
   if (!item) return yield* new DodError({ message: `The DoD has no item ${id}` })
   return { item, steps: list.find((leaf) => leaf.id === id)?.steps ?? [] }
 })
 
 // Checks or unchecks one step, counted from 1. A free item becomes the owner's as it does,
 // and an action by the holder renews the lease, so work in progress keeps its item.
+// A stalled item is claimed here only by its standby, like `take`: anyone else taking
+// it through a check would create the second writer the lease exists to prevent.
 export const check = Effect.fn("Dod.check")(function* (input: {
   directory: string
   id: string
   step: number
   checked: boolean
   owner: Owner
+  active?: Active
 }) {
   return yield* change(
     input.directory,
@@ -634,33 +645,95 @@ export const check = Effect.fn("Dod.check")(function* (input: {
     (item) => {
       if (FINISHED.has(item.state)) return `${item.id} is already ${finishedWord(item)}`
       if (item.owner && !owns(item, input.owner) && !item.stale) return `${item.id} is taken by ${item.owner}`
+      const standbyRefusal = standbyTakeoverRefusal(item, input.owner)
+      if (standbyRefusal) return standbyRefusal
       if (!Number.isInteger(input.step) || input.step < 1 || input.step > item.total)
         return `${item.id} has steps 1 to ${item.total}; there is no step ${input.step}`
-      return owns(item, input.owner) ? renewLease() : claim(input.owner)
+      if (owns(item, input.owner)) return renewLease()
+      return item.stale && isStandby(item, input.owner) ? takeoverFields(input.owner) : claim(input.owner)
     },
     (text) => mark(text, input.id, input.step, input.checked),
+    input.active,
   )
 })
 
 // Marks the owner's item BLOCKED with the reason, or back to IN_PROGRESS without one.
 // Taking over a stale item, or blocking one's own, starts (or renews) the lease.
+// A stalled item is claimed here only by its standby, like `take`.
 export const block = Effect.fn("Dod.block")(function* (input: {
   directory: string
   id: string
   owner: Owner
   reason?: string
+  active?: Active
 }) {
   const reason = input.reason?.trim()
   return yield* change(input.directory, input.id, undefined, (item) => {
     if (FINISHED.has(item.state)) return `${item.id} is already ${finishedWord(item)}`
     if (item.owner && !owns(item, input.owner) && !item.stale) return `${item.id} is taken by ${item.owner}`
-    const held = owns(item, input.owner) ? renewLease() : claim(input.owner)
+    const standbyRefusal = standbyTakeoverRefusal(item, input.owner)
+    if (standbyRefusal) return standbyRefusal
+    const held = owns(item, input.owner)
+      ? renewLease()
+      : item.stale && isStandby(item, input.owner)
+        ? takeoverFields(input.owner)
+        : claim(input.owner)
     return {
       ...held,
       task_state: reason ? "BLOCKED" : "IN_PROGRESS",
       blocked_by: reason || undefined,
     }
+  }, undefined, input.active)
+})
+
+// Renews the holder's lease on one item, and nothing else. The call itself is the proof
+// the holder is alive, so a stale-but-still-held item renews too — nobody took it over
+// in the meantime, or the caller would no longer be its holder. Refuses a caller who
+// does not hold the item, and a finished one.
+export const heartbeat = Effect.fn("Dod.heartbeat")(function* (input: {
+  directory: string
+  id: string
+  owner: Owner
+}) {
+  return yield* change(input.directory, input.id, undefined, (item) => {
+    if (FINISHED.has(item.state)) return `${item.id} is already ${finishedWord(item)}`
+    if (!owns(item, input.owner))
+      return item.owner
+        ? `${item.id} is taken by ${item.owner}`
+        : `Take ${item.id} before renewing it; only its holder renews`
+    return renewLease()
   })
+})
+
+// Renews every lease the owner holds that is due — under HEARTBEAT_WINDOW_MS left, or
+// already expired while nobody took the item over. Returns the renewed IDs, and writes
+// nothing when nothing is due, so a per-step heartbeat costs one small read. The runner
+// calls this after every model step: a session doing real work renews its items through
+// its own activity, not only through `dod` calls.
+export const heartbeatHeld = Effect.fn("Dod.heartbeatHeld")(function* (input: {
+  directory: string
+  owner: Owner
+}) {
+  const text = yield* load(input.directory)
+  if (text === undefined) return []
+  const list = yield* leaves(text)
+  const now = Date.now()
+  const due = list.filter(
+    (leaf) =>
+      heldBy(leaf, input.owner) &&
+      !FINISHED.has(leaf.task_state?.trim() || "NOT_STARTED") &&
+      leaseDue(leaf, now),
+  )
+  const renewed: string[] = []
+  for (const leaf of due) {
+    // A lost race — someone took the item over between the list and this write —
+    // leaves the item with its new holder; the heartbeat simply does not renew it.
+    const result = yield* heartbeat({ directory: input.directory, id: leaf.id, owner: input.owner }).pipe(
+      Effect.option,
+    )
+    if (Option.isSome(result)) renewed.push(leaf.id)
+  }
+  return renewed
 })
 
 // Appends a new item at the end of leaves, creating the board when the project has none.
@@ -723,6 +796,20 @@ function refusal(item: Room.DodItem, owner: Owner) {
   if (FINISHED.has(item.state)) return `${item.id} is already ${finishedWord(item)}`
   if (item.owner && !owns(item, owner) && !item.stale) return `${item.id} is taken by ${item.owner}`
   if (item.waits && item.waits.length > 0) return `${item.id} waits for ${item.waits.join(", ")}`
+  return standbyTakeoverRefusal(item, owner)
+}
+
+// Why a caller who is neither the holder nor the recorded standby may not take a
+// stalled item, or undefined when the standby rule does not block them: a stale item
+// with a reserve agent belongs to that agent, so a stranger taking it would create
+// the two-writers-in-one-item the lease exists to prevent. A stale item with no
+// standby has no reserve to protect — anyone may take it, or it could never move
+// again, since `takeover` needs a standby too. The holder re-taking their own item
+// is never blocked here.
+function standbyTakeoverRefusal(item: Room.DodItem, owner: Owner) {
+  if (item.owner && !owns(item, owner) && item.stale === true && item.standby && !isStandby(item, owner))
+    return `${item.id} is stalled, but its standby is ${item.standby}; only the standby takes it over`
+  return undefined
 }
 
 // Items taken before owners carried an ID match by name.
@@ -741,9 +828,36 @@ function claim(owner: Owner) {
   }
 }
 
+// Taking a stalled item over — by take, check or block alike — starts the lease and
+// records the handover, so the board says who took it from whom.
+function takeoverFields(owner: Owner) {
+  const now = new Date()
+  return {
+    ...claim(owner),
+    took_over_at: now.toISOString(),
+    took_over_by: owner.name,
+  }
+}
+
 // Work in progress keeps its item: an action by the holder pushes the lease out again.
 function renewLease() {
   return { lease_until: new Date(Date.now() + LEASE_MS).toISOString() }
+}
+
+// Whether a board leaf is held by the owner, by id — or by name for claims written
+// before owners carried an id. Mirrors `owns`, which answers the same for items.
+function heldBy(leaf: typeof Leaf.Type, owner: Owner) {
+  if (!leaf.owner?.trim()) return false
+  const ownerID = leaf.owner_id?.trim() || undefined
+  return ownerID === undefined ? leaf.owner.trim() === owner.name : ownerID === owner.id
+}
+
+// A lease with under HEARTBEAT_WINDOW_MS left, none at all, or one that does not parse:
+// due for a heartbeat, so the holder's work never lapses mid-step.
+function leaseDue(leaf: typeof Leaf.Type, now: number) {
+  if (!leaf.lease_until?.trim()) return true
+  const until = Date.parse(leaf.lease_until.trim())
+  return Number.isNaN(until) || until - now < HEARTBEAT_WINDOW_MS
 }
 
 function free(item: Room.DodItem) {
@@ -772,8 +886,8 @@ function load(directory: string) {
   })
 }
 
-function items(text: string, live?: Live) {
-  return leaves(text).pipe(Effect.map((list) => toItems(list, live)))
+function items(text: string, live?: Live, active?: Active) {
+  return leaves(text).pipe(Effect.map((list) => toItems(list, live, active)))
 }
 
 // The leaves the file lists in a shape this board reads; others are skipped.
@@ -791,7 +905,7 @@ function leaves(text: string) {
   )
 }
 
-function toItems(list: readonly (typeof Leaf.Type)[], live?: Live) {
+function toItems(list: readonly (typeof Leaf.Type)[], live?: Live, active?: Active) {
   const state = new Map(list.map((leaf) => [leaf.id, leaf.task_state?.trim() || "NOT_STARTED"]))
   return list.map((leaf): Room.DodItem => {
     const steps = leaf.steps ?? []
@@ -801,10 +915,15 @@ function toItems(list: readonly (typeof Leaf.Type)[], live?: Live) {
     const verify = leaf.verification?.command?.trim()
     // A holder counts while its lease runs. Room guests are attested by `live` instead:
     // the room answers false for a member who left or went silent, so their items free
-    // up even though the room never writes a lease. A local claim with no lease at all —
-    // written before leases existed — has no proof of life either, so it reads stale.
+    // up even though the room never writes a lease. A local holder whose session is
+    // provably running (`active`) keeps its item even past the lease — the lease is a
+    // silence timer, and a running session is not silent. An idle session is not
+    // `active`, so its items still go stale once the lease expires. A local claim with
+    // no lease at all — written before leases existed — has no proof of life either,
+    // so it reads stale.
     const stale =
-      ownerID !== undefined && ((live !== undefined && !live(ownerID)) || (live === undefined && leaseExpired(leaf)))
+      ownerID !== undefined &&
+      (live !== undefined ? !live(ownerID) : leaseExpired(leaf) && (active === undefined || !active(ownerID)))
     return {
       id: leaf.id,
       what: leaf.what?.trim() ?? "",
@@ -839,6 +958,7 @@ function change(
   live: Live | undefined,
   decide: (item: Room.DodItem, all: readonly Room.DodItem[]) => string | Record<string, string | undefined>,
   more: (text: string) => string | undefined = (text) => text,
+  active?: Active,
 ): Effect.Effect<Room.Dod, DodError> {
   const file = ProjectDirs.resolveWrite(directory, "dod.yaml")
   const sourceFile = ProjectDirs.resolveRead(directory, "dod.yaml")
@@ -846,7 +966,7 @@ function change(
     Effect.gen(function* () {
       const before = yield* load(directory)
       if (before === undefined) return yield* new DodError({ message: `This project has no DoD (${FILE})` })
-      const list = yield* items(before, live)
+      const list = yield* items(before, live, active)
       const item = list.find((entry) => entry.id === id)
       if (!item) return yield* new DodError({ message: `The DoD has no item ${id}` })
       const fields = decide(item, list)

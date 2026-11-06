@@ -333,6 +333,14 @@ const layer = Layer.effect(
               : Effect.succeed(false),
           ),
         })
+        // A completed step is session activity even when the model never touched `dod`:
+        // renew the leases this session holds, so a long run does not lose its items at
+        // the five-minute mark. The name mirrors DodTool.ownerOf. Best-effort: a board
+        // write must never fail the step, and a project without a board renews nothing.
+        yield* Dod.heartbeatHeld({
+          directory: location.project.directory,
+          owner: { id: sessionID, name: `AI ${sessionID.slice(-8)}` },
+        }).pipe(Effect.ignore)
         const completed = yield* SessionStep.Outcome.$match(outcome, {
           Completed: (outcome) => Effect.succeed(outcome.needsContinuation),
           Retry: (outcome) =>

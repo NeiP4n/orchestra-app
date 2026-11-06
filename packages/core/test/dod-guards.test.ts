@@ -276,4 +276,103 @@ describe("Dod guards: standby, WIP limit, zones, contracts", () => {
       'There is no zone "Nope"',
     )
   })
+
+  test("take on a stale item with a standby refuses anyone but the standby", async () => {
+    await using dir = await project()
+    const added = await run(Dod.add({ directory: dir.path, what: "Guarded work", standby: bo }))
+    await run(Dod.take({ directory: dir.path, id: added.id, owner: alex }))
+    await expireLeaseOf(dir.path, added.id)
+    // Before this fix any stranger took the stale item through `take`, while
+    // `takeover` already required the standby.
+    expect(await fails(Dod.take({ directory: dir.path, id: added.id, owner: cy }))).toBe(
+      `${added.id} is stalled, but its standby is Bo; only the standby takes it over`,
+    )
+    const dod = await run(Dod.take({ directory: dir.path, id: added.id, owner: bo }))
+    expect(dod.items.find((entry) => entry.id === added.id)).toMatchObject({ owner: "Bo", state: "IN_PROGRESS" })
+    const text = await Bun.file(path.join(dir.path, Dod.FILE)).text()
+    expect(text).toContain('took_over_by: "Bo"')
+  })
+
+  test("take on a stale item without a standby still passes to anyone", async () => {
+    await using dir = await project()
+    const added = await run(Dod.add({ directory: dir.path, what: "Unguarded work" }))
+    await run(Dod.take({ directory: dir.path, id: added.id, owner: alex }))
+    await expireLeaseOf(dir.path, added.id)
+    // No reserve agent exists to protect, so refusing everyone would strand the
+    // item forever — `takeover` needs a standby too.
+    const dod = await run(Dod.take({ directory: dir.path, id: added.id, owner: cy }))
+    expect(dod.items.find((entry) => entry.id === added.id)).toMatchObject({ owner: "Cy", state: "IN_PROGRESS" })
+  })
+
+  test("re-taking one's own stale item still works, standby or not", async () => {
+    await using dir = await project()
+    const added = await run(Dod.add({ directory: dir.path, what: "Guarded work", standby: bo }))
+    await run(Dod.take({ directory: dir.path, id: added.id, owner: alex }))
+    await expireLeaseOf(dir.path, added.id)
+    const dod = await run(Dod.take({ directory: dir.path, id: added.id, owner: alex }))
+    expect(dod.items.find((entry) => entry.id === added.id)).toMatchObject({ owner: "Alex", state: "IN_PROGRESS" })
+  })
+
+  test("next skips a stale item with a standby for anyone but the standby", async () => {
+    const two = `task_id: G-1
+stages: []
+leaves:
+  - id: S-1
+    what: "Guarded work"
+    group: "Build"
+    task_state: NOT_STARTED
+    steps:
+      - "[ ] one"
+
+  - id: F-1
+    what: "Free work"
+    group: "Build"
+    task_state: NOT_STARTED
+    steps:
+      - "[ ] one"
+`
+    await using dir = await project(two)
+    await run(Dod.take({ directory: dir.path, id: "S-1", owner: alex }))
+    // The standby is recorded by hand here: `dod add` writes it, a board edited by
+    // hand carries the same fields.
+    const board = await Bun.file(path.join(dir.path, Dod.FILE)).text()
+    await Bun.write(
+      path.join(dir.path, Dod.FILE),
+      board.replace('  - id: S-1\n', '  - id: S-1\n    standby: "Bo"\n    standby_id: "g-bo"\n'),
+    )
+    await expireLeaseOf(dir.path, "S-1")
+    const skipped = await run(Dod.next({ directory: dir.path, owner: cy }))
+    expect(skipped.id).toBe("F-1")
+    const taken = await run(Dod.next({ directory: dir.path, owner: bo }))
+    expect(taken.id).toBe("S-1")
+  })
+
+  test("check and block on a stale item with a standby refuse anyone but the standby", async () => {
+    await using dir = await project()
+    const added = await run(Dod.add({ directory: dir.path, what: "Guarded work", standby: bo, steps: ["one"] }))
+    await run(Dod.take({ directory: dir.path, id: added.id, owner: alex }))
+    await expireLeaseOf(dir.path, added.id)
+    // `check` and `block` used to claim a stale item for whoever called first.
+    expect(
+      await fails(Dod.check({ directory: dir.path, id: added.id, step: 1, checked: true, owner: cy })),
+    ).toBe(`${added.id} is stalled, but its standby is Bo; only the standby takes it over`)
+    expect(await fails(Dod.block({ directory: dir.path, id: added.id, owner: cy, reason: "stuck" }))).toBe(
+      `${added.id} is stalled, but its standby is Bo; only the standby takes it over`,
+    )
+    const checked = await run(Dod.check({ directory: dir.path, id: added.id, step: 1, checked: true, owner: bo }))
+    expect(checked.items.find((entry) => entry.id === added.id)).toMatchObject({
+      owner: "Bo",
+      state: "IN_PROGRESS",
+    })
+    const text = await Bun.file(path.join(dir.path, Dod.FILE)).text()
+    expect(text).toContain('took_over_by: "Bo"')
+  })
+
+  test("check and block on a stale item without a standby still pass to anyone", async () => {
+    await using dir = await project()
+    await run(Dod.take({ directory: dir.path, id: "B-1", owner: alex }))
+    await expireLeaseOf(dir.path, "B-1")
+    const blocked = await run(Dod.block({ directory: dir.path, id: "B-1", owner: cy, reason: "stuck" }))
+    expect(blocked.items.find((entry) => entry.id === "B-1")).toMatchObject({ owner: "Cy", state: "BLOCKED" })
+  })
 })
