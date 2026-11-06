@@ -19,6 +19,8 @@ jobs:
     name: typecheck
     # Use GitHub-hosted runners on lan-rooms so this fork does not depend on Blacksmith capacity.
     runs-on: ${{ (github.ref_name == 'lan-rooms' || github.base_ref == 'lan-rooms') && 'ubuntu-latest' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # A hung typecheck must fail instead of burning the 6h GitHub default.
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1

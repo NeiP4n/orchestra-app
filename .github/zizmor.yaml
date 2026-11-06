@@ -6,5 +6,5 @@ rules:
     ignore:
       - check.yml:31
       - quality-gates.yml:81
-      - test.yml:85
-      - test.yml:206
+      - test.yml:86
+      - test.yml:210

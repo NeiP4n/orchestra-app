@@ -2,9 +2,9 @@ name: quality-gates
 
 on:
   push:
-    branches: [dev, v2, lan-rooms]
+    branches: [main, dev, v2, lan-rooms]
   pull_request:
-    branches: [dev, v2, lan-rooms]
+    branches: [main, dev, v2, lan-rooms]
   workflow_dispatch:
   schedule:
     - cron: "23 7 * * 1"
