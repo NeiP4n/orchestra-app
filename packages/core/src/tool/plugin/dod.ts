@@ -270,7 +270,7 @@ export const Plugin = {
       const { item, steps } = yield* Dod.detail(directory, id)
       return [
         `${item.id} [${item.state}] ${item.what}`,
-        `Stage: ${item.stage} · steps ${item.done}/${item.total}${item.owner ? ` · held by ${item.owner}${item.stale ? " (lease expired)" : ""}` : " · free"}${item.standby ? ` · standby ${item.standby}` : ""}`,
+        `Stage: ${item.stage} · steps ${item.done}/${item.total}${item.owner ? ` · held by ${item.owner}${item.stale ? " (lease expired)" : ""}` : " · free"}${item.standby ? ` · standby ${item.standby}` : ""}${item.human ? " · for a human — agents do not take it" : ""}`,
         ...(item.waits?.length ? [`Waits for: ${item.waits.join(", ")}`] : []),
         ...steps.map((step, index) => `  ${index + 1}. ${step}`),
         item.verify ? `Verification: ${item.verify}` : "Verification: none; the user accepts this item by hand.",
@@ -318,7 +318,8 @@ function board(dod: Room.Dod) {
       (item) =>
         `- ${item.id} [${item.state}] ${clip(item.what)} (${item.done}/${item.total})` +
         (item.owner ? ` · ${item.owner}${item.stale ? " (lease expired)" : ""}` : "") +
-        (item.waits?.length ? ` · waits for ${item.waits.join(", ")}` : ""),
+        (item.waits?.length ? ` · waits for ${item.waits.join(", ")}` : "") +
+        (item.human ? " · for a human" : ""),
     ),
     ...(closed.length === 0 ? [] : [`Closed: ${closed.map((item) => item.id).join(", ")}.`]),
   ].join("\n")

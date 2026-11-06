@@ -10,6 +10,8 @@ import { Zones } from "./zones.js"
 // sees its own cards marked and foreign zones read-only; the host sees all.
 // The board never offers a card the take would refuse: canTake mirrors
 // Dod.mayClaim, so a card shown as takeable is one the viewer can actually take.
+// A card marked for a human (Kanzo's Human card) is never takeable by a guest:
+// it carries human: true, canTake false, and does not count as free.
 
 // The columns, in board order, over the file's task_state values. An unknown
 // state is work that never started, so it lands in "to do" with its state kept
@@ -68,6 +70,7 @@ export function buildBoard(input: {
       ...(item.stale ? { stale: item.stale } : {}),
       ...(item.waits ? { waits: item.waits } : {}),
       ...(item.verify ? { verify: item.verify } : {}),
+      ...(item.human ? { human: true } : {}),
       ...(zone ? { zone: zone.name, zoneOwner: zone.owner_group } : {}),
       hasPass,
       canTake: refusal === undefined,
@@ -94,7 +97,15 @@ export function buildBoard(input: {
       inProgress: cards.filter((card) => card.state === "IN_PROGRESS").length,
       blocked: cards.filter((card) => card.state === "BLOCKED").length,
       failed: cards.filter((card) => card.state === "FAILED").length,
-      free: cards.filter((card) => !FINISHED.has(card.state) && (!card.ownerID || card.stale) && !card.waits).length,
+      // A card marked for a human is never free for a guest (an agent): the
+      // host works it by hand, so it still counts as free on the host board.
+      free: cards.filter(
+        (card) =>
+          !FINISHED.has(card.state) &&
+          (!card.ownerID || card.stale) &&
+          !card.waits &&
+          !(input.viewer.type === "guest" && card.human),
+      ).length,
     },
   }
 }

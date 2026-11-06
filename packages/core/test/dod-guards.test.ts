@@ -128,6 +128,37 @@ describe("Dod guards: standby, WIP limit, zones, contracts", () => {
     )
   })
 
+  test("a card marked for a human is refused on take, takeover and next", async () => {
+    const human = `task_id: G-HUMAN
+stages: []
+leaves:
+  - id: H-1
+    what: "Human decision"
+    group: "Build"
+    task_state: IN_PROGRESS
+    human: true
+    owner: "Alex"
+    owner_id: "g-alex"
+    taken_at: "2000-01-01T00:00:00.000Z"
+    lease_until: "2000-01-01T00:00:01.000Z"
+    standby: "Bo"
+    standby_id: "g-bo"
+    steps:
+      - "[ ] decide"
+  - id: B-1
+    what: "Build one"
+    group: "Build"
+    task_state: NOT_STARTED
+    steps:
+      - "[ ] one"
+`
+    await using dir = await project(human)
+    expect(await fails(Dod.take({ directory: dir.path, id: "H-1", owner: bo }))).toContain("marked for a human")
+    expect(await fails(Dod.takeover({ directory: dir.path, id: "H-1", owner: bo }))).toContain("marked for a human")
+    const taken = await run(Dod.next({ directory: dir.path, owner: bo }))
+    expect(taken.id).toBe("B-1")
+  })
+
   test("the fourth concurrent claim in a group waits in queue, and the refusal is recorded", async () => {
     await using dir = await project()
     await run(Dod.take({ directory: dir.path, id: "B-1", owner: alex }))

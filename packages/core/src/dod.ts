@@ -136,6 +136,9 @@ const Leaf = Schema.Struct({
   lease_until: Schema.String.pipe(Schema.optional),
   depends_on: Schema.Array(Schema.String).pipe(Schema.optional),
   verification: Schema.Struct({ command: Schema.String.pipe(Schema.optional) }).pipe(Schema.optional),
+  // Marked for a human (Kanzo's Human card): agents never take the item —
+  // the host works it by hand. Read into Room.DodItem.human.
+  human: Schema.Boolean.pipe(Schema.optional),
 })
 const decodeLeaf = Schema.decodeUnknownOption(Leaf)
 
@@ -350,6 +353,11 @@ function guardOutcome(
   all: readonly Room.DodItem[],
   options: GuardOptions,
 ): GuardOutcome {
+  // A card marked for a human is never an agent's work (Kanzo's Human
+  // marking). Every start path goes through here — take, takeover and
+  // mayClaim (and through it `next` and the board's canTake) — so one
+  // check covers them all. The host works the item by hand.
+  if (item.human === true) return { refusal: `${item.id} is marked for a human; agents do not take it` }
   // The WIP limit counts the group's cards already in work — this item excluded,
   // so re-taking one's own item or taking over a stalled one never counts twice.
   // Re-taking an item the caller already holds is not a new concurrent claim at
@@ -819,6 +827,7 @@ function toItems(list: readonly (typeof Leaf.Type)[], live?: Live) {
       ...(stale ? { stale: true } : {}),
       ...(waits.length > 0 ? { waits } : {}),
       ...(verify ? { verify } : {}),
+      ...(leaf.human === true ? { human: true } : {}),
     }
   })
 }

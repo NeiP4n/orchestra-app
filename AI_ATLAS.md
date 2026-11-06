@@ -1176,6 +1176,14 @@ the claim path would refuse. Columns come from `task_state`:
   The host view never takes: `canTake` is false everywhere with the reason
   "Only guests take items; the host frees them" — the host frees held
   cards instead.
+- Human cards (Kanzo's Human marking): a leaf with `human: true` in
+  `dod.yaml` is a card for a human only — agents never take it. The guard
+  lives in `Dod.guardOutcome`, so every start path refuses it (take,
+  takeover, `mayClaim`, `next`, and the board's `canTake`): the refusal is
+  "<id> is marked for a human; agents do not take it". The card carries
+  `human: true` (also in `kanban.yaml` and the `dod` tool's lines), and
+  `counts.free` excludes it for guests — for the host it still counts as
+  free, since the host works it by hand.
 - The board shape is `Room.DodBoard` (`packages/schema/src/room.ts`):
   `columns[]` (`DodBoardColumn`: id, title, cards), `zones[]` (name,
   ownerGroup, mine), `counts` (total, done, inProgress, blocked, failed,
@@ -1212,9 +1220,9 @@ the claim path would refuse. Columns come from `task_state`:
   cards. Copy uses `dod.board.*` i18n keys
   (`packages/app/src/runtime/i18n/en.ts`); the host's generic take refusal
   is not shown (it would repeat on every card), `waits` is shown instead.
-- Tests: `packages/core/test/dod-kanban.test.ts` (15: columns, owner/mine,
+- Tests: `packages/core/test/dod-kanban.test.ts` (16: columns, owner/mine,
   refusals, foreign zone, pass, stale auto-pass, WIP limit, host view,
-  counts, zones, disabled, no-zones),
+  counts, zones, disabled, no-zones, human card),
   `packages/tui/test/component/room-dod.test.tsx` (13: 9 list + 4 board —
   toggle, zones line, foreign-zone read-only, take from the board), and
   `packages/server/test/room.test.ts` ("the kanban board groups the DoD by
