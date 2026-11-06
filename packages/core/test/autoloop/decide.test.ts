@@ -286,6 +286,47 @@ describe("AutoloopDecide tick and sweep", () => {
     expect(runRow(heartbeated.view, 1)?.["seen_at"]).toBe(new Date(T0 + MINUTE).toISOString())
   })
 
+  test("a run of a worker that never comes back returns to the queue on tick", () => {
+    const ingested = ingestTask(emptyView(), T0)
+    const claimed = claimTask(ingested.view, T0)
+    // No heartbeat at all: the worker is gone, the run went quiet 6 minutes ago.
+    const ticked = step(claimed.view, { type: "tick", args: [] }, T0 + 6 * MINUTE + 1000, 3)
+
+    expect(runRow(ticked.view, 1)).toMatchObject({ state: "queued", claim: null })
+    expect(runRow(ticked.view, 1)?.["not_before"]).toBe(new Date(T0 + 6 * MINUTE + 1000).toISOString())
+    const unknown = cardRows(ticked.view).find((card) => card["key"] === "run:1:unknown")
+    expect(unknown).toMatchObject({ state: "closed", result: "возвращена в очередь: исполнитель не на связи" })
+    // The lane is free again: another worker can claim the same run.
+    const reclaimed = claimTask(ticked.view, T0 + 6 * MINUTE + 2000, "claim-2", 4)
+    expect(reclaimed.job.run).toBe(1)
+  })
+
+  test("an unknown run returns to the queue once its worker goes quiet", () => {
+    const ingested = ingestTask(emptyView(), T0)
+    const claimed = claimTask(ingested.view, T0)
+    // The worker is alive at T0+4m but no longer mentions the run: it goes unknown.
+    const heartbeated = step(claimed.view, { type: "heartbeat", args: ["worker-1", []] }, T0 + 4 * MINUTE, 3)
+    const ticked = step(heartbeated.view, { type: "tick", args: [] }, T0 + 5 * MINUTE + 1000, 4)
+    expect(runRow(ticked.view, 1)).toMatchObject({ state: "unknown" })
+
+    // The worker never comes back: on the next tick the unknown run is re-queued.
+    const reticked = step(ticked.view, { type: "tick", args: [] }, T0 + 11 * MINUTE, 5)
+    expect(runRow(reticked.view, 1)).toMatchObject({ state: "queued", claim: null })
+  })
+
+  test("an unknown run stays unknown while its worker is still alive", () => {
+    const ingested = ingestTask(emptyView(), T0)
+    const claimed = claimTask(ingested.view, T0)
+    const heartbeated = step(claimed.view, { type: "heartbeat", args: ["worker-1", []] }, T0 + 4 * MINUTE, 3)
+    const ticked = step(heartbeated.view, { type: "tick", args: [] }, T0 + 5 * MINUTE + 1000, 4)
+    expect(runRow(ticked.view, 1)).toMatchObject({ state: "unknown" })
+
+    // The worker comes back: it may still finish the run, so no re-queue.
+    const back = step(ticked.view, { type: "heartbeat", args: ["worker-1", []] }, T0 + 6 * MINUTE, 5)
+    const reticked = step(back.view, { type: "tick", args: [] }, T0 + 6 * MINUTE + 1000, 6)
+    expect(runRow(reticked.view, 1)).toMatchObject({ state: "unknown" })
+  })
+
   test("a cron rule fires on tick and queues a run", () => {
     const cronRules: Rules = {
       ...emptyRules("UTC"),
@@ -305,5 +346,72 @@ describe("AutoloopDecide tick and sweep", () => {
 
     expect(runRow(fired, 1)).toMatchObject({ rule: "nightly", state: "queued" })
     expect(eventRows(fired).map((event) => event["type"])).toContain("schedule.tick")
+  })
+})
+
+describe("AutoloopDecide cancelling a task (G2-12)", () => {
+  /** Five failed code checks in a row: the run stops and asks a human. */
+  const driveToVerifyAsk = (view: View) => {
+    let current = ingestTask(view, T0).view
+    for (let round = 1; round <= 5; round += 1) {
+      const now = T0 + round * MINUTE
+      const claimed = claimTask(current, now, `claim-${round}`, round + 1)
+      const finished = step(
+        claimed.view,
+        { type: "finish", args: [1, claimed.job.token, { outcome: "done", summary: "still broken", verifyFailed: true }] },
+        now + 1000,
+        round + 2,
+      )
+      current = finished.view
+    }
+    return current
+  }
+
+  test("answering 'Отменить задачу' cancels the task and starts no new run", () => {
+    const view = driveToVerifyAsk(emptyView())
+    const ask = cardRows(view).find((card) => card["key"] === "run:1:verify")
+    expect(ask?.["options"]).toEqual(["Исправить и проверить снова", "Принять без проверки", "Отменить задачу"])
+
+    const answered = step(view, { type: "answer", args: [ask!["id"], { choice: 2, by: "satria" }] }, T0 + 6 * MINUTE, 8)
+
+    expect(answered.value).toMatchObject({ changed: true, state: "decided", cancelled: true })
+    expect(runRow(answered.view, 1)).toMatchObject({ state: "cancelled" })
+    expect(runRow(answered.view, 2)).toBeUndefined()
+    const event = eventRows(answered.view).find((row) => row["type"] === "card.answered")
+    expect(event?.["detail"]).toContain("Отменить задачу")
+  })
+
+  test("answering 'Исправить и проверить снова' starts a new round with a fresh check count", () => {
+    const view = driveToVerifyAsk(emptyView())
+    const ask = cardRows(view).find((card) => card["key"] === "run:1:verify")
+
+    const answered = step(view, { type: "answer", args: [ask!["id"], { choice: 0, by: "satria" }] }, T0 + 6 * MINUTE, 8)
+
+    expect(answered.value).toMatchObject({ changed: true, state: "decided" })
+    expect(answered.value).not.toMatchObject({ cancelled: true })
+    expect(runRow(answered.view, 2)).toMatchObject({ rule: "build", state: "queued", verifyIterations: 0 })
+    const event = eventRows(answered.view).find((row) => row["type"] === "card.answered")
+    expect(event?.["detail"]).toContain("Исправить и проверить снова")
+  })
+
+  test("answering an ask card records the chosen option in the card.answered event", () => {
+    const ingested = ingestTask(emptyView(), T0)
+    const claimed = claimTask(ingested.view, T0)
+    const finished = step(
+      claimed.view,
+      {
+        type: "finish",
+        args: [1, claimed.job.token, { outcome: "done", summary: "built", ask: [{ key: "q1", title: "Ship it?", text: "Ready?", options: ["yes", "no"] }] }],
+      },
+      T0 + 1000,
+      3,
+    )
+    const card = cardRows(finished.view).find((row) => row["key"] === "thread:build::q1")
+
+    const answered = step(finished.view, { type: "answer", args: [card!["id"], { choice: 1, text: "not yet", by: "satria" }] }, T0 + 2000, 4)
+
+    const event = eventRows(answered.view).find((row) => row["type"] === "card.answered")
+    expect(event?.["detail"]).toBe("no — not yet")
+    expect(runRow(answered.view, 2)).toMatchObject({ rule: "build", state: "queued" })
   })
 })

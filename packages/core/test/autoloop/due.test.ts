@@ -57,6 +57,16 @@ describe("AutoloopDue workers and waiting", () => {
     expect(waitingOn(view, "worker-2", rules)).toHaveLength(0)
   })
 
+  test("unknown runs still wait on their worker", () => {
+    const view = withRows({
+      runs: {
+        1: { id: 1, agent: "coder", state: "unknown", created_at: new Date(T0).toISOString() },
+      },
+    })
+
+    expect(waitingOn(view, "worker-1", rules)).toHaveLength(1)
+  })
+
   test("offlineCard is untold until an open card exists or the waiting work predates the closed one", () => {
     const waiting = [{ created_at: new Date(T0).toISOString() }]
     const bare = withRows({})
@@ -144,5 +154,42 @@ describe("AutoloopDue deadlines", () => {
     const due = deadlines(view, T0, rules)
     expect(due["offline:worker-1"]).toMatchObject({ kind: "offline", key: "worker-1" })
     expect(Date.parse(due["offline:worker-1"]!.at)).toBe(T0 + OFFLINE_AFTER + 1)
+  })
+
+  test("a dead worker's stale claimed run gets a lease deadline", () => {
+    const view = withRows({
+      runs: {
+        1: {
+          id: 1,
+          agent: "coder",
+          state: "claimed",
+          seen_at: new Date(T0 - 6 * MINUTE).toISOString(),
+          created_at: new Date(T0 - 6 * MINUTE).toISOString(),
+        },
+      },
+    })
+
+    const due = deadlines(view, T0, rules)
+    expect(due["lease:1"]).toMatchObject({ kind: "lease", key: "1" })
+    expect(Date.parse(due["lease:1"]!.at)).toBe(T0)
+  })
+
+  test("a dead worker's unknown run gets a requeue deadline", () => {
+    const view = withRows({
+      seen: { "worker:worker-1": { kind: "worker", name: "worker-1", seen_at: new Date(T0 - 5 * MINUTE).toISOString() } },
+      runs: {
+        1: {
+          id: 1,
+          agent: "coder",
+          state: "unknown",
+          seen_at: new Date(T0 - 6 * MINUTE).toISOString(),
+          created_at: new Date(T0 - 6 * MINUTE).toISOString(),
+        },
+      },
+    })
+
+    const due = deadlines(view, T0, rules)
+    expect(due["requeue:1"]).toMatchObject({ kind: "requeue", key: "1" })
+    expect(Date.parse(due["requeue:1"]!.at)).toBe(T0)
   })
 })

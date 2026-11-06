@@ -73,14 +73,17 @@ export function workers(view: View, rules: Rules): string[] {
 }
 
 /**
- * Runs waiting on one worker: queued or claimed runs whose agent runs on
- * that worker. `now` is unused here but kept so the signature matches the
- * original and callers can filter by freshness at the call site.
+ * Runs waiting on one worker: queued, claimed or unknown runs whose agent
+ * runs on that worker. An unknown run is still waiting: its worker may come
+ * back and finish it, or the sweep re-queues it while the worker stays gone.
+ * `now` is unused here but kept so the signature matches the original and
+ * callers can filter by freshness at the call site.
  */
 export function waitingOn(view: View, worker: string, rules: Rules): Row[] {
   return rowsOf(view, "runs").filter(
     (run) =>
-      (run["state"] === "queued" || run["state"] === "claimed") && workerOfRun(rules, text(run, "agent")) === worker,
+      (run["state"] === "queued" || run["state"] === "claimed" || run["state"] === "unknown") &&
+      workerOfRun(rules, text(run, "agent")) === worker,
   )
 }
 
@@ -148,7 +151,20 @@ export function deadlines(view: View, now: number, rules: Rules, limits: DueLimi
       add("offline", worker, Math.max(now, base + limits.offlineAfterMs + 1))
     }
 
-    if (seen === undefined || now - timeOf(seen, "seen_at") > limits.workerFreshMs) continue
+    if (seen === undefined || now - timeOf(seen, "seen_at") > limits.workerFreshMs) {
+      // The worker is gone: the sweep still has to wake up for its runs.
+      // A stale claimed run goes unknown and an unknown one goes back to the
+      // queue (see `sweep`), so both need a deadline of their own — before
+      // this fix a dead worker with its offline card already told had no due
+      // at all, and the clock slept while its runs rotted.
+      for (const run of waiting.filter((row) => row["state"] === "claimed")) {
+        add("lease", String(run["id"]), Math.max(now, timeOf(run, "seen_at") + limits.runLeaseMs + 1))
+      }
+      for (const run of waiting.filter((row) => row["state"] === "unknown")) {
+        add("requeue", String(run["id"]), Math.max(now, timeOf(run, "seen_at") + limits.runLeaseMs + 1))
+      }
+      continue
+    }
     for (const run of waiting.filter((row) => row["state"] === "claimed")) {
       const at = Math.max(now, timeOf(run, "seen_at") + limits.runLeaseMs + 1)
       if (at <= timeOf(seen, "seen_at") + limits.workerFreshMs) add("lease", String(run["id"]), at)

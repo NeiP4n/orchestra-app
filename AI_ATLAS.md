@@ -157,11 +157,22 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   then an ask card), `MAX_HOPS = 8`, `RESEND_AT = [0,1,3,7,15,25,35,45,55]`,
   57-minute window. Rules come from Orchestra config via the `decide`
   environment, never from a `rules.json`. Minimal five-field cron parser
-  lives here too (tick needs it).
+  lives here too (tick needs it). Sweep: a run its worker stopped mentioning
+  goes `claimed → unknown` once its lease is out, whether the worker is
+  still around or already gone; while the worker stays gone (no heartbeat
+  past `workerFreshMinutes`) its unknown runs go back to the queue
+  (`unknown → queued`, claim cleared, `not_before` now), so a dead worker
+  never blocks a lane forever — a live worker keeps its unknown runs, it may
+  still finish them. The server's startup tick runs this sweep, so a restart
+  re-queues dead workers' runs too. Answer: the `card.answered` event
+  carries the chosen option in `detail`; answering `Отменить задачу`
+  (`CANCEL_OPTION`) cancels the task and starts no new run.
 - **Cards (block Б3, подшаг 2)**: `src/autoloop/cards.ts` is the thin layer
   over `store` + `decide` — `listCards` / `listOpenCards`, `createCard`
   (same key while open = duplicate, no new fact), `answerCard` (records
-  `card.answered`, starts a new run when the card belongs to a rule),
+  `card.answered` with the chosen option, starts a new run when the card
+  belongs to a rule — except `Отменить задачу`, which cancels the task and
+  starts none, `newRunId` null),
   `nextCard` / `markDelivered` / `markFailed` (resend schedule `RESEND_AT`,
   give up after 57 minutes), `publish` (card changes to the Bus).
   `question` / `interact` stay as UI; the card in the journal is the source
@@ -174,7 +185,9 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   No TUI/web card view yet — that is the remaining UI sub-step.
 - **`kernel/due.ts`**: `RUN_LEASE = 5 мин`, `WORKER_FRESH = 2 мин`,
   `OFFLINE_AFTER = 10 мин`, `SEEN_EVERY = 1 мин`, `deadlines`,
-  `offlineCard`, `workers` / `waitingOn`.
+  `offlineCard`, `workers` / `waitingOn` (unknown runs count as waiting).
+  `deadlines` also wakes the clock for a dead worker's runs: a lease due for
+  a stale claimed run, a `requeue` due for an unknown one.
 - **`kernel/rules.ts`**: cycle rule shape (`Rule { name, when, to, cwd,
   group, tell }`, `typeMatches`, `eventRule`, `cronOf`).
 - **Cycle limits in config**: `Config.Orchestra.Autoloop`

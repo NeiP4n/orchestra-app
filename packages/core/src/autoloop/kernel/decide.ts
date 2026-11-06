@@ -42,6 +42,14 @@ export const ANSWER_REF = 200
 export const ANSWER_TEXT = 2000
 export const DELIVERY_REF = 200
 
+/**
+ * The ask-card option that ends the task instead of starting a new round.
+ * The only card that offers it is the "check keeps failing" card in
+ * `applyReceipt`; `answer` matches on this exact text, so renaming the
+ * option there must rename it here too.
+ */
+export const CANCEL_OPTION = "Отменить задачу"
+
 /** Cycle limits. Numbers live in the Orchestra config; these are the defaults. */
 export interface AutoloopLimits {
   /** Failed-run retries before the run stops (original: 10). */
@@ -828,18 +836,38 @@ function sweep(draft: Draft) {
   for (const worker of workers(draft.view, draft.rules)) {
     const seen = getRow<RowData>(draft.view, "seen", `worker:${worker}`)
     const lastSeen = seen === undefined ? undefined : Date.parse(str(seen, "seen_at") ?? "")
-    if (lastSeen !== undefined && now - lastSeen <= limits.workerFreshMinutes * MINUTE) {
-      closeOffline(draft, worker)
-      const inDoubt = (run: RunRow) =>
-        workerOfRun(draft.rules, run.agent) === worker &&
-        Date.parse(run.seen_at ?? "") < now - limits.runLeaseMinutes * MINUTE
+    const fresh = lastSeen !== undefined && now - lastSeen <= limits.workerFreshMinutes * MINUTE
+    if (fresh) closeOffline(draft, worker)
+    // A run its worker stopped mentioning is in doubt once its lease is out,
+    // whether the worker is still around or already gone: before this fix the
+    // block below only ran while the worker counted as fresh, so a run of a
+    // worker that died for real stayed `claimed` forever and its lane with it.
+    const inDoubt = (run: RunRow) =>
+      workerOfRun(draft.rules, run.agent) === worker &&
+      Date.parse(run.seen_at ?? "") < now - limits.runLeaseMinutes * MINUTE
+    for (const run of rowsOf(draft.view, "runs")
+      .map(({ data }) => data as RunRow)
+      .filter((run) => run.state === "claimed" && inDoubt(run))) {
+      put(draft, "runs", run.id, { state: "unknown" })
+      const agent = draft.rules.agents[run.agent]?.name ?? run.agent
+      const words = `Задачу отдали ${agent}, а ответа нет уже больше 5 минут — неизвестно, сделано или нет. Новые задачи идут как обычно.`
+      notify(draft, `run:${run.id}:unknown`, run.rule, words, threadOf(run))
+    }
+    if (!fresh) {
+      // The worker is gone (no heartbeat past `workerFreshMinutes`): what it
+      // held is not coming back from it. Send its unknown runs back to the
+      // queue — another worker can take them, and the lane is free again.
+      // A worker that is alive keeps its unknown runs: it may still finish
+      // them, so they are only re-queued while it stays gone.
       for (const run of rowsOf(draft.view, "runs")
         .map(({ data }) => data as RunRow)
-        .filter((run) => run.state === "claimed" && inDoubt(run))) {
-        put(draft, "runs", run.id, { state: "unknown" })
-        const agent = draft.rules.agents[run.agent]?.name ?? run.agent
-        const words = `Задачу отдали ${agent}, а ответа нет уже больше 5 минут — неизвестно, сделано или нет. Новые задачи идут как обычно.`
-        notify(draft, `run:${run.id}:unknown`, run.rule, words, threadOf(run))
+        .filter((run) => run.state === "unknown" && inDoubt(run))) {
+        put(draft, "runs", run.id, {
+          state: "queued",
+          not_before: draft.at,
+          ...nulls("claim", "claimed_at", "seen_at", "cancel_at"),
+        })
+        closeOpen(draft, (key) => key === `run:${run.id}:unknown`, "возвращена в очередь: исполнитель не на связи")
       }
     }
     const waiting = waitingOn(draft.view, worker, draft.rules)
@@ -1139,10 +1167,29 @@ function answer(draft: Draft, id: number, given: RowData) {
   if (given["choice"] === undefined ? text === null : !inRange) throw new DecideInputError("такого варианта нет")
   const rule = card.rule !== null ? ruleNamed(draft, card.rule) : undefined
   const { lane: subject, title: summary, hops = 0 } = card
-  const event = { id: `card:${id}`, type: "card.answered", subject, summary, hops }
+  const choice = typeof given["choice"] === "number" ? given["choice"] : null
+  const chosen = choice !== null ? card.options[choice] : null
+  // The answer event is what the next round's worker reads (its job carries
+  // only event rows, not the card): it has to say which option was picked,
+  // or "cancel" is invisible to it. Before this fix the event carried no
+  // choice at all.
+  const detail = [chosen, text].filter((part): part is string => part !== null && part !== "").join(" — ")
+  const event = { id: `card:${id}`, type: "card.answered", subject, summary, detail, hops }
   const eventId = recordEvent(draft, card.source ?? SCHEDULE, event, rule !== undefined ? [rule.name] : [])
-  const decision = { choice: typeof given["choice"] === "number" ? given["choice"] : null, answer: text, by: typeof given["by"] === "string" ? given["by"] : null, decided_at: draft.at }
+  const decision = { choice, answer: text, by: typeof given["by"] === "string" ? given["by"] : null, decided_at: draft.at }
   put(draft, "cards", id, { state: "decided", ...decision, answer_event: eventId, version: card.version + 1 })
+  if (chosen === CANCEL_OPTION) {
+    // "Отменить задачу" ends the task: no new run, or the loop "5 failures →
+    // ask → cancel → new run → 5 failures" never ends. The run the card
+    // belongs to is cancelled too when it is still going (the verify card's
+    // run is already cancelled by then, so this is a no-op for it).
+    const linked = card.run_id !== null ? getRow<RunRow>(draft.view, "runs", card.run_id) : undefined
+    if (linked !== undefined && (linked.state === "queued" || linked.state === "claimed" || linked.state === "unknown")) {
+      put(draft, "runs", linked.id, { state: "cancelled", finished_at: draft.at, summary: `отменено: ${card.title}` })
+      closeStopped(draft, linked.id, "отменено")
+    }
+    return { changed: true, state: "decided", cancelled: true }
+  }
   if (rule !== undefined) enqueue(draft, rule, eventId, card.lane, card.agent === rule.to ? card.session : null)
   return { changed: true, state: "decided" }
 }

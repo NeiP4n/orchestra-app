@@ -175,6 +175,38 @@ describe("AutoloopCards answer", () => {
     )
   })
 
+  test("answering 'Отменить задачу' starts no new run (newRunId null)", async () => {
+    await run(
+      Effect.gen(function* () {
+        yield* applyDecide(
+          { type: "ingest", args: ["user", { id: "evt-1", type: "task.created", subject: "task-1", summary: "make it" }] },
+          T0,
+          1,
+        )
+        for (let round = 1; round <= 5; round += 1) {
+          const now = T0 + round * MINUTE
+          const job = (yield* applyDecide({ type: "claimNext", args: ["worker-1", `claim-${round}`] }, now, round + 1)) as Job
+          yield* applyDecide(
+            { type: "finish", args: [1, job.token, { outcome: "done", summary: "still broken", verifyFailed: true }] },
+            now + 1000,
+            round + 2,
+          )
+        }
+        const cards = yield* AutoloopCards.listOpenCards()
+        const ask = cards.find((card) => card.key === "run:1:verify")!
+        const answered = yield* AutoloopCards.answerCard(ask.id, { choice: 2, by: "satria" }, envAt(T0 + 6 * MINUTE))
+
+        expect(answered.changed).toBe(true)
+        expect(answered.card).toMatchObject({ state: "decided", choice: 2 })
+        expect(answered.newRunId).toBeNull()
+        const { view } = yield* AutoloopStore.openView()
+        const runs = Object.values(view["runs"] ?? {}) as Array<Record<string, unknown>>
+        expect(runs).toHaveLength(1)
+        expect(runs[0]).toMatchObject({ id: 1, state: "cancelled" })
+      }),
+    )
+  })
+
   test("answering the same card twice changes nothing the second time", async () => {
     await run(
       Effect.gen(function* () {

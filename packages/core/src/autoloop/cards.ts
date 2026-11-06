@@ -213,9 +213,11 @@ export function createCard(spec: CreateCardInput, env?: CardsEnv) {
 }
 
 /**
- * Answer a card. An ask answer records `card.answered` and starts a new
- * round when the card belongs to a rule; a notice answer just closes it.
- * `newRunId` is the run the answer started, or null when none started.
+ * Answer a card. An ask answer records `card.answered` (with the chosen
+ * option in the event's detail) and starts a new round when the card belongs
+ * to a rule; a notice answer just closes it. Answering `Отменить задачу`
+ * cancels the task instead and starts no round. `newRunId` is the run the
+ * answer started, or null when none started.
  */
 export function answerCard(id: number, input: AnswerCardInput, env?: CardsEnv) {
   return Effect.gen(function* () {
