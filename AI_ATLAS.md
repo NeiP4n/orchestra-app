@@ -26,7 +26,7 @@ Layers flow `schema → protocol → client` and `schema → core → server →
 | Schemas & domain | `packages/schema` | Serializable entities: config, modes, roles, teams, interactive blocks. Zero internal deps. |
 | HTTP contract | `packages/protocol` | `Effect.HttpApi` endpoint groups, incl. federation groups (`src/groups/orchestra.ts`). |
 | Generated client | `packages/client` | Regenerate with `bun run generate` after Protocol/Server HttpApi changes; never hand-edit. |
-| Domain engine | `packages/core` | Sessions, runner, tools, MCP, federation, forges, the AI standard. |
+| Domain engine | `packages/core` | Sessions, runner, tools, MCP, federation, forges, the AI standard. Prompt intake (`src/prompt-intake/`) deep-processes every user prompt before admission. |
 | Providers/models | `packages/ai` | Model transports, provider adapters (incl. the Zen provider), streaming. |
 | Server | `packages/server` | HttpApi handlers (`src/handlers/*`), SSE, authorization. |
 | CLI & service | `packages/cli` | `orchestra serve`, background-service lifecycle, web-UI assets. |
@@ -328,6 +328,57 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   scheduler for arbitrary scripts. Docs: `docs/shadow-orchestrator.md`.
   Tests: `packages/core/test/autoloop/shadow.test.ts` — fabricated views,
   no DB.
+
+## Prompt intake — `packages/core/src/prompt-intake/`
+
+Built-in, automatic deep processing of every incoming user prompt, so agents
+receive a structured task instead of a raw one-liner. Runs in
+`SessionPrompt.prepare` (`packages/core/src/session/prompt.ts`) after the
+`session.prompt` plugin hook, before the prompt is admitted to the inbox.
+Never blocks admission: any failure falls back to the raw prompt (a warning
+is logged). Continuations ("продолжай", "да", "ok") pass through untouched —
+they are not new tasks.
+
+- **Value check first** (`value.ts`, pure): duplicate → `merge`, already
+  done → `skip`, too vague → `clarify` (1–3 questions), clear → `execute`.
+  Compares against DoD items (open and done), recent user prompts in the
+  session, and autoloop journal titles (cards and runs). Every verdict
+  carries its evidence (kind, ref, title, similarity score); a source that
+  was not consulted is reported in `sources`, never silently treated as
+  "no match". Runs before any deep processing so tokens are never spent on
+  work that already exists.
+- **Understand** (`understand.ts`, pure heuristics, no model): goal (first
+  sentence), context (other sentences + mentioned files/links), constraints
+  (sentences with "не", "только", "без", "only", limits), DoD criteria
+  (goal + verification + no regressions), ambiguities (vague words and
+  missing targets become questions with a default assumption, at most 3),
+  plan (verb-class template: fix/build/research/question/review/test),
+  keywords. `needsModel` is true when the reading is too uncertain to trust.
+- **Model disambiguation** (`model.ts`): only when `needsModel` and the
+  verdict is `execute` or `clarify`. One short JSON call to a cheap model
+  only — `lix/deepseek-v4.1-flash`, fallback `anymodel/gemini-3.8-flash`
+  (`CHEAP_MODEL_PREFERENCE`); when neither resolves, the step is skipped
+  and the heuristic reading stands. Never the session's model and never an
+  expensive model. Any failure (no cheap model, no credentials, timeout
+  30 s, unparsable output) falls back to the heuristic assumptions.
+- **Skills** (`skills.ts`): the module does NOT replace skills. Skills are
+  for executing the task; the module only recommends which ones to load,
+  by keyword overlap against name, description and the head of the skill
+  content (Russian task words map to English skill words via
+  `DOMAIN_ALIASES`), top 3 with a reason. The agent loads them itself.
+- **Service** (`service.ts`): `PromptIntake.Service.process` wires value →
+  understand → model → skills → enriched prompt (original verbatim +
+  structured interpretation). The pure pipeline (`processPure`) is the same
+  without a model or services. Registered as a location node in
+  `packages/core/src/instance.ts`, so it is available in the session scope.
+- **Integration**: the enriched prompt becomes the user message text; a
+  compact intake summary (verdict, goal, questions, skill ids, modelUsed)
+  is attached to the message metadata under `intake`.
+- Tests: `packages/core/test/prompt-intake/` — value (duplicate, subset,
+  done, repeat, failed journal entry, vague, clear, continuation),
+  understand (goal/context/constraints/ambiguities/plan/needsModel),
+  skills (alias matching, top-3), service (mock disambiguator, no model,
+  continuation passthrough, never fails).
 
 ## MCP — `packages/core/src/mcp/`
 
