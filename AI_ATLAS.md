@@ -901,6 +901,43 @@ entirely in layers without KV — the board already says DONE/FAILED, so a map
 write never turns a verify call into a failure. No code assigns tasks by skill
 yet: `bestFor` is the query API waiting for that consumer (follow-up).
 
+## DoD guards — standby, WIP limit, zones, contracts (`packages/core/src/dod.ts`)
+
+The board (`dod.yaml`, lease 5 min, `LEASE_MS`) is guarded on the claim path
+(`Dod.take` / `Dod.next` / `Dod.takeover`, tool `dod` in
+`packages/core/src/tool/plugin/dod.ts`):
+
+- **Standby (idea #19)**: an item names a reserve agent (`standby` /
+  `standby_id`, set by `dod add`); when the holder's lease expires the
+  standby takes it over on its own (`dod takeover`, or `dod take` by the
+  standby), recording `took_over_at` / `took_over_by`. The society's reserve
+  group is named `reserve` (`Zones.RESERVE_GROUP`) and holds no planned tasks.
+- **WIP limit (idea #20)**: at most 3 tasks in work (`IN_PROGRESS` or
+  `BLOCKED`) per group — a 4th concurrent claim is refused with a queue
+  message, `next` skips blocked items. Re-taking an item the caller already
+  holds is not a new claim and is never blocked. Known gap: `dod check` and
+  `dod block` claim a free item without the guards, so they can push a group
+  past 3 in work.
+- **Zones (idea #25, pending block Б11 kanban+zones)**: the registry
+  `.orchestra/zones.yaml` (`packages/core/src/zones.ts`) maps zone → owner
+  group; taking an item from a foreign zone needs a pass
+  (`Zones.grantPass`, tool `dod zone_pass`), but a stale claim is an
+  automatic pass, so a jam never lasts forever. A caller without a group is
+  foreign to every owned zone; a project without a registry has no zones.
+- **Contracts (idea #21)**: module interfaces and data formats are fixed in
+  writing in `.orchestra/contracts.md` (`packages/core/src/contracts.ts`,
+  template via `Contracts.initialize`) before coding; implementation work
+  does not start until the document is `accepted` (`dod contracts_accept`) —
+  the gate is opt-in by the file itself, a project without it has no gate.
+  A change needs a recorded decision (`Contracts.recordChange`: date, what,
+  decided by, reason, ADR id or `-`); the long-form ADR format is slice C's,
+  this log only names its id. Convergence point for the coordinator: if slice
+  C's ADR store lands elsewhere, the log's `ADR:` field points at it.
+- Every guard decision is recorded in `.orchestra/dod-events.jsonl`
+  (`standby.takeover`, `wip.refusal`, `zone.refusal`, `zone.auto-pass`),
+  best-effort: a failed write never fails the claim it records.
+  Tests: `packages/core/test/dod-guards.test.ts`.
+
 
 ## Model collections & custom endpoints
 
@@ -1087,6 +1124,28 @@ never overrides contracts, permissions, isolation or budgets.
   clean-build recorded in `.orchestra/clean-build-log.md`
   (`--record` writes it). Full typecheck needs >= 16 GB; on the 8 GB VM
   use `--smoke`. Docs: `docs/clean-build.md`.
+
+## Integration window — `script/integration-window.sh` (idea #22)
+
+Once per sprint, before the sprint's work is declared done, the branch
+merges into a scratch worktree of `main` and typecheck + tests run per
+package, sequentially — never the root `bun run check`, which runs out of
+memory on small machines (`docs/integration-window.md`). Only committed
+work is merged; the live checkout is never touched and nothing is pushed.
+A failing window blocks the sprint. The scratch worktree lives under
+`$HOME/.cache/orchestra-integration` (`--scratch-dir` overrides it; `/tmp`
+is too small on machines where it is a small tmpfs).
+
+## Release rollback — `script/rollback.sh` (idea #23)
+
+Every release writes its rollback plan ahead, in
+`.orchestra/releases/<version>/rollback.md` (template
+`docs/rollback-template.md`, flow `docs/release-rollback.md`), naming the
+previous good release as `Target:`. The helper verifies the target, tags
+the current HEAD as `rollback/<version>-before-<sha>`, resets to the
+target, and prints the record's Verify steps. It refuses when tracked
+files have uncommitted changes (unless `--force`) and when the release
+has no plan — a release without a written plan cannot roll back in one step.
 
 ## The whole approach — one loop, not a pile of features
 

@@ -1,12 +1,14 @@
 export * as Dod from "./dod.js"
 
 import { randomUUID } from "node:crypto"
-import { chmod, copyFile, link, mkdir, open, rename, stat, unlink, writeFile } from "node:fs/promises"
+import { appendFile, chmod, copyFile, link, mkdir, open, rename, stat, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { Effect, Option, Schema } from "effect"
 import type { Room } from "@orchestra/schema/room"
+import { Contracts } from "./contracts.js"
 import { Instructions } from "./instructions/index.js"
 import { ProjectDirs } from "./project-dirs.js"
+import { Zones } from "./zones.js"
 
 export class DodError extends Schema.TaggedError<DodError>()("Dod.Error", {
   message: Schema.String,
@@ -112,6 +114,13 @@ const Leaf = Schema.Struct({
   steps: Schema.Array(Schema.String).pipe(Schema.optional),
   owner: Schema.String.pipe(Schema.optional),
   owner_id: Schema.String.pipe(Schema.optional),
+  // The reserve agent for the item (idea #19): takes it over on its own when the
+  // holder's lease expires. Name and id, like owner/owner_id.
+  standby: Schema.String.pipe(Schema.optional),
+  standby_id: Schema.String.pipe(Schema.optional),
+  // When and by whom the standby took the item over; written on a takeover.
+  took_over_at: Schema.String.pipe(Schema.optional),
+  took_over_by: Schema.String.pipe(Schema.optional),
   // When the holder took the item and until when its claim runs. A claim is a lease,
   // not a permanent hold: past lease_until the item is free for another session.
   taken_at: Schema.String.pipe(Schema.optional),
@@ -124,6 +133,35 @@ const decodeLeaf = Schema.decodeUnknownOption(Leaf)
 // How long one take holds an item: five minutes of silence, then the item is free again.
 // Every action by the holder renews it, so work in progress never loses its item mid-step.
 export const LEASE_MS = 5 * 60_000
+
+// WIP limit (idea #20): at most three tasks in work per group (stage) — the items in
+// IN_PROGRESS or BLOCKED occupy the "in work" column, the rest wait in queue. A
+// fourth concurrent claim is refused until one of the three finishes or is freed.
+export const WIP_LIMIT = 3
+const WIP_STATES = new Set(["IN_PROGRESS", "BLOCKED"])
+
+// Takeovers, WIP and zone refusals, and automatic zone passes are recorded
+// here, one JSON line each, next to the board: the board says who holds what,
+// this log says what the board's guards did and why. Best-effort: a failed
+// write never fails the claim it records.
+export const EVENTS_FILE = ProjectDirs.primary("dod-events.jsonl")
+
+function recordEvent(directory: string, event: Record<string, string>) {
+  return Effect.tryPromise({
+    try: async () => {
+      const file = ProjectDirs.resolveWrite(directory, "dod-events.jsonl")
+      await mkdir(path.dirname(file), { recursive: true })
+      await appendFile(file, `${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`, "utf8")
+    },
+    catch: () => undefined,
+  }).pipe(
+    // A failed write never fails the claim it records: the error is swallowed
+    // here, so the event effect is infallible and never widens the caller's
+    // error type (a `catch: () => undefined` alone would leak `undefined`
+    // into `Dod.take` / `Dod.takeover` as `DodError | undefined`).
+    Effect.ignore,
+  )
+}
 
 // Who takes an item: a room member, by the ID its token carries, and the name people see.
 export type Owner = { id: string; name: string }
@@ -268,30 +306,186 @@ export const read = Effect.fn("Dod.read")(function* (directory: string, live?: L
   return { items: board.items, status: "ready" } satisfies Room.Dod
 })
 
+// The contracts gate (idea #21): implementation work does not start until the
+// project's module contracts exist and are accepted — or when the project has
+// no contracts document at all, in which case there is nothing to gate on.
+function gate(directory: string) {
+  return Contracts.requireAccepted(directory).pipe(
+    Effect.mapError((error) => new DodError({ message: error.message })),
+  )
+}
+
+// The zone registry, or an empty one when the project has none; a corrupt
+// registry fails the take instead of silently dropping the zones.
+function loadZones(directory: string) {
+  return Zones.load(directory).pipe(Effect.mapError((error) => new DodError({ message: error.message })))
+}
+
+// Whether the owner is the item's recorded standby: by id, or by name when the
+// standby was recorded without one — the same match `owns` uses for holders.
+function isStandby(item: Room.DodItem, owner: Owner) {
+  if (!item.standby) return false
+  return item.standbyID === undefined ? item.standby === owner.name : item.standbyID === owner.id
+}
+
+type GuardOptions = { group?: string; zones: Zones.Registry }
+type GuardOutcome = { refusal?: string; note?: Record<string, string>; takeover?: boolean }
+
+// The guards on every start, after the basic refusal: the WIP limit (idea #20)
+// and the zone pass (idea #25). A standby taking over a stalled item and an
+// automatic zone pass on a stale claim are noted for the event log; the caller
+// records the note.
+function guardOutcome(
+  item: Room.DodItem,
+  owner: Owner,
+  all: readonly Room.DodItem[],
+  options: GuardOptions,
+): GuardOutcome {
+  // The WIP limit counts the group's cards already in work — this item excluded,
+  // so re-taking one's own item or taking over a stalled one never counts twice.
+  // Re-taking an item the caller already holds is not a new concurrent claim at
+  // all, so the limit never blocks it, even when three other cards are in work.
+  const inWork =
+    owns(item, owner) === false
+      ? all.filter(
+          (entry) => entry.id !== item.id && entry.stage === item.stage && WIP_STATES.has(entry.state),
+        ).length
+      : 0
+  if (inWork >= WIP_LIMIT)
+    return {
+      refusal:
+        `${item.id} cannot start: group ${JSON.stringify(item.stage)} already has ${WIP_LIMIT} tasks in work; ` +
+        `it waits in queue until one finishes or is freed`,
+      note: { event: "wip.refusal", item: item.id, group: item.stage, owner: owner.id },
+    }
+  const zoneRefusal = Zones.claimRefusal(
+    options.zones,
+    { id: item.id, stage: item.stage, stale: item.stale },
+    options.group,
+  )
+  if (zoneRefusal)
+    return {
+      refusal: zoneRefusal,
+      note: { event: "zone.refusal", item: item.id, zone: item.stage, group: options.group ?? "" },
+    }
+  if (item.stale === true && isStandby(item, owner))
+    return {
+      note: { event: "standby.takeover", item: item.id, owner: owner.id, from: item.owner ?? "" },
+      takeover: true,
+    }
+  // A stale claim in a foreign zone is the automatic pass: the zone check above
+  // already let it through, so the pass is noted here, not refused.
+  const foreign = Zones.isCrossZone(options.zones, item.stage, options.group)
+  const hasPass =
+    options.group !== undefined && Zones.passFor(options.zones, item.stage, options.group) !== undefined
+  if (item.stale === true && foreign && !hasPass)
+    return { note: { event: "zone.auto-pass", item: item.id, zone: item.stage, group: options.group ?? "" } }
+  return {}
+}
+
+// Why the owner may not start the item, or undefined when it may: the basic
+// refusal plus the guards, without recording anything — `next` skips what it
+// cannot take instead of failing on it.
+function mayClaim(item: Room.DodItem, owner: Owner, all: readonly Room.DodItem[], options: GuardOptions) {
+  return refusal(item, owner) ?? guardOutcome(item, owner, all, options).refusal
+}
+
 // Marks the item as the owner's and in progress. Fails on an item that is finished, that
 // someone else holds, or that waits for items not yet finished. An item whose holder's
 // lease ran out passes to the new owner, whose work continues from its checked steps.
+// The guards apply on every start: the WIP limit (idea #20) and the zone pass
+// (idea #25), and the contracts gate (idea #21). A standby taking over a stalled
+// item, and an automatic zone pass on a stale claim, are recorded in the event log.
 export const take = Effect.fn("Dod.take")(function* (input: {
   directory: string
   id: string
   owner: Owner
   live?: Live
+  // The caller's group, for zone checks: without it the caller is foreign to every zone.
+  group?: string
 }) {
-  return yield* change(
-    input.directory,
-    input.id,
-    input.live,
-    (item) => refusal(item, input.owner) ?? claim(input.owner),
+  yield* gate(input.directory)
+  const zones = yield* loadZones(input.directory)
+  let note: Record<string, string> | undefined
+  return yield* change(input.directory, input.id, input.live, (item, all) => {
+    const basic = refusal(item, input.owner)
+    if (basic) return basic
+    const outcome = guardOutcome(item, input.owner, all, { group: input.group, zones })
+    if (outcome.refusal) {
+      note = outcome.note
+      return outcome.refusal
+    }
+    note = outcome.note
+    const fields = claim(input.owner)
+    if (!outcome.takeover) return fields
+    const now = new Date()
+    return { ...fields, took_over_at: now.toISOString(), took_over_by: input.owner.name }
+  }).pipe(
+    Effect.tapError(() =>
+      note?.event === "wip.refusal" || note?.event === "zone.refusal"
+        ? recordEvent(input.directory, note)
+        : Effect.void,
+    ),
+    Effect.tap(() =>
+      note?.event === "standby.takeover" || note?.event === "zone.auto-pass"
+        ? recordEvent(input.directory, note)
+        : Effect.void,
+    ),
+  )
+})
+
+// The standby takes a stalled item over (idea #19). Only the recorded standby may
+// do this, and only once the holder's lease has expired — the expiry is the stall
+// signal. The takeover is written on the item and in the event log.
+export const takeover = Effect.fn("Dod.takeover")(function* (input: {
+  directory: string
+  id: string
+  owner: Owner
+  live?: Live
+  group?: string
+}) {
+  yield* gate(input.directory)
+  const zones = yield* loadZones(input.directory)
+  let note: Record<string, string> | undefined
+  return yield* change(input.directory, input.id, input.live, (item, all) => {
+    if (FINISHED.has(item.state)) return `${item.id} is already ${finishedWord(item)}`
+    if (!item.stale)
+      return `${item.id} is not stalled: its holder's lease still runs; the standby takes over only after it expires`
+    if (!isStandby(item, input.owner))
+      return `${item.id} standby is ${item.standby ?? "nobody"}; only the standby takes it over`
+    const outcome = guardOutcome(item, input.owner, all, { group: input.group, zones })
+    if (outcome.refusal) {
+      note = outcome.note
+      return outcome.refusal
+    }
+    const now = new Date()
+    note = { event: "standby.takeover", item: item.id, owner: input.owner.id, from: item.owner ?? "" }
+    return {
+      ...claim(input.owner),
+      took_over_at: now.toISOString(),
+      took_over_by: input.owner.name,
+    }
+  }).pipe(
+    Effect.tapError(() =>
+      note?.event === "wip.refusal" || note?.event === "zone.refusal"
+        ? recordEvent(input.directory, note)
+        : Effect.void,
+    ),
+    Effect.tap(() => (note ? recordEvent(input.directory, note) : Effect.void)),
   )
 })
 
 // Takes the first item, in the order of the work, that the owner may start: free and with
 // everything it depends on finished. The owner's own unfinished item comes back first.
-export const next = Effect.fn("Dod.next")(function* (input: { directory: string; owner: Owner; live?: Live }) {
+// Items the WIP limit or a zone pass blocks are skipped, not returned to fail in take.
+export const next = Effect.fn("Dod.next")(function* (input: { directory: string; owner: Owner; live?: Live; group?: string }) {
+  yield* gate(input.directory)
+  const zones = yield* loadZones(input.directory)
   const list = (yield* read(input.directory, input.live)).items
+  const options = { group: input.group, zones }
   const item =
     list.find((entry) => entry.ownerID === input.owner.id && !FINISHED.has(entry.state)) ??
-    list.find((entry) => refusal(entry, input.owner) === undefined)
+    list.find((entry) => mayClaim(entry, input.owner, list, options) === undefined)
   if (!item)
     return yield* new DodError({ message: "No item is ready: the rest are finished, taken or wait for others" })
   return { id: item.id, dod: yield* take({ ...input, id: item.id }) }
@@ -469,6 +663,9 @@ export const add = Effect.fn("Dod.add")(function* (input: {
   steps?: readonly string[]
   verify?: string
   dependsOn?: readonly string[]
+  // The reserve agent for the item (idea #19): takes it over on its own when
+  // the holder's lease expires.
+  standby?: Owner
 }) {
   const what = input.what.trim()
   if (!what) return yield* new DodError({ message: "Name what the item delivers" })
@@ -495,6 +692,7 @@ export const add = Effect.fn("Dod.add")(function* (input: {
         steps: (input.steps ?? []).map((step) => step.trim()).filter(Boolean),
         verify: input.verify?.trim() || undefined,
         dependsOn: input.dependsOn ?? [],
+        standby: input.standby,
       })
       if (after === undefined)
         return yield* new DodError({
@@ -606,6 +804,8 @@ function toItems(list: readonly (typeof Leaf.Type)[], live?: Live) {
       total: steps.length,
       ...(leaf.owner?.trim() ? { owner: leaf.owner.trim() } : {}),
       ...(ownerID ? { ownerID } : {}),
+      ...(leaf.standby?.trim() ? { standby: leaf.standby.trim() } : {}),
+      ...(leaf.standby_id?.trim() ? { standbyID: leaf.standby_id.trim() } : {}),
       ...(stale ? { stale: true } : {}),
       ...(waits.length > 0 ? { waits } : {}),
       ...(verify ? { verify } : {}),
@@ -627,7 +827,7 @@ function change(
   directory: string,
   id: string,
   live: Live | undefined,
-  decide: (item: Room.DodItem) => string | Record<string, string | undefined>,
+  decide: (item: Room.DodItem, all: readonly Room.DodItem[]) => string | Record<string, string | undefined>,
   more: (text: string) => string | undefined = (text) => text,
 ): Effect.Effect<Room.Dod, DodError> {
   const file = ProjectDirs.resolveWrite(directory, "dod.yaml")
@@ -639,7 +839,7 @@ function change(
       const list = yield* items(before, live)
       const item = list.find((entry) => entry.id === id)
       if (!item) return yield* new DodError({ message: `The DoD has no item ${id}` })
-      const fields = decide(item)
+      const fields = decide(item, list)
       if (typeof fields === "string") return yield* new DodError({ message: fields })
       const edited = edit(before, id, fields)
       const after = edited === undefined ? undefined : more(edited)
@@ -880,7 +1080,15 @@ export function mark(text: string, id: string, step: number, checked: boolean) {
 // The board's text with a new item at the end of leaves; undefined when leaves is not a block list.
 export function append(
   text: string,
-  item: { id: string; what: string; group?: string; steps: string[]; verify?: string; dependsOn: readonly string[] },
+  item: {
+    id: string
+    what: string
+    group?: string
+    steps: string[]
+    verify?: string
+    dependsOn: readonly string[]
+    standby?: Owner
+  },
 ) {
   const lines = (text.endsWith("\n") ? text.slice(0, -1) : text).split("\n")
   const header = lines.findIndex((line) => /^leaves:/.test(line))
@@ -900,6 +1108,9 @@ export function append(
     `${" ".repeat(pad)}- id: ${item.id}`,
     `${key}what: ${JSON.stringify(item.what)}`,
     ...(item.group ? [`${key}group: ${JSON.stringify(item.group)}`] : []),
+    ...(item.standby
+      ? [`${key}standby: ${JSON.stringify(item.standby.name)}`, `${key}standby_id: ${JSON.stringify(item.standby.id)}`]
+      : []),
     `${key}task_state: NOT_STARTED`,
     ...(item.steps.length > 0
       ? [

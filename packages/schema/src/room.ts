@@ -175,6 +175,10 @@ export const DodItem = Schema.Struct({
   owner: Schema.String.pipe(Schema.optional),
   // The room member who holds it; absent for items the host's own people or AIs marked.
   ownerID: Schema.String.pipe(Schema.optional),
+  // The reserve agent for the item: takes it over on its own when the holder's
+  // lease expires (standby takeover, idea #19). Name and id, like owner/ownerID.
+  standby: Schema.String.pipe(Schema.optional),
+  standbyID: Schema.String.pipe(Schema.optional),
   // The holder left the room or has been silent past the lease, so anyone may take it over.
   stale: Schema.Boolean.pipe(Schema.optional),
   // Set on a guest's own items in what that guest reads.
