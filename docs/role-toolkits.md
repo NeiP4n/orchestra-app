@@ -64,7 +64,10 @@ The map alone does not fix the Б14 failures; the mechanisms it points at do
   IDs stay private by design).
 - **(d) Context compaction for roles** — the context governor
   (`packages/core/src/session/context-governor.ts`) elides old bulky tool
-  output and old assistant tool-call arguments past the soft limit.
+  output and old assistant tool-call arguments past the soft limit. Measured
+  on a planner-like transcript of 8 dispatches with 4k briefs: raw 18_647
+  estimated tokens, results-only governor 11_824, calls+results 6_033
+  (−68% vs raw, −49% vs the old governor).
 - **(e) Stale session outcome** — the projector clears `idle_outcome` when a
   drain starts, so a resumed session no longer reads "failed" from its last run.
 - **(f) Favorites reflect health** — `AiStandard.decideModel`/`rankFavorites`
