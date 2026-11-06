@@ -111,23 +111,28 @@ describe("web UI", () => {
         transform,
       )
       const origin = HttpServer.formatAddress(server.address)
-      yield* Effect.forEach(["GET", "HEAD"], (method) =>
-        Effect.gen(function* () {
-          const response = yield* Effect.promise(() => fetch(new URL("/recovery", origin), { method }))
-          expect(response.status).toBe(200)
-          expect(response.headers.get("www-authenticate")).toBeNull()
-          expect(response.headers.get("cache-control")).toBe("no-store")
-          expect(response.headers.get("content-security-policy")).toContain("default-src 'self'")
-          if (method === "GET") {
-            expect(response.headers.get("content-type")).toContain("text/html")
-            const body = yield* Effect.promise(() => response.text())
-            expect(body).toContain("восстановление")
-            expect(body).toContain("/api/recovery/models")
-            expect(body).toContain("/api/recovery/chat")
-          } else {
-            yield* Effect.promise(() => response.arrayBuffer())
-          }
-        }),
+      // T3-9/T3-10: every spelling of the recovery entry serves the mini-chat
+      // and refuses to be framed by another site.
+      yield* Effect.forEach(["/recovery", "/recovery/", "/RECOVERY", "/Recovery/"], (pathname) =>
+        Effect.forEach(["GET", "HEAD"], (method) =>
+          Effect.gen(function* () {
+            const response = yield* Effect.promise(() => fetch(new URL(pathname, origin), { method }))
+            expect(response.status).toBe(200)
+            expect(response.headers.get("www-authenticate")).toBeNull()
+            expect(response.headers.get("cache-control")).toBe("no-store")
+            expect(response.headers.get("content-security-policy")).toContain("default-src 'self'")
+            expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'self'")
+            if (method === "GET") {
+              expect(response.headers.get("content-type")).toContain("text/html")
+              const body = yield* Effect.promise(() => response.text())
+              expect(body).toContain("восстановление")
+              expect(body).toContain("/api/recovery/models")
+              expect(body).toContain("/api/recovery/chat")
+            } else {
+              yield* Effect.promise(() => response.arrayBuffer())
+            }
+          }),
+        ),
       )
     }).pipe(Effect.provide(NodeFileSystem.layer)),
   )
@@ -259,6 +264,7 @@ describe("web UI", () => {
           expect(fallback.headers.get("content-security-policy")).toContain("default-src 'self'")
           expect(fallback.headers.get("content-security-policy")).toContain("connect-src * data: blob:")
           expect(fallback.headers.get("content-security-policy")).toContain("worker-src 'self' blob:")
+          expect(fallback.headers.get("content-security-policy")).toContain("frame-ancestors 'self'")
 
           const dotted = yield* Effect.promise(() => fetch(`${origin}/workspace/example.js`))
           expect(dotted.status).toBe(200)
@@ -285,6 +291,7 @@ describe("web UI", () => {
             Effect.gen(function* () {
               const response = yield* Effect.promise(() => fetch(`${origin}${pathname}`))
               expect(response.status).toBe(500)
+              expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'self'")
               const body = yield* Effect.promise(() => response.text())
               expect(body).toContain("Web UI is not built")
               expect(body).toContain("bun run build")

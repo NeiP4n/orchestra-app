@@ -32,14 +32,16 @@ export const handler = Effect.fn("cli.web-ui.handler")(function* (options?: {
         )
       // The recovery mini-chat is a static page with no build step: it must open even when the
       // main app bundle is broken or was never built, so it never touches the UI assets.
-      if (url.pathname === "/recovery") {
+      // /recovery, /recovery/ and /RECOVERY are the same entry: the mini-chat must open from
+      // a typed or pasted URL, so the path is matched case-insensitively with an optional slash.
+      if (url.pathname.replace(/\/+$/, "").toLowerCase() === "/recovery") {
         if (request.method !== "GET" && request.method !== "HEAD")
           return HttpServerResponse.empty({ status: 405 })
         const recoveryHeaders = {
           "cache-control": "no-store",
           "content-type": "text/html; charset=utf-8",
           "content-security-policy":
-            "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'none'; font-src 'none'",
+            "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'none'; font-src 'none'; frame-ancestors 'self'",
           "x-content-type-options": "nosniff",
         }
         return request.method === "HEAD"
@@ -96,7 +98,7 @@ function serveUI(
 function webUiNotBuiltResponse() {
   return HttpServerResponse.text(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Orchestra web UI is not built</title><style>body{font-family:system-ui,sans-serif;margin:40px auto;max-width:560px;padding:0 16px;color:#222}code{background:#f0f0f0;padding:2px 6px;border-radius:4px}</style></head><body><h1>Orchestra web UI is not built</h1><p>${WEB_UI_NOT_BUILT_MESSAGE}</p><p>Run <code>bun run build</code> in <code>packages/app</code>, then restart <code>orchestra serve</code>.</p></body></html>`,
-    { status: 500, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" } },
+    { status: 500, headers: { "cache-control": "no-store", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self'", "x-content-type-options": "nosniff" } },
   )
 }
 
@@ -114,7 +116,7 @@ function isRouteNotFound(error: unknown) {
 // qr-scanner decodes in a worker it creates from a blob: URL whenever the browser has no BarcodeDetector (Safari, desktop
 // Chrome on Windows and Linux). Without worker-src that worker falls under script-src 'self' and never starts.
 function csp(hash = "") {
-  return `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'${hash ? ` 'sha256-${hash}'` : ""}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; media-src 'self' data:; connect-src * data: blob:; worker-src 'self' blob:`
+  return `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'${hash ? ` 'sha256-${hash}'` : ""}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; media-src 'self' data:; connect-src * data: blob:; worker-src 'self' blob:; frame-ancestors 'self'`
 }
 
 function cspForHtml(body: string) {
