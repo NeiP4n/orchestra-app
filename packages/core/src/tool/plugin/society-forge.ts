@@ -262,6 +262,10 @@ export const Plugin = {
                   Effect.gen(function* () {
                     const created: Orchestra.Project[] = []
                     const briefs = new Map<Orchestra.ProjectID, string>()
+                    // Team projects that opened no workers: generate still
+                    // records "generated" for the projects, so a zero-worker
+                    // team must be loud in the output instead of silent (N-04).
+                    const workerWarnings: Array<string> = []
                     // Read inside the lock: a generate that ran a moment ago has already made projects this
                     // call would otherwise duplicate.
                     const current = yield* orchestra.projects()
@@ -340,7 +344,13 @@ export const Plugin = {
                       // A built-in team opens no roster by itself (only the
                       // Orchestrator): open one worker per role now, or the
                       // project starts with nobody to do the work.
-                      else if (spec.team) yield* openTeamWorkers(project, spec.team)
+                      else if (spec.team) {
+                        const opened = yield* openTeamWorkers(project, spec.team)
+                        if (opened === 0)
+                          workerWarnings.push(
+                            `project "${spec.name}" opened no workers for team "${spec.team}" (the template staffs no roles); it has only its Orchestrator.`,
+                          )
+                      }
                     }
                     // Whatever was created joins the Society even if a later project failed, so no project is
                     // left behind without a group.
@@ -381,6 +391,7 @@ export const Plugin = {
                 result.failedBriefs.length > 0
                   ? `WARNING: the brief did not reach: ${result.failedBriefs.join(", ")}. Re-run generate with the same goal and projects — it is idempotent and re-delivers the missing briefs.`
                   : undefined,
+                workerWarnings.length > 0 ? `WARNING: ${workerWarnings.join(" ")}` : undefined,
                 Result.isFailure(generation)
                   ? `WARNING: the generation stage could not be recorded (${String(generation.failure)}).`
                   : undefined,

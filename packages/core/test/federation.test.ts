@@ -706,6 +706,20 @@ describe("Federation", () => {
     }),
   )
 
+  it.live("createSociety counts the team workers it opened (G2-15)", () =>
+    Effect.gen(function* () {
+      const { society } = yield* foundSociety("TeamCountTest", "Count the crew")
+      // The "system" template staffs eleven roles; all must open and be alive
+      // when read back, or the creation reports the shortfall instead of
+      // looking complete.
+      expect(society.team.expected).toBe(11)
+      expect(society.team.opened).toBe(11)
+      expect(society.team.live).toBe(11)
+      expect(society.team.failedRoles).toEqual([])
+      expect(society.team.unverifiedRoles).toEqual([])
+    }),
+  )
+
   it.live("a stored society plan reaches a worker created later", () =>
     Effect.gen(function* () {
       const federation = yield* Federation.Service

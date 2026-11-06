@@ -383,6 +383,20 @@ messages and builds the rest with `society_forge generate` and `society_plan`.
   role at once — in `createSociety` for the team project and in `generate` for
   base and extra projects — never zero workers. Operator-saved templates open
   their saved roster at creation instead.
+- Before anything is created, `createSociety` runs the provider preflight
+  (`SocietyPreflight.checkLive`, `packages/core/src/society-preflight.ts`):
+  an Anymodel key must be stored (credential store first, provider settings
+  second) and alive (`GET /models`), and the planner's model must be served.
+  A failed preflight refuses the creation with the fix named; without
+  Credential/Provider services in the layer the check is skipped, never a
+  false failure. The same preflight runs at server boot (logged, never
+  blocking boot) and gates `resumeGeneration`: a Society whose provider is
+  dead is not woken.
+- The team workers are counted, not assumed (`openSocietyTeam`): one retry
+  per failed role, then a live read-back of every opened session. The
+  creation result carries `team: {expected, opened, live, failedRoles,
+  unverifiedRoles}`. Zero live workers fails the creation and rolls it back;
+  a partial team stands, with a warning, for the planner to top up.
 - Generation is tracked in the federation KV store (`founded` → `generated` →
   `planned`, forward only): `generate` records `generated`, `society_plan apply`
   records `planned`. The goal is delivered to the planner with confirmation

@@ -21,6 +21,7 @@ import { Model } from "./model.js"
 import { Session } from "./session.js"
 import { SessionPlan } from "./session/plan.js"
 import { Society } from "./society.js"
+import { SocietyPreflight } from "./society-preflight.js"
 import { Dod } from "./dod.js"
 import { Rules } from "./rules.js"
 import { SessionHold } from "./session/hold.js"
@@ -44,6 +45,62 @@ export const modeOf = Federation.modeOf
 export class FederationError extends Schema.TaggedError<FederationError>()("Federation.Error", {
   message: Schema.String,
 }) {}
+
+// G2-15: what opening a Society team's workers actually produced. `expected`
+// is the roster the template staffs, `opened` how many `createMember` calls
+// succeeded (after one retry each), `live` how many of those sessions still
+// exist when read back, and the role lists name what did not make it.
+export interface TeamWorkerOutcome {
+  readonly expected: number
+  readonly opened: number
+  readonly live: number
+  readonly failedRoles: ReadonlyArray<string>
+  readonly unverifiedRoles: ReadonlyArray<string>
+}
+
+// Opens one worker per role of a built-in team template: a first pass, one
+// retry for every role that failed, then a live read-back of every opened
+// session. Failures are collected, never thrown: the caller decides whether
+// a partial team may stand or the creation must fail. The opener and the
+// verifier are injected so tests can drive failures without a live Orchestra.
+export const openSocietyTeam = Effect.fn("Federation.openSocietyTeam")(function* (input: {
+  readonly roles: ReadonlyArray<Orchestra.Role>
+  readonly open: (role: Orchestra.Role) => Effect.Effect<{ readonly id: SessionID }, unknown>
+  readonly verify: (id: SessionID) => Effect.Effect<boolean>
+}): Effect.Effect<TeamWorkerOutcome> {
+  const opened: Array<{ readonly role: Orchestra.Role; readonly id: SessionID }> = []
+  const failed: Array<Orchestra.Role> = []
+  const attempt = (role: Orchestra.Role) =>
+    input.open(role).pipe(
+      Effect.tap((session) => Effect.sync(() => opened.push({ role, id: session.id }))),
+      // A failed open is collected, not thrown: the caller decides whether a
+      // partial team may stand. Defects are not caught: a bug in worker
+      // creation must fail loudly, not hide behind a warning.
+      Effect.catch((error) =>
+        Effect.gen(function* () {
+          failed.push(role)
+          yield* Effect.logWarning("Could not open a worker for the Society team project", {
+            role: role.id,
+            error,
+          })
+        }),
+      ),
+    )
+  for (const role of input.roles) yield* attempt(role)
+  // One retry for the roles the first pass lost: a transient main-session
+  // race must not leave the team short. A second failure is final.
+  const retry = failed.splice(0, failed.length)
+  for (const role of retry) yield* attempt(role)
+  const alive = yield* Effect.forEach(opened, (entry) => input.verify(entry.id), { concurrency: 4 })
+  const unverified = opened.filter((_, index) => !alive[index]).map((entry) => entry.role.id)
+  return {
+    expected: input.roles.length,
+    opened: opened.length,
+    live: alive.filter(Boolean).length,
+    failedRoles: failed.map((role) => role.id),
+    unverifiedRoles: unverified,
+  }
+})
 
 export interface Interface {
   readonly policy: (project: Orchestra.ProjectID) => Effect.Effect<Policy>
@@ -116,10 +173,17 @@ export interface Interface {
     projects: readonly Orchestra.ProjectID[]
     mode: CoordinationMode
   }) => Effect.Effect<{ sessionID: SessionID; title: string; directory: string }, FederationError>
+  // Provider preflight (G2-1): whether the Society's models can actually run
+  // — Anymodel key stored and alive, planner model served. `failed` refuses
+  // creation before anything exists; `skipped` means this layer cannot verify
+  // (no Credential/Provider services) and callers proceed as before.
+  readonly preflight: () => Effect.Effect<SocietyPreflight.PreflightResult>
   // Creates a whole Society in one step: a folder for it, a coordinator project inside it, the
   // council group and its chat. Everything else is generated later, from the operator's goal.
   // `generation` says where that later work stands: the goal reached the planner
   // (kickoffDelivered) or it did not, in which case the Society must be resumed, not trusted.
+  // `team` counts the built-in template's workers: expected, opened, and
+  // still alive when read back (zeros when no team template was used).
   readonly createSociety: (input: {
     // Without a name the Society is named after its goal.
     name?: string
@@ -135,6 +199,7 @@ export interface Interface {
       directory: string
       project: Orchestra.Project
       generation: { stage: Society.GenerationStage; kickoffDelivered: boolean }
+      team: TeamWorkerOutcome
     },
     FederationError
   >
@@ -1126,6 +1191,13 @@ const layer: Layer.Layer<
           .pipe(Effect.catchTag("Session.NotFoundError", () => Effect.void))
     })
 
+    // G2-1: the provider preflight, shared by createSociety, resumeGeneration
+    // and the server-start log. A layer without the Credential/Provider
+    // services reports `skipped` and changes nothing.
+    const preflight = Effect.fn("Federation.preflight")(function* () {
+      return yield* SocietyPreflight.checkLive()
+    })
+
     // Restarts a Society whose generation never finished: the goal is
     // delivered to the planner again (same message id as the original
     // kickoff, so the planner's inbox keeps one copy) and the planner's main
@@ -1137,6 +1209,23 @@ const layer: Layer.Layer<
       if (!generation || generation.stage !== "founded" || !generation.goal) return
       const group = (yield* groups()).find((item) => item.name === name.trim())
       if (!group || group.projects.length === 0) return
+      // G2-1 (N-09): never wake a Society whose provider is dead — a resume
+      // without a working key repeats B14 (kickoff → 401/timeout → founded).
+      // A failed preflight leaves the Society founded and quiet, so the
+      // operator can fix the key and retry instead of watching it stall again.
+      const checked = yield* preflight()
+      if (checked.status === "failed") {
+        yield* Effect.logWarning(
+          "Society provider preflight failed: not resuming Society without a working provider",
+          { society: name, reason: checked.reason, message: checked.message, action: checked.action },
+        )
+        return
+      }
+      if (checked.status === "skipped")
+        yield* Effect.logWarning("Society provider preflight skipped: resuming Society without verifying its provider", {
+          society: name,
+          reason: checked.reason,
+        })
       const known = yield* orchestra.projects()
       const existing = group.projects.slice(1).flatMap((id) => {
         const project = known.find((item) => item.id === id)
@@ -1170,6 +1259,7 @@ const layer: Layer.Layer<
       generation: generationOf,
       recordGeneration: recordGenerationStep,
       resumeGeneration,
+      preflight,
       recordSocietyPlan,
       societyPlanFor: societyPlanOf,
       applyStoredPlan,
@@ -1596,6 +1686,20 @@ const layer: Layer.Layer<
           )
       }),
       createSociety: Effect.fn("Federation.createSociety")(function* (input) {
+        // G2-1: the provider is verified BEFORE anything is created. B14
+        // founded a Society with no key and learned it only from the first
+        // model's 401; a refusal here names the fix instead.
+        const checked = yield* preflight()
+        if (checked.status === "failed")
+          return yield* new FederationError({
+            message: `Cannot create the Society: ${checked.message} ${checked.action}`,
+          })
+        if (checked.status === "skipped")
+          yield* Effect.logWarning("Society provider preflight skipped: creating Society without verifying its provider", {
+            reason: checked.reason,
+          })
+        else if (checked.warnings.length > 0)
+          yield* Effect.logWarning("Society provider preflight passed with warnings", { warnings: checked.warnings })
         const given = input.name?.trim()
         const taken = new Set((yield* groups()).map((item) => item.name))
         if (given && taken.has(given))
@@ -1667,16 +1771,26 @@ const layer: Layer.Layer<
         // A built-in team template opens no roster by itself (only the
         // Orchestrator): open one worker per role now, or the Society's
         // working project starts with nobody to do the work — the same hole
-        // generate already closes. A worker that fails to open is logged,
-        // not fatal: the planner tops the team up anyway. Defects are not
-        // caught here: a bug in worker creation must fail loudly, not hide
-        // behind a warning.
+        // generate already closes. G2-15: the result is counted, not assumed
+        // — one retry per failed role, then a live read-back of every opened
+        // session. Zero live workers is a failed creation, not a Society with
+        // an empty team; a partial team stands, loudly, for the planner to
+        // top up. Defects are not caught here: a bug in worker creation must
+        // fail loudly, not hide behind a warning.
+        let teamOutcome: TeamWorkerOutcome = {
+          expected: 0,
+          opened: 0,
+          live: 0,
+          failedRoles: [],
+          unverifiedRoles: [],
+        }
         if (team && template?.origin === "builtin") {
           const teamRoles = Orchestra.rolesForTemplate(template, yield* orchestra.roles())
-          for (const teamRole of teamRoles) {
-            const choice = Orchestra.workerModels(workerPolicy, teamRole, { favorites, catalog: available })
-            yield* orchestra
-              .createMember({
+          teamOutcome = yield* openSocietyTeam({
+            roles: teamRoles,
+            open: (teamRole) => {
+              const choice = Orchestra.workerModels(workerPolicy, teamRole, { favorites, catalog: available })
+              return orchestra.createMember({
                 project: team,
                 agent: teamRole.agent,
                 title: teamRole.name,
@@ -1684,15 +1798,28 @@ const layer: Layer.Layer<
                 model: choice.model,
                 models: choice.models,
               })
-              .pipe(
-                Effect.catch((error) =>
-                  Effect.logWarning("Could not open a worker for the Society team project", {
-                    role: teamRole.id,
-                    error,
-                  }),
-                ),
-              )
+            },
+            verify: (id) => sessions.get(id).pipe(Effect.option, Effect.map(Option.isSome)),
+          })
+          if (teamOutcome.expected > 0 && teamOutcome.live === 0) {
+            // Nothing to build with: take the creation back out instead of
+            // leaving a founded Society with an empty team (the B14 shape).
+            yield* kv.remove(SOCIETY + name)
+            yield* orchestra.remove(team.id).pipe(Effect.ignore)
+            yield* orchestra.remove(project.id).pipe(Effect.ignore)
+            return yield* new FederationError({
+              message: `Could not open any worker for the ${template.name} team (${teamOutcome.expected} roles, none alive after a retry). The Society was not created. Fix the worker failures and retry.`,
+            })
           }
+          if (teamOutcome.live < teamOutcome.expected)
+            yield* Effect.logWarning("Society team is short: some workers did not open", {
+              society: name,
+              expected: teamOutcome.expected,
+              opened: teamOutcome.opened,
+              live: teamOutcome.live,
+              failedRoles: teamOutcome.failedRoles,
+              unverifiedRoles: teamOutcome.unverifiedRoles,
+            })
         }
         yield* setGroup({ name, projects, mode: "council" })
         // A Society without its chat is unusable and would only be left behind, so a failure here
@@ -1754,6 +1881,7 @@ const layer: Layer.Layer<
           directory: home,
           project,
           generation: { stage: "founded" as const, kickoffDelivered },
+          team: teamOutcome,
         }
       }),
       societyFolder: ({ society, project }) => societyFolder(society, project),

@@ -1239,7 +1239,7 @@ describe("Config", () => {
                     path.join(tmp.path, "opencode.jsonc"),
                     `{
                       // Ignored reference: {file:missing.txt}
-                      "username": "user-{env:ORCHESTRA_TEST_MISSING}",
+                      "username": "user-{env:ORCHESTRA_TEST_MCP_TOKEN}",
                       "mcp": {
                         "servers": {
                           "remote": {
@@ -1260,7 +1260,7 @@ describe("Config", () => {
               return yield* Effect.gen(function* () {
                 const config = yield* Config.Service
                 const document = (yield* config.entries()).find((entry) => entry.type === "document")
-                expect(document?.info.username).toBe("user-")
+                expect(document?.info.username).toBe("user-secret")
                 const remote = document?.info.mcp?.servers?.remote
                 expect(remote?.type).toBe("remote")
                 if (remote?.type !== "remote") return
@@ -1278,6 +1278,52 @@ describe("Config", () => {
           else process.env.ORCHESTRA_TEST_MCP_TOKEN = previous.token
           if (previous.missing === undefined) delete process.env.ORCHESTRA_TEST_MISSING
           else process.env.ORCHESTRA_TEST_MISSING = previous.missing
+        }),
+    ),
+  )
+
+  // N-02: a missing {env:} reference used to empty silently into "" (a
+  // provider starting with an empty key, dying only on its first 401). Now
+  // the substitution fails and the document is skipped with a loud error,
+  // while the rest of the config still loads.
+  it.live("skips a document whose environment reference is missing instead of emptying it", () =>
+    Effect.acquireUseRelease(
+      Effect.sync(() => {
+        const previous = process.env.ORCHESTRA_TEST_MISSING
+        delete process.env.ORCHESTRA_TEST_MISSING
+        return previous
+      }),
+      () =>
+        Effect.acquireUseRelease(
+          Effect.promise(() => tmpdir()),
+          (tmp) =>
+            Effect.gen(function* () {
+              yield* Effect.promise(() =>
+                Promise.all([
+                  fs.writeFile(
+                    path.join(tmp.path, "opencode.jsonc"),
+                    `{
+                      "username": "user-{env:ORCHESTRA_TEST_MISSING}",
+                      "mcp": { "servers": { "remote": { "type": "remote", "url": "https://example.com/mcp" } } }
+                    }`,
+                  ),
+                  fs.writeFile(path.join(tmp.path, "orchestra.json"), `{"username": "orchestra-user"}`),
+                ]),
+              )
+
+              return yield* Effect.gen(function* () {
+                const config = yield* Config.Service
+                const documents = (yield* config.entries()).filter((entry) => entry.type === "document")
+                // The broken document is gone; the good one still loads.
+                expect(documents.map((document) => document.info.username)).toEqual(["orchestra-user"])
+              }).pipe(Effect.provide(testLayer(tmp.path)))
+            }),
+          (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+        ),
+      (previous) =>
+        Effect.sync(() => {
+          if (previous === undefined) delete process.env.ORCHESTRA_TEST_MISSING
+          else process.env.ORCHESTRA_TEST_MISSING = previous
         }),
     ),
   )
