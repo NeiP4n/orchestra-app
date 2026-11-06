@@ -5,7 +5,7 @@ import { Hub } from "@orchestra/core/hub/index"
 import { PROMPT_ORCHESTRATOR, PROMPT_PRESIDENT } from "@orchestra/core/plugin/agent"
 import { roomGuard } from "@orchestra/core/plugin/room-rules"
 import { TeamPlugin } from "@orchestra/core/plugin/team"
-import { checksOf, evidenceOf, outcomeOf, toolAllowed, toolRules, transcriptNote } from "@orchestra/core/orchestra"
+import { checksOf, commandsOf, evidenceOf, failingTestOf, isTestCommand, outcomeOf, toolAllowed, toolRules, transcriptNote, verificationOf } from "@orchestra/core/orchestra"
 import { Permission } from "@orchestra/core/permission"
 import { DateTime } from "effect"
 
@@ -462,5 +462,134 @@ describe("transcript evidence written by the system", () => {
 
   test("says nothing when the worker only looked", () => {
     expect(transcriptNote([assistant(1, ["read"], ["grep"])])).toBe("")
+  })
+})
+
+describe("failing-test proof from the transcript (M-02)", () => {
+  const shell = (created: number, command: string, status: "exited" | "timeout" | "killed" | "running", exit?: number, output?: string) =>
+    ({
+      type: "shell",
+      time: { created: DateTime.makeUnsafe(created) },
+      command,
+      status,
+      ...(exit === undefined ? {} : { exit }),
+      ...(output === undefined
+        ? {}
+        : { output: { output, cursor: 0, size: output.length, truncated: false } }),
+    }) as never
+  const assistant = (created: number, ...tools: Array<[string, Record<string, unknown>?]>) =>
+    ({
+      type: "assistant",
+      time: { created: DateTime.makeUnsafe(created) },
+      content: tools.map(([name, input]) => ({ type: "tool", name, state: { status: "completed", input: input ?? {} } })),
+    }) as never
+
+  test("a failing test before the first edit declares the fix, with its file and run", () => {
+    const proof = failingTestOf([
+      shell(1, "bun test packages/core/test/cards.test.ts", "exited", 1, "FAIL  packages/core/test/cards.test.ts\n2 fail\n0 pass"),
+      assistant(2, ["edit", { path: "packages/core/src/autoloop/cards.ts" }]),
+      shell(3, "bun test packages/core/test/cards.test.ts", "exited", 0, "14 pass\n0 fail"),
+    ])
+    expect(proof.fixTask).toBe(true)
+    expect(proof.failingTest).toEqual({
+      file: "packages/core/test/cards.test.ts",
+      run: "FAIL  packages/core/test/cards.test.ts\n2 fail",
+    })
+  })
+
+  test("a test that only fails after the fix is not the failing-first proof", () => {
+    expect(
+      failingTestOf([
+        assistant(1, ["edit", { path: "packages/core/src/autoloop/cards.ts" }]),
+        shell(2, "bun test packages/core/test/cards.test.ts", "exited", 1, "FAIL  packages/core/test/cards.test.ts"),
+      ]),
+    ).toEqual({ fixTask: false })
+  })
+
+  test("a passing test before the edit is not a fix", () => {
+    expect(
+      failingTestOf([
+        shell(1, "bun test packages/core/test/cards.test.ts", "exited", 0, "14 pass"),
+        assistant(2, ["edit", { path: "packages/core/src/autoloop/cards.ts" }]),
+      ]),
+    ).toEqual({ fixTask: false })
+  })
+
+  test("a failing test with no file to pin down still declares the fix, without proof", () => {
+    expect(
+      failingTestOf([
+        shell(1, "bun test", "exited", 1, "something failed, no file named"),
+        assistant(2, ["edit", { path: "packages/core/src/autoloop/cards.ts" }]),
+      ]),
+    ).toEqual({ fixTask: true })
+  })
+
+  test("failing tests with no edit at all are not a fix task", () => {
+    expect(
+      failingTestOf([shell(1, "bun test packages/core/test/cards.test.ts", "exited", 1, "FAIL  x")]),
+    ).toEqual({ fixTask: false })
+  })
+
+  test("a failing non-test command before the edit is not a fix", () => {
+    expect(
+      failingTestOf([
+        shell(1, "bunx tsc --noEmit", "exited", 1, "error TS2322"),
+        assistant(2, ["edit", { path: "packages/core/src/autoloop/cards.ts" }]),
+      ]),
+    ).toEqual({ fixTask: false })
+  })
+
+  test("a timed-out test run counts as failing", () => {
+    expect(
+      failingTestOf([
+        shell(1, "pytest tests/test_cards.py", "timeout", undefined, "ran too long"),
+        assistant(2, ["edit", { path: "cards.py" }]),
+      ]).fixTask,
+    ).toBe(true)
+  })
+})
+
+describe("two-method verification from CHECKS and transcript (M-02)", () => {
+  const assistant = (created: number, ...tools: Array<[string, Record<string, unknown>?]>) =>
+    ({
+      type: "assistant",
+      time: { created: DateTime.makeUnsafe(created) },
+      content: tools.map(([name, input]) => ({ type: "tool", name, state: { status: "completed", input: input ?? {} } })),
+    }) as never
+
+  test("names a test command and the transcript when both back the report", () => {
+    const messages = [assistant(1, ["shell", { command: "bun test packages/core/test/cards.test.ts" }], ["edit"])]
+    const checks = checksOf("DONE\nCHECKS:\n- bun test — PASS (14 pass)")
+    const evidence = evidenceOf([assistant(1, ["shell", { command: "bun test packages/core/test/cards.test.ts" }])])
+    expect(verificationOf(checks, evidence, commandsOf(messages))).toEqual([
+      { kind: "test", detail: "CHECKS: 1 passed — bun test packages/core/test/cards.test.ts" },
+      { kind: "transcript", detail: "transcript: 1 command(s) ran, last: bun test packages/core/test/cards.test.ts" },
+    ])
+  })
+
+  test("a non-test check is a command, not a test", () => {
+    const verification = verificationOf(
+      { executed: 1, failed: 0, notRun: 0 },
+      { ran: true, editedAfterRun: false },
+      ["bunx tsc --noEmit"],
+    )
+    expect(verification?.[0]?.kind).toBe("command")
+    expect(verification?.map((item) => item.kind)).toEqual(["command", "transcript"])
+  })
+
+  test("no second method when a check failed, nothing ran, or edits came after", () => {
+    expect(verificationOf({ executed: 1, failed: 1, notRun: 0 }, { ran: true, editedAfterRun: false }, ["bun test"])).toBeUndefined()
+    expect(verificationOf({ executed: 0, failed: 0, notRun: 0 }, { ran: true, editedAfterRun: false }, ["bun test"])).toBeUndefined()
+    expect(verificationOf({ executed: 1, failed: 0, notRun: 0 }, { ran: false, editedAfterRun: false }, ["bun test"])).toBeUndefined()
+    expect(verificationOf({ executed: 1, failed: 0, notRun: 0 }, { ran: true, editedAfterRun: true }, ["bun test"])).toBeUndefined()
+  })
+
+  test("recognizes the usual test runners and nothing else", () => {
+    for (const command of ["bun test", "bun run test", "npm test", "npm run test", "yarn test", "pnpm test", "pytest", "go test ./...", "cargo test", "flutter test", "vitest run", "node --test"]) {
+      expect(isTestCommand(command)).toBe(true)
+    }
+    for (const command of ["bunx tsc --noEmit", "bun run lint", "npm run build", "git status"]) {
+      expect(isTestCommand(command)).toBe(false)
+    }
   })
 })

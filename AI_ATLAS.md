@@ -299,7 +299,16 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
     recorded on the run row (`fix_test_file`, `fix_test_run`) and passes
     through `receiptForReport` in `src/autoloop/orchestrator.ts`. The gate
     keys on the declaration — the kernel cannot tell a fix task from other
-    work, and guessing from the text would misfire.
+    work, and guessing from the text would misfire. The declaration is
+    built in `orchestra.ts` `report()` (`failingTestOf`): a test command
+    that failed (non-zero exit, timeout, kill, or failure markers in its
+    output) before the worker's first file edit, with at least one edit
+    after it — that is the fix. The test file comes from the command or a
+    FAIL line in the output; when no file can be pinned down the run still
+    declares the fix, so the gate asks for the test on the next round. The
+    proof rides in the prepared task marker (`reportFixTask`,
+    `reportFailingTest`) and the project ledger (`fixTask`, `failingTest`),
+    so a crash after preparation still ends the run with what it proved.
   - `kernel/decide.ts` `retryLater` writes exactly one lesson on the second
     failed receipt (idea #11) into the `lessons` collection (`run`, `rule`,
     `text`, `error`, `fingerprint`, `attempts`): attempts only grow, so
@@ -317,10 +326,13 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
     `receiptForReport`. A receipt that declares nothing is exempt by
     design: legacy receipts and read-only work have no second method to
     declare. Unknown kinds are rejected, so a typo cannot pass as a second
-    method. The live wiring that fills `verification` from
-    `orchestra.ts` `report()` (the worker's CHECKS + the transcript
-    evidence) is not done yet — the two signals already exist there, the
-    bridge only has to pass them.
+    method. The live wiring fills `verification` from `orchestra.ts`
+    `report()` (`verificationOf`): the worker's CHECKS plus the transcript
+    evidence — only when both exist and agree (checks ran, none failed,
+    the transcript shows a command ran with no edit after it). The first
+    entry is `test` when a test command ran, else `command`; the second is
+    always `transcript`. Like the fix proof it rides in the prepared task
+    marker (`reportVerification`) and the project ledger (`verification`).
   - `kernel/dispute.ts` + `decide` inputs `raiseDispute` / `resolveDispute` /
     `escalateDispute` + the `disputes` collection (idea #18): the dispute
     ladder agent (15 min) → group-leader (30) → council (60) → orchestrator
@@ -330,7 +342,12 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
     a record for the operator, never a block and never an approval gate.
     The ladder is re-exported from `src/session/runner/escalate.ts` as
     `DisputeLadder` next to the error ladder: errors climb when retries
-    and fallbacks are exhausted, disputes climb when time runs out.
+    and fallbacks are exhausted, disputes climb when time runs out. It is
+    also reachable from prod code, not only tests: `AutoloopCards`
+    `raiseDispute` / `resolveDispute` / `escalateDispute`, the server
+    endpoints `POST /api/autoloop/disputes` (+ `/:id/resolve`,
+    `/:id/escalate`), and `deadlines()` in `kernel/due.ts` wakes the clock
+    on every open dispute, so the tick's `sweepDisputes` climbs it.
 - **`kernel/due.ts`**: `RUN_LEASE = 5 мин`, `WORKER_FRESH = 2 мин`,
   `OFFLINE_AFTER = 10 мин`, `SEEN_EVERY = 1 мин`, `deadlines`,
   `offlineCard`, `workers` / `waitingOn` (unknown runs count as waiting).

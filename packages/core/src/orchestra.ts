@@ -269,6 +269,15 @@ const Task = Schema.Struct({
   reportOutcome: Schema.Literals(["complete", "partial", "incomplete", "unknown", "failed", "stopped"]).pipe(Schema.optional),
   reportTitle: Schema.String.pipe(Schema.optional),
   reportRole: Schema.String.pipe(Schema.optional),
+  // Proof the report carried for the autoloop gates (M-02): the failing
+  // test that reproduces the bug, and the two independent verification
+  // methods. Persisted with the prepared payload so a crash after
+  // preparation still ends the run with what the report proved.
+  reportFixTask: Schema.Boolean.pipe(Schema.optional),
+  reportFailingTest: Schema.Struct({ file: Schema.String, run: Schema.String }).pipe(Schema.optional),
+  reportVerification: Schema.Array(
+    Schema.Struct({ kind: Schema.String, detail: Schema.String }),
+  ).pipe(Schema.optional),
 })
 const decodeTask = Schema.decodeUnknownOption(Task)
 type TaskInfo = typeof Task.Type
@@ -287,6 +296,10 @@ const TaskReport = Schema.Struct({
   deliveredTo: SessionID,
   deliveryID: SessionMessage.ID,
   acknowledged: Schema.Boolean,
+  // Proof the report carried for the autoloop gates (M-02), as prepared.
+  fixTask: Schema.Boolean.pipe(Schema.optional),
+  failingTest: Schema.Struct({ file: Schema.String, run: Schema.String }).pipe(Schema.optional),
+  verification: Schema.Array(Schema.Struct({ kind: Schema.String, detail: Schema.String })).pipe(Schema.optional),
 })
 type TaskReportInfo = typeof TaskReport.Type
 const decodeTaskReport = Schema.decodeUnknownOption(TaskReport)
@@ -909,6 +922,9 @@ const layer: Layer.Layer<
       description: string
       deliveredTo: SessionID
       deliveryID: SessionMessage.ID
+      fixTask?: boolean
+      failingTest?: { file: string; run: string }
+      verification?: ReadonlyArray<{ kind: string; detail: string }>
     }) {
       if (!input.task.reportID) return
       const project = yield* projectForTask(input.task)
@@ -926,6 +942,9 @@ const layer: Layer.Layer<
               outcome: input.outcome,
               text: input.text,
               description: input.description,
+              fixTask: input.fixTask,
+              failingTest: input.failingTest,
+              verification: input.verification,
             }),
           )
         }
@@ -943,6 +962,9 @@ const layer: Layer.Layer<
         deliveredTo: input.deliveredTo,
         deliveryID: input.deliveryID,
         acknowledged: false,
+        fixTask: input.fixTask,
+        failingTest: input.failingTest,
+        verification: input.verification,
       })
       yield* kv.set(key, Schema.encodeSync(TaskReport)(record))
       // A project may have been forgotten while the terminal event was being handled.
@@ -1061,6 +1083,9 @@ const layer: Layer.Layer<
                   description,
                   deliveredTo: target.deliveredTo,
                   deliveryID: target.deliveryID,
+                  fixTask: task.value.reportFixTask,
+                  failingTest: task.value.reportFailingTest,
+                  verification: task.value.reportVerification,
                 })
                 // The report is delivered; the run ends with what it says.
                 yield* finishAutoloop(
@@ -1070,6 +1095,9 @@ const layer: Layer.Layer<
                     outcome: reportOutcome,
                     summary: body,
                     workerRemoved: false,
+                    fixTask: task.value.reportFixTask,
+                    failingTest: task.value.reportFailingTest,
+                    verification: task.value.reportVerification,
                   }),
                 )
               } else {
@@ -1080,6 +1108,9 @@ const layer: Layer.Layer<
                     outcome: ledger.value.outcome,
                     summary: ledger.value.text,
                     workerRemoved: false,
+                    fixTask: ledger.value.fixTask,
+                    failingTest: ledger.value.failingTest,
+                    verification: ledger.value.verification,
                   }),
                 )
               }
@@ -1160,6 +1191,16 @@ const layer: Layer.Layer<
                       : undefined
               : undefined
           const outcome = unproven ? "partial" : stated
+          // Proof for the autoloop gates (M-02), built from the two
+          // independent signals instead of the worker's word: a failing
+          // test before the first edit declares the fix, and CHECKS plus
+          // transcript evidence declare the verification. A receipt that
+          // declares nothing is exempt by design — the gates only bite on
+          // what the report actually proves.
+          const proof = workerRemoved ? { fixTask: false } : failingTestOf(taskMessages)
+          const verification = workerRemoved
+            ? undefined
+            : verificationOf(checks, evidence, commandsOf(taskMessages))
           const cut =
             answer.length > REPORT_LIMIT
               ? `${answer.slice(0, REPORT_LIMIT)}\n… (cut; read the worker session for the rest)`
@@ -1197,6 +1238,15 @@ const layer: Layer.Layer<
             reportRole: preservePreparedTerminalPayload
               ? task.value.reportRole ?? (session?.agent ?? "unknown")
               : session?.agent ?? "unknown",
+            reportFixTask: preservePreparedTerminalPayload
+              ? task.value.reportFixTask ?? (proof.fixTask || undefined)
+              : proof.fixTask || undefined,
+            reportFailingTest: preservePreparedTerminalPayload
+              ? task.value.reportFailingTest ?? proof.failingTest
+              : proof.failingTest,
+            reportVerification: preservePreparedTerminalPayload
+              ? task.value.reportVerification ?? verification
+              : verification,
           }
           // Persist the complete intended payload before admission. A retry after a crash uses
           // the same ID and byte-for-byte equivalent content instead of inventing a "recovered" report.
@@ -1229,6 +1279,9 @@ const layer: Layer.Layer<
             description,
             deliveredTo: task.value.main,
             deliveryID: reportID,
+            fixTask: preparedTask.reportFixTask,
+            failingTest: preparedTask.reportFailingTest,
+            verification: preparedTask.reportVerification,
           })
           const admitted = yield* sessions
             .synthetic({
@@ -1258,6 +1311,9 @@ const layer: Layer.Layer<
                 summary: cut,
                 error: reportDetail,
                 workerRemoved,
+                fixTask: preparedTask.reportFixTask,
+                failingTest: preparedTask.reportFailingTest,
+                verification: preparedTask.reportVerification,
               }),
             )
             yield* kv.remove(TASK + sessionID)
@@ -3114,6 +3170,121 @@ export function transcriptNote(messages: ReadonlyArray<SessionMessage.Info>) {
   }
   const shown = ran.slice(-6).map(label)
   return `<transcript-evidence>${ran.length} command(s) ran${shown.length ? `, last: ${shown.join("; ")}` : ""}; ${edits} file edit(s)${ran.length > 6 ? "; earlier commands omitted" : ""}.</transcript-evidence>`
+}
+
+// The shell commands a worker ran, in order, from its own tool calls — the
+// same record `transcriptNote` summarizes, without the counts and labels.
+export function commandsOf(messages: ReadonlyArray<SessionMessage.Info>) {
+  return messages
+    .flatMap((message) => (message.type === "assistant" ? [message] : []))
+    .toSorted((left, right) => DateTime.toEpochMillis(left.time.created) - DateTime.toEpochMillis(right.time.created))
+    .flatMap((message) =>
+      message.content.flatMap((part) =>
+        part.type === "tool" &&
+        part.name === "shell" &&
+        part.state.status === "completed" &&
+        typeof part.state.input.command === "string"
+          ? [part.state.input.command.replace(/\s+/g, " ").trim()]
+          : [],
+      ),
+    )
+    .filter(Boolean)
+}
+
+// A command that runs a test suite (idea #6): the test-before-fix gate keys
+// on these, never on prose — a report can claim anything, a command ran.
+export function isTestCommand(command: string) {
+  return /\b(?:bun\s+test|bun\s+run\s+test|bunx\s+(?:vitest|jest)|npm\s+(?:run\s+)?test|yarn\s+test|pnpm\s+test|node\s+--test|pytest|go\s+test|cargo\s+test|flutter\s+test|vitest(?:\s+run)?|jest)\b/i.test(
+    command,
+  )
+}
+
+// A failing test run (idea #6): a test command that failed — non-zero exit,
+// timeout, kill, or failure markers in its output when no exit code was
+// recorded — before the worker's first file edit, with at least one edit
+// after it. The edit is what makes it a fix: tests that only fail, with no
+// fix attempted, are not a fix task. `file` is the test file the run names
+// (command argument, else a FAIL line in the output); when no file can be
+// pinned down the run still declares the fix, so the kernel's gate asks
+// for the test on the next round instead of recording an unproven done.
+export function failingTestOf(messages: ReadonlyArray<SessionMessage.Info>): {
+  fixTask: boolean
+  failingTest?: { file: string; run: string }
+} {
+  const ordered = [...messages].toSorted((left, right) =>
+    DateTime.toEpochMillis(left.time.created) - DateTime.toEpochMillis(right.time.created),
+  )
+  const firstEdit = ordered.findIndex((message) =>
+    message.type === "assistant"
+      ? message.content.some((part) => part.type === "tool" && WRITING.has(part.name))
+      : false,
+  )
+  if (firstEdit < 0) return { fixTask: false }
+  const failed = ordered
+    .slice(0, firstEdit)
+    .flatMap((message) => (message.type === "shell" ? [message] : []))
+    .filter((shell) => isTestCommand(shell.command) && shellFailed(shell))
+    .at(0)
+  if (failed === undefined) return { fixTask: false }
+  const output = failed.output?.output ?? ""
+  const file = testFileOf(failed.command, output)
+  const run = failureExcerpt(failed, output)
+  return file === undefined ? { fixTask: true } : { fixTask: true, failingTest: { file, run } }
+}
+
+function shellFailed(shell: SessionMessage.Shell) {
+  if (shell.status === "timeout" || shell.status === "killed") return true
+  if (shell.status !== "exited") return false
+  if (shell.exit !== undefined) return shell.exit !== 0
+  return /\bFAIL(?:ED)?\b|✗|❌|failed|Error:/i.test(shell.output?.output ?? "")
+}
+
+function testFileOf(command: string, output: string) {
+  const token = command
+    .split(/\s+/)
+    .map((part) => part.replace(/^["']|["']$/g, ""))
+    .find((part) => /(?:^|[/\\])[\w.-]+\.(?:test|spec)\.[a-z]+$/.test(part) || /(?:^|[/\\])test_[\w.-]+\.py$/.test(part) || /(?:^|[/\\])[\w.-]*_test\.go$/.test(part))
+  if (token !== undefined) return token
+  return /FAIL\s+([A-Za-z0-9_./\\-]+\.(?:test|spec)\.[A-Za-z]+)/.exec(output)?.[1]
+}
+
+function failureExcerpt(shell: SessionMessage.Shell, output: string) {
+  const lines = output
+    .split(/\r?\n/)
+    .filter((line) => /\bFAIL(?:ED)?\b|✗|❌|Error:|AssertionError|failed/i.test(line))
+    .slice(0, 3)
+    .join("\n")
+  const text = lines || `${shell.command}${shell.exit === undefined ? "" : ` — exit ${shell.exit}`}`
+  return text.slice(0, 500)
+}
+
+// Two independent verification methods for a done report (idea #14): the
+// worker's CHECKS plus the Orchestrator's own transcript evidence. Only
+// when both exist and agree — checks ran with none failing, and the
+// transcript shows a command ran with no edit after it — is a second,
+// independent method real. Anything less leaves `verification` absent, and
+// a receipt without it is exempt by design (see `applyReceipt`).
+export function verificationOf(
+  checks: { executed: number; failed: number; notRun: number },
+  evidence: { ran: boolean; editedAfterRun: boolean },
+  commands: ReadonlyArray<string>,
+): Array<{ kind: "test" | "command" | "transcript"; detail: string }> | undefined {
+  if (checks.executed === 0 || checks.failed > 0 || !evidence.ran || evidence.editedAfterRun) return undefined
+  const testCommand = commands.find((command) => isTestCommand(command))
+  const first = testCommand ?? commands[0]
+  return [
+    {
+      kind: testCommand === undefined ? "command" : "test",
+      detail: (first === undefined ? `CHECKS: ${checks.executed} passed` : `CHECKS: ${checks.executed} passed — ${first}`).slice(0, 500),
+    },
+    {
+      kind: "transcript",
+      detail: (commands.length === 0
+        ? "transcript shows a command ran"
+        : `transcript: ${commands.length} command(s) ran, last: ${commands.at(-1)}`
+      ).slice(0, 500),
+    },
+  ]
 }
 
 // The last assistant answer with text, newest first.
