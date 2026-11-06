@@ -15,7 +15,8 @@ import { ProjectTable } from "@orchestra/core/project/sql"
 import { AbsolutePath } from "@orchestra/core/schema"
 import { Session } from "@orchestra/core/session"
 import { SessionExecution } from "@orchestra/core/session/execution"
-import { SessionRestart } from "@orchestra/core/session/execution/restart"
+import { SessionRestart, orderResumeCandidates } from "@orchestra/core/session/execution/restart"
+import { SessionHold } from "@orchestra/core/session/hold"
 import { SessionEvent } from "@orchestra/core/session/event"
 import { SessionInbox } from "@orchestra/core/session/inbox"
 import { SessionMessage } from "@orchestra/core/session/message"
@@ -112,6 +113,45 @@ describe("SessionExecution lifecycle", () => {
 
       yield* restart.resumeSuspendedSessions
       expect(drained).toEqual([sessionID])
+      expect(yield* SessionInbox.list(database.db, sessionID)).toHaveLength(1)
+    }),
+  )
+
+  it.effect("leaves a held session parked without marking it blocked", () =>
+    Effect.gen(function* () {
+      const database = yield* Database.Service
+      const kv = yield* KV.Service
+      const admission = yield* SessionInbox.Service
+      const sessionID = Session.ID.make("ses_held_stays_parked")
+      yield* seedSessions(database, [sessionID])
+      yield* admission.admit({
+        id: SessionMessage.ID.create(),
+        sessionID,
+        item: {
+          type: "user",
+          payload: SessionInbox.UserPayload.make({ text: "Work while held", resumeOnStart: true }),
+          delivery: "queue",
+        },
+      })
+
+      const drained: Session.ID[] = []
+      const scope = yield* Scope.make()
+      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+      const context = yield* buildExecution(
+        scope,
+        ({ sessionID: current }) => Effect.sync(() => void drained.push(current)),
+      )
+      const restart = Context.get(context, SessionRestart.Service)
+
+      // The Society is paused: the hold predicate refuses every session.
+      SessionHold.install(() => Effect.succeed(true))
+      yield* Effect.addFinalizer(() => Effect.sync(() => SessionHold.install(() => Effect.succeed(false))))
+      yield* restart.resumeSuspendedSessions
+      yield* restart.resumeSuspendedSessions
+      expect(drained).toEqual([])
+      // No blocked marker: once the hold releases, the next sweep must resume this work
+      // instead of finding it blocked forever.
+      expect(yield* kv.get(resumeBlockedKey(sessionID))).toBeUndefined()
       expect(yield* SessionInbox.list(database.db, sessionID)).toHaveLength(1)
     }),
   )
@@ -488,6 +528,47 @@ describe("SessionExecution lifecycle", () => {
     }),
   )
 
+  it.effect("resumes a crashing turn at most twice by default across restarts, then terminalizes it", () =>
+    Effect.gen(function* () {
+      const database = yield* Database.Service
+      const bus = yield* Bus.Service
+      const sessionID = Session.ID.make("ses_resume_default_budget")
+      yield* seedSessions(database, [sessionID], { time_suspended: Date.now() })
+      const failures: SessionEvent.Execution.Failed[] = []
+      yield* bus.project(SessionEvent.Execution.Failed, (event) => Effect.sync(() => void failures.push(event)))
+
+      // Two restarts in a row resume the same turn once each: the claim is
+      // not dead early, and one restart never resumes it more than once.
+      for (const boot of [1, 2]) {
+        const draining = yield* Deferred.make<void>()
+        const scope = yield* Scope.make()
+        yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+        const context = yield* buildExecution(scope, () =>
+          Deferred.succeed(draining, undefined).pipe(Effect.andThen(Effect.never)),
+        )
+        const restart = Context.get(context, SessionRestart.Service)
+        yield* restart.resumeSuspendedSessions.pipe(Effect.forkIn(scope))
+        yield* Deferred.await(draining)
+        expect(yield* attempts(database, sessionID)).toBe(boot)
+        expect((yield* claims(database))[sessionID]).toBe(true)
+        yield* Scope.close(scope, Exit.void)
+      }
+
+      // The third boot has spent the default budget of 2: no resume, the
+      // turn is terminalized instead of crash-looping.
+      const drained: string[] = []
+      const scope = yield* Scope.make()
+      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+      const context = yield* buildExecution(scope, ({ sessionID: id }) => Effect.sync(() => void drained.push(id)))
+      const restart = Context.get(context, SessionRestart.Service)
+      yield* restart.resumeSuspendedSessions
+      expect(drained).toEqual([])
+      expect(failures.map((event) => event.data.error.type)).toEqual(["aborted"])
+      expect(yield* attempts(database, sessionID)).toBe(0)
+      expect((yield* claims(database))[sessionID]).toBe(false)
+    }),
+  )
+
   it.effect("the sweep leaves Sessions already draining in this process untouched", () =>
     Effect.gen(function* () {
       const database = yield* Database.Service
@@ -516,6 +597,20 @@ describe("SessionExecution lifecycle", () => {
       expect((yield* claims(database))[sessionID]).toBe(true)
     }),
   )
+})
+
+describe("SessionRestart resume order", () => {
+  test("orderResumeCandidates puts main sessions first, then suspended claims", () => {
+    const main = Session.ID.make("ses_order_main")
+    const child = Session.ID.make("ses_order_child")
+    const otherMain = Session.ID.make("ses_order_other_main")
+    const ordered = orderResumeCandidates([
+      { sessionID: child, kind: "suspended", parentID: main },
+      { sessionID: otherMain, kind: "inbox", parentID: null },
+      { sessionID: main, kind: "suspended", parentID: null },
+    ])
+    expect(ordered.map((candidate) => candidate.sessionID)).toEqual([main, otherMain, child])
+  })
 })
 
 describe("SessionRestart background recovery", () => {

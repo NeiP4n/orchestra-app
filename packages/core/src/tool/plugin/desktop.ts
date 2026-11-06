@@ -8,6 +8,8 @@ import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { Effect, Schema } from "effect"
 import { Permission } from "../../permission.js"
+import { KV } from "../../kv.js"
+import { Idempotency } from "../idempotency.js"
 import type { Tool } from "@orchestra/schema/tool"
 
 export const name = "desktop"
@@ -101,7 +103,7 @@ const GUIDE = [
   "- desktop_screenshot captures the full screen or a specific window by title or HWND (window parameter). It captures background and covered windows directly without moving cursor or raising/focusing windows — do NOT call focus before screenshot.",
   "- desktop_windows lists windows with their process name, title, and HWND.",
   "- desktop_type for text (long text is pasted, fast), desktop_keys for shortcuts (ctrl+s, alt+tab, win+r, enter).",
-  "- desktop_focus brings a window forward, desktop_open starts an app, file or URL, desktop_clipboard reads or sets the clipboard.",
+  "- desktop_focus brings a window forward, desktop_open starts an app, file or URL, desktop_clipboard reads or sets the clipboard. Opening the same URL twice in one session returns the first open instead of opening it again.",
   "- desktop runs several of these steps in one call (focus, type, enter, wait, screenshot); prefer it for multi-step interactions, it is the fastest.",
   "- Commands: the shell tool with background: true returns at once and you are notified when the command ends; independent tool calls in one step run in parallel. Never poll a background command.",
   "Work loop: screenshot (pass window when targeting a specific app), act, screenshot again to check the result. Never guess coordinates without a fresh screenshot. Do not call focus before taking a window screenshot.",
@@ -116,6 +118,7 @@ export const Plugin = {
   id: "orchestra.tool.desktop",
   effect: Effect.fn("DesktopTool.Plugin")(function* (ctx: Context) {
     const permission = yield* Permission.Service
+    const kv = yield* KV.Service
     // The scale of each session's latest screenshot, so clicks land where the model saw them.
     const scales = new Map<string, { x: number; y: number }>()
     const host = makeHost()
@@ -149,12 +152,44 @@ export const Plugin = {
       const images: { uri: string; mime: string; name: string }[] = []
       for (const [index, step] of steps.entries()) {
         const label = steps.length > 1 ? `${index + 1}. ${step.action}` : step.action
-        const result = yield* Effect.promise(() =>
-          run(host, step, scales.get(context.sessionID)).then(
-            (value) => ({ ok: true as const, value }),
-            (error: unknown) => ({ ok: false as const, error }),
-          ),
-        )
+        // Opening the same link twice opens it twice. A URL open is
+        // deduplicated per session (see tool/idempotency.ts): a repeat
+        // inside the TTL returns the first open's result instead of
+        // opening again. A failed idempotency check never blocks the open.
+        const runStep = Effect.fnUntraced(function* () {
+          const outcome = yield* Effect.promise(() =>
+            run(host, step, scales.get(context.sessionID)).then(
+              (value) => ({ ok: true as const, value }),
+              (error: unknown) => ({ ok: false as const, error }),
+            ),
+          )
+          if (step.action === "open" && outcome.ok && typeof outcome.value === "string") {
+            yield* Idempotency.record(
+              kv,
+              { sessionID: context.sessionID, action: "desktop_open", target: step.text ?? "" },
+              outcome.value,
+            ).pipe(Effect.ignore)
+          }
+          return outcome
+        })
+        const result =
+          step.action === "open" && step.text !== undefined && /^https?:\/\//i.test(step.text.trim())
+            ? yield* Idempotency.check(kv, {
+                sessionID: context.sessionID,
+                action: "desktop_open",
+                target: step.text,
+              }).pipe(
+                Effect.catch(() => Effect.succeed(undefined)),
+                Effect.flatMap((existing) =>
+                  existing !== undefined
+                    ? Effect.succeed({
+                        ok: true as const,
+                        value: `already open: ${step.text!.trim()} (duplicate skipped, opened earlier)`,
+                      })
+                    : runStep(),
+                ),
+              )
+            : yield* runStep()
         if (!result.ok) {
           const message = result.error instanceof Error ? result.error.message : String(result.error)
           if (step.action === "screenshot") {

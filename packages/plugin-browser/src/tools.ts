@@ -2,7 +2,7 @@ export * as BrowserTools from "./tools.js"
 
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { Tool } from "@orchestra/schema/tool"
-import { Effect, Encoding, Result, Schema } from "effect"
+import { Effect, Encoding, Option, Result, Schema } from "effect"
 import type { BrowserConnection } from "./connection.js"
 import { BrowserComposite } from "./composite.js"
 import { BrowserFiles } from "./files.js"
@@ -12,6 +12,33 @@ export const register = Effect.fn("BrowserTools.register")(function* (
   ctx: Pick<Context, "tool" | "location">,
   connection: BrowserConnection.Connection,
 ) {
+  // The tab list and focus below call the connection directly instead of
+  // `run`: `run` calls `perform`, so calling it from `perform` would make
+  // the two infer each other's types in a circle.
+  const listTabs = (tool: Tool.Context) =>
+    Effect.gen(function* () {
+      const operation = Browser.Operations.find((item) => item.name === "tabs.list")!
+      const target = yield* connection.target(tool.sessionID, { type: "tabs.list" })
+      const response = yield* target.request([])
+      const decoded = yield* Effect.fromResult(decodeResult(operation, response))
+      return yield* Schema.decodeUnknownEffect(Browser.State)(decoded).pipe(
+        Effect.mapError(
+          (error) => new Tool.Error({ message: `browser.tabs.list returned an unexpected result.`, error }),
+        ),
+      )
+    })
+  const focusTab = (tool: Tool.Context, tabID: Browser.TabID) =>
+    Effect.gen(function* () {
+      const operation = Browser.Operations.find((item) => item.name === "tabs.focus")!
+      const target = yield* connection.target(tool.sessionID, { type: "tabs.focus", tabID })
+      const response = yield* target.request([])
+      const decoded = yield* Effect.fromResult(decodeResult(operation, response))
+      return yield* Schema.decodeUnknownEffect(Browser.Tab)(decoded).pipe(
+        Effect.mapError(
+          (error) => new Tool.Error({ message: `browser.tabs.focus returned an unexpected result.`, error }),
+        ),
+      )
+    })
   const perform = Effect.fn("BrowserTools.perform")(function* (
     operation: Browser.Operation,
     input: Browser.Action,
@@ -21,6 +48,25 @@ export const register = Effect.fn("BrowserTools.register")(function* (
       try: () => normalizeAction(input),
       catch: (error) => new Tool.Error({ message: invalidURL, error }),
     })
+    // Opening a URL that is already open must not open a second tab: check
+    // the open tabs first and return the matching one (focused, as an open
+    // would select it). A failed tab list never blocks the open.
+    if (action.type === "tabs.open" && action.url !== undefined && action.url !== "about:blank") {
+      const listed = yield* listTabs(tool).pipe(Effect.option)
+      const match = Option.isSome(listed) ? findTabWithURL(listed.value.tabs, action.url) : undefined
+      if (match !== undefined) {
+        const focused =
+          action.focus === false ? Option.none<Browser.Tab>() : yield* focusTab(tool, match.id).pipe(Effect.option)
+        const output = yield* Schema.decodeUnknownEffect(operation.output)(
+          Option.isSome(focused) ? focused.value : match,
+        ).pipe(
+          Effect.mapError(
+            (error) => new Tool.Error({ message: `browser.tabs.open returned an unexpected result.`, error }),
+          ),
+        )
+        return { output, files: [] }
+      }
+    }
     const target = yield* connection.target(tool.sessionID, action)
     const uploads =
       action.type === "files.upload" || action.type === "files.drop"
@@ -201,6 +247,23 @@ function exportResult(output: Schema.Schema.Type<Browser.Operation["output"]>, f
 
 const invalidURL =
   "Invalid browser URL. Use an HTTP/HTTPS URL or about:blank without embedded credentials. Paths and file:// URLs are not browser URLs; use browser.preview to show a local file to the user. The connected server must be able to reach the address; localhost refers to that server."
+
+export function normalizeTabURL(url: string): string {
+  const trimmed = url.trim()
+  try {
+    const parsed = new URL(trimmed)
+    parsed.hash = ""
+    return parsed.href.replace(/\/$/, "")
+  } catch {
+    return trimmed
+  }
+}
+
+/** The open tab already showing this URL, if any — same address, ignoring a trailing slash or fragment. */
+export function findTabWithURL(tabs: ReadonlyArray<Browser.Tab>, url: string): Browser.Tab | undefined {
+  const target = normalizeTabURL(url)
+  return tabs.find((tab) => normalizeTabURL(tab.url) === target)
+}
 
 export function normalizeAction(action: Browser.Action): Browser.Action {
   if (action.type !== "navigate" && action.type !== "tabs.open") return action

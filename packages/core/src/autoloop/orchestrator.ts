@@ -1,6 +1,7 @@
 export * as AutoloopOrchestrator from "./orchestrator.js"
 
 import type { ConfigOrchestra } from "@orchestra/schema/config/orchestra"
+import { randomUUID } from "node:crypto"
 import { Effect } from "effect"
 import type { Autoloop } from "./service.js"
 import { AutoloopCards } from "./cards.js"
@@ -285,4 +286,26 @@ export function cancelRun(
 /** Mark the worker seen, with this run still in hand. */
 export function heartbeatRun(cycle: Cycle, run: number): Effect.Effect<void, Autoloop.ServiceFailure> {
   return cycle.heartbeat(WORKER, [run])
+}
+
+/**
+ * Claim the oldest due re-queued run, if any — the FIFO re-claim a run after
+ * `failed` waits for (block Б4). `claimNext` already hands back the oldest
+ * claimable run, oldest first, so this is the same claim without a new
+ * event: a run whose retry pause has passed is picked up again instead of
+ * waiting for the next dispatch to happen to claim it. A fresh claim id per
+ * call means a second call claims the next run, never the same one twice.
+ * Returns null when nothing is due.
+ */
+export function claimDueRun(cycle: Cycle, now = Date.now()): Effect.Effect<Job | null, Autoloop.ServiceFailure> {
+  return Effect.gen(function* () {
+    const job = (yield* cycle.execute(
+      {
+        type: "claimNext",
+        args: [WORKER, `reclaim:${randomUUID()}`],
+      },
+      now,
+    )) as Job | null
+    return job
+  })
 }

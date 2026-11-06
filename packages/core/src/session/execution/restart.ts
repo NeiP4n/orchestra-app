@@ -7,6 +7,7 @@ import { Job } from "../../job.js"
 import { KV } from "../../kv.js"
 import { Session } from "../../session.js"
 import { SessionEvent } from "../event.js"
+import { SessionHold } from "../hold.js"
 import { SessionInbox } from "../inbox.js"
 import { resumeBlockedKey } from "../restart-state.js"
 import { SessionExecution } from "../execution.js"
@@ -33,7 +34,10 @@ export interface Options {
   readonly maxAttempts?: number
 }
 
-const DEFAULT_MAX_ATTEMPTS = 10
+const DEFAULT_MAX_ATTEMPTS = 2
+
+/** How many sessions the startup sweep may admit for resume at once. */
+const MAX_CONCURRENT_RESUMES = 4
 
 export interface Interface {
   /**
@@ -42,9 +46,30 @@ export interface Interface {
    * shutdown (which preserves the claim on purpose). The claim is never
    * cleared here: only a terminal event releases it, so a death anywhere in
    * the resume path leaves the same orphaned claim for the next boot.
+   *
+   * One pass, not three: suspended claims and runnable inbox work are read
+   * once, deduplicated, and resumed together — main sessions first, at most
+   * `MAX_CONCURRENT_RESUMES` admitted at once. A turn is resumed at most
+   * `maxAttempts` times (default 2) before it is terminalized instead.
    */
   readonly resumeSuspendedSessions: Effect.Effect<void>
 }
+
+/** One session the startup sweep may resume, with what decides its priority. */
+export interface ResumeCandidate {
+  readonly sessionID: SessionSchema.ID
+  readonly kind: "suspended" | "inbox"
+  /** Null for a main session: mains resume before their children. */
+  readonly parentID: SessionSchema.ID | null
+}
+
+/** Main sessions first, then suspended claims before runnable inbox work. */
+export const orderResumeCandidates = (candidates: ReadonlyArray<ResumeCandidate>): Array<ResumeCandidate> =>
+  [...candidates].sort(
+    (a, b) =>
+      Number(a.parentID !== null) - Number(b.parentID !== null) ||
+      Number(a.kind !== "suspended") - Number(b.kind !== "suspended"),
+  )
 
 /**
  * Recovery for orphaned executions. Claims are written at turn start by
@@ -167,6 +192,10 @@ export const layer = (options?: Options) =>
           return
         }
         if (yield* execution.isActive(recovery.childSessionID)) return
+        // A held child stays parked: resuming it would burn its restart budget while the
+        // Society is paused, and execution.resume would no-op anyway. The background stays
+        // pending; the next sweep after the hold releases recovers it.
+        if (yield* SessionHold.held(recovery.childSessionID)) return
         if (!(yield* prepareResume(recovery.childSessionID))) {
           yield* notify({ status: "error", error: RESUME_EXHAUSTED.message })
           return
@@ -212,6 +241,8 @@ export const layer = (options?: Options) =>
           yield* store.releaseChildClaims(children)
           yield* Effect.forEach(
             // Admit shell outcomes before a recovered child can start its first model request.
+            // Bounded like the resume pass below: an unbounded sweep would start every
+            // pending background job at once.
             pending.toSorted((a, b) => Number(a.recovery.kind === "subagent") - Number(b.recovery.kind === "subagent")),
             Effect.fnUntraced(function* (background) {
               if ((yield* jobs.get(background.id))?.status === "running") return
@@ -220,79 +251,105 @@ export const layer = (options?: Options) =>
                 ? recoverShell(background, recovery)
                 : recoverSubagent(background, recovery, suspended)
             }),
-            { discard: true },
+            { concurrency: MAX_CONCURRENT_RESUMES, discard: true },
           )
 
-          // Background completion can wake a parent, so inspect local ownership only after recovery.
+          // One resume pass, not two sweeps: suspended claims and runnable
+          // inbox work are read once, deduplicated (a suspended session with
+          // runnable inbox is one candidate, claimed, not two), and resumed
+          // together — main sessions first, at most MAX_CONCURRENT_RESUMES
+          // admitted at once. Background completion above can wake a parent,
+          // so local ownership is inspected only after recovery.
           const resumed = yield* execution.active
-          yield* Effect.forEach(
-            (yield* store.listSuspended()).filter((sessionID) => !resumed.has(sessionID)),
-            (sessionID) =>
-              execution
-                .resume(sessionID)
-                .pipe(Effect.ignore, Effect.forkIn(scope), Effect.when(prepareResume(sessionID))),
-            { concurrency: "unbounded", discard: true },
-          )
-
-          // A crash can land after InboxEnqueued commits but before the caller rings the
-          // execution doorbell. Such a session has no execution claim, so the suspended-claim
-          // sweep above cannot find it. Reconcile durable wake intent for top-level Sessions.
-          // Child Sessions remain owned by Job/subagent recovery and are deliberately excluded.
-          const activeAfterRecovery = yield* execution.active
-          const claimedAfterRecovery = new Set(yield* store.listSuspended())
+          const claimed = new Set(yield* store.listSuspended())
+          const suspendedCandidates = (yield* store.listSuspended()).filter((sessionID) => !resumed.has(sessionID))
           const roots = (yield* sessions.list({ parentID: null })).data
+          const inboxCandidates: Array<{ sessionID: SessionSchema.ID; parentID: null }> = []
+          for (const session of roots) {
+            if (resumed.has(session.id) || claimed.has(session.id)) continue
+            // Preserve the exhausted budget across boots until a user explicitly resumes
+            // this Session or adds new runnable input.
+            if ((yield* kv.get(resumeBlockedKey(session.id))) === true) continue
+            const pending = yield* sessions
+              .inbox(session.id)
+              .pipe(Effect.orElseSucceed((): SessionInbox.Info[] => []))
+            const shouldResume = pending.some((item) => {
+              if (item.type === "move" || item.type === "compaction") return true
+              if (item.type === "user") return item.payload.resumeOnStart ?? true
+              // Legacy synthetic rows predate the explicit flag. Preserve their old no-wake
+              // behavior for shell notifications; other synthetic inputs are actionable.
+              return item.payload.resumeOnStart ?? (item.payload.metadata?.source !== "shell")
+            })
+            if (shouldResume) inboxCandidates.push({ sessionID: session.id, parentID: null })
+          }
+          const parents = new Map<SessionSchema.ID, SessionSchema.ID | null>()
+          for (const sessionID of suspendedCandidates) {
+            const info = yield* store.get(sessionID).pipe(Effect.orElseSucceed(() => undefined))
+            parents.set(sessionID, info?.parentID ?? null)
+          }
+          const candidates = orderResumeCandidates([
+            ...suspendedCandidates.map((sessionID) => ({
+              sessionID,
+              kind: "suspended" as const,
+              parentID: parents.get(sessionID) ?? null,
+            })),
+            ...inboxCandidates.map((candidate) => ({ ...candidate, kind: "inbox" as const })),
+          ])
           yield* Effect.forEach(
-            roots.filter(
-              (session) =>
-                !activeAfterRecovery.has(session.id) && !claimedAfterRecovery.has(session.id),
-            ),
-            Effect.fnUntraced(function* (session) {
-              // Preserve the exhausted budget across boots until a user explicitly resumes
-              // this Session or adds new runnable input.
-              if ((yield* kv.get(resumeBlockedKey(session.id))) === true) return
-              const pending = yield* sessions
-                .inbox(session.id)
-                .pipe(Effect.orElseSucceed((): SessionInbox.Info[] => []))
-              const shouldResume = pending.some((item) => {
-                if (item.type === "move" || item.type === "compaction") return true
-                if (item.type === "user") return item.payload.resumeOnStart ?? true
-                // Legacy synthetic rows predate the explicit flag. Preserve their old no-wake
-                // behavior for shell notifications; other synthetic inputs are actionable.
-                return item.payload.resumeOnStart ?? (item.payload.metadata?.source !== "shell")
-              })
-              if (!shouldResume) return
+            candidates,
+            Effect.fnUntraced(function* (candidate) {
+              // A held session stays parked, whatever kind of candidate it is: resuming it
+              // would no-op (execution.resume refuses held sessions) while prepareResume
+              // burns its restart budget, and the inbox path would mark it blocked forever.
+              // The claim and the inbox work stay durable; the next sweep after the hold
+              // releases resumes them.
+              if (yield* SessionHold.held(candidate.sessionID)) return
+              if (candidate.kind === "suspended") {
+                // Admitting the resume retires this session from the suspended set: a
+                // subagent completion that lands after the sweep must wake it, not park
+                // the notice. Sessions the sweep does not resume stay in the set, so
+                // their early notices keep resume: false.
+                const admitted = yield* prepareResume(candidate.sessionID)
+                if (admitted) {
+                  suspended.delete(candidate.sessionID)
+                  yield* execution.resume(candidate.sessionID).pipe(Effect.ignore, Effect.forkIn(scope))
+                }
+                return
+              }
               // Recheck after reading Inbox so concurrent delivery or a new durable claim wins.
               const active = yield* execution.active
-              if (active.has(session.id)) return
-              const claimed = yield* store.listSuspended()
-              if (claimed.includes(session.id)) return
+              if (active.has(candidate.sessionID)) return
+              if ((yield* store.listSuspended()).includes(candidate.sessionID)) return
               // Do not loop through startup after a failed/empty recovery that left the same
               // runnable inbox work parked. A manual prompt/resume removes this marker.
               const attempt = Effect.gen(function* () {
-                yield* execution.resume(session.id).pipe(Effect.ignore)
-                yield* execution.awaitIdle(session.id)
+                yield* execution.resume(candidate.sessionID).pipe(Effect.ignore)
+                yield* execution.awaitIdle(candidate.sessionID)
                 const active = yield* execution.active
-                if (active.has(session.id)) return
+                if (active.has(candidate.sessionID)) return
                 const claimed = yield* store.listSuspended()
-                if (claimed.includes(session.id)) return
+                if (claimed.includes(candidate.sessionID)) return
                 const remaining = yield* sessions
-                  .inbox(session.id)
+                  .inbox(candidate.sessionID)
                   .pipe(Effect.orElseSucceed((): SessionInbox.Info[] => []))
                 const stillRunnable = remaining.some((item) => {
                   if (item.type === "move" || item.type === "compaction") return true
                   if (item.type === "user") return item.payload.resumeOnStart ?? true
                   return item.payload.resumeOnStart ?? (item.payload.metadata?.source !== "shell")
                 })
-                if (stillRunnable) yield* kv.set(resumeBlockedKey(session.id), true)
+                if (stillRunnable) yield* kv.set(resumeBlockedKey(candidate.sessionID), true)
               })
               // Register the successor execution before the startup sweep returns, so callers
               // that await idle cannot race ahead of an unstarted recovery fiber.
               yield* attempt.pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }))
             }),
-            { concurrency: "unbounded", discard: true },
+            { concurrency: MAX_CONCURRENT_RESUMES, discard: true },
           )
-          // Async observers consult this set at delivery; later completions wake parents normally.
-          suspended.clear()
+          // The set is pruned, not cleared: a session the sweep resumed is deleted
+          // when its resume is admitted, so a subagent completion that lands after
+          // the sweep wakes it; a session the sweep did not resume stays in the set,
+          // so its early notices keep resume: false and do not wake a parked parent.
+          // The set is local to this sweep and is dropped with it once the fibers finish.
         }),
       })
     }),

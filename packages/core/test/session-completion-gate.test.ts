@@ -143,6 +143,60 @@ describe("SessionCompletionGate", () => {
     expect(dump).toContain("prints the host's environment or credentials")
   })
 
+  test("escalates once when the board still holds work after the nudge limit", () => {
+    const work = () => assistant("", [{ name: "read", input: { path: "a" } }])
+    const messages = [
+      user("ship it"),
+      assistant("", [{ name: "dod", input: { action: "take", id: "L-1" } }]),
+      nudge(),
+      work(),
+      nudge(),
+      work(),
+      nudge(),
+      work(),
+      assistant("Done."),
+    ]
+    const text = SessionCompletionGate.check(messages, board(1))
+    expect(text).toContain("final")
+    expect(text).toContain('L-1 "Ship the feature"')
+    expect(text).toContain("dod block")
+  })
+
+  test("stops after the escalation was sent", () => {
+    const work = () => assistant("", [{ name: "read", input: { path: "a" } }])
+    const messages = [
+      user("ship it"),
+      assistant("", [{ name: "dod", input: { action: "take", id: "L-1" } }]),
+      nudge(),
+      work(),
+      nudge(),
+      work(),
+      nudge(),
+      work(),
+      nudge(),
+      work(),
+      assistant("Done."),
+    ]
+    expect(SessionCompletionGate.check(messages, board(1))).toBeUndefined()
+  })
+
+  test("wakes a session whose team task went stale without a report", () => {
+    const dispatch = assistant("Dispatched worker.", [
+      { name: "dod", input: { action: "take", id: "L-1" } },
+      { name: "sessions", input: { action: "send", sessionID: "ses_worker", text: "do work" } },
+    ])
+    const waiting = [user("ship it"), dispatch, assistant("Worker was dispatched, waiting.")]
+    // A fresh dispatch is still outstanding: the report may yet arrive.
+    expect(
+      SessionCompletionGate.check(waiting, board(1), DateTime.makeUnsafe(60_000)),
+    ).toBeUndefined()
+    // Half an hour with no report means the worker is gone or stuck: wake the session to
+    // check on it instead of idling forever with an unclosed board item.
+    expect(
+      SessionCompletionGate.check(waiting, board(1), DateTime.makeUnsafe(31 * 60_000)),
+    ).toContain('L-1 "Ship the feature"')
+  })
+
   test("does not nudge while a team subagent task is outstanding", () => {
     const dispatch = assistant("Dispatched worker.", [
       { name: "dod", input: { action: "take", id: "L-1" } },

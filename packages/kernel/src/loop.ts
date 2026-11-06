@@ -22,18 +22,31 @@ export type Options = {
   // Shrinks history after a context-overflow; without it the overflow is fatal.
   compact?: (messages: ReadonlyArray<Message>) => Promise<ReadonlyArray<Message>>
   sleep?: (ms: number) => Promise<void>
+  /**
+   * How many model answers the loop may take before it stops with `done`.
+   * Rate-limit waits and overflow compactions retry the same step and do not
+   * consume the budget. Default 40: a loop that never stops calling tools is
+   * a runaway, not progress.
+   */
+  maxSteps?: number
 }
 
+/** Default step budget for the agent loop (see `Options.maxSteps`). */
+export const DEFAULT_MAX_STEPS = 40
+
 /**
- * The agent loop. It has no step ceiling: it ends when the model stops calling tools, the signal
- * aborts, or a failure is fatal. Rate limits wait and retry, overflow compacts and retries, and
- * tool calls from one answer run in parallel.
+ * The agent loop. It ends when the model stops calling tools, the signal
+ * aborts, a failure is fatal, or the step budget (`maxSteps`, default 40)
+ * runs out — whichever comes first. Rate limits wait and retry, overflow
+ * compacts and retries, and tool calls from one answer run in parallel.
  */
 export async function* run(options: Options): AsyncGenerator<Event> {
   const signal = options.signal ?? new AbortController().signal
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
   const tools = new Map(options.tools.map((tool) => [tool.name, tool]))
   const history = { value: options.messages }
+  const maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS
+  let steps = 0
 
   while (!signal.aborted) {
     const answer = { text: "", calls: [] as Array<ToolCall> }
@@ -60,6 +73,9 @@ export async function* run(options: Options): AsyncGenerator<Event> {
       continue
     }
 
+    // One model answer is one step. Waits and compactions above retry the
+    // same step and never reach this line, so they cost no budget.
+    steps += 1
     history.value = [...history.value, { role: "assistant", text: answer.text, calls: answer.calls }]
     if (answer.calls.length === 0) break
 
@@ -71,6 +87,7 @@ export async function* run(options: Options): AsyncGenerator<Event> {
     )
     for (const result of results) yield { type: "result", ...result }
     history.value = [...history.value, ...results.map((result) => ({ role: "tool" as const, ...result }))]
+    if (steps >= maxSteps) break
   }
 
   yield { type: "done", messages: history.value }

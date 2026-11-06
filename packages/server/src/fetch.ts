@@ -2,6 +2,7 @@ export * as ServerFetch from "./fetch"
 
 import { Cause, Context, Effect, Layer } from "effect"
 import { HttpEffect, HttpMiddleware, HttpRouter, HttpServer } from "effect/unstable/http"
+import { Autoloop } from "@orchestra/core/autoloop/service"
 import { SessionRestart } from "@orchestra/core/session/execution/restart"
 import { Federation } from "@orchestra/core/federation"
 import { Orchestra } from "@orchestra/core/orchestra"
@@ -60,16 +61,29 @@ export const make = Effect.fn("ServerFetch.make")(function* (options: ServerOpti
   )
   // Resume interrupted turns first, then reconcile task markers whose terminal notifications
   // may have been lost. Suspended/active workers are skipped by the Orchestra recovery sweep.
+  const autoloop = Context.get(context, Autoloop.Service)
   const restart = Context.get(context, SessionRestart.Service)
   const orchestra = Context.get(context, Orchestra.Service)
   const federation = Context.get(context, Federation.Service)
-  const reportStartupFailure = (label: string, effect: Effect.Effect<void>) =>
+  const reportStartupFailure = (label: string, effect: Effect.Effect<void, unknown>) =>
     effect.pipe(
       Effect.catchCause((cause) =>
         Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.logError(label, { cause }),
       ),
     )
+  // One startup pass through the journal: Societies are held as journaled
+  // first, then the cycle decides what its runs do next (re-queued runs come
+  // due, quiet workers are noticed), suspended sessions resume in a single
+  // sweep, and Orchestra task markers reconcile. Each step is independent:
+  // one failing must not suppress the rest.
   const resumeAndRecover = reportStartupFailure("Failed to hold Societies during fetch startup", federation.startupHold()).pipe(
+    Effect.andThen(
+      reportStartupFailure(
+        "Failed to tick the autoloop cycle during fetch startup",
+        autoloop.execute({ type: "tick", args: [] }).pipe(Effect.asVoid),
+      ),
+    ),
+  ).pipe(
     Effect.andThen(
       reportStartupFailure(
         "Failed to resume suspended sessions during fetch startup",

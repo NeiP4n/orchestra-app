@@ -92,11 +92,18 @@ export const layer = Layer.effect(
     const releaseOnCommit = (sessionID: SessionSchema.ID) => ({
       commit: () => store.release(sessionID),
     })
+    // A drain that keeps coming back as Moved/Reloaded is a loop, not progress: a closed
+    // location answers every drain with Reloaded, and a session that keeps moving never
+    // settles. Cap the hops; the work stays durable in the inbox and the next wake or boot
+    // sweep picks it up again instead of spinning here. Reloads also wait briefly between
+    // hops so a closed location cannot hot-loop the drain.
+    const MAX_DRAIN_HOPS = 8
     const drain = Effect.fnUntraced(function* (
       sessionID: SessionSchema.ID,
       force: boolean,
       continuation?: SessionRunner.Continuation,
       promotable: SessionInbox.Promotable = "input",
+      hops = 0,
     ): Effect.fn.Return<void, SessionRunner.RunError> {
       const session = yield* store.get(sessionID)
       if (!session) return yield* new NotFoundError({ sessionID })
@@ -110,10 +117,21 @@ export const layer = Layer.effect(
             : Effect.logError("Failed to drain Session", cause).pipe(Effect.annotateLogs({ sessionID })),
         ),
       )
+      if (result._tag !== "Complete" && hops >= MAX_DRAIN_HOPS) {
+        yield* Effect.logWarning("Session drain stopped after too many moves/reloads; work stays queued", {
+          sessionID,
+          hops,
+          next: result._tag,
+        })
+        return
+      }
       return yield* SessionRunner.DrainResult.$match(result, {
         Complete: () => Effect.void,
-        Moved: (result) => drain(sessionID, false, result.continuation, promotable),
-        Reloaded: (result) => drain(sessionID, result.force, result.continuation, promotable),
+        Moved: (result) => drain(sessionID, false, result.continuation, promotable, hops + 1),
+        Reloaded: (result) =>
+          Effect.sleep("250 millis").pipe(
+            Effect.andThen(drain(sessionID, result.force, result.continuation, promotable, hops + 1)),
+          ),
       })
     })
     const coordinator = yield* SessionRunCoordinator.make<SessionSchema.ID, SessionRunner.RunError, InterruptReason>({

@@ -370,6 +370,22 @@ describe("zen_browser with mock connected extension", () => {
     expect(Exit.isFailure(exit)).toBe(true)
   })
 
+  test("navigate reuses the tab that already shows the URL instead of opening another", async () => {
+    const res = await Effect.runPromise(run({ action: "navigate", url: "https://orchestra.ai" }))
+    expect(res.output).toContain('"tabId": 20')
+    expect(res.output).toContain("https://orchestra.ai")
+  })
+
+  test("navigate without a matching tab opens as before", async () => {
+    const res = await Effect.runPromise(run({ action: "navigate", url: "https://new.example" }))
+    expect(res.output).toContain('"tabId": 10')
+  })
+
+  test("navigate with an explicit tabId keeps it", async () => {
+    const res = await Effect.runPromise(run({ action: "navigate", tabId: 20, url: "https://orchestra.ai" }))
+    expect(res.output).toContain('"tabId": 20')
+  })
+
   test("media defaults to play_pause when command is omitted", async () => {
     const res = await Effect.runPromise(run({ action: "media" }))
     expect(res.output).toContain('"media": "play_pause"')

@@ -7,7 +7,7 @@ import { Model } from "@orchestra/schema/model"
 import { Orchestra } from "@orchestra/schema/orchestra"
 import { SessionError } from "@orchestra/schema/session-error"
 import { and, desc, eq, sql } from "drizzle-orm"
-import { Cause, Effect, Exit, FiberMap, Layer } from "effect"
+import { Cause, DateTime, Effect, Exit, FiberMap, Layer } from "effect"
 import { Database } from "../../database/database.js"
 import { Bus } from "../../bus.js"
 import { AiStandard } from "../../ai-standard.js"
@@ -45,6 +45,9 @@ import { SessionCompletionGate } from "../completion-gate.js"
 
 const CONTINUE_AFTER_INCOMPLETE_STREAM =
   "The previous response was interrupted. Continue from where you left off without repeating completed content."
+
+/** How many times auto-compaction may complete inside one step before the step fails instead of looping. */
+const MAX_AUTO_COMPACTIONS_PER_STEP = 3
 
 const layer = Layer.effect(
   Service,
@@ -197,10 +200,14 @@ const layer = Layer.effect(
         ),
       )
 
+      // Models this drain already gave up, so a failing provider cannot bounce between two of
+      // them across steps. The set lives for the whole drain, not one step: a refused model
+      // stays refused until the next drain (a new turn) starts with a fresh set.
+      const refused = new Set<string>()
       while (true) {
         const next = yield* advanceToStep()
         if (next._tag !== "Ready") return next
-        continuing = yield* runStep(next.context, step)
+        continuing = yield* runStep(next.context, step, refused)
         step++
         force = false
         entering = false
@@ -215,15 +222,20 @@ const layer = Layer.effect(
     })
 
     /** Owns logical Step policy; each attempt owns its streaming, tools, and durable settlement. */
-    const runStep = Effect.fn("SessionRunner.runStep")(function* (first: SessionContext.Loaded, step: number) {
+    const runStep = Effect.fn("SessionRunner.runStep")(function* (
+      first: SessionContext.Loaded,
+      step: number,
+      refused: Set<string>,
+    ) {
       const sessionID = first.session.id
       let assistantMessageID = SessionMessage.ID.create()
       const retry = yield* SessionRunnerRetry.make(bus, sessionID)
       let initial: SessionContext.Loaded | undefined = first
       let recoverOverflow = true
       let recoverContinuation = true
-      // Models this run already gave up, so a failing provider cannot bounce between two of them.
-      const refused = new Set<string>([modelKey(first.model.ref)])
+      let autoCompactions = 0
+      // The current model is refused from the start, so a fallback never picks it back.
+      refused.add(modelKey(first.model.ref))
       while (true) {
         // Reuse boundary preparation once; retries refresh context without delivering more input.
         const loaded = initial ?? (yield* prepareContext(sessionID).pipe(Effect.flatMap(context.load)))
@@ -231,6 +243,16 @@ const layer = Layer.effect(
         const compacted = yield* compaction.compact({ reason: "auto", context: loaded })
         if (compacted.status === "failed") return yield* new StepFailedError({ error: compacted.error })
         if (compacted.status === "completed") {
+          // Auto-compaction that keeps completing without progress would loop this step
+          // forever; after a few, fail honestly so the run can retry or escalate instead.
+          autoCompactions++
+          if (autoCompactions > MAX_AUTO_COMPACTIONS_PER_STEP)
+            return yield* new StepFailedError({
+              error: {
+                type: "compaction.failed",
+                message: `Auto-compaction completed ${autoCompactions} times in one step without progress; stopping the step instead of looping.`,
+              },
+            })
           assistantMessageID = SessionMessage.ID.create()
           continue
         }
@@ -327,6 +349,7 @@ const layer = Layer.effect(
           const nudge = SessionCompletionGate.check(
             yield* store.context(sessionID),
             yield* Dod.status(location.project.directory),
+            yield* DateTime.now,
           )
           if (nudge) {
             yield* bus.publish(SessionEvent.Synthetic, {
