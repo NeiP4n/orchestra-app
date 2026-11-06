@@ -596,6 +596,41 @@ a `Rules / DoD / Errors` section, the context governor never elides a
   favorites), each enabled collection, Recent, then providers. Search narrows
   within the selected category; All searches globally.
 
+## Health endpoint & honest model catalog (G2-6)
+
+- `GET /health` — `server.health` in `packages/protocol/src/groups/server.ts`,
+  handler `packages/server/src/handlers/server.ts`, probes
+  `packages/server/src/health.ts`. 200 `{status:"ok",
+  checks:{database,bus,autoloop}}` only when all three answer; otherwise 503
+  `ServiceUnavailableError` naming the first dead component. Database is
+  `SELECT 1`; bus is an ephemeral `health.ping` round-trip (nonce, forkScoped
+  subscriber) plus a durable log drain; autoloop is `stats()` + `getView()`
+  (ticks stay 0 on an idle server by design — not a failure). The body carries
+  no secrets, paths, or provider details.
+- Unauthenticated by design (monitoring polls it): skip-listed in
+  `packages/server/src/middleware/authorization.ts` AND in `dispatch` in
+  `packages/server/src/process.ts` (the Node server's own auth runs before the
+  middleware). Routed to the API in `packages/cli/src/services/web-ui.ts` —
+  never the SPA fallback that used to answer 200 with `index.html`.
+- Catalog honesty: a config provider without a key is NOT "enabled"
+  (`packages/core/src/config/plugin/provider.ts` stamps `"enabled"` only for a
+  literal non-empty `apiKey` in settings — the same rule `Model.default()` in
+  `packages/core/src/model.ts` uses). `Provider.available()` /
+  `Model.available()` / `model.default()` therefore only ever see providers
+  with a verified key or credential; a configured default on a dead provider
+  is ignored, never silently served.
+- Missing folder: `requireLocationDirectory()` in
+  `packages/server/src/location.ts` triggers the FileSystem probe before
+  `awaitActivation` in the model/provider/integration handlers, so catalog
+  reads answer 404 `LocationNotFoundError` instead of a confident 200.
+  `Project.resolve` no longer creates a missing folder:
+  `packages/core/src/project.ts` `ensureBinding` skips the binding write when
+  the directory does not exist — a resolve is a read; the binding is written
+  on the next resolve after the folder appears.
+- Verify: `packages/server/test/g2-health.test.ts`,
+  `packages/core/test/g2-health-model-catalog.test.ts`,
+  `packages/server/test/fetch.test.ts` ("returns LocationNotFoundError…").
+
 ## Interactive responses — `packages/schema/src/interactive.ts`
 
 Structured operator questions (decision / comparison / approval / plan /

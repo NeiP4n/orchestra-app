@@ -5,6 +5,7 @@ import { HttpClientError } from "effect/unstable/http"
 import { HttpApiClient } from "effect/unstable/httpapi"
 import { ClientApi } from "../../contract"
 import type {
+  ServerHealthOutput,
   ServerInfoOutput,
   ServerPairOutput,
   ServerConnectInput,
@@ -472,6 +473,9 @@ const preserveStream =
   <E, R>(stream: Stream.Stream<A, E, R>) =>
     stream
 
+const EndpointServerHealth = (raw: RawClient["server.server"]) => () =>
+  preserveEffect<ServerHealthOutput>()(raw["server.health"]({}).pipe(Effect.mapError(mapClientError)))
+
 const EndpointServerInfo = (raw: RawClient["server.server"]) => () =>
   preserveEffect<ServerInfoOutput>()(raw["server.info"]({}).pipe(Effect.mapError(mapClientError)))
 
@@ -484,6 +488,7 @@ const EndpointServerConnect = (raw: RawClient["server.server"]) => (input: Serve
   )
 
 const adaptGroupServer = (raw: RawClient["server.server"]) => ({
+  health: EndpointServerHealth(raw),
   info: EndpointServerInfo(raw),
   pair: EndpointServerPair(raw),
   connect: EndpointServerConnect(raw),

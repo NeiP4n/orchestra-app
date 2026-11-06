@@ -2,9 +2,10 @@ import { Duration, Effect } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { PersistentPty } from "@orchestra/core/persistent-pty"
-import { UnauthorizedError } from "@orchestra/protocol/errors"
+import { ServiceUnavailableError, UnauthorizedError } from "@orchestra/protocol/errors"
 import { Api } from "../api"
 import { ServerAuth } from "../auth"
+import { ServerHealth } from "../health"
 import { ServerInfo } from "../server-info"
 import { ServerPairing } from "../pairing"
 
@@ -14,6 +15,21 @@ export const ServerHandler = HttpApiBuilder.group(Api, "server.server", (handler
     const auth = yield* ServerAuth.Config
 
     return handlers
+      .handle("server.health", () =>
+        Effect.gen(function* () {
+          const report = yield* ServerHealth.check()
+          if (report.status !== "ok") {
+            const failed = (["database", "bus", "autoloop"] as const).filter(
+              (name) => report.checks[name].status !== "ok",
+            )
+            return yield* new ServiceUnavailableError({
+              message: `Unhealthy: ${failed.map((name) => `${name}: ${report.checks[name].detail ?? "unavailable"}`).join("; ")}`,
+              service: failed[0],
+            })
+          }
+          return { status: "ok" as const, checks: report.checks }
+        }),
+      )
       .handle("server.info", () =>
         Effect.gen(function* () {
           const info = yield* ServerInfo.Service

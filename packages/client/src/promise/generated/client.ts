@@ -1,4 +1,5 @@
 import type {
+  ServerHealthOutput,
   ServerInfoOutput,
   ServerPairOutput,
   ServerConnectInput,
@@ -605,6 +606,11 @@ export function make(options: ClientOptions) {
 
   return {
     server: {
+      health: (requestOptions?: RequestOptions) =>
+        request<ServerHealthOutput>(
+          { method: "GET", path: `/health`, successStatus: 200, declaredStatuses: [400, 401, 503], empty: false },
+          requestOptions,
+        ),
       info: (requestOptions?: RequestOptions) =>
         request<ServerInfoOutput>(
           { method: "GET", path: `/api/info`, successStatus: 200, declaredStatuses: [400, 401], empty: false },

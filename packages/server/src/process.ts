@@ -225,10 +225,14 @@ function dispatch(
     }
     // Pairing links and room guest routes carry their own proof (a code or a room
     // token) that the handlers check; everything else needs the server credential.
+    // /health is unauthenticated by design (G2-6): monitoring polls it without
+    // credentials, and when the server is not ready yet it answers 503 below
+    // instead of 200 — never 401.
     if (
       !isPairingConnectURL(url) &&
       !(ready && isRoomGuestURL(url)) &&
       (!ready || (!hasPtyConnectTicketURL(url) && !hasPersistentPtyConnectTicketURL(url))) &&
+      url.pathname !== "/health" &&
       !(yield* authorizedRequest(request, auth))
     )
       return unauthorizedResponse(request)

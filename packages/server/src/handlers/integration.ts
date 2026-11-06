@@ -9,7 +9,7 @@ import {
   IntegrationNotFoundError,
   InvalidRequestError,
 } from "@orchestra/protocol/errors"
-import { response } from "../location"
+import { requireLocationDirectory, response } from "../location"
 import { WellKnown } from "@orchestra/core/wellknown"
 
 const authorize = <A, R>(effect: Effect.Effect<A, Integration.AuthorizationError, R>) =>
@@ -30,6 +30,7 @@ export const IntegrationHandler = HttpApiBuilder.group(Api, "server.integration"
       .handle(
         "integration.list",
         Effect.fn(function* () {
+          yield* requireLocationDirectory()
           yield* Plugin.awaitActivation
           const service = yield* Integration.Service
           return yield* response(service.list())
@@ -38,6 +39,8 @@ export const IntegrationHandler = HttpApiBuilder.group(Api, "server.integration"
       .handle(
         "integration.get",
         Effect.fn(function* (ctx) {
+          yield* requireLocationDirectory()
+          yield* Plugin.awaitActivation
           const service = yield* Integration.Service
           const integration = yield* service.get(ctx.params.integrationID)
           if (!integration)

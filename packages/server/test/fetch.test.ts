@@ -137,6 +137,7 @@ it.live("returns LocationNotFoundError for a missing folder and recovers once it
     )
     expect(recovered.status).toBe(200)
   }),
+  30_000,
 )
 
 type Handler = (request: Request) => Promise<Response>

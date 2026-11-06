@@ -64,6 +64,16 @@ describe("web UI", () => {
           yield* Effect.promise(() => response.arrayBuffer())
         }),
       )
+      // G2-6: /health reaches the API handler without credentials — it must
+      // never fall through to the SPA index, which used to answer 200 with
+      // HTML for it.
+      const health = yield* Effect.promise(() => fetch(new URL("/health", origin)))
+      expect(health.status).toBe(200)
+      expect(health.headers.get("content-type")).toContain("application/json")
+      expect(health.headers.get("www-authenticate")).toBeNull()
+      expect((yield* Effect.promise(() => health.json())) as { status: string }).toEqual(
+        expect.objectContaining({ status: "ok" }),
+      )
       const response = yield* Effect.promise(() =>
         fetch(new URL("/api/info", origin), { headers: { authorization: `Basic ${btoa("opencode:secret")}` } }),
       )

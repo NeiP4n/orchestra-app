@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
-import { UnauthorizedError } from "../errors.js"
+import { ServiceUnavailableError, UnauthorizedError } from "../errors.js"
 
 export const ServerInfo = Schema.Struct({
   version: Schema.String,
@@ -25,6 +25,29 @@ export const PairingCode = Schema.Struct({
 }).annotate({ identifier: "PairingCode" })
 export type PairingCode = typeof PairingCode.Type
 
+// G2-6: the real health report. One check per component the server cannot
+// work without: the database, the event bus, and the autoloop scheduler.
+// The endpoint answers 200 only when every check is ok; any failure is a
+// ServiceUnavailableError (503) naming the dead component. The report carries
+// no secrets, paths, or provider details, so monitoring may poll it without
+// credentials.
+export const HealthCheck = Schema.Struct({
+  status: Schema.Literals(["ok", "unavailable"]),
+  detail: Schema.optional(Schema.String),
+  latencyMs: Schema.optional(Schema.Number),
+}).annotate({ identifier: "HealthCheck" })
+export type HealthCheck = typeof HealthCheck.Type
+
+export const Health = Schema.Struct({
+  status: Schema.Literal("ok"),
+  checks: Schema.Struct({
+    database: HealthCheck,
+    bus: HealthCheck,
+    autoloop: HealthCheck,
+  }),
+}).annotate({ identifier: "Health" })
+export type Health = typeof Health.Type
+
 export const PairingSession = Schema.Struct({
   token: Schema.String,
 }).annotate({ identifier: "PairingSession" })
@@ -38,6 +61,19 @@ export function isPairingConnectURL(url: URL) {
 }
 
 export const ServerGroup = HttpApiGroup.make("server.server")
+  .add(
+    HttpApiEndpoint.get("server.health", "/health", {
+      success: Health,
+      error: ServiceUnavailableError,
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "server.health",
+        summary: "Check server health",
+        description:
+          "Probe the database, the event bus, and the autoloop scheduler. Returns 200 only when all three answer; otherwise 503 naming the dead component. Unauthenticated, so monitoring can poll it without credentials; the report carries no secrets.",
+      }),
+    ),
+  )
   .add(
     HttpApiEndpoint.get("server.info", "/api/info", {
       success: ServerInfo,
