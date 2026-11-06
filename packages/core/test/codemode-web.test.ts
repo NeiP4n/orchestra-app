@@ -29,9 +29,14 @@ describe("CodeModeWeb.fetch", () => {
     // a public URL must not be refused by it. A network failure proves the gate passed.
     const outcome = await Promise.race([
       fetch("https://example.com/")
-        .then((response) => ({ ok: true, status: response.status }))
-        .catch((error: unknown) => ({ ok: false, error: error instanceof Error ? error.message : String(error) })),
-      new Promise((resolve) => setTimeout(() => resolve({ ok: false, error: "test timed out" }), 10_000)),
+        .then((response): { ok: true; status: number } => ({ ok: true, status: response.status }))
+        .catch((error: unknown): { ok: false; error: string } => ({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        })),
+      new Promise<{ ok: false; error: string }>((resolve) =>
+        setTimeout(() => resolve({ ok: false, error: "test timed out" }), 10_000),
+      ),
     ])
     if (!outcome.ok) expect(outcome.error).not.toContain("Refusing to fetch")
   })
