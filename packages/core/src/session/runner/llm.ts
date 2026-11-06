@@ -3,13 +3,13 @@ export * as SessionRunnerLLM from "./llm.js"
 import { Message, isContextOverflowFailure } from "@orchestra/ai"
 import type { AIError } from "@orchestra/ai"
 import { Mode } from "@orchestra/schema/mode"
-import { Model } from "@orchestra/schema/model"
 import { Orchestra } from "@orchestra/schema/orchestra"
 import { SessionError } from "@orchestra/schema/session-error"
 import { and, desc, eq, sql } from "drizzle-orm"
 import { Cause, Clock, DateTime, Effect, Exit, FiberMap, Layer } from "effect"
 import { Database } from "../../database/database.js"
 import { Bus } from "../../bus.js"
+import { Model } from "../../model.js"
 import { AiStandard } from "../../ai-standard.js"
 import { LocationLifecycle } from "../../location-lifecycle.js"
 import { InstructionState } from "../instruction-state.js"
@@ -33,7 +33,7 @@ import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import { llmClient } from "../../effect/app-node-platform.js"
 import { StepFailedError } from "../error.js"
 import { SessionRunnerRetry } from "./retry.js"
-import { MAIN_SESSION_FALLBACK_MODELS } from "./error-taxonomy.js"
+import { mainSessionFallbackChain } from "./error-taxonomy.js"
 import { SessionStep } from "./step.js"
 import { ToolOutput } from "../../tool-output.js"
 import { Plugin } from "../../plugin.js"
@@ -53,6 +53,7 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const bus = yield* Bus.Service
+    const models = yield* Model.Service
     const lifecycle = yield* LocationLifecycle.Service
     const store = yield* SessionStore.Service
     const context = yield* SessionContext.Service
@@ -385,8 +386,11 @@ const layer = Layer.effect(
     // A worker whose provider refuses the current model outright continues on the next model
     // the operator gave it (`orchestra.worker`, or the role's own list). Those models are
     // snapshotted on the session at creation; the project's main session carries none, so it
-    // falls back to the working Anymodel models instead — but only inside the provider it
-    // already runs on, so a fallback can never invent a provider that does not exist. A
+    // falls back to the live catalog instead: other models of the same provider first, then
+    // the verified Anymodel models, then lix as the second provider, then whatever else the
+    // catalog has. On an authentication failure the whole provider is dead, so the chain
+    // starts on another provider. A provider with no key has no models in the catalog and
+    // contributes nothing, so a fallback can never invent a provider that does not exist. A
     // refusal, a rejected request or a spent free-tier address cannot be waited out. The
     // switch is announced in the session itself: a silent model swap is an error, not a fix.
     const nextModel = Effect.fn("SessionRunner.nextModel")(function* (
@@ -396,9 +400,18 @@ const layer = Layer.effect(
       refused: Set<string>,
     ) {
       const listed = Orchestra.sessionModels(loaded.session.metadata)
+      // The catalog is read only for a main session; a worker's operator-given list wins.
+      // A catalog that cannot be read leaves the session with no fallback instead of
+      // failing the drain on top of the model failure. The service is bound once at
+      // the layer top: `nextModel` runs as `SessionStep.attempt`'s `fallback`, whose
+      // type carries no requirements, so it must not yield `Model.Service` itself.
+      const catalog =
+        listed.length === 0
+          ? yield* models.available().pipe(Effect.orElseSucceed(() => [] as readonly Model.Info[]))
+          : []
       const mainFallbacks =
-        listed.length === 0 && String(loaded.model.ref.providerID) === "anymodel"
-          ? MAIN_SESSION_FALLBACK_MODELS.map((ref) => Model.Ref.parse(ref))
+        listed.length === 0
+          ? mainSessionFallbackChain({ cause, current: loaded.model.ref, catalog })
           : []
       const next = fallbackModel({
         cause,
@@ -417,7 +430,7 @@ const layer = Layer.effect(
       if (listed.length === 0)
         yield* bus.publish(SessionEvent.Synthetic, {
           sessionID: loaded.session.id,
-          text: `Провайдер отказался от модели ${loaded.model.ref.id}; сессия продолжается на запасной модели ${next.id} (та же Anymodel). Это не тихая подмена: если запасная тоже откажет, ошибка уйдёт на эскалацию.`,
+          text: `Провайдер отказался от модели ${loaded.model.ref.id}; сессия продолжается на запасной модели ${next.id} (провайдер ${next.providerID}). Это не тихая подмена: если запасная тоже откажет, ошибка уйдёт на эскалацию.`,
           description: "Model fallback",
           metadata: { previous: `${loaded.model.ref.providerID}/${loaded.model.ref.id}`, next: `${next.providerID}/${next.id}` },
         })
@@ -522,12 +535,21 @@ const layer = Layer.effect(
 
 const modelKey = (model: Model.Ref) => `${model.providerID}/${model.id}#${model.variant ?? ""}`
 
+/** A model without its variant: `sonnet-5` and `sonnet-5#max` are the same model. */
+const modelIdentity = (model: Model.Ref) => `${model.providerID}/${model.id}`
+
+/** `refused` holds full keys (`provider/id#variant`); a refusal is per model, not per variant. */
+const refusedIdentities = (refused: ReadonlySet<string>) =>
+  new Set([...refused].map((key) => key.split("#")[0] ?? key))
+
 /**
  * The next model a session may try after its provider refused the current one outright. A
  * failure the retry policy can wait out is left to it; a refusal, a rejected request or a
  * spent free-tier address cannot be waited out, so the session continues on another model:
- * the operator-given list for a worker, the working-Anymodel list for a main session (see
- * `MAIN_SESSION_FALLBACK_MODELS`; `anymodel-v4.1-flash` is dead and never listed). A content
+ * the operator-given list for a worker, the live-catalog chain for a main session (see
+ * `mainSessionFallbackChain`; `anymodel-v4.1-flash` is dead and never listed). The current
+ * model is excluded by identity, not by variant: another variant of the same model is the
+ * same model, and on an authentication failure it fails exactly the same way. A content
  * policy refusal belongs to the request, not to the model, so another model would only dodge
  * the filter. A context overflow that survived compaction is the task's own size: another
  * model hides it instead of reporting it, so the step fails honestly.
@@ -541,8 +563,10 @@ export function fallbackModel(input: {
   if (input.cause.reason._tag === "ContentPolicy") return undefined
   if (isContextOverflowFailure(input.cause)) return undefined
   if (SessionRunnerRetry.isRetryable(input.cause) && !isFreeTierAddressCap(input.cause)) return undefined
+  const refusedModels = refusedIdentities(input.refused)
+  const current = modelIdentity(input.current)
   return input.models.find(
-    (model) => !input.refused.has(modelKey(model)) && modelKey(model) !== modelKey(input.current),
+    (model) => !refusedModels.has(modelIdentity(model)) && modelIdentity(model) !== current,
   )
 }
 
@@ -553,6 +577,7 @@ export const node = makeLocationNode({
     Bus.node,
     LocationLifecycle.node,
     llmClient,
+    Model.node,
     SessionContext.node,
     SessionModelTransport.node,
     SessionStore.node,

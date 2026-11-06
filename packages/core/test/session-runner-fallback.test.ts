@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   AIError,
+  AuthenticationError,
   ContentPolicyError,
   InvalidRequestError,
   LanguageModel,
@@ -42,7 +43,7 @@ import { SessionProjector } from "@orchestra/core/session/projector"
 import { SessionRunCoordinator } from "@orchestra/core/session/run-coordinator"
 import { SessionRunner } from "@orchestra/core/session/runner/index"
 import { SessionRunnerLLM } from "@orchestra/core/session/runner/llm"
-import { MAIN_SESSION_FALLBACK_MODELS } from "@orchestra/core/session/runner/error-taxonomy"
+import { MAIN_SESSION_FALLBACK_MODELS, mainSessionFallbackChain } from "@orchestra/core/session/runner/error-taxonomy"
 import { SessionRunnerModel } from "@orchestra/core/session/runner/model"
 import { SessionStore } from "@orchestra/core/session/store"
 import { SessionTable } from "@orchestra/core/session/sql"
@@ -120,8 +121,41 @@ describe("SessionRunnerLLM.fallbackModel", () => {
     expect(fallback({ cause, models: mainFallbacks, refused: [model("anymodel/sonnet-5")] })).toEqual(
       model("anymodel/anymodel-coder"),
     )
+    expect(
+      fallback({
+        cause,
+        models: mainFallbacks,
+        refused: [model("anymodel/sonnet-5"), model("anymodel/anymodel-coder")],
+      }),
+    ).toEqual(model("anymodel/gemini-3.8-flash"))
     expect(fallback({ cause, models: mainFallbacks, refused: mainFallbacks })).toBeUndefined()
     expect(MAIN_SESSION_FALLBACK_MODELS).not.toContain("anymodel/anymodel-v4.1-flash")
+  })
+
+  test("never picks the same model with another variant (C-7)", () => {
+    // B14 saw "sonnet-5 → sonnet-5": another variant of the same model is the
+    // same model, and on a 401 it fails exactly the same way.
+    const cause = failure(new InvalidRequestError({ message: "model_not_found" }))
+    expect(fallback({ cause, models: [model("opencode/big-pickle#max")] })).toBeUndefined()
+    expect(fallback({ cause, models: [model("opencode/big-pickle#max"), next] })).toEqual(next)
+    const auth = failure(new AuthenticationError({ message: "Unauthorized" }))
+    expect(fallback({ cause: auth, models: [model("opencode/big-pickle#max"), spare] })).toEqual(spare)
+  })
+
+  test("a refusal of one variant refuses the whole model", () => {
+    const cause = failure(new InvalidRequestError({ message: "model_not_found" }))
+    // The current model under another variant is refused, so the run skips
+    // it — but an unrelated model is still a valid fallback.
+    expect(
+      fallback({ cause, models: [current, next], refused: [model("opencode/big-pickle#max")] }),
+    ).toEqual(next)
+    expect(
+      fallback({
+        cause,
+        models: [current, spare, next],
+        refused: [model("opencode/big-pickle#max")],
+      }),
+    ).toEqual(spare)
   })
 
   test("returns nothing when the session carries no fallback models", () => {
@@ -141,6 +175,88 @@ describe("SessionRunnerLLM.fallbackModel", () => {
     expect(fallback({ cause, models: [next, spare], refused: [next] })).toEqual(
       Model.Ref.make({ providerID: Provider.ID.make("opencode"), id: Model.ID.make("minimax-free") }),
     )
+  })
+})
+
+describe("mainSessionFallbackChain (G2-14)", () => {
+  const info = (providerID: string, id: string) =>
+    Model.Info.default(Provider.ID.make(providerID), Model.ID.make(id))
+  const chain = (input: {
+    cause: AIError
+    current: string
+    catalog: ReadonlyArray<Model.Info>
+  }) => mainSessionFallbackChain({ cause: input.cause, current: model(input.current), catalog: input.catalog })
+  const asFailure = (reason: ConstructorParameters<typeof AIError>[0]["reason"]) => failure(reason)
+  const invalidRequest = new InvalidRequestError({ message: "model_not_found" })
+  const auth = new AuthenticationError({ message: "Unauthorized" })
+  // The B14 catalog: the planner's free provider, the Anymodel models, lix as
+  // the second provider, and a dead Anymodel model that must never be picked.
+  const catalog = [
+    info("opencode", "crouton-alpha-free"),
+    info("opencode", "minimax-free"),
+    info("anymodel", "sonnet-5"),
+    info("anymodel", "anymodel-coder"),
+    info("anymodel", "anymodel-v4.1-flash"),
+    info("lix", "lix-test-model"),
+  ]
+
+  test("a main session outside Anymodel falls back across providers", () => {
+    expect(chain({ cause: asFailure(invalidRequest), current: "opencode/crouton-alpha-free", catalog })).toEqual([
+      model("opencode/minimax-free"),
+      model("anymodel/sonnet-5"),
+      model("anymodel/anymodel-coder"),
+      model("lix/lix-test-model"),
+    ])
+  })
+
+  test("an authentication failure skips the whole current provider", () => {
+    // A 401 means the provider is dead, not the model: no other model of the
+    // same provider is tried, on either the current or the Anymodel side.
+    expect(chain({ cause: asFailure(auth), current: "opencode/crouton-alpha-free", catalog })).toEqual([
+      model("anymodel/sonnet-5"),
+      model("anymodel/anymodel-coder"),
+      model("lix/lix-test-model"),
+    ])
+    expect(chain({ cause: asFailure(auth), current: "anymodel/sonnet-5", catalog })).toEqual([
+      model("lix/lix-test-model"),
+      model("opencode/crouton-alpha-free"),
+      model("opencode/minimax-free"),
+    ])
+  })
+
+  test("a model-level refusal on Anymodel tries its other models first", () => {
+    expect(chain({ cause: asFailure(invalidRequest), current: "anymodel/sonnet-5", catalog })).toEqual([
+      model("anymodel/anymodel-coder"),
+      model("lix/lix-test-model"),
+      model("opencode/crouton-alpha-free"),
+      model("opencode/minimax-free"),
+    ])
+  })
+
+  test("never invents a provider: an empty catalog means no chain", () => {
+    expect(chain({ cause: asFailure(invalidRequest), current: "opencode/crouton-alpha-free", catalog: [] })).toEqual(
+      [],
+    )
+    // A verified Anymodel model that is not in the catalog is not offered either.
+    expect(
+      chain({
+        cause: asFailure(invalidRequest),
+        current: "opencode/crouton-alpha-free",
+        catalog: [info("opencode", "crouton-alpha-free"), info("opencode", "minimax-free")],
+      }),
+    ).toEqual([model("opencode/minimax-free")])
+  })
+
+  test("lix is the second provider even when Anymodel has no key", () => {
+    // Anymodel without a key has no models in the catalog (B14); lix is
+    // still reachable as the fallback when it does have one.
+    expect(
+      chain({
+        cause: asFailure(invalidRequest),
+        current: "opencode/crouton-alpha-free",
+        catalog: [info("opencode", "crouton-alpha-free"), info("lix", "lix-test-model")],
+      }),
+    ).toEqual([model("lix/lix-test-model")])
   })
 })
 
@@ -176,7 +292,15 @@ const noteInstructions = Layer.mock(NoteInstructions.Service, { load: () => Effe
 const promptModels = Layer.mock(Model.Service, {
   get: () => Effect.undefined,
   all: () => Effect.succeed([]),
-  available: () => Effect.succeed([]),
+  // The live catalog the main-session chain is built from (G2-14): Anymodel
+  // as the primary, lix as the second provider. The old empty catalog made
+  // the main session unswitchable, which is exactly how B14 died.
+  available: () =>
+    Effect.succeed([
+      Model.Info.default(Provider.ID.make("anymodel"), Model.ID.make("sonnet-5")),
+      Model.Info.default(Provider.ID.make("anymodel"), Model.ID.make("anymodel-coder")),
+      Model.Info.default(Provider.ID.make("lix"), Model.ID.make("lix-test-model")),
+    ]),
   default: () => Effect.undefined,
   small: () => Effect.undefined,
 })
@@ -188,6 +312,7 @@ const runnerLayer = AppNodeBuilder.build(SessionRunnerLLM.node, [
   Snapshot.node.replace(Snapshot.noopLayer),
   LayerNodePlatform.llmClient.replace(TestLLM.clientLayer.pipe(Layer.provide(testLLM))),
   SessionRunnerModel.node.replace(models),
+  Model.node.replace(promptModels),
   InstructionBuiltIns.node.replace(systemContext),
   InstructionDiscovery.node.replace(instructionContext),
   Location.node.replace(Location.boundNode({ directory: AbsolutePath.make("/project") })),
@@ -372,21 +497,45 @@ describe("SessionRunnerLLM fallback while draining a session", () => {
     }),
   )
 
-  it.effect("does not switch the main session, which carries no fallback models", () =>
+  it.effect("does not switch a worker to the same model with another variant", () =>
     Effect.gen(function* () {
+      // The worker's list holds its own model under another variant first:
+      // that is the same model (C-7), so the run must skip it for backup.
+      const sameModelOtherVariant = Model.Ref.make({
+        providerID: Provider.ID.make("fake"),
+        id: Model.ID.make("worker"),
+        variant: Model.VariantID.make("max"),
+      })
+      yield* seed({ sessionID: workerSession, model: "worker", models: [sameModelOtherVariant, backup] })
+      const llm = yield* TestLLM.Service
+      yield* llm.push(Stream.fail(invalidRequest), TestLLM.text("Recovered", "text-recovered"))
+
+      const result = yield* drainPrompt(workerSession, "Do the work")
+
+      expect(Exit.isSuccess(result.exit)).toBe(true)
+      expect(result.requested).toEqual(["worker", "backup"])
+      expect(result.model).toMatchObject({ providerID: "fake", id: "backup" })
+    }),
+  )
+
+  it.effect("switches the main session to the catalog fallback on a non-Anymodel provider", () =>
+    Effect.gen(function* () {
+      // G2-14: the main session carries no operator list, but the live
+      // catalog has Anymodel and lix — the B14 planner on its free provider
+      // died exactly because this switch did not exist.
       yield* seed({ sessionID: mainSession, model: "worker" })
       const llm = yield* TestLLM.Service
-      yield* llm.push(Stream.fail(invalidRequest))
+      yield* llm.push(Stream.fail(invalidRequest), TestLLM.text("Recovered", "text-recovered"))
 
       const result = yield* drainPrompt(mainSession, "Do the work")
 
-      expect(Exit.isFailure(result.exit)).toBe(true)
-      expect(result.requested).toEqual(["worker"])
-      expect(result.model).toMatchObject({ providerID: "fake", id: "worker" })
+      expect(Exit.isSuccess(result.exit)).toBe(true)
+      expect(result.requested).toEqual(["worker", "sonnet-5"])
+      expect(result.model).toMatchObject({ providerID: "anymodel", id: "sonnet-5" })
       expect(result.messages.at(-1)).toMatchObject({
         type: "assistant",
-        finish: "error",
-        error: { type: "provider.invalid-request", message: geoBlockedMessage },
+        finish: "stop",
+        content: [{ type: "text", text: "Recovered" }],
       })
     }),
   )
