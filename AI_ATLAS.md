@@ -467,6 +467,12 @@ they are not new tasks.
   run 10 minutes; explicit per-server config still wins over the table.
   Transient failures retry for read-only tools and for calls the caller marked
   idempotent (`idempotencyKey`); other calls run exactly once.
+- `client.ts` passes upstream `--read-only` (servers v2.3.0) to a local
+  filesystem server when the server config sets `readOnly: true`
+  (`Mcp.LocalConfig`, off by default); any other server ignores the flag with
+  a warning, so a stray flag can never break a server's startup. The native
+  file tools (`read`/`edit`/`write`) are NOT covered by this flag — they stay
+  permission-gated, not hard read-only.
 - `index.ts`: a server that dies on its own is restarted up to 3 times with
   growing delays (5s/15s/30s), then stays failed; explicit stops never restart.
   The circuit breaker (`catalog.ts`, `McpCircuitBreaker`) is wired into the
@@ -542,6 +548,17 @@ they are not new tasks.
   (`mcp/index.ts` layer options → pool → client → oauth). Production callers
   never pass it; a remote MCP server on a private or loopback address is refused
   unless the caller explicitly opts in.
+- Upstream fetch `--allowed-hosts` (servers v2.3.0) has NO equivalent here, by
+  design, not by oversight: this gate is a denylist (any public host may be
+  fetched unless it resolves private), while upstream's is a positive allowlist
+  (only named hosts may be fetched). The gate is strictly stronger against
+  SSRF — per-hop DNS checks, credential stripping, body-refusal on cross-origin
+  redirects — but an operator cannot restrict fetching to a named set of public
+  hosts. Adding that allowlist is a separate, unplanned change.
+- `webfetch` timeouts follow the upstream fetch window (servers v2.3.0):
+  per-call `timeout_ms`, legacy per-call `timeout` in seconds, `FETCH_TIMEOUT_MS`
+  env default, 30 s default, everything clamped into 100–600_000 ms
+  (`resolveFetchTimeoutMs`).
 - Not gated, by design: fixed hosts and operator-configured instance URLs
   (`plugin/provider/*`, ollama/lmstudio fixed origins), operator pairing room
   URLs (`peer.ts`), CLI-operator URLs (`session/import.ts`, updater env URL,

@@ -31,6 +31,10 @@ export class LocalConfig extends Schema.Class<LocalConfig>("Mcp.LocalConfig")({
   }),
   environment: Schema.Record(Schema.String, Schema.String).pipe(optional),
   disabled: Schema.Boolean.pipe(optional),
+  readOnly: Schema.Boolean.pipe(optional).annotate({
+    description:
+      "Start an official filesystem MCP server with --read-only (upstream servers v2.3.0): it serves only the tools that cannot change anything, so agents can read but not write. Off by default; ignored for any other server.",
+  }),
   codemode: Schema.Boolean.pipe(optional).annotate({
     description: "Expose this server's tools through Code Mode. Defaults to true.",
   }),

@@ -67,6 +67,36 @@ describe("WebFetchTool helpers", () => {
     expect(decode({ url: "https://example.com" })).toEqual({ url: "https://example.com", format: "markdown" })
     expect(() => decode({ url: "https://example.com", timeout: 0 })).toThrow()
     expect(() => decode({ url: "https://example.com", timeout: WebFetchTool.MAX_TIMEOUT_SECONDS + 1 })).toThrow()
+    expect(decode({ url: "https://example.com", timeout: WebFetchTool.MAX_TIMEOUT_SECONDS })).toMatchObject({
+      timeout: WebFetchTool.MAX_TIMEOUT_SECONDS,
+    })
+    // Upstream window for timeout_ms: 100–600_000 ms.
+    expect(decode({ url: "https://example.com", timeout_ms: 100 })).toMatchObject({ timeout_ms: 100 })
+    expect(decode({ url: "https://example.com", timeout_ms: WebFetchTool.MAX_TIMEOUT_MS })).toMatchObject({
+      timeout_ms: WebFetchTool.MAX_TIMEOUT_MS,
+    })
+    expect(() => decode({ url: "https://example.com", timeout_ms: 99 })).toThrow()
+    expect(() => decode({ url: "https://example.com", timeout_ms: WebFetchTool.MAX_TIMEOUT_MS + 1 })).toThrow()
+    expect(() => decode({ url: "https://example.com", timeout_ms: 1.5 })).toThrow()
+  })
+
+  test("resolves the fetch timeout in the upstream 100–600000 ms window", () => {
+    const resolve = WebFetchTool.resolveFetchTimeoutMs
+    // Default is the upstream 30 s.
+    expect(resolve({})).toBe(30_000)
+    expect(resolve({}, {})).toBe(30_000)
+    // Per-call timeout_ms wins over per-call timeout (seconds) and env.
+    expect(resolve({ timeout_ms: 5_000, timeout: 60 }, { FETCH_TIMEOUT_MS: "9000" })).toBe(5_000)
+    expect(resolve({ timeout: 60 }, { FETCH_TIMEOUT_MS: "9000" })).toBe(60_000)
+    expect(resolve({}, { FETCH_TIMEOUT_MS: "9000" })).toBe(9_000)
+    // Out-of-window values clamp instead of failing the call.
+    expect(resolve({ timeout: 0.05 })).toBe(100)
+    expect(resolve({ timeout: 1000 })).toBe(600_000)
+    expect(resolve({}, { FETCH_TIMEOUT_MS: "50" })).toBe(100)
+    expect(resolve({}, { FETCH_TIMEOUT_MS: "999999" })).toBe(600_000)
+    // An unparsable env value falls back to the default, never to unbounded.
+    expect(resolve({}, { FETCH_TIMEOUT_MS: "soon" })).toBe(30_000)
+    expect(resolve({}, { FETCH_TIMEOUT_MS: "" })).toBe(30_000)
   })
 
   test("ports HTML text and markdown conversions without active content", () => {
@@ -681,6 +711,24 @@ describe("WebFetchTool registration", () => {
         call({ url: "https://1.1.1.1/slow", format: "text", timeout: 1 }),
       ).pipe(Effect.forkChild)
       yield* TestClock.adjust(Duration.seconds(1))
+
+      expect(yield* Fiber.join(fiber)).toEqual({
+        status: "error",
+        error: { type: "unknown", message: "Request timed out" },
+      })
+    }),
+  )
+
+  it.effect("times out stalled requests on the per-call timeout_ms", () =>
+    Effect.gen(function* () {
+      reset()
+      respond = () => Effect.never
+      const registry = yield* Tool.Service
+      const fiber = yield* executeTool(
+        registry,
+        call({ url: "https://1.1.1.1/slow-ms", format: "text", timeout_ms: 500 }),
+      ).pipe(Effect.forkChild)
+      yield* TestClock.adjust(Duration.millis(500))
 
       expect(yield* Fiber.join(fiber)).toEqual({
         status: "error",
