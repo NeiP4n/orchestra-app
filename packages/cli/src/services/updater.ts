@@ -383,6 +383,17 @@ const make = Effect.gen(function* () {
       )
     }
     const repo = process.env.ORCHESTRA_GITHUB_REPO?.trim() || "NeiP4n/orchestra-app"
+    // The value is interpolated into the GitHub API path, so it must be exactly
+    // owner/repository: anything else (slashes, whitespace, traversal) would
+    // bend the request URL. Fail before any fetch instead of asking GitHub.
+    if (!/^[^/\s]+\/[^/\s]+$/.test(repo))
+      return yield* Effect.fail(
+        new UpgradeError({
+          title: "Could not check for Orchestra updates",
+          detail: `ORCHESTRA_GITHUB_REPO must be owner/repository, got ${JSON.stringify(repo)}.`,
+          retry: "Set ORCHESTRA_GITHUB_REPO to owner/repository, for example NeiP4n/orchestra-app.",
+        }),
+      )
     const response = yield* Effect.tryPromise({
       try: (signal) =>
         fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
