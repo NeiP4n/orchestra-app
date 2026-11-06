@@ -75,9 +75,7 @@ const failed = (reason: PreflightFailureReason, message: string, action: string)
  * answer, and the planner's model actually served. Never throws: every
  * outcome — including a dead network — is a value.
  */
-export const checkSocietyProvider = Effect.fn("SocietyPreflight.check")(function* (
-  input: PreflightInput,
-): Effect.Effect<PreflightResult> {
+export const checkSocietyProvider = Effect.fn("SocietyPreflight.check")(function* (input: PreflightInput) {
   const key = input.credentialKey?.trim() ? input.credentialKey.trim() : input.settingsKey?.trim()
   if (!key)
     return failed(
@@ -148,7 +146,7 @@ export const checkSocietyProvider = Effect.fn("SocietyPreflight.check")(function
     models,
     plannerModel: planner,
     warnings,
-  }
+  } satisfies PreflightResult
 })
 
 const stringSetting = (settings: Provider.Settings | undefined, name: string): string | undefined => {
@@ -166,7 +164,7 @@ const stringSetting = (settings: Provider.Settings | undefined, name: string): s
  */
 export const checkLive = Effect.fn("SocietyPreflight.checkLive")(function* (input?: {
   readonly fetchFn?: (url: string, init: RequestInit) => Promise<Response>
-}): Effect.Effect<PreflightResult> {
+}) {
   const credentials = yield* Effect.serviceOption(Credential.Service)
   const providers = yield* Effect.serviceOption(Provider.Service)
   const models = yield* Effect.serviceOption(Model.Service)
@@ -174,7 +172,7 @@ export const checkLive = Effect.fn("SocietyPreflight.checkLive")(function* (inpu
     return {
       status: "skipped",
       reason: "Credential and Provider services are not in this layer, so the Anymodel key and endpoint cannot be verified here.",
-    }
+    } satisfies PreflightResult
   const stored = Option.isNone(credentials)
     ? []
     : yield* credentials.value

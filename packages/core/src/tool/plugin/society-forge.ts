@@ -257,15 +257,16 @@ export const Plugin = {
               })
               // Typed failures become a value so what was created can still be registered; interruption
               // and defects are not caught and travel on.
+              // Team projects that opened no workers: generate still records
+              // "generated" for the projects, so a zero-worker team must be
+              // loud in the output instead of silent (N-04). Declared here,
+              // outside the locked section, so the output below can read it.
+              const workerWarnings: Array<string> = []
               const outcome = yield* generateLocks.withLock(group.name)(
                 Effect.result(
                   Effect.gen(function* () {
                     const created: Orchestra.Project[] = []
                     const briefs = new Map<Orchestra.ProjectID, string>()
-                    // Team projects that opened no workers: generate still
-                    // records "generated" for the projects, so a zero-worker
-                    // team must be loud in the output instead of silent (N-04).
-                    const workerWarnings: Array<string> = []
                     // Read inside the lock: a generate that ran a moment ago has already made projects this
                     // call would otherwise duplicate.
                     const current = yield* orchestra.projects()

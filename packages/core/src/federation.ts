@@ -67,7 +67,7 @@ export const openSocietyTeam = Effect.fn("Federation.openSocietyTeam")(function*
   readonly roles: ReadonlyArray<Orchestra.Role>
   readonly open: (role: Orchestra.Role) => Effect.Effect<{ readonly id: SessionID }, unknown>
   readonly verify: (id: SessionID) => Effect.Effect<boolean>
-}): Effect.Effect<TeamWorkerOutcome> {
+}) {
   const opened: Array<{ readonly role: Orchestra.Role; readonly id: SessionID }> = []
   const failed: Array<Orchestra.Role> = []
   const attempt = (role: Orchestra.Role) =>

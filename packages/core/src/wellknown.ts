@@ -99,7 +99,7 @@ const resolveEntry = Effect.fnUntraced(function* (entry: Entry, variables: Reado
   if (missing.length > 0)
     return yield* Effect.fail(
       new Error(
-        `Well-known remote config from ${input.origin} references missing environment variable${missing.length > 1 ? "s" : ""}: ${[...new Set(missing)].join(", ")}`,
+        `Well-known remote config from ${entry.origin} references missing environment variable${missing.length > 1 ? "s" : ""}: ${[...new Set(missing)].join(", ")}`,
       ),
     )
   const http = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)

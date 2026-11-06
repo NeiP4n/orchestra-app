@@ -199,7 +199,7 @@ export const layer = (options?: Options) =>
       // one document instead of killing the whole config load: the failure is
       // logged loudly here, and the provider preflight (G2-1) turns the
       // missing provider/key into a refusal at the point of action.
-      const substituteOrSkip = (input: SubstituteInput, source: string): Effect.Effect<string | undefined> =>
+      const substituteOrSkip = (input: SubstituteInput, source: string) =>
         ConfigVariable.substitute(input).pipe(
           Effect.catch((error) =>
             InvalidError.isInstance(error)
