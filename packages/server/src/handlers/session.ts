@@ -336,6 +336,10 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
               metadata: ctx.payload.metadata,
               delivery: ctx.payload.delivery,
               resume: ctx.payload.resume,
+              // HTTP prompts come from a human: the value verdict may refuse
+              // them (duplicate / already done / too vague), and the reason
+              // goes back as PromptRejectedError.
+              origin: "user",
             })
             .pipe(
               Effect.catchTag("Session.NotFoundError", missingSession),

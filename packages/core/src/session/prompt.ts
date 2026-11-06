@@ -30,6 +30,14 @@ export type Input = {
   metadata?: Record<string, unknown>
   delivery?: SessionInbox.Delivery
   resume?: boolean
+  /**
+   * Who sent the prompt. `"user"` is a human (HTTP prompt endpoints pass
+   * it); anything sent by an agent — orchestrator dispatches, subagents,
+   * forge runs, `sessions` tool calls — passes nothing and defaults to
+   * `"agent"`. Only `"user"` prompts are ever refused by the value verdict:
+   * a dispatch restating a board item IS the work, not a duplicate of it.
+   */
+  origin?: "user" | "agent"
 }
 
 export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
@@ -60,6 +68,18 @@ export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
     // task, recommended skills. Best-effort — a failure here never blocks
     // admission, the raw prompt goes through untouched.
     const intake = yield* runPromptIntake({ session: request.session, text: input.text })
+    // A refusal verdict is policy, not a hint: for a prompt that came from a
+    // human, nothing is admitted and no drain starts — the reason goes back
+    // to the sender through PromptInput.Rejected, the channel the session
+    // prompt hook already uses to refuse a prompt before it is enqueued.
+    // This runs before attachments are materialized and skills are selected,
+    // so a refused prompt costs no work at all. Agent-origin prompts are
+    // never refused (see Input.origin).
+    if (intake?.disposition.action === "refuse" && request.input.origin === "user")
+      return yield* new PromptInput.Rejected({
+        reason: intake.disposition.reason,
+        source: "prompt-intake:value-check",
+      })
     const files = input.files
       ? yield* Effect.forEach(input.files, materializeAttachment, { concurrency: 8 })
       : undefined
@@ -133,22 +153,29 @@ const runPromptIntake = Effect.fn("SessionPrompt.intake")(function* (input: {
     let dodItems: Array<PromptIntake.DodItemRef> = []
     let dodAvailable = false
     if (Option.isSome(location)) {
+      // Effect.option wraps the result in an Option: unwrap it before
+      // reading it. The old code read `.type` off the Option itself, so the
+      // DoD source never reported "ready" and no DoD item was ever compared.
       const status = yield* Dod.status(location.value.project.directory).pipe(Effect.option)
-      if (status && status.type === "ready") {
+      if (Option.isSome(status) && status.value.type === "ready") {
         dodAvailable = true
-        dodItems = status.items.map((item) => ({ id: item.id, title: item.what, state: item.state }))
+        dodItems = status.value.items.map((item) => ({ id: item.id, title: item.what, state: item.state }))
       }
     }
 
     let recentPrompts: Array<PromptIntake.RecentPromptRef> = []
     let historyAvailable = false
     if (Option.isSome(store)) {
+      // Same unwrap: `messages` is an Option of the list, not the list.
+      // The old code called `.filter` on the Option, which threw on every
+      // prompt and killed the whole intake (the outer catch fell back to
+      // the raw prompt), so the value check never ran at all.
       const messages = yield* store.value
         .messages({ sessionID: input.session.id, limit: 10, order: "desc", type: "user" })
         .pipe(Effect.option)
-      if (messages) {
+      if (Option.isSome(messages)) {
         historyAvailable = true
-        recentPrompts = messages
+        recentPrompts = messages.value
           .filter((message) => message.type === "user")
           .map((message) => ({ text: message.text }))
       }
@@ -157,10 +184,12 @@ const runPromptIntake = Effect.fn("SessionPrompt.intake")(function* (input: {
     let journalTitles: Array<PromptIntake.JournalRef> = []
     let journalAvailable = false
     if (Option.isSome(autoloop)) {
+      // Same unwrap: the old code passed the Option itself to
+      // journalTitlesFromView, which read no titles from it.
       const view = yield* autoloop.value.getView().pipe(Effect.option)
-      if (view) {
+      if (Option.isSome(view)) {
         journalAvailable = true
-        journalTitles = journalTitlesFromView(view)
+        journalTitles = journalTitlesFromView(view.value)
       }
     }
 

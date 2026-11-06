@@ -106,7 +106,23 @@ export type IntakeResult = {
   /** Original prompt verbatim, followed by the structured interpretation the agent receives. */
   readonly enrichedPrompt: string
   readonly modelUsed: boolean
+  /**
+   * Whether the prompt may be admitted, or must be refused with the reason.
+   * Decided by the value verdict (`prompt-intake/policy.ts`); enforced by
+   * `SessionPrompt.prepare` for prompts that came from a human.
+   */
+  readonly disposition: Disposition
 }
+
+/**
+ * The admission decision for one prompt. `admit` means the prompt goes
+ * through (the verdict, if any, stays advisory text in the enriched prompt);
+ * `refuse` means nothing is admitted, no drain starts, and the reason goes
+ * back to the sender.
+ */
+export type Disposition =
+  | { readonly action: "admit" }
+  | { readonly action: "refuse"; readonly reason: string }
 
 /** What a model disambiguation returns; the heuristic reading is the fallback. */
 export type Disambiguation = {

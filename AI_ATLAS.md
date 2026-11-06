@@ -430,8 +430,9 @@ Built-in, automatic deep processing of every incoming user prompt, so agents
 receive a structured task instead of a raw one-liner. Runs in
 `SessionPrompt.prepare` (`packages/core/src/session/prompt.ts`) after the
 `session.prompt` plugin hook, before the prompt is admitted to the inbox.
-Never blocks admission: any failure falls back to the raw prompt (a warning
-is logged). Continuations ("продолжай", "да", "ok") pass through untouched —
+An intake failure never blocks admission: it falls back to the raw prompt (a
+warning is logged). A refusal verdict DOES block admission — see the policy
+below. Continuations ("продолжай", "да", "ok") pass through untouched —
 they are not new tasks.
 
 - **Value check first** (`value.ts`, pure): duplicate → `merge`, already
@@ -440,8 +441,38 @@ they are not new tasks.
   session, and autoloop journal titles (cards and runs). Every verdict
   carries its evidence (kind, ref, title, similarity score); a source that
   was not consulted is reported in `sources`, never silently treated as
-  "no match". Runs before any deep processing so tokens are never spent on
+  "no match". A failed journal entry is a retry, not a duplicate: it
+  executes, with the earlier failure named so the agent investigates it
+  first. Runs before any deep processing so tokens are never spent on
   work that already exists.
+- **Value policy as code** (`policy.ts`, pure; enforced in
+  `SessionPrompt.prepare`, not in the prompt text): the pipeline returns a
+  `disposition` with every result — `admit`, or `refuse` with a reason.
+  `skip`/`merge` refuse, `clarify` refuses carrying its questions in the
+  reason, `execute` admits. A refused prompt is never admitted and never
+  wakes a drain: `prepare` fails with `PromptInput.Rejected` (the channel
+  the `session.prompt` hook already uses), the reason goes back to the
+  sender (`PromptRejectedError` on HTTP, `InvalidRequestError` for a room
+  guest), and the refusal happens before attachments are materialized or
+  skills are selected, so it costs no work at all. Two guards keep refusal
+  from dropping real work: it applies only to prompts from a human
+  (`Input.origin === "user"` — the HTTP `session.prompt` handler passes it,
+  a room guest passes it unless its AI wrote the message; agent dispatches,
+  subagents and forge runs pass no origin and are never refused, because a
+  dispatch restating a board item IS the work), and `skip`/`merge` refuse
+  only when the prompt has at least 3 content keywords
+  (`MIN_KEYWORDS_FOR_REFUSAL`) — a shorter prompt that merely shares words
+  with a board item stays admitted, its verdict advisory text. Caveat: the
+  session-history `succeeded` branch can never fire in production —
+  `prepare` feeds recent prompts without an outcome, so a repeated prompt
+  that already succeeded is only ever `merge`, never `skip`.
+- **The intake actually runs** (`session/prompt.ts`, `runPromptIntake`): it
+  used to die on every prompt — `Effect.option` wraps each source in an
+  `Option`, but the code read the `Option` as the value (`.filter` on it
+  threw, `.type` never read `"ready"`, the journal view got the `Option`
+  itself), so the outer catch fell back to the raw prompt and no verdict
+  was ever computed. The three gathers now unwrap with `Option.isSome`
+  before reading. A source that fails still reports as not consulted.
 - **Understand** (`understand.ts`, pure heuristics, no model): goal (first
   sentence), context (other sentences + mentioned files/links), constraints
   (sentences with "не", "только", "без", "only", limits), DoD criteria
@@ -455,7 +486,11 @@ they are not new tasks.
   (`CHEAP_MODEL_PREFERENCE`); when neither resolves, the step is skipped
   and the heuristic reading stands. Never the session's model and never an
   expensive model. Any failure (no cheap model, no credentials, timeout
-  30 s, unparsable output) falls back to the heuristic assumptions.
+  30 s, unparsable output) falls back to the heuristic assumptions. The
+  model's word is bounded in code, not trusted as text: a `clarifiedGoal`
+  replaces the user's goal only when non-empty and at most 500 characters,
+  otherwise the heuristic goal stands; assumptions are truncated to 500
+  characters each.
 - **Skills** (`skills.ts`): the module does NOT replace skills. Skills are
   for executing the task; the module only recommends which ones to load,
   by keyword overlap against name, description and the head of the skill
@@ -470,10 +505,15 @@ they are not new tasks.
   compact intake summary (verdict, goal, questions, skill ids, modelUsed)
   is attached to the message metadata under `intake`.
 - Tests: `packages/core/test/prompt-intake/` — value (duplicate, subset,
-  done, repeat, failed journal entry, vague, clear, continuation),
-  understand (goal/context/constraints/ambiguities/plan/needsModel),
-  skills (alias matching, top-3), service (mock disambiguator, no model,
-  continuation passthrough, never fails).
+  done, repeat, failed journal entry retries instead of merging, vague, clear,
+  continuation), policy (refuse/admit matrix, short-prompt guard, clarify
+  questions in the reason), understand (goal/context/constraints/ambiguities/
+  plan/needsModel), skills (alias matching, top-3), service (mock
+  disambiguator, no model, continuation passthrough, never fails, disposition
+  on the pipeline result, overlong clarified goal ignored). Enforcement at
+  the session level: `packages/core/test/session-prompt.test.ts` — a vague
+  user prompt is refused with nothing admitted and no wake; the same prompt
+  from an agent is admitted; a clear user prompt is admitted and wakes.
 
 ## MCP — `packages/core/src/mcp/`
 

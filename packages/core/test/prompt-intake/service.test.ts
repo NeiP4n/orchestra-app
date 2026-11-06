@@ -89,4 +89,53 @@ describe("prompt-intake service", () => {
     expect(result.enrichedPrompt).toContain("Добавить kanban в DoD")
     expect(result.enrichedPrompt).toContain("Ценность: пропустить")
   })
+
+  test("the pipeline refuses a duplicate: the disposition is refuse, not just text", async () => {
+    const context = emptyContext()
+    context.dodItems.push({ id: "S1", title: "Добавить kanban в DoD", state: "DONE" })
+    const result = await run(
+      PromptIntake.process({ session: fakeSession, text: "Добавь kanban в DoD", context }),
+    )
+    expect(result.disposition.action).toBe("refuse")
+    if (result.disposition.action === "refuse")
+      expect(result.disposition.reason).toContain("Добавить kanban в DoD")
+  })
+
+  test("the pipeline refuses a vague prompt and admits a clear one", async () => {
+    const vague = await run(
+      PromptIntake.process({ session: fakeSession, text: "сделай лучше", context: emptyContext() }),
+    )
+    expect(vague.value.verdict).toBe("clarify")
+    expect(vague.disposition.action).toBe("refuse")
+    const clear = await run(
+      PromptIntake.process({
+        session: fakeSession,
+        text: "Исправь ошибку в packages/core/src/session/prompt.ts. Сервер падает при пустом промпте.",
+        context: emptyContext(),
+      }),
+    )
+    expect(clear.value.verdict).toBe("execute")
+    expect(clear.disposition).toEqual({ action: "admit" })
+  })
+
+  test("an overlong clarified goal from the model never replaces the user's goal", async () => {
+    const longGoal: PromptIntake.Disambiguator = () =>
+      Effect.succeed({
+        assumptions: ["y".repeat(600)],
+        clarifiedGoal: "x".repeat(600),
+        modelUsed: true,
+      })
+    const result = await run(
+      PromptIntake.process({
+        session: fakeSession,
+        text: "сделай лучше",
+        context: emptyContext(),
+        disambiguate: longGoal,
+      }),
+    )
+    expect(result.modelUsed).toBe(true)
+    expect(result.task.goal).not.toContain("x".repeat(100))
+    expect(result.task.goal.length).toBeLessThanOrEqual(500)
+    expect(result.task.ambiguities[0]?.assumption.length).toBeLessThanOrEqual(500)
+  })
 })
