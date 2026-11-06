@@ -1,15 +1,16 @@
 # Installs Orchestra (Opencode++) for Windows with one command. In PowerShell:
 #
-#   irm https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/lan-rooms/opencode-pp-install.ps1 | iex
+#   irm https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/opencode-pp-install.ps1 | iex
 #
 # The installer installs Git through winget when needed, installs Bun through the official
-# Bun PowerShell installer, checks out the lan-rooms branch (or the newest release tag),
-# installs the CLI dependencies, and creates `orchestra.cmd`, `opencode-pp.cmd`, and `opencode.cmd`.
+# Bun PowerShell installer, checks out the newest release from releases.json (or the main
+# branch when no release exists yet), installs the CLI dependencies, and creates
+# `orchestra.cmd`, `opencode-pp.cmd`, and `opencode.cmd`.
 & {
 $ErrorActionPreference = "Stop"
 
-$Repo = if ($env:ORCHESTRA_REPO) { $env:ORCHESTRA_REPO } elseif ($env:ORCHESTRA_PP_REPO) { $env:ORCHESTRA_PP_REPO } else { "https://github.com/NeiP4n/opencode-plus-plus.git" }
-$Branch = if ($env:ORCHESTRA_BRANCH) { $env:ORCHESTRA_BRANCH } elseif ($env:ORCHESTRA_PP_BRANCH) { $env:ORCHESTRA_PP_BRANCH } else { "lan-rooms" }
+$Repo = if ($env:ORCHESTRA_REPO) { $env:ORCHESTRA_REPO } elseif ($env:ORCHESTRA_PP_REPO) { $env:ORCHESTRA_PP_REPO } else { "https://github.com/NeiP4n/orchestra-app.git" }
+$Branch = if ($env:ORCHESTRA_BRANCH) { $env:ORCHESTRA_BRANCH } elseif ($env:ORCHESTRA_PP_BRANCH) { $env:ORCHESTRA_PP_BRANCH } else { "main" }
 
 $UserHome = if ($env:USERPROFILE) { $env:USERPROFILE } elseif ($HOME) { $HOME } else { "." }
 $DefaultShare = Join-Path $UserHome ".local\share"
@@ -91,7 +92,7 @@ if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
 $Source = Join-Path $Dir "src"
 if (Test-Path (Join-Path $Source ".git")) {
   Write-Host "Updating Orchestra..."
-  git -C $Source fetch --tags --force origin
+  git -C $Source fetch --force origin
 } else {
   New-Item -ItemType Directory -Force -Path $Source | Out-Null
   Write-Host "Downloading Orchestra..."
@@ -107,11 +108,21 @@ if (Test-Path (Join-Path $Source ".git")) {
 }
 if ($LASTEXITCODE -ne 0) { throw "git failed." }
 
-$Tag = git -C $Source tag -l "release/*" --sort=-v:refname | Select-Object -First 1
-if ($Tag) {
-  $Target = $Tag
-  $Version = $Tag -replace "^release/", ""
-} else {
+# Releases are recorded in releases.json on main (newest first) — no git tags,
+# because tags cannot be created through the snapshot-push flow that publishes
+# this repo. Install the newest non-yanked `latest`-channel release; fall back
+# to the main branch when the registry cannot be read or is empty.
+$RegistryUrl = "https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/releases.json"
+$Target = $null
+$Version = $null
+try {
+  $Registry = Invoke-RestMethod -Uri $RegistryUrl -TimeoutSec 15
+  $Entry = $Registry.releases | Where-Object { $_.channel -eq "latest" -and $_.yanked -ne $true } | Select-Object -First 1
+  if ($Entry) { $Target = $Entry.commit; $Version = $Entry.version }
+} catch {
+  Write-Host "Could not read the release registry ($($_.Exception.Message)); using branch $Branch."
+}
+if (-not $Target) {
   Write-Host "No release is published yet; using branch $Branch."
   git -C $Source fetch --force origin "+refs/heads/${Branch}:refs/remotes/origin/${Branch}"
   if ($LASTEXITCODE -ne 0) { throw "git fetch failed." }
