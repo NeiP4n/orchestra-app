@@ -14,6 +14,7 @@ import { GoogleAntigravityPlugin } from "./provider/google-antigravity.js"
 import { GoogleVertexPlugin } from "./provider/google-vertex.js"
 import { KiloPlugin } from "./provider/kilo.js"
 import { LLMGatewayPlugin } from "./provider/llmgateway.js"
+import { LixPlugin } from "./provider/lix.js"
 import { LMStudioPlugin } from "./provider/lmstudio.js"
 import { MetaPlugin } from "./provider/meta.js"
 import { ModalPlugin } from "./provider/modal.js"
@@ -50,6 +51,7 @@ export const ProviderPlugins: PluginInternal.InternalPlugin[] = [
   GoogleVertexPlugin,
   KiloPlugin,
   LLMGatewayPlugin,
+  LixPlugin,
   LMStudioPlugin,
   MetaPlugin,
   ModalPlugin,

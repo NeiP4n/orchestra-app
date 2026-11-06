@@ -2,6 +2,8 @@ export * as SessionErrorTaxonomy from "./error-taxonomy.js"
 
 import { AIError } from "@orchestra/ai"
 import { ToolFailure } from "@orchestra/ai"
+import { Model } from "@orchestra/schema/model"
+import { isDeadModelId } from "../../society.js"
 
 /**
  * Error taxonomy (block Б5, from audit №4: 10 families A–J).
@@ -154,13 +156,84 @@ export const TABLE: Readonly<Record<string, TaxonomyEntry>> = Object.fromEntries
 export const UNKNOWN: TaxonomyEntry = TABLE["J15"]!
 
 /**
- * Fallback models for the project's main session, which carries no
- * operator-given model list. Only models that answered in all Anymodel
- * chat-test rounds on 2026-11-05. `anymodel-v4.1-flash` is DEAD in all three
- * rounds — never use it as a fallback. Gated in `llm.ts` to sessions already
- * running on the same provider, so the provider is known to exist.
+ * Second provider (G2-14): lix is an OpenAI-compatible gateway at
+ * https://lix.autos/v1. No key lives here — the key comes only from the
+ * credential store (integration "lix"); without it the provider is
+ * registered but never available, so the chain below never invents a lix
+ * model it cannot call. Models are discovered live from /models once the
+ * key exists (see the lix provider plugin).
  */
-export const MAIN_SESSION_FALLBACK_MODELS: ReadonlyArray<string> = ["anymodel/sonnet-5", "anymodel/anymodel-coder"]
+export const LIX_PROVIDER_ID = "lix"
+export const LIX_BASE_URL = "https://lix.autos/v1"
+
+/**
+ * Fallback models for the project's main session, which carries no
+ * operator-given model list. Only models that answered in Anymodel
+ * chat tests: sonnet-5 and anymodel-coder in the 2026-11-05 rounds,
+ * gemini-3.8-flash in the 2026-11-06 round (sonnet-5 answered again
+ * there too — its earlier timeout was provider overload, not death).
+ * `anymodel-v4.1-flash` is DEAD in all three 2026-11-05 rounds — never
+ * use it as a fallback. These are a preference order, not a promise:
+ * `mainSessionFallbackChain` only uses entries the live catalog actually
+ * has, so the provider is known to exist.
+ */
+export const MAIN_SESSION_FALLBACK_MODELS: ReadonlyArray<string> = [
+  "anymodel/sonnet-5",
+  "anymodel/anymodel-coder",
+  "anymodel/gemini-3.8-flash",
+]
+
+/**
+ * The fallback chain for a main session, which carries no operator-given
+ * model list. Built ONLY from the live catalog (`Model.available()`), so a
+ * fallback can never invent a provider that does not exist: a provider with
+ * no key (Anymodel in B14, lix before its key is entered) simply has no
+ * models in the catalog and contributes nothing.
+ *
+ * Order: the current provider first (its other models are the cheapest
+ * switch for a model-level refusal) — except on an authentication failure,
+ * where the whole provider is dead (a 401 on one model means a 401 on all
+ * of them) and the chain starts on another provider. Then the verified
+ * Anymodel models, then lix as the second provider, then whatever else the
+ * catalog has, in catalog order. Dead Anymodel models never appear. The
+ * current model itself is excluded by identity, never by variant (see
+ * `fallbackModel`): another variant of the same model fails the same way.
+ */
+export function mainSessionFallbackChain(input: {
+  readonly cause: AIError
+  readonly current: Model.Ref
+  readonly catalog: ReadonlyArray<Model.Info>
+}): ReadonlyArray<Model.Ref> {
+  const authFailure = input.cause.reason._tag === "Authentication"
+  const seen = new Set<string>([`${input.current.providerID}/${input.current.id}`])
+  const push = (ref: Model.Ref): Model.Ref | undefined => {
+    if (ref.providerID === "anymodel" && isDeadModelId(ref.id)) return undefined
+    if (authFailure && ref.providerID === input.current.providerID) return undefined
+    const identity = `${ref.providerID}/${ref.id}`
+    if (seen.has(identity)) return undefined
+    seen.add(identity)
+    return ref
+  }
+  const verified = MAIN_SESSION_FALLBACK_MODELS.map((ref) => Model.Ref.parse(ref))
+  const inCatalog = (ref: Model.Ref) =>
+    input.catalog.some((info) => info.providerID === ref.providerID && info.id === ref.id)
+  const fromCatalog = (info: Model.Info) => Model.Ref.make({ providerID: info.providerID, id: info.id })
+  const sameProvider = authFailure
+    ? []
+    : [
+        ...verified.filter((ref) => ref.providerID === input.current.providerID && inCatalog(ref)),
+        ...input.catalog.filter((info) => info.providerID === input.current.providerID).map(fromCatalog),
+      ]
+  const crossProvider = [
+    ...verified.filter(inCatalog),
+    ...input.catalog.filter((info) => info.providerID === LIX_PROVIDER_ID).map(fromCatalog),
+    ...input.catalog.map(fromCatalog),
+  ]
+  return [...sameProvider, ...crossProvider].flatMap((ref) => {
+    const next = push(ref)
+    return next === undefined ? [] : [next]
+  })
+}
 
 const byCode = (code: string): TaxonomyEntry => TABLE[code] ?? UNKNOWN
 
