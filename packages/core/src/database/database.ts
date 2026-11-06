@@ -37,7 +37,10 @@ export class Service extends Context.Service<Service, Interface>()("@orchestra/s
 // cross-object I/O.
 const databaseLayer = (
   lock: Effect.Effect<Semaphore.Semaphore>,
-  beforeMigration?: (db: DatabaseShape) => Effect.Effect<void>,
+  // The hook may fail with its own typed errors (a re-raised interruption,
+  // a query error the hook chose not to swallow); the layer turns failures
+  // into defects via `orDie` below, so the channel is `unknown`, not `never`.
+  beforeMigration?: (db: DatabaseShape) => Effect.Effect<void, unknown, never>,
 ) =>
   Layer.effect(
     Service,

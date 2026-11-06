@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { existsSync, readdirSync } from "node:fs"
 import path from "node:path"
-import { Effect, Schedule } from "effect"
+import { Effect, Schedule, Scope } from "effect"
 import { Database } from "@orchestra/core/database/database"
 import { Global } from "@orchestra/util/global"
 import { tmpdir } from "../../core/test/fixture/tmpdir"
@@ -10,7 +10,11 @@ import { ServerDatabaseBackup } from "../src/database-backup"
 // G2-8 (№42): the server backs its live database up on a schedule — one
 // cycle at startup, then one every interval. These tests run the cycle and
 // the scheduler loop against throwaway file databases only, never the live one.
-const withDb = <A, E>(file: string, data: string, program: Effect.Effect<A, E, Database.Service>) =>
+const withDb = <A, E>(
+  file: string,
+  data: string,
+  program: Effect.Effect<A, E, Database.Service | Scope.Scope>,
+) =>
   Effect.runPromise(
     program.pipe(
       Effect.provide(Database.layer({ path: file })),
