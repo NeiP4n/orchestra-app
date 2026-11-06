@@ -305,9 +305,15 @@ export const layer = (options?: Options) =>
               // releases resumes them.
               if (yield* SessionHold.held(candidate.sessionID)) return
               if (candidate.kind === "suspended") {
-                yield* execution
-                  .resume(candidate.sessionID)
-                  .pipe(Effect.ignore, Effect.forkIn(scope), Effect.when(prepareResume(candidate.sessionID)))
+                // Admitting the resume retires this session from the suspended set: a
+                // subagent completion that lands after the sweep must wake it, not park
+                // the notice. Sessions the sweep does not resume stay in the set, so
+                // their early notices keep resume: false.
+                const admitted = yield* prepareResume(candidate.sessionID)
+                if (admitted) {
+                  suspended.delete(candidate.sessionID)
+                  yield* execution.resume(candidate.sessionID).pipe(Effect.ignore, Effect.forkIn(scope))
+                }
                 return
               }
               // Recheck after reading Inbox so concurrent delivery or a new durable claim wins.
@@ -339,9 +345,10 @@ export const layer = (options?: Options) =>
             }),
             { concurrency: MAX_CONCURRENT_RESUMES, discard: true },
           )
-          // The set is deliberately not cleared: forked subagent completions read
-          // `suspended.has()` when they deliver, after this sweep returns. Clearing it here
-          // would tell them the parent is awake and let a background result resume it.
+          // The set is pruned, not cleared: a session the sweep resumed is deleted
+          // when its resume is admitted, so a subagent completion that lands after
+          // the sweep wakes it; a session the sweep did not resume stays in the set,
+          // so its early notices keep resume: false and do not wake a parked parent.
           // The set is local to this sweep and is dropped with it once the fibers finish.
         }),
       })
