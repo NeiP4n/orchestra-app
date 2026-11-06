@@ -275,7 +275,13 @@ describe("ProjectFiles journal mirrors", () => {
         return yield* ProjectFiles.ProjectFilesSync.syncAll(dir, { kv: undefined as never })
       }),
     )
-    expect(report.files.every((file) => file.status === "ok")).toBe(true)
+    // This test owns the journal mirrors, not the whole report: the state
+    // syncers need a real KV, which this test does not provide, so only
+    // the three journal files are asserted ok here.
+    const byFile = new Map(report.files.map((file) => [file.file, file.status]))
+    for (const file of ["events.jsonl", "errors.jsonl", "usage.jsonl"]) {
+      expect(byFile.get(file)).toBe("ok")
+    }
     const events = await run(ProjectFilesData.readEvents(dir))
     expect(events.map((entry) => entry.seq)).toEqual([1, 2, 3, 4])
     expect(events.map((entry) => entry.kind)).toEqual(["run.queued", "run.done", "run.failed", "event.recorded"])
@@ -447,8 +453,9 @@ describe("ProjectFiles quarantine", () => {
         return restored
       }),
     )
-    expect(report.entries[0]?.status).toBe("failed")
-    expect(report.entries[0]?.error).toContain("quarantine.jsonl")
+    const quarantine = report.entries.find((item) => item.file === "quarantine.jsonl")
+    expect(quarantine?.status).toBe("failed")
+    expect(quarantine?.error).toContain("quarantine.jsonl")
   })
 
   test("restoring a fact the journal no longer has fails loudly", async () => {
@@ -457,7 +464,8 @@ describe("ProjectFiles quarantine", () => {
     const report = await runDb(
       ProjectFiles.ProjectFilesRestore.restoreFromFiles(dir, { kv: undefined as never }),
     )
-    expect(report.entries[0]?.status).toBe("failed")
-    expect(report.entries[0]?.error).toContain("99")
+    const quarantine = report.entries.find((item) => item.file === "quarantine.jsonl")
+    expect(quarantine?.status).toBe("failed")
+    expect(quarantine?.error).toContain("99")
   })
 })

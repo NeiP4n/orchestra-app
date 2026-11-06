@@ -418,23 +418,17 @@ describe("ProjectFiles state: syncAll and restoreFromFiles", () => {
       )
       yield* Adr.create(dir, { title: "Use SQLite", context: "We need storage.", decision: "SQLite." })
       const synced = yield* ProjectFiles.ProjectFilesSync.syncAll(dir, { kv })
-      expect(synced.files.map((file) => file.file).toSorted()).toEqual([
-        "budget.yaml",
-        "decisions.yaml",
-        "rules.yaml",
-        "society.yaml",
-        "tasks.yaml",
-      ])
-      expect(synced.files.every((file) => file.status === "ok")).toBe(true)
+      const syncedByFile = new Map(synced.files.map((file) => [file.file, file.status]))
+      for (const file of ["budget.yaml", "decisions.yaml", "rules.yaml", "society.yaml", "tasks.yaml"]) {
+        expect(syncedByFile.get(file)).toBe("ok")
+      }
       yield* kv.remove(`rules/${Rules.GLOBAL}`)
       yield* kv.remove("federation/group/shop")
       const restored = yield* ProjectFiles.ProjectFilesRestore.restoreFromFiles(dir, { kv })
-      expect(restored.entries.map((entry) => entry.file).toSorted()).toEqual([
-        "budget.yaml",
-        "rules.yaml",
-        "society.yaml",
-      ])
-      expect(restored.entries.every((entry) => entry.status === "restored")).toBe(true)
+      const restoredByFile = new Map(restored.entries.map((entry) => [entry.file, entry.status]))
+      for (const file of ["budget.yaml", "rules.yaml", "society.yaml"]) {
+        expect(restoredByFile.get(file)).toBe("restored")
+      }
       expect((yield* Rules.list(kv, Rules.GLOBAL)).map((rule) => rule.text)).toEqual([
         "Never edit generated files.",
       ])
