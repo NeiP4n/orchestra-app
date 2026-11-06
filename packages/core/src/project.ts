@@ -1,5 +1,6 @@
 export * as Project from "./project.js"
 
+import { randomUUID } from "node:crypto"
 import { Context, Effect, Layer, Option, Schema } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { and, asc, desc, eq, gte, isNull, lte, sql } from "drizzle-orm"
@@ -304,17 +305,26 @@ const layer = Layer.effect(
       if (!(yield* fs.isDir(directory))) return
       const existing = yield* boundId(directory)
       if (existing === id) return
-      yield* fs
-        .ensureDir(path.join(directory, ".orchestra"))
-        .pipe(
-          Effect.andThen(
-            fs.writeFileString(
-              path.join(directory, ".orchestra", "project.json"),
-              JSON.stringify({ id, version: 1 }, null, 2) + "\n",
-            ),
-          ),
-          Effect.ignore,
-        )
+      // №26/№31 (arch3 3.3): the binding used to be written in place — a
+      // torn project.json fails to decode, so the next resolve derives a
+      // different id and the project silently changes identity. Write it
+      // atomically (temp + rename) instead. Still best-effort: a failed
+      // write just means the next resolve writes it then.
+      const file = path.join(directory, ".orchestra", "project.json")
+      yield* fs.ensureDir(path.join(directory, ".orchestra")).pipe(
+        Effect.andThen(
+          Effect.gen(function* () {
+            const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`
+            yield* fs.writeFileString(temporary, JSON.stringify({ id, version: 1 }, null, 2) + "\n")
+            yield* fs.rename(temporary, file).pipe(
+              Effect.catchCause((cause) =>
+                fs.remove(temporary).pipe(Effect.ignore, Effect.andThen(Effect.failCause(cause))),
+              ),
+            )
+          }),
+        ),
+        Effect.ignore,
+      )
     })
 
     const remote = Effect.fnUntraced(function* (repo: Git.Repository) {
