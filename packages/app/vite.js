@@ -4,7 +4,7 @@ import solidPlugin from "vite-plugin-solid"
 import tailwindcss from "@tailwindcss/vite"
 import { fileURLToPath } from "url"
 
-const theme = fileURLToPath(new URL("./public/oc-theme-preload.js", import.meta.url))
+const theme = fileURLToPath(new URL("./public/orchestra-theme-preload.js", import.meta.url))
 
 const themeScript = readFileSync(theme, "utf8")
 
@@ -127,7 +127,7 @@ export default [
 
 export function inlineThemePreload(html) {
   return html.replace(
-    /<script id="oc-theme-preload-script" src="(?:\.\/|\/)oc-theme-preload\.js"><\/script>/,
-    `<script id="oc-theme-preload-script">${themeScript}</script>`,
+    /<script id="orchestra-theme-preload-script" src="(?:\.\/|\/)orchestra-theme-preload\.js"><\/script>/,
+    `<script id="orchestra-theme-preload-script">${themeScript}</script>`,
   )
 }

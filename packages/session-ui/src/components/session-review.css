@@ -20,7 +20,7 @@
   }
 
   [data-slot="session-review-header"] {
-    z-index: 120;
+    z-index: var(--z-sticky);
     background-color: var(--v2-background-bg-base);
     height: 40px;
     padding-bottom: 8px;

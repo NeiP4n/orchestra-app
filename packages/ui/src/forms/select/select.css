@@ -1,8 +1,8 @@
 @import "../../navigation/menu/menu.css";
 
-/* Above modal dialogs (z-index 50); matches legacy select-content. */
+/* Above modal dialogs (var(--z-dialog)); matches legacy select-content. */
 [data-popper-positioner]:has([data-slot="select-v2-content"]) {
-  z-index: 60;
+  z-index: var(--z-menu);
 }
 
 /* Dropdown surface (Type=menu) — overrides shared menu-v2 defaults for selects only. */
@@ -11,7 +11,7 @@
   min-width: 160px;
   max-width: 23rem;
   overflow: hidden;
-  z-index: 60;
+  z-index: var(--z-menu);
   pointer-events: auto;
   background: var(--v2-background-bg-layer-01);
   border-radius: 6px;

@@ -78,6 +78,10 @@ export function TabPreviewPopover(props: {
             const theme = triggerEl?.closest("[data-theme]")?.getAttribute("data-theme")
 
             if (theme) el.setAttribute("data-theme", theme)
+            // Mirror the color scheme too: v2 tokens switch on it.
+            const scheme = triggerEl?.closest("[data-color-scheme]")?.getAttribute("data-color-scheme")
+
+            if (scheme) el.setAttribute("data-color-scheme", scheme)
           }}
           data-component="session-tab-popover"
           data-instant={instant() || undefined}

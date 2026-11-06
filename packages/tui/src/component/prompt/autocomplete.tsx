@@ -859,7 +859,9 @@ export function Autocomplete(props: {
       top={position().y - height()}
       left={position().x}
       width={position().width}
-      zIndex={100}
+      // Above content (0–100) and panels, below dialogs (3000): the
+      // autocomplete must stay visible over the prompt it completes.
+      zIndex={2500}
       {...SplitBorder}
       borderColor={theme.border.base}
     >

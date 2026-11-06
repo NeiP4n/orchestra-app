@@ -1,0 +1,30 @@
+/* One z-index scale for the whole web UI. Every overlay layer reads its
+   z-index from these variables instead of a magic number, so no overlay can
+   silently end up under (or over) another one it was never meant to be near.
+
+   Order (low to high):
+   - content (0–10): plain content and scrollbars sit here and below.
+   - sticky (20–30): sticky headers inside a scroll container, scrollbars.
+   - drawer (40): slide-in drawers and their backdrop.
+   - dialog (50): modal dialogs and their backdrop. Nested dialogs stack
+     as 50 + layer * 10 (see context/dialog.tsx).
+   - popover (60): popovers, hover cards, image previews, tab popovers.
+   - menu (70): menus and selects — always above dialogs and popovers, so a
+     menu opened from a dialog stays visible.
+   - context menu (100): context menus — above menus.
+   - toast (1000): toasts and tooltips — always on top.
+
+   TUI uses its own scale (content 0–100, autocomplete 2500, panels and
+   devtools 2500–2600, dialog 3000, context menus 3500, start and loading
+   5000, reconnect and migration 10000); see packages/tui/src/component. */
+:root {
+  --z-content: 0;
+  --z-sticky: 20;
+  --z-scrollbar: 30;
+  --z-drawer: 40;
+  --z-dialog: 50;
+  --z-popover: 60;
+  --z-menu: 70;
+  --z-context-menu: 100;
+  --z-toast: 1000;
+}

@@ -52,7 +52,12 @@ export function LoadingSplash(props: {
       fallback={
         <div
           data-component="startup-splash"
-          class="h-dvh w-screen flex flex-col items-center justify-center"
+          // Explicit text color: the splash shows before ThemeProvider mounts,
+          // and the v2 background is dark when the app scheme is dark even
+          // with a light OS — inherited browser-default black text would be
+          // black on black. The v2 token follows [data-color-scheme], which
+          // the preload sets before first paint.
+          class="h-dvh w-screen flex flex-col items-center justify-center text-v2-text-text-base"
           classList={{
             "bg-v2-background-bg-deep": props.deep,
             "bg-v2-background-bg-base": !props.deep,
@@ -66,7 +71,8 @@ export function LoadingSplash(props: {
         data-component="first-launch-splash"
         data-drawing={props.preview && !drawing.started ? "pending" : "running"}
         aria-hidden="true"
-        class="h-dvh w-screen bg-v2-background-bg-base"
+        // Same explicit text color as the startup splash (see above).
+        class="h-dvh w-screen bg-v2-background-bg-base text-v2-text-text-base"
         style={{
           // Match the default session's titlebar, panel insets, and wordmark position.
           "padding-block-start": `calc(${titlebarHeight()} + ${props.platform.os === "windows" ? 1 : 8}px)`,

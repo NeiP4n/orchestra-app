@@ -44,6 +44,18 @@ function buildThemeCss(
   const lightCss = `${themeToCss(light)}\n  ${themeV2ToCss(lightV2)}`
   const darkCss = `${themeToCss(dark)}\n  ${themeV2ToCss(darkV2)}`
 
+  // Dark tokens must follow the app color scheme, not only the OS: the
+  // attribute rule is what a dark app setting on a light OS needs, and the
+  // media query is the fallback before the app chooses a scheme. The two
+  // blocks must define the same variables (see theme.test.ts).
+  const darkBlock = (selector: string) => `
+${selector} {
+  color-scheme: dark;
+  --text-mix-blend-mode: plus-lighter;
+
+${darkCss}
+}`
+
   if (isDefaultTheme) {
     return `
 :root {
@@ -51,13 +63,10 @@ function buildThemeCss(
   --text-mix-blend-mode: multiply;
 
   ${lightCss}
-
-  @media (prefers-color-scheme: dark) {
-    color-scheme: dark;
-    --text-mix-blend-mode: plus-lighter;
-
-    ${darkCss}
-  }
+}
+${darkBlock(':root[data-color-scheme="dark"]')}
+@media (prefers-color-scheme: dark) {
+${darkBlock('  :root:not([data-color-scheme="light"])')}
 }
 `
   }
@@ -68,16 +77,15 @@ html[data-theme="${themeId}"] {
   --text-mix-blend-mode: multiply;
 
   ${lightCss}
-
-  @media (prefers-color-scheme: dark) {
-    color-scheme: dark;
-    --text-mix-blend-mode: plus-lighter;
-
-    ${darkCss}
-  }
+}
+${darkBlock(`html[data-theme="${themeId}"][data-color-scheme="dark"]`)}
+@media (prefers-color-scheme: dark) {
+${darkBlock(`  html[data-theme="${themeId}"]:not([data-color-scheme="light"])`)}
 }
 `
 }
+
+export { buildThemeCss }
 
 export async function loadThemeFromUrl(url: string): Promise<DesktopTheme> {
   const response = await fetch(url)

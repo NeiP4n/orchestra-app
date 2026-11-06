@@ -372,7 +372,8 @@ export function ScrollView(props: ScrollViewProps) {
       style={{
         height: `${state.verticalThumbSize}px`,
         transform: `translateY(${state.verticalThumbStart}px)`,
-        "z-index": 100, // ensure it displays over content
+        // Above sticky headers (var(--z-sticky)), below menus and dialogs.
+        "z-index": "var(--z-scrollbar)",
       }}
     />
   )
@@ -390,7 +391,8 @@ export function ScrollView(props: ScrollViewProps) {
       style={{
         width: `${state.horizontalThumbSize}px`,
         transform: `translateX(${state.horizontalThumbStart}px)`,
-        "z-index": 100,
+        // Above sticky headers (var(--z-sticky)), below menus and dialogs.
+        "z-index": "var(--z-scrollbar)",
       }}
     />
   )
