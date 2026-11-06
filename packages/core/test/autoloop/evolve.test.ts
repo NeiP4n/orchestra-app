@@ -41,6 +41,24 @@ describe("AutoloopEvolve", () => {
     expect(view).toEqual({})
   })
 
+  test("a fact with only one of collection/key leaves the view untouched", () => {
+    const withCollectionOnly = evolve(emptyView(), {
+      id: "f1",
+      type: "test.write",
+      collection: "runs",
+      data: { state: "queued" },
+    })
+    const withKeyOnly = evolve(emptyView(), {
+      id: "f2",
+      type: "test.write",
+      key: "run_1",
+      data: { state: "queued" },
+    })
+
+    expect(withCollectionOnly).toEqual({})
+    expect(withKeyOnly).toEqual({})
+  })
+
   test("rebuild from the journal restores the same state as incremental evolve", () => {
     const facts = [
       fact("f1", "runs", "run_1", { state: "queued" }),
