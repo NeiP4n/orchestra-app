@@ -27,6 +27,8 @@ import { Rules } from "./rules.js"
 import { SessionHold } from "./session/hold.js"
 import { SessionInbox } from "./session/inbox.js"
 import { SessionMessage } from "./session/message.js"
+import { SessionActivation } from "./session/activation.js"
+import { SessionStore } from "./session/store.js"
 import { AbsolutePath } from "./schema.js"
 
 export const Policy = Federation.Policy
@@ -553,13 +555,14 @@ const live = (ticket: Ticket, now: number): Ticket =>
 const layer: Layer.Layer<
   Service,
   never,
-  KV.Service | Orchestra.Service | Session.Service | Bus.Service | FSUtil.Service | Global.Service
+  KV.Service | Orchestra.Service | Session.Service | SessionStore.Service | Bus.Service | FSUtil.Service | Global.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
     const kv = yield* KV.Service
     const orchestra = yield* Orchestra.Service
     const sessions = yield* Session.Service
+    const store = yield* SessionStore.Service
     const bus = yield* Bus.Service
     const fs = yield* FSUtil.Service
     const global = yield* Global.Service
@@ -687,10 +690,15 @@ const layer: Layer.Layer<
     // the prompt is admitted up to three times, and a project with no main
     // session or a prompt that keeps failing reports false instead of
     // disappearing into `Effect.ignore`. Used where a lost message strands
-    // the Society (the planner's kickoff, a project's brief).
+    // the Society (the planner's kickoff, a project's brief). A failure is
+    // logged with its reason: a kickoff that never lands must be visible,
+    // not a silent `false` the operator discovers hours later.
     const tellConfirmed = Effect.fnUntraced(function* (project: Orchestra.ProjectID, id: string, text: string) {
       const main = yield* orchestra.main(project).pipe(Effect.option)
-      if (Option.isNone(main)) return false
+      if (Option.isNone(main)) {
+        yield* Effect.logWarning("federation delivery failed: project has no live main session", { project, id })
+        return false
+      }
       return yield* sessions
         .prompt({
           sessionID: main.value.id,
@@ -702,7 +710,13 @@ const layer: Layer.Layer<
         .pipe(
           Effect.retry({ times: 2 }),
           Effect.as(true),
-          Effect.catch(() => Effect.succeed(false)),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("federation delivery failed after retries", {
+              project,
+              id,
+              cause: Cause.pretty(cause),
+            }).pipe(Effect.as(false)),
+          ),
         )
     })
 
@@ -1917,13 +1931,58 @@ const layer: Layer.Layer<
           )
           yield* writeGeneration(name, { stage: "founded", updated: Date.now(), kickoffDelivered, goal })
           const main = yield* orchestra.main(project.id).pipe(Effect.option)
-          if (Option.isSome(main))
+          if (Option.isSome(main)) {
             yield* sessions.resume(main.value.id).pipe(
               Effect.ignore,
               Effect.delay("1 second"),
               Effect.forkIn(layerScope),
               Effect.asVoid,
             )
+            if (kickoffDelivered) {
+              // The planner got the goal, so it is a worker like any other:
+              // verify it actually starts, restart it once when it does not,
+              // and escalate to the Society chat when the restart fails too.
+              yield* SessionActivation.watch(
+                { kv, sessions, store },
+                {
+                  sessionID: main.value.id,
+                  projectID: project.id,
+                  mainID: chat.sessionID,
+                  messageID: SessionMessage.ID.make("msg_society-goal"),
+                },
+              ).pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logWarning("planner activation watch failed; the kickoff itself stands", { cause }),
+                ),
+                Effect.forkIn(layerScope),
+                Effect.asVoid,
+              )
+            }
+          }
+          if (!kickoffDelivered) {
+            // A failed kickoff used to wait for a server restart: the only
+            // other retry was the immediate one in `society_forge found`,
+            // and a Society that looks founded and never builds is what a
+            // lost kickoff produces. Retry once more after the activation
+            // delay, and say loudly if it still has not landed.
+            yield* Effect.gen(function* () {
+              yield* Effect.sleep(SessionActivation.checkDelayMs())
+              yield* resumeGeneration(name).pipe(Effect.ignore)
+              const after = yield* generationOf(name)
+              if (after?.kickoffDelivered !== true)
+                yield* Effect.logError("Society kickoff never delivered: the planner has no goal", {
+                  society: name,
+                  project: project.id,
+                  fix: "deliver the goal to the planner main session (POST /api/session/<main>/prompt), or run society_forge found again",
+                })
+            }).pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning("kickoff retry failed", { society: name, cause: Cause.pretty(cause) }),
+              ),
+              Effect.forkIn(layerScope),
+              Effect.asVoid,
+            )
+          }
         }
         return {
           name,
@@ -2095,5 +2154,5 @@ const layer: Layer.Layer<
 export const node = makeGlobalNode({
   service: Service,
   layer,
-  deps: [KV.node, Orchestra.node, Session.node, Bus.node, FSUtil.node, Global.node],
+  deps: [KV.node, Orchestra.node, Session.node, SessionStore.node, Bus.node, FSUtil.node, Global.node],
 })

@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { Deferred, Effect, Fiber, Layer, Option } from "effect"
+import { Deferred, Effect, Fiber, Layer, Option, Schema } from "effect"
 import path from "node:path"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
 import { LayerNode } from "@orchestra/util/effect/layer-node"
@@ -20,6 +20,7 @@ import { Rules } from "@orchestra/core/rules"
 import { SessionPlan } from "@orchestra/core/session/plan"
 import { Society } from "@orchestra/core/society"
 import { Session } from "@orchestra/core/session"
+import { SessionActivation } from "@orchestra/core/session/activation"
 import { SessionExecution } from "@orchestra/core/session/execution"
 import { SessionHold } from "@orchestra/core/session/hold"
 import { KV } from "@orchestra/core/kv"
@@ -628,6 +629,27 @@ describe("Federation", () => {
       expect(generation?.kickoffDelivered).toBe(true)
       expect(generation?.goal).toBe("Ship the whole app")
       expect((yield* texts(planner)).some((text) => text.includes("Ship the whole app"))).toBe(true)
+    }),
+  )
+
+  it.live("a delivered kickoff starts a planner activation watch", () =>
+    Effect.gen(function* () {
+      const kv = yield* KV.Service
+      const { society, planner } = yield* foundSociety("PlannerWatchTest", "Watch the planner")
+      expect(society.generation.kickoffDelivered).toBe(true)
+      // The watch is forked, so its record may land a tick after creation.
+      let record: SessionActivation.Record | undefined
+      for (let attempt = 0; attempt < 20 && record === undefined; attempt++) {
+        record = Option.getOrUndefined(
+          Schema.decodeUnknownOption(SessionActivation.Record)(
+            yield* kv.get(SessionActivation.key(planner.main!)),
+          ),
+        )
+        if (record === undefined) yield* Effect.sleep("100 millis")
+      }
+      expect(record?.status).toBe("watching")
+      // A planner that never starts escalates to the Society chat, not to itself.
+      expect(record?.mainID).toBe(society.sessionID)
     }),
   )
 

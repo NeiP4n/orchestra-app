@@ -156,7 +156,10 @@ The `sessions` tool is how the Orchestrator dispatches role workers.
   (`SessionEscalate.ladder`), never a human confirmation. A held worker is
   left alone (the hold release wakes it); a run that ended failed/interrupted
   is left to its own reporting, and a run that "succeeded" with zero tokens
-  and work still pending counts as not started.
+  and work still pending counts as not started. The planner is watched the
+  same way from `Federation.createSociety`: a delivered kickoff starts a watch
+  on the planner main session, escalating to the Society chat when the planner
+  never starts.
 - Worker sessions receive `patch` but not `write` in their grant; briefs and
   worker guidance assume patch-first editing.
 
@@ -553,6 +556,12 @@ messages and builds the rest with `society_forge generate` and `society_plan`.
   still have pending inbox work — previously the release only removed the hold
   key and nothing re-woke the parked sessions (the startup sweep runs only at
   boot).
+- A kickoff that never lands is retried, not lost: `tellConfirmed` logs the
+  failure reason instead of returning a silent `false`, and `createSociety`
+  forks one more `resumeGeneration` retry after the activation delay when the
+  kickoff was not delivered, logging an error with the manual fix if it still
+  has not landed. `resumeGeneration` itself still re-sends while the Society
+  is `founded` (same message id, so the planner's inbox keeps one copy).
 
 ### The standing Society of this repository (permanent)
 
