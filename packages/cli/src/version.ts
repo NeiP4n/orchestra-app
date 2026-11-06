@@ -7,10 +7,9 @@ declare const ORCHESTRA_CHANNEL: string
 declare const ORCHESTRA_ARTIFACT: string
 
 // A dev checkout run straight from source (bun src/index.ts) has no compile-time define,
-// so the version would fall back to "local" and the free tier would reject the
-// client as below 1.18.0. Resolve the tagged release like the build script does, and fall
-// back to a known-good floor when there is no tag or git is unavailable.
-const MINIMUM_ANNOUNCED_VERSION = "1.18.0"
+// so the version would fall back to "local". Resolve the tagged release like the build
+// script does, and fall back to a known-good floor when there is no tag or git is unavailable.
+const MINIMUM_ANNOUNCED_VERSION = "1.0.0"
 
 // The tag describes the checkout these sources were cut from, not wherever the CLI happens
 // to be started: a project directory is the cwd, so a lookup that follows cwd silently falls
@@ -30,7 +29,7 @@ function packageJsonVersion(): string | undefined {
   }
 }
 
-const FALLBACK_VERSION = packageJsonVersion() ?? "2.0.0"
+const FALLBACK_VERSION = packageJsonVersion() ?? "1.0.0"
 
 function gitTagVersion(): string | undefined {
   try {
@@ -85,7 +84,7 @@ function releaseVersion() {
 
 // An Orchestra source install has its own updater: release/* tags and the lan-rooms
 // development branch are managed by source-release.ts. Do not send these checkouts to the
-// public updater, otherwise /upgrade offers an upstream OpenCode version.
+// public updater, otherwise /upgrade checks the public update source instead of git.
 // The marker is kept in the repository and is not shipped by normal package installations.
 const ORCHESTRA_PLUS_PLUS_SOURCE =
   (typeof ORCHESTRA_VERSION !== "string" || ORCHESTRA_VERSION === "undefined") &&
