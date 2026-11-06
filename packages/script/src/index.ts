@@ -34,28 +34,30 @@ const CHANNEL = await (async () => {
   return `branch-${channel}`
 })()
 const IS_PREVIEW = CHANNEL !== "latest"
-// OpenCode Zen requires a recent semver in User-Agent. Preview/branch channels are not
+// Orchestra's own versioning starts at 1.0.0. Preview/branch channels are not
 // release channels, so never put their names in the version or claim the latest channel. Keep
 // the nearest supported stable release as the base and append the exact source commit as build
 // metadata; this is valid semver and lets the background service distinguish rebuilt checkouts.
-const MINIMUM_ANNOUNCED_VERSION = "1.18.0"
+const MINIMUM_ANNOUNCED_VERSION = "1.0.0"
 const FALLBACK_VERSION =
   typeof rootPkg.version === "string" &&
   semver.valid(rootPkg.version) &&
   semver.gte(rootPkg.version, MINIMUM_ANNOUNCED_VERSION)
     ? rootPkg.version
-    : "2.0.0"
+    : "1.0.0"
 
 const VERSION = await (async () => {
   if (!IS_PREVIEW) {
     if (env.ORCHESTRA_VERSION) return env.ORCHESTRA_VERSION
     // The release version comes from Orchestra's own package.json, never from
-    // the upstream OpenCode npm registry.
+    // the upstream OpenCode npm registry. Without a bump, the version is the
+    // one in package.json (1.0.0 for the first release); a bump increments it.
     const [major, minor, patch] = FALLBACK_VERSION.split(".").map((x: string) => Number(x) || 0)
     const t = env.ORCHESTRA_BUMP?.toLowerCase()
     if (t === "major") return `${major + 1}.0.0`
     if (t === "minor") return `${major}.${minor + 1}.0`
-    return `${major}.${minor}.${patch + 1}`
+    if (t === "patch") return `${major}.${minor}.${patch + 1}`
+    return FALLBACK_VERSION
   }
 
   const requested = env.ORCHESTRA_VERSION?.split("+")[0]

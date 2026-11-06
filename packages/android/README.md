@@ -13,7 +13,7 @@ connection form, where the user enters an address and password, pastes a pair li
 | --- | --- |
 | Page origin | `https://appassets.androidplatform.net/`, answered from `assets/app` by `AssetHost` |
 | Bundle | `packages/app` production build, copied into the APK as `assets/app` at build time |
-| Version | `versionName` from the root `package.json`, `versionCode` derived from it (`2.0.24` -> `20024`) |
+| Version | `versionName` from the root `package.json`, `versionCode` derived from it (`1.0.0` -> `10000`) |
 | Icons | copied from `packages/desktop/icons/beta/android` (beta channel) |
 | Permissions | `INTERNET`, `CAMERA`, `RECORD_AUDIO`, requested at the moment the page asks for them |
 | Language | Java, one Activity, no AndroidX and no third-party dependencies |

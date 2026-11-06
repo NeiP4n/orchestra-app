@@ -2,7 +2,7 @@
 
 > **System**: Orchestra (orchestra-app)  
 > **Repository Root**: `C:\Users\Isako\AppData\Local\orchestra-app`  
-> **Version**: 2.0.24 | **License**: MIT | **Runtime**: Bun 1.4.3 / Node 22+ / TypeScript 5.8.2  
+> **Version**: 1.0.0 | **License**: MIT | **Runtime**: Bun 1.4.3 / Node 22+ / TypeScript 5.8.2  
 > **Generated / Last Audit**: 2026-10-27T23:15:00+04:00  
 > **Status**: Full Integrity Verified (`typecheck: PASS`, `decoupling: PASS`, `schema tests: PASS`, `guidance tests: PASS`)
 
