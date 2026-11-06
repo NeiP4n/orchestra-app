@@ -2,6 +2,15 @@ export * as AutoloopDecide from "./decide.js"
 
 import { createHash } from "node:crypto"
 import {
+  advanceDispute,
+  deadlineFor,
+  escalateDispute,
+  resolveDispute,
+  DISPUTE_LEVELS,
+  type Dispute,
+  type DisputeLevel,
+} from "./dispute.js"
+import {
   MINUTE,
   SEEN_EVERY,
   deadlines,
@@ -13,6 +22,7 @@ import {
 import type { DueLimits } from "./due.js"
 import type { View } from "./evolve.js"
 import { iso } from "./evolve.js"
+import { fingerprintError, recordRepeat } from "./repeat.js"
 import { SCHEDULE, cronOf, eventRule, typeMatches } from "./rules.js"
 import type { Rule, Rules } from "./rules.js"
 import type { AutoloopFact } from "./schema.js"
@@ -159,10 +169,52 @@ export interface RunRow extends RowData {
   finished_at: string | null
   summary: string | null
   error: string | null
+  /** Fingerprint of the last failure's error (idea #2: repeat-error stop-word). */
+  error_fingerprint: string | null
+  /** Consecutive repeats of that fingerprint, counting the last failure. */
+  error_repeat: number
+  /** JSON string of the last error occurrences `{ fp, at }[]` (idea #2). */
+  error_history: string | null
+  /** Failing-test proof for a bug-fix run (idea #6): test file, if declared. */
+  fix_test_file: string | null
+  /** Failing-test proof for a bug-fix run (idea #6): recorded failing run. */
+  fix_test_run: string | null
+  /** Declared independent verification methods (idea #14), if any. */
+  verification: Array<{ kind: string; detail: string }> | null
   usage: Record<string, unknown> | null
   not_before: string
   created_at: string
   rules_version: number
+}
+
+/** One lesson from a twice-failed run (idea #11), in the `lessons` collection. */
+export interface LessonRow extends RowData {
+  /** The run that failed twice. */
+  run: number
+  rule: string
+  /** The one lesson, in plain words: what failed and what it means. */
+  text: string
+  /** The error text the lesson is about. */
+  error: string
+  /** Fingerprint of that error, when the failure carried one (idea #2). */
+  fingerprint: string | null
+  /** Attempts at the time the lesson was written (always 2). */
+  attempts: number
+  created_at: string
+}
+
+/** One dispute on the timed ladder (idea #18), in the `disputes` collection. */
+export interface DisputeRow extends RowData {
+  id: number
+  subject: string
+  position_a: string
+  position_b: string
+  level: string
+  deadline: string
+  state: "open" | "resolved" | "noted"
+  decision: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface EventRow extends RowData {
@@ -333,7 +385,35 @@ export interface Receipt {
   events?: EventInput[]
   /** The run finished, but the code check (DoD) failed: another fix round. */
   verifyFailed?: boolean
+  /**
+   * This run fixed a bug (idea #6: test before the fix). A fix receipt
+   * without `failingTest` is not accepted as done: it counts a verification
+   * round instead, until the failing-first proof is attached.
+   */
+  fixTask?: boolean
+  /** The failing test that reproduces the bug: test file + recorded failing run. */
+  failingTest?: { file: string; run: string }
+  /**
+   * Independent verification methods used for this result (idea #14).
+   * A done receipt that declares verification must carry at least two
+   * entries of different kinds — one check can lie, two independent ones
+   * almost never do. A receipt without the field is accepted as before:
+   * legacy receipts and read-only work have no second method to declare,
+   * and the exemption is explicit (see `applyReceipt`), not a silent hole.
+   */
+  verification?: Array<{ kind: string; detail: string }>
 }
+
+/**
+ * The verification kinds a receipt may declare (idea #14): `test` (an
+ * automated test), `command` (a command / check run), `manual` (a human or
+ * agent checking by hand), `review` (an independent check by another
+ * agent), `transcript` (the Orchestrator's own transcript evidence).
+ * Unknown kinds are rejected in `parseResult` so a typo cannot silently
+ * pass as a second method.
+ */
+export const VERIFICATION_KINDS = ["test", "command", "manual", "review", "transcript"] as const
+export type VerificationKind = (typeof VERIFICATION_KINDS)[number]
 
 export interface Rejected {
   what?: string
@@ -481,6 +561,41 @@ export function parseResult(given: unknown): Receipt {
       }
     }
   }
+  const failingTest = given["failingTest"]
+  if (failingTest !== undefined) {
+    if (
+      !isRecord(failingTest) ||
+      typeof failingTest["file"] !== "string" ||
+      failingTest["file"] === "" ||
+      typeof failingTest["run"] !== "string" ||
+      failingTest["run"] === ""
+    ) {
+      throw new DecideInputError("квитанция.failingTest — { file, run }, обе непустые строки")
+    }
+    if (failingTest["file"].length > 500 || failingTest["run"].length > 500) {
+      throw new DecideInputError("квитанция.failingTest — file и run до 500 знаков")
+    }
+  }
+  const verification = given["verification"]
+  if (verification !== undefined) {
+    if (!Array.isArray(verification) || verification.length > 5) {
+      throw new DecideInputError("квитанция.verification — список до 5 способов проверки")
+    }
+    for (const item of verification) {
+      if (
+        !isRecord(item) ||
+        typeof item["kind"] !== "string" ||
+        !(VERIFICATION_KINDS as ReadonlyArray<string>).includes(item["kind"]) ||
+        typeof item["detail"] !== "string" ||
+        item["detail"] === "" ||
+        item["detail"].length > 500
+      ) {
+        throw new DecideInputError(
+          `квитанция.verification — { kind, detail }, kind один из: ${VERIFICATION_KINDS.join(", ")}`,
+        )
+      }
+    }
+  }
   return {
     outcome,
     summary: optText(given["summary"], "квитанция.summary", 2000),
@@ -495,6 +610,18 @@ export function parseResult(given: unknown): Receipt {
     later: later as Later[] | undefined,
     events: Array.isArray(given["events"]) ? given["events"].map((event) => parseEvent(event)) : undefined,
     verifyFailed: given["verifyFailed"] === true,
+    fixTask: given["fixTask"] === true,
+    failingTest:
+      failingTest === undefined
+        ? undefined
+        : { file: failingTest["file"] as string, run: failingTest["run"] as string },
+    verification:
+      verification === undefined
+        ? undefined
+        : (verification as Array<{ kind: string; detail: string }>).map((item) => ({
+            kind: item["kind"] as string,
+            detail: item["detail"] as string,
+          })),
   }
 }
 
@@ -515,6 +642,12 @@ const RUN_DEFAULTS: Partial<RunRow> = {
   finished_at: null,
   summary: null,
   error: null,
+  error_fingerprint: null,
+  error_repeat: 0,
+  error_history: null,
+  fix_test_file: null,
+  fix_test_run: null,
+  verification: null,
   usage: null,
 }
 
@@ -883,6 +1016,61 @@ function sweep(draft: Draft) {
     const check = lastSeen === undefined ? "включён ли он и есть ли сеть" : "не выключен ли он, не уснул ли, не пропала ли сеть"
     notify(draft, key, "Исполнитель не на связи", `${situation} (посмотрите, ${check}).`)
   }
+  sweepDisputes(draft)
+}
+
+const disputeOfRow = (row: DisputeRow): Dispute => ({
+  id: row.id,
+  subject: row.subject,
+  positionA: row.position_a,
+  positionB: row.position_b,
+  level: row.level as DisputeLevel,
+  deadline: row.deadline,
+  state: row.state,
+  decision: row.decision,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+})
+
+const rowOfDispute = (dispute: Dispute): RowData => ({
+  subject: dispute.subject,
+  position_a: dispute.positionA,
+  position_b: dispute.positionB,
+  level: dispute.level,
+  deadline: dispute.deadline,
+  state: dispute.state,
+  decision: dispute.decision,
+  created_at: dispute.createdAt,
+  updated_at: dispute.updatedAt,
+})
+
+/**
+ * The operator's record of a dispute that climbed the whole ladder: both
+ * positions, no question asked, nothing blocked. `once` keeps it to one
+ * card per dispute.
+ */
+function noteDisputeForOperator(draft: Draft, dispute: Dispute) {
+  const clipped = (text: string) => (text.length > 400 ? `${text.slice(0, 400)}…` : text)
+  notify(
+    draft,
+    `dispute:${dispute.id}:operator`,
+    "Спор дошёл до оператора",
+    `Спор «${dispute.subject}» не решили на уровнях ниже, он записан для оператора — ответа не требуется, работа не блокируется. ` +
+      `Позиция А: ${clipped(dispute.positionA)} Позиция Б: ${clipped(dispute.positionB)}`,
+    { once: true },
+  )
+}
+
+/** Overdue open disputes climb one rung on their own, carrying both positions. */
+function sweepDisputes(draft: Draft) {
+  for (const row of rowsOf(draft.view, "disputes")
+    .map(({ data }) => data as DisputeRow)
+    .filter((dispute) => dispute.state === "open")) {
+    const moved = escalateDispute(disputeOfRow(row), draft.now)
+    if (!moved.escalated) continue
+    put(draft, "disputes", row.id, rowOfDispute(moved.dispute))
+    if (moved.dispute.state === "noted") noteDisputeForOperator(draft, moved.dispute)
+  }
 }
 
 function heldRun(draft: Draft, id: number, token: string, states: string[]): RunRow {
@@ -966,10 +1154,68 @@ export function retryLater(draft: Draft, run: RunRow, result: Receipt): Rejected
     for (const _ of result[what] ?? []) rejected.push({ what, reason: "неудавшийся раунд может только уведомлять" })
   }
   for (const notice of result.notice ?? []) cardFromReceipt(draft, run, "notice", notice)
-  const failure = { attempts, error, ...unclaimed }
+  // Stop-word on a deadlock (idea #2): the same error three times in a row,
+  // or three times within an hour, stops the run even when retries remain —
+  // retrying the identical failure only burns tokens. The fingerprint and
+  // the history stay on the run row, so the stop card can name what was
+  // tried; an empty error text carries no fingerprint and never trips it.
+  const rawError = (result.error ?? "").trim()
+  const repeat =
+    rawError === "" ? undefined : recordRepeat(run.error_history ?? null, fingerprintError(rawError), draft.now)
+  const failure = {
+    attempts,
+    error,
+    ...unclaimed,
+    ...(repeat === undefined
+      ? {}
+      : {
+          error_fingerprint: repeat.history.at(-1)!.fp,
+          error_repeat: repeat.consecutive,
+          error_history: JSON.stringify(repeat.history),
+        }),
+  }
+  // Post-failure review (idea #11): on the second failure the run writes
+  // exactly ONE lesson into the `lessons` collection of the journal — the
+  // durable shared memory the society reads through `getView` (the
+  // three-level memory of Б17 does not exist yet, and the kernel is pure,
+  // so the lesson cannot go to the Memory service from here). Attempts only
+  // grow, so `attempts === 2` fires once per run: a third failure adds no
+  // second lesson. The lesson names the error and its fingerprint, not a
+  // verdict about the cause — the cause is for the society to judge from
+  // the worker sessions. It is written before the rule-gone stop below, so
+  // a twice-failed run is recorded even when its rule has disappeared.
+  if (attempts === 2) {
+    const fingerprint = repeat === undefined ? null : repeat.history.at(-1)!.fp
+    const text =
+      `Урок (правило «${run.rule}», раунд ${id}): ${error}. Попыток: 2.` +
+      (fingerprint === null ? "" : ` Отпечаток ошибки: ${fingerprint}.`)
+    put(draft, "lessons", `run:${id}`, {
+      run: id,
+      rule: run.rule,
+      text: text.slice(0, 500),
+      error: error.slice(0, 500),
+      fingerprint,
+      attempts,
+      created_at: draft.at,
+    })
+  }
   if (ruleNamed(draft, run.rule) === undefined) {
     put(draft, "runs", id, failure)
     stopRun(draft, run, "rule-gone", ...ruleGone(run))
+    return rejected
+  }
+  if (repeat?.stuck === true) {
+    const how =
+      repeat.consecutive >= 3
+        ? `${repeat.consecutive} раз подряд`
+        : `${repeat.inWindow} раза за час`
+    const summary = `Та же ошибка повторилась ${how}, автоматические повторы остановлены`
+    const words =
+      `Одна и та же ошибка повторилась ${how} (попыток: ${attempts}, ошибка: ${error}). ` +
+      `Дальнейшие повторы того же самого только жгут токены, поэтому раунд остановлен — ` +
+      `подробности попыток смотрите в сессиях исполнителя, отпечаток ошибки: ${repeat.history.at(-1)!.fp}.`
+    put(draft, "runs", id, failure)
+    stopRun(draft, run, "stopped", summary, words)
     return rejected
   }
   if (attempts >= limits.maxAttempts) {
@@ -1031,7 +1277,33 @@ export function applyReceipt(draft: Draft, run: RunRow, result: Receipt): Reject
   const rule = ruleNamed(draft, run.rule)
   const summary = result.summary ?? ""
   const rejected: Rejected[] = []
-  if (result.verifyFailed === true) {
+  // Test before the fix (idea #6): a run that declares itself a bug fix
+  // must attach the failing test that reproduces the bug. Without it the
+  // "done" is not accepted — it counts a verification round, exactly like a
+  // failed code check, until the proof is attached. The gate keys on the
+  // declaration: the kernel cannot tell a fix task from other work on its
+  // own, and guessing from the text would misfire.
+  const testGateFailed = result.outcome === "done" && result.fixTask === true && result.failingTest === undefined
+  // Two independent checks (idea #14): a done receipt that declares
+  // verification must name at least two methods of different kinds. One
+  // method is not a check — it is a claim. A receipt that declares nothing
+  // is exempt by design (see the `verification` field): legacy receipts
+  // and read-only work have no second method to declare.
+  const declaredKinds = new Set((result.verification ?? []).map((item) => item.kind))
+  const verificationFailed =
+    result.outcome === "done" && result.verification !== undefined && declaredKinds.size < 2
+  const verifyError = testGateFailed
+    ? "исправление заявлено без падающего теста"
+    : verificationFailed
+      ? "проверка заявлена только одним способом: нужен второй, независимый"
+      : "проверка не прошла"
+  const fixProof =
+    result.failingTest === undefined
+      ? {}
+      : { fix_test_file: result.failingTest.file, fix_test_run: result.failingTest.run }
+  const verificationProof =
+    result.verification === undefined ? {} : { verification: result.verification }
+  if (result.verifyFailed === true || testGateFailed || verificationFailed) {
     const verifyIterations = run.verifyIterations + 1
     for (const notice of result.notice ?? []) cardFromReceipt(draft, run, "notice", notice)
     for (const later of result.later ?? []) scheduleReview(draft, run, later)
@@ -1041,14 +1313,20 @@ export function applyReceipt(draft: Draft, run: RunRow, result: Receipt): Reject
         finished_at: draft.at,
         summary,
         verifyIterations,
-        error: "проверка не прошла",
+        error: verifyError,
+        ...fixProof,
+        ...verificationProof,
       })
       closeStopped(draft, id, summary)
       createCard(draft, {
         key: `run:${id}:verify`,
         kind: "ask",
         title: "Проверка не проходит",
-        text: `Проверка кодом не прошла ${draft.limits.maxVerifyIterations} раз подряд (${summary || "без подробностей"}). Что делать дальше?`,
+        text: testGateFailed
+          ? `Исправление заявлено ${draft.limits.maxVerifyIterations} раз подряд без падающего теста (${summary || "без подробностей"}). Приложите тест, который повторяет баг, или отмените задачу. Что делать дальше?`
+          : verificationFailed
+            ? `Результат заявлен ${draft.limits.maxVerifyIterations} раз подряд только с одним способом проверки (${summary || "без подробностей"}). Проверьте вторым, независимым способом, или отмените задачу. Что делать дальше?`
+            : `Проверка кодом не прошла ${draft.limits.maxVerifyIterations} раз подряд (${summary || "без подробностей"}). Что делать дальше?`,
         options: ["Исправить и проверить снова", "Принять без проверки", "Отменить задачу"],
         recommend: "Исправить и проверить снова",
         ...threadOf(run),
@@ -1061,11 +1339,21 @@ export function applyReceipt(draft: Draft, run: RunRow, result: Receipt): Reject
       not_before: draft.at,
       verifyIterations,
       summary,
-      error: "проверка не прошла",
+      error: verifyError,
+      ...fixProof,
+      ...verificationProof,
     })
     return rejected
   }
-  put(draft, "runs", id, { state: result.outcome, finished_at: draft.at, summary, error: null, cancel_at: null })
+  put(draft, "runs", id, {
+    state: result.outcome,
+    finished_at: draft.at,
+    summary,
+    error: null,
+    cancel_at: null,
+    ...fixProof,
+    ...verificationProof,
+  })
   closeOpen(draft, (key) => key === `run:${id}:failing`, "потом получилось")
   closeOpen(draft, (key) => key === `run:${id}:unknown`, "результат вернулся")
   const eventIds = eventsOf(draft.view, id).map((event) => event.id)
@@ -1460,6 +1748,57 @@ const HANDLERS: Record<string, (draft: Draft, ...args: Array<unknown>) => unknow
   ingest: (draft, source, given) => ingest(draft, needStr(source, "ingest.source"), given),
 
   createCard: (draft, spec) => createCard(draft, parseCardSpec(spec, "карточка")),
+
+  raiseDispute: (draft, subject, positionA, positionB, level) => {
+    const subjectText = needStr(subject, "raiseDispute.subject")
+    if (subjectText.length > 500) throw new DecideInputError("спор.subject — до 500 знаков")
+    const a = needStr(positionA, "raiseDispute.positionA")
+    const b = needStr(positionB, "raiseDispute.positionB")
+    if (a.length > 2000 || b.length > 2000) throw new DecideInputError("позиции спора — до 2000 знаков")
+    const levelText = level === undefined ? "agent" : needStr(level, "raiseDispute.level")
+    if (!(DISPUTE_LEVELS as ReadonlyArray<string>).includes(levelText)) {
+      throw new DecideInputError(`спор.level — один из: ${DISPUTE_LEVELS.join(", ")}`)
+    }
+    const deadline = deadlineFor(levelText as DisputeLevel, draft.now)
+    const row = add<DisputeRow>(draft, "disputes", {
+      subject: subjectText,
+      position_a: a,
+      position_b: b,
+      level: levelText,
+      deadline,
+      state: "open",
+      decision: null,
+      created_at: draft.at,
+      updated_at: draft.at,
+    })
+    if (levelText === "operator") {
+      put(draft, "disputes", row.id, { state: "noted", deadline: "" })
+      noteDisputeForOperator(draft, { ...disputeOfRow(row), state: "noted", deadline: "" })
+      return { dispute: row.id, level: "operator", deadline: "" }
+    }
+    return { dispute: row.id, level: levelText, deadline }
+  },
+
+  resolveDispute: (draft, id, decision) => {
+    const row = getRow<DisputeRow>(draft.view, "disputes", needNum(id, "resolveDispute.id"))
+    if (row === undefined) throw new DecideNotFoundError("такого спора нет")
+    if (row.state !== "open") return false
+    const decided = resolveDispute(disputeOfRow(row), needStr(decision, "resolveDispute.decision"), draft.now)
+    put(draft, "disputes", row.id, rowOfDispute(decided))
+    return true
+  },
+
+  escalateDispute: (draft, id) => {
+    const row = getRow<DisputeRow>(draft.view, "disputes", needNum(id, "escalateDispute.id"))
+    if (row === undefined) throw new DecideNotFoundError("такого спора нет")
+    const moved = advanceDispute(disputeOfRow(row), draft.now)
+    if (!moved.escalated) {
+      return { escalated: false, reason: moved.reason, level: row.level, state: row.state }
+    }
+    put(draft, "disputes", row.id, rowOfDispute(moved.dispute))
+    if (moved.dispute.state === "noted") noteDisputeForOperator(draft, moved.dispute)
+    return { escalated: true, reason: moved.reason, level: moved.dispute.level, state: moved.dispute.state }
+  },
 
   enqueue: (draft, ruleName, eventId, lane, resume) => {
     const rule = ruleNamed(draft, needStr(ruleName, "enqueue.rule"))

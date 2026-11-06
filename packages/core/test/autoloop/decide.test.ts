@@ -415,3 +415,346 @@ describe("AutoloopDecide cancelling a task (G2-12)", () => {
     expect(runRow(answered.view, 2)).toMatchObject({ rule: "build", state: "queued" })
   })
 })
+
+describe("AutoloopDecide repeat-error stop-word (idea #2)", () => {
+  const stepWithLimits = (view: View, input: DecideInput, now: number, seq: number, limits: { maxAttempts: number; retryBaseMinutes: number }) => {
+    const result = decide(view, input, now, { rules, tokenSecret: "test-secret", seq, rulesVersion: 1, limits })
+    return { view: result.facts.reduce(evolve, view), value: result.value, facts: result.facts }
+  }
+  const claimWithLimits = (view: View, now: number, claim: string, seq: number, limits: { maxAttempts: number; retryBaseMinutes: number }) => {
+    const claimed = stepWithLimits(view, { type: "claimNext", args: ["worker-1", claim] }, now, seq, limits)
+    return { ...claimed, job: claimed.value as Job }
+  }
+  /** Fail the run once with `error`, starting from a claim at `now`. */
+  const failOnce = (
+    view: View,
+    now: number,
+    seq: number,
+    error: string | undefined,
+    limits: { maxAttempts: number; retryBaseMinutes: number },
+  ) => {
+    const claimed = claimWithLimits(view, now, `claim-${seq}`, seq, limits)
+    expect(claimed.job.run).toBe(1)
+    return stepWithLimits(
+      claimed.view,
+      { type: "finish", args: [1, claimed.job.token, { outcome: "failed", summary: "failed", error }] },
+      now + 1000,
+      seq + 1,
+      limits,
+    )
+  }
+
+  test("the same error three times in a row stops the run even when retries remain", () => {
+    const limits = { maxAttempts: 5, retryBaseMinutes: 1 }
+    let view = ingestTask(emptyView(), T0).view
+    // Same failure, different ports: the fingerprint still says "same error".
+    view = failOnce(view, T0, 2, "connect ECONNREFUSED 127.0.0.1:5432", limits).view
+    expect(runRow(view, 1)).toMatchObject({ state: "queued", attempts: 1, error_repeat: 1 })
+    view = failOnce(view, T0 + 3 * MINUTE, 4, "connect ECONNREFUSED 127.0.0.1:17890", limits).view
+    expect(runRow(view, 1)).toMatchObject({ state: "queued", attempts: 2, error_repeat: 2 })
+    view = failOnce(view, T0 + 8 * MINUTE, 6, "connect ECONNREFUSED 127.0.0.1:5433", limits).view
+
+    expect(runRow(view, 1)).toMatchObject({ state: "cancelled", attempts: 3, error_repeat: 3 })
+    expect(runRow(view, 1)?.["summary"]).toContain("Та же ошибка")
+    expect(typeof runRow(view, 1)?.["error_fingerprint"]).toBe("string")
+    const stopped = cardRows(view).find((card) => card["key"] === "run:1:stopped")
+    expect(stopped?.["text"]).toContain("ECONNREFUSED")
+  })
+
+  test("different errors do not trip the stop-word", () => {
+    const limits = { maxAttempts: 5, retryBaseMinutes: 1 }
+    let view = ingestTask(emptyView(), T0).view
+    view = failOnce(view, T0, 2, "database is locked", limits).view
+    view = failOnce(view, T0 + 3 * MINUTE, 4, "port already in use", limits).view
+    view = failOnce(view, T0 + 8 * MINUTE, 6, "database is locked", limits).view
+
+    expect(runRow(view, 1)).toMatchObject({ state: "queued", attempts: 3, error_repeat: 1 })
+    expect(runRow(view, 1)?.["summary"]).toBeNull()
+  })
+
+  test("three of the same within an hour stop the run even when not consecutive", () => {
+    const limits = { maxAttempts: 10, retryBaseMinutes: 1 }
+    let view = ingestTask(emptyView(), T0).view
+    view = failOnce(view, T0, 2, "database is locked", limits).view
+    view = failOnce(view, T0 + 3 * MINUTE, 4, "port already in use", limits).view
+    view = failOnce(view, T0 + 8 * MINUTE, 6, "database is locked", limits).view
+    view = failOnce(view, T0 + 17 * MINUTE, 8, "port already in use", limits).view
+    view = failOnce(view, T0 + 30 * MINUTE, 10, "database is locked", limits).view
+
+    expect(runRow(view, 1)).toMatchObject({ state: "cancelled", attempts: 5 })
+    expect(runRow(view, 1)?.["summary"]).toContain("Та же ошибка")
+  })
+
+  test("a failure with no error text never trips the stop-word", () => {
+    const limits = { maxAttempts: 5, retryBaseMinutes: 1 }
+    let view = ingestTask(emptyView(), T0).view
+    view = failOnce(view, T0, 2, undefined, limits).view
+    view = failOnce(view, T0 + 3 * MINUTE, 4, undefined, limits).view
+    view = failOnce(view, T0 + 8 * MINUTE, 6, undefined, limits).view
+
+    expect(runRow(view, 1)).toMatchObject({ state: "queued", attempts: 3, error_repeat: 0 })
+    expect(runRow(view, 1)?.["error_fingerprint"]).toBeNull()
+  })
+})
+
+describe("AutoloopDecide test-before-fix gate (idea #6)", () => {
+  const finishDone = (view: View, now: number, seq: number, receipt: Record<string, unknown>) => {
+    const claimed = claimTask(view, now, `claim-${seq}`, seq)
+    expect(claimed.job.run).toBe(1)
+    return step(claimed.view, { type: "finish", args: [1, claimed.job.token, receipt] }, now + 1000, seq + 1)
+  }
+
+  test("a declared fix without a failing test counts a verification round, not done", () => {
+    let view = ingestTask(emptyView(), T0).view
+    view = finishDone(view, T0, 2, { outcome: "done", summary: "fixed", fixTask: true }).view
+    expect(runRow(view, 1)).toMatchObject({
+      state: "queued",
+      verifyIterations: 1,
+      error: "исправление заявлено без падающего теста",
+    })
+    expect(runRow(view, 1)?.["fix_test_file"]).toBeNull()
+  })
+
+  test("after 5 rounds without a failing test the fix stops and asks what to do", () => {
+    let view = ingestTask(emptyView(), T0).view
+    for (let round = 1; round <= 5; round += 1) {
+      const now = T0 + round * MINUTE
+      view = finishDone(view, now, round + 1, { outcome: "done", summary: "fixed", fixTask: true }).view
+    }
+    expect(runRow(view, 1)).toMatchObject({ state: "cancelled", verifyIterations: 5 })
+    const ask = cardRows(view).find((card) => card["key"] === "run:1:verify")
+    expect(ask?.["text"]).toContain("без падающего теста")
+  })
+
+  test("a declared fix with a failing test finishes done and records the proof", () => {
+    let view = ingestTask(emptyView(), T0).view
+    const proof = { file: "test/session/runner/retry.test.ts", run: "bun test retry.test.ts: 1 fail (timeout)" }
+    view = finishDone(view, T0, 2, { outcome: "done", summary: "fixed", fixTask: true, failingTest: proof }).view
+    expect(runRow(view, 1)).toMatchObject({
+      state: "done",
+      fix_test_file: proof.file,
+      fix_test_run: proof.run,
+    })
+  })
+
+  test("an undeclared fix is accepted as before: the gate keys on the declaration", () => {
+    let view = ingestTask(emptyView(), T0).view
+    view = finishDone(view, T0, 2, { outcome: "done", summary: "fixed" }).view
+    expect(runRow(view, 1)).toMatchObject({ state: "done", verifyIterations: 0 })
+  })
+
+  test("a malformed failingTest is rejected as a bad receipt", () => {
+    const ingested = ingestTask(emptyView(), T0)
+    const claimed = claimTask(ingested.view, T0)
+    expect(() =>
+      decide(
+        claimed.view,
+        {
+          type: "finish",
+          args: [1, claimed.job.token, { outcome: "done", summary: "fixed", fixTask: true, failingTest: { file: "", run: "" } }],
+        },
+        T0 + 1000,
+        env(3),
+      ),
+    ).toThrow("failingTest")
+  })
+})
+
+describe("AutoloopDecide lesson after the second failure (idea #11)", () => {
+  const lessonRows = (view: View) => Object.values(view["lessons"] ?? {}) as Array<Record<string, unknown>>
+  const failOnce = (view: View, now: number, seq: number, error: string) => {
+    const claimed = claimTask(view, now, `claim-${seq}`, seq)
+    expect(claimed.job.run).toBe(1)
+    return step(
+      claimed.view,
+      { type: "finish", args: [1, claimed.job.token, { outcome: "failed", summary: "failed", error }] },
+      now + 1000,
+      seq + 1,
+    )
+  }
+
+  test("the first failure writes no lesson; the second writes exactly one", () => {
+    let view = ingestTask(emptyView(), T0).view
+    view = failOnce(view, T0, 2, "database is locked").view
+    expect(lessonRows(view)).toHaveLength(0)
+    expect(runRow(view, 1)).toMatchObject({ state: "queued", attempts: 1 })
+
+    view = failOnce(view, T0 + 6 * MINUTE, 4, "database is locked").view
+    expect(runRow(view, 1)).toMatchObject({ state: "cancelled", attempts: 2 })
+    const lessons = lessonRows(view)
+    expect(lessons).toHaveLength(1)
+    expect(lessons[0]).toMatchObject({ run: 1, rule: "build", attempts: 2, error: "database is locked" })
+    expect(lessons[0]?.["text"]).toContain("Урок")
+    expect(typeof lessons[0]?.["fingerprint"]).toBe("string")
+  })
+
+  test("a third failure adds no second lesson", () => {
+    const limits = { maxAttempts: 5, retryBaseMinutes: 1 }
+    let view = ingestTask(emptyView(), T0).view
+    const fail = (current: View, now: number, seq: number, error: string) => {
+      const result = decide(
+        current,
+        { type: "claimNext", args: ["worker-1", `claim-${seq}`] },
+        now,
+        { rules, tokenSecret: "test-secret", seq, rulesVersion: 1, limits },
+      )
+      const claimed = { view: result.facts.reduce(evolve, current), job: result.value as Job }
+      const finished = decide(
+        claimed.view,
+        { type: "finish", args: [1, claimed.job.token, { outcome: "failed", summary: "failed", error }] },
+        now + 1000,
+        { rules, tokenSecret: "test-secret", seq: seq + 1, rulesVersion: 1, limits },
+      )
+      return finished.facts.reduce(evolve, claimed.view)
+    }
+    view = fail(view, T0, 2, "database is locked")
+    view = fail(view, T0 + 3 * MINUTE, 4, "port already in use")
+    expect(lessonRows(view)).toHaveLength(1)
+    view = fail(view, T0 + 8 * MINUTE, 6, "database is locked")
+    expect(lessonRows(view)).toHaveLength(1)
+    expect(runRow(view, 1)).toMatchObject({ state: "queued", attempts: 3 })
+  })
+})
+
+describe("AutoloopDecide two independent verification methods (idea #14)", () => {
+  const finishDone = (view: View, now: number, seq: number, receipt: Record<string, unknown>) => {
+    const claimed = claimTask(view, now, `claim-${seq}`, seq)
+    expect(claimed.job.run).toBe(1)
+    return step(claimed.view, { type: "finish", args: [1, claimed.job.token, receipt] }, now + 1000, seq + 1)
+  }
+  const twoWays = [
+    { kind: "test", detail: "bun test: 12 pass" },
+    { kind: "command", detail: "bun run check on the changed package: clean" },
+  ]
+
+  test("one declared method counts a verification round, not done", () => {
+    let view = ingestTask(emptyView(), T0).view
+    view = finishDone(view, T0, 2, {
+      outcome: "done",
+      summary: "built",
+      verification: [{ kind: "test", detail: "bun test: 12 pass" }],
+    }).view
+    expect(runRow(view, 1)).toMatchObject({
+      state: "queued",
+      verifyIterations: 1,
+      error: "проверка заявлена только одним способом: нужен второй, независимый",
+    })
+  })
+
+  test("two entries of the same kind are still one method", () => {
+    let view = ingestTask(emptyView(), T0).view
+    view = finishDone(view, T0, 2, {
+      outcome: "done",
+      summary: "built",
+      verification: [
+        { kind: "test", detail: "bun test a: pass" },
+        { kind: "test", detail: "bun test b: pass" },
+      ],
+    }).view
+    expect(runRow(view, 1)).toMatchObject({ state: "queued", verifyIterations: 1 })
+  })
+
+  test("two methods of different kinds finish done and are recorded on the run", () => {
+    let view = ingestTask(emptyView(), T0).view
+    view = finishDone(view, T0, 2, { outcome: "done", summary: "built", verification: twoWays }).view
+    expect(runRow(view, 1)).toMatchObject({ state: "done", verifyIterations: 0 })
+    expect(runRow(view, 1)?.["verification"]).toEqual(twoWays)
+  })
+
+  test("a receipt that declares no verification is accepted as before", () => {
+    let view = ingestTask(emptyView(), T0).view
+    view = finishDone(view, T0, 2, { outcome: "done", summary: "built" }).view
+    expect(runRow(view, 1)).toMatchObject({ state: "done", verifyIterations: 0 })
+    expect(runRow(view, 1)?.["verification"]).toBeNull()
+  })
+
+  test("an unknown verification kind is rejected as a bad receipt", () => {
+    const ingested = ingestTask(emptyView(), T0)
+    const claimed = claimTask(ingested.view, T0)
+    expect(() =>
+      decide(
+        claimed.view,
+        {
+          type: "finish",
+          args: [1, claimed.job.token, { outcome: "done", summary: "built", verification: [{ kind: "vibes", detail: "looks fine" }] }],
+        },
+        T0 + 1000,
+        env(3),
+      ),
+    ).toThrow("verification")
+  })
+})
+
+describe("AutoloopDecide timed dispute ladder (idea #18)", () => {
+  const disputeRow = (view: View, id: number) => view["disputes"]?.[String(id)] as Record<string, unknown> | undefined
+  const raise = (view: View, now: number, seq: number, level?: string) =>
+    step(view, { type: "raiseDispute", args: ["какой формат хранить", "хранить как JSON", "хранить как YAML", level] }, now, seq)
+
+  test("a raised dispute starts at the agent level with a 15-minute deadline", () => {
+    const { view, value } = raise(emptyView(), T0, 1)
+    expect(value).toMatchObject({ dispute: 1, level: "agent", deadline: new Date(T0 + 15 * MINUTE).toISOString() })
+    expect(disputeRow(view, 1)).toMatchObject({
+      subject: "какой формат хранить",
+      position_a: "хранить как JSON",
+      position_b: "хранить как YAML",
+      level: "agent",
+      state: "open",
+    })
+  })
+
+  test("an overdue dispute climbs one rung per tick, carrying both positions", () => {
+    let view = raise(emptyView(), T0, 1).view
+    view = step(view, { type: "tick", args: [] }, T0 + 16 * MINUTE, 2).view
+    expect(disputeRow(view, 1)).toMatchObject({ level: "group-leader", state: "open" })
+    view = step(view, { type: "tick", args: [] }, T0 + 47 * MINUTE, 3).view
+    expect(disputeRow(view, 1)).toMatchObject({ level: "council", state: "open" })
+    view = step(view, { type: "tick", args: [] }, T0 + 108 * MINUTE, 4).view
+    expect(disputeRow(view, 1)).toMatchObject({ level: "orchestrator", state: "open" })
+    expect(disputeRow(view, 1)?.["position_a"]).toBe("хранить как JSON")
+    expect(disputeRow(view, 1)?.["position_b"]).toBe("хранить как YAML")
+  })
+
+  test("climbing past the orchestrator records the dispute for the operator and stops", () => {
+    let view = raise(emptyView(), T0, 1).view
+    for (const [seq, at] of [[2, 16], [3, 47], [4, 108], [5, 229]] as Array<[number, number]>) {
+      view = step(view, { type: "tick", args: [] }, T0 + at * MINUTE, seq).view
+    }
+    expect(disputeRow(view, 1)).toMatchObject({ level: "operator", state: "noted", deadline: "" })
+    const note = cardRows(view).find((card) => card["key"] === "dispute:1:operator")
+    expect(note).toMatchObject({ kind: "notice" })
+    expect(note?.["text"]).toContain("хранить как JSON")
+    expect(note?.["text"]).toContain("хранить как YAML")
+    // A later tick does not write the operator card twice.
+    const reticked = step(view, { type: "tick", args: [] }, T0 + 300 * MINUTE, 6).view
+    expect(cardRows(reticked).filter((card) => card["key"] === "dispute:1:operator")).toHaveLength(1)
+    expect(disputeRow(reticked, 1)).toMatchObject({ state: "noted" })
+  })
+
+  test("resolving a dispute stops the climb; a closed one stays closed", () => {
+    let view = raise(emptyView(), T0, 1).view
+    const resolved = step(view, { type: "resolveDispute", args: [1, "берём JSON"] }, T0 + MINUTE, 2)
+    expect(resolved.value).toBe(true)
+    expect(disputeRow(resolved.view, 1)).toMatchObject({ state: "resolved", decision: "берём JSON" })
+    view = step(resolved.view, { type: "tick", args: [] }, T0 + 60 * MINUTE, 3).view
+    expect(disputeRow(view, 1)).toMatchObject({ level: "agent", state: "resolved" })
+    expect(step(view, { type: "resolveDispute", args: [1, "передумали"] }, T0 + 61 * MINUTE, 4).value).toBe(false)
+  })
+
+  test("a participant can push a dispute up early, and a dispute raised at the operator is noted at once", () => {
+    let view = raise(emptyView(), T0, 1).view
+    const pushed = step(view, { type: "escalateDispute", args: [1] }, T0 + MINUTE, 2)
+    expect(pushed.value).toMatchObject({ escalated: true, level: "group-leader", state: "open" })
+
+    const direct = raise(emptyView(), T0, 1, "operator")
+    expect(direct.value).toMatchObject({ dispute: 1, level: "operator", deadline: "" })
+    expect(disputeRow(direct.view, 1)).toMatchObject({ state: "noted" })
+    expect(cardRows(direct.view).map((card) => card["key"])).toContain("dispute:1:operator")
+  })
+
+  test("an unknown level or a missing dispute is rejected", () => {
+    expect(() => raise(emptyView(), T0, 1, "president")).toThrow("спор.level")
+    expect(() =>
+      decide(emptyView(), { type: "resolveDispute", args: [9, "решён"] }, T0, env(1)),
+    ).toThrow("такого спора нет")
+  })
+})

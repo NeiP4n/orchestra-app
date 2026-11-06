@@ -167,7 +167,8 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   disposable: `rebuild` from the journal restores the same state.
 - **`kernel/decide.ts`** (block Б3, подшаг 1): pure `decide(view, input, now, env)` — no
   Effect, no I/O. Handlers `ingest / claimNext / started / finish / cancel /
-  answer / resolve / nextCard / delivered / failed / tick / sweep / heartbeat`,
+  answer / resolve / nextCard / delivered / failed / tick / sweep / heartbeat /
+  raiseDispute / resolveDispute / escalateDispute`,
   helpers `retryLater`, `applyReceipt`, `createCard`, `enqueue`. Event dedup
   by `(source, key)`; claim by token (repeat claim returns the same run);
   idempotent `finish` (same receipt → same answer, different receipt under
@@ -202,6 +203,56 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   /api/autoloop/cards/:id/answer` (`packages/protocol/src/groups/autoloop.ts`,
   `packages/server/src/handlers/autoloop.ts`, client regenerated).
   No TUI/web card view yet — that is the remaining UI sub-step.
+- **Autoloop safety core (ideas #2, #6, #11, #14, #18 — slice A)**:
+  - `kernel/repeat.ts`: the stop-word on a deadlock. `fingerprintError`
+    normalises error text (numbers, hex, UUIDs, timestamps, quoted strings,
+    paths) so the same failure compares equal across attempts; `recordRepeat`
+    counts consecutive repeats and repeats inside an hour. A run whose error
+    repeats 3 times in a row or 3 times within an hour stops in `retryLater`
+    even when retries remain, with a stop card naming the error, the attempt
+    count and the fingerprint. The fingerprint and the history stay on the
+    run row (`error_fingerprint`, `error_repeat`, `error_history`); an empty
+    error text never trips it. The session-runner retry caps (Б4/Б5) bound
+    one step only — this is the cross-attempt detection they cannot see.
+  - `kernel/decide.ts` receipts carry `fixTask` + `failingTest { file, run }`
+    (idea #6): a run that declares itself a bug fix must attach the failing
+    test that reproduces the bug, or the "done" counts a verification round
+    instead (after 5 rounds the run stops with an ask card). The proof is
+    recorded on the run row (`fix_test_file`, `fix_test_run`) and passes
+    through `receiptForReport` in `src/autoloop/orchestrator.ts`. The gate
+    keys on the declaration — the kernel cannot tell a fix task from other
+    work, and guessing from the text would misfire.
+  - `kernel/decide.ts` `retryLater` writes exactly one lesson on the second
+    failed receipt (idea #11) into the `lessons` collection (`run`, `rule`,
+    `text`, `error`, `fingerprint`, `attempts`): attempts only grow, so
+    `attempts === 2` fires once per run. The journal is the durable shared
+    memory the society reads through `getView` — the three-level memory of
+    Б17 does not exist yet and the kernel is pure, so the lesson cannot go
+    to the Memory service from here. The lesson names the error, not a
+    verdict about its cause.
+  - `kernel/decide.ts` receipts carry `verification` (idea #14), entries
+    `{ kind, detail }` with kind one of `VERIFICATION_KINDS` (`test`,
+    `command`, `manual`, `review`, `transcript`). A done receipt that
+    declares verification must carry at least two entries of different
+    kinds, or it counts a verification round instead; declared methods are
+    recorded on the run row (`verification`) and pass through
+    `receiptForReport`. A receipt that declares nothing is exempt by
+    design: legacy receipts and read-only work have no second method to
+    declare. Unknown kinds are rejected, so a typo cannot pass as a second
+    method. The live wiring that fills `verification` from
+    `orchestra.ts` `report()` (the worker's CHECKS + the transcript
+    evidence) is not done yet — the two signals already exist there, the
+    bridge only has to pass them.
+  - `kernel/dispute.ts` + `decide` inputs `raiseDispute` / `resolveDispute` /
+    `escalateDispute` + the `disputes` collection (idea #18): the dispute
+    ladder agent (15 min) → group-leader (30) → council (60) → orchestrator
+    (120) → operator, moving up on its own in `sweep` when a level's time
+    runs out, carrying both positions. Reaching the operator writes one
+    notice card (`dispute:<id>:operator`) and marks the dispute `noted` —
+    a record for the operator, never a block and never an approval gate.
+    The ladder is re-exported from `src/session/runner/escalate.ts` as
+    `DisputeLadder` next to the error ladder: errors climb when retries
+    and fallbacks are exhausted, disputes climb when time runs out.
 - **`kernel/due.ts`**: `RUN_LEASE = 5 мин`, `WORKER_FRESH = 2 мин`,
   `OFFLINE_AFTER = 10 мин`, `SEEN_EVERY = 1 мин`, `deadlines`,
   `offlineCard`, `workers` / `waitingOn` (unknown runs count as waiting).

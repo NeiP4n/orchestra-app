@@ -359,3 +359,50 @@ describe("AutoloopOrchestrator config", () => {
     }),
   )
 })
+
+describe("AutoloopOrchestrator fix-task proof passthrough (idea #6)", () => {
+  const base = { state: "done" as const, outcome: "complete" as const, summary: "ok", workerRemoved: false }
+  const proof = { file: "test/foo.test.ts", run: "bun test foo.test.ts: 1 fail" }
+
+  test("a declared fix carries its failing-test proof onto the done receipt", () => {
+    expect(receiptForReport({ ...base, fixTask: true, failingTest: proof })).toMatchObject({
+      outcome: "done",
+      fixTask: true,
+      failingTest: proof,
+    })
+    expect(receiptForReport({ ...base, fixTask: true })).toMatchObject({ outcome: "done", fixTask: true })
+    expect(receiptForReport({ ...base, fixTask: true }).failingTest).toBeUndefined()
+  })
+
+  test("the proof rides only on receipts that claim success", () => {
+    expect(receiptForReport({ ...base, state: "failed", fixTask: true, failingTest: proof })).not.toHaveProperty("fixTask")
+    expect(receiptForReport({ ...base, state: "nothing", fixTask: true, failingTest: proof })).not.toHaveProperty("fixTask")
+    expect(receiptForReport({ ...base, outcome: "partial", fixTask: true, failingTest: proof })).toMatchObject({
+      outcome: "done",
+      verifyFailed: true,
+      fixTask: true,
+      failingTest: proof,
+    })
+  })
+})
+
+describe("AutoloopOrchestrator verification passthrough (idea #14)", () => {
+  const base = { state: "done" as const, outcome: "complete" as const, summary: "ok", workerRemoved: false }
+  const verification = [
+    { kind: "command", detail: "CHECKS: 3 executed, 0 failed" },
+    { kind: "transcript", detail: "commands ran, no edits after the last run" },
+  ]
+
+  test("declared verification rides onto the done receipt", () => {
+    expect(receiptForReport({ ...base, verification })).toMatchObject({ outcome: "done", verification })
+  })
+
+  test("verification rides only on receipts that claim success", () => {
+    expect(receiptForReport({ ...base, state: "failed", verification })).not.toHaveProperty("verification")
+    expect(receiptForReport({ ...base, outcome: "partial", verification })).toMatchObject({
+      outcome: "done",
+      verifyFailed: true,
+      verification,
+    })
+  })
+})

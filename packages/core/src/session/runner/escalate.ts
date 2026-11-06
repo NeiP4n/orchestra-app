@@ -1,5 +1,14 @@
 export * as SessionEscalate from "./escalate.js"
 
+/**
+ * The dispute ladder lives in the autoloop kernel (`kernel/dispute.ts`)
+ * and is re-exported here so session code reaches it through the same
+ * module as the error ladder below. The two ladders differ on purpose:
+ * errors climb when retries and model fallbacks are exhausted; disputes
+ * climb when a level's time runs out.
+ */
+export * as DisputeLadder from "../../autoloop/kernel/dispute.js"
+
 import { Effect } from "effect"
 import { Bus } from "../../bus.js"
 import { SessionEvent } from "../event.js"
