@@ -22,10 +22,24 @@ const METHOD_ID = "antigravity";
 // Core rewrites the standard Google SDK package to its native transport after
 // every provider/model update. Its local module URL avoids that conversion and
 // lets Core's earlier generic SDK loader use our installed dependency directly.
-const SDK_PACKAGE = typeof import.meta.resolve === "function"
-    ? import.meta.resolve("@ai-sdk/google")
-    : pathToFileURL(createRequire(import.meta.url).resolve("@ai-sdk/google")).href;
+const SDK_PACKAGE = resolveSdkPackage();
 const GOOGLE_PACKAGE = `aisdk:${SDK_PACKAGE}`;
+// The compiled CLI binary has no node_modules layout, so resolving the installed
+// SDK package throws there at import time and the whole server dies before it
+// starts. Fall back to the bare package specifier: Core rewrites it to the
+// bundled native Google transport (which uses OAuth access tokens as API keys),
+// so the server starts and Antigravity models keep working through the native
+// route instead of the SDK hook.
+function resolveSdkPackage() {
+    try {
+        if (typeof import.meta.resolve === "function")
+            return import.meta.resolve("@ai-sdk/google");
+        return pathToFileURL(createRequire(import.meta.url).resolve("@ai-sdk/google")).href;
+    }
+    catch {
+        return "@ai-sdk/google";
+    }
+}
 const API_KEY_SENTINEL = "antigravity-oauth";
 const ownsModel = (id) => id.startsWith("antigravity-");
 function mergeBody(base, overlay) {
