@@ -8,6 +8,7 @@ import { Global } from "@orchestra/util/global"
 import { Database } from "@orchestra/core/database/database"
 import { Location } from "@orchestra/core/location"
 import { Memory } from "@orchestra/core/memory/index"
+import { ProjectFilesRegistry } from "@orchestra/core/project-files/registry"
 import { MemoryInstructions } from "@orchestra/core/memory/instructions"
 import { MemoryRank } from "@orchestra/core/memory/rank"
 import { Instructions } from "@orchestra/core/instructions/index"
@@ -114,7 +115,10 @@ describe("Memory blocks", () => {
             fs.readFile(path.join(tmp.path, "repo", ".gitignore"), "utf8"),
           )
           expect(gitignore).toBe(
-            ".orchestra/*\n!.orchestra/index.yaml\n!.orchestra/project.json\n!.orchestra/dod.yaml\n!.orchestra/zones.yaml\n",
+            // The block comes from the registry, so it grows when a slice
+            // registers a new git-tracked file — the test checks memory
+            // writes exactly the registry's block, whatever it contains.
+            `${ProjectFilesRegistry.gitignoreLines().join("\n")}\n`,
           )
         }),
       ),
@@ -134,7 +138,7 @@ describe("Memory blocks", () => {
             fs.readFile(path.join(tmp.path, "repo", ".gitignore"), "utf8"),
           )
           expect(gitignore).toBe(
-            "node_modules\n.orchestra/*\n!.orchestra/index.yaml\n!.orchestra/project.json\n!.orchestra/dod.yaml\n!.orchestra/zones.yaml\n",
+            `node_modules\n${ProjectFilesRegistry.gitignoreLines().join("\n")}\n`,
           )
         }),
       ),

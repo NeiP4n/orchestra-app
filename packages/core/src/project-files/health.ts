@@ -60,7 +60,7 @@ const parseStatus = (rel: string, text: string): "ok" | "corrupt" => {
 
 const checkOne = (
   directory: string,
-  descriptor: { rel: string; dir: boolean },
+  descriptor: ProjectFilesRegistry.FileDescriptor,
   divergent: ReadonlyMap<string, string>,
 ): Effect.Effect<FileHealth, ProjectFilesErrors.ProjectFileError> =>
   Effect.gen(function* () {
