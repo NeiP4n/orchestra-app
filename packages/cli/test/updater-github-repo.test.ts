@@ -13,8 +13,9 @@ import { testEffect } from "../../core/test/lib/effect"
 const it = testEffect(NodeServices.layer)
 
 // T3-12: ORCHESTRA_GITHUB_REPO is interpolated into the GitHub API path, so a
-// malformed value must fail before any fetch. The fixture never sets
-// ORCHESTRA_UPDATE_URL, so latest() takes the GitHub fallback path.
+// malformed value must fail before any GitHub fetch. The fixture never sets
+// ORCHESTRA_UPDATE_URL, so latest() tries D2's static update host first and
+// falls back to GitHub releases when it answers 404.
 function createFixture() {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
@@ -50,6 +51,9 @@ function createFixture() {
             async (input: string | URL | Request) => {
               const url = input instanceof Request ? input.url : input.toString()
               requests.push(url)
+              // D2: the static update host is tried first; it has no manifest
+              // yet, so it answers 404 and the updater falls back to GitHub.
+              if (url.startsWith("https://raw.githubusercontent.com/")) return new Response("not found", { status: 404 })
               return Response.json({ tag_name: "v1.2.3" })
             },
             { preconnect: fetch.preconnect },
@@ -108,7 +112,7 @@ function createFixture() {
 }
 
 describe("ORCHESTRA_GITHUB_REPO validation (T3-12)", () => {
-  it.live("rejects malformed repo values before any fetch", () =>
+  it.live("rejects malformed repo values before any GitHub fetch", () =>
     Effect.gen(function* () {
       const fix = yield* createFixture()
       for (const repo of ["../../etc/passwd", "owner/repo extra", "owner", "owner/repo/sub", "own er/repo", "/repo", "owner/"]) {
@@ -116,7 +120,11 @@ describe("ORCHESTRA_GITHUB_REPO validation (T3-12)", () => {
         const error = yield* fix.updater.latest(undefined, { force: true }).pipe(Effect.flip)
         expect(String((error as Error).message)).toContain("ORCHESTRA_GITHUB_REPO")
       }
-      expect(fix.requests).toEqual([])
+      // The bad repo value must never reach any fetch URL: the static-host
+      // attempt (D2's first step, independent of the repo value) is fine,
+      // but no api.github.com request may happen.
+      expect(fix.requests.filter((url) => url.includes("api.github.com"))).toEqual([])
+      expect(fix.requests.every((url) => url.startsWith("https://raw.githubusercontent.com/"))).toBe(true)
     }),
   )
 
@@ -126,7 +134,10 @@ describe("ORCHESTRA_GITHUB_REPO validation (T3-12)", () => {
       process.env.ORCHESTRA_GITHUB_REPO = "NeiP4n/orchestra-app"
       const version = yield* fix.updater.latest(undefined, { force: true })
       expect(version).toBe("1.2.3")
-      expect(fix.requests).toEqual(["https://api.github.com/repos/NeiP4n/orchestra-app/releases/latest"])
+      // D2's static host is tried first (404), then the GitHub fallback.
+      expect(fix.requests).toHaveLength(2)
+      expect(fix.requests[0]).toContain("https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/update/")
+      expect(fix.requests[1]).toBe("https://api.github.com/repos/NeiP4n/orchestra-app/releases/latest")
     }),
   )
 })
