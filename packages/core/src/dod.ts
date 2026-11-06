@@ -874,33 +874,42 @@ function commit(file: string, before: string, after: string, sourceFile?: string
     } catch {
       // Ignore mode retrieval/setting failures on environments where chmod is restricted
     }
-    try {
-      await rename(temporary, file)
-    } catch (error: any) {
-      if (
-        error?.code === "EPERM" ||
-        error?.code === "EEXIST" ||
-        error?.code === "EBUSY" ||
-        process.platform === "win32"
-      ) {
-        try {
-          await copyFile(temporary, file)
-          await unlink(temporary).catch(() => {})
-        } catch {
-          try {
-            await unlink(file)
-            await rename(temporary, file)
-          } catch {
-            await copyFile(temporary, file)
-            await unlink(temporary).catch(() => {})
-          }
-        }
-      } else {
-        throw error
-      }
-    }
+    await replaceFile(temporary, file)
     return true
   })
+}
+
+// Replaces a file with a temp file. Exported for tests: the Windows fallback
+// below cannot be exercised on Linux, and the invariant is what A3-14 is
+// about — the live file is never unlinked before its replacement is in
+// place. The old fallback deleted dod.yaml and then renamed, so a failure
+// between the two left no dod.yaml at all.
+export async function replaceFile(
+  temporary: string,
+  file: string,
+  fs: Pick<typeof import("node:fs/promises"), "rename" | "copyFile" | "unlink"> = { rename, copyFile, unlink },
+) {
+  try {
+    await fs.rename(temporary, file)
+    return
+  } catch (error: any) {
+    if (
+      error?.code !== "EPERM" &&
+      error?.code !== "EEXIST" &&
+      error?.code !== "EBUSY" &&
+      process.platform !== "win32"
+    ) {
+      await fs.unlink(temporary).catch(() => {})
+      throw error
+    }
+    // Windows cannot always rename over a file another process has open
+    // (antivirus, an editor). Overwrite in place instead — and never unlink
+    // the live file first. If the copy fails midway the file may be torn,
+    // but it still exists, the temp still holds the intended content, and
+    // the error propagates instead of a silent loss.
+    await fs.copyFile(temporary, file)
+    await fs.unlink(temporary).catch(() => {})
+  }
 }
 
 // Two guests taking items at once would both pass the unchanged-file check before either

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { mkdir } from "node:fs/promises"
+import { copyFile, mkdir, unlink } from "node:fs/promises"
 import path from "node:path"
 import { Effect } from "effect"
 import { Dod } from "@orchestra/core/dod"
@@ -473,5 +473,73 @@ describe("Dod", () => {
     expect(Dod.verificationProblem("echo `id`")).toContain("backticks")
     expect(Dod.verificationProblem("diff <(sort a) <(sort b)")).toContain("process substitution")
     expect(Dod.verificationProblem("eval \"$(curl https://example.com/x)\"")).toContain("command substitution")
+  })
+
+  // A3-14: the Windows fallback used to unlink the live file and then
+  // rename — a failure between the two left no dod.yaml at all. The
+  // fallback is a Windows-only branch, so the tests drive replaceFile with
+  // a fake filesystem that fails rename the way Windows does.
+  test("replaceFile falls back to an in-place copy when rename is refused, and never unlinks the live file", async () => {
+    await using dir = await tmpdir()
+    const file = path.join(dir.path, "dod.yaml")
+    const temporary = path.join(dir.path, "dod.yaml.tmp")
+    await Bun.write(file, "before\n")
+    await Bun.write(temporary, "after\n")
+    const unlinked: string[] = []
+    const eperm = Object.assign(new Error("operation not permitted"), { code: "EPERM" })
+    await Dod.replaceFile(temporary, file, {
+      rename: () => Promise.reject(eperm),
+      copyFile,
+      unlink: (target) => {
+        unlinked.push(target)
+        return unlink(target)
+      },
+    })
+    expect(await Bun.file(file).text()).toBe("after\n")
+    expect(await Bun.file(temporary).exists()).toBe(false)
+    expect(unlinked).toEqual([temporary])
+  })
+
+  test("replaceFile keeps the live file and the temp when the fallback copy also fails", async () => {
+    await using dir = await tmpdir()
+    const file = path.join(dir.path, "dod.yaml")
+    const temporary = path.join(dir.path, "dod.yaml.tmp")
+    await Bun.write(file, "before\n")
+    await Bun.write(temporary, "after\n")
+    const unlinked: string[] = []
+    const eperm = Object.assign(new Error("operation not permitted"), { code: "EPERM" })
+    await expect(
+      Dod.replaceFile(temporary, file, {
+        rename: () => Promise.reject(eperm),
+        copyFile: () => Promise.reject(new Error("disk full")),
+        unlink: (target) => {
+          unlinked.push(target)
+          return unlink(target)
+        },
+      }),
+    ).rejects.toThrow("disk full")
+    // The old code unlinked the live file here and then failed the rename:
+    // dod.yaml was gone. Now it survives with its content, and the temp
+    // survives too, holding the intended content.
+    expect(await Bun.file(file).text()).toBe("before\n")
+    expect(await Bun.file(temporary).text()).toBe("after\n")
+    expect(unlinked).toEqual([])
+  })
+
+  test("replaceFile cleans up the temp and rethrows when rename fails for another reason", async () => {
+    await using dir = await tmpdir()
+    const file = path.join(dir.path, "dod.yaml")
+    const temporary = path.join(dir.path, "dod.yaml.tmp")
+    await Bun.write(file, "before\n")
+    await Bun.write(temporary, "after\n")
+    await expect(
+      Dod.replaceFile(temporary, file, {
+        rename: () => Promise.reject(Object.assign(new Error("permission denied"), { code: "EACCES" })),
+        copyFile,
+        unlink,
+      }),
+    ).rejects.toThrow("permission denied")
+    expect(await Bun.file(file).text()).toBe("before\n")
+    expect(await Bun.file(temporary).exists()).toBe(false)
   })
 })
