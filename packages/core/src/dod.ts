@@ -154,7 +154,13 @@ function recordEvent(directory: string, event: Record<string, string>) {
       await appendFile(file, `${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`, "utf8")
     },
     catch: () => undefined,
-  }).pipe(Effect.asVoid)
+  }).pipe(
+    // A failed write never fails the claim it records: the error is swallowed
+    // here, so the event effect is infallible and never widens the caller's
+    // error type (a `catch: () => undefined` alone would leak `undefined`
+    // into `Dod.take` / `Dod.takeover` as `DodError | undefined`).
+    Effect.ignore,
+  )
 }
 
 // Who takes an item: a room member, by the ID its token carries, and the name people see.
@@ -337,9 +343,14 @@ function guardOutcome(
 ): GuardOutcome {
   // The WIP limit counts the group's cards already in work — this item excluded,
   // so re-taking one's own item or taking over a stalled one never counts twice.
-  const inWork = all.filter(
-    (entry) => entry.id !== item.id && entry.stage === item.stage && WIP_STATES.has(entry.state),
-  ).length
+  // Re-taking an item the caller already holds is not a new concurrent claim at
+  // all, so the limit never blocks it, even when three other cards are in work.
+  const inWork =
+    owns(item, owner) === false
+      ? all.filter(
+          (entry) => entry.id !== item.id && entry.stage === item.stage && WIP_STATES.has(entry.state),
+        ).length
+      : 0
   if (inWork >= WIP_LIMIT)
     return {
       refusal:

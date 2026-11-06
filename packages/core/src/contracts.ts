@@ -81,7 +81,7 @@ export const initialize = Effect.fn("Contracts.initialize")(function* (directory
 })
 
 /** Whether the document exists and whether it has been accepted. */
-export const status = Effect.fn("Contracts.status")(function* (directory: string): Effect.Effect<Status, ContractsError> {
+export const status = Effect.fn("Contracts.status")(function* (directory: string) {
   const file = ProjectDirs.resolveRead(directory, "contracts.md")
   const exists = yield* Effect.tryPromise({
     try: () => Bun.file(file).exists(),
