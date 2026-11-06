@@ -122,6 +122,25 @@ const Root = Spec.make(typeof ORCHESTRA_CLI_NAME === "string" ? ORCHESTRA_CLI_NA
         }),
       ],
     }),
+    Spec.make("db", {
+      description: "Manage the local database",
+      commands: [
+        Spec.make("restore", {
+          description:
+            "Restore the database (and its credential key) from a backup. The server must be stopped first.",
+          params: {
+            backup: Argument.string("backup").pipe(
+              Argument.withDescription("Backup file to restore from (a timestamped backup in <data>/backups)"),
+            ),
+            force: Flag.boolean("force").pipe(
+              Flag.withAlias("f"),
+              Flag.withDescription("Restore even when a live server lock is found (only when you are sure the server is stopped)"),
+              Flag.withDefault(false),
+            ),
+          },
+        }),
+      ],
+    }),
     Spec.make("auth", {
       description: "manage integrations and credentials",
       commands: [
