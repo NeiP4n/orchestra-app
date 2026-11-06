@@ -54,7 +54,9 @@ const memoryCredentials = (initial: Credential.Info[]) => {
 
 const connectProvider = (config: typeof ConfigMCP.Remote.Type, store: ReturnType<typeof memoryCredentials>) =>
   Effect.runPromise(
-    McpOAuth.connectProvider({ config, integrationID }).pipe(Effect.provideService(Credential.Service, store.service)),
+    McpOAuth.connectProvider({ config, integrationID, allowPrivateUrl: true }).pipe(
+      Effect.provideService(Credential.Service, store.service),
+    ),
   )
 
 // Serves authorization server metadata with the given capabilities and records DCR + token requests.
@@ -103,6 +105,8 @@ const start = (
       }),
       integrationID,
       methodID,
+      // Fixture servers are loopback; the SSRF gate refuses them by default.
+      allowPrivateUrl: true,
     })
     return { authorization, url: new URL(authorization.url) }
   }).pipe(Effect.provideService(Credential.Service, store.service))
@@ -235,7 +239,11 @@ describe("MCP OAuth", () => {
     const oauthProvider = await connectProvider(config, memoryCredentials([]))
 
     const exit = await Effect.runPromise(
-      Effect.scoped(McpClient.connect("test", config, import.meta.dir, oauthProvider)).pipe(
+      Effect.scoped(
+        McpClient.connect("test", config, import.meta.dir, oauthProvider, undefined, undefined, {
+          allowPrivateUrl: true,
+        }),
+      ).pipe(
         Effect.provide(hostEnvironmentLayer),
         Effect.exit,
       ),
@@ -283,7 +291,9 @@ describe("MCP OAuth", () => {
         return Response.json({ access_token: "access", token_type: "Bearer", refresh_token: "next" })
       },
     })
-    const fetchFn = await Effect.runPromise(McpOAuth.loggedFetch({ server: "test" }))
+    const fetchFn = await Effect.runPromise(
+      McpOAuth.loggedFetch({ server: "test", allowPrivateUrl: true }),
+    )
     const options = {
       metadata: {
         issuer: server.url.origin,
@@ -550,5 +560,24 @@ describe("MCP OAuth", () => {
       expect(url.searchParams.get("client_id")).toBe("registered")
       expect(registrations).toHaveLength(1)
     })
+  })
+
+  test("configuredDiscovery refuses a private metadata URL without fetching it", async () => {
+    let called = false
+    const fetchFn = async () => {
+      called = true
+      return new Response("{}")
+    }
+    await expect(
+      McpOAuth.configuredDiscovery({
+        config: new ConfigMCP.Remote({
+          type: "remote",
+          url: "https://example.com/mcp",
+          oauth: { auth_server_metadata_url: "http://169.254.169.254/.well-known/oauth-authorization-server" },
+        }),
+        fetchFn: fetchFn as never,
+      }),
+    ).rejects.toThrow("Refusing to fetch")
+    expect(called).toBe(false)
   })
 })

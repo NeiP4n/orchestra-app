@@ -158,6 +158,10 @@ export const Options = Schema.Struct({
       version: Schema.String,
     }),
   ),
+  // Test-only escape hatch: loopback fixture servers are refused by the SSRF gate by default.
+  // Production callers never set this; a remote MCP server on a private or loopback address
+  // is refused unless the caller explicitly opts in.
+  allowPrivateUrl: Schema.optional(Schema.Boolean),
 })
 export type Options = typeof Options.Type
 
@@ -550,6 +554,7 @@ export const layer = (options?: Options) =>
             elicitation,
             options?.clientInfo,
             location.workspaceID ?? "local",
+            options?.allowPrivateUrl === true ? { allowPrivateUrl: true } : undefined,
           ).pipe(
             Effect.flatMap((connection) => connection.tools().pipe(Effect.map((tools) => ({ connection, tools })))),
             // A stdio server is spawned on this location's execution plane, not the host's.

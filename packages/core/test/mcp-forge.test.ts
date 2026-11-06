@@ -221,6 +221,106 @@ describe("mcp forge", () => {
       await tmp[Symbol.asyncDispose]()
     }
   })
+
+  test("validate refuses a literal private URL and leaves a placeholder host to the runtime gate", () => {
+    const problems = validate({
+      name: "probe",
+      tools: [
+        {
+          name: "hit",
+          description: "",
+          properties: {},
+          run: { type: "http", method: "GET", url: "http://169.254.169.254/latest/meta-data/" },
+        },
+      ],
+    })
+    expect(problems).toEqual(expect.arrayContaining([expect.stringContaining("Refusing to fetch")]))
+
+    // A {{host}} argument cannot be judged until it is filled: validate lets it through and
+    // the gate embedded in the generated server refuses a private host at call time.
+    expect(
+      validate({
+        name: "probe",
+        tools: [
+          {
+            name: "hit",
+            description: "",
+            properties: { host: { type: "string" } },
+            required: ["host"],
+            run: { type: "http", method: "GET", url: "https://{{host}}/x" },
+          },
+        ],
+      }),
+    ).toEqual([])
+  })
+
+  test("fromOpenApi refuses a private server URL", () => {
+    expect(() =>
+      fromOpenApi(
+        {
+          openapi: "3.0.0",
+          info: { title: "Private", version: "1" },
+          servers: [{ url: "http://127.0.0.1:8080/v1" }],
+          paths: { "/x": { get: { operationId: "getX" } } },
+        },
+        { name: "private" },
+      ),
+    ).toThrow("not a public address")
+  })
+
+  test("the rendered module refuses a private URL before any request reaches it", async () => {
+    let requests = 0
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => {
+        requests++
+        return new Response("secret")
+      },
+    })
+    const spec: ServerSpec = {
+      name: "ssrf",
+      description: "Test server",
+      tools: [
+        {
+          name: "probe",
+          description: "Probe a URL.",
+          properties: {},
+          run: { type: "http", method: "GET", url: server.url.href },
+        },
+      ],
+    }
+    const tmp = await tmpdir()
+    try {
+      const file = path.join(tmp.path, "ssrf.mjs")
+      await Bun.write(file, render(spec))
+      const child = Bun.spawn([process.execPath, file], { stdin: "pipe", stdout: "pipe", stderr: "pipe" })
+      const requestsOut = [
+        { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2024-11-05" } },
+        { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "probe", arguments: {} } },
+      ]
+      child.stdin.write(requestsOut.map((request) => JSON.stringify(request)).join("\n") + "\n")
+      child.stdin.end()
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ])
+      expect(stderr).toBe("")
+      expect(code).toBe(0)
+      const responses = stdout
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as ServerResponse)
+      const call = responses.find((item) => item.id === 2)!
+      expect(call.result?.isError).toBe(true)
+      expect(call.result?.content?.[0]?.text).toContain("Refusing to fetch")
+      // The gate runs before the fetch: the loopback server never saw a request.
+      expect(requests).toBe(0)
+    } finally {
+      server.stop(true)
+      await tmp[Symbol.asyncDispose]()
+    }
+  })
 })
 
 interface ServerResponse {

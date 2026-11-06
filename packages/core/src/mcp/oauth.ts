@@ -22,6 +22,7 @@ import { ConfigMCP } from "@orchestra/schema/config/mcp"
 import { Credential } from "../credential.js"
 import { OauthCallbackPage } from "../oauth/page.js"
 import type { Integration } from "../integration.js"
+import { Ssrf } from "../tool/ssrf.js"
 import { ErrorSummary } from "../util/error-summary.js"
 
 /** Client ID Metadata Document: servers that support CIMD accept this URL as the client_id without registration. */
@@ -52,7 +53,21 @@ const send: FetchLike = (url, init) => {
   return share(pending)
 }
 
-export const loggedFetch = (fields: { readonly server: string; readonly directory?: string }) =>
+// Every outgoing request the SDK and the transport make passes the shared SSRF gate first, so a
+// metadata document or a 401 challenge from a remote server cannot redirect a credential-bearing
+// request (token exchange, refresh, discovery) at a private or loopback address — and a DNS
+// rebinding after connect cannot smuggle the transport onto the LAN either. The flag is the
+// test-only escape hatch for loopback fixture servers; production callers never pass it.
+const gatedSend = (allowPrivateUrl = false): FetchLike => async (url, init) => {
+  if (!allowPrivateUrl) await Ssrf.assertPublicUrlPromise(String(url))
+  return send(url, init)
+}
+
+export const loggedFetch = (fields: {
+  readonly server: string
+  readonly directory?: string
+  readonly allowPrivateUrl?: boolean
+}) =>
   Effect.gen(function* () {
     const run = Effect.runPromiseWith(yield* Effect.context())
     const request: FetchLike = (url, init) => {
@@ -62,7 +77,10 @@ export const loggedFetch = (fields: { readonly server: string; readonly director
       return run(
         Effect.gen(function* () {
           if (operation) yield* Effect.logInfo("mcp oauth request started")
-          const response = yield* Effect.tryPromise({ try: () => send(url, init), catch: (error) => error })
+          const response = yield* Effect.tryPromise({
+            try: () => gatedSend(fields.allowPrivateUrl)(url, init),
+            catch: (error) => error,
+          })
           const result = { status: response.status, durationMs: Date.now() - started }
           if (operation && !response.ok) {
             const error = yield* Effect.tryPromise(async () => parseErrorResponse(await response.clone().text())).pipe(
@@ -107,9 +125,13 @@ export const loggedFetch = (fields: { readonly server: string; readonly director
 export const configuredDiscovery = async (input: {
   readonly config: typeof ConfigMCP.Remote.Type
   readonly fetchFn: FetchLike
+  readonly allowPrivateUrl?: boolean
 }): Promise<OAuthDiscoveryState | undefined> => {
   const url = input.config.oauth ? input.config.oauth.auth_server_metadata_url : undefined
   if (!url) return undefined
+  // The metadata URL comes from the server config: gate it before fetching, so a configured
+  // document on a private address cannot be probed — and no later step trusts its issuer.
+  if (!input.allowPrivateUrl) await Ssrf.assertPublicUrlPromise(url)
   const response = await input.fetchFn(url, { headers: { accept: "application/json" } })
   if (!response.ok) throw new Error(`HTTP ${response.status} trying to load OAuth authorization server metadata`)
   const body = await response.json()
@@ -142,6 +164,8 @@ export interface Options {
   readonly clientMetadataUrl?: string
   readonly discovery?: OAuthDiscoveryState
   readonly invalidate?: OAuthClientProvider["invalidateCredentials"]
+  /** Test-only escape hatch for loopback fixture servers; production callers never pass it. */
+  readonly allowPrivateUrl?: boolean
 }
 
 export const provider = (options: Options): OAuthClientProvider => {
@@ -157,7 +181,11 @@ export const provider = (options: Options): OAuthClientProvider => {
   return {
     redirectUrl,
     discoveryState: async () => {
-      discovery ??= await configuredDiscovery({ config: options.config, fetchFn: send })
+      discovery ??= await configuredDiscovery({
+        config: options.config,
+        fetchFn: gatedSend(options.allowPrivateUrl),
+        allowPrivateUrl: options.allowPrivateUrl,
+      })
       return discovery
     },
     saveDiscoveryState: (state) => {
@@ -272,11 +300,14 @@ export const toTokens = (credential: Credential.OAuth): StoredOAuthTokens => {
 export const connectProvider = Effect.fnUntraced(function* (input: {
   readonly config: typeof ConfigMCP.Remote.Type
   readonly integrationID: Integration.ID
+  /** Test-only escape hatch for loopback fixture servers; production callers never pass it. */
+  readonly allowPrivateUrl?: boolean
 }) {
   const credentials = yield* Credential.Service
   const run = Effect.runPromiseWith(yield* Effect.context())
   const found = (yield* credentials.list(input.integrationID)).at(-1)
-  if (!found || found.value.type !== "oauth") return provider({ config: input.config, store: memoryStore() })
+  if (!found || found.value.type !== "oauth")
+    return provider({ config: input.config, store: memoryStore(), allowPrivateUrl: input.allowPrivateUrl })
   const id = found.id
   const methodID = found.value.methodID
   const read = async () => {
@@ -287,6 +318,7 @@ export const connectProvider = Effect.fnUntraced(function* (input: {
   let presented = found.value.refresh
   return provider({
     config: input.config,
+    allowPrivateUrl: input.allowPrivateUrl,
     invalidate: async (scope) => {
       if (scope === "verifier" || scope === "discovery") return
       const oauth = await read()
@@ -332,6 +364,8 @@ export const authorize = (input: {
   readonly config: typeof ConfigMCP.Remote.Type
   readonly integrationID: Integration.ID
   readonly methodID: Integration.MethodID
+  /** Test-only escape hatch for loopback fixture servers; production callers never pass it. */
+  readonly allowPrivateUrl?: boolean
 }) =>
   Effect.gen(function* () {
     const fields = { server: input.name, methodID: input.methodID, oauthAttemptID: crypto.randomUUID() }
@@ -339,7 +373,9 @@ export const authorize = (input: {
     const run = Effect.runPromiseWith(context)
     const runFork = Effect.runForkWith(context)
     const credentials = yield* Credential.Service
-    const fetchFn = yield* loggedFetch({ server: input.name }).pipe(Effect.annotateLogs(fields))
+    const fetchFn = yield* loggedFetch({ server: input.name, allowPrivateUrl: input.allowPrivateUrl }).pipe(
+      Effect.annotateLogs(fields),
+    )
     yield* Effect.logInfo("mcp oauth authorization started", fields)
     const oauth = input.config.oauth || undefined
     const store = memoryStore()
@@ -424,7 +460,7 @@ export const authorize = (input: {
     // lists the loopback redirect; a configured client_id always wins.
     const discovery = yield* Effect.tryPromise({
       try: async () =>
-        (await configuredDiscovery({ config: input.config, fetchFn })) ??
+        (await configuredDiscovery({ config: input.config, fetchFn, allowPrivateUrl: input.allowPrivateUrl })) ??
         discoverOAuthServerInfo(input.config.url, { resourceMetadataUrl, fetchFn }),
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     })
