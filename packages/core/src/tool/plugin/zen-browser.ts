@@ -240,7 +240,10 @@ export const Plugin = {
   id: "orchestra.tool.zen-browser",
   effect: Effect.fn("ZenBrowserTool.Plugin")(function* (ctx: Context) {
     const permission = yield* Permission.Service
-    const kv = yield* KV.Service
+    // Optional: without a KV store the navigate dedup is skipped, but the
+    // tool still works (the desktop plugin requires KV; test layers may not
+    // provide it — same pattern as playtest's optional Session service).
+    const kv = Option.getOrUndefined(yield* Effect.serviceOption(KV.Service))
     yield* ctx.tool
       .transform((editor) =>
         editor.add({
@@ -272,7 +275,7 @@ export const Plugin = {
               // navigating to the same URL twice — a crash, a resume, or a
               // model that repeats itself — must not open a second tab.
               // A failed check never blocks the navigation.
-              if (value.action === "navigate" && value.url !== undefined) {
+              if (value.action === "navigate" && value.url !== undefined && kv !== undefined) {
                 const existing = yield* Idempotency.check(kv, {
                   sessionID: context.sessionID,
                   action: "zen_browser navigate",

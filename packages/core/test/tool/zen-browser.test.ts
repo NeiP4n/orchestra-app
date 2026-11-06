@@ -748,9 +748,35 @@ const zenCall = (id: string) => ({
 })
 
 describe("zen_browser permission gate", () => {
+  // B7: these tests exercise the permission layer, not the real-screen gate,
+  // so they run with the real-screen opt-in on (zen-browser allowlisted).
+  // Without it the gate would refuse before permission is even consulted.
+  const withOptIn = () => {
+    const prev: Record<string, string | undefined> = {}
+    for (const key of [
+      "ORCHESTRA_DESKTOP_CAPTURE",
+      "ORCHESTRA_DESKTOP_REAL_SCREEN",
+      "ORCHESTRA_DESKTOP_REAL_SCREEN_ALLOWLIST",
+      "ORCHESTRA_DESKTOP_REAL_SCREEN_UNTIL",
+    ]) {
+      prev[key] = process.env[key]
+    }
+    process.env.ORCHESTRA_DESKTOP_CAPTURE = "on"
+    process.env.ORCHESTRA_DESKTOP_REAL_SCREEN = "on"
+    process.env.ORCHESTRA_DESKTOP_REAL_SCREEN_ALLOWLIST = "zen-browser"
+    process.env.ORCHESTRA_DESKTOP_REAL_SCREEN_UNTIL = "2999-01-01T00:00:00Z"
+    return () => {
+      for (const [key, value] of Object.entries(prev)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+    }
+  }
+
   it.live("a denied call never reaches the bridge", () =>
     withTempDir(({ path: directory }) =>
       Effect.gen(function* () {
+        const restoreOptIn = withOptIn()
         const bridge = new ZenBridgeServer({ port: 59998 })
         const prev = getZenBridgeServer()
         setZenBridgeServer(bridge)
@@ -764,6 +790,7 @@ describe("zen_browser permission gate", () => {
         } finally {
           bridge.stop()
           setZenBridgeServer(prev)
+          restoreOptIn()
         }
       }).pipe(
         Effect.provide(
@@ -787,6 +814,7 @@ describe("zen_browser permission gate", () => {
   it.live("an allowed call reaches the bridge and fails there, not at the gate", () =>
     withTempDir(({ path: directory }) =>
       Effect.gen(function* () {
+        const restoreOptIn = withOptIn()
         const bridge = new ZenBridgeServer({ port: 59997 })
         const prev = getZenBridgeServer()
         setZenBridgeServer(bridge)
@@ -805,6 +833,7 @@ describe("zen_browser permission gate", () => {
         } finally {
           bridge.stop()
           setZenBridgeServer(prev)
+          restoreOptIn()
         }
       }).pipe(Effect.provide(zenHarness(directory, () => Effect.void))),
     ),

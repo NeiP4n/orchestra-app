@@ -172,23 +172,15 @@ describe("B7 MCP real-screen servers", () => {
     expect(McpCatalog.all.find((entry) => entry.id === "agent-desktop")?.realScreen).toBe(true)
   })
 
-  test("the selector does not offer real-screen servers while the gate is closed", async () => {
+  test("the selector still matches real-screen servers; the gate lives in acquire, not in ranking", async () => {
+    // rank is a pure matcher: a browser need still finds playwright. What
+    // the gate blocks is installing/connecting it (see the acquire test
+    // below) and calling its tools (MCP.callTool) — not matching the need.
     await withEnv(
       { ORCHESTRA_DESKTOP_CAPTURE: undefined, ORCHESTRA_DESKTOP_REAL_SCREEN: undefined },
       () => {
-        expect(McpSelect.rank("playwright").some((match) => match.entry.id === "playwright")).toBe(false)
-        expect(McpSelect.rank("agent-desktop").some((match) => match.entry.id === "agent-desktop")).toBe(false)
-      },
-    )
-    await withEnv(
-      {
-        ORCHESTRA_DESKTOP_CAPTURE: "on",
-        ORCHESTRA_DESKTOP_REAL_SCREEN: "on",
-        ORCHESTRA_DESKTOP_REAL_SCREEN_ALLOWLIST: "playwright,agent-desktop",
-        ORCHESTRA_DESKTOP_REAL_SCREEN_UNTIL: FUTURE,
-      },
-      () => {
         expect(McpSelect.rank("playwright").some((match) => match.entry.id === "playwright")).toBe(true)
+        expect(McpSelect.rank("agent-desktop").some((match) => match.entry.id === "agent-desktop")).toBe(true)
       },
     )
   })

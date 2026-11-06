@@ -241,7 +241,6 @@ export const Plugin = {
           message: "Desktop access is off by default. Set ORCHESTRA_DESKTOP_CAPTURE=on to allow it.",
         })
       }
-      if (process.platform !== "win32") return yield* new ToolFailure({ message: "playtest works on Windows for now" })
       const loaded = input.script ? yield* loadScript(root, input.script) : []
       const steps = [...loaded, ...(input.steps ?? [])]
       if (steps.length === 0) return yield* new ToolFailure({ message: "Pass steps or a script" })
@@ -250,6 +249,10 @@ export const Plugin = {
       // already launched the app.
       const invalid = validateSteps(steps)
       if (invalid) return yield* new ToolFailure({ message: invalid })
+      // The two refusals below run before the platform check on purpose:
+      // they depend on the request, not on the OS, so a silent tester gets
+      // its quiet refusal (and a loud request its B7 denial) on any
+      // platform, before any permission prompt or process start.
       // A silent session (the tester) must not take the operator's mouse, keyboard or screen, even when asked to.
       const session = sessions ? yield* sessions.get(context.sessionID).pipe(Effect.option) : undefined
       if (Mode.isQuiet(session?._tag === "Some" ? session.value.metadata : undefined, context.agent)) {
@@ -272,6 +275,7 @@ export const Plugin = {
             message: `Step ${loud.action}: ${loud.input === "real" ? "input: real" : "mode: visible"} is blocked: ${denial}`,
           })
       }
+      if (process.platform !== "win32") return yield* new ToolFailure({ message: "playtest works on Windows for now" })
       yield* permission
         .assert({
           action: name,
