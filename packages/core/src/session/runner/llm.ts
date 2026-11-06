@@ -446,8 +446,10 @@ const layer = Layer.effect(
         .orderBy(desc(SessionMessageTable.seq))
         .all()
         .pipe(Effect.orDie)
-      for (const row of rows) {
-        const message = yield* SessionHistory.decodeMessageRow(row)
+      // A corrupt running-compaction row must not stop the settle: quarantine
+      // it and settle the rows that decode, same as history loading does.
+      const entries = yield* SessionHistory.decodeRows(rows, sessionID)
+      for (const { message } of entries) {
         if (message.type !== "compaction") continue
         yield* bus.publish(SessionEvent.Compaction.Failed, {
           sessionID,

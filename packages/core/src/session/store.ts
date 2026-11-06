@@ -179,10 +179,13 @@ const layer = Layer.effect(
         const rows = yield* (input.limit === undefined ? query.all() : query.limit(input.limit).all()).pipe(
           Effect.orDie,
         )
-        return yield* Effect.forEach(
+        // A single corrupt row must not fail a paged read: quarantine it and
+        // return the rows that decode, same as history loading does.
+        const entries = yield* SessionHistory.decodeRows(
           direction === "previous" ? rows.toReversed() : rows,
-          SessionHistory.decodeMessageRow,
+          input.sessionID,
         )
+        return entries.map((entry) => entry.message)
       }),
       context: Effect.fn("SessionStore.context")((sessionID) => SessionHistory.load(db, sessionID, "latest")),
       syntheticMetadata: Effect.fn("SessionStore.syntheticMetadata")(function* (sessionID) {

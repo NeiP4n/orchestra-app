@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, or, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gte, lt, or, sql } from "drizzle-orm"
 import { Effect, Schema } from "effect"
 import { Database } from "../database/database.js"
 import { MessageDecodeError } from "./error.js"
@@ -29,6 +29,7 @@ export const latestCompaction = Effect.fnUntraced(function* (
   db: DatabaseService,
   sessionID: SessionSchema.ID,
   boundary: Boundary,
+  beforeSeq?: number,
 ) {
   return yield* db
     .select({ seq: SessionMessageTable.seq })
@@ -38,6 +39,7 @@ export const latestCompaction = Effect.fnUntraced(function* (
         eq(SessionMessageTable.session_id, sessionID),
         eq(SessionMessageTable.type, "compaction"),
         sql`json_extract(${SessionMessageTable.data}, '$.status') = 'completed'`,
+        beforeSeq === undefined ? undefined : lt(SessionMessageTable.seq, beforeSeq),
         boundary === "latest"
           ? undefined
           : or(
@@ -75,27 +77,57 @@ export const decodeMessageRow = (row: typeof SessionMessageTable.$inferSelect) =
     ),
   )
 
+const readRows = (db: DatabaseService, sessionID: SessionSchema.ID, fromSeq?: number) =>
+  db
+    .select()
+    .from(SessionMessageTable)
+    .where(and(eq(SessionMessageTable.session_id, sessionID), fromSeq === undefined ? undefined : gte(SessionMessageTable.seq, fromSeq)))
+    .orderBy(asc(SessionMessageTable.seq))
+    .all()
+    .pipe(Effect.orDie)
+
+/**
+ * Decode history rows one by one. A single corrupt row is quarantined — logged
+ * and skipped — instead of failing the whole load: one bad row must never kill
+ * a session. The row stays in the database, so every load warns about it until
+ * someone repairs or prunes it.
+ */
+export const decodeRows = (rows: Array<typeof SessionMessageTable.$inferSelect>, sessionID: SessionSchema.ID) =>
+  Effect.forEach(rows, (row) =>
+    decodeMessageRow(row).pipe(
+      Effect.map((message) => ({ seq: row.seq, message })),
+      Effect.catchTag("Session.MessageDecodeError", () =>
+        Effect.logWarning("session history: битая строка пропущена, сессия грузится дальше", {
+          sessionID,
+          messageID: row.id,
+          seq: row.seq,
+        }).pipe(Effect.as(undefined)),
+      ),
+    ),
+  ).pipe(
+    Effect.map((entries) => entries.filter((entry) => entry !== undefined)),
+  )
+
 const messageEntries = Effect.fnUntraced(function* (
   db: DatabaseService,
   sessionID: SessionSchema.ID,
   boundary: Boundary,
 ) {
   const compaction = yield* latestCompaction(db, sessionID, boundary)
-  const rows = yield* db
-    .select()
-    .from(SessionMessageTable)
-    .where(
-      and(
-        eq(SessionMessageTable.session_id, sessionID),
-        compaction ? gte(SessionMessageTable.seq, compaction.seq) : undefined,
-      ),
-    )
-    .orderBy(asc(SessionMessageTable.seq))
-    .all()
-    .pipe(Effect.orDie)
-  const entries = yield* Effect.forEach(rows, (row) =>
-    decodeMessageRow(row).pipe(Effect.map((message) => ({ seq: row.seq, message }))),
-  )
+  let entries = yield* decodeRows(yield* readRows(db, sessionID, compaction?.seq), sessionID)
+  // The latest compaction's own summary row is corrupt: its summary is lost, so
+  // degrade to the previous completed compaction — its summary plus everything
+  // after it — instead of loading a bare post-compaction tail. With no earlier
+  // compaction, the re-read starts from the beginning: the full transcript.
+  if (compaction !== undefined && !entries.some((entry) => entry.seq === compaction.seq)) {
+    const previous = yield* latestCompaction(db, sessionID, boundary, compaction.seq)
+    yield* Effect.logWarning("session history: саммари последней компакции битое, откат к предыдущей", {
+      sessionID,
+      seq: compaction.seq,
+      previousSeq: previous?.seq ?? null,
+    })
+    entries = yield* decodeRows(yield* readRows(db, sessionID, previous?.seq), sessionID)
+  }
   // Re-expansion may cross a native checkpoint whose completion already advanced the instruction
   // epoch: the baseline supersedes the chronological updates before it. Forks seed their baseline
   // at sequence 0 but retain parent sequences, so the copied checkpoint still retires them.

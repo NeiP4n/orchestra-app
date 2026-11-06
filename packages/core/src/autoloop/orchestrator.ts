@@ -114,13 +114,20 @@ export function mergeDispatchRule(stored: Rules, timezone = "UTC"): Rules {
 const clipped = (text: string): string => (text.length > SUMMARY_LIMIT ? text.slice(0, SUMMARY_LIMIT) : text)
 
 /**
- * A session outcome becomes a cycle receipt. `done` is done even when the
- * answer is only partial — the Orchestrator reads the team report for the
- * detail, the cycle only needs to know the run ended. `stopped` is
- * `cancelled`: final, no retries. `recovered` is honest about what the
- * transcript proves: a complete outcome counts as done, anything else as
- * failed. `nothing` is its own receipt: the run ended, there was nothing
- * to do, and no retry or card follows.
+ * A session outcome becomes a cycle receipt. The receipt carries what the
+ * Orchestrator actually verified, not just what the worker said:
+ * `report()` demotes a claimed DONE to `partial` when the transcript cannot
+ * back it up (a check failed, no check ran, the CHECKS were copied, or files
+ * were edited after the last run) — that partial becomes `verifyFailed`, so
+ * the kernel's code-check branch requeues the run for another fix round
+ * instead of recording it done. A worker that admits the task is not done
+ * (`incomplete`) or failed (`failed`) gets a `failed` receipt, which retries
+ * through the cycle limits; `unknown` (no status line at all) stays `done`,
+ * because no claim was made either way. `stopped` is `cancelled`: final, no
+ * retries. `recovered` is honest about what the transcript proves: a
+ * complete outcome counts as done, a partial one as a failed verification,
+ * anything else as failed. `nothing` is its own receipt: the run ended,
+ * there was nothing to do, and no retry or card follows.
  */
 export function receiptForReport(input: {
   state: "done" | "failed" | "stopped" | "recovered" | "nothing"
@@ -138,9 +145,22 @@ export function receiptForReport(input: {
   if (input.state === "failed") return { outcome: "failed", summary, error }
   if (input.state === "stopped") return { outcome: "cancelled", summary }
   if (input.state === "recovered") {
-    return input.outcome === "complete"
-      ? { outcome: "done", summary }
-      : { outcome: "failed", summary, error: error ?? "recovered without a terminal event" }
+    if (input.outcome === "complete") return { outcome: "done", summary }
+    if (input.outcome === "partial") {
+      return {
+        outcome: "done",
+        summary,
+        verifyFailed: true,
+        error: error ?? "recovered partially: the check did not pass",
+      }
+    }
+    return { outcome: "failed", summary, error: error ?? "recovered without a terminal event" }
+  }
+  if (input.outcome === "partial") {
+    return { outcome: "done", summary, verifyFailed: true, error: error ?? "check did not pass: work is partial" }
+  }
+  if (input.outcome === "failed" || input.outcome === "incomplete") {
+    return { outcome: "failed", summary, error }
   }
   return { outcome: "done", summary }
 }
