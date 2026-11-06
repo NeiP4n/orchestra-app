@@ -96,9 +96,26 @@ describe("AutoloopOrchestrator rules and limits", () => {
     expect(receiptForReport({ ...base, state: "failed" })).toMatchObject({ outcome: "failed" })
     expect(receiptForReport({ ...base, state: "stopped" })).toMatchObject({ outcome: "cancelled" })
     expect(receiptForReport({ ...base, state: "recovered", outcome: "complete" })).toMatchObject({ outcome: "done" })
-    expect(receiptForReport({ ...base, state: "recovered", outcome: "partial" })).toMatchObject({ outcome: "failed" })
+    expect(receiptForReport({ ...base, state: "recovered", outcome: "partial" })).toMatchObject({
+      outcome: "done",
+      verifyFailed: true,
+    })
     expect(receiptForReport({ ...base, state: "nothing" })).toMatchObject({ outcome: "nothing" })
     expect(receiptForReport({ ...base, workerRemoved: true })).toMatchObject({ outcome: "failed" })
+  })
+
+  test("receiptForReport turns a partial DONE into a failed verification, not a done run", () => {
+    const base = { state: "done" as const, outcome: "partial" as const, summary: "half done", workerRemoved: false }
+    expect(receiptForReport(base)).toMatchObject({ outcome: "done", verifyFailed: true })
+    expect(receiptForReport(base).verifyFailed).toBe(true)
+    // A worker that admits the task failed or is not done is a failed run, never a done one.
+    expect(receiptForReport({ ...base, outcome: "failed" })).toMatchObject({ outcome: "failed" })
+    expect(receiptForReport({ ...base, outcome: "incomplete" })).toMatchObject({ outcome: "failed" })
+    // No status line at all: no claim was made either way, so the run still ends done.
+    expect(receiptForReport({ ...base, outcome: "unknown" })).toMatchObject({ outcome: "done" })
+    expect(receiptForReport({ ...base, outcome: "unknown" }).verifyFailed).toBeUndefined()
+    // A complete DONE stays a plain done receipt: no verification round.
+    expect(receiptForReport({ ...base, outcome: "complete" }).verifyFailed).toBeUndefined()
   })
 
   test("looksLikeNothing needs both no answer and no trace of work", () => {
@@ -170,6 +187,34 @@ describe("AutoloopOrchestrator createRun and finishRun", () => {
         yield* finishRun(svc, { ...created, receipt: { outcome: "nothing" as const, summary: "no work" } }),
       ).toMatchObject({ status: "finished" })
       expect(yield* readRun(svc, created.run)).toMatchObject({ state: "nothing" })
+    }),
+  )
+
+  it.live("a partial DONE requeues the run as a failed verification instead of ending it done", () =>
+    Effect.gen(function* () {
+      const svc = yield* Autoloop.Service
+      const created = yield* dispatch(svc)
+      // This is the production path: the receipt comes from receiptForReport,
+      // not hand-built — a DONE the transcript cannot back up must not end the run.
+      const receipt = receiptForReport({
+        state: "done",
+        outcome: "partial",
+        summary: "Reported DONE but no check ran",
+        workerRemoved: false,
+      })
+      expect(receipt.verifyFailed).toBe(true)
+      expect(yield* finishRun(svc, { ...created, receipt })).toMatchObject({ status: "finished", rejected: [] })
+      expect(yield* readRun(svc, created.run)).toMatchObject({ state: "queued", verifyIterations: 1 })
+      // The requeued run is claimable again: another fix round, not a finished task.
+      const retry = (yield* svc.execute(
+        { type: "claimNext", args: [WORKER, "dispatch:msg-1-verify-retry"] },
+        Date.now() + MINUTE,
+      )) as { run: number; token: string } | null
+      expect(retry?.run).toBe(created.run)
+      expect(yield* finishRun(svc, { run: retry!.run, token: retry!.token, receipt })).toMatchObject({
+        status: "finished",
+      })
+      expect(yield* readRun(svc, created.run)).toMatchObject({ state: "queued", verifyIterations: 2 })
     }),
   )
 
