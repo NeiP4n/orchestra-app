@@ -1,6 +1,7 @@
 export * as ServerLifecycle from "./server-lifecycle"
 
-import { Effect, FileSystem } from "effect"
+import { Cause, Effect, FileSystem } from "effect"
+import { randomUUID } from "node:crypto"
 import path from "node:path"
 
 /**
@@ -231,9 +232,13 @@ function writeState(dataDir: string, state: ServerState) {
     const file = stateFile(dataDir)
     // Write-then-rename: a SIGKILL mid-write leaves the old state, not a
     // half-written one — a corrupt marker would only ever read "unknown".
+    // A3-17: the state names the server's pid and port, so it is created
+    // 0600 like the lock and the database. The temp name carries the pid
+    // and a random suffix — a fixed temp name let two writers collide.
     yield* fs.makeDirectory(dataDir, { recursive: true }).pipe(Effect.ignore)
-    yield* fs.writeFileString(file + ".tmp", JSON.stringify(state, null, 2))
-    yield* fs.rename(file + ".tmp", file)
+    const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`
+    yield* fs.writeFileString(temporary, JSON.stringify(state, null, 2), { mode: 0o600 })
+    yield* fs.rename(temporary, file)
   })
 }
 
@@ -263,11 +268,23 @@ export const markStopped = (dataDir: string, reason: string) =>
     if (text === undefined) return
     const state = parseState(text)
     if (state === undefined || state.pid !== process.pid) return
+    // A3-15: the old code swallowed a failed marker write with Effect.ignore
+    // — the next boot then reported this run as unclean, and nobody knew the
+    // marker write had failed. Say so loudly instead: the shutdown still
+    // completes and the lock is still released, but the missing marker is
+    // visible in the log.
     yield* writeState(dataDir, {
       ...state,
       cleanShutdown: true,
       lastShutdown: { at: new Date().toISOString(), reason },
-    }).pipe(Effect.ignore)
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning(
+          "could not write the clean-shutdown marker; the next boot will report this run as unclean",
+          { cause: Cause.pretty(cause) },
+        ),
+      ),
+    )
     yield* releaseLock(dataDir, state.port)
   })
 

@@ -1,6 +1,6 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { expect, test } from "bun:test"
-import { Effect, FileSystem } from "effect"
+import { Effect, FileSystem, Logger } from "effect"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -165,6 +165,49 @@ test("markStopped by another pid never clobbers the current run's state", async 
       }),
     )
     await run(ServerLifecycle.markStopped(directory, "signal SIGTERM"))
+    const state = JSON.parse(await fs.readFile(ServerLifecycle.stateFile(directory), "utf8")) as {
+      cleanShutdown: boolean
+    }
+    expect(state.cleanShutdown).toBe(false)
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("server-state.json is created with owner-only permissions", async () => {
+  const directory = await dataDir()
+  try {
+    const previous = await run(ServerLifecycle.readPreviousRun(directory))
+    await run(ServerLifecycle.markStarted(directory, info(17897), previous))
+    expect((await fs.stat(ServerLifecycle.stateFile(directory))).mode & 0o777).toBe(0o600)
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("a failed clean-marker write is logged, not swallowed", async () => {
+  const directory = await dataDir()
+  try {
+    const previous = await run(ServerLifecycle.readPreviousRun(directory))
+    await run(ServerLifecycle.markStarted(directory, info(17898), previous))
+    // A read-only data directory makes the marker write fail: the temp
+    // file cannot be created. The old code swallowed that with
+    // Effect.ignore, so the next boot reported an unclean run and nobody
+    // knew why.
+    await fs.chmod(directory, 0o555)
+    const logged: Array<unknown> = []
+    try {
+      await Effect.runPromise(
+        ServerLifecycle.markStopped(directory, "signal SIGTERM").pipe(
+          Effect.provide(NodeFileSystem.layer),
+          Effect.provideService(Logger.CurrentLoggers, new Set([Logger.make((entry) => logged.push(entry.message))])),
+        ),
+      )
+    } finally {
+      await fs.chmod(directory, 0o755)
+    }
+    // Effect logs a warning as [message, ...args], not a plain string.
+    expect(logged.some((message) => JSON.stringify(message).includes("clean-shutdown marker"))).toBe(true)
     const state = JSON.parse(await fs.readFile(ServerLifecycle.stateFile(directory), "utf8")) as {
       cleanShutdown: boolean
     }
