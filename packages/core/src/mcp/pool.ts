@@ -58,9 +58,10 @@ export const connect = Effect.fnUntraced(function* (
   elicitation?: Parameters<typeof McpClient.connect>[4],
   clientInfo?: Parameters<typeof McpClient.connect>[5],
   plane = "local",
+  options?: Parameters<typeof McpClient.connect>[6],
 ) {
   if (config.type !== "local")
-    return yield* McpClient.connect(server, config, directory, authProvider, elicitation, clientInfo)
+    return yield* McpClient.connect(server, config, directory, authProvider, elicitation, clientInfo, options)
 
   const shares = pools.get(plane) ?? new Map<string, Shared>()
   pools.set(plane, shares)
@@ -72,7 +73,7 @@ export const connect = Effect.fnUntraced(function* (
   ])
 
   const existing = shares.get(key)
-  const shared = existing ?? (yield* open(shares, key, server, config, directory, authProvider, elicitation, clientInfo))
+  const shared = existing ?? (yield* open(shares, key, server, config, directory, authProvider, elicitation, clientInfo, options))
   shared.users++
 
   const mine: Listeners = { close: new Set(), sessionExpired: new Set(), tools: new Set(), prompts: new Set(), resources: new Set() }
@@ -126,6 +127,7 @@ const open = Effect.fnUntraced(function* (
   authProvider: Parameters<typeof McpClient.connect>[3],
   elicitation: Parameters<typeof McpClient.connect>[4],
   clientInfo: Parameters<typeof McpClient.connect>[5],
+  options?: Parameters<typeof McpClient.connect>[6],
 ) {
   const environment = yield* Environment.Service
   const scope = yield* Scope.make()
@@ -140,7 +142,7 @@ const open = Effect.fnUntraced(function* (
     if (plane.get(key) === shared) plane.delete(key)
   }
 
-  yield* McpClient.connect(server, config, directory, authProvider, elicitation, clientInfo).pipe(
+  yield* McpClient.connect(server, config, directory, authProvider, elicitation, clientInfo, options).pipe(
     Effect.provideService(Environment.Service, environment),
     Scope.provide(scope),
     launches.withLock(JSON.stringify(config.command)),

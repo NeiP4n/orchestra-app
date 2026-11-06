@@ -31,6 +31,7 @@ import { ConfigMCP } from "@orchestra/schema/config/mcp"
 import type { Session } from "@orchestra/schema/session"
 import { McpStdio } from "./stdio.js"
 import { Limits } from "../limits.js"
+import { Ssrf } from "../tool/ssrf.js"
 
 const DEFAULT_STARTUP_TIMEOUT = 30_000
 const DEFAULT_CATALOG_TIMEOUT = 30_000
@@ -196,6 +197,10 @@ export const connect = Effect.fnUntraced(function* (
   authProvider?: OAuthClientProvider,
   elicitation?: ElicitationHandler,
   clientInfo: Implementation = { name: "opencode", version: "unknown" },
+  // Test-only escape hatch: the remote URL still has to be a valid http(s) URL, but the SSRF
+  // gate is skipped so tests can connect to a loopback fixture server. Production callers
+  // never pass this; a remote MCP server on a private or loopback address is refused.
+  options?: { readonly allowPrivateUrl?: boolean },
 ) {
   // The SDK takes list-changed handlers at construction, but consumers register after connect. On a
   // modern connection the SDK opens the subscriptions/listen stream behind these itself.
@@ -312,11 +317,21 @@ export const connect = Effect.fnUntraced(function* (
     }
     if (!URL.canParse(config.url))
       return yield* new ConnectError({ server, message: `Invalid MCP URL for "${server}"` })
+    // A remote MCP URL is an outgoing fetch to an address the model (via `mcp add` or a forged
+    // server) or the operator typed in: it passes the shared SSRF gate before any request, so
+    // the operator's LAN, cloud metadata endpoint and localhost services are unreachable
+    // through a crafted server URL. The checked URL is the one the transport dials.
+    const checked =
+      options?.allowPrivateUrl === true
+        ? new URL(config.url)
+        : yield* Ssrf.assertPublicUrl(config.url).pipe(
+            Effect.mapError((error) => new ConnectError({ server, message: error.message })),
+          )
     const { McpOAuth } = yield* Effect.promise(() => import("./oauth.js"))
-    const fetch = yield* McpOAuth.loggedFetch({ server, directory })
+    const fetch = yield* McpOAuth.loggedFetch({ server, directory, allowPrivateUrl: options?.allowPrivateUrl })
     // Servers that bundle their own Code Mode (Cloudflare and others) expose raw tools when asked
     // with ?codemode=false, which is what our Code Mode wants. The configured URL stays the OAuth identity.
-    const url = new URL(config.url)
+    const url = new URL(checked)
     const addedCodemode = config.codemode !== false && !url.searchParams.has("codemode")
     if (addedCodemode) url.searchParams.set("codemode", "false")
     const open = Effect.fnUntraced(function* (url: URL) {
@@ -337,7 +352,7 @@ export const connect = Effect.fnUntraced(function* (
           if (!addedCodemode || !(error instanceof SdkHttpError) || (error.status !== 400 && error.status !== 404))
             return Effect.fail(error)
           // Servers that reject unknown query params get one retry at the configured URL.
-          return open(new URL(config.url))
+          return open(new URL(checked))
         }),
       ),
       deadline,

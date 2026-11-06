@@ -9,6 +9,7 @@ import { Path } from "@orchestra/util/global"
 import { Effect, Option, Schema } from "effect"
 import { Config } from "../../config.js"
 import { McpForge } from "../../mcp/forge.js"
+import { Ssrf } from "../ssrf.js"
 import { ForgeJournal } from "./forge-journal.js"
 
 export const name = "mcp_forge"
@@ -139,6 +140,12 @@ export const Plugin = {
                       "Ready to save.",
                     ].join("\n"),
                   }
+                // A remote URL is refused here, at registration, before the config reload would
+                // connect it; the connect-time gate is the second check on the same URL.
+                if (input.server.type === "remote")
+                  yield* Ssrf.assertPublicUrl(input.server.url).pipe(
+                    Effect.mapError((error) => new ToolFailure({ message: error.message })),
+                  )
                 yield* register(serverName, input.server)
                 // A generated server is not trusted by being generated: the journal
                 // records who registered it and what it replaced, so it can be

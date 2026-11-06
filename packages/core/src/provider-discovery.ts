@@ -8,7 +8,10 @@
  *
  * Security contract: the API key and custom header values travel in the
  * request only. They never appear in results, error messages or logs.
+ * The base URL passes the shared SSRF gate before the key is attached:
+ * a private, loopback or unresolvable address never sees the key.
  */
+import { Ssrf } from "./tool/ssrf.js"
 export interface DiscoveredModel {
   readonly id: string
   readonly name?: string
@@ -106,6 +109,18 @@ export async function discoverModels(
 ): Promise<DiscoveryResult> {
   const valid = validateBaseURL(input.baseURL)
   if (!valid.ok) return { ok: false, models: [], error: { kind: "invalid-url", message: valid.message } }
+  // The gate runs before the key is attached to any header: a private, loopback, link-local or
+  // unresolvable base URL is refused here, so the saved credential never leaves the process
+  // towards an address the operator did not vet as public.
+  try {
+    await Ssrf.assertPublicUrlPromise(valid.url)
+  } catch (error) {
+    return {
+      ok: false,
+      models: [],
+      error: { kind: "invalid-url", message: error instanceof Error ? error.message : String(error) },
+    }
+  }
   const headers: Record<string, string> = { accept: "application/json", ...input.headers }
   if (input.apiKey) headers.authorization = `Bearer ${input.apiKey}`
   const started = Date.now()

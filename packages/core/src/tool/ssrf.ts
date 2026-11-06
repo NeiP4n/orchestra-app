@@ -7,9 +7,12 @@ import { Effect } from "effect"
 // A fetch that reaches a private address is a server-side request forgery: a page the model
 // was told to read (or a redirect it followed) can otherwise probe the operator's LAN, the
 // cloud metadata endpoint (169.254.169.254) or a service on localhost, and hand the answer
-// back as ordinary tool output. Every URL webfetch touches — the requested one and every
-// redirect target — must resolve to a public address first. DNS failures fail closed: a
-// host that cannot be checked cannot be fetched, since a real fetch would fail on it anyway.
+// back as ordinary tool output. This is the one shared gate for every outgoing URL in the
+// app — webfetch, remote MCP servers, provider discovery, MCP Forge runtimes, Code Mode
+// fetch, MCP OAuth discovery — not a webfetch-only helper. Every URL a caller touches —
+// the requested one and every redirect target — must resolve to a public address first. DNS
+// failures fail closed: a host that cannot be checked cannot be fetched, since a real fetch
+// would fail on it anyway.
 //
 // Deliberately NOT blocked: 198.18.0.0/15 (benchmarking space — this sandbox's resolver
 // answers public names from it) and the TEST-NET documentation ranges. The list below is
@@ -101,5 +104,33 @@ export const assertPublicUrl = (input: string): Effect.Effect<URL, Error> =>
       )
     return url
   })
+
+/**
+ * The same gate for plain async callers that do not run in an Effect (provider discovery, MCP
+ * OAuth, Code Mode fetch). Rejects with the same "Refusing to fetch ..." error as the Effect.
+ */
+export const assertPublicUrlPromise = (input: string): Promise<URL> =>
+  Effect.runPromise(assertPublicUrl(input))
+
+/**
+ * Synchronous half of the gate: refuses a non-http(s) URL, a local hostname, or a literal
+ * private/loopback IP, without any DNS lookup. Use it where no async work is possible (sync
+ * validation of a forged server spec or an OpenAPI base URL); a hostname that only resolves to a
+ * private address still needs the full async `assertPublicUrl` before any fetch.
+ */
+export function assertPublicLiteralUrl(input: string): URL {
+  let url: URL
+  try {
+    url = new URL(input)
+  } catch {
+    throw new Error(`Refusing to fetch ${input}: not a valid URL`)
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("URL must use http:// or https://")
+  if (isBlockedHostname(url.hostname))
+    throw new Error(`Refusing to fetch ${input}: ${url.hostname} is a local address`)
+  if (isIP(url.hostname) !== 0 && isPrivateAddress(url.hostname))
+    throw new Error(`Refusing to fetch ${input}: ${url.hostname} is a private or loopback address`)
+  return url
+}
 
 export { MAX_REDIRECTS }
