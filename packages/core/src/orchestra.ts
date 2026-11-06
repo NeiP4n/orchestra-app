@@ -2714,7 +2714,12 @@ export function rolesForTemplate(
 // names one explicitly keeps it, because that is the role author's deliberate choice and the
 // runtime fallback covers it — and cheap work (Quality: testers, reviewers, auditors) that
 // resolves to nothing gets the Society's cheap model from the catalog instead of inheriting
-// the Orchestrator's flagship.
+// the Orchestrator's flagship. A third guard is live health (idea "role toolkits", mechanism f):
+// a provider inside a recorded cooldown (a 429, or a 502/503/504 that marked the whole provider
+// down) is skipped from the favorites, the policy and the fallbacks, so the planner never assigns
+// a dead provider's favorite and live ones come first. The role's own model keeps the same
+// exemption as the dead-model guard — the author's deliberate choice, covered by the runtime
+// fallback — and the favorites list itself is never rewritten: the operator owns it.
 export function workerModels(
   policy: ConfigOrchestra.Worker | undefined,
   role: Role | undefined,
@@ -2723,6 +2728,13 @@ export function workerModels(
     readonly catalog?: ReadonlyArray<Model.Info>
     /** Models a provider already refused: the single AI standard (see `AiStandard`) skips them. */
     readonly unavailable?: ReadonlyArray<Model.Ref>
+    /**
+     * Providers inside a recorded cooldown. When omitted, read from the live
+     * cooldown map over the catalog (`AiStandard.downProviders`): a 502 marks
+     * the whole provider down, so its favorites are skipped until it recovers.
+     * Tests pass this explicitly to stay deterministic.
+     */
+    readonly downProviders?: ReadonlyArray<string>
   } = {},
 ): WorkerModelChoice {
   const entry = categoryPolicy(policy, role)
@@ -2730,8 +2742,9 @@ export function workerModels(
   // falls back to the role and policy models when the pinned provider refuses the model.
   // Ranking and the unavailable-skip follow the single AI standard in `AiStandard`.
   const unavailable = new Set((options.unavailable ?? []).map(AiStandard.keyOf))
+  const down = new Set(options.downProviders ?? AiStandard.downProviders(options.catalog))
   const usable = (model: Model.Ref) =>
-    !unavailable.has(AiStandard.keyOf(model)) && !Society.isDeadSocietyModel(model)
+    !unavailable.has(AiStandard.keyOf(model)) && !down.has(model.providerID) && !Society.isDeadSocietyModel(model)
   const favorites = AiStandard.rankFavorites(
     options.favorites ?? [],
     AiStandard.effortFor(role ? `${role.category} ${role.name}` : undefined),

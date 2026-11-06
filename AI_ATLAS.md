@@ -45,7 +45,14 @@ section, config key `model_favorites`). Everything else is derived.
   work the cheapest first; `effortFor` classifies by role category+name) →
   the role's own model → the `orchestra.worker` policy (category entry before the
   general one) → inherit the caller's model. Unavailable models are skipped, never
-  retried blindly, and dropped from fallbacks too.
+  retried blindly, and dropped from fallbacks too. So are the favorites of a
+  provider inside a recorded cooldown (`AiStandard.downProviders`, read from
+  the `ProviderCooldown` map over the catalog when `workerModels` gets no
+  explicit list): a 502 marks the whole provider down for a minute, and the
+  pick moves to a live provider while the favorites list itself never changes.
+  The role's own model keeps its exemption from that guard, like the
+  dead-model guard — the author's deliberate choice, covered by the runtime
+  fallback.
 - The live implementation of the chain is `Orchestra.workerModels` in
   `packages/core/src/orchestra.ts`, fed by `Orchestra.workerPolicy` and
   `Orchestra.workerFavorites`. `AiStandard.decideModel` is the reference statement of

@@ -172,6 +172,35 @@ describe("Orchestra.workerModels favorites", () => {
     })
   })
 
+  test("a favorite on a cooling-down provider is skipped, live ones come first", () => {
+    // The Б14 planner assigned the dead Anymodel to workers while it gave
+    // 502; the cooldown from that failure must move the assignment to a live
+    // provider. The favorites list itself is untouched — only the pick skips.
+    const favorites = [favorite("anymodel/sonnet-5"), favorite("klinch/sonnet-4-5")]
+    expect(
+      shown(Orchestra.workerModels(undefined, guessed("Build", "Builder"), { favorites, downProviders: ["anymodel"] })),
+    ).toEqual({ model: "klinch/sonnet-4-5" })
+    expect(
+      shown(Orchestra.workerModels(undefined, guessed("Build", "Builder"), { favorites, downProviders: ["klinch"] })),
+    ).toEqual({ model: "anymodel/sonnet-5" })
+    expect(shown(Orchestra.workerModels(undefined, guessed("Build", "Builder"), { favorites }))).toEqual({
+      model: "anymodel/sonnet-5",
+      models: ["klinch/sonnet-4-5"],
+    })
+  })
+
+  test("a role's own model on a down provider still wins: the author's deliberate choice", () => {
+    const favorites = [favorite("anymodel/sonnet-5")]
+    expect(
+      shown(
+        Orchestra.workerModels(undefined, role({ model: "anymodel/sonnet-5" }), {
+          favorites,
+          downProviders: ["anymodel"],
+        }),
+      ),
+    ).toEqual({ model: "anymodel/sonnet-5" })
+  })
+
   it.live("reads the pinned models from the orchestra config and hands them to a worker", () =>
     Effect.gen(function* () {
       const favorites = yield* Orchestra.workerFavorites
