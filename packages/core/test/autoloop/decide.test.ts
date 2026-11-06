@@ -684,3 +684,77 @@ describe("AutoloopDecide two independent verification methods (idea #14)", () =>
     ).toThrow("verification")
   })
 })
+
+describe("AutoloopDecide timed dispute ladder (idea #18)", () => {
+  const disputeRow = (view: View, id: number) => view["disputes"]?.[String(id)] as Record<string, unknown> | undefined
+  const raise = (view: View, now: number, seq: number, level?: string) =>
+    step(view, { type: "raiseDispute", args: ["какой формат хранить", "хранить как JSON", "хранить как YAML", level] }, now, seq)
+
+  test("a raised dispute starts at the agent level with a 15-minute deadline", () => {
+    const { view, value } = raise(emptyView(), T0, 1)
+    expect(value).toMatchObject({ dispute: 1, level: "agent", deadline: new Date(T0 + 15 * MINUTE).toISOString() })
+    expect(disputeRow(view, 1)).toMatchObject({
+      subject: "какой формат хранить",
+      position_a: "хранить как JSON",
+      position_b: "хранить как YAML",
+      level: "agent",
+      state: "open",
+    })
+  })
+
+  test("an overdue dispute climbs one rung per tick, carrying both positions", () => {
+    let view = raise(emptyView(), T0, 1).view
+    view = step(view, { type: "tick", args: [] }, T0 + 16 * MINUTE, 2).view
+    expect(disputeRow(view, 1)).toMatchObject({ level: "group-leader", state: "open" })
+    view = step(view, { type: "tick", args: [] }, T0 + 47 * MINUTE, 3).view
+    expect(disputeRow(view, 1)).toMatchObject({ level: "council", state: "open" })
+    view = step(view, { type: "tick", args: [] }, T0 + 108 * MINUTE, 4).view
+    expect(disputeRow(view, 1)).toMatchObject({ level: "orchestrator", state: "open" })
+    expect(disputeRow(view, 1)?.["position_a"]).toBe("хранить как JSON")
+    expect(disputeRow(view, 1)?.["position_b"]).toBe("хранить как YAML")
+  })
+
+  test("climbing past the orchestrator records the dispute for the operator and stops", () => {
+    let view = raise(emptyView(), T0, 1).view
+    for (const [seq, at] of [[2, 16], [3, 47], [4, 108], [5, 229]] as Array<[number, number]>) {
+      view = step(view, { type: "tick", args: [] }, T0 + at * MINUTE, seq).view
+    }
+    expect(disputeRow(view, 1)).toMatchObject({ level: "operator", state: "noted", deadline: "" })
+    const note = cardRows(view).find((card) => card["key"] === "dispute:1:operator")
+    expect(note).toMatchObject({ kind: "notice" })
+    expect(note?.["text"]).toContain("хранить как JSON")
+    expect(note?.["text"]).toContain("хранить как YAML")
+    // A later tick does not write the operator card twice.
+    const reticked = step(view, { type: "tick", args: [] }, T0 + 300 * MINUTE, 6).view
+    expect(cardRows(reticked).filter((card) => card["key"] === "dispute:1:operator")).toHaveLength(1)
+    expect(disputeRow(reticked, 1)).toMatchObject({ state: "noted" })
+  })
+
+  test("resolving a dispute stops the climb; a closed one stays closed", () => {
+    let view = raise(emptyView(), T0, 1).view
+    const resolved = step(view, { type: "resolveDispute", args: [1, "берём JSON"] }, T0 + MINUTE, 2)
+    expect(resolved.value).toBe(true)
+    expect(disputeRow(resolved.view, 1)).toMatchObject({ state: "resolved", decision: "берём JSON" })
+    view = step(resolved.view, { type: "tick", args: [] }, T0 + 60 * MINUTE, 3).view
+    expect(disputeRow(view, 1)).toMatchObject({ level: "agent", state: "resolved" })
+    expect(step(view, { type: "resolveDispute", args: [1, "передумали"] }, T0 + 61 * MINUTE, 4).value).toBe(false)
+  })
+
+  test("a participant can push a dispute up early, and a dispute raised at the operator is noted at once", () => {
+    let view = raise(emptyView(), T0, 1).view
+    const pushed = step(view, { type: "escalateDispute", args: [1] }, T0 + MINUTE, 2)
+    expect(pushed.value).toMatchObject({ escalated: true, level: "group-leader", state: "open" })
+
+    const direct = raise(emptyView(), T0, 1, "operator")
+    expect(direct.value).toMatchObject({ dispute: 1, level: "operator", deadline: "" })
+    expect(disputeRow(direct.view, 1)).toMatchObject({ state: "noted" })
+    expect(cardRows(direct.view).map((card) => card["key"])).toContain("dispute:1:operator")
+  })
+
+  test("an unknown level or a missing dispute is rejected", () => {
+    expect(() => raise(emptyView(), T0, 1, "president")).toThrow("спор.level")
+    expect(() =>
+      decide(emptyView(), { type: "resolveDispute", args: [9, "решён"] }, T0, env(1)),
+    ).toThrow("такого спора нет")
+  })
+})

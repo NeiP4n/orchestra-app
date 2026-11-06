@@ -2,6 +2,15 @@ export * as AutoloopDecide from "./decide.js"
 
 import { createHash } from "node:crypto"
 import {
+  advanceDispute,
+  deadlineFor,
+  escalateDispute,
+  resolveDispute,
+  DISPUTE_LEVELS,
+  type Dispute,
+  type DisputeLevel,
+} from "./dispute.js"
+import {
   MINUTE,
   SEEN_EVERY,
   deadlines,
@@ -192,6 +201,20 @@ export interface LessonRow extends RowData {
   /** Attempts at the time the lesson was written (always 2). */
   attempts: number
   created_at: string
+}
+
+/** One dispute on the timed ladder (idea #18), in the `disputes` collection. */
+export interface DisputeRow extends RowData {
+  id: number
+  subject: string
+  position_a: string
+  position_b: string
+  level: string
+  deadline: string
+  state: "open" | "resolved" | "noted"
+  decision: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface EventRow extends RowData {
@@ -993,6 +1016,61 @@ function sweep(draft: Draft) {
     const check = lastSeen === undefined ? "включён ли он и есть ли сеть" : "не выключен ли он, не уснул ли, не пропала ли сеть"
     notify(draft, key, "Исполнитель не на связи", `${situation} (посмотрите, ${check}).`)
   }
+  sweepDisputes(draft)
+}
+
+const disputeOfRow = (row: DisputeRow): Dispute => ({
+  id: row.id,
+  subject: row.subject,
+  positionA: row.position_a,
+  positionB: row.position_b,
+  level: row.level as DisputeLevel,
+  deadline: row.deadline,
+  state: row.state,
+  decision: row.decision,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+})
+
+const rowOfDispute = (dispute: Dispute): RowData => ({
+  subject: dispute.subject,
+  position_a: dispute.positionA,
+  position_b: dispute.positionB,
+  level: dispute.level,
+  deadline: dispute.deadline,
+  state: dispute.state,
+  decision: dispute.decision,
+  created_at: dispute.createdAt,
+  updated_at: dispute.updatedAt,
+})
+
+/**
+ * The operator's record of a dispute that climbed the whole ladder: both
+ * positions, no question asked, nothing blocked. `once` keeps it to one
+ * card per dispute.
+ */
+function noteDisputeForOperator(draft: Draft, dispute: Dispute) {
+  const clipped = (text: string) => (text.length > 400 ? `${text.slice(0, 400)}…` : text)
+  notify(
+    draft,
+    `dispute:${dispute.id}:operator`,
+    "Спор дошёл до оператора",
+    `Спор «${dispute.subject}» не решили на уровнях ниже, он записан для оператора — ответа не требуется, работа не блокируется. ` +
+      `Позиция А: ${clipped(dispute.positionA)} Позиция Б: ${clipped(dispute.positionB)}`,
+    { once: true },
+  )
+}
+
+/** Overdue open disputes climb one rung on their own, carrying both positions. */
+function sweepDisputes(draft: Draft) {
+  for (const row of rowsOf(draft.view, "disputes")
+    .map(({ data }) => data as DisputeRow)
+    .filter((dispute) => dispute.state === "open")) {
+    const moved = escalateDispute(disputeOfRow(row), draft.now)
+    if (!moved.escalated) continue
+    put(draft, "disputes", row.id, rowOfDispute(moved.dispute))
+    if (moved.dispute.state === "noted") noteDisputeForOperator(draft, moved.dispute)
+  }
 }
 
 function heldRun(draft: Draft, id: number, token: string, states: string[]): RunRow {
@@ -1670,6 +1748,57 @@ const HANDLERS: Record<string, (draft: Draft, ...args: Array<unknown>) => unknow
   ingest: (draft, source, given) => ingest(draft, needStr(source, "ingest.source"), given),
 
   createCard: (draft, spec) => createCard(draft, parseCardSpec(spec, "карточка")),
+
+  raiseDispute: (draft, subject, positionA, positionB, level) => {
+    const subjectText = needStr(subject, "raiseDispute.subject")
+    if (subjectText.length > 500) throw new DecideInputError("спор.subject — до 500 знаков")
+    const a = needStr(positionA, "raiseDispute.positionA")
+    const b = needStr(positionB, "raiseDispute.positionB")
+    if (a.length > 2000 || b.length > 2000) throw new DecideInputError("позиции спора — до 2000 знаков")
+    const levelText = level === undefined ? "agent" : needStr(level, "raiseDispute.level")
+    if (!(DISPUTE_LEVELS as ReadonlyArray<string>).includes(levelText)) {
+      throw new DecideInputError(`спор.level — один из: ${DISPUTE_LEVELS.join(", ")}`)
+    }
+    const deadline = deadlineFor(levelText as DisputeLevel, draft.now)
+    const row = add<DisputeRow>(draft, "disputes", {
+      subject: subjectText,
+      position_a: a,
+      position_b: b,
+      level: levelText,
+      deadline,
+      state: "open",
+      decision: null,
+      created_at: draft.at,
+      updated_at: draft.at,
+    })
+    if (levelText === "operator") {
+      put(draft, "disputes", row.id, { state: "noted", deadline: "" })
+      noteDisputeForOperator(draft, { ...disputeOfRow(row), state: "noted", deadline: "" })
+      return { dispute: row.id, level: "operator", deadline: "" }
+    }
+    return { dispute: row.id, level: levelText, deadline }
+  },
+
+  resolveDispute: (draft, id, decision) => {
+    const row = getRow<DisputeRow>(draft.view, "disputes", needNum(id, "resolveDispute.id"))
+    if (row === undefined) throw new DecideNotFoundError("такого спора нет")
+    if (row.state !== "open") return false
+    const decided = resolveDispute(disputeOfRow(row), needStr(decision, "resolveDispute.decision"), draft.now)
+    put(draft, "disputes", row.id, rowOfDispute(decided))
+    return true
+  },
+
+  escalateDispute: (draft, id) => {
+    const row = getRow<DisputeRow>(draft.view, "disputes", needNum(id, "escalateDispute.id"))
+    if (row === undefined) throw new DecideNotFoundError("такого спора нет")
+    const moved = advanceDispute(disputeOfRow(row), draft.now)
+    if (!moved.escalated) {
+      return { escalated: false, reason: moved.reason, level: row.level, state: row.state }
+    }
+    put(draft, "disputes", row.id, rowOfDispute(moved.dispute))
+    if (moved.dispute.state === "noted") noteDisputeForOperator(draft, moved.dispute)
+    return { escalated: true, reason: moved.reason, level: moved.dispute.level, state: moved.dispute.state }
+  },
 
   enqueue: (draft, ruleName, eventId, lane, resume) => {
     const rule = ruleNamed(draft, needStr(ruleName, "enqueue.rule"))
