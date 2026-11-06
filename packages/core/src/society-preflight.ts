@@ -173,6 +173,16 @@ export const checkLive = Effect.fn("SocietyPreflight.checkLive")(function* (inpu
       status: "skipped",
       reason: "Credential and Provider services are not in this layer, so the Anymodel key and endpoint cannot be verified here.",
     } satisfies PreflightResult
+  // The endpoint comes from the Provider service alone: when it is absent
+  // from this layer (the Federation context does not provide it), the base
+  // URL cannot be determined at all — and a missing base URL must not be
+  // reported as an unconfigured provider. Skip instead of failing; the
+  // creation path logs the skip as a warning.
+  if (Option.isNone(providers))
+    return {
+      status: "skipped",
+      reason: "Provider service is not in this layer, so the Anymodel endpoint cannot be verified here.",
+    } satisfies PreflightResult
   const stored = Option.isNone(credentials)
     ? []
     : yield* credentials.value

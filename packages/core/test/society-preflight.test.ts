@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { SocietyPreflight } from "../src/society-preflight"
+import { Credential } from "../src/credential"
 import { openSocietyTeam } from "../src/federation"
 import { Orchestra } from "../src/orchestra"
 import { Orchestra as OrchestraSchema } from "@orchestra/schema/orchestra"
@@ -153,6 +154,25 @@ describe("SocietyPreflight.checkSocietyProvider (G2-1)", () => {
 describe("SocietyPreflight.checkLive", () => {
   test("is skipped when no Credential/Provider services are in the layer", async () => {
     const result = await Effect.runPromise(SocietyPreflight.checkLive())
+    expect(result.status).toBe("skipped")
+  })
+
+  test("is skipped when Credential is present but Provider is not (no false failure)", async () => {
+    // Regression: the Federation context provides Credential but not
+    // Provider, so the endpoint cannot be determined. That must skip, not
+    // report the provider as unconfigured.
+    const stub = {
+      all: () => Effect.succeed([] as Credential.Info[]),
+      list: () => Effect.succeed([] as Credential.Info[]),
+      get: () => Effect.succeed(undefined as Credential.Info | undefined),
+      create: () => Effect.fail(new Error("unused") as never),
+      activate: () => Effect.succeed(undefined as void),
+      update: () => Effect.succeed(undefined as void),
+      remove: () => Effect.succeed(undefined as void),
+    } satisfies Credential.Interface
+    const result = await Effect.runPromise(
+      SocietyPreflight.checkLive().pipe(Effect.provideService(Credential.Service, stub)),
+    )
     expect(result.status).toBe("skipped")
   })
 })
