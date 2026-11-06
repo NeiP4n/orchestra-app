@@ -3,11 +3,11 @@ export * as AutoloopCards from "./cards.js"
 import { AutoloopCard } from "@orchestra/schema/autoloop-card"
 import type { Event } from "@orchestra/schema/event"
 import { Effect, Schema } from "effect"
-import { decide, type AutoloopLimits, type CardRow, type DecideInput, type DecideResult } from "./kernel/decide.js"
+import { decide, type AutoloopLimits, type CardRow, type DecideInput } from "./kernel/decide.js"
 import type { View } from "./kernel/evolve.js"
 import { rows } from "./kernel/evolve.js"
 import { emptyRules, type Rules } from "./kernel/rules.js"
-import { AutoloopStore } from "./kernel/store.js"
+import { AutoloopStore, type OpenedView } from "./kernel/store.js"
 
 // Cards ask/notice (block Б3, подшаг 2): the thin layer over the journal
 // (`store`) and the pure decision (`decide`). This is the ONLY place the
@@ -168,11 +168,33 @@ export const cardChanges = (before: View, after: View): CardChange[] => {
   })
 }
 
-const commitDecided = (before: View, decided: DecideResult) =>
+const commitDecided = (opened: OpenedView, input: DecideInput, env?: CardsEnv) =>
   Effect.gen(function* () {
-    if (decided.facts.length === 0) return { view: before, events: [] as CardChange[] }
-    const committed = yield* AutoloopStore.commitLatest(decided.facts).pipe(Effect.mapError(storeFailure))
-    return { view: committed.view, events: cardChanges(before, committed.view) }
+    const decided = yield* runDecide(opened.view, opened.lastSeq, input, env)
+    if (decided.facts.length === 0) return { view: opened.view, events: [] as CardChange[], value: decided.value }
+    return yield* AutoloopStore.commit(decided.facts, opened.lastSeq).pipe(
+      Effect.map((committed) => ({
+        view: committed.view,
+        events: cardChanges(opened.view, committed.view),
+        value: decided.value,
+      })),
+      // Two answers racing: the loser's commit fails on the stale sequence
+      // instead of silently overwriting the winner. It re-decides on the
+      // fresh view once — an already-decided card then answers
+      // `changed: false` instead of recording a second answer (M-05).
+      Effect.catchTag("Autoloop.StaleSeq", () =>
+        Effect.gen(function* () {
+          const reopened = yield* openJournal
+          const redecided = yield* runDecide(reopened.view, reopened.lastSeq, input, env)
+          if (redecided.facts.length === 0) {
+            return { view: reopened.view, events: [] as CardChange[], value: redecided.value }
+          }
+          const recommitted = yield* AutoloopStore.commit(redecided.facts, reopened.lastSeq)
+          return { view: recommitted.view, events: cardChanges(reopened.view, recommitted.view), value: redecided.value }
+        }),
+      ),
+      Effect.mapError(storeFailure),
+    )
   })
 
 const openJournal = AutoloopStore.openView().pipe(Effect.mapError(storeFailure))
@@ -204,9 +226,8 @@ export function listOpenCards() {
 export function createCard(spec: CreateCardInput, env?: CardsEnv) {
   return Effect.gen(function* () {
     const opened = yield* openJournal
-    const decided = yield* runDecide(opened.view, opened.lastSeq, { type: "createCard", args: [spec] }, env)
-    const { view, events } = yield* commitDecided(opened.view, decided)
-    const created = decided.value as { card: number; duplicate: boolean }
+    const { view, events, value } = yield* commitDecided(opened, { type: "createCard", args: [spec] }, env)
+    const created = value as { card: number; duplicate: boolean }
     const card = yield* cardOrFail(view, created.card)
     return { card, duplicate: created.duplicate, events }
   })
@@ -223,9 +244,8 @@ export function answerCard(id: number, input: AnswerCardInput, env?: CardsEnv) {
   return Effect.gen(function* () {
     const opened = yield* openJournal
     yield* cardOrFail(opened.view, id)
-    const decided = yield* runDecide(opened.view, opened.lastSeq, { type: "answer", args: [id, input] }, env)
-    const { view, events } = yield* commitDecided(opened.view, decided)
-    const answered = decided.value as { changed: boolean; state: string }
+    const { view, events, value } = yield* commitDecided(opened, { type: "answer", args: [id, input] }, env)
+    const answered = value as { changed: boolean; state: string }
     const card = yield* cardOrFail(view, id)
     const row = cardRows(view).find((candidate) => candidate.id === id)
     const answerEvent = row?.answer_event ?? null
@@ -247,9 +267,8 @@ export function answerCard(id: number, input: AnswerCardInput, env?: CardsEnv) {
 export function nextCard(channel: string, env?: CardsEnv) {
   return Effect.gen(function* () {
     const opened = yield* openJournal
-    const decided = yield* runDecide(opened.view, opened.lastSeq, { type: "nextCard", args: [channel] }, env)
-    const { view } = yield* commitDecided(opened.view, decided)
-    const handed = decided.value as { id: number } | null
+    const { view, value } = yield* commitDecided(opened, { type: "nextCard", args: [channel] }, env)
+    const handed = value as { id: number } | null
     if (handed === null) return { card: null as Card | null }
     return { card: yield* cardOrFail(view, handed.id) }
   })
@@ -259,13 +278,7 @@ export function nextCard(channel: string, env?: CardsEnv) {
 export function markDelivered(channel: string, id: number, version: number, ref: string | null, env?: CardsEnv) {
   return Effect.gen(function* () {
     const opened = yield* openJournal
-    const decided = yield* runDecide(
-      opened.view,
-      opened.lastSeq,
-      { type: "delivered", args: [channel, id, version, ref] },
-      env,
-    )
-    const { view } = yield* commitDecided(opened.view, decided)
+    const { view } = yield* commitDecided(opened, { type: "delivered", args: [channel, id, version, ref] }, env)
     return { card: yield* cardOrFail(view, id) }
   })
 }
@@ -274,13 +287,7 @@ export function markDelivered(channel: string, id: number, version: number, ref:
 export function markFailed(channel: string, id: number, version: number, error: string, env?: CardsEnv) {
   return Effect.gen(function* () {
     const opened = yield* openJournal
-    const decided = yield* runDecide(
-      opened.view,
-      opened.lastSeq,
-      { type: "failed", args: [channel, id, version, error] },
-      env,
-    )
-    const { view } = yield* commitDecided(opened.view, decided)
+    const { view } = yield* commitDecided(opened, { type: "failed", args: [channel, id, version, error] }, env)
     return { card: yield* cardOrFail(view, id) }
   })
 }

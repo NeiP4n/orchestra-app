@@ -302,3 +302,23 @@ describe("AutoloopCards delivery", () => {
     )
   })
 })
+
+describe("AutoloopCards disputes", () => {
+  test("two answers racing on one card: exactly one changes it", async () => {
+    await run(
+      Effect.gen(function* () {
+        const card = yield* askCardSetup
+        const results = yield* Effect.all(
+          [
+            AutoloopCards.answerCard(card.id, { choice: 0, by: "a" }, envAt(T0 + 2000)),
+            AutoloopCards.answerCard(card.id, { choice: 1, by: "b" }, envAt(T0 + 2000)),
+          ],
+          { concurrency: "unbounded" },
+        )
+        expect(results.map((result) => result.changed).sort()).toEqual([false, true])
+        const final = yield* AutoloopCards.listCards()
+        expect(final.find((found) => found.id === card.id)).toMatchObject({ state: "decided" })
+      }),
+    )
+  })
+})
