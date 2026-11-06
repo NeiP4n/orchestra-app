@@ -294,6 +294,14 @@ const layer = Layer.effect(
       return Option.isSome(binding) ? binding.value.id : undefined
     })
     const ensureBinding = Effect.fnUntraced(function* (directory: AbsolutePath, id: ID) {
+      // A resolve is a read: it must not conjure the project folder into
+      // existence. Writing the binding under a missing directory would
+      // mkdir -p it, so a request for a folder that does not exist would
+      // silently turn it into a project instead of answering 404 (the
+      // FileSystem probe below the Location graph can never see a missing
+      // folder otherwise). The binding is best-effort anyway: the next
+      // resolve after the folder appears writes it then.
+      if (!(yield* fs.isDir(directory))) return
       const existing = yield* boundId(directory)
       if (existing === id) return
       yield* fs
