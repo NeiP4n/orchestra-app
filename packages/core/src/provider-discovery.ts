@@ -109,29 +109,31 @@ export async function discoverModels(
 ): Promise<DiscoveryResult> {
   const valid = validateBaseURL(input.baseURL)
   if (!valid.ok) return { ok: false, models: [], error: { kind: "invalid-url", message: valid.message } }
-  // The gate runs before the key is attached to any header: a private, loopback, link-local or
-  // unresolvable base URL is refused here, so the saved credential never leaves the process
-  // towards an address the operator did not vet as public.
-  try {
-    await Ssrf.assertPublicUrlPromise(valid.url)
-  } catch (error) {
-    return {
-      ok: false,
-      models: [],
-      error: { kind: "invalid-url", message: error instanceof Error ? error.message : String(error) },
-    }
-  }
+  // The gate lives in fetchPublic below and runs on the URL actually fetched, before the
+  // key is attached to any header: a private, loopback, link-local or unresolvable base
+  // URL — or a redirect target — is refused there, so the saved credential never leaves
+  // the process towards an address the operator did not vet as public.
   const headers: Record<string, string> = { accept: "application/json", ...input.headers }
   if (input.apiKey) headers.authorization = `Bearer ${input.apiKey}`
   const started = Date.now()
   let response: Response
   try {
-    response = await fetchFn(modelsURL(valid.url), {
-      method: "GET",
+    // fetchPublic gates every hop (T3-2): the base URL check alone cannot stop a
+    // 302 to 169.254.169.254, and the key travels only on the gated request —
+    // the gate runs before the fetch, so a refused URL never sees the key.
+    response = await Ssrf.fetchPublic({
+      url: modelsURL(valid.url),
       headers,
-      signal: AbortSignal.timeout(input.timeoutMs ?? DEFAULT_DISCOVERY_TIMEOUT_MS),
+      timeoutMs: input.timeoutMs ?? DEFAULT_DISCOVERY_TIMEOUT_MS,
+      fetchFn,
     })
   } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Refusing to fetch"))
+      return {
+        ok: false,
+        models: [],
+        error: { kind: "invalid-url", message: error.message },
+      }
     if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError"))
       return { ok: false, models: [], error: { kind: "timeout", message: "The endpoint did not answer in time" } }
     return {

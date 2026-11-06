@@ -55,12 +55,23 @@ const send: FetchLike = (url, init) => {
 
 // Every outgoing request the SDK and the transport make passes the shared SSRF gate first, so a
 // metadata document or a 401 challenge from a remote server cannot redirect a credential-bearing
-// request (token exchange, refresh, discovery) at a private or loopback address — and a DNS
-// rebinding after connect cannot smuggle the transport onto the LAN either. The flag is the
-// test-only escape hatch for loopback fixture servers; production callers never pass it.
+// request (token exchange, refresh, discovery) at a private or loopback address. Redirects are
+// followed by hand with the gate on every hop (Ssrf.fetchPublic): a plain fetch would follow a
+// 302 to a private address unchecked, and a 307/308 would re-send a token-exchange body —
+// client secret included — to the redirect target. The flag is the test-only escape hatch for
+// loopback fixture servers; production callers never pass it. Residual risk, stated plainly:
+// the gate checks the name before the connect, so a resolver that answers differently at
+// connect time (DNS rebinding) is not closed by this gate — see Ssrf.fetchPublic.
 const gatedSend = (allowPrivateUrl = false): FetchLike => async (url, init) => {
-  if (!allowPrivateUrl) await Ssrf.assertPublicUrlPromise(String(url))
-  return send(url, init)
+  return Ssrf.fetchPublic({
+    url: String(url),
+    method: init?.method,
+    headers: init?.headers,
+    body: init?.body,
+    signal: init?.signal,
+    fetchFn: send,
+    allowPrivateUrl,
+  })
 }
 
 export const loggedFetch = (fields: {

@@ -55,6 +55,144 @@ describe("Ssrf.isPrivateAddress", () => {
   })
 })
 
+describe("Ssrf.fetchPublic", () => {
+  const redirect = (location: string, status = 302) =>
+    new Response(null, { status, headers: { location } })
+
+  test("follows same-origin and relative redirects to the final response", async () => {
+    const seen: string[] = []
+    const response = await Ssrf.fetchPublic({
+      url: "https://8.8.8.8/v1",
+      fetchFn: async (url) => {
+        seen.push(url)
+        if (url === "https://8.8.8.8/v1") return redirect("/v1/models")
+        return new Response(JSON.stringify({ data: [{ id: "m1" }] }), { status: 200 })
+      },
+    })
+    expect(response.status).toBe(200)
+    expect(seen).toEqual(["https://8.8.8.8/v1", "https://8.8.8.8/v1/models"])
+  })
+
+  test("refuses a redirect to a private address and never fetches it", async () => {
+    const seen: string[] = []
+    await expect(
+      Ssrf.fetchPublic({
+        url: "https://8.8.8.8/v1",
+        fetchFn: async (url) => {
+          seen.push(url)
+          if (seen.length === 1) return redirect("http://169.254.169.254/latest/meta-data/")
+          return new Response("{}", { status: 200 })
+        },
+      }),
+    ).rejects.toThrow("Refusing to fetch")
+    expect(seen).toEqual(["https://8.8.8.8/v1"])
+  })
+
+  test("refuses a redirect to a hex-tail IPv6 loopback", async () => {
+    await expect(
+      Ssrf.fetchPublic({
+        url: "https://8.8.8.8/v1",
+        fetchFn: async (url) => {
+          if (url === "https://8.8.8.8/v1") return redirect("http://[::ffff:7f00:1]/")
+          return new Response("{}", { status: 200 })
+        },
+      }),
+    ).rejects.toThrow("Refusing to fetch")
+  })
+
+  test("strips credentials on a cross-origin redirect and keeps them same-origin", async () => {
+    const seenAuth: Array<string | null> = []
+    await Ssrf.fetchPublic({
+      url: "https://8.8.8.8/v1",
+      headers: { authorization: "Bearer sk-secret", cookie: "session=abc" },
+      fetchFn: async (url, init) => {
+        seenAuth.push(new Headers(init.headers).get("authorization"))
+        if (url === "https://8.8.8.8/v1") return redirect("https://1.1.1.1/v1")
+        return new Response("{}", { status: 200 })
+      },
+    })
+    expect(seenAuth).toEqual(["Bearer sk-secret", null])
+
+    const kept: Array<string | null> = []
+    await Ssrf.fetchPublic({
+      url: "https://8.8.8.8/v1",
+      headers: { authorization: "Bearer sk-secret" },
+      fetchFn: async (url, init) => {
+        kept.push(new Headers(init.headers).get("authorization"))
+        if (url === "https://8.8.8.8/v1") return redirect("/v1/other")
+        return new Response("{}", { status: 200 })
+      },
+    })
+    expect(kept).toEqual(["Bearer sk-secret", "Bearer sk-secret"])
+  })
+
+  test("refuses to re-send a body to another origin and re-sends it same-origin", async () => {
+    await expect(
+      Ssrf.fetchPublic({
+        url: "https://8.8.8.8/token",
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ grant_type: "refresh_token", client_secret: "shh" }),
+        fetchFn: async (url) => {
+          if (url === "https://8.8.8.8/token") return redirect("https://1.1.1.1/token", 307)
+          return new Response("{}", { status: 200 })
+        },
+      }),
+    ).rejects.toThrow("Refusing to follow a redirect")
+
+    const bodies: Array<unknown> = []
+    await Ssrf.fetchPublic({
+      url: "https://8.8.8.8/token",
+      method: "POST",
+      body: "grant_type=refresh_token",
+      fetchFn: async (url, init) => {
+        bodies.push(init.body)
+        if (url === "https://8.8.8.8/token") return redirect("/token2", 307)
+        return new Response("{}", { status: 200 })
+      },
+    })
+    expect(bodies).toEqual(["grant_type=refresh_token", "grant_type=refresh_token"])
+  })
+
+  test("turns a 303 POST into a GET without a body", async () => {
+    const seen: Array<{ method?: string; body: unknown }> = []
+    await Ssrf.fetchPublic({
+      url: "https://8.8.8.8/submit",
+      method: "POST",
+      body: "payload",
+      fetchFn: async (url, init) => {
+        seen.push({ method: init.method, body: init.body })
+        if (url === "https://8.8.8.8/submit") return redirect("/done", 303)
+        return new Response("{}", { status: 200 })
+      },
+    })
+    expect(seen).toEqual([
+      { method: "POST", body: "payload" },
+      { method: "GET", body: undefined },
+    ])
+  })
+
+  test("stops after the redirect limit and refuses a private first URL without fetching", async () => {
+    await expect(
+      Ssrf.fetchPublic({
+        url: "https://8.8.8.8/loop",
+        fetchFn: async () => redirect("/loop"),
+      }),
+    ).rejects.toThrow("Too many redirects")
+    let called = false
+    await expect(
+      Ssrf.fetchPublic({
+        url: "http://169.254.169.254/",
+        fetchFn: async () => {
+          called = true
+          return new Response("{}", { status: 200 })
+        },
+      }),
+    ).rejects.toThrow("Refusing to fetch")
+    expect(called).toBe(false)
+  })
+})
+
 describe("Ssrf.assertPublicUrlPromise", () => {
   test("refuses a private URL and allows a public one, like the Effect", async () => {
     await expect(Ssrf.assertPublicUrlPromise("http://169.254.169.254/")).rejects.toThrow("Refusing to fetch")

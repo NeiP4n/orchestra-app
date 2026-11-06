@@ -489,16 +489,33 @@ they are not new tasks.
   `*.local`), literal private/loopback IPs, and hostnames that resolve to a
   private address. DNS failure fails closed. Deliberately not blocked:
   198.18.0.0/15 (benchmarking space — the sandbox resolver answers public names
-  from it) and the TEST-NET documentation ranges.
+  from it) and the TEST-NET documentation ranges. IPv6 literals with an
+  IPv4 tail are judged on the tail in both spellings: dotted (`::ffff:127.0.0.1`)
+  and hex (`::ffff:7f00:1`, `::7f00:1`, `::ffff:a9fe:a9fe` = 169.254.169.254) —
+  but only under an IPv4-embedding prefix (`::ffff:0:0/96`, `::/96`,
+  `64:ff9b::/96` NAT64); a public address whose tail merely looks like a
+  private IPv4 (`2606:4700:4700::1111`) stays public. `100::/64` (discard) is
+  refused as well.
+- Redirects are followed by hand through one shared helper, `Ssrf.fetchPublic`
+  (gate on every hop, `redirect: "manual"`, max 5 hops, one timeout deadline
+  for the whole chain): credentials never follow a redirect to another origin,
+  and a request with a body is never re-sent to one. New outgoing fetches use
+  it; do not invent another redirect loop. Residual risk, stated plainly:
+  the gate checks the name immediately before the connect, so a resolver that
+  answers differently at connect time (DNS-rebinding TOCTOU) is not closed —
+  closing it needs connecting to the pinned IP with TLS verified by name,
+  which plain fetch cannot do. Literal IPs have no such window.
 - Guarded call sites: `webfetch` (every URL and every redirect hop), remote MCP
   connect (`mcp/client.ts` — the checked URL is the one the transport dials),
-  provider discovery (`provider-discovery.ts` — the gate runs before the API key
-  is attached to any header), MCP Forge validation + `fromOpenApi` (literal
+  provider discovery (`provider-discovery.ts` — `Ssrf.fetchPublic`, so the gate
+  runs on the base URL and on every redirect hop before the API key is attached
+  to any header), MCP Forge validation + `fromOpenApi` (literal
   check) and the generated runtime (its own embedded copy of the gate, because
   generated code cannot import Orchestra modules; redirects followed by hand,
   one hop at a time), Code Mode fetch (`codemode/web.ts`, manual redirects),
-  MCP OAuth discovery/token fetches (`mcp/oauth.ts`), and `mcp_forge` remote
-  registration (`tool/plugin/mcp-forge.ts`).
+  MCP OAuth discovery/token fetches (`mcp/oauth.ts` — `gatedSend` is
+  `Ssrf.fetchPublic`, so a 307/308 never re-sends a token-exchange body to
+  another origin), and `mcp_forge` remote registration (`tool/plugin/mcp-forge.ts`).
 - `allowPrivateUrl` is a test-only escape hatch for loopback fixture servers
   (`mcp/index.ts` layer options → pool → client → oauth). Production callers
   never pass it; a remote MCP server on a private or loopback address is refused
