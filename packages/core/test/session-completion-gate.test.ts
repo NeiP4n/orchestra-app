@@ -141,6 +141,7 @@ describe("SessionCompletionGate", () => {
       empty,
     )
     expect(dump).toContain("prints the host's environment or credentials")
+  })
 
   test("escalates once when the board still holds work after the nudge limit", () => {
     const work = () => assistant("", [{ name: "read", input: { path: "a" } }])
