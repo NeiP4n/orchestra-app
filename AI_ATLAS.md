@@ -1231,6 +1231,39 @@ too far behind, so it resyncs instead of missing events.
   (A3-03; `--force` only when the server is certainly stopped).
   `restoreDatabase` still needs the server stopped: an open connection would
   keep writing to the replaced inode.
+- **Memory database (Б17 slice 1, Б18 №36–№41 minimum)**:
+  `packages/core/src/memory/db.ts` — `memory.db` lives at
+  `<project>/.orchestra/memory.db`
+  (`resolveDefaultMemoryDbPath(projectDir)`); the memory tool opens it from
+  `Location.project.directory` (`getMemoryEngineForProject`, one cached
+  handle per project), so two projects never share one database and a
+  moved working directory does not move the memory. A bare
+  `MemoryEngine.open()` with no project still falls back to the process
+  working directory. `PRAGMA synchronous = FULL` (was `NORMAL`), WAL,
+  mmap capped at 64 MB (was 256 MB). The schema is versioned:
+  `memory_migrations` table, `CURRENT_MEMORY_SCHEMA_VERSION = 1`,
+  `applyMemoryMigrations` — a database created before migrations existed
+  upgrades by a no-op DDL pass and then records version 1.
+  `backupMemoryDatabase(dbPath, destination)` snapshots via `VACUUM INTO`
+  and verifies with `PRAGMA quick_check`; it is NOT wired into the
+  server's automatic backup cycle above, which snapshots only the single
+  `orchestra-local.db` — per-project wiring is still open. The database
+  itself is still `bun:sqlite` outside the Effect/Drizzle infrastructure
+  (B18 №36): moving it onto that infrastructure is a separate, larger
+  change, not done here.
+- **Secret scrubber (Б17 §7 risk 2)**: `packages/core/src/memory/scrub.ts`
+  — `scrubText`/`scrubValue` redact private-key blocks, JWT, Bearer,
+  `sk-`, GitHub/Slack/AWS tokens, `anymodel-`/`lix-` prefixed keys and
+  labelled values (`api_key=`, `password:`, `token:`, …) before any write:
+  `MemoryEngine.remember`/`link`, `Memory` blocks/archive (`save` /
+  `remember` / `writeArchive`), `Journal.recordError` /
+  `recordDisplayEvent` (message + detail). A `<private>` tag is not a
+  protection — the scrubber runs on the text itself. The exact Anymodel/lix
+  key formats are not published anywhere in the repo, so those keys are
+  caught by prefix + label, not by an exact vendor pattern.
+  Tests: `packages/core/test/memory-foundation.test.ts` (12: scrubber
+  shapes + benign prose, FULL/WAL/version, legacy upgrade, backup copy,
+  per-project engines, engine/file/journal gates).
 - **Atomic file writes**: `packages/core/src/file-mutation.ts` writes via a
   temp file + rename under a cross-process lock file
   (`<target>.orchestra-lock`, stolen when the owner pid is dead or the lock
