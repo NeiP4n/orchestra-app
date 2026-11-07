@@ -291,11 +291,11 @@ it.effect("measurement: a retry settles the failed attempt and the runner's toke
       expect(retriedRecord.outcome).toBe("completed")
       expect(retriedRecord.retryOf).toBe(first!.attemptID)
       expect(retriedRecord.logicalRequestID).toBe(first!.logicalRequestID)
-      // Raw presence: the provider reported only nonCachedInputTokens.
+      // Raw presence: the provider reported only nonCachedInputTokens, and partial usage
+      // cannot be priced - the estimate stays null instead of pretending a zero total.
       expect(retriedRecord.usage.input).toBe(15)
       expect(retriedRecord.usage.output).toBeNull()
-      expect(retriedRecord.cost.estimatedUSD).not.toBeNull()
-      expect(retriedRecord.cost.source).toBe("catalog")
+      expect(retriedRecord.cost).toEqual({ recordedUSD: null, estimatedUSD: null, source: "unknown" })
     }),
   ),
 )
@@ -318,6 +318,23 @@ it.effect("measurement: a completion without provider usage keeps usage and cost
   ),
 )
 
+const completeUsageResponse = TestLLM.complete(
+  {
+    reason: { normalized: "stop" },
+    usage: {
+      inputTokens: 20,
+      nonCachedInputTokens: 15,
+      outputTokens: 6,
+      reasoningTokens: 2,
+      cacheReadInputTokens: 3,
+      cacheWriteInputTokens: 2,
+    },
+  },
+  LLMEvent.textStart({ id: "t-1" }),
+  LLMEvent.textDelta({ id: "t-1", text: "done" }),
+  LLMEvent.textEnd({ id: "t-1" }),
+)
+
 it.effect("measurement: a model without a price tier keeps the estimated cost null, not zero", () =>
   withMeasurement(
     Effect.gen(function* () {
@@ -326,7 +343,7 @@ it.effect("measurement: a model without a price tier keeps the estimated cost nu
       })
       enable()
       const attempt = yield* SessionRequestMeasurement.recordPrimarySizes({ sessionID, request: sizesRequest })
-      yield* llm.push(TestLLM.textWithUsage("done", "msg-1", 15))
+      yield* llm.push(completeUsageResponse)
       const result = yield* steps.attempt(attemptInput(attempt)).pipe(Effect.exit)
       expect(Exit.isSuccess(result)).toBe(true)
       const { records } = yield* exportedRecords(dir)
@@ -334,6 +351,27 @@ it.effect("measurement: a model without a price tier keeps the estimated cost nu
       expect(record.outcome).toBe("completed")
       expect(record.usage.input).toBe(15)
       expect(record.cost).toEqual({ recordedUSD: null, estimatedUSD: null, source: "unknown" })
+    }),
+  ),
+)
+
+it.effect("measurement: complete usage prices from the catalog and output excludes reasoning", () =>
+  withMeasurement(
+    Effect.gen(function* () {
+      const { llm, sessionID, steps, dir, sizesRequest, attemptInput, enable } = yield* measurementFixture()
+      enable()
+      const attempt = yield* SessionRequestMeasurement.recordPrimarySizes({ sessionID, request: sizesRequest })
+      yield* llm.push(completeUsageResponse)
+      const result = yield* steps.attempt(attemptInput(attempt)).pipe(Effect.exit)
+      expect(Exit.isSuccess(result)).toBe(true)
+      const { records } = yield* exportedRecords(dir)
+      const record = records.find((entry) => entry.attemptID === attempt!.attemptID)
+      expect(record.outcome).toBe("completed")
+      // Visible output is 6 - 2 reasoning; summing output + reasoning gives the inclusive total.
+      expect(record.usage).toEqual({ input: 15, output: 4, reasoning: 2, cacheRead: 3, cacheWrite: 2 })
+      // (15 * $1 + 6 * $2 + 3 * $0.1 + 2 * $0.5) / 1e6
+      expect(record.cost.estimatedUSD).toBeCloseTo(0.0000283, 10)
+      expect(record.cost.source).toBe("catalog")
     }),
   ),
 )

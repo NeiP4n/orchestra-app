@@ -378,12 +378,21 @@ export const make = Effect.gen(function* () {
           if (outcome === "completed" && usage && record.finish && input.prepared.measurement !== undefined) {
             // Unknown stays unknown in the diagnostic record: only usage fields the provider
             // actually reported become numbers, read from the optional raw fields - not the
-            // zero-filled getters billing normalization uses - and a cost is estimated only when
-            // an applicable price tier exists: a free tier estimates to 0, a missing price null.
+            // zero-filled getters billing normalization uses. output excludes reasoning (the
+            // same non-overlapping convention as billing's visible output), so summing the
+            // fields never double-counts. A cost is estimated only when usage is complete for
+            // pricing (all four cost-driving fields reported) AND an applicable price tier
+            // exists: a free tier estimates to 0; partial usage or a missing price stays null.
             const raw = record.finish.rawUsage
             const field = (value: number | undefined) =>
               typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null
-            const priced = raw !== undefined && SessionUsage.hasPrice(input.model.cost, usage.tokens)
+            const completeUsage =
+              raw !== undefined &&
+              raw.nonCachedInputTokens !== undefined &&
+              raw.outputTokens !== undefined &&
+              raw.cacheReadInputTokens !== undefined &&
+              raw.cacheWriteInputTokens !== undefined
+            const priced = completeUsage && SessionUsage.hasPrice(input.model.cost, usage.tokens)
             yield* SessionRequestMeasurement.completePrimary(
               input.sessionID,
               {
@@ -394,7 +403,10 @@ export const make = Effect.gen(function* () {
                     ? { input: null, output: null, reasoning: null, cacheRead: null, cacheWrite: null }
                     : {
                         input: field(raw.nonCachedInputTokens),
-                        output: field(raw.outputTokens),
+                        output:
+                          raw.outputTokens === undefined
+                            ? null
+                            : Math.max(0, raw.outputTokens - (raw.reasoningTokens ?? 0)),
                         reasoning: field(raw.reasoningTokens),
                         cacheRead: field(raw.cacheReadInputTokens),
                         cacheWrite: field(raw.cacheWriteInputTokens),

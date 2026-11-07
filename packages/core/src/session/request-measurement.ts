@@ -89,6 +89,7 @@ export type Attribution = "assignment" | "unknown"
 
 export interface Usage {
   readonly input: number | null
+  /** Visible output only; excludes reasoning, so output + reasoning never double-counts. */
   readonly output: number | null
   readonly reasoning: number | null
   readonly cacheRead: number | null

@@ -167,9 +167,9 @@ owner-only (`0700` dir, `0600` files), pruned after
 primary session-step requests only — sizes at request formation
 (`recordPrimarySizes` in `session/model-request.ts`), settled by
 `session/runner/step.ts` on every outcome branch (completed with
-SessionUsage-normalized tokens and catalog-estimated cost only where the
-provider actually reported usage and an applicable price tier exists;
-unknown stays null, never zero). Only an explicit runner retry
+raw usage fields, non-overlapping visible output; catalog-estimated cost
+only where usage is complete for pricing and an applicable price tier
+exists - partial usage or a missing price stays null, never zero). Only an explicit runner retry
 (Retry/RecoverFull/Compacted/Switched) links attempts via `retryOf` and a
 shared `logicalRequestID`; any other request starts a new logical request.
 The step settles the attempt carried on its `Prepared`.
