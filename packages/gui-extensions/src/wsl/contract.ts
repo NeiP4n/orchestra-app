@@ -28,7 +28,7 @@ export const WslJob = Schema.Union([
     distros: Schema.Array(Schema.String),
     startedAt: Schema.Number,
   }),
-  Schema.Struct({ kind: Schema.Literal("install-opencode"), distro: Schema.String, startedAt: Schema.Number }),
+  Schema.Struct({ kind: Schema.Literal("install-orchestra"), distro: Schema.String, startedAt: Schema.Number }),
 ])
 
 export type WslJob = typeof WslJob.Type
@@ -63,7 +63,7 @@ export const WslDistroProbe = Schema.Struct({
 
 export type WslDistroProbe = typeof WslDistroProbe.Type
 
-export const WslOpencodeCheck = Schema.Struct({
+export const WslOrchestraCheck = Schema.Struct({
   distro: Schema.String,
   resolvedPath: Schema.NullOr(Schema.String),
   version: Schema.NullOr(Schema.String),
@@ -72,9 +72,7 @@ export const WslOpencodeCheck = Schema.Struct({
   error: Schema.NullOr(Schema.String),
 })
 
-export type WslOpencodeCheck = typeof WslOpencodeCheck.Type
-export const WslOrchestraCheck = WslOpencodeCheck
-export type WslOrchestraCheck = WslOpencodeCheck
+export type WslOrchestraCheck = typeof WslOrchestraCheck.Type
 
 export const WslServerItem = Schema.Struct({ config: WslServerConfig, runtime: WslServerRuntime })
 
@@ -85,7 +83,7 @@ export const WslServersState = Schema.Struct({
   installed: Schema.Array(WslInstalledDistro),
   online: Schema.Array(WslOnlineDistro),
   distroProbes: Schema.Record(Schema.String, WslDistroProbe),
-  opencodeChecks: Schema.Record(Schema.String, WslOpencodeCheck),
+  orchestraChecks: Schema.Record(Schema.String, WslOrchestraCheck),
   pendingRestart: Schema.Boolean,
   servers: Schema.Array(WslServerItem),
   job: Schema.NullOr(WslJob),
@@ -107,7 +105,7 @@ export const Wsl = Ipc.define({
     installWsl: {},
     installDistro: { input: Name },
     probeAddable: { input: Schema.Struct({ distros: Schema.Array(Schema.NonEmptyString) }) },
-    installOpencode: { input: Name },
+    installOrchestra: { input: Name },
     addServer: { input: Schema.Struct({ distro: Schema.NonEmptyString }), output: WslServerConfig },
     removeServer: { input: Id },
     startServer: { input: Id },

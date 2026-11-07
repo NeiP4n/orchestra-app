@@ -259,7 +259,7 @@ export const Plugin = {
                     invocation.env.AGENT = "1"
                     invocation.env.ORCHESTRA = "1"
                     invocation.env.OPENCODE = "1"
-                    invocation.env.AI_AGENT ||= "opencode"
+                    invocation.env.AI_AGENT ||= "orchestra"
                     invocation.env.ORCHESTRA_SESSION_ID = context.sessionID
                     // B7: on Linux a shell-spawned GUI app inherits this
                     // display. Pin it to the agent's virtual display when

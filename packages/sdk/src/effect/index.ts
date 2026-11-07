@@ -1,4 +1,4 @@
-export * as OpenCode from "./opencode"
+export * as Orchestra from "./orchestra"
 export * as Tool from "./tool"
 
 export { ClientError } from "@orchestra/client/effect"

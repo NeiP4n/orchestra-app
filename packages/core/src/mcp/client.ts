@@ -252,7 +252,7 @@ export const connect = Effect.fnUntraced(function* (
   // Remote only. A provider with no stored token and a no-op redirect ends in UnauthorizedError → needs_auth.
   authProvider?: OAuthClientProvider,
   elicitation?: ElicitationHandler,
-  clientInfo: Implementation = { name: "opencode", version: "unknown" },
+  clientInfo: Implementation = { name: "orchestra", version: "unknown" },
   // Test-only escape hatch: the remote URL still has to be a valid http(s) URL, but the SSRF
   // gate is skipped so tests can connect to a loopback fixture server. Production callers
   // never pass this; a remote MCP server on a private or loopback address is refused.
@@ -371,7 +371,7 @@ export const connect = Effect.fnUntraced(function* (
         args: localSpawnArgs(config),
         cwd: config.cwd ? path.resolve(directory, config.cwd) : directory,
         environment: {
-          ...(command === "opencode" ? { BUN_BE_BUN: "1" } : {}),
+          ...(command === "orchestra" ? { BUN_BE_BUN: "1" } : {}),
           ...config.environment,
         },
       })

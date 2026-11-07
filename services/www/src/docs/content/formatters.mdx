@@ -2,10 +2,10 @@
 title: "Formatters"
 ---
 
-OpenCode can format files after its `write`, `edit`, or `patch` tools change
+Orchestra can format files after its `write`, `edit`, or `patch` tools change
 them. Formatters are disabled by default, so enable them in your configuration:
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "formatter": true,
@@ -14,11 +14,11 @@ them. Formatters are disabled by default, so enable them in your configuration:
 
 ## Enable
 
-Set `formatter` to `true` to enable every built-in formatter. OpenCode runs a
+Set `formatter` to `true` to enable every built-in formatter. Orchestra runs a
 built-in only when its executable and any project-specific requirements are
 available.
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "formatter": true,
@@ -29,7 +29,7 @@ An object also enables the built-ins and lets you override them or add custom
 formatters. An empty object preserves inherited formatter settings, while `true`
 resets them to the built-ins.
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "formatter": {},
@@ -38,7 +38,7 @@ resets them to the built-ins.
 
 ## Builtins
 
-OpenCode includes these formatter definitions. Most require the named command
+Orchestra includes these formatter definitions. Most require the named command
 to be available; definitions with extra detection rules list them below.
 
 | Formatter | Extensions | Requirement |
@@ -70,10 +70,10 @@ to be available; definitions with extra detection rules list them below.
 | `cljfmt` | `.clj`, `.cljs`, `.cljc`, `.edn` | `cljfmt` command |
 | `dfmt` | `.d` | `dfmt` command |
 
-For example, enabling built-ins lets OpenCode discover and run a project-local
+For example, enabling built-ins lets Orchestra discover and run a project-local
 Prettier dependency for matching files:
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "formatter": true,
 }
@@ -84,7 +84,7 @@ Prettier dependency for matching files:
 Add a named entry to change a built-in or define a custom formatter. A custom
 formatter needs both `command` and `extensions` to run.
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "formatter": {
@@ -112,7 +112,7 @@ formatter needs both `command` and `extensions` to run.
 All fields are optional. A built-in entry inherits omitted values, while a new
 entry without a command or extensions cannot run.
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "formatter": {
     "prettier": {
@@ -124,11 +124,11 @@ entry without a command or extensions cannot run.
 
 ## Commands
 
-`command` is an argument array, not a shell command string. OpenCode replaces
+`command` is an argument array, not a shell command string. Orchestra replaces
 `$FILE` with the file's absolute path and runs the command from the active
 project directory.
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "formatter": {
     "custom": {
@@ -141,11 +141,11 @@ project directory.
 
 ## Matching
 
-OpenCode compares the file's final extension with `extensions`. Matching is
+Orchestra compares the file's final extension with `extensions`. Matching is
 case-sensitive, and compound entries such as `.part.md` do not match
 `notes.part.md` because its final extension is `.md`.
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "formatter": {
     "markdown": {
@@ -156,12 +156,12 @@ case-sensitive, and compound entries such as `.part.md` do not match
 }
 ```
 
-When several formatters match, OpenCode tries them in registered order and
+When several formatters match, Orchestra tries them in registered order and
 stops after the first successful command. Built-ins retain their built-in
 order; custom entries follow in object order. If one exits unsuccessfully,
-OpenCode logs the failure and tries the next match.
+Orchestra logs the failure and tries the next match.
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "formatter": {
     "preferred": {
@@ -181,7 +181,7 @@ OpenCode logs the failure and tries the next match.
 Formatting is disabled when no config file sets `formatter`. To disable
 formatting that a lower-priority file enabled, set it to `false`.
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "formatter": false,
@@ -191,7 +191,7 @@ formatting that a lower-priority file enabled, set it to `false`.
 To disable one built-in while leaving the others enabled, mark its named entry
 as disabled.
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "formatter": {
     "prettier": {

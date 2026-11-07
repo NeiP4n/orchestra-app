@@ -2,22 +2,22 @@
 title: "Config"
 ---
 
-Create `opencode.jsonc` in your project to configure OpenCode. Add the schema for editor validation, then set only the options you need.
+Create `orchestra.jsonc` in your project to configure Orchestra. Add the schema for editor validation, then set only the options you need.
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "model": "anthropic/claude-sonnet-4-5",
 }
 ```
 
-You can also ask OpenCode to update this file for you.
+You can also ask Orchestra to update this file for you.
 
 ## Format
 
-OpenCode supports JSON and JSONC. Use JSONC when you want comments or trailing commas.
+Orchestra supports JSON and JSONC. Use JSONC when you want comments or trailing commas.
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   // Use this model by default.
@@ -30,53 +30,53 @@ OpenCode supports JSON and JSONC. Use JSONC when you want comments or trailing c
 Put settings for every project in the global configuration:
 
 ```text
-~/.config/opencode/opencode.json(c)
+~/.config/orchestra/orchestra.json(c)
 ```
 
 Put project settings in either of these files:
 
 ```text
-/home/user/projects/my-app/opencode.json(c)
-/home/user/projects/my-app/.opencode/opencode.json(c)
+/home/user/projects/my-app/orchestra.json(c)
+/home/user/projects/my-app/.orchestra/orchestra.json(c)
 ```
 
-OpenCode searches from the current directory to the filesystem root. It first
-merges direct `opencode.json(c)` files from the farthest directory to the
-closest, then merges files inside `.opencode` directories in the same order.
-This means every discovered `.opencode` config overrides every direct config.
+Orchestra searches from the current directory to the filesystem root. It first
+merges direct `orchestra.json(c)` files from the farthest directory to the
+closest, then merges files inside `.orchestra` directories in the same order.
+This means every discovered `.orchestra` config overrides every direct config.
 Use one form throughout a directory tree unless you need that behavior.
 
-For example, start OpenCode from `/home/user/projects/acme/packages/web`:
+For example, start Orchestra from `/home/user/projects/acme/packages/web`:
 
 ```text
-~/.config/opencode/opencode.json
+~/.config/orchestra/orchestra.json
 
 /home/user/projects/acme/
-├── opencode.json
+├── orchestra.json
 └── packages/
     └── web/
-        ├── opencode.json
+        ├── orchestra.json
         └── src/
 ```
 
-OpenCode applies these files from lowest to highest precedence:
+Orchestra applies these files from lowest to highest precedence:
 
-1. `~/.config/opencode/opencode.json`
-2. `/home/user/projects/acme/opencode.json`
-3. `/home/user/projects/acme/packages/web/opencode.json`
+1. `~/.config/orchestra/orchestra.json`
+2. `/home/user/projects/acme/orchestra.json`
+3. `/home/user/projects/acme/packages/web/orchestra.json`
 
 The package config overrides matching settings from the repository config,
 which overrides the global config. Settings that do not conflict are preserved.
 
 ## Schema
 
-The complete OpenCode configuration schema is available at
-[opencode.ai/config.json](https://opencode.ai/config.json).
+The complete Orchestra configuration schema is available at
+[github.com/NeiP4n/orchestra-app/config.json](https://opencode.ai/config.json).
 
 Add the `$schema` field to your configuration file to enable validation and
 autocomplete in editors that support JSON Schema:
 
-```json title="opencode.json"
+```json title="orchestra.json"
 {
   "$schema": "https://opencode.ai/config.json"
 }
@@ -138,7 +138,7 @@ Project-level values are ignored.
 
 ### Sharing
 
-Set the session sharing policy. OpenCode accepts this field, but session sharing
+Set the session sharing policy. Orchestra accepts this field, but session sharing
 is not supported yet.
 
 ```jsonc
@@ -151,7 +151,7 @@ See the [sharing guide](/sharing) for more details.
 
 ### Username
 
-Set a username. OpenCode accepts this field but does not display it in
+Set a username. Orchestra accepts this field but does not display it in
 conversations.
 
 ```jsonc
@@ -291,7 +291,7 @@ Set the maximum number of lines and bytes retained from a tool result.
 
 ### Search
 
-Choose how OpenCode searches the web. Use `"random"` to select an available
+Choose how Orchestra searches the web. Use `"random"` to select an available
 provider automatically.
 
 ```jsonc
@@ -385,7 +385,7 @@ and cost considerations.
 
 ### Skills
 
-Add directories or URLs that OpenCode should search for agent skills.
+Add directories or URLs that Orchestra should search for agent skills.
 
 ```jsonc
 {
@@ -393,7 +393,7 @@ Add directories or URLs that OpenCode should search for agent skills.
 }
 ```
 
-See the [skills guide](/skills) for skill structure and automatic discovery under `.opencode/skills/`.
+See the [skills guide](/skills) for skill structure and automatic discovery under `.orchestra/skills/`.
 
 ### Commands
 
@@ -414,7 +414,7 @@ See the [commands guide](/commands) for arguments, models, agents, and file-base
 
 ### Instructions
 
-Declare additional instruction files, globs, or URLs. OpenCode accepts this
+Declare additional instruction files, globs, or URLs. Orchestra accepts this
 field but does not load its entries; use `AGENTS.md` for instructions.
 
 ```jsonc
@@ -449,7 +449,7 @@ See the [references guide](/references) for shorthand, visibility, and path reso
 
 ### Worktrees
 
-Set the parent directory for new local worktrees. OpenCode appends the requested or generated worktree name.
+Set the parent directory for new local worktrees. Orchestra appends the requested or generated worktree name.
 
 ```jsonc
 {
@@ -489,7 +489,7 @@ accepts options.
 ```jsonc
 {
   "plugins": [
-    "opencode-example-plugin",
+    "orchestra-example-plugin",
     {
       "package": "./plugins/local",
       "options": {

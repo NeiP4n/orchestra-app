@@ -18,7 +18,7 @@ Rename `plugin` to `plugins`. Replace a package-and-options tuple with an object
 // V1
 {
   "plugin": [
-    "opencode-example-plugin",
+    "orchestra-example-plugin",
     ["./plugin/local.ts", { "enabled": true }]
   ]
 }
@@ -26,7 +26,7 @@ Rename `plugin` to `plugins`. Replace a package-and-options tuple with an object
 // V2
 {
   "plugins": [
-    "opencode-example-plugin",
+    "orchestra-example-plugin",
     {
       "package": "./plugin/local.ts",
       "options": { "enabled": true }
@@ -35,7 +35,7 @@ Rename `plugin` to `plugins`. Replace a package-and-options tuple with an object
 }
 ```
 
-V2 discovers local plugins from both `.opencode/plugin/` and `.opencode/plugins/`; use `.opencode/plugins/` for V2 files.
+V2 discovers local plugins from both `.orchestra/plugin/` and `.orchestra/plugins/`; use `.orchestra/plugins/` for V2 files.
 Keep supporting modules beside the plugin when moving it. Local plugins and package plugins use the same implementation
 API.
 
@@ -45,7 +45,7 @@ Change the package import, replace the exported plugin function with `Plugin.def
 `setup`.
 
 ```ts title="V1"
-import type { Plugin } from "@opencode-ai/plugin"
+import type { Plugin } from "@orchestra/plugin"
 
 export const ExamplePlugin: Plugin = async ({ directory, project, client }) => {
   await client.app.log({
@@ -71,12 +71,12 @@ export default Plugin.define({
 ```
 
 Every V2 plugin needs a stable `id`. Plugin storage is scoped by this ID, and the ID also identifies the plugin in status
-and diagnostics. Published plugins should depend on a version of `@orchestra/plugin` compatible with the OpenCode release
+and diagnostics. Published plugins should depend on a version of `@orchestra/plugin` compatible with the Orchestra release
 they target.
 
 ## Migrate the context
 
-The V2 context is both an OpenCode client and the plugin extension API. Most operations are grouped by domain instead of
+The V2 context is both an Orchestra client and the plugin extension API. Most operations are grouped by domain instead of
 living on a separate `client` property.
 
 | V1                                      | V2                                                                  |
@@ -102,7 +102,7 @@ V1 returns hooks by string key. V2 registers each hook on the domain that owns t
 mutable event instead of separate `input` and `output` objects.
 
 ```ts title="V1"
-import type { Plugin } from "@opencode-ai/plugin"
+import type { Plugin } from "@orchestra/plugin"
 
 export const GuardPlugin: Plugin = async () => ({
   "tool.execute.before": async (input, output) => {
@@ -223,7 +223,7 @@ V1 returns a `tool` map built with the old `tool()` helper. V2 registers tool de
 `ctx.tool.transform` editor. Tool schemas use JSON Schema, and execution returns structured content.
 
 ```ts title="V1"
-import { tool } from "@opencode-ai/plugin"
+import { tool } from "@orchestra/plugin"
 
 export const ToolsPlugin = async () => ({
   tool: {
@@ -352,7 +352,7 @@ export default {
 }
 ```
 
-V1 object entrypoints are supported in OpenCode `1.18.29` and newer. If you support older V1 releases, use separate
+V1 object entrypoints are supported in Orchestra `1.18.29` and newer. If you support older V1 releases, use separate
 package versions or entrypoints and test the oldest release you claim to support. Remove the V1 implementation after your
 support window ends.
 

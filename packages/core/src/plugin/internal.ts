@@ -75,7 +75,7 @@ import { EditTool } from "../tool/plugin/edit.js"
 import { GlobTool } from "../tool/plugin/glob.js"
 import { GrepTool } from "../tool/plugin/grep.js"
 import { McpResourceTools } from "../tool/plugin/mcp-resource.js"
-import { OpenCodeTools } from "../tool/plugin/opencode.js"
+import { OrchestraTools } from "../tool/plugin/opencode.js"
 import { HubTool } from "../tool/plugin/hub.js"
 import { OrchestraTool } from "../tool/plugin/orchestra.js"
 import { WorkspaceForgeTool } from "../tool/plugin/workspace-forge.js"
@@ -310,7 +310,7 @@ const pre = [
   EditTool.Plugin,
   GlobTool.Plugin,
   GrepTool.Plugin,
-  OpenCodeTools.Plugin,
+  OrchestraTools.Plugin,
   McpResourceTools.Plugin,
   QuestionTool.Plugin,
   InteractTool.Plugin,

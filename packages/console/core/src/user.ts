@@ -142,12 +142,12 @@ export namespace User {
         const { InviteEmail } = await import("@orchestra/console-mail/InviteEmail.jsx")
         await AWS.sendEmail({
           to: email,
-          subject: `You've been invited to join the ${emailInfo.workspaceName} workspace on OpenCode`,
+          subject: `You've been invited to join the ${emailInfo.workspaceName} workspace on Orchestra`,
           body: render(
             // @ts-ignore
             InviteEmail({
               inviter: emailInfo.inviterEmail,
-              assetsUrl: `https://opencode.ai/email`,
+              assetsUrl: `/email`,
               workspaceID: workspaceID,
               workspaceName: emailInfo.workspaceName,
             }),

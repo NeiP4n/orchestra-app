@@ -114,7 +114,7 @@ fn missing(program: &str) -> String {
     let how = match program {
         "claude" => " Установка: npm install -g @anthropic-ai/claude-code, затем один раз запустите `claude` и войдите.",
         "codex" => " Установка: npm install -g @openai/codex, затем один раз запустите `codex` и войдите.",
-        "opencode" => " Установка: https://opencode.ai",
+        "opencode" => " Установка: https://github.com/NeiP4n/orchestra-app",
         _ => "",
     };
     format!("программа `{program}` не найдена на этом компьютере.{how} Или выберите другой источник: orchestra setup")

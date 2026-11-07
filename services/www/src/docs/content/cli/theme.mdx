@@ -2,15 +2,15 @@
 title: "Theme"
 ---
 
-OpenCode comes with many built-in themes for light and dark modes. Choose one in settings, or mix your own colors.
+Orchestra comes with many built-in themes for light and dark modes. Choose one in settings, or mix your own colors.
 
 ## Choose a theme
 
-Press `Ctrl+P`, select **Open settings**, then open **Theme**. The default theme is `opencode`.
+Press `Ctrl+P`, select **Open settings**, then open **Theme**. The default theme is `orchestra`.
 
 You can also set them in your global [CLI settings](/cli/config):
 
-```json title="~/.config/opencode/cli.json"
+```json title="~/.config/orchestra/cli.json"
 {
   "$schema": "https://opencode.ai/v2/cli.json",
   "theme": {
@@ -24,7 +24,7 @@ Run `/themes` to change themes without opening settings.
 
 ## System colors
 
-When OpenCode can read your terminal palette, the theme picker includes the `system` theme. It derives colors from your terminal's foreground, background, and ANSI palette.
+When Orchestra can read your terminal palette, the theme picker includes the `system` theme. It derives colors from your terminal's foreground, background, and ANSI palette.
 
 The theme name `system` selects terminal-derived colors. The mode `system` follows the terminal's light or dark appearance.
 
@@ -38,21 +38,21 @@ Use `system` to follow your terminal's appearance, or lock the theme to light or
 | `dark` | Always use the theme's dark colors. |
 | `light` | Always use the theme's light colors. |
 
-This maps to the `mode` field inside `theme` in your CLI config. If a custom theme provides only one mode, OpenCode uses that mode when the other is requested.
+This maps to the `mode` field inside `theme` in your CLI config. If a custom theme provides only one mode, Orchestra uses that mode when the other is requested.
 
 ## Adding a Theme
 
 To add a theme you downloaded or received from someone else, copy its JSON file into the global themes directory:
 
 ```bash
-cp theme.json ~/.config/opencode/themes/
+cp theme.json ~/.config/orchestra/themes/
 ```
 
-You can also put the theme in a project's `.opencode/themes` directory to make it available only in that project.
+You can also put the theme in a project's `.orchestra/themes` directory to make it available only in that project.
 
-The filename becomes the theme name. For example, `my-theme.json` appears as `my-theme`. Restart OpenCode after adding the file, then run `/themes` to select it.
+The filename becomes the theme name. For example, `my-theme.json` appears as `my-theme`. Restart Orchestra after adding the file, then run `/themes` to select it.
 
-OpenCode reads `.json` files only. A theme closer to the current directory replaces a global or parent theme with the same name.
+Orchestra reads `.json` files only. A theme closer to the current directory replaces a global or parent theme with the same name.
 
 ## Using Themes in Plugins
 
@@ -71,7 +71,7 @@ The public CLI plugin API does not register themes. Add custom theme definitions
 
 ## Creating a Theme
 
-Use our [Theme Tool](https://opencode.ai/theme/) to create or edit themes. This tool makes it easy to understand the structure, change it, and define custom colors. The explanation below is for reference.
+Use our [Theme Tool](https://github.com/NeiP4n/orchestra-app) to create or edit themes. This tool makes it easy to understand the structure, change it, and define custom colors. The explanation below is for reference.
 
 A theme separates shared semantic tokens from mode-specific palettes:
 
@@ -80,7 +80,7 @@ A theme separates shared semantic tokens from mode-specific palettes:
 | `base` | The complete token tree shared by every mode. |
 | `light`, `dark` | A complete hue palette and optional token overrides for that mode. |
 
-Every theme provides a complete `base` and defines at least one of `light` or `dark`. Modes inherit from the file's `base`; they do not inherit from the built-in OpenCode theme or from each other.
+Every theme provides a complete `base` and defines at least one of `light` or `dark`. Modes inherit from the file's `base`; they do not inherit from the built-in Orchestra theme or from each other.
 
 The examples below show only the sections relevant to each concept. Use the theme editor to generate a complete file before customizing it.
 

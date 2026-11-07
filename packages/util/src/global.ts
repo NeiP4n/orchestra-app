@@ -14,10 +14,10 @@ const { data, cache, config, state, tmp } = roots(app)
 
 const paths = {
   get home() {
-    return process.env.ORCHESTRA_TEST_HOME ?? process.env.OPENCODE_TEST_HOME ?? os.homedir()
+    return process.env.ORCHESTRA_TEST_HOME ?? os.homedir()
   },
   get data() {
-    return process.env.ORCHESTRA_DATA_DIR ?? process.env.OPENCODE_DATA_DIR ?? data
+    return process.env.ORCHESTRA_DATA_DIR ?? data
   },
   get bin() {
     return path.join(this.cache, "bin")
@@ -29,13 +29,13 @@ const paths = {
     return path.join(this.data, "repos")
   },
   get cache() {
-    return process.env.ORCHESTRA_CACHE_DIR ?? process.env.OPENCODE_CACHE_DIR ?? cache
+    return process.env.ORCHESTRA_CACHE_DIR ?? cache
   },
   get config() {
-    return process.env.ORCHESTRA_CONFIG_DIR ?? process.env.OPENCODE_CONFIG_DIR ?? config
+    return process.env.ORCHESTRA_CONFIG_DIR ?? config
   },
   get state() {
-    return process.env.ORCHESTRA_STATE_DIR ?? process.env.OPENCODE_STATE_DIR ?? state
+    return process.env.ORCHESTRA_STATE_DIR ?? state
   },
   tmp,
 }
@@ -91,7 +91,7 @@ const acquire = (input: Partial<Interface>) =>
 const layer = Layer.effect(
   Service,
   Effect.suspend(() =>
-    acquire({ config: process.env.ORCHESTRA_CONFIG_DIR ?? process.env.OPENCODE_CONFIG_DIR ?? Path.config }),
+    acquire({ config: process.env.ORCHESTRA_CONFIG_DIR ?? Path.config }),
   ),
 )
 

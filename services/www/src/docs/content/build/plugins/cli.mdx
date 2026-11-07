@@ -15,12 +15,12 @@ export default Plugin.define({
 })
 ```
 
-Import `@orchestra/plugin/tui` directly. OpenCode resolves this import at runtime, so local CLI plugins do not need an
-absolute path to an OpenCode checkout.
+Import `@orchestra/plugin/tui` directly. Orchestra resolves this import at runtime, so local CLI plugins do not need an
+absolute path to an Orchestra checkout.
 
 ## Context
 
-`setup` receives configuration, app metadata, the current location, the OpenCode client, cached data, theme tokens, the
+`setup` receives configuration, app metadata, the current location, the Orchestra client, cached data, theme tokens, the
 OpenTUI renderer, and the UI APIs documented below.
 
 ```ts
@@ -46,7 +46,7 @@ setup(context) {
 
 ## Client
 
-`context.client` is the generated OpenCode client and can call the connected server, including a remote server.
+`context.client` is the generated Orchestra client and can call the connected server, including a remote server.
 
 ```ts
 const response = await context.client.plugin.list({
@@ -201,7 +201,7 @@ Attention requests can show a system notification, play a configured sound, or d
 
 ```ts
 const result = await context.attention.notify({
-  title: "OpenCode",
+  title: "Orchestra",
   message: "Session done",
   notification: { when: "blurred" },
   sound: { name: "done", volume: 0.5, when: "always" },
@@ -270,7 +270,7 @@ Call `layer` from `setup`, including after an `await`, or from a component. Each
 - The plugin is disabled, reloaded, or fails setup.
 - The component or reactive computation that created it, such as a slot, route, or dialog, is disposed.
 
-The layer factory must be pure. OpenCode evaluates it once without dependency tracking to validate the initial command shape, then reactively. Initial command-shape errors, such as a palette command without an ID, throw from `layer()`. OpenTUI handles binding-parse errors. Errors from later reactive updates follow Solid's error handling.
+The layer factory must be pure. Orchestra evaluates it once without dependency tracking to validate the initial command shape, then reactively. Initial command-shape errors, such as a palette command without an ID, throw from `layer()`. OpenTUI handles binding-parse errors. Errors from later reactive updates follow Solid's error handling.
 
 ```ts
 async setup(context) {
@@ -500,7 +500,7 @@ context.ui.slot({ replace: "home.footer", render: () => <text>New footer</text> 
 ```
 
 Use `home.footer.status` to add content to the built-in footer row without replacing it. Status contributions appear
-after OpenCode's health indicators and before the version.
+after Orchestra's health indicators and before the version.
 
 ```tsx
 context.ui.slot({ append: "home.footer.status", render: () => <text>SYNCED</text> })
@@ -598,7 +598,7 @@ Expose the CLI plugin through `./tui`; add OpenTUI peers when the plugin renders
 
 ```json title="package.json"
 {
-  "name": "opencode-acme-plugin",
+  "name": "orchestra-acme-plugin",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
@@ -630,6 +630,6 @@ Configure a CLI-only package in [`cli.json`](/cli/plugins) so it remains active 
 
 ```json title="cli.json"
 {
-  "plugins": ["opencode-acme-plugin"]
+  "plugins": ["orchestra-acme-plugin"]
 }
 ```

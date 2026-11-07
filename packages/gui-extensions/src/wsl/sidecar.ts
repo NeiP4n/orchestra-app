@@ -27,7 +27,7 @@ export async function spawnWslSidecar(
   const t = opts.t
   const cli = await opts.runtime.resolveCli(distro, { signal: opts.signal })
 
-  if (!cli) throw new Error(t("error.opencodeNotInstalled", { distro }))
+  if (!cli) throw new Error(t("error.orchestraNotInstalled", { distro }))
 
   const port = await allocatePort(t)
   opts.signal.throwIfAborted()

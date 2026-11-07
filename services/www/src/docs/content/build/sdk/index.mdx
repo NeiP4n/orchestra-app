@@ -2,8 +2,8 @@
 title: "Overview"
 ---
 
-`@orchestra/sdk` hosts OpenCode directly inside your application. Unlike the
-[network client](/build/client), it assembles the OpenCode server and routes API
+`@orchestra/sdk` hosts Orchestra directly inside your application. Unlike the
+[network client](/build/client), it assembles the Orchestra server and routes API
 calls through its HTTP router in memory. It opens no HTTP listener and adds no
 network hop between the client and server.
 
@@ -17,24 +17,24 @@ bun add @orchestra/sdk
 
 ## Create a host
 
-`OpenCode.create()` returns an explicitly owned host. Use `await using` to
+`Orchestra.create()` returns an explicitly owned host. Use `await using` to
 release its router, Location services, fibers, and scoped plugin registrations:
 
 ```ts
-import { OpenCode } from "@orchestra/sdk"
+import { Orchestra } from "@orchestra/sdk"
 
-await using opencode = await OpenCode.create()
-const session = await opencode.sessions.create({
+await using orchestra = await Orchestra.create()
+const session = await orchestra.sessions.create({
   location: { directory: "/workspace" },
 })
 
-await opencode.sessions.prompt({
+await orchestra.sessions.prompt({
   sessionID: session.id,
   text: "Review the current changes",
 })
 ```
 
-Call `await opencode.close()` explicitly when explicit resource management is
+Call `await orchestra.close()` explicitly when explicit resource management is
 not available.
 
 The embedded host uses the same Promise values, declared errors, request
@@ -50,9 +50,9 @@ failing if that strategy is unavailable.
 
 ```ts
 const projectID = session.projectID
-const worktree = await opencode.worktree.create({ projectID, name: "task" })
-await opencode.worktree.refresh({ projectID })
-await opencode.worktree.remove({ projectID, directory: worktree.directory, force: false })
+const worktree = await orchestra.worktree.create({ projectID, name: "task" })
+await orchestra.worktree.refresh({ projectID })
+await orchestra.worktree.remove({ projectID, directory: worktree.directory, force: false })
 ```
 
 Refresh discovers worktrees across known checkout roots using all available strategies. Register a custom strategy
@@ -61,7 +61,7 @@ through a [plugin's worktree transform](/build/plugins#worktrees).
 ## Stream events
 
 ```ts
-for await (const event of opencode.events.subscribe()) {
+for await (const event of orchestra.events.subscribe()) {
   console.log(event.type)
 }
 ```
@@ -71,13 +71,13 @@ iteration to cancel its response body.
 
 ## Customize
 
-Customize your OpenCode instance by registering plugins. Pass plugins to
-`OpenCode.create()` to customize agents, models, tools, and other behavior when
+Customize your Orchestra instance by registering plugins. Pass plugins to
+`Orchestra.create()` to customize agents, models, tools, and other behavior when
 the embedded host starts:
 
 ```ts
 import { Plugin } from "@orchestra/plugin"
-import { OpenCode } from "@orchestra/sdk"
+import { Orchestra } from "@orchestra/sdk"
 
 const plugin = Plugin.define({
   id: "customize-agent",
@@ -90,10 +90,10 @@ const plugin = Plugin.define({
   },
 })
 
-await using opencode = await OpenCode.create({ plugins: [plugin] })
+await using orchestra = await Orchestra.create({ plugins: [plugin] })
 ```
 
-Call `await opencode.plugin(plugin)` to register another plugin after startup.
+Call `await orchestra.plugin(plugin)` to register another plugin after startup.
 
 See the [full plugins documentation](/build/plugins) for plugin hooks,
 transforms, tools, and the complete plugin context.

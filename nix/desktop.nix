@@ -52,7 +52,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   desktopItems = lib.optional stdenv.hostPlatform.isLinux (makeDesktopItem {
     name = "ai.opencode.desktop";
-    desktopName = "OpenCode";
+    desktopName = "Orchestra";
     exec = "opencode-desktop %U";
     icon = "ai.opencode.desktop";
     # Electron derives X11 WM_CLASS from app.name.
@@ -161,7 +161,7 @@ stdenv.mkDerivation (finalAttrs: {
   };
 
   meta = {
-    description = "OpenCode Desktop App";
+    description = "Orchestra Desktop App";
     mainProgram = "opencode-desktop";
     inherit (opencode.meta) homepage license platforms;
   };

@@ -1,36 +1,20 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "opencode-update",
+  "name": "orchestra-update",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-21",
-  "workers_dev": false,
+  // No Orchestra domain exists yet: the worker runs on workers.dev until the
+  // project owns a domain, then add a routes entry for it (e.g.
+  // update.orchestra.example) and point the audience/hostname in src/index.ts
+  // and the publish URL in script/update-artifact.ts at the same domain.
+  "workers_dev": true,
   "preview_urls": false,
-  "pipelines": [
-    {
-      "binding": "EVENTS",
-      // Shared lake stream from anomalyco/platform/production.
-      "stream": "251a89241c3a461c9007f6b6f345ed8b",
-    },
-  ],
-  "routes": [
-    {
-      "pattern": "update.opencode.ai",
-      "custom_domain": true,
-    },
-    {
-      "pattern": "opencode.ai/update",
-      "zone_name": "opencode.ai",
-    },
-    {
-      "pattern": "opencode.ai/update/*",
-      "zone_name": "opencode.ai",
-    },
-  ],
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "opencode-update",
-      "database_id": "2c010a96-811f-43d5-804d-7188534e5858",
+      "database_name": "orchestra-update",
+      // Create a NEW database with `wrangler d1 create orchestra-update` and
+      // fill in its id here. Never reuse the upstream database id.
       "migrations_dir": "migrations",
     },
   ],

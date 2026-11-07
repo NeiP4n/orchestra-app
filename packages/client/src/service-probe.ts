@@ -42,11 +42,6 @@ export function fallback() {
   const orchestra = process.env["ORCHESTRA_STATE_DIR"]
     ? join(process.env["ORCHESTRA_STATE_DIR"], "service.json")
     : join(base, "orchestra", "service.json")
-  if (existsSync(orchestra)) return orchestra
-  const opencode = process.env["OPENCODE_STATE_DIR"]
-    ? join(process.env["OPENCODE_STATE_DIR"], "service.json")
-    : join(base, "opencode", "service.json")
-  if (existsSync(opencode)) return opencode
   return orchestra
 }
 

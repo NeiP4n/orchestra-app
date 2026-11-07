@@ -34,7 +34,7 @@ export function isWebUiNotBuilt(error: unknown) {
 }
 
 export const load = Effect.fn("cli.app-assets.load")(function* () {
-  const embedded = yield* Effect.tryPromise(() => import("virtual:opencode-app-assets")).pipe(
+  const embedded = yield* Effect.tryPromise(() => import("virtual:orchestra-app-assets")).pipe(
     Effect.map((module) => AppArchive.decode(module.default())),
     Effect.option,
   )

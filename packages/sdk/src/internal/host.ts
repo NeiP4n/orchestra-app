@@ -20,7 +20,7 @@ export interface CreateOptions<R = never> extends Omit<ServerOptions, "hostname"
   readonly instances?: SdkInstances.Options<R>
 }
 
-/** Host hooks for embedding opencode on a non-default runtime profile. */
+/** Host hooks for embedding Orchestra on a non-default runtime profile. */
 export interface EmbedOptions {
   readonly overrides?: LayerNode.Replacements
 }

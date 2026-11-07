@@ -91,7 +91,7 @@ Fourteen files of the root `src`. The cross-cutting services: `bus`, `rpc`, `sta
   of the control bytes.
 - `schema.ts` — the re-export of `AbsolutePath`, `DateTimeUtcFromMillis`, `NonNegativeInt`,
   `optional`, `PositiveInt`, `RelativePath`, `statics` and the type `DeepMutable`; there is no code.
-- `managed-policy.ts` — the policies of the connected OpenCode console: an array of `ConfigPolicy.Info`
+- `managed-policy.ts` — the policies of the connected Orchestra console: an array of `ConfigPolicy.Info`
   and an optional organization name. `current()` is synchronous deliberately — the catalog
   conversions read the statements during the work; `set()` replaces the state entirely, and
   the statements from different connections are not merged. The node is global, without dependencies.

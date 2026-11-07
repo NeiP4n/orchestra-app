@@ -1,24 +1,24 @@
 # @orchestra/sdk
 
-In-process OpenCode host for Promise and Effect applications. The SDK executes Server's assembled HTTP router in memory, opening no listener and adding no network hop.
+In-process Orchestra host for Promise and Effect applications. The SDK executes Server's assembled HTTP router in memory, opening no listener and adding no network hop.
 
 ```ts
-import { OpenCode } from "@orchestra/sdk"
+import { Orchestra } from "@orchestra/sdk"
 
-await using opencode = await OpenCode.create()
-const session = await opencode.sessions.create({
+await using orchestra = await Orchestra.create()
+const session = await orchestra.sessions.create({
   location: { directory: "/workspace" },
 })
 ```
 
-Pass imported Promise plugins in `plugins`, or register one later with `await opencode.plugin(plugin)`.
+Pass imported Promise plugins in `plugins`, or register one later with `await orchestra.plugin(plugin)`.
 
 The Promise API uses the same values, errors, request options, and `AsyncIterable` streams as `@orchestra/client`.
 
 Embedded hosts are silent by default. Set `log` to receive structured log entries:
 
 ```ts
-await using opencode = await OpenCode.create({
+await using orchestra = await Orchestra.create({
   log: {
     level: "warn",
     emit: (entry) => console.error(entry.message, entry.attributes, entry.cause),
@@ -33,11 +33,11 @@ await using opencode = await OpenCode.create({
 Use `instances` when Sessions in the same directory need different application plugins. The application selects a stable key from Session metadata; the SDK constructs and caches an instance for that key and the Session's current Location.
 
 ```ts
-import { OpenCode } from "@orchestra/sdk"
+import { Orchestra } from "@orchestra/sdk"
 import { threads } from "./threads"
 import { slackPlugin } from "./slack-plugin"
 
-await using opencode = await OpenCode.create({
+await using orchestra = await Orchestra.create({
   database: { path: "./sessions.db" },
   instances: {
     key(session) {
@@ -51,11 +51,11 @@ await using opencode = await OpenCode.create({
   },
 })
 
-const session = await opencode.sessions.create({
+const session = await orchestra.sessions.create({
   location: { directory: "/workspace" },
   metadata: { threadID: "thread-42" },
 })
-await opencode.sessions.prompt({ sessionID: session.id, text: "Review the changes" })
+await orchestra.sessions.prompt({ sessionID: session.id, text: "Review the changes" })
 ```
 
 `threads` and `slackPlugin` are application-owned modules. `key` is synchronous and should only select identity, not initialize plugins. `configure` returns plugin definitions; their setup receives the selected instance's `ctx.location`.
@@ -69,7 +69,7 @@ await opencode.sessions.prompt({ sessionID: session.id, text: "Review the change
 
 ### Restart and Lifetime
 
-The selector is installed before automatic recovery starts. Its callbacks must be able to load application data without depending on the returned `opencode` handle or a later registration call. Functions are reconstructed, not serialized.
+The selector is installed before automatic recovery starts. Its callbacks must be able to load application data without depending on the returned `orchestra` handle or a later registration call. Functions are reconstructed, not serialized.
 
 Use a persistent `database.path` to recover Sessions after restart; the default database is in memory. Workerd uses its injected Durable Object storage. After restart, the next capability-dependent operation or recovery drain rebuilds the selected instance from saved Session metadata and application data.
 
@@ -83,11 +83,11 @@ Use the Workerd entrypoint inside a Cloudflare Durable Object. Hold one host for
 import { OpenCodeWorkerd } from "@orchestra/sdk/workerd"
 import myPlugin from "./my-plugin"
 
-export class OpenCodeDO {
-  private readonly opencode: Promise<OpenCodeWorkerd.Interface>
+export class OrchestraDO {
+  private readonly orchestra: Promise<OpenCodeWorkerd.Interface>
 
   constructor(state: DurableObjectState) {
-    this.opencode = state.blockConcurrencyWhile(() =>
+    this.orchestra = state.blockConcurrencyWhile(() =>
       OpenCodeWorkerd.create({
         storage: state.storage,
         config: { default_agent: "build" },
@@ -97,8 +97,8 @@ export class OpenCodeDO {
   }
 
   async fetch() {
-    const opencode = await this.opencode
-    return Response.json(await opencode.server.info())
+    const orchestra = await this.orchestra
+    return Response.json(await orchestra.server.info())
   }
 }
 ```
@@ -110,24 +110,24 @@ export class OpenCodeDO {
 The Effect-native API remains available from `@orchestra/sdk/effect`:
 
 ```ts
-import { OpenCode } from "@orchestra/sdk/effect"
+import { Orchestra } from "@orchestra/sdk/effect"
 
-const opencode = yield * OpenCode.create()
-const session = yield * opencode.sessions.get({ sessionID })
+const orchestra = yield * Orchestra.create()
+const session = yield * orchestra.sessions.get({ sessionID })
 ```
 
 The Effect Workerd entrypoint is `@orchestra/sdk/workerd/effect`.
 
-Effect configuration uses the same keys and lifetime rules, with canonical `Session.Info` values and an Effect-returning factory. `configure` may require services; `OpenCode.create` and `OpenCode.layer` carry those requirements, so the application satisfies them where it builds the SDK, as with any other Effect callback:
+Effect configuration uses the same keys and lifetime rules, with canonical `Session.Info` values and an Effect-returning factory. `configure` may require services; `Orchestra.create` and `Orchestra.layer` carry those requirements, so the application satisfies them where it builds the SDK, as with any other Effect callback:
 
 ```ts
-import { OpenCode } from "@orchestra/sdk/effect"
+import { Orchestra } from "@orchestra/sdk/effect"
 import { Effect, Layer, Schema } from "effect"
 import { Threads } from "./threads-effect"
 import { slackPlugin } from "./slack-plugin-effect"
 
 const threadMetadata = Schema.decodeUnknownSync(Schema.Struct({ threadID: Schema.String }))
-const opencode = OpenCode.layer({
+const orchestra = Orchestra.layer({
   database: { path: "./sessions.db" },
   instances: {
     key: (session) => threadMetadata(session.metadata).threadID,
@@ -140,4 +140,4 @@ const opencode = OpenCode.layer({
 }).pipe(Layer.provide(Threads.layer))
 ```
 
-Resources acquired in `configure` still belong to the instance, not to the Scope the SDK was built in. Both Workerd entrypoints also accept `instances`. The public `OpenCode.InstanceOptions` and `OpenCode.InstanceConfiguration` types describe the corresponding Promise or Effect callbacks.
+Resources acquired in `configure` still belong to the instance, not to the Scope the SDK was built in. Both Workerd entrypoints also accept `instances`. The public `Orchestra.InstanceOptions` and `Orchestra.InstanceConfiguration` types describe the corresponding Promise or Effect callbacks.

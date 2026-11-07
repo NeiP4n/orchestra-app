@@ -5,7 +5,7 @@ import { PluginHost } from "@orchestra/core/plugin/host"
 import { Provider } from "@orchestra/core/provider"
 import { Session } from "@orchestra/core/session"
 import { Tool } from "@orchestra/core/tool"
-import { OpenCodeTools } from "@orchestra/core/tool/plugin/opencode"
+import { OrchestraTools } from "@orchestra/core/tool/plugin/opencode"
 import { Model } from "@orchestra/schema/model"
 import { Effect } from "effect"
 import { testEffect } from "./lib/effect"
@@ -58,7 +58,7 @@ it.effect("groups available models by provider with paging", () =>
         model.family = Model.Family.make("gamma")
       })
     })
-    yield* OpenCodeTools.Plugin.effect(pluginHost)
+    yield* OrchestraTools.Plugin.effect(pluginHost)
     // The caller runs on `test`, which sorts first despite `other` coming earlier alphabetically.
     const session = yield* sessions.create({
       location: Location.Ref.make({ directory: location.directory }),

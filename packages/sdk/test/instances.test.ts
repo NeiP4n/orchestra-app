@@ -3,30 +3,30 @@ import { mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { Schema } from "effect"
 import { tmpdir } from "../../core/test/fixture/tmpdir"
-import { OpenCode, Session, SessionMessage } from "../src"
+import { Orchestra, Session, SessionMessage } from "../src"
 
 const metadata = Schema.decodeUnknownSync(Schema.Struct({ account: Schema.String }))
 const hostOptions = (directory: string) => ({
-  database: { path: join(directory, "opencode.sqlite") },
+  database: { path: join(directory, "orchestra.sqlite") },
   config: { directory, project: false, content: "{}" },
   models: { fetch: false },
   fs: { filewatcher: false },
 })
 
 test("Promise instances are lazy, share by key and Location, and stay isolated between hosts", async () => {
-  await using directory = await tmpdir("opencode-promise-instances-")
+  await using directory = await tmpdir("orchestra-promise-instances-")
   const otherDirectory = join(directory.path, "other")
   await mkdir(otherDirectory)
   const configured: string[] = []
   const setups: string[] = []
   const cleanups: string[] = []
   const createHost = (name: string) => {
-    const instances: OpenCode.InstanceOptions = {
+    const instances: Orchestra.InstanceOptions = {
       key(session) {
         expect(typeof session.time.created).toBe("number")
         return metadata(session.metadata).account
       },
-      configure(key): OpenCode.InstanceConfiguration {
+      configure(key): Orchestra.InstanceConfiguration {
         configured.push(`${name}:${key}`)
         return {
           plugins: [
@@ -47,7 +47,7 @@ test("Promise instances are lazy, share by key and Location, and stay isolated b
         }
       },
     }
-    return OpenCode.create({
+    return Orchestra.create({
       ...hostOptions(directory.path),
       database: { path: join(directory.path, `${name}.sqlite`) },
       instances,
@@ -145,11 +145,11 @@ test("Promise instances are lazy, share by key and Location, and stay isolated b
 test.each(["configuration", "plugin setup"])(
   "Promise instance %s failure admits nothing, preserves healthy instances, and can be retried",
   async (failure) => {
-    await using directory = await tmpdir("opencode-promise-instance-failure-")
+    await using directory = await tmpdir("orchestra-promise-instance-failure-")
     const configured: string[] = []
     const setups: string[] = []
     const cleanups: string[] = []
-    await using opencode = await OpenCode.create({
+    await using orchestra = await Orchestra.create({
       ...hostOptions(directory.path),
       instances: {
         key: (session) => metadata(session.metadata).account,
@@ -182,51 +182,51 @@ test.each(["configuration", "plugin setup"])(
         },
       },
     })
-    const healthy = await opencode.sessions.create({
+    const healthy = await orchestra.sessions.create({
       location: { directory: directory.path },
       metadata: { account: "healthy" },
     })
-    const retry = await opencode.sessions.create({
+    const retry = await orchestra.sessions.create({
       location: { directory: directory.path },
       metadata: { account: "retry" },
     })
-    const before = await opencode.sessions.prompt({ sessionID: healthy.id, text: "Before failure", resume: false })
+    const before = await orchestra.sessions.prompt({ sessionID: healthy.id, text: "Before failure", resume: false })
     expect(before.payload.text).toBe("healthy: Before failure")
     const input = { sessionID: retry.id, id: SessionMessage.ID.create(), text: "Retry this input", resume: false }
 
-    expect(await opencode.sessions.prompt(input).catch((error: unknown) => error)).toMatchObject({
+    expect(await orchestra.sessions.prompt(input).catch((error: unknown) => error)).toMatchObject({
       name: "ClientError",
       reason: "UnexpectedStatus",
     })
-    expect(await opencode.sessions.inbox.list({ sessionID: retry.id })).toEqual([])
-    expect((await opencode.message.list({ sessionID: retry.id })).data).toEqual([])
-    expect(await opencode.sessions.get({ sessionID: retry.id })).toEqual(retry)
+    expect(await orchestra.sessions.inbox.list({ sessionID: retry.id })).toEqual([])
+    expect((await orchestra.message.list({ sessionID: retry.id })).data).toEqual([])
+    expect(await orchestra.sessions.get({ sessionID: retry.id })).toEqual(retry)
     expect(configured).toEqual(["healthy", "retry"])
     expect(cleanups).toEqual([])
 
-    const after = await opencode.sessions.prompt({ sessionID: healthy.id, text: "After failure", resume: false })
+    const after = await orchestra.sessions.prompt({ sessionID: healthy.id, text: "After failure", resume: false })
     expect(after.payload.text).toBe("healthy: After failure")
-    expect(await opencode.sessions.inbox.list({ sessionID: healthy.id })).toEqual([before, after])
-    const admitted = await opencode.sessions.prompt(input)
+    expect(await orchestra.sessions.inbox.list({ sessionID: healthy.id })).toEqual([before, after])
+    const admitted = await orchestra.sessions.prompt(input)
     expect(admitted.id).toBe(input.id)
     expect(admitted.payload.text).toBe("retry: Retry this input")
-    expect(await opencode.sessions.inbox.list({ sessionID: retry.id })).toEqual([admitted])
+    expect(await orchestra.sessions.inbox.list({ sessionID: retry.id })).toEqual([admitted])
     expect(configured).toEqual(["healthy", "retry", "retry"])
     expect(setups).toEqual(failure === "configuration" ? ["healthy", "retry"] : ["healthy", "retry", "retry"])
     expect(cleanups).toEqual([])
-    await opencode.close()
+    await orchestra.close()
     expect(cleanups.toSorted()).toEqual(["healthy", "retry"])
   },
   20_000,
 )
 
 test("Promise instances reconstruct callbacks for persisted Sessions only on a cold prompt", async () => {
-  await using directory = await tmpdir("opencode-promise-instance-restart-")
+  await using directory = await tmpdir("orchestra-promise-instance-restart-")
   const sessionID = Session.ID.create()
   const configured: string[] = []
   const setups: number[] = []
   const cleanups: number[] = []
-  const options: OpenCode.CreateOptions = {
+  const options: Orchestra.CreateOptions = {
     ...hostOptions(directory.path),
     instances: {
       key: (session) => metadata(session.metadata).account,
@@ -252,7 +252,7 @@ test("Promise instances reconstruct callbacks for persisted Sessions only on a c
       },
     },
   }
-  await using first = await OpenCode.create(options)
+  await using first = await Orchestra.create(options)
   const created = await first.sessions.create({
     id: sessionID,
     location: { directory: directory.path },
@@ -263,7 +263,7 @@ test("Promise instances reconstruct callbacks for persisted Sessions only on a c
   await first.close()
   expect(cleanups).toEqual([1])
 
-  await using second = await OpenCode.create(options)
+  await using second = await Orchestra.create(options)
   expect(await second.sessions.get({ sessionID })).toMatchObject({
     id: sessionID,
     location: created.location,
@@ -295,11 +295,11 @@ test("Promise instances reconstruct callbacks for persisted Sessions only on a c
 }, 20_000)
 
 test("Promise instance plugin ID collisions reject admission and reconstruct on retry", async () => {
-  await using directory = await tmpdir("opencode-promise-instance-collision-")
+  await using directory = await tmpdir("orchestra-promise-instance-collision-")
   const configured: string[] = []
   const setups: string[] = []
   const cleanups: string[] = []
-  await using opencode = await OpenCode.create({
+  await using orchestra = await Orchestra.create({
     ...hostOptions(directory.path),
     plugins: [
       {
@@ -332,29 +332,29 @@ test("Promise instance plugin ID collisions reject admission and reconstruct on 
       },
     },
   })
-  const session = await opencode.sessions.create({
+  const session = await orchestra.sessions.create({
     location: { directory: directory.path },
     metadata: { account: "alpha" },
   })
   const input = { sessionID: session.id, id: SessionMessage.ID.create(), text: "Retry this input", resume: false }
   expect(configured).toEqual([])
 
-  expect(await opencode.sessions.prompt(input).catch((error: unknown) => error)).toMatchObject({
+  expect(await orchestra.sessions.prompt(input).catch((error: unknown) => error)).toMatchObject({
     name: "ClientError",
     reason: "UnexpectedStatus",
   })
-  expect(await opencode.sessions.inbox.list({ sessionID: session.id })).toEqual([])
-  expect((await opencode.message.list({ sessionID: session.id })).data).toEqual([])
+  expect(await orchestra.sessions.inbox.list({ sessionID: session.id })).toEqual([])
+  expect((await orchestra.message.list({ sessionID: session.id })).data).toEqual([])
   expect(configured).toEqual(["alpha"])
   // The host plugin wins the ID and activates inside the instance before the colliding instance plugin
   // is reported failed; rejecting the instance tears that generation down again.
   expect(setups).toEqual(["host"])
   expect(cleanups).toEqual(["host"])
 
-  const admitted = await opencode.sessions.prompt(input)
+  const admitted = await orchestra.sessions.prompt(input)
   expect(admitted.id).toBe(input.id)
   expect(admitted.payload.text).toBe("alpha: Retry this input")
-  expect(await opencode.sessions.inbox.list({ sessionID: session.id })).toEqual([admitted])
+  expect(await orchestra.sessions.inbox.list({ sessionID: session.id })).toEqual([admitted])
   expect(configured).toEqual(["alpha", "alpha"])
   // The reconstructed instance runs a fresh generation: host plugin again, then the renamed instance plugin.
   expect(setups).toEqual(["host", "host", "alpha"])

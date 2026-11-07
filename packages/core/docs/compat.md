@@ -2,12 +2,12 @@
 
 ## What's In This Folder
 
-- `ecosystem.ts` — the registry of ecosystems OpenCode can read: `agents`, `claude`, `codex`, `gemini`, `cursor`. Each has a folder name, home folders and marker files (`CLAUDE.md`, `GEMINI.md`, `.cursorrules`, ...).
+- `ecosystem.ts` — the registry of ecosystems Orchestra can read: `agents`, `claude`, `codex`, `gemini`, `cursor`. Each has a folder name, home folders and marker files (`CLAUDE.md`, `GEMINI.md`, `.cursorrules`, ...).
 - `store.ts` — the user's per-project choices and trust, kept outside every repository in `<state>/compatibility.json`.
 - `detect.ts` — reports every ecosystem found for a location, whether it is on, who decided, and what of it exists.
-- `tools.ts` — maps foreign tool names and permission rules (`Bash(npm run *)`, `Read(./src/**)`, `mcp__srv__tool`) onto OpenCode tools, actions and resources.
+- `tools.ts` — maps foreign tool names and permission rules (`Bash(npm run *)`, `Read(./src/**)`, `mcp__srv__tool`) onto Orchestra tools, actions and resources.
 - `claude/` — the Claude Code adapter: CLAUDE.md memory with `@` imports, commands, subagents, MCP servers, settings (permissions, default mode, model) and command hooks. Plugins, output styles, `env` and `prompt`/`agent` hooks are not read yet; they show up as skipped.
-- `claude/hooks/` — Claude hooks: `config.ts` flattens the settings `hooks` section, `run.ts` runs one command, `tools.ts` speaks Claude's tool names and input fields, `plugin.ts` wires them to OpenCode's hook points and events.
+- `claude/hooks/` — Claude hooks: `config.ts` flattens the settings `hooks` section, `run.ts` runs one command, `tools.ts` speaks Claude's tool names and input fields, `plugin.ts` wires them to Orchestra's hook points and events.
 - Other ecosystems have no adapter yet; only their `skills` folders merge.
 
 ## Key Files
@@ -30,12 +30,12 @@
 - Trust is recorded per ecosystem and project. Passive content (instructions, skills, commands, agents) needs none; project folders need it to run code or loosen permissions (hooks, stdio MCP servers, `allow` rules, environment). Home folders are always trusted, and `deny`/`ask` rules never need trust because they only tighten.
 - `Config.compatibility()` reads the store on every call instead of caching it: the compatibility plugin reacts to the raw change feed and may run before the debounced config reload.
 - Codex's home folder honours `CODEX_HOME`.
-- Adapter output is ordinary config: `Config.load` decodes the Claude documents like files and places them `global opencode → ~/.claude → explicit → project .claude → opencode.json → .opencode → content`. OpenCode wins at each level; rules follow last-match-wins, and the settings converter emits `allow`, then `ask`, then `deny`.
+- Adapter output is ordinary config: `Config.load` decodes the Claude documents like files and places them `global opencode → ~/.claude → explicit → project .claude → opencode.json → .opencode → content`. Orchestra wins at each level; rules follow last-match-wins, and the settings converter emits `allow`, then `ask`, then `deny`.
 - What a Claude project may do without trust: instructions (imports only inside the project), commands with `` !`cmd` `` replaced by a notice, subagents, `deny`/`ask` rules. With trust it also gets shell interpolation, `.mcp.json` servers, `allow` rules, `additionalDirectories` and `defaultMode: acceptEdits`. `bypassPermissions` is never carried over.
 - Model aliases (`sonnet`, `opus`, `haiku`, `fable`) resolve to the newest plain id in the bundled models.dev snapshot, so they move when the snapshot is refreshed; `inherit` leaves the model unset.
 - A CLAUDE.md that only imports AGENTS.md files the instruction plugin already loads adds nothing, so projects carrying both are not instructed twice.
 - `Config.changeEcosystem` reloads config before answering: choices and trust change the adapter documents, not just the folder list.
-- Hook events map onto OpenCode as follows: PreToolUse → tool `execute.before` (deny or exit 2 fails with `Tool.Error`, `updatedInput` rewrites the input, `allow`/`ask` is applied in `permission.evaluate` for that call id and never lifts a deny); PostToolUse → `execute.after` (feedback is appended to the tool result); UserPromptSubmit → session `prompt` (block fails with `PromptInput.Rejected`, context is appended to the prompt in a `<user-prompt-submit-hook>` block); Stop/SubagentStop → `session.execution.succeeded` (block sends the reason as a synthetic message that resumes the session, at most eight times until the user prompts again); SessionStart → `session.created` and `session.compaction.ended` (context as a synthetic message that does not resume); SessionEnd → `session.deleted`; PreCompact → `session.compaction.started`; Notification → `permission.asked`.
+- Hook events map onto Orchestra as follows: PreToolUse → tool `execute.before` (deny or exit 2 fails with `Tool.Error`, `updatedInput` rewrites the input, `allow`/`ask` is applied in `permission.evaluate` for that call id and never lifts a deny); PostToolUse → `execute.after` (feedback is appended to the tool result); UserPromptSubmit → session `prompt` (block fails with `PromptInput.Rejected`, context is appended to the prompt in a `<user-prompt-submit-hook>` block); Stop/SubagentStop → `session.execution.succeeded` (block sends the reason as a synthetic message that resumes the session, at most eight times until the user prompts again); SessionStart → `session.created` and `session.compaction.ended` (context as a synthetic message that does not resume); SessionEnd → `session.deleted`; PreCompact → `session.compaction.started`; Notification → `permission.asked`.
 - Hooks run through bash — Git Bash on Windows — in the project root with `CLAUDE_PROJECT_DIR` set and the event JSON on stdin, 60 seconds by default. Matching hooks run in parallel and identical commands once. `disableAllHooks` at any level turns them all off.
 - `transcript_path` points to a minimal Claude-shaped JSONL (user text, assistant text, tool calls by Claude name) rewritten under `<state>/claude-transcripts/` before each run and removed with its session; hooks that read other transcript fields will not find them.
 
@@ -53,13 +53,13 @@
 ## Pitfalls
 
 - Permission actions are not always tool names: `write` and `patch` assert `edit`, file reads assert `read`. A rule built from a tool name instead of `Target.action` silently never matches.
-- OpenCode's `*` crosses `/`, so `**` collapses to `*`; `**/x` yields two patterns because `*/x` would miss `x` at the top.
+- Orchestra's `*` crosses `/`, so `**` collapses to `*`; `**/x` yields two patterns because `*/x` would miss `x` at the top.
 - A repository can write `compatibility` into its own `opencode.json`, but never into the store: only the user can trust a project or override config for it.
 - Ecosystems without an adapter yet (`codex`, `gemini`, `cursor`) are detected and can be switched, but nothing of theirs is read except a `skills` folder.
 - Never watch `~/.claude` recursively: Claude keeps logs, todos and project transcripts there. `watchTargets` names the few files and subfolders that feed config; `~/.claude.json` is rewritten by Claude Code all the time, so it costs a reload per write (debounced like every config change).
 - A store change made by another process (a second server) is not seen by `Config` until its next reload; changes through the HTTP route reload at once.
-- Claude command names keep OpenCode's folder convention (`git/commit`), not Claude's flat `/commit` with a namespace label.
-- `systemMessage` from a hook is only logged: OpenCode has no user-only notice channel yet, and a synthetic message would reach the model.
+- Claude command names keep Orchestra's folder convention (`git/commit`), not Claude's flat `/commit` with a namespace label.
+- `systemMessage` from a hook is only logged: Orchestra has no user-only notice channel yet, and a synthetic message would reach the model.
 - Promise-style plugins cannot refuse a prompt: their hook callbacks become defects on rejection, as with `Tool.Error`. Only Effect plugins get the typed refusal.
 - Hooks never run in the user's shell: with Nushell or PowerShell configured, Claude's `a && b` commands fail. `ClaudeHookRun.bash` looks for Git Bash upward from `git` (`ShellSelect.gitbash` only knows the `Git/cmd` layout, not `Git/mingw64/bin`) and skips `System32\bash.exe`, which is WSL; with no bash the hook reports an error.
 - A hook callback runs in its caller's context, so `ClaudeHooksPlugin` captures `AppProcess` and `ShellSelect` at activation; a hook that reads services lazily fails with "Service not found".

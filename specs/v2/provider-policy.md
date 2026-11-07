@@ -4,7 +4,7 @@ Status: **Implemented.**
 
 ## Purpose
 
-Policies control whether an operation on a named resource is allowed. Statements are authored in configuration files or delivered by the connected OpenCode Console, and applied by a terminal plugin.
+Policies control whether an operation on a named resource is allowed. Statements are authored in configuration files or delivered by the connected Orchestra Console, and applied by a terminal plugin.
 
 The supported actions are:
 
@@ -71,7 +71,7 @@ interface PolicyInfo {
 
 ## Matching
 
-Both `action` and `resource` use opencode's existing wildcard matching behavior.
+Both `action` and `resource` use Orchestra's existing wildcard matching behavior.
 
 Examples:
 
@@ -209,7 +209,7 @@ repository policy -> user-global policy -> organization-managed policy
 
 ### Delivery
 
-The OpenCode Console compiles a workspace's Providers and Tools policies into statements for the authenticated caller and returns them from `GET /api/v2/config` alongside managed providers:
+The Orchestra Console compiles a workspace's Providers and Tools policies into statements for the authenticated caller and returns them from `GET /api/v2/config` alongside managed providers:
 
 ```jsonc
 {
@@ -226,7 +226,7 @@ The OpenCode Console compiles a workspace's Providers and Tools policies into st
 
 - `experimental` is omitted when the caller has no statements; omission and an empty array are equivalent.
 - The list is per caller and its order is significant. The client stores it exactly as received; it never reorders, dedupes, or normalizes statements.
-- Every request the Console plugin makes, this fetch and the token refresh included, carries the `User-Agent` `opencode/<channel>/<version>/<app>`. The Console reads it to tell which OpenCode a member runs and whether it evaluates the statements it is being sent; older builds that drop them are otherwise indistinguishable from ones that enforce.
+- Every request the Console plugin makes, this fetch and the token refresh included, carries the `User-Agent` `opencode/<channel>/<version>/<app>`. The Console reads it to tell which Orchestra a member runs and whether it evaluates the statements it is being sent; older builds that drop them are otherwise indistinguishable from ones that enforce.
 - `ManagedPolicy` (`packages/core/src/managed-policy.ts`) is the process-global home for the current statements and the organization name. The Console plugin (`opencode.provider.opencode`) writes it whenever its config snapshot is applied; the policy plugin reads it synchronously when evaluating.
 - Statements ride on the Console plugin's snapshot, so they follow the connection: a credential switch replaces them, and a disconnect or a 404 from the Console clears them. Statements from different connections never merge.
 - Freshness is the snapshot's freshness: the next poll (about one minute) or the next credential switch.
@@ -241,7 +241,7 @@ When the deciding `tool.use` statement is organization-managed, the denial reads
 
 ### Protection
 
-Plugins must not be allowed to add, remove, or override policy statements. Plugins can contribute functionality or configured providers; policy determines whether opencode permits an operation through its managed execution paths.
+Plugins must not be allowed to add, remove, or override policy statements. Plugins can contribute functionality or configured providers; policy determines whether Orchestra permits an operation through its managed execution paths.
 
 Plugin `remove` operations in config ignore `opencode.config.policy` and `opencode.provider.opencode`, whatever the selector (`-*`, `-opencode.*`, or the exact ID). Otherwise a repository could switch off enforcement or the fetch that delivers organization statements.
 
@@ -266,7 +266,7 @@ tool.use / shell:git status     -> unchanged: the agent's rules decide allow or 
 
 ## Skill Integration Policy
 
-Skills use their OpenCode IDs, including a namespace when present. Denied skills are absent from the client catalog and model guidance, and cannot be loaded by the skill tool, a prompt mention, or standalone activation.
+Skills use their Orchestra IDs, including a namespace when present. Denied skills are absent from the client catalog and model guidance, and cannot be loaded by the skill tool, a prompt mention, or standalone activation.
 
 ```jsonc
 {

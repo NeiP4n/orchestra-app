@@ -224,7 +224,7 @@ export default defineConfig({
             "zh-CN": "使用",
             "zh-TW": "使用",
           },
-          items: ["go", "tui", "cli", "web", "ide", "zen", "share", "github", "gitlab"],
+          items: ["go", "tui", "cli", "web", "ide", "zen", "share", "gitlab"],
         },
 
         {
@@ -291,7 +291,7 @@ export default defineConfig({
             "zh-CN": "开发",
             "zh-TW": "開發",
           },
-          items: ["sdk", "server", "plugins", "ecosystem"],
+          items: ["server", "plugins"],
         },
       ],
       components: {

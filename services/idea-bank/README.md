@@ -1,6 +1,6 @@
 # Global Idea Bank
 
-This is the shared service for community ideas. It runs separately from each OpenCode++ installation so users on different machines can search the same published catalogue. It stores ideas in Cloudflare D1, not chat transcripts.
+This is the shared service for community ideas. It runs separately from each Orchestra installation so users on different machines can search the same published catalogue. It stores ideas in Cloudflare D1, not chat transcripts.
 
 ## Safety rules
 
@@ -47,30 +47,30 @@ bun run deploy
 
 Never commit the secrets. For local development, run `bun run db:migrate:local` and `bun run dev`.
 
-Wrangler prints a public `workers.dev` URL after deployment, for example `https://opencode-idea-bank.<your-account>.workers.dev`. Set it on each OpenCode++ installation that should share the bank:
+Wrangler prints a public `workers.dev` URL after deployment, for example `https://orchestra-idea-bank.<your-account>.workers.dev`. Set it on each Orchestra installation that should share the bank:
 
 ```sh
-ORCHESTRA_IDEA_BANK_URL=https://opencode-idea-bank.<your-account>.workers.dev
+ORCHESTRA_IDEA_BANK_URL=https://orchestra-idea-bank.<your-account>.workers.dev
 ```
 
-Restart OpenCode++ after changing the environment variable. If it is not set, the built-in tool explains how to configure it instead of silently contacting some other server.
+Restart Orchestra after changing the environment variable. If it is not set, the built-in tool explains how to configure it instead of silently contacting some other server.
 
 On Windows PowerShell, set the variable in the same terminal before launching OpenCode++:
 
 ```powershell
-$env:ORCHESTRA_IDEA_BANK_URL = "https://opencode-idea-bank.<your-account>.workers.dev"
+$env:ORCHESTRA_IDEA_BANK_URL = "https://orchestra-idea-bank.<your-account>.workers.dev"
 ```
 
 In Windows Command Prompt:
 
 ```bat
-set "ORCHESTRA_IDEA_BANK_URL=https://opencode-idea-bank.<your-account>.workers.dev"
+set "ORCHESTRA_IDEA_BANK_URL=https://orchestra-idea-bank.<your-account>.workers.dev"
 ```
 
 On Linux/macOS:
 
 ```sh
-export ORCHESTRA_IDEA_BANK_URL="https://opencode-idea-bank.<your-account>.workers.dev"
+export ORCHESTRA_IDEA_BANK_URL="https://orchestra-idea-bank.<your-account>.workers.dev"
 ```
 
 ## API

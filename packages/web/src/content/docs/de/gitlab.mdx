@@ -1,68 +1,68 @@
 ---
 title: GitLab
-description: Verwenden Sie OpenCode in GitLab-Issues und Merge Requests.
+description: Verwenden Sie Orchestra in GitLab-Issues und Merge Requests.
 ---
 
-OpenCode lässt sich über Ihre GitLab CI/CD-Pipeline oder mit GitLab Duo in Ihren GitLab-Workflow integrieren.
+Orchestra lässt sich über Ihre GitLab CI/CD-Pipeline oder mit GitLab Duo in Ihren GitLab-Workflow integrieren.
 
-In beiden Fällen läuft OpenCode auf Ihren GitLab Runners.
+In beiden Fällen läuft Orchestra auf Ihren GitLab Runners.
 
 ---
 
 ## GitLab CI
 
-OpenCode funktioniert in einer regulären GitLab-Pipeline. Sie können es als [CI component](https://docs.gitlab.com/ee/ci/components/) in eine Pipeline einbauen.
+Orchestra funktioniert in einer regulären GitLab-Pipeline. Sie können es als [CI component](https://docs.gitlab.com/ee/ci/components/) in eine Pipeline einbauen.
 
-Hier verwenden wir eine von der Community erstellte CI/CD-Komponente für OpenCode – [nagyv/gitlab-opencode](https://gitlab.com/nagyv/gitlab-opencode).
+Hier verwenden wir eine von der Community erstellte CI/CD-Komponente für Orchestra – [nagyv/gitlab-orchestra](https://gitlab.com/nagyv/gitlab-orchestra).
 
 ---
 
 ### Funktionen
 
-- **Benutzerdefinierte Konfiguration pro Job verwenden**: Konfigurieren Sie OpenCode mit einem benutzerdefinierten Konfigurationsverzeichnis, zum Beispiel `./config/#custom-directory`, um die Funktionalität pro OpenCode-Aufruf zu aktivieren oder zu deaktivieren.
-- **Minimale Einrichtung**: Die CI-Komponente richtet OpenCode im Hintergrund ein. Sie müssen lediglich die OpenCode-Konfiguration und die erste Eingabeaufforderung erstellen.
+- **Benutzerdefinierte Konfiguration pro Job verwenden**: Konfigurieren Sie Orchestra mit einem benutzerdefinierten Konfigurationsverzeichnis, zum Beispiel `./config/#custom-directory`, um die Funktionalität pro Orchestra-Aufruf zu aktivieren oder zu deaktivieren.
+- **Minimale Einrichtung**: Die CI-Komponente richtet Orchestra im Hintergrund ein. Sie müssen lediglich die Orchestra-Konfiguration und die erste Eingabeaufforderung erstellen.
 - **Flexibel**: Die CI-Komponente unterstützt mehrere Eingaben zum Anpassen ihres Verhaltens
 
 ---
 
 ### Einrichtung
 
-1. Speichern Sie Ihre OpenCode-Authentifizierung JSON als Umgebungsvariablen vom Dateityp CI unter **Einstellungen** > **CI/CD** > **Variablen**. Stellen Sie sicher, dass Sie sie als „Maskiert und ausgeblendet“ markieren.
+1. Speichern Sie Ihre Orchestra-Authentifizierung JSON als Umgebungsvariablen vom Dateityp CI unter **Einstellungen** > **CI/CD** > **Variablen**. Stellen Sie sicher, dass Sie sie als „Maskiert und ausgeblendet“ markieren.
 2. Fügen Sie Folgendes zu Ihrer `.gitlab-ci.yml`-Datei hinzu.
 
    ```yaml title=".gitlab-ci.yml"
    include:
-     - component: $CI_SERVER_FQDN/nagyv/gitlab-opencode/opencode@2
+     - component: $CI_SERVER_FQDN/nagyv/gitlab-opencode/orchestra@2
        inputs:
-         config_dir: ${CI_PROJECT_DIR}/opencode-config
-         auth_json: $ORCHESTRA_AUTH_JSON # Die variable name für ihre OpenCode authentifizierung JSON
+         config_dir: ${CI_PROJECT_DIR}/orchestra-config
+         auth_json: $ORCHESTRA_AUTH_JSON # Die variable name für ihre Orchestra authentifizierung JSON
          command: optional-custom-command
          message: "Your prompt here"
    ```
 
-Weitere Eingaben und Anwendungsfälle finden Sie unter [check out the docs](https://gitlab.com/explore/catalog/nagyv/gitlab-opencode) für diese Komponente.
+Weitere Eingaben und Anwendungsfälle finden Sie unter [check out the docs](https://gitlab.com/explore/catalog/nagyv/gitlab-orchestra) für diese Komponente.
 
 ---
 
 ## GitLab Duo
 
-OpenCode lässt sich in Ihren GitLab-Workflow integrieren.
-Erwähnen Sie `@opencode` in einem Kommentar und OpenCode führt Aufgaben innerhalb Ihrer GitLab CI-Pipeline aus.
+Orchestra lässt sich in Ihren GitLab-Workflow integrieren.
+Erwähnen Sie `@orchestra` in einem Kommentar und Orchestra führt Aufgaben innerhalb Ihrer GitLab CI-Pipeline aus.
 
 ---
 
 ### Funktionen
 
-- **Issue Triage**: Bitten Sie OpenCode, ein Problem zu untersuchen und es Ihnen zu erklären.
-- **Reparieren und implementieren**: Bitten Sie OpenCode, ein Problem zu beheben oder eine Funktion zu implementieren.
+- **Issue Triage**: Bitten Sie Orchestra, ein Problem zu untersuchen und es Ihnen zu erklären.
+- **Reparieren und implementieren**: Bitten Sie Orchestra, ein Problem zu beheben oder eine Funktion zu implementieren.
   Es wird ein neuer Branch erstellt und eine Merge Request mit den Änderungen ausgelöst.
-- **Sicher**: OpenCode läuft auf Ihren GitLab Runners.
+- **Sicher**: Orchestra läuft auf Ihren GitLab Runners.
 
 ---
 
 ### Einrichtung
 
-OpenCode wird in Ihrer GitLab CI/CD-Pipeline ausgeführt. Folgendes müssen Sie zum Einrichten benötigen:
+Orchestra wird in Ihrer GitLab CI/CD-Pipeline ausgeführt. Folgendes müssen Sie zum Einrichten benötigen:
 
 :::tip
 Aktuelle Anweisungen finden Sie im [**GitLab docs**](https://docs.gitlab.com/user/duo_agent_platform/agent_assistant/).
@@ -82,19 +82,19 @@ Aktuelle Anweisungen finden Sie im [**GitLab docs**](https://docs.gitlab.com/use
     ```yaml
     image: node:22-slim
     commands:
-      - echo "Installing opencode"
-      - npm install --global opencode-ai
+      - echo "Installing orchestra"
+      - npm install --global orchestra
       - echo "Installing glab"
-      - export GITLAB_TOKEN=$GITLAB_TOKEN_OPENCODE
+      - export GITLAB_TOKEN=$GITLAB_TOKEN_ORCHESTRA
       - apt-get update --quiet && apt-get install --yes curl wget gpg git && rm --recursive --force /var/lib/apt/lists/*
       - curl --silent --show-error --location "https://raw.githubusercontent.com/upciti/wakemeops/main/assets/install_repository" | bash
       - apt-get install --yes glab
       - echo "Configuring glab"
       - echo $GITLAB_HOST
-      - echo "Creating OpenCode auth configuration"
-      - mkdir --parents ~/.local/share/opencode
+      - echo "Creating Orchestra auth configuration"
+      - mkdir --parents ~/.local/share/orchestra
       - |
-        cat > ~/.local/share/opencode/auth.json << EOF
+        cat > ~/.local/share/orchestra/auth.json << EOF
         {
           "anthropic": {
             "type": "api",
@@ -103,13 +103,13 @@ Aktuelle Anweisungen finden Sie im [**GitLab docs**](https://docs.gitlab.com/use
         }
         EOF
       - echo "Configuring git"
-      - git config --global user.email "opencode@gitlab.com"
-      - git config --global user.name "OpenCode"
+      - git config --global user.email "orchestra@gitlab.com"
+      - git config --global user.name "Orchestra"
       - echo "Testing glab"
       - glab issue list
-      - echo "Running OpenCode"
+      - echo "Running Orchestra"
       - |
-        opencode run "
+        orchestra run "
         You are an AI assistant helping with GitLab operations.
 
         Context: $AI_FLOW_CONTEXT
@@ -146,7 +146,7 @@ Aktuelle Anweisungen finden Sie im [**GitLab docs**](https://docs.gitlab.com/use
         fi
     variables:
       - ANTHROPIC_API_KEY
-      - GITLAB_TOKEN_OPENCODE
+      - GITLAB_TOKEN_ORCHESTRA
       - GITLAB_HOST
     ```
 
@@ -158,10 +158,10 @@ Ausführliche Anweisungen finden Sie unter [GitLab CLI agents docs](https://docs
 
 ### Beispiele
 
-Hier sind einige Beispiele, wie Sie OpenCode in GitLab verwenden können.
+Hier sind einige Beispiele, wie Sie Orchestra in GitLab verwenden können.
 
 :::tip
-Sie können die Verwendung einer anderen Triggerphrase als `@opencode` konfigurieren.
+Sie können die Verwendung einer anderen Triggerphrase als `@orchestra` konfigurieren.
 :::
 
 - **Erklären Sie ein Problem**
@@ -169,27 +169,27 @@ Sie können die Verwendung einer anderen Triggerphrase als `@opencode` konfiguri
   Fügen Sie diesen Kommentar in einer GitLab-Ausgabe hinzu.
 
   ```
-  @opencode explain this issue
+  @orchestra explain this issue
   ```
 
-  OpenCode liest das Problem und antwortet mit einer klaren Erklärung.
+  Orchestra liest das Problem und antwortet mit einer klaren Erklärung.
 
 - **Ein Problem beheben**
 
   Sagen Sie in einer GitLab-Ausgabe:
 
   ```
-  @opencode fix this
+  @orchestra fix this
   ```
 
-  OpenCode erstellt einen neuen Branch, implementiert die Änderungen und öffnet eine Merge Request mit den Änderungen.
+  Orchestra erstellt einen neuen Branch, implementiert die Änderungen und öffnet eine Merge Request mit den Änderungen.
 
 - **Merge Requests prüfen**
 
   Hinterlassen Sie den folgenden Kommentar zu einer GitLab Merge Request.
 
   ```
-  @opencode review this merge request
+  @orchestra review this merge request
   ```
 
-  OpenCode prüft die Merge Request und gibt Feedback.
+  Orchestra prüft die Merge Request und gibt Feedback.

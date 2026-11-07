@@ -1,6 +1,6 @@
-# The OpenCode Core — Repository Map
+# The Orchestra Core — Repository Map
 
-Repository: `github.com/sst/opencode`, license MIT, release **v2.0.22**
+Repository: `github.com/NeiP4n/orchestra-app`, license MIT
 (`git describe` → `v2.0.22`, HEAD `527f0b931d`). Every package is described in its own
 file `packages/<package>/PACKAGE.md` — start from that file if you already know which
 package you need.
@@ -28,7 +28,7 @@ Layers with a link to each package's document (order is from foundation to surfa
 One short path worth remembering:
 
 ```
-opencode (packages/cli/src/index.ts)
+orchestra (packages/cli/src/index.ts)
   └─ command (serve, run, tui, pair, service, …)
       └─ server (packages/server/src/routes.ts) — HTTP + SSE
           └─ core (packages/core/src) — sessions, tools, providers
@@ -115,7 +115,7 @@ the import graph, so the real coupling is wider. Two examples that show it:
 | how sessions, prompts and tools live | `packages/core/src/session/session.ts` | `core` |
 | which tools the agent has and how they are described to the provider | `packages/core/src/tool/runtime.ts` | `core` |
 | where models come from and how a provider is chosen | `packages/core/src/provider.ts` | `core` |
-| where opencode's data lives (database, cache, state) | `packages/util/src/global.ts` | `util` |
+| where orchestra's data lives (database, cache, state) | `packages/util/src/global.ts` | `util` |
 | how config is set and where it is picked up from | `packages/core/src/config.ts` | `core` |
 | which HTTP endpoints exist and what they return | `packages/protocol/src/api.ts` | `protocol` |
 | authorization, pair, ports, server binding | `packages/server/src/auth.ts` | `server` |

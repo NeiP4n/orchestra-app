@@ -1,27 +1,28 @@
-# OpenCode Update
+# Orchestra Update
 
 The update Worker serves all selected artifacts for a channel.
 
 ```sh
-curl 'https://opencode.ai/update/api/latest'
-curl 'https://opencode.ai/update/api/latest/cli'
-curl 'https://opencode.ai/update/api/latest/cli/npm'
+curl 'https://update.orchestra.example/api/latest'
+curl 'https://update.orchestra.example/api/latest/cli'
+curl 'https://update.orchestra.example/api/latest/cli/npm'
 ```
 
-The same Worker also serves the original `https://update.opencode.ai` hostname without
-the `/update` prefix. Admin forms, pagination, and redirects preserve the request's mount.
+The Worker is served at its own hostname (`update.orchestra.example` is a
+placeholder — no Orchestra domain exists yet; see ORCHESTRA.md). Admin forms,
+pagination, and redirects preserve the request's mount.
 
 ## Desktop update feeds
 
 Electron updater manifests are available at `/api/<channel>/desktop/<distribution>/<filename>`:
 
 ```sh
-curl 'https://opencode.ai/update/api/beta/desktop/opencode/latest-mac.yml'
+curl 'https://update.orchestra.example/api/beta/desktop/orchestra/latest-mac.yml'
 ```
 
 Use `latest.yml` for Windows, `latest-mac.yml` for macOS, `latest-linux.yml` for Linux x64,
 and `latest-linux-arm64.yml` for Linux ARM64. The distribution selects the stored download
-URLs (`opencode` or `github`). Each manifest includes the selected artifact's version,
+URLs (`orchestra` or `github`). Each manifest includes the selected artifact's version,
 file URLs, SHA-512 checksums, sizes, and release date. Existing minimum-version selection
 and `current`/User-Agent handling also apply to these feeds.
 
@@ -58,8 +59,8 @@ of its `active` artifact. Set or clear it from the admin page. Publishing a new 
 release preserves the minimum marker.
 
 Clients send their running version as `?current=<version>` and use the CLI's default
-`User-Agent: opencode/<channel>/<version>/cli`. When `current` is absent, the service
-parses that User-Agent or the older `opencode/<version>` format.
+`User-Agent: orchestra/<channel>/<version>/cli`. When `current` is absent, the service
+parses that User-Agent or the older `orchestra/<version>` format.
 The caller's channel comes from the default User-Agent, or from a preview version
 such as `0.0.0-beta-18955` when that channel is absent. If an identified caller channel
 differs from the requested channel, the service serves the active release without
@@ -75,59 +76,50 @@ identifiers and historical `next` versions to `beta`. The retired `/api/next`
 channel transparently resolves to `beta` for older clients.
 
 Choose a minimum that older clients can install and that can itself consume the active
-release. For the CLI package migration, retain a package-aware release published as
-`@opencode-ai/cli` as the minimum before activating releases under `@orchestra/cli`.
+release.
 
-Both admin mounts must be protected by the same Cloudflare Access self-hosted application:
+The admin page must be protected by a Cloudflare Access self-hosted application
+before the Worker is exposed:
 
-- Public hostname/path: `update.opencode.ai/admin*`
-- Public hostname/path: `opencode.ai/update/admin*`
-- Policy: allow the OpenCode team identity group
+- Public hostname/path: `update.orchestra.example/admin*`
+- Policy: allow the Orchestra team identity group
 
-Configure Access before deploying the new Worker route. The Worker has `workers_dev`
-and preview URLs disabled; it is exposed through its custom hostname and the `/update` routes.
+Configure Access before deploying the new Worker route. Until the project owns a
+domain the Worker runs on workers.dev (`workers_dev` is on); add a routes entry
+for the real domain when it exists.
 
 ## Request logging
 
-Every request reaching the Worker emits an unsampled event at request start to the shared production
-Cloudflare lake stream through the `EVENTS` Pipelines binding. Events use
-`source: "update"`, `type: "request"`, an ISO `timestamp`, and a `payload` containing
-the method, path, `useragent`, `ip` (from Cloudflare's `CF-Connecting-IP` header),
-country, and Cloudflare colo. The path is normalized without `/update` so both mounts
-share the existing analytics paths. Query strings, request bodies, cookies, and authorization
-headers are not included. Response status and duration are not recorded.
-
-Delivery runs in `waitUntil` without delaying the response. Delivery failures are
-logged but do not fail requests or retry; this is not lossless audit logging.
-Requests blocked before reaching the Worker are not recorded.
-
-The stream ID in `wrangler.jsonc` comes from the `lake.stream` output of the
-`anomalyco/platform/production` Pulumi stack. Update the binding if that stream is
-replaced. The stream is shared across release channels because the update service
-has a single public deployment.
+None. The upstream Worker's `EVENTS` Pipelines binding sent every request to
+the vendor's shared data lake; that binding was deleted in the Orchestra fork
+(there is no Orchestra lake stream) and the Worker no longer emits request
+events.
 
 ## Publishing
 
 The publish workflow also registers direct binary downloads with distribution
-`opencode`, after uploading every file to the public files bucket:
+`orchestra`, after uploading every file to the files bucket configured by
+`ORCHESTRA_UPDATE_FILES_BUCKET` / `ORCHESTRA_UPDATE_FILES_BASE_URL`
+(see `script/update-artifact.ts` — no bucket exists yet):
 
 ```sh
-curl 'https://opencode.ai/update/api/dev/cli/opencode'
-curl 'https://opencode.ai/update/api/dev/cli-node/opencode'
-curl 'https://opencode.ai/update/api/latest/desktop/opencode'
+curl 'https://update.orchestra.example/api/dev/cli/orchestra'
+curl 'https://update.orchestra.example/api/dev/cli-node/orchestra'
+curl 'https://update.orchestra.example/api/latest/desktop/orchestra'
 ```
 
 `metadata.files` maps each filename to its direct
-`https://opencode.ai/files/bin/<version>/<filename>` URL, SHA-256 checksum, and
+`<files-base-url>/bin/<version>/<filename>` URL, SHA-256 checksum, and
 byte size. Desktop records additionally contain `metadata.manifests`, with
 the CDN URLs and the original Electron update checksums. Existing `npm`,
 `github`, and `aur` distributions are published independently.
 
-GitHub Actions publishes artifacts through `POST https://opencode.ai/update/api/publish`
-using a short-lived OIDC token with audience `https://update.opencode.ai`. The original
-hostname and token audience remain supported. The Worker accepts only tokens signed by
-GitHub for repository ID `975734319`, owner ID `66570915`, and `.github/workflows/publish.yml`
-on configured publishing refs.
+GitHub Actions publishes artifacts through `POST https://update.orchestra.example/api/publish`
+(the publish URL comes from `ORCHESTRA_UPDATE_PUBLISH_URL`)
+using a short-lived OIDC token whose audience is the publish URL's origin.
+The Worker accepts only tokens signed by GitHub for repository
+`NeiP4n/orchestra-app` (ID `1431411182`, owner ID `139688546`) and
+`.github/workflows/release.yml` on configured publishing refs.
 
 Apply migrations and deploy from this directory:
 

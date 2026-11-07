@@ -120,37 +120,29 @@ export default function Download() {
             <div data-component="section-content">
               <button
                 data-component="cli-row"
-                onClick={handleCopyClick("curl -fsSL https://opencode.ai/install | bash")}
+                onClick={handleCopyClick("curl -fsSL https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/installer/get.sh | sh")}
               >
                 <code>
-                  curl -fsSL https://<strong>opencode.ai/install</strong> | bash
+                  curl -fsSL https://<strong>raw.githubusercontent.com/NeiP4n/orchestra-app/main/installer/get.sh</strong>{" "}
+                  | sh
                 </code>
                 <CopyStatus />
               </button>
-              <button data-component="cli-row" onClick={handleCopyClick("npm i -g opencode-ai")}>
+              <button
+                data-component="cli-row"
+                onClick={handleCopyClick("irm https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/installer/get.ps1 | iex")}
+              >
                 <code>
-                  npm i -g <strong>opencode-ai</strong>
+                  irm https://<strong>raw.githubusercontent.com/NeiP4n/orchestra-app/main/installer/get.ps1</strong>{" "}
+                  | iex
                 </code>
                 <CopyStatus />
               </button>
-              <button data-component="cli-row" onClick={handleCopyClick("bun add -g opencode-ai")}>
+              <a data-component="cli-row" href="https://github.com/NeiP4n/orchestra-app/releases" target="_blank">
                 <code>
-                  bun add -g <strong>opencode-ai</strong>
+                  GitHub Releases — <strong>NeiP4n/orchestra-app</strong>
                 </code>
-                <CopyStatus />
-              </button>
-              <button data-component="cli-row" onClick={handleCopyClick("brew install anomalyco/tap/opencode")}>
-                <code>
-                  brew install <strong>anomalyco/tap/opencode</strong>
-                </code>
-                <CopyStatus />
-              </button>
-              <button data-component="cli-row" onClick={handleCopyClick("paru -S opencode")}>
-                <code>
-                  paru -S <strong>opencode</strong>
-                </code>
-                <CopyStatus />
-              </button>
+              </a>
             </div>
           </section>
 
@@ -159,12 +151,6 @@ export default function Download() {
               <span>[2]</span> {i18n.t("download.section.desktop")}
             </div>
             <div data-component="section-content">
-              <button data-component="cli-row" onClick={handleCopyClick("brew install --cask opencode-desktop")}>
-                <code>
-                  brew install --cask <strong>opencode-desktop</strong>
-                </code>
-                <CopyStatus />
-              </button>
               <div data-component="download-row">
                 <div data-component="download-info">
                   <span data-slot="icon">

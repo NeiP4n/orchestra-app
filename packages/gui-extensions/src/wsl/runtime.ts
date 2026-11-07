@@ -304,7 +304,7 @@ export function createWslRuntime(t: MainContext["t"]) {
         DEFAULT_WSL_INSTALL_TIMEOUT_MS,
       )
 
-      requireSuccess(result, t("error.installOpencode"))
+      requireSuccess(result, t("error.installOrchestra"))
     },
 
     async probeDistro(name: string, opts?: RunWslOptions): Promise<WslDistroProbe> {

@@ -67,13 +67,13 @@ if (!skipInstall)
 const appArchive = path.join(dir, ".cache", "bun-app-archive.bin")
 await Bun.write(appArchive, await buildAppArchive(Script.channel, { skipBuild: skipWebUi }))
 const appAssetsPlugin: BunPlugin = {
-  name: "opencode-app-assets",
+  name: "orchestra-app-assets",
   setup(build) {
-    build.onResolve({ filter: /^virtual:opencode-app-assets$/ }, () => ({
-      path: "opencode-app-assets",
+    build.onResolve({ filter: /^virtual:orchestra-app-assets$/ }, () => ({
+      path: "orchestra-app-assets",
       namespace: "opencode",
     }))
-    build.onLoad({ filter: /^opencode-app-assets$/, namespace: "opencode" }, () => ({
+    build.onLoad({ filter: /^orchestra-app-assets$/, namespace: "opencode" }, () => ({
       loader: "js",
       // Embedded as a file, not a string: its bytes go into the executable once and unencoded.
       contents: `import { readFileSync } from "node:fs"

@@ -1,10 +1,10 @@
 export * as CompatTools from "./tools.js"
 
 /**
- * Maps other ecosystems' tool names and permission rules onto OpenCode's. One table serves every later
+ * Maps other ecosystems' tool names and permission rules onto Orchestra's. One table serves every later
  * adapter: permission rules, hook matchers, `allowed-tools` in commands, and `tools` in agents.
  *
- * Each OpenCode tool is checked under a permission action, which is not always its tool name: write and
+ * Each Orchestra tool is checked under a permission action, which is not always its tool name: write and
  * patch are checked as `edit`, and reads go through `read`. Resources follow each tool: a path relative to
  * the session directory (absolute when outside it), the shell command text, the URL, the agent or skill id.
  */
@@ -15,7 +15,7 @@ import { McpTool } from "../tool/mcp.js"
 import type { Ecosystem } from "./ecosystem.js"
 
 export interface Target {
-  /** OpenCode tool name, as the model sees it. */
+  /** Orchestra tool name, as the model sees it. */
   readonly tool: string
   /** Permission action the tool asserts. */
   readonly action: string
@@ -34,7 +34,7 @@ const websearch: Target = { tool: "websearch", action: "websearch", argument: "p
 const subagent: Target = { tool: "subagent", action: "subagent", argument: "id" }
 const skill: Target = { tool: "skill", action: "skill", argument: "id" }
 
-/** Tool names per ecosystem. Names with no OpenCode counterpart (TodoWrite, ExitPlanMode, ...) are absent. */
+/** Tool names per ecosystem. Names with no Orchestra counterpart (TodoWrite, ExitPlanMode, ...) are absent. */
 const tables: { readonly [K in Ecosystem.ID]?: Readonly<Record<string, Target>> } = {
   claude: {
     Bash: shell,
@@ -88,7 +88,7 @@ export type Resolved =
   /** An MCP tool, or with `tool` absent every tool of that server. */
   | { readonly type: "mcp"; readonly server: string; readonly tool?: string; readonly action: string }
 
-/** Resolves a foreign tool name; `undefined` when OpenCode has no counterpart. */
+/** Resolves a foreign tool name; `undefined` when Orchestra has no counterpart. */
 export function resolve(ecosystem: Ecosystem.ID, name: string): Resolved | undefined {
   // Claude names MCP tools mcp__<server>__<tool>; `mcp__<server>` alone means the whole server.
   const mcp = /^mcp__(.+?)(?:__(.+))?$/.exec(name)
@@ -106,7 +106,7 @@ export function resolve(ecosystem: Ecosystem.ID, name: string): Resolved | undef
 }
 
 export interface RuleContext {
-  /** Session directory: OpenCode file resources are relative to it. */
+  /** Session directory: Orchestra file resources are relative to it. */
   readonly directory: string
   /** Folder holding the settings file; Claude's `/path` patterns are relative to it. */
   readonly settings: string
@@ -121,7 +121,7 @@ const slash = (value: string) => value.replaceAll("\\", "/")
 
 /**
  * Claude path patterns: `//abs` is absolute, `~/p` is under home, `/p` is relative to the settings file, and
- * `./p` or a bare `p` is relative to the current directory. OpenCode's `*` already crosses `/`, so `**` becomes `*`.
+ * `./p` or a bare `p` is relative to the current directory. Orchestra's `*` already crosses `/`, so `**` becomes `*`.
  */
 function pathPattern(pattern: string, context: RuleContext) {
   const absolute = pattern.startsWith("//")
@@ -157,7 +157,7 @@ function resources(target: Target, argument: string, context: RuleContext): read
 
 /**
  * Parses one permission rule such as `Bash(npm run *)`, `Read(./src/**)`, `WebFetch(domain:example.com)`
- * or `mcp__github__create_issue` into OpenCode rules with the given effect.
+ * or `mcp__github__create_issue` into Orchestra rules with the given effect.
  */
 export function parseRule(
   ecosystem: Ecosystem.ID,

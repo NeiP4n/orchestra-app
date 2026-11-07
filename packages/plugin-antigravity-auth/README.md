@@ -1,4 +1,4 @@
-# Antigravity + Gemini CLI OAuth Plugin for Opencode
+# Antigravity + Gemini CLI OAuth Plugin for Orchestra
 
 [![npm version](https://img.shields.io/npm/v/opencode-antigravity-auth.svg)](https://www.npmjs.com/package/opencode-antigravity-auth)
 [![npm beta](https://img.shields.io/npm/v/opencode-antigravity-auth/beta.svg?label=beta)](https://www.npmjs.com/package/opencode-antigravity-auth)
@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![X (Twitter)](https://img.shields.io/badge/X-@dopesalmon-000000?style=flat&logo=x)](https://x.com/dopesalmon)
 
-Enable Opencode to authenticate against **Antigravity** (Google's IDE) via OAuth so you can use Antigravity rate limits and access models like `gemini-3.1-pro` and `claude-opus-4-6-thinking` with your Google credentials.
+Enable Orchestra to authenticate against **Antigravity** (Google's IDE) via OAuth so you can use Antigravity rate limits and access models like `gemini-3.1-pro` and `claude-opus-4-6-thinking` with your Google credentials.
 
 Unofficial plugin. Google may restrict accounts using third-party clients.
 
@@ -43,7 +43,7 @@ opencode run --model=google/antigravity-claude-opus-4-6-thinking#max "Hello"
 
 Models are discovered from your enabled accounts and cached for an hour. Availability depends on your Google plan. Select an `antigravity-*` model for Google OAuth. Native Google API-key models are hidden while Antigravity OAuth is selected and return when you switch to an API-key connection.
 
-Inside OpenCode, open **`/antigravity`** (or **`/ag`**) to:
+Inside Orchestra, open **`/antigravity`** (or **`/ag`**) to:
 
 - See logged-in accounts, the current selection, and cached quota percentages and reset times.
 - Switch to an enabled account by selecting its row.

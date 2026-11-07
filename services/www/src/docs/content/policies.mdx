@@ -1,11 +1,11 @@
 ---
 title: "Policies"
-description: "Allow or deny OpenCode actions on named resources, with organization policy taking final authority."
+description: "Allow or deny Orchestra actions on named resources, with organization policy taking final authority."
 ---
 
-Policies decide whether OpenCode may perform an action on a named resource. They are
+Policies decide whether Orchestra may perform an action on a named resource. They are
 authored under `experimental.policies` and can also be delivered by a connected
-[OpenCode Console](/console) workspace.
+[Orchestra Console](/console) workspace.
 
 Policies are separate from [permissions](/permissions). Permissions are per-agent tool
 rules that can `allow`, `deny`, or `ask`. Policies are binary, never prompt, and only
@@ -13,7 +13,7 @@ ever tighten what permissions and providers would otherwise allow.
 
 ## Configure
 
-Deny one provider everywhere by adding a statement to `opencode.jsonc`:
+Deny one provider everywhere by adding a statement to `orchestra.jsonc`:
 
 ```jsonc
 {
@@ -78,7 +78,7 @@ Only Anthropic remains available.
 ## Providers
 
 `provider.use` controls whether a provider is usable at all. The resource is the
-provider ID: `anthropic`, `openai`, `opencode`, or a custom ID from
+provider ID: `anthropic`, `openai`, `orchestra`, or a custom ID from
 [`providers`](/providers).
 
 ```jsonc
@@ -99,7 +99,7 @@ provider ID: `anthropic`, `openai`, `opencode`, or a custom ID from
 ```
 
 The `providers` entry configures the endpoint; the statements make it the only
-provider OpenCode will use. Policy applies however a provider became known: catalog
+provider Orchestra will use. Policy applies however a provider became known: catalog
 data, environment variables, saved accounts, built-in plugins, or configuration.
 
 Use `provider.use` instead of the V1 `enabled_providers` and `disabled_providers`
@@ -159,14 +159,14 @@ from broader configuration are evaluated later, so they override narrower ones.
 
 | Authority   | Source                                                          |
 | ----------- | --------------------------------------------------------------- |
-| 1 (highest) | Connected OpenCode Console workspace                            |
-| 2           | Global `~/.config/opencode/opencode.json(c)`                    |
-| 3           | Direct `opencode.json(c)`; outer directories beat inner ones    |
-| 4 (lowest)  | `.opencode/opencode.json(c)`; outer directories beat inner ones |
+| 1 (highest) | Connected Orchestra Console workspace                            |
+| 2           | Global `~/.config/orchestra/orchestra.json(c)`                    |
+| 3           | Direct `orchestra.json(c)`; outer directories beat inner ones    |
+| 4 (lowest)  | `.orchestra/orchestra.json(c)`; outer directories beat inner ones |
 
 A repository cannot re-enable a provider you deny globally:
 
-```jsonc title="~/.config/opencode/opencode.jsonc"
+```jsonc title="~/.config/orchestra/orchestra.jsonc"
 {
   "experimental": {
     "policies": [{ "action": "provider.use", "resource": "openai", "effect": "deny" }],
@@ -174,7 +174,7 @@ A repository cannot re-enable a provider you deny globally:
 }
 ```
 
-```jsonc title="project/opencode.jsonc"
+```jsonc title="project/orchestra.jsonc"
 {
   "experimental": {
     "policies": [{ "action": "provider.use", "resource": "openai", "effect": "allow" }],
@@ -186,8 +186,8 @@ A repository cannot re-enable a provider you deny globally:
 
 ## Console
 
-A workspace on the [OpenCode Console](/console) compiles its Providers and Tools
-policies into statements and returns them with the workspace configuration. OpenCode
+A workspace on the [Orchestra Console](/console) compiles its Providers and Tools
+policies into statements and returns them with the workspace configuration. Orchestra
 appends them after every authored statement, so they have the final say: an
 organization `deny` cannot be lifted by a repository or user `allow`, and an
 organization `allow` lifts a lower-authority `deny`.

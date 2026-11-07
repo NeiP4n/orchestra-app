@@ -5,12 +5,9 @@ import { ORCHESTRA_CHANNEL } from "./version"
 export function databasePath(data: string) {
   const filename =
     process.env.ORCHESTRA_DB ??
-    process.env.OPENCODE_DB ??
     (["latest", "dev", "beta", "next", "prod"].includes(ORCHESTRA_CHANNEL) ||
     process.env.ORCHESTRA_DISABLE_CHANNEL_DB === "1" ||
-    process.env.ORCHESTRA_DISABLE_CHANNEL_DB === "true" ||
-    process.env.OPENCODE_DISABLE_CHANNEL_DB === "1" ||
-    process.env.OPENCODE_DISABLE_CHANNEL_DB === "true"
+    process.env.ORCHESTRA_DISABLE_CHANNEL_DB === "true"
       ? "orchestra-local.db"
       : `orchestra-${ORCHESTRA_CHANNEL.replace(/[^a-zA-Z0-9._-]/g, "-")}.db`)
   if (filename === ":memory:") return filename

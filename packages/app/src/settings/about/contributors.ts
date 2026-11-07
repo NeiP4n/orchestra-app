@@ -2,7 +2,7 @@ const CREDITED_CONTRIBUTORS = 16
 
 let request: Promise<number> | undefined
 
-export const FALLBACK_OTHER_CONTRIBUTORS = 935
+export const FALLBACK_OTHER_CONTRIBUTORS = 0
 
 export function otherContributorCount(link: string | null) {
   const total = Number.parseInt(link?.match(/[?&]page=(\d+)[^>]*>;\s*rel="last"/)?.[1] ?? "", 10)
@@ -13,7 +13,7 @@ export function otherContributorCount(link: string | null) {
 }
 
 export function loadOtherContributorCount(fetcher: typeof fetch) {
-  request ??= fetcher("https://api.github.com/repos/anomalyco/opencode/contributors?anon=1&per_page=1", {
+  request ??= fetcher("https://api.github.com/repos/NeiP4n/orchestra-app/contributors?anon=1&per_page=1", {
     headers: {
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",

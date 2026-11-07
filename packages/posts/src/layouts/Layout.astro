@@ -8,8 +8,8 @@ interface Props {
   description?: string
 }
 
-const title = Astro.props.title ? `${Astro.props.title} | Opencode++ Posts` : "Opencode++ Posts"
-const description = Astro.props.description ?? "Notes from the Opencode++ team."
+const title = Astro.props.title ? `${Astro.props.title} | Orchestra Posts` : "Orchestra Posts"
+const description = Astro.props.description ?? "Notes from the Orchestra team."
 ---
 
 <!doctype html>
@@ -23,8 +23,8 @@ const description = Astro.props.description ?? "Notes from the Opencode++ team."
   </head>
   <body>
     <main>
-      <a class="site-logo" href="https://opencode.ai/" aria-label="Opencode++ home">
-        <img src={`${import.meta.env.BASE_URL}/logo-dark.svg`} alt="Opencode++" />
+      <a class="site-logo" href="https://github.com/NeiP4n/orchestra-app" aria-label="Orchestra home">
+        <img src={`${import.meta.env.BASE_URL}/logo-dark.svg`} alt="Orchestra" />
       </a>
       <slot />
     </main>

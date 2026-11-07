@@ -2,9 +2,9 @@
 title: "Commands"
 ---
 
-Create `.opencode/commands/review.md` to turn a prompt into `/review`:
+Create `.orchestra/commands/review.md` to turn a prompt into `/review`:
 
-```md title=".opencode/commands/review.md"
+```md title=".orchestra/commands/review.md"
 Review $ARGUMENTS for bugs and missing tests.
 ```
 
@@ -14,20 +14,20 @@ Run it from the TUI with a target:
 /review src/auth.ts
 ```
 
-OpenCode submits `Review src/auth.ts for bugs and missing tests.` as a user prompt.
+Orchestra submits `Review src/auth.ts for bugs and missing tests.` as a user prompt.
 
 ## Markdown
 
-Put global commands in `~/.config/opencode/commands/` and project commands in `.opencode/commands/`.
+Put global commands in `~/.config/orchestra/commands/` and project commands in `.orchestra/commands/`.
 
 ```text
-~/.config/opencode/commands/review.md
-.opencode/commands/review.md
+~/.config/orchestra/commands/review.md
+.orchestra/commands/review.md
 ```
 
 Only `.md` files are discovered. Nested paths become command names with `/` separators:
 
-```md title=".opencode/commands/team/review.md"
+```md title=".orchestra/commands/team/review.md"
 Review $ARGUMENTS using the team's checklist.
 ```
 
@@ -36,7 +36,7 @@ but use `commands/` for new files.
 
 Add YAML frontmatter when the command needs metadata. The trimmed Markdown body is always the prompt template.
 
-```md title=".opencode/commands/review.md"
+```md title=".orchestra/commands/review.md"
 ---
 description: Review code for correctness
 agent: plan
@@ -48,10 +48,10 @@ Review $ARGUMENTS. Report bugs first.
 
 ## JSON
 
-Define commands under `commands` in any OpenCode JSON or JSONC [configuration file](/config). Each command requires a
+Define commands under `commands` in any Orchestra JSON or JSONC [configuration file](/config). Each command requires a
 `template`.
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "commands": {
@@ -78,7 +78,7 @@ Markdown frontmatter and JSON entries accept the same fields, except that Markdo
 
 For example, this JSON command sets every current optional field:
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "commands": {
     "audit": {
@@ -98,7 +98,7 @@ Do not put `template` in Markdown frontmatter; the body supplies it.
 
 Use `$ARGUMENTS` for the complete argument string exactly as entered.
 
-```md title=".opencode/commands/component.md"
+```md title=".orchestra/commands/component.md"
 Create a typed React component named $ARGUMENTS.
 ```
 
@@ -108,7 +108,7 @@ For `/component Account Settings`, the placeholder becomes `Account Settings`.
 
 Use `$1`, `$2`, and higher numbers for parsed positional arguments. Single or double quotes group words and are removed.
 
-```md title=".opencode/commands/check.md"
+```md title=".orchestra/commands/check.md"
 Check $1. Focus on $2.
 ```
 
@@ -116,17 +116,17 @@ For `/check src/auth.ts "error handling"`, `$1` becomes `src/auth.ts` and `$2` b
 
 The highest-numbered placeholder consumes its argument and everything after it. Missing positions become empty strings.
 
-```md title=".opencode/commands/compare.md"
+```md title=".orchestra/commands/compare.md"
 Compare $1 with $2.
 ```
 
-For `/compare api stable branch`, OpenCode submits `Compare api with stable branch.`
+For `/compare api stable branch`, Orchestra submits `Compare api with stable branch.`
 
 ## Fallback
 
-When a template has no `$ARGUMENTS` or positional placeholder, OpenCode appends non-empty arguments after a blank line.
+When a template has no `$ARGUMENTS` or positional placeholder, Orchestra appends non-empty arguments after a blank line.
 
-```md title=".opencode/commands/explain.md"
+```md title=".orchestra/commands/explain.md"
 Explain this code clearly.
 ```
 
@@ -142,16 +142,16 @@ src/cache.ts
 
 Wrap a shell command in `!` followed by backticks to insert its output before the prompt is submitted.
 
-```md title=".opencode/commands/review-diff.md"
+```md title=".orchestra/commands/review-diff.md"
 Review this diff:
 
 !`git diff --stat && git diff`
 ```
 
-OpenCode runs each block with the configured shell in the active project location and inserts its combined output.
+Orchestra runs each block with the configured shell in the active project location and inserts its combined output.
 Argument placeholders are expanded first:
 
-```md title=".opencode/commands/history.md"
+```md title=".orchestra/commands/history.md"
 Summarize these commits:
 
 !`git log --oneline -$1`
@@ -160,7 +160,7 @@ Summarize these commits:
 For `/history 5`, the shell receives `git log --oneline -5`. Do not place untrusted arguments inside shell blocks.
 
 <Callout type="warning">
-  Shell blocks run when OpenCode evaluates the command, outside the agent's tool permission flow. Only use commands from
+  Shell blocks run when Orchestra evaluates the command, outside the agent's tool permission flow. Only use commands from
   sources you trust.
 </Callout>
 
@@ -168,11 +168,11 @@ For `/history 5`, the shell receives `git log --oneline -5`. Do not place untrus
 
 Stored templates do not expand `@path`; it remains ordinary prompt text.
 
-```md title=".opencode/commands/readme.md"
+```md title=".orchestra/commands/readme.md"
 Review @README.md.
 ```
 
-To attach a file, add it through the composer when invoking the command. OpenCode preserves those composer attachments
+To attach a file, add it through the composer when invoking the command. Orchestra preserves those composer attachments
 when it submits the expanded prompt.
 
 ## Execution
@@ -180,7 +180,7 @@ when it submits the expanded prompt.
 Commands expand arguments and shell blocks before submitting a durable user prompt. They run in the current session by
 default.
 
-```md title=".opencode/commands/plan.md"
+```md title=".orchestra/commands/plan.md"
 ---
 agent: plan
 ---
@@ -198,7 +198,7 @@ Model selection follows these rules:
 
 For example, this command selects both its agent and an explicit model:
 
-```md title=".opencode/commands/design.md"
+```md title=".orchestra/commands/design.md"
 ---
 agent: plan
 model: openai/gpt-5#high
@@ -211,7 +211,7 @@ Design $ARGUMENTS.
 
 Set `subagent: true` to run a command in a background child session.
 
-```md title=".opencode/commands/audit.md"
+```md title=".orchestra/commands/audit.md"
 ---
 description: Audit changes
 agent: general
@@ -221,7 +221,7 @@ subagent: true
 Audit $ARGUMENTS for bugs and missing tests.
 ```
 
-The parent stays available and keeps its agent and model. OpenCode sends the child's result or failure back to the parent
+The parent stays available and keeps its agent and model. Orchestra sends the child's result or failure back to the parent
 when the child finishes.
 
 | Value | Behavior |
@@ -245,16 +245,16 @@ This example runs in the current session because `subagent` takes precedence.
 Markdown and JSON commands share one registry. Later sources replace earlier commands with the same name.
 
 ```text
-~/.config/opencode/commands/review.md   # Lower priority
-.opencode/commands/review.md           # Replaces the global command
+~/.config/orchestra/commands/review.md   # Lower priority
+.orchestra/commands/review.md           # Replaces the global command
 ```
 
 Project sources take precedence over global sources, and nearer project sources take precedence over ancestor sources.
-A custom definition can also replace an earlier built-in command. OpenCode reloads command files and configuration changes
+A custom definition can also replace an earlier built-in command. Orchestra reloads command files and configuration changes
 automatically.
 
-```md title=".opencode/commands/review.md"
+```md title=".orchestra/commands/review.md"
 Review only the staged changes: !`git diff --cached`
 ```
 
-Saving this file updates `/review` without restarting OpenCode.
+Saving this file updates `/review` without restarting Orchestra.

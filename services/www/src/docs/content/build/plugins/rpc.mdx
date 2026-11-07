@@ -105,7 +105,7 @@ errors: {
 }
 ```
 
-Error names beginning with `rpc.` are reserved by OpenCode.
+Error names beginning with `rpc.` are reserved by Orchestra.
 
 ### Events
 
@@ -165,14 +165,14 @@ Once the RPC is registered, it can be called over HTTP or from another plugin.
 
 ### HTTP
 
-Create an OpenCode client, then use `client.rpc` to create a subclient for the
+Create an Orchestra client, then use `client.rpc` to create a subclient for the
 RPC:
 
 ```ts
-import { OpenCode } from "@orchestra/client"
-import { Acme } from "opencode-acme-plugin/rpc"
+import { Orchestra } from "@orchestra/client"
+import { Acme } from "orchestra-acme-plugin/rpc"
 
-const client = OpenCode.make({
+const client = Orchestra.make({
   baseUrl: "http://localhost:4096",
 })
 
@@ -182,12 +182,12 @@ const result = await acme.search({ query: "hello" })
 
 ### Plugin
 
-Plugins already have an OpenCode client. For example, a TUI plugin can create
+Plugins already have an Orchestra client. For example, a TUI plugin can create
 the same RPC subclient from `context.client`:
 
 ```ts title="src/tui.ts"
 import { Plugin } from "@orchestra/plugin/tui"
-import { Acme } from "opencode-acme-plugin/rpc"
+import { Acme } from "orchestra-acme-plugin/rpc"
 
 export default Plugin.define({
   id: "acme-tui",

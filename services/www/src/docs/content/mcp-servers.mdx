@@ -2,24 +2,24 @@
 title: "MCP servers"
 ---
 
-OpenCode connects to [Model Context Protocol](https://modelcontextprotocol.io/) servers and exposes capabilities such as tools, prompts, resources, and instructions. MCP tools consume model context, so add only the servers you need.
+Orchestra connects to [Model Context Protocol](https://modelcontextprotocol.io/) servers and exposes capabilities such as tools, prompts, resources, and instructions. MCP tools consume model context, so add only the servers you need.
 
 ## Setup
 
 Add a remote server from the project that should use it, then check its connection:
 
 ```sh
-opencode mcp add context7 --url https://mcp.context7.com/mcp
-opencode mcp list
+orchestra mcp add context7 --url https://mcp.context7.com/mcp
+orchestra mcp list
 ```
 
 The command writes the server to the project [configuration](/config). Add `--global` to make it available in every project:
 
 ```sh
-opencode mcp add context7 --global --url https://mcp.context7.com/mcp
+orchestra mcp add context7 --global --url https://mcp.context7.com/mcp
 ```
 
-Remote servers use OAuth by default. If the list shows `needs authentication`, open OpenCode, run `/mcps`, select the server, and sign in. A connected server is ready for an agent to use:
+Remote servers use OAuth by default. If the list shows `needs authentication`, open Orchestra, run `/mcps`, select the server, and sign in. A connected server is ready for an agent to use:
 
 ```text
 ✓ context7  connected
@@ -29,7 +29,7 @@ Remote servers use OAuth by default. If the list shows `needs authentication`, o
 
 To configure a server by hand, give it a unique name under `mcp.servers`. V2 does not place server names directly under `mcp`.
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
@@ -61,7 +61,7 @@ Servers connect automatically. Use `disabled`, not an `enabled` field, to keep o
 
 A higher-precedence project config replaces the entire server object with the same name. Use different names for separate connections or accounts; otherwise repeat every required field in the override:
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "mcp": {
     "servers": {
@@ -76,15 +76,15 @@ A higher-precedence project config replaces the entire server object with the sa
 
 ## Local
 
-A local server is a command that OpenCode starts over the MCP stdio transport. Add one with a command after `--`:
+A local server is a command that Orchestra starts over the MCP stdio transport. Add one with a command after `--`:
 
 ```sh
-opencode mcp add everything -- npx -y @modelcontextprotocol/server-everything
+orchestra mcp add everything -- npx -y @modelcontextprotocol/server-everything
 ```
 
 Use configuration for process options such as a working directory or environment variables:
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
@@ -108,7 +108,7 @@ Use configuration for process options such as a working directory or environment
 | `type` | Yes | Must be `"local"`. |
 | `command` | Yes | Executable followed by its arguments. |
 | `cwd` | No | Process directory. Relative paths resolve from the workspace, which is also the default. |
-| `environment` | No | String variables added to OpenCode's inherited process environment. |
+| `environment` | No | String variables added to Orchestra's inherited process environment. |
 | `disabled` | No | Prevents connection when `true`. Defaults to `false`. |
 | `codemode` | No | Set to `false` to expose tools directly instead of through Code Mode. Defaults to `true`. |
 | `timeout` | No | Per-server timeout overrides. |
@@ -129,12 +129,12 @@ Use `{env:NAME}` for environment substitution. Shell expressions such as `$NAME`
 A remote server uses the MCP Streamable HTTP transport and requires an absolute URL:
 
 ```sh
-opencode mcp add context7 --url https://mcp.context7.com/mcp
+orchestra mcp add context7 --url https://mcp.context7.com/mcp
 ```
 
 Use configuration when the server needs headers or other options. Store secrets in environment variables rather than in the file:
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
@@ -176,11 +176,11 @@ Use `oauth: false` only when the server exclusively uses an API key or another h
 
 ## OAuth
 
-OAuth is enabled for remote servers unless `oauth` is `false`. OpenCode discovers the authorization server, uses PKCE, refreshes tokens, and attempts dynamic client registration when supported; credentials stay outside project configuration.
+OAuth is enabled for remote servers unless `oauth` is `false`. Orchestra discovers the authorization server, uses PKCE, refreshes tokens, and attempts dynamic client registration when supported; credentials stay outside project configuration.
 
 For dynamic registration, configure only the server URL:
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
@@ -197,12 +197,12 @@ For dynamic registration, configure only the server URL:
 If the server needs authentication, run `/mcps`, select it, and complete authorization in the browser. The CLI can start the same flow:
 
 ```sh
-opencode mcp auth sentry
+orchestra mcp auth sentry
 ```
 
 When a provider gives you client credentials, use V2's snake_case OAuth fields:
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
@@ -235,14 +235,14 @@ When a provider gives you client credentials, use V2's snake_case OAuth fields:
 Remove stored OAuth credentials when you need to sign in again or switch accounts:
 
 ```sh
-opencode mcp logout sentry
+orchestra mcp logout sentry
 ```
 
 ## Timeouts
 
 Timeouts are positive integer milliseconds. Set defaults under `mcp.timeout`; a server's `timeout` object overrides matching defaults.
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
@@ -272,9 +272,9 @@ Timeouts are positive integer milliseconds. Set defaults under `mcp.timeout`; a 
 
 ## Protocol version
 
-OpenCode opens every server with the classic MCP `initialize` handshake by default. Set a server's `protocol` to talk to one built on the 2026-07-28 revision:
+Orchestra opens every server with the classic MCP `initialize` handshake by default. Set a server's `protocol` to talk to one built on the 2026-07-28 revision:
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
@@ -299,7 +299,7 @@ Probing a local `legacy` server adds a short-lived extra process and can wait up
 
 ## Names
 
-OpenCode names a tool `<server>_<tool>`. It replaces characters other than letters, numbers, `_`, and `-` with `_`:
+Orchestra names a tool `<server>_<tool>`. It replaces characters other than letters, numbers, `_`, and `-` with `_`:
 
 ```text
 server: context 7
@@ -353,7 +353,7 @@ Use permission actions to hide or deny tools without disconnecting their server.
 
 ## Context
 
-For calls made on behalf of a session, OpenCode sends the session ID in `CallToolRequest.params._meta["ai.opencode/sessionID"]`. This applies to direct tools and Code Mode over stdio and Streamable HTTP:
+For calls made on behalf of a session, Orchestra sends the session ID in `CallToolRequest.params._meta["ai.orchestra/sessionID"]`. This applies to direct tools and Code Mode over stdio and Streamable HTTP:
 
 ```json
 {
@@ -361,7 +361,7 @@ For calls made on behalf of a session, OpenCode sends the session ID in `CallToo
   "params": {
     "name": "lookup",
     "arguments": { "query": "example" },
-    "_meta": { "ai.opencode/sessionID": "ses_..." }
+    "_meta": { "ai.orchestra/sessionID": "ses_..." }
   }
 }
 ```
@@ -370,7 +370,7 @@ The ID is request metadata, not a tool argument, so it is absent from the model-
 
 | Rule | Behavior |
 | --- | --- |
-| Identity | It identifies the invoking OpenCode session, not the MCP transport session. |
+| Identity | It identifies the invoking Orchestra session, not the MCP transport session. |
 | Presence | It can be absent for calls without session context. |
 | Security | Do not use it by itself for authentication or authorization. |
 | Privacy | Remote servers receive the raw ID and may log or retain it. |
@@ -380,15 +380,15 @@ The ID is request metadata, not a tool argument, so it is absent from the model-
 List servers and their current connection state from any project:
 
 ```sh
-opencode mcp list
+orchestra mcp list
 ```
 
-Use `/mcps` in OpenCode to view, connect, disconnect, or authenticate servers. Use the CLI to add servers and manage OAuth credentials:
+Use `/mcps` in Orchestra to view, connect, disconnect, or authenticate servers. Use the CLI to add servers and manage OAuth credentials:
 
 ```sh
-opencode mcp add sentry --url https://mcp.sentry.dev/mcp
-opencode mcp auth sentry
-opencode mcp logout sentry
+orchestra mcp add sentry --url https://mcp.sentry.dev/mcp
+orchestra mcp auth sentry
+orchestra mcp logout sentry
 ```
 
 To remove a server, delete its entry from the project or global configuration where it was added:

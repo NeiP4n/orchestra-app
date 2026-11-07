@@ -9,7 +9,6 @@ import { AbsolutePath } from "../schema.js"
 import { Skill } from "../skill.js"
 import { Config } from "../config.js"
 import os from "os"
-import opencodeContent from "./skill/opencode.md" with { type: "text" }
 import reportContent from "./skill/report.md" with { type: "text" }
 import hubContent from "./skill/hub.md" with { type: "text" }
 import mcpContent from "./skill/mcp.md" with { type: "text" }
@@ -24,7 +23,6 @@ const AUTONOMOUS_DEVELOPER_DESCRIPTION =
 const PROJECT_CREATOR_DESCRIPTION =
   "Use when asked to scaffold, initialize, or bootstrap a new project, service, or repository from scratch with complete architecture and build setup."
 
-export const OpencodeContent = opencodeContent
 export const ReportContent = reportContent
 export const HubContent = hubContent
 
@@ -32,8 +30,6 @@ export const McpContent = mcpContent
 const MCP_DESCRIPTION =
   "Use when the task involves an installed MCP server (browser, documentation, git, GitHub, memory, desktop, reverse engineering) or when the operator asks to add or remove one. Covers discovering servers and tool names that change over time, the autonomous MCP lifecycle (default-off, acquire, enable, disable, leases, operator-managed configuration), role ceilings, and explicit per-session MCP assignments with budgets — never confusing a globally enabled server with one assigned to a session."
 
-export const OpencodeDescription =
-  "Use this skill for any question about Orchestra itself, including how Orchestra works, using or configuring it, migrating from V1 to V2, troubleshooting it, developing plugins or integrations, using the Orchestra SDK, clients, server, or API, and contributing to the Orchestra codebase. Also use it for Orchestra agents, commands, skills, tools, permissions, MCP servers, providers, models, themes, keybinds, formatters, the CLI, TUI, desktop app, and web app."
 const REPORT_DESCRIPTION =
   "Use when the user wants to report an orchestra issue or bug. Collect standard diagnostics, add user-specific reproduction context, and publish the issue with GitHub CLI."
 export const HubDescription =
@@ -44,15 +40,6 @@ export const Plugin = define({
   effect: Effect.fn(function* (ctx) {
     const reportContent = yield* reportContentWithDiagnostics(ctx.app)
     yield* ctx.skill.transform((editor) => {
-      editor.add(
-        Skill.Info.make({
-          id: Skill.ID.make("opencode"),
-          name: Skill.Name.make("Orchestra"),
-          description: OpencodeDescription,
-          path: AbsolutePath.make("/builtin/opencode.md"),
-          content: OpencodeContent,
-        }),
-      )
       editor.add(
         Skill.Info.make({
           id: Skill.ID.make("report"),

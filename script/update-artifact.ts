@@ -20,8 +20,18 @@ export namespace UpdateArtifact {
     const requestToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN
     if (!requestURL || !requestToken) throw new Error("GitHub Actions OIDC is unavailable")
 
+    // No Orchestra update domain exists yet: the publish endpoint comes from
+    // ORCHESTRA_UPDATE_PUBLISH_URL (set it to https://<update-domain>/api/publish
+    // once the Worker is deployed). The OIDC audience is the publish URL's
+    // origin, so it always agrees with the Worker.
+    const publishURL = process.env.ORCHESTRA_UPDATE_PUBLISH_URL
+    if (!publishURL) {
+      throw new Error(
+        "ORCHESTRA_UPDATE_PUBLISH_URL is not set: the update Worker has no domain yet, so there is nowhere to publish to",
+      )
+    }
     const url = new URL(requestURL)
-    url.searchParams.set("audience", "https://update.opencode.ai")
+    url.searchParams.set("audience", new URL(publishURL).origin)
     const tokenResponse = await fetch(url, { headers: { Authorization: `Bearer ${requestToken}` } })
     if (!tokenResponse.ok) throw new Error(`Failed to request GitHub OIDC token: ${tokenResponse.status}`)
     const token: unknown = await tokenResponse.json()
@@ -29,7 +39,7 @@ export namespace UpdateArtifact {
       throw new Error("GitHub OIDC response did not include a token")
 
     for (const attempt of [0, 1, 2]) {
-      const response = await fetch("https://opencode.ai/update/api/publish", {
+      const response = await fetch(publishURL, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token.value}`,
@@ -52,8 +62,14 @@ export namespace UpdateArtifact {
   export async function upload(input: { version: string; files: string[]; dryRun?: boolean }) {
     const { PutObjectCommand, S3Client } = await import("@aws-sdk/client-s3")
     const client = input.dryRun ? undefined : new S3Client(await credentials())
+    // No Orchestra files bucket exists yet: both come from the environment so
+    // artifacts can never be uploaded to the upstream bucket by accident.
+    const bucket = process.env.ORCHESTRA_UPDATE_FILES_BUCKET
+    if (!bucket) throw new Error("ORCHESTRA_UPDATE_FILES_BUCKET is not set")
+    const filesBase = process.env.ORCHESTRA_UPDATE_FILES_BASE_URL
+    if (!filesBase) throw new Error("ORCHESTRA_UPDATE_FILES_BASE_URL is not set")
     const prefix = `bin/${input.version}/`
-    const base = `https://opencode.ai/files/bin/${encodeURIComponent(input.version)}/`
+    const base = `${filesBase.replace(/\/$/, "")}/bin/${encodeURIComponent(input.version)}/`
     try {
       return Object.fromEntries(
         await Promise.all(
@@ -68,7 +84,7 @@ export namespace UpdateArtifact {
             if (client) {
               await client.send(
                 new PutObjectCommand({
-                  Bucket: "opencode-production-files",
+                  Bucket: bucket,
                   Key: `${prefix}${name}`,
                   Body: createReadStream(filepath),
                   ContentLength: file.size,

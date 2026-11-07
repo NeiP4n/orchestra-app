@@ -12,9 +12,10 @@ export * as EnvRegistry from "./env-registry.js"
  * Scope: `ORCHESTRA_*` only. Variables owned by someone else are not
  * registered here: provider-SDK variables (`AWS_*`, `GOOGLE_*`,
  * `ANTHROPIC_*`, …), the OS and shell (`PATH`, `HOME`, `SHELL`, `TERM`,
- * …), Node/Bun (`NODE_ENV`), and the `OPENCODE_*` legacy aliases the code
- * still falls back to — those are named in the purpose of the
- * `ORCHESTRA_*` variable that falls back to them. Build-time defines
+ * …), Node/Bun (`NODE_ENV`). The `OPENCODE_*` legacy aliases were
+ * removed; the only ones still read are the PTY fallbacks
+ * (`OPENCODE_PTY_BIN`, `OPENCODE_NODE_PTY_PATH`), named in the `default`
+ * of the `ORCHESTRA_*` variable that falls back to them. Build-time defines
  * (`VITE_*`) are not runtime environment reads and are not registered
  * either; `ORCHESTRA_CHANNEL` and `ORCHESTRA_VERSION` are defines too,
  * but the install script also reads them from `process.env` at runtime,
@@ -80,7 +81,7 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   },
   ORCHESTRA_CACHE_DIR: {
     purpose: "Override for the cache directory.",
-    default: "The platform cache directory (falls back to OPENCODE_CACHE_DIR).",
+    default: "The platform cache directory.",
   },
   ORCHESTRA_CHANNEL: {
     purpose: "Release channel for the script build; overrides the channel derived from the git branch. (Also a build-time define elsewhere — this entry is the script's runtime read.)",
@@ -99,7 +100,7 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   },
   ORCHESTRA_COMPLETION_NUDGES: {
     purpose: "How many completion nudges a session gets.",
-    default: "3 (falls back to OPENCODE_COMPLETION_NUDGES).",
+    default: "3.",
   },
   ORCHESTRA_CONFIG: {
     purpose: "Path to the orchestra.json config file.",
@@ -134,11 +135,11 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   },
   ORCHESTRA_DATA_DIR: {
     purpose: "Override for the data directory.",
-    default: "The platform data directory (falls back to OPENCODE_DATA_DIR).",
+    default: "The platform data directory.",
   },
   ORCHESTRA_DB: {
     purpose: "Path to the SQLite database (\":memory:\" for an in-memory database).",
-    default: "The standard database path (falls back to OPENCODE_DB).",
+    default: "The standard database path.",
   },
   ORCHESTRA_DESKTOP_CAPTURE: {
     purpose: "Allow desktop access on the virtual display (\"on\"). Without it every desktop tool refuses.",
@@ -342,7 +343,7 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   },
   ORCHESTRA_INSTRUCTION_ROUTER: {
     purpose: "Instruction router on/off (\"off\" disables).",
-    default: "On (falls back to OPENCODE_INSTRUCTION_ROUTER).",
+    default: "On.",
   },
   ORCHESTRA_LOG_LEVEL: {
     purpose: "Minimum log level (DEBUG/INFO/WARN/ERROR).",
@@ -375,7 +376,7 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   },
   ORCHESTRA_PARCEL_WATCHER_PATH: {
     purpose: "Module path for the parcel watcher binding.",
-    default: "The bundled platform binding (falls back to OPENCODE_PARCEL_WATCHER_PATH).",
+    default: "The bundled platform binding.",
   },
   ORCHESTRA_PASSWORD: {
     purpose: "Server password (legacy name; prefer ORCHESTRA_SERVER_PASSWORD).",
@@ -383,7 +384,7 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   },
   ORCHESTRA_PHOTON_WASM_PATH: {
     purpose: "Path to the photon wasm file.",
-    default: "The bundled wasm (falls back to OPENCODE_PHOTON_WASM_PATH).",
+    default: "The bundled wasm.",
   },
   ORCHESTRA_PP_BRANCH: {
     purpose: "Update branch for the plus-plus source install.",
@@ -399,7 +400,7 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   },
   ORCHESTRA_PROXY_PROBE: {
     purpose: "Proxy probing (\"0\" disables).",
-    default: "Probing enabled (falls back to OPENCODE_PROXY_PROBE).",
+    default: "Probing enabled.",
   },
   ORCHESTRA_PTY_BIN: {
     purpose: "Persistent PTY binary.",
@@ -419,7 +420,7 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   },
   ORCHESTRA_REPO_CLONE_GITHUB_BASE_URL: {
     purpose: "Base URL for cloning GitHub repositories.",
-    default: "github.com (falls back to OPENCODE_REPO_CLONE_GITHUB_BASE_URL).",
+    default: "github.com.",
   },
   ORCHESTRA_REPO_ROOT: {
     purpose: "Override for the repository root the recovery service repairs.",
@@ -441,8 +442,9 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     default: "Generated and stored in the 0600 service config.",
   },
   ORCHESTRA_SERVER_URL: {
-    purpose: "Server URL for the plugin client.",
+    purpose: "Server URL for the plugin client (removed with the OpenCode plugin connector; kept so the name is not reintroduced blindly).",
     default: "\"http://127.0.0.1:4096\"",
+    legacy: true,
   },
   ORCHESTRA_SESSION_ID: {
     purpose: "Session id of the invoking session, visible to child processes.",
@@ -475,7 +477,7 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   },
   ORCHESTRA_STATE_DIR: {
     purpose: "Override for the state directory.",
-    default: "The platform state directory (falls back to OPENCODE_STATE_DIR).",
+    default: "The platform state directory.",
   },
   ORCHESTRA_STORAGE_ACCESS_KEY_ID: {
     purpose: "Access key id for the enterprise storage adapter (S3/R2).",
@@ -502,7 +504,7 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   },
   ORCHESTRA_TEST_HOME: {
     purpose: "Override for the home directory (tests).",
-    default: "The real home directory (falls back to OPENCODE_TEST_HOME).",
+    default: "The real home directory.",
   },
   ORCHESTRA_TEST_ONBOARDING: {
     purpose: "Run the desktop onboarding flow in test mode (\"1\").",
@@ -514,15 +516,15 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   },
   ORCHESTRA_TREE_SITTER_BASH_WASM_PATH: {
     purpose: "Path to the tree-sitter bash wasm file.",
-    default: "The bundled wasm (falls back to OPENCODE_TREE_SITTER_BASH_WASM_PATH).",
+    default: "The bundled wasm.",
   },
   ORCHESTRA_TREE_SITTER_POWERSHELL_WASM_PATH: {
     purpose: "Path to the tree-sitter powershell wasm file.",
-    default: "The bundled wasm (falls back to OPENCODE_TREE_SITTER_POWERSHELL_WASM_PATH).",
+    default: "The bundled wasm.",
   },
   ORCHESTRA_TREE_SITTER_WASM_PATH: {
     purpose: "Path to the tree-sitter wasm runtime.",
-    default: "The bundled wasm (falls back to OPENCODE_TREE_SITTER_WASM_PATH).",
+    default: "The bundled wasm.",
   },
   ORCHESTRA_TUI_CHANNEL: {
     purpose: "Channel override for the TUI.",

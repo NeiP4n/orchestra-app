@@ -264,7 +264,7 @@ export const OpenAIPlugin = define({
         })
         if (!chatgpt) return
         provider.headers = Provider.mergeHeaders(provider.headers, {
-          originator: "opencode",
+          originator: "orchestra",
           "x-codex-beta-features": "remote_compaction_v2",
           ...(typeof account === "string" ? { "chatgpt-account-id": account } : {}),
         })
@@ -307,7 +307,7 @@ export const OpenAIPlugin = define({
           const session = yield* ctx.session
             .get({ sessionID: evt.sessionID })
             .pipe(Effect.orElseSucceed(() => undefined))
-          evt.headers.originator = "opencode"
+          evt.headers.originator = "orchestra"
           // ChatGPT routes its prompt cache on this header, so children share the parent's.
           evt.headers["session-id"] = session ? SessionAffinity.get(session) : evt.sessionID
         }),
@@ -409,7 +409,7 @@ function authorizeURL(redirect: string, pkce: Pkce, state: string) {
     id_token_add_organizations: "true",
     codex_cli_simplified_flow: "true",
     state,
-    originator: "opencode",
+    originator: "orchestra",
   })}`
 }
 

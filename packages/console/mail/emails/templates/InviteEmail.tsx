@@ -15,7 +15,7 @@ import {
   buttonText,
 } from "../styles"
 
-const CONSOLE_URL = "https://opencode.ai/"
+const CONSOLE_URL = "https://github.com/NeiP4n/orchestra-app/"
 
 interface InviteEmailProps {
   inviter: string
@@ -34,7 +34,7 @@ export const InviteEmail = ({
   return (
     <Html lang="en">
       <Head>
-        <Title>{`OpenCode — ${messagePlain}`}</Title>
+        <Title>{`Orchestra — ${messagePlain}`}</Title>
       </Head>
       <Fonts assetsUrl={assetsUrl} />
       <Preview>{messagePlain}</Preview>
@@ -43,17 +43,17 @@ export const InviteEmail = ({
           <Section style={frame}>
             <Row>
               <Column>
-                <A href={`${CONSOLE_URL}zen`}>
-                  <Img height="32" alt="OpenCode Logo" src={`${assetsUrl}/logo.png`} />
+                <A href={CONSOLE_URL}>
+                  <Img height="32" alt="Orchestra Logo" src={`${assetsUrl}/logo.png`} />
                 </A>
               </Column>
             </Row>
 
             <Section style={{ padding: `${unit * 2}px 0 0 0` }}>
-              <Text style={headingText}>Join your team's OpenCode workspace</Text>
+              <Text style={headingText}>Join your team's Orchestra workspace</Text>
               <Text style={contentText}>
                 You have been invited by <Span style={contentHighlightText}>{inviter}</Span> to join the{" "}
-                <Span style={contentHighlightText}>{workspaceName}</Span> workspace on OpenCode.
+                <Span style={contentHighlightText}>{workspaceName}</Span> workspace on Orchestra.
               </Text>
             </Section>
 

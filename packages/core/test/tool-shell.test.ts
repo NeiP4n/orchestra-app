@@ -1006,7 +1006,7 @@ describe("ShellTool", () => {
               const settled = yield* executeTool(registry, call({ command }))
 
               expect(settled.status).toBe("completed")
-              expect(settled.content?.[0]).toEqual({ type: "text", text: `1|1|opencode|${sessionID}` })
+              expect(settled.content?.[0]).toEqual({ type: "text", text: `1|1|orchestra|${sessionID}` })
             }),
           )
         },

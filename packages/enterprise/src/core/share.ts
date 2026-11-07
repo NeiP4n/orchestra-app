@@ -1,7 +1,52 @@
-import { Message, Model, Part, Session, SnapshotFileDiff } from "@opencode-ai/sdk/v2"
 import type { SessionInfo, SessionMessageInfo } from "@orchestra/client/promise"
+import type { FileDiff } from "@orchestra/schema/file-diff"
 import z from "zod"
 import { Storage } from "./storage"
+
+/**
+ * Legacy (v1) share shapes, previously imported from @opencode-ai/sdk/v2.
+ * Kept loose on purpose, mirroring the old generated SDK types (plain
+ * `string` ids, optional fields): share payloads are untrusted persisted
+ * JSON, `z.custom` performs no validation, and the strict SessionV1 schemas
+ * live in share-document.ts where the data is actually decoded.
+ */
+type LegacySession = {
+  id: string
+  slug: string
+  projectID: string
+  directory: string
+  path?: string
+  parentID?: string
+  title?: string
+  agent?: string
+  model?: { providerID: string; id: string; variant?: string }
+  version?: string
+  time: { created: number; updated: number; archived?: number }
+}
+
+type LegacyMessage = {
+  id: string
+  sessionID: string
+  role: string
+  time: { created: number; updated?: number }
+  agent?: string
+  model?: { providerID: string; modelID: string; variant?: string }
+}
+
+type LegacyPart = {
+  id: string
+  sessionID: string
+  messageID: string
+  type: string
+  text?: string
+}
+
+type LegacyModel = {
+  id: string
+  providerID: string
+  name: string
+  family?: string
+}
 
 function fn<T extends z.ZodType, Result>(schema: T, cb: (input: z.infer<T>) => Result) {
   return (input: z.infer<T>) => cb(schema.parse(input))
@@ -20,10 +65,8 @@ function currentMessage(input: unknown): input is SessionMessageInfo {
   )
 }
 
-type LegacySession = Session
-
 export namespace Share {
-  export type SessionDiff = SnapshotFileDiff & { file: string; patch: string }
+  export type SessionDiff = FileDiff.LegacyInfo & { file: string; patch: string }
   export type Session = LegacySession | SessionInfo
   export const Messages = z.object({
     sessionID: z.string(),
@@ -45,7 +88,7 @@ export namespace Share {
     }),
     z.object({
       type: z.literal("message"),
-      data: z.custom<Message>(),
+      data: z.custom<LegacyMessage>(),
     }),
     z.object({
       type: z.literal("messages"),
@@ -53,7 +96,7 @@ export namespace Share {
     }),
     z.object({
       type: z.literal("part"),
-      data: z.custom<Part>(),
+      data: z.custom<LegacyPart>(),
     }),
     z.object({
       type: z.literal("session_diff"),
@@ -61,7 +104,7 @@ export namespace Share {
     }),
     z.object({
       type: z.literal("model"),
-      data: z.custom<Model[]>(),
+      data: z.custom<LegacyModel[]>(),
     }),
   ])
   export type Data = z.infer<typeof Data>

@@ -263,14 +263,6 @@ const layer = Layer.effect(
       if (row) yield* bus.publish(ProjectSchema.Event.Updated, fromRow(row))
     })
 
-    const cached = Effect.fnUntraced(function* (dir: string) {
-      return yield* fs.readFileString(path.join(dir, "opencode")).pipe(
-        Effect.map((value) => value.trim()),
-        Effect.map((value) => (value ? ID.make(value) : undefined)),
-        Effect.orElseSucceed(() => undefined),
-      )
-    })
-
     // The binding is the saved folder -> orchestra-ID link: a markerless
     // directory has no remote or root commit to derive a stable ID from, so
     // the first resolve pins the derived ID here and later resolves read it
@@ -389,10 +381,8 @@ const layer = Layer.effect(
     const hgDiscover = Effect.fnUntraced(function* (dotHg: AbsolutePath) {
       const worktree = AbsolutePath.make(path.dirname(dotHg))
       const store = AbsolutePath.make(dotHg)
-      const previous = yield* cached(store)
-      const id = previous ?? (yield* hgRoot(worktree))
+      const id = yield* hgRoot(worktree)
       return {
-        previous,
         id: id ?? ID.global,
         directory: worktree,
         vcs: { type: "hg" as const, store },
@@ -410,8 +400,7 @@ const layer = Layer.effect(
           ? yield* git.repo.discover(AbsolutePath.make(path.dirname(native)))
           : undefined
       if (repo) {
-        const previous = yield* cached(repo.commonDirectory)
-        const id = (yield* remote(repo)) ?? previous ?? (yield* rootCommit(repo))
+        const id = (yield* remote(repo)) ?? (yield* rootCommit(repo))
         const canonical =
           repo.gitDirectory === repo.commonDirectory
             ? repo.worktree
@@ -420,7 +409,6 @@ const layer = Layer.effect(
                 Effect.orElseSucceed(() => repo.worktree),
               )
         return yield* persist({
-          previous,
           id: id ?? ID.global,
           directory: repo.worktree,
           canonical,

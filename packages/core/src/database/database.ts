@@ -123,7 +123,7 @@ export function layer(options: Options = { path: ":memory:" }) {
                   ),
                 ),
         ).pipe(Layer.provide(sqliteLayer({ filename })))
-      const envDb = process.env.ORCHESTRA_DB ?? process.env.OPENCODE_DB
+      const envDb = process.env.ORCHESTRA_DB
       const raw = options.path ?? envDb ?? ":memory:"
       if (raw === ":memory:") return provide(raw)
       const dataDir = (yield* Global.Service).data
