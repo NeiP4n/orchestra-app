@@ -139,10 +139,7 @@ export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
  * to the intake service when it is wired, else to the pure pipeline.
  * Returns undefined on any failure: admission must never depend on it.
  */
-const runPromptIntake = Effect.fn("SessionPrompt.intake")(function* (input: {
-  session: Session.Info
-  text: string
-}) {
+const runPromptIntake = Effect.fn("SessionPrompt.intake")(function* (input: { session: Session.Info; text: string }) {
   return yield* Effect.gen(function* () {
     const location = yield* Effect.serviceOption(Location.Service)
     const store = yield* Effect.serviceOption(SessionStore.Service)
@@ -199,25 +196,39 @@ const runPromptIntake = Effect.fn("SessionPrompt.intake")(function* (input: {
       sources: { dod: dodAvailable, history: historyAvailable, journal: journalAvailable },
     }
     if (Option.isSome(intakeService)) {
-      // The disambiguator needs session services; capture them here so the
-      // intake service keeps its requirement-free (R = never) contract.
-      const intakeEnv = Context.pick(Model.Service, ModelResolver.Service, SessionContext.Service, LLMClient.Service)(
-        yield* Effect.context<Model.Service | ModelResolver.Service | SessionContext.Service | LLMClientService>(),
-      )
+      // The disambiguator needs session services, but the intake contract
+      // stays requirement-free (R = never): read each one optionally from the
+      // ambient context and wire the model step only when all four are
+      // there. A missing service skips the model step - the heuristic
+      // reading stands, which is the module's own rule for a missing model.
+      const model = yield* Effect.serviceOption(Model.Service)
+      const resolver = yield* Effect.serviceOption(ModelResolver.Service)
+      const sessionContext = yield* Effect.serviceOption(SessionContext.Service)
+      const llm = yield* Effect.serviceOption(LLMClient.Service)
+      const intakeEnv =
+        Option.isSome(model) && Option.isSome(resolver) && Option.isSome(sessionContext) && Option.isSome(llm)
+          ? Context.make(Model.Service, model.value).pipe(
+              Context.add(ModelResolver.Service, resolver.value),
+              Context.add(SessionContext.Service, sessionContext.value),
+              Context.add(LLMClient.Service, llm.value),
+            )
+          : undefined
       return yield* intakeService.value.process({
         session: input.session,
         text: input.text,
         context,
-        disambiguate: (disambiguationInput) =>
-          PromptIntake.disambiguateWithModel(disambiguationInput).pipe(Effect.provide(intakeEnv)),
+        ...(intakeEnv === undefined
+          ? {}
+          : {
+              disambiguate: (disambiguationInput: Parameters<typeof PromptIntake.disambiguateWithModel>[0]) =>
+                PromptIntake.disambiguateWithModel(disambiguationInput).pipe(Effect.provide(intakeEnv)),
+            }),
       })
     }
     return PromptIntake.processPure({ text: input.text, context })
   }).pipe(
     Effect.catchCause((cause) =>
-      Effect.logWarning("prompt intake failed, continuing with raw prompt", { cause }).pipe(
-        Effect.as(undefined),
-      ),
+      Effect.logWarning("prompt intake failed, continuing with raw prompt", { cause }).pipe(Effect.as(undefined)),
     ),
   )
 })
@@ -234,11 +245,7 @@ function journalTitlesFromView(view: Record<string, Record<string, unknown>>): A
       titles.push({
         title: data.title,
         outcome:
-          typeof data.outcome === "string"
-            ? data.outcome
-            : typeof data.state === "string"
-              ? data.state
-              : undefined,
+          typeof data.outcome === "string" ? data.outcome : typeof data.state === "string" ? data.state : undefined,
       })
     }
   }
