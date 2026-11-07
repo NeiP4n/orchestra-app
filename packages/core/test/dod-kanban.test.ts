@@ -238,6 +238,33 @@ leaves:
     expect(board.counts).toEqual({ total: 7, done: 2, inProgress: 1, blocked: 1, failed: 1, free: 2 })
   })
 
+  test("a card marked for a human is never takeable by a guest, and never counts as free for one", async () => {
+    const human = `task_id: T-HUMAN
+stages: []
+leaves:
+  - id: H-001
+    what: "Human decision"
+    group: "Team A"
+    task_state: NOT_STARTED
+    human: true
+  - id: L-001
+    what: "Free task"
+    group: "Team A"
+    task_state: NOT_STARTED
+`
+    await using dir = await project(human)
+    const guestBoard = await boardOf(dir.path, guestA)
+    const humanCard = card(guestBoard, "H-001")
+    expect(humanCard.human).toBe(true)
+    expect(humanCard.canTake).toBe(false)
+    expect(humanCard.takeRefusal).toContain("marked for a human")
+    expect(guestBoard.counts.free).toBe(1)
+    // The host works it by hand, so on the host board it still counts as free.
+    const hostBoard = await boardOf(dir.path, host)
+    expect(card(hostBoard, "H-001").human).toBe(true)
+    expect(hostBoard.counts.free).toBe(2)
+  })
+
   test("lists the zones and marks the viewer's own", async () => {
     await using dir = await project()
     const board = await boardOf(dir.path, guestA)

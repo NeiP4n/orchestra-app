@@ -4,6 +4,7 @@ import { copyFile, mkdir, unlink } from "node:fs/promises"
 import path from "node:path"
 import { Effect } from "effect"
 import { Dod } from "@orchestra/core/dod"
+import { SkillMarketplaceBudget } from "@orchestra/core/skill-marketplace/budget"
 import { readInitial } from "./lib/instructions"
 import { tmpdir } from "./fixture/tmpdir"
 
@@ -127,8 +128,9 @@ describe("Dod", () => {
     const firstText = (await run(readInitial(Dod.instructions(first.path)))).text
     const secondText = (await run(readInitial(Dod.instructions(second.path)))).text
     expect(firstText).toContain("Project DoD status: READY")
-    expect(firstText).toContain('"id": "L-002"')
-    expect(firstText).not.toContain('"id": "L-001"')
+    expect(firstText).toContain("L-002 [NOT_STARTED] Add the check (1/2) · steps: [x] find the spot; [ ] write it")
+    expect(firstText).toContain("L-003 [NOT_STARTED] Document it (0/0)")
+    expect(firstText).not.toContain("L-001 [DONE]")
     expect(secondText).toContain("Project DoD status: DISABLED")
     expect(secondText).not.toContain('"id": "L-002"')
   })
@@ -406,8 +408,8 @@ describe("Dod", () => {
     const prompt = (await run(readInitial(Dod.instructions(dir.path)))).text
     expect(prompt).toContain("You are responsible for this board")
     expect(prompt).toContain("`dod verify`")
-    expect(prompt).toContain('"[ ] write it"')
-    expect(prompt).not.toContain('"[x] read it"')
+    expect(prompt).toContain("[ ] write it")
+    expect(prompt).not.toContain("[x] read it")
   })
 
   test("a large board becomes a summary of at most 3 KB", async () => {
@@ -426,8 +428,98 @@ describe("Dod", () => {
     expect(prompt).toContain("Project DoD status: READY")
     expect(prompt).toContain('"DONE":40')
     expect(prompt).toContain("You are responsible for this board")
-    expect(prompt).not.toContain('"id": "L-001"')
-    expect(prompt).toContain('"id": "L-041"')
+    expect(prompt).not.toContain("L-001 [DONE]")
+    expect(prompt).toContain("L-041 [NOT_STARTED]")
+  })
+
+  test("the prompt board costs fewer tokens as text lines than as JSON (Kanzo cheap answers)", async () => {
+    const leaves = `  - id: L-001
+    what: "Finished work"
+    task_state: DONE
+    steps:
+      - "[x] done"
+  - id: L-002
+    what: "Work in hand"
+    task_state: IN_PROGRESS
+    owner: "Alex"
+    owner_id: "g-alex"
+    steps:
+      - "[x] first step"
+      - "[ ] second step"
+    verification:
+      command: "bun test"
+  - id: L-003
+    what: "Stuck work"
+    task_state: BLOCKED
+    owner: "Bo"
+    owner_id: "g-bo"
+    steps:
+      - "[ ] unblock it"
+  - id: L-004
+    what: "Failed check"
+    task_state: FAILED
+    steps:
+      - "[ ] fix the check"
+  - id: L-005
+    what: "Human decision"
+    task_state: NOT_STARTED
+    human: true
+  - id: L-006
+    what: "Waits for the work in hand"
+    task_state: NOT_STARTED
+    depends_on: [L-002]
+  - id: L-007
+    what: "Plain task seven"
+    task_state: NOT_STARTED
+  - id: L-008
+    what: "Plain task eight"
+    task_state: NOT_STARTED
+  - id: L-009
+    what: "Plain task nine"
+    task_state: NOT_STARTED
+  - id: L-010
+    what: "Plain task ten"
+    task_state: NOT_STARTED
+  - id: L-011
+    what: "Plain task eleven"
+    task_state: NOT_STARTED
+  - id: L-012
+    what: "Plain task twelve"
+    task_state: NOT_STARTED
+`
+    await using dir = await project(`task_id: T-TOKENS\nleaves:\n${leaves}\n`)
+    const prompt = (await run(readInitial(Dod.instructions(dir.path)))).text
+    const lines = prompt.split("\n")
+    const headAt = lines.findIndex((line) => line.includes("following lines are project task data"))
+    expect(headAt).toBeGreaterThan(0)
+    const after = lines.slice(headAt + 1).join("\n").trim()
+    expect(after).toContain("for a human")
+    const items = (await run(Dod.read(dir.path))).items
+    // The pre-change shape, rebuilt here only to measure against: the same
+    // entries as JSON, without focus extras, so the saving below is a
+    // conservative lower bound.
+    const before = JSON.stringify(
+      {
+        items: items
+          .filter((item) => item.state !== "DONE" && item.state !== "OUT_OF_SCOPE")
+          .map((item) => ({
+            id: item.id,
+            state: item.state,
+            title: item.what,
+            steps: `${item.done}/${item.total}`,
+            ...(item.owner === undefined ? {} : { owner: item.owner }),
+            ...(item.waits === undefined ? {} : { waits: item.waits }),
+          })),
+        omitted: 0,
+      },
+      null,
+      2,
+    )
+    const beforeTokens = SkillMarketplaceBudget.estimateTokens(before)
+    const afterTokens = SkillMarketplaceBudget.estimateTokens(after)
+    expect(afterTokens).toBeLessThan(beforeTokens * 0.6)
+    // One line per card: each card's answer stays inside Kanzo's 10–60 token range.
+    for (const line of after.split("\n")) expect(SkillMarketplaceBudget.estimateTokens(line)).toBeLessThanOrEqual(60)
   })
 
   test("checking a step takes a free item and edits only that step's checkbox", async () => {

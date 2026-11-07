@@ -192,6 +192,9 @@ export const DodItem = Schema.Struct({
   waits: Schema.Array(Schema.String).pipe(Schema.optional),
   // The item's verification.command, which the host runs when the holder submits the item.
   verify: Schema.String.pipe(Schema.optional),
+  // Marked for a human (Kanzo's Human card): agents never take it — the
+  // host works it by hand. Set in dod.yaml as `human: true`.
+  human: optional(Schema.Boolean),
 }).annotate({ identifier: "Room.DodItem" })
 export interface DodItem extends Schema.Schema.Type<typeof DodItem> {}
 
@@ -252,6 +255,8 @@ export const DodBoardCard = Schema.Struct({
   takeRefusal: optional(Schema.String),
   // A foreign zone without a pass: visible on the board, but not takeable.
   readOnly: Schema.Boolean,
+  // Marked for a human (Kanzo's Human card): agents never take this card.
+  human: optional(Schema.Boolean),
 }).annotate({ identifier: "Room.DodBoardCard" })
 export interface DodBoardCard extends Schema.Schema.Type<typeof DodBoardCard> {}
 
