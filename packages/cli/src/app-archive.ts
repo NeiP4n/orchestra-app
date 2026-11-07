@@ -23,13 +23,15 @@ export function encode(entries: ReadonlyArray<readonly [string, Uint8Array]>) {
   return Buffer.concat([header, index, ...entries.map((entry) => entry[1])])
 }
 
-/** Each asset's compressed bytes, as views into the archive. */
+/** Each asset's compressed bytes, as views into the archive. Keys are URL paths: a Windows build lists nested
+ * files with backslashes (`_assets\index-abc.js`), and a URL lookup with forward slashes would never match
+ * them — the same white-screen trap as the source-mode map, so normalize here, at the boundary. */
 export function decode(archive: Uint8Array): Readonly<Record<string, Uint8Array>> {
   const length = new DataView(archive.buffer, archive.byteOffset, archive.byteLength).getUint32(0, true)
   const body = 4 + length
   return Object.fromEntries(
     Object.entries(decodeIndex(new TextDecoder().decode(archive.subarray(4, body)))).map(([key, [offset, size]]) => [
-      key,
+      key.replaceAll("\\", "/"),
       archive.subarray(body + offset, body + offset + size),
     ]),
   )

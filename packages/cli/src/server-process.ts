@@ -164,6 +164,10 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
       if (!password) return yield* Effect.fail(new Error("Missing server password"))
       const instanceID = randomUUID()
       const transform = yield* WebUi.handler()
+      // The web shell is built artifacts, not source: a missing, incomplete
+      // or stale dist serves a broken page. Say so loudly at startup, in
+      // the serve log, instead of letting the browser show a blank page.
+      yield* WebUi.checkStartupHealth()
       const launch = () => start(
         {
           app: {

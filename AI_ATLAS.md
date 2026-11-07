@@ -1922,6 +1922,67 @@ the case "the program itself is broken".
   `return Effect.succeed(...)` — the latter returns the Effect object as the
   response and the request hangs with no bytes.
 
+## Web UI shell — stale dist, Windows backslashes, white screen (perf-white)
+
+- Root cause of the 2026-11-07 white screen (Windows only): `sourceAssets()`
+  in `packages/cli/src/app-assets.ts` built the asset map from
+  `fs.readDirectory(root, {recursive: true})`, whose paths use the platform
+  separator — `_assets\index-abc.js` on Windows. `serveUI` looks assets up
+  by URL, which always uses forward slashes, so every nested asset 404'd
+  while `index.html` (no separator in its name) loaded fine. Edge reports
+  the empty 404 as "blocked due to MIME type", so the console showed MIME
+  errors and the page stayed white. The packaged CLI was never affected:
+  `packages/cli/script/app-assets.ts` already normalizes keys at archive
+  build time. Fix: `normalizeAssetKey()` in `app-assets.ts`, applied in
+  `sourceAssets()`, in `AppArchive.decode()`, and defensively to the request
+  key in `serveUI` (`packages/cli/src/services/web-ui.ts`).
+- Static 404s carry `content-type: text/plain; charset=utf-8` (never a bare
+  404), so the browser reports a 404 instead of a MIME mystery.
+- `orchestra serve` checks the dist at startup (`WebUi.checkStartupHealth`,
+  called from `packages/cli/src/server-process.ts`): missing dist, shell
+  references to assets that do not exist (`findMissingAssets` in
+  `app-assets.ts`), or a dist older than the app sources (source mode only)
+  each log a loud warning with the rebuild instruction. The warning goes to
+  the serve console via `console.error`: `Effect.logWarning` would land in
+  the shared opencode log file instead (stderr only with
+  `ORCHESTRA_PRINT_LOGS=1`), where nobody running serve looks.
+  `git pull` never rebuilds the app — `dist/` is not in git — and never
+  updates the installed binary: `bun run build` in `packages/app`, then
+  restart serve.
+- A rebuild while the server runs is picked up without a restart (source
+  mode only): the web-UI handler re-stats `dist/index.html` per request
+  (one syscall, throttled to once a second) and, when it changed, re-lists
+  dist and swaps the whole asset map at once — only after the new build
+  validates (every asset the new shell references exists), so a shell and
+  its assets can never come from different builds. A build still in
+  progress keeps the previous build and logs once. Content reads stay lazy,
+  so the swap compares the new shell against the shell text stored with the
+  snapshot — re-reading the old snapshot's index.html would return the
+  current disk bytes, not the snapshot's. The embedded archive is immutable,
+  so no reload applies there.
+- The shell never comes from the service worker's precache:
+  `packages/app/vite.pwa.ts` excludes `index.html` from the precache and
+  serves navigations `NetworkFirst` (3 s timeout, cached shell only when
+  the server is unreachable). Hashed assets stay precached — their names
+  cannot go stale. `skipWaiting: false` / `clientsClaim: false` are
+  deliberate: an open tab keeps its complete build (a new worker taking
+  over mid-session would make the tab's next lazy chunk 404 against the
+  new dist); freshness comes from the network-first navigation, not from
+  the takeover. `index.html` is served `no-cache` (revalidated every time).
+- A failed bundle no longer means a white page: `packages/app/index.html`
+  carries a loading fallback inside `#root` and `public/orchestra-boot.js`
+  (plain script, runs before the entry module) shows an error page — what
+  happened, reload / clear-cache / rebuild-and-restart hints, a recovery
+  link — when a script chunk fails or the app has not mounted within 10 s.
+  `packages/app/src/entry.tsx` removes the fallback and sets
+  `root.dataset.opencodeRendered` after render. The boot copy is English
+  only: the app's own `error.page.*` strings have no Chinese translation
+  either, so a Chinese browser sees the same English here as after mount.
+- Verify: `packages/cli/test/app-archive.test.ts` (backslash keys),
+  `packages/cli/test/app-assets.test.ts` (normalization, shell references,
+  sourceAssets with a Windows-shaped listing), `packages/cli/test/web-ui.test.ts`
+  (404 content-type, Windows-keyed map served by URL key).
+
 ## Foreground server lifecycle — `packages/cli/src/services/server-lifecycle.ts` (B14 live fix)
 
 B14 (2026-11-06): the live foreground server (pid 31637) died silently —

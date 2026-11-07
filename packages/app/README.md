@@ -21,6 +21,24 @@ bun run dev
 - `bun run build`: Bundles the app for production into the `dist/` folder.
 - `bun run test:e2e`: Runs Playwright end-to-end integration tests.
 
+### Rebuilding after `git pull`
+
+`dist/` is build output, not source: it is not in git, so `git pull` never
+updates it, and neither does the installed `orchestra` binary. After pulling
+new app code, rebuild and restart the server — otherwise the browser keeps
+serving the previous build, or a shell whose hashed assets no longer exist
+(a blank page):
+
+```bash
+bun run build   # in packages/app
+# then restart `orchestra serve`
+```
+
+`orchestra serve` logs a loud warning at startup when the dist is missing,
+incomplete (the shell references assets that are not there), or older than
+the app sources. In source mode it also notices a rebuilt dist while
+running and serves the new build without a restart.
+
 ## E2E Testing
 
 Locally, Playwright starts the Vite dev server automatically via `webServer`, or reuses one already running at the configured address. The browser suite uses isolated API fixtures rather than a live Orchestra backend.

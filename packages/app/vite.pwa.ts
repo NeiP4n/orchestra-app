@@ -24,15 +24,45 @@ export function serviceWorker(directory: string) {
       sourcemap: false,
       globDirectory: directory,
       clientsClaim: false,
-      // Keep each open tab on its complete build until all old clients close.
+      // Keep each open tab on its complete build until all old clients close:
+      // a new service worker taking over mid-session would make the tab's
+      // next lazy chunk miss the new precache and 404 against the new dist.
+      // Freshness does not depend on the takeover: the shell is never
+      // precached (see globIgnores) and every navigation fetches it from
+      // the server first (see runtimeCaching), so a reload always gets the
+      // current shell even while the old worker still controls the page.
       skipWaiting: false,
       inlineWorkboxRuntime: true,
-      navigateFallback: "/index.html",
+      // vite-plugin-pwa defaults navigateFallback to "index.html": without
+      // an explicit undefined here, the generated worker registers a
+      // navigation route bound to the precached shell — registered before
+      // the runtimeCaching route below, so it would swallow every
+      // navigation and serve (or fail to serve) the shell from the cache.
+      navigateFallback: undefined,
+      // The shell is deliberately NOT precached: a precached index.html is
+      // a shell from the build that installed the worker, served without
+      // ever asking the server — when dist was rebuilt since, its hashed
+      // assets are gone and the page loads white with 404s. Navigations
+      // fetch the current shell from the network and fall back to the
+      // cached shell only when the server is unreachable (in which case the
+      // app cannot work anyway: the API is same-origin). Hashed assets stay
+      // precached: their content-addressed names cannot go stale.
       // Pairing links must reach the server so it can set the session cookie.
-      navigateFallbackDenylist: [/^\/(?:api|auth)(?:\/|$)/, /^\/(?:_assets|assets)(?:\/|$)/],
+      runtimeCaching: [
+        {
+          urlPattern: ({ request, url }) =>
+            request.mode === "navigate" && !/^\/(?:api|auth)(?:\/|$)/.test(url.pathname),
+          handler: "NetworkFirst",
+          options: {
+            cacheName: "orchestra-shell",
+            networkTimeoutSeconds: 3,
+            cacheableResponse: { statuses: [200] },
+          },
+        },
+      ],
       // Include lazy chunks and non-JS dependencies, not just the startup bundle.
       globPatterns: ["**/*"],
-      globIgnores: ["**/*.map", "_headers", "_redirects"],
+      globIgnores: ["**/*.map", "_headers", "_redirects", "index.html"],
       maximumFileSizeToCacheInBytes: Number.MAX_SAFE_INTEGER,
       manifestTransforms: [
         async (entries) => ({

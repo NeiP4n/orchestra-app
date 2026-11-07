@@ -9,6 +9,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { brotliCompressSync } from "node:zlib"
+import { AppArchive } from "../src/app-archive"
 import { WebUi } from "../src/services/web-ui"
 import { it } from "../../core/test/lib/effect"
 
@@ -235,6 +236,10 @@ describe("web UI", () => {
 
           const missing = yield* Effect.promise(() => fetch(`${origin}/api/missing`))
           expect(missing.status).toBe(404)
+          // A 404 without a content-type is what Edge reports as "blocked
+          // due to MIME type" for module scripts — the browser must see a
+          // plain-text 404, not a MIME mystery.
+          expect(missing.headers.get("content-type")).toContain("text/plain")
           expect(yield* Effect.promise(() => missing.text())).toBe("")
 
           yield* Effect.forEach(["/_assets/old.js", "/_assets/old.css", "/_assets/missing"], (pathname) =>
@@ -242,6 +247,7 @@ describe("web UI", () => {
               const missing = yield* Effect.promise(() => fetch(`${origin}${pathname}`))
               expect(missing.status).toBe(404)
               expect(missing.headers.get("cache-control")).toBe("no-store")
+              expect(missing.headers.get("content-type")).toContain("text/plain")
               expect(yield* Effect.promise(() => missing.text())).toBe("")
             }),
           )
@@ -277,6 +283,44 @@ describe("web UI", () => {
           const legacy = yield* Effect.promise(() => fetch(`${origin}/assets/missing.js`))
           expect(legacy.status).toBe(200)
           expect(yield* Effect.promise(() => legacy.text())).toContain("embedded")
+        }),
+      ).pipe(Effect.provide(NodeFileSystem.layer)),
+    )
+  })
+
+  test("serves nested assets whose map keys use Windows backslash separators", async () => {
+    // Windows-only white screen: a Windows server's readdir lists nested
+    // files with backslashes (`_assets\index-abc.js`), so the asset map's
+    // keys never matched a URL lookup and every nested asset 404'd while
+    // index.html loaded fine. The map here is built the way the packaged
+    // server builds it — through AppArchive.decode — so the lookup must
+    // find the file by its URL key.
+    const decoded = AppArchive.decode(
+      AppArchive.encode([
+        ["index.html", new TextEncoder().encode("<html><body>windows</body></html>")],
+        ["_assets\\app.js", new TextEncoder().encode("console.log('windows')")],
+        ["icons\\dev\\favicon.ico", new Uint8Array([1, 2, 3])],
+      ] as const),
+    )
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const transform = yield* WebUi.handler({ assets: decoded })
+          const http = yield* NodeHttpServer.make(createServer, { host: "127.0.0.1", port: 0 })
+          yield* http.serve(transform(Effect.succeed(HttpServerResponse.empty({ status: 404 }))))
+          const origin = HttpServer.formatAddress(http.address)
+
+          const script = yield* Effect.promise(() => fetch(`${origin}/_assets/app.js`))
+          expect(script.status).toBe(200)
+          expect(script.headers.get("content-type")).toContain("javascript")
+          expect(yield* Effect.promise(() => script.text())).toBe("console.log('windows')")
+
+          const icon = yield* Effect.promise(() => fetch(`${origin}/icons/dev/favicon.ico`))
+          expect(icon.status).toBe(200)
+          expect(new Uint8Array(yield* Effect.promise(() => icon.arrayBuffer()))).toEqual(
+            new Uint8Array([1, 2, 3]),
+          )
         }),
       ).pipe(Effect.provide(NodeFileSystem.layer)),
     )
