@@ -44,7 +44,7 @@ async function writeLock(directory: string, pid: number, startedAt: string, port
   )
 }
 
-async function run(command: string[], args: string[], env: Record<string, string | undefined>) {
+async function run(command: string, args: string[], env: Record<string, string | undefined>) {
   const child = Bun.spawn([command, ...args], {
     stdout: "pipe",
     stderr: "pipe",
