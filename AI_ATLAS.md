@@ -389,9 +389,11 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
     `text`, `error`, `fingerprint`, `attempts`): attempts only grow, so
     `attempts === 2` fires once per run. The journal is the durable shared
     memory the society reads through `getView` — the three-level memory of
-    Б17 does not exist yet and the kernel is pure, so the lesson cannot go
-    to the Memory service from here. The lesson names the error, not a
-    verdict about its cause.
+    Б17 exists for L2 (project) and L1 (society) as files
+    (`packages/core/src/memory/levels.ts`); the L3 session capture and the
+    secret scrubber are separate slices, and the kernel is pure, so the
+    lesson cannot go to the Memory service from here. The lesson names the
+    error, not a verdict about its cause.
   - `kernel/decide.ts` receipts carry `verification` (idea #14), entries
     `{ kind, detail }` with kind one of `VERIFICATION_KINDS` (`test`,
     `command`, `manual`, `review`, `transcript`). A done receipt that
@@ -1786,6 +1788,88 @@ the claim path would refuse. Columns come from `task_state`:
   not reachable, unhealthy = probe fails). Verify: `bun test
   test/integrate.test.ts test/live-smoke.test.ts` in `packages/cli`.
 
+## Block Б17 — three-level memory, L2 (project) + L1 (society) — `packages/core/src/memory/levels.ts`
+
+- Idea: memory is conclusions and context, not the journal (Б2: the
+  journal is facts). Three levels, promotion only up and only curated:
+  a session proposes into the project daily, promotion moves at most 5
+  facts per session into the project `MEMORY.md`; only decisions,
+  lessons and rules cross from a project into the society, and only a
+  human or the council moves them. Nothing leaks on its own — without
+  an explicit promotion call, nothing from a lower level appears above.
+- L2 — project, `<project>/.orchestra/memory/` (registered in the Б16
+  registry, `project-files/descriptors-state.ts`: `memory/` dir,
+  `index.json`, `MEMORY.md`, `daily/`, `actors/`; all `git: false` —
+  memory is local, like notes):
+  - `index.json` is the store of promoted facts (`{version: 1, facts:
+    [{id, text, type, tags, painful, sourceSession, created,
+    promotedAt}]}`); `MEMORY.md` is its render (one bullet per fact,
+    ≤ 12 KiB, rewritten on promotion — hand edits are overwritten).
+  - `daily/YYYY-MM-DD.md` holds candidates, one structured line each
+    (`- [ ] <id> | <type> | painful|routine | session:<id> |
+    tags:<a,b> | <text>`); `[x]` = promoted, `[-]` = rejected.
+    Unparseable lines are free-form notes, ignored by promotion.
+  - `actors/<name>.md` — one dated line per note, name a lowercase slug.
+  - `promoteSessionFacts(root, sessionId)` — the only way into
+    `MEMORY.md`. The cap is 5 per session in total (facts the session
+    already promoted count, so a second call cannot smuggle a 6th
+    through). A fact qualifies only if it would hurt to restore:
+    `painful: true`, or type `decision`/`bugfix`/`discovery`. Over the
+    12 KiB budget a fact is refused with reason `budget` — the file is
+    never silently truncated. Skipped facts stay candidates and are
+    reported (`not-painful`/`over-limit`/`budget`/`duplicate`).
+  - Search is progressive disclosure over the file store, on the
+    existing offline BM25 rank (`memory/rank.ts`) — no vector DB, no
+    Chroma, no Python: `searchProjectMemory` returns a compact index
+    (id, kind, title ≤ 160 chars, score, `approxTokens` ≤ ~100);
+    `timelineProjectMemory` returns chronological context (±2 around
+    given IDs, else the most recent); `getProjectMemoryFacts` returns
+    full details only for the IDs already filtered. The query is plain
+    text for the ranker, never interpolated into SQL/FTS/regex, so
+    injection strings match nothing and never throw.
+- L1 — society, `<society>/.orchestra/memory/` (a different root from
+  any project; a project call can never write into it): `MEMORY.md`,
+  `charter.md`, `rules.md` (`## hard` / `## soft`, bullets
+  `- [applies] text`), `decisions/<fact-id>.md`,
+  `lessons/<fact-id>.md`, `agents/<name>.md`, `blocks/<id>.md`,
+  `daily/YYYY-MM-DD.md`, `archive/`, `members.md`, `acl.yaml`.
+  - Minimal ACL (`SOCIETY_ACL` in `levels.ts`): human writes
+    everything; the council writes `decisions/`, `lessons/`,
+    `rules.md`; the orchestrator and agents write nothing directly —
+    `writeSocietyFile` refuses them with `denied` and points at
+    `proposeToSociety`, which appends a proposal line to the society
+    daily. `acl.yaml` is a generated human-readable mirror of the
+    table; enforcement reads the table, not the file.
+  - `promoteProjectToSociety(projectRoot, societyRoot, {by, kind,
+    factIds})` — `kind` is `decision`/`lesson`/`rule`; `by` must be
+    `human` or `council`, anyone else gets `denied`. A promoted rule
+    is appended to the `## soft` section of `rules.md` as
+    `- [project:<name>] <text> (факт <id>)`; decisions/lessons become
+    one file each, recording their source project and fact id.
+  - Rule precedence (`resolveRules`): hard society rules first, then
+    hard project rules, then soft rules most-specific-first
+    (specificity = count of non-wildcard segments in `applies`; a
+    society soft rule wins a tie).
+- Secrets: this module has NO scrubber on purpose — the foundation
+  slice owns `memory/scrub.ts`. Every write takes an optional `scrub`
+  function (`WriteOptions.scrub`) that is applied to user text before
+  writing; without it text is stored as-is. Do not grow a second
+  scrubber here.
+- What is NOT covered (other slices): L3 session capture (hooks,
+  `memory.md` ≤ 8 KiB, `handoff.md`, checkpoint before compaction,
+  start budget ≤ 12k chars), the foundation scrubber itself, and the
+  full ACL model beyond the minimal table above. The existing
+  Letta-style memory (`memory/index.ts`: blocks + `archive.jsonl` in
+  the same `.orchestra/memory/` directory) is untouched — the L2 files
+  coexist with it, and `index.json` here is a different file from the
+  Б16 `index.yaml` at `.orchestra/index.yaml`.
+- Tests: `packages/core/test/memory-levels.test.ts` (20: promotion,
+  no-leak, 5-per-session cap, painful-only, 12 KiB fail-closed,
+  idempotence, cross-root isolation, actors, compact search,
+  timeline, get-by-id, injection strings, L1 ACL, proposals,
+  L2→L1 promotion, rule precedence, `acl.yaml`, init idempotence,
+  scrub hook). Verify: `bun test test/memory-levels.test.ts` in
+  `packages/core` (20 pass); `bun typecheck` in `packages/core`.
 
 ## Model collections & custom endpoints
 
