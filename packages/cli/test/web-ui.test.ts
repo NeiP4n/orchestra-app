@@ -5,11 +5,12 @@ import { Effect } from "effect"
 import { HttpServer, HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { createServer } from "node:http"
 import { createHash } from "node:crypto"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { brotliCompressSync } from "node:zlib"
 import { AppArchive } from "../src/app-archive"
+import { sourceAssets } from "../src/app-assets"
 import { WebUi } from "../src/services/web-ui"
 import { it } from "../../core/test/lib/effect"
 
@@ -324,6 +325,46 @@ describe("web UI", () => {
         }),
       ).pipe(Effect.provide(NodeFileSystem.layer)),
     )
+  })
+
+  test("serves the shell text from the accepted snapshot, not a later disk edit", async () => {
+    // sourceAssets reads file contents lazily from disk, so overwriting
+    // index.html after the handler loaded used to change the served shell
+    // at once: a rebuild (or a broken edit) landing mid-flight paired a
+    // new shell with the old asset set, and the browser 404'd its chunks
+    // even though the reload guard had kept the previous build. The served
+    // shell must be the text captured when the snapshot was accepted.
+    const dir = await mkdtemp(path.join(tmpdir(), "opencode-web-ui-shell-"))
+    try {
+      const good = `<html><head><script src="/_assets/app.js" type="module"></script></head><body>good shell</body></html>`
+      const broken = `<html><head><script src="/_assets/app-DEAD.js" type="module"></script></head><body>broken shell</body></html>`
+      await mkdir(path.join(dir, "_assets"), { recursive: true })
+      await writeFile(path.join(dir, "index.html"), good)
+      await writeFile(path.join(dir, "_assets", "app.js"), "console.log('app')")
+      const files = await Effect.runPromise(sourceAssets(dir).pipe(Effect.provide(NodeFileSystem.layer)))
+
+      await Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const transform = yield* WebUi.handler({ assets: files })
+            const http = yield* NodeHttpServer.make(createServer, { host: "127.0.0.1", port: 0 })
+            yield* http.serve(transform(Effect.succeed(HttpServerResponse.empty({ status: 404 }))))
+            const origin = HttpServer.formatAddress(http.address)
+
+            const first = yield* Effect.promise(() => fetch(`${origin}/`))
+            expect(yield* Effect.promise(() => first.text())).toContain("good shell")
+
+            yield* Effect.promise(() => writeFile(path.join(dir, "index.html"), broken))
+            const second = yield* Effect.promise(() => fetch(`${origin}/`))
+            const served = yield* Effect.promise(() => second.text())
+            expect(served).toContain("good shell")
+            expect(served).not.toContain("broken shell")
+          }),
+        ).pipe(Effect.provide(NodeFileSystem.layer)),
+      )
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   test("serves index.html with an external theme preload script without a CSP hash and serves the preload file", async () => {

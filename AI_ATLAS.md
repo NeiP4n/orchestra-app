@@ -1957,8 +1957,13 @@ the case "the program itself is broken".
   its assets can never come from different builds. A build still in
   progress keeps the previous build and logs once. Content reads stay lazy,
   so the swap compares the new shell against the shell text stored with the
-  snapshot — re-reading the old snapshot's index.html would return the
-  current disk bytes, not the snapshot's. The embedded archive is immutable,
+  snapshot — and the served shell is that stored text too (`serveUI` takes
+  the snapshot's `indexHtml`): reading `assets["index.html"]` again would
+  return the current disk bytes, not the snapshot's, so a rebuild landing
+  mid-flight used to pair a new shell with the old asset set even though
+  the guard had kept the previous build (found live 2026-11-07: a broken
+  shell written to disk was served at once while the guard logged
+  "keeping the previous build"). The embedded archive is immutable,
   so no reload applies there.
 - The shell never comes from the service worker's precache:
   `packages/app/vite.pwa.ts` excludes `index.html` from the precache and
@@ -1981,7 +1986,8 @@ the case "the program itself is broken".
 - Verify: `packages/cli/test/app-archive.test.ts` (backslash keys),
   `packages/cli/test/app-assets.test.ts` (normalization, shell references,
   sourceAssets with a Windows-shaped listing), `packages/cli/test/web-ui.test.ts`
-  (404 content-type, Windows-keyed map served by URL key).
+  (404 content-type, Windows-keyed map served by URL key, shell text served
+  from the accepted snapshot, not a later disk edit).
 
 ## Foreground server lifecycle — `packages/cli/src/services/server-lifecycle.ts` (B14 live fix)
 

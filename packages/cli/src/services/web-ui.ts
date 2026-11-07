@@ -172,12 +172,12 @@ export const handler = Effect.fn("cli.web-ui.handler")(function* (options?: {
       const current = yield* currentSnapshot()
       if (current === undefined)
         return yield* assets.pipe(
-          Effect.flatMap((loaded) => serveUI(request, url, loaded.files, loaded.brotli)),
+          Effect.flatMap((loaded) => serveUI(request, url, loaded.files, loaded.brotli, loaded.indexHtml)),
           Effect.catch((error) =>
             isWebUiNotBuilt(error) ? Effect.succeed(webUiNotBuiltResponse()) : Effect.fail(error),
           ),
         )
-      return yield* serveUI(request, url, current.files, current.brotli)
+      return yield* serveUI(request, url, current.files, current.brotli, current.indexHtml)
     })
 })
 
@@ -244,6 +244,17 @@ function serveUI(
   url: URL,
   assets: AssetMap,
   brotli: BrotliMap | undefined,
+  // The shell text captured when the snapshot was accepted. The source-mode
+  // map reads contents lazily from disk, so assets["index.html"] would
+  // return whatever is on disk now — a rebuild (or a broken edit) landing
+  // after the listing would pair a new shell with the old asset set, and
+  // the browser would 404 its chunks even though the reload guard kept the
+  // previous build. The captured text is the shell of the build the guard
+  // accepted. Hashed assets are content-addressed, so their lazy reads are
+  // safe; only the unhashed shell needs the captured text. When no snapshot
+  // text exists (a caller-supplied map without index.html), fall back to
+  // the map, which then answers with the 500 not-built page.
+  indexHtml: string | undefined,
 ) {
   // A URL path uses forward slashes even when the asset map was built on
   // Windows (see normalizeAssetKey in app-assets.ts).
@@ -255,7 +266,7 @@ function serveUI(
   if ((key.startsWith("_assets/") || key.startsWith("icons/")) && requested === undefined)
     return Effect.succeed(HttpServerResponse.empty({ status: 404, headers: NOT_FOUND_HEADERS }))
   const name = requested !== undefined ? key : "index.html"
-  const file = requested ?? assets["index.html"]
+  const file = name === "index.html" && indexHtml !== undefined ? indexHtml : (requested ?? assets["index.html"])
   if (file === undefined) return Effect.succeed(webUiNotBuiltResponse())
   if (request.method !== "GET" && request.method !== "HEAD")
     return Effect.succeed(HttpServerResponse.empty({ status: 405 }))
