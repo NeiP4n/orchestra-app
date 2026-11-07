@@ -298,6 +298,29 @@ const Root = Spec.make(typeof ORCHESTRA_CLI_NAME === "string" ? ORCHESTRA_CLI_NA
         }),
       ],
     }),
+    Spec.make("integrate", {
+      description: "Install an integration manifest into this project (.orchestra/integrations/<name>.yaml)",
+      params: {
+        manifest: Argument.string("manifest").pipe(
+          Argument.withDescription("Integration manifest file (YAML or JSON) to install"),
+        ),
+        dryRun: Flag.boolean("dry-run").pipe(
+          Flag.withDescription("Validate the manifest without installing anything"),
+          Flag.withDefault(false),
+        ),
+        force: Flag.boolean("force").pipe(
+          Flag.withAlias("f"),
+          Flag.withDescription("Overwrite an already installed integration with the same name"),
+          Flag.withDefault(false),
+        ),
+      },
+    }),
+    Spec.make("integrations", {
+      description: "Manage installed project integrations",
+      commands: [
+        Spec.make("list", { description: "List installed integrations in this project" }),
+      ],
+    }),
     Spec.make("plugin", {
       description: "Manage plugins",
       commands: [

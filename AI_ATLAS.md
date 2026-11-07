@@ -1492,11 +1492,17 @@ the claim path would refuse. Columns come from `task_state`:
     slices via `checkHealth(directory, divergences)`. Base-aware: a
     project-base file is checked at its real sibling path.
   - `snapshot.ts` — snapshots of the whole `.orchestra` (minus the
-    snapshots themselves) with a manifest; keep 7, prune oldest first.
+    snapshots themselves) plus the registered project-base state files
+    (base `project` descriptors — today only `native-skills/skills.json`),
+    which ride along under the `__project__/` prefix inside the snapshot
+    and restore back to the project directory; only files the registry
+    knows are included, never a stray project file. A manifest lists
+    every file it holds; keep 7, prune oldest first.
     `restoreSnapshot` verifies manifest + every listed file (exists and
     parses) BEFORE writing anything, so a broken snapshot fails with the
     current files intact; files that exist now but not in the snapshot
-    are left alone and reported as skipped.
+    are left alone and reported as skipped. Old snapshots (no
+    `projectFiles` in the manifest) restore as before.
   - `sync.ts` / `restore.ts` — the two directions. Sync pulls state from
     the owning subsystem into the file (mirror); restore rebuilds DB
     state from the files after the DB is gone. Every syncer/restorer runs
@@ -1532,27 +1538,46 @@ the claim path would refuse. Columns come from `task_state`:
   loudly), `integrations/` + `INTEGRATE.md` (`integrate(directory, spec)`
   — recognise catalog/MCP/REST/provider → validate → install manifest
   `.orchestra/integrations/<name>.yaml` → offline verify → regenerate
-  the doc; CLI wiring is NOT done), `native-skills/skills.json`
+  the doc; CLI wiring is `orchestra integrate <manifest.yaml|json>`
+  (`packages/cli/src/commands/handlers/integrate.ts`, `--dry-run`
+  validates only, `--force` overwrites) and `orchestra integrations
+  list` (`packages/cli/src/commands/handlers/integrations/list.ts`,
+  read-only). Live smoke test: `packages/cli/test/live-smoke.test.ts`
+  probes a running server read-only (`GET /health`, and with
+  `ORCHESTRA_LIVE_PASSWORD` also `GET /api/info` with Basic auth) via
+  `packages/cli/src/services/live-smoke.ts`; the live tests SKIP when
+  the server is unreachable (one quick probe at load), and the probe
+  logic is verified against a local in-process server, never the live
+  one. Server URL: `ORCHESTRA_LIVE_URL`, default
+  `http://127.0.0.1:17890`. `native-skills/skills.json`
   (project-base validated registry via the existing
   `loadLevelDetailed` — damage is surfaced as a health divergence, never
   a silent empty level; the damage handling itself lives in
   `skill-marketplace/levels.ts` and is not redone here).
-- What is NOT covered: snapshots cover `.orchestra/` only, not the
-  sibling skill registry; restore is additive per scope/group (a scope
+- What is NOT covered: restore is additive per scope/group (a scope
   deleted from `rules.yaml` by hand is not pruned from KV); negative
   budgets are not schema-rejected; handoff appends are single writes
   without a lock (same tradeoff as the DoD event log); live probes
-  (server start, `tools/list`, `GET /models`) are not implemented —
-  verification here is offline shape-only.
-- Tests: `packages/core/test/project-files-core.test.ts` (13: index,
-  health incl. divergence + base-project path, snapshots, sync/restore
+  for integrations (server start, `tools/list`, `GET /models`) are not
+  implemented — verification of an install is offline shape-only (the
+  live smoke test above probes the server itself, not an integration).
+- Tests: `packages/core/test/project-files-core.test.ts` (17: index,
+  health incl. divergence + base-project path, snapshots incl.
+  project-base files and the stray-file rule, sync/restore
   frameworks on a real temp DB+KV, gitignore split, registry),
   `project-files-state.test.ts` (19), `project-files-data.test.ts` (19),
   `project-files-integrations.test.ts` (17). Verify: `bun test
   test/project-files-core.test.ts test/project-files-state.test.ts
   test/project-files-data.test.ts test/project-files-integrations.test.ts`
-  in `packages/core` (68 pass); `bun typecheck` in `packages/core`
-  (0 errors in the `project-files/` files).
+  in `packages/core` (72 pass); `bun typecheck` in `packages/core`
+  (0 errors in the `project-files/` files). CLI:
+  `packages/cli/test/integrate.test.ts` (9: spec registration, real
+  spec→handler dispatch, YAML/JSON load, install + `mcp.yaml` entry,
+  dry-run writes nothing, reinstall needs `--force`, secret rejected)
+  and `packages/cli/test/live-smoke.test.ts` (4 pass + 2 skip when the
+  live server is down: probe logic on a local server, unreachable =
+  not reachable, unhealthy = probe fails). Verify: `bun test
+  test/integrate.test.ts test/live-smoke.test.ts` in `packages/cli`.
 
 
 ## Model collections & custom endpoints

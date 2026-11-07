@@ -200,6 +200,63 @@ describe("ProjectFiles snapshots", () => {
     })
     expect(await readFile(path.join(dir, ".orchestra", "dod.yaml"), "utf8")).toContain("task_id: X")
   })
+
+  test("snapshots include the project-base skill registry and restore it", async () => {
+    const dir = await fixture()
+    await write(dir, "dod.yaml", "task_id: X\nleaves: []\n")
+    await writeProject(dir, "native-skills/skills.json", `{"skills": ["demo-skill"]}\n`)
+    const created = await run(ProjectFiles.ProjectFilesSnapshot.createSnapshot(dir, { label: "with-skills" }))
+    expect(created.projectFiles).toContain("native-skills/skills.json")
+    await writeProject(dir, "native-skills/skills.json", `{"skills": ["demo-skill", "new-skill"]}\n`)
+    const name = (await readdir(path.join(dir, ".orchestra", "snapshots")))[0]
+    const restored = await run(ProjectFiles.ProjectFilesSnapshot.restoreSnapshot(dir, name))
+    expect(restored.restoredProjectFiles).toContain("native-skills/skills.json")
+    expect(await readFile(path.join(dir, "native-skills", "skills.json"), "utf8")).toContain("demo-skill")
+    expect(await readFile(path.join(dir, "native-skills", "skills.json"), "utf8")).not.toContain("new-skill")
+  })
+
+  test("a snapshot without project files restores like an old snapshot", async () => {
+    const dir = await fixture()
+    await write(dir, "dod.yaml", "task_id: X\nleaves: []\n")
+    const created = await run(ProjectFiles.ProjectFilesSnapshot.createSnapshot(dir, { label: "plain" }))
+    expect(created.projectFiles).toEqual([])
+    const name = (await readdir(path.join(dir, ".orchestra", "snapshots")))[0]
+    const restored = await run(ProjectFiles.ProjectFilesSnapshot.restoreSnapshot(dir, name))
+    expect(restored.restored).toContain("dod.yaml")
+    expect(restored.restoredProjectFiles).toEqual([])
+  })
+
+  test("a corrupt project file in the snapshot fails restore and leaves current files intact", async () => {
+    const dir = await fixture()
+    await write(dir, "dod.yaml", "task_id: X\nleaves: []\n")
+    await writeProject(dir, "native-skills/skills.json", `{"skills": ["demo-skill"]}\n`)
+    await run(ProjectFiles.ProjectFilesSnapshot.createSnapshot(dir, { label: "good" }))
+    const name = (await readdir(path.join(dir, ".orchestra", "snapshots")))[0]
+    await writeFile(
+      path.join(dir, ".orchestra", "snapshots", name, "__project__", "native-skills", "skills.json"),
+      `{"skills": [broken\n`,
+      "utf8",
+    )
+    await expect(run(ProjectFiles.ProjectFilesSnapshot.restoreSnapshot(dir, name))).rejects.toMatchObject({
+      _tag: "ProjectFiles.Error",
+      kind: "restore-failed",
+    })
+    expect(await readFile(path.join(dir, "native-skills", "skills.json"), "utf8")).toContain("demo-skill")
+    expect(await readFile(path.join(dir, ".orchestra", "dod.yaml"), "utf8")).toContain("task_id: X")
+  })
+
+  test("a stray file in the project root is never snapshotted", async () => {
+    const dir = await fixture()
+    await write(dir, "dod.yaml", "task_id: X\nleaves: []\n")
+    await writeProject(dir, ".env", "SECRET_KEY=do-not-snapshot-me\n")
+    await writeProject(dir, "random.txt", "not a state file\n")
+    const created = await run(ProjectFiles.ProjectFilesSnapshot.createSnapshot(dir, { label: "stray" }))
+    expect(created.projectFiles).toEqual([])
+    const name = (await readdir(path.join(dir, ".orchestra", "snapshots")))[0]
+    const restored = await run(ProjectFiles.ProjectFilesSnapshot.restoreSnapshot(dir, name))
+    expect(restored.restored).not.toContain(".env")
+    expect(await readFile(path.join(dir, ".env"), "utf8")).toContain("do-not-snapshot-me")
+  })
 })
 
 describe("ProjectFiles sync and restore frameworks", () => {

@@ -29,7 +29,9 @@ import { ProjectFilesPaths } from "./paths.js"
  *   http(s) without credentials) → update `INTEGRATE.md` → report.
  *   No network is touched here: live probes (server start, tools/list,
  *   GET /models) belong to the dry-run step the CLI will own, not to
- *   this file layer. CLI wiring (`orchestra integrate`) is out of scope.
+ *   this file layer. CLI wiring is `orchestra integrate`
+ *   (`packages/cli/src/commands/handlers/integrate.ts`, `--dry-run` /
+ *   `--force`) and `orchestra integrations list`.
  * - `skills.json` — the project-level skill registry lives at
  *   `<project-dir>/native-skills/skills.json`, a SIBLING of `.orchestra/`,
  *   not inside it. The damage handling already exists in the levels
