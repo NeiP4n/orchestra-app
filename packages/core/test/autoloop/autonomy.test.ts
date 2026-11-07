@@ -58,7 +58,7 @@ const step = (view: View, input: DecideInput, now: number, seq = 1, autonomy?: A
 const runRow = (view: View, id: number) => view["runs"]?.[String(id)] as Record<string, unknown> | undefined
 const cardRows = (view: View) => Object.values(view["cards"] ?? {}) as Array<Record<string, unknown>>
 const eventRows = (view: View) => Object.values(view["events"] ?? {}) as Array<Record<string, unknown>>
-const task = (id: string) => ({ id, type: "task.created", subject: "task-1", summary: "make it" })
+const task = (id: string) => ({ id, type: "task.created", subject: "task-1", summary: "make it", detail: "", link: "", hops: 0 })
 
 describe("Autonomy modes", () => {
   test("resolveAutonomy keeps the legacy behaviour when no mode is given", () => {
