@@ -116,6 +116,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Disable project-level config (alias: ORCHESTRA_DISABLE_PROJECT_CONFIG).",
     default: "Project config enabled.",
   },
+  ORCHESTRA_CONTEXT_DENSIFY: {
+    purpose: "Lossless densification of repeated JSON arrays in tool results (\"1\"/\"true\" on).",
+    default: "Off.",
+  },
   ORCHESTRA_CONTEXT_GOVERNOR: {
     purpose: "Context governor on/off (\"1\"/\"true\" on, \"0\"/\"false\" off).",
     default: "On unless the config turns it off.",
@@ -416,6 +420,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   ORCHESTRA_REPO_CLONE_GITHUB_BASE_URL: {
     purpose: "Base URL for cloning GitHub repositories.",
     default: "github.com (falls back to OPENCODE_REPO_CLONE_GITHUB_BASE_URL).",
+  },
+  ORCHESTRA_REPO_ROOT: {
+    purpose: "Override for the repository root the recovery service repairs.",
+    default: "The ancestor directory holding packages/core.",
   },
   ORCHESTRA_REQUEST_REPORT: {
     purpose: "Enable per-request reports (any value).",
