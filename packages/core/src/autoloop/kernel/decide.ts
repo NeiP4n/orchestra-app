@@ -3,6 +3,15 @@ export * as AutoloopDecide from "./decide.js"
 import { createHash } from "node:crypto"
 import { pendingReplies, replayMissed, stopCheck } from "./attention.js"
 import {
+  canClaim,
+  canRoute,
+  MAX_BATCH_EVENTS,
+  resolveAutonomy,
+  shouldNotify,
+  type AutonomyMode,
+  type NotifyKind,
+} from "./autonomy.js"
+import {
   advanceDispute,
   deadlineFor,
   escalateDispute,
@@ -302,6 +311,13 @@ export interface DecideEnv {
   rules: Rules
   /** Cycle limits; anything missing falls back to `DEFAULT_LIMITS`. */
   limits?: Partial<AutoloopLimits>
+  /**
+   * How much work the router may take on its own (`off` / `observe` /
+   * `auto`, see `kernel/autonomy.ts`). When absent the kernel runs as
+   * before (`auto`); the operator-facing default (`observe`) is resolved
+   * in the config layer, not here.
+   */
+  autonomy?: AutonomyMode
   /** Secret the claim/finish tokens are derived from (credential store). */
   tokenSecret?: string
   /** Sequence number this decision will be committed as (lastSeq + 1). */
@@ -435,6 +451,8 @@ export interface Draft {
   env: DecideEnv
   rules: Rules
   limits: AutoloopLimits
+  /** Resolved autonomy mode for this decision (see `kernel/autonomy.ts`). */
+  autonomy: AutonomyMode
 }
 
 const digest = (text: string): string => createHash("sha256").update(text).digest("hex")
@@ -744,6 +762,7 @@ export function decide(view: View, input: DecideInput, now: number, env: DecideE
     env,
     rules: env.rules,
     limits,
+    autonomy: resolveAutonomy(env.autonomy),
   }
   const value = handler(draft, ...input.args)
 
@@ -884,8 +903,25 @@ export function createCard(draft: Draft, spec: CardSpec) {
   return { card: card.id, duplicate: false }
 }
 
-const notify = (draft: Draft, key: string, title: string, text: string, extra: RowData = {}) =>
-  createCard(draft, { key, kind: "notice", title, text, ...extra })
+/**
+ * Tell the human, only when the silence rule allows it: the notice must
+ * say why it is needed (`action` — something needs doing; `result` — a
+ * finished outcome the human can use), and in `off` mode nothing is told
+ * at all. A notice that is neither action nor result must not be created
+ * here in the first place — there is no third kind. Returns no card in
+ * `off` mode; callers that need the card must check for null.
+ */
+const notify = (
+  draft: Draft,
+  key: string,
+  title: string,
+  text: string,
+  extra: RowData = {},
+  kind: NotifyKind = "action",
+): { card: number | null; duplicate: boolean } => {
+  if (!shouldNotify(draft.autonomy, kind)) return { card: null, duplicate: false }
+  return createCard(draft, { key, kind: "notice", title, text, ...extra })
+}
 
 /** A queued run of this rule and thread takes the event, so what comes in while it waits is handled together. */
 export function enqueue(draft: Draft, rule: Rule, event: number, lane: string, resume?: string | null) {
@@ -938,19 +974,48 @@ function ingest(draft: Draft, source: string, given: unknown) {
   const existing = rowsOf(draft.view, "events")
     .map(({ data }) => data as EventRow)
     .find((row) => row.source === source && row.key === event.id)
-  if (existing !== undefined) return { event: existing.id, duplicate: true, routed: existing.routed }
+  if (existing !== undefined) return { event: existing.id, duplicate: true, routed: existing.routed, dropped: false }
+  // In `off` mode the event is still recorded — the journal keeps the
+  // evidence — but it routes nowhere and queues no run. Ingest itself
+  // never notifies: N events in, zero cards out (the silence rule).
+  const dropped = !canRoute(draft.autonomy)
   const tooDeep = event.hops > draft.limits.maxHops
   const takes = (rule: Rule) =>
     eventRule(rule) && rule.when.source === source && typeMatches(rule.when.types, event.type)
-  const matched = tooDeep ? [] : draft.rules.rules.filter(takes)
+  const matched = dropped || tooDeep ? [] : draft.rules.rules.filter(takes)
   const routed = matched.map((rule) => rule.name)
   const id = recordEvent(draft, source, event, routed)
   if (tooDeep) {
     const words = `Одна цепочка обработки уже глубже ${draft.limits.maxHops} шагов, дальше события записаны, но не раздаются.`
-    notify(draft, `hops:${source}:${event.id}`, "Цепочка событий остановлена", words, { once: true })
+    notify(draft, `hops:${source}:${event.id}`, "Цепочка событий остановлена", words, { once: true }, "result")
   }
   for (const rule of matched) enqueue(draft, rule, id, rule.parallel !== undefined ? event.subject : "")
-  return { event: id, duplicate: false, routed }
+  return { event: id, duplicate: false, routed, dropped }
+}
+
+/**
+ * One decision pass over a whole burst of events from one source, instead
+ * of one pass per event: the events are recorded and routed together, so
+ * a burst costs one commit and one deadlines recompute. Duplicates —
+ * inside the batch and against the journal — are recorded once, and
+ * events for the same rule and lane coalesce into one queued run through
+ * `enqueue`. A batch over `MAX_BATCH_EVENTS` is rejected: split it and
+ * call again instead of letting one pass grow without bound.
+ */
+function ingestBatch(draft: Draft, source: string, given: unknown) {
+  if (!Array.isArray(given)) throw new DecideInputError("ingestBatch — список событий")
+  if (given.length > MAX_BATCH_EVENTS) {
+    throw new DecideInputError(`ingestBatch — до ${MAX_BATCH_EVENTS} событий за раз`)
+  }
+  const results = given.map((event) => ingest(draft, source, event))
+  const routed = [...new Set(results.flatMap((result) => result.routed))]
+  return {
+    results,
+    routed,
+    received: given.length,
+    duplicates: results.filter((result) => result.duplicate).length,
+    dropped: results.filter((result) => result.dropped).length,
+  }
 }
 
 function cardFromReceipt(draft: Draft, run: RunRow, kind: "ask" | "notice", card: CardSpec) {
@@ -1076,6 +1141,7 @@ function noteDisputeForOperator(draft: Draft, dispute: Dispute) {
     `Спор «${dispute.subject}» не решили на уровнях ниже, он записан для оператора — ответа не требуется, работа не блокируется. ` +
       `Позиция А: ${clipped(dispute.positionA)} Позиция Б: ${clipped(dispute.positionB)}`,
     { once: true },
+    "result",
   )
 }
 
@@ -1101,6 +1167,12 @@ function heldRun(draft: Draft, id: number, token: string, states: string[]): Run
 }
 
 function claimNext(draft: Draft, worker: string, claim: string) {
+  // In `observe` (and `off`) nothing executes: runs queue as proposals
+  // and wait for the mode to allow claiming. A repeat claim returns
+  // nothing too — no run was ever claimed in this mode, so there is no
+  // held run to hand back. Flipping the mode to `auto` claims the queued
+  // runs from here, nothing is lost.
+  if (!canClaim(draft.autonomy)) return null
   const agents = agentsOf(draft, worker)
   const runs = rowsOf(draft.view, "runs")
     .map(({ data }) => data as RunRow)
@@ -1147,7 +1219,7 @@ function claimNext(draft: Draft, worker: string, claim: string) {
 function stopRun(draft: Draft, run: RunRow, why: string, summary: string, words: string) {
   put(draft, "runs", run.id, { state: "cancelled", finished_at: draft.at, summary })
   closeStopped(draft, run.id, summary)
-  notify(draft, `run:${run.id}:${why}`, run.rule, words, threadOf(run))
+  notify(draft, `run:${run.id}:${why}`, run.rule, words, threadOf(run), "result")
 }
 
 const ruleGone = (run: RunRow): [string, string] => [
@@ -1402,7 +1474,7 @@ export function applyReceipt(draft: Draft, run: RunRow, result: Receipt): Reject
   for (const notice of result.notice ?? []) cardFromReceipt(draft, run, "notice", notice)
   if (rule?.tell === "always" && result.outcome === "done") {
     const once = { fyi: true, once: true, ...threadOf(run), source: sourceOf(draft.view, id), run: id }
-    notify(draft, `run:${id}:done`, run.rule, summary, once)
+    notify(draft, `run:${id}:done`, run.rule, summary, once, "result")
   }
   for (const later of result.later ?? []) scheduleReview(draft, run, later)
   for (const event of result.events ?? []) {
@@ -1914,6 +1986,8 @@ const HANDLERS: Record<string, (draft: Draft, ...args: Array<unknown>) => unknow
   },
 
   ingest: (draft, source, given) => ingest(draft, needStr(source, "ingest.source"), given),
+
+  ingestBatch: (draft, source, given) => ingestBatch(draft, needStr(source, "ingestBatch.source"), given),
 
   createCard: (draft, spec) => createCard(draft, parseCardSpec(spec, "карточка")),
 
