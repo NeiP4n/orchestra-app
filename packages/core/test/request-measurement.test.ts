@@ -286,6 +286,53 @@ describe("SessionRequestMeasurement opt-in collection", () => {
     expect(fs.readdirSync(dir).length).toBe(0)
   })
 
+  test("retention reaches expired entries past the first sweep window (repro: 110 files, expired at index 105)", async () => {
+    const dir = mkdtemp()
+    const old = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    // The expired files are created last so they land past index 100 in the
+    // listing: a prefix-only sweep examines the same first 100 fresh entries
+    // on every run and removes 0, however often it runs (architect's repro).
+    for (let i = 0; i < 105; i++) {
+      fs.writeFileSync(path.join(dir, `f1e4c000-0000-4000-8000-${String(i).padStart(12, "0")}.jsonl`), "{}\n")
+    }
+    for (let i = 0; i < 5; i++) {
+      const file = path.join(dir, `f1e4c000-0000-4000-8001-${String(i).padStart(12, "0")}.jsonl`)
+      fs.writeFileSync(file, "{}\n")
+      fs.utimesSync(file, old, old)
+    }
+    SessionRequestMeasurement.resetSweepThrottleForTests()
+    const now = Date.now()
+    await SessionRequestMeasurement.pruneOldMeasurements(dir, now, 100)
+    await SessionRequestMeasurement.pruneOldMeasurements(dir, now, 100)
+    expect(fs.readdirSync(dir).length).toBe(105)
+    SessionRequestMeasurement.resetSweepThrottleForTests()
+  })
+
+  test("sweep throttle is per directory, not global", async () => {
+    SessionRequestMeasurement.resetSweepThrottleForTests()
+    const dirA = mkdtemp()
+    const dirB = mkdtemp()
+    const old = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const plant = (dir: string, suffix: string) => {
+      const file = path.join(dir, `a2b3c400-0000-4000-8000-0000000000${suffix}.jsonl`)
+      fs.writeFileSync(file, "{}\n")
+      fs.utimesSync(file, old, old)
+      return file
+    }
+    plant(dirA, "01")
+    plant(dirB, "02")
+    const t0 = Date.now()
+    // A's sweep must not block B's first sweep at the same instant.
+    expect(await SessionRequestMeasurement.maybeSweep(dirA, t0)).toBe(1)
+    expect(await SessionRequestMeasurement.maybeSweep(dirB, t0)).toBe(1)
+    plant(dirA, "03")
+    plant(dirB, "04")
+    // ...and each directory throttles on its own clock.
+    expect(await SessionRequestMeasurement.maybeSweep(dirA, t0 + 1000)).toBe(0)
+    expect(await SessionRequestMeasurement.maybeSweep(dirB, t0 + 1000)).toBe(0)
+    SessionRequestMeasurement.resetSweepThrottleForTests()
+  })
+
   test("write path sweeps infrequently: a second write inside the interval does not rescan", async () => {
     SessionRequestMeasurement.resetSweepThrottleForTests()
     const dir = mkdtemp()
