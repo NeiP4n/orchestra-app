@@ -1,5 +1,13 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "@tsconfig/bun/tsconfig.json",
-  "compilerOptions": {}
+  "compilerOptions": {
+    // Bun resolves the JSX runtime from the tsconfig in the working directory
+    // when running .tsx from source (e.g. `bun packages/cli/src/index.ts`).
+    // Keep this in sync with packages/cli and packages/tui: JSX is Solid,
+    // not React. Without jsxImportSource Bun falls back to react/jsx-dev-runtime,
+    // which is not installed at the repo root and breaks the CLI from source.
+    "jsx": "preserve",
+    "jsxImportSource": "@opentui/solid"
+  }
 }
