@@ -269,6 +269,8 @@ describe("orchestra.worker policy through workspace_forge", () => {
           role: role.id,
           model: "opencode/task-model",
           newInstance: true,
+          // Explicit MCP assignment is required at dispatch (d9ecc056); this task needs none.
+          mcp: { servers: [], maxCalls: 0 },
         }),
       )
       const sessionID = /Created (ses_[A-Za-z0-9]+)/.exec(output)?.[1]
@@ -289,6 +291,8 @@ describe("orchestra.worker policy through workspace_forge", () => {
           role: "developer",
           model: "opencode/other-model",
           newInstance: true,
+          // Explicit MCP assignment is required at dispatch (d9ecc056); this task needs none.
+          mcp: { servers: [], maxCalls: 0 },
         }),
       )
       const sessionID = /Created (ses_[A-Za-z0-9]+)/.exec(output)?.[1]

@@ -74,7 +74,10 @@ export const registerToolPlugin = <R>(
         transform: tools.transform,
         reload: tools.reload,
         list: tools.list,
-        hook: hook ?? (() => Effect.die("registerToolPlugin does not support tool hooks")),
+        // Mirrors the session.hook default above: registration succeeds and the handler goes
+        // nowhere, because this harness never fires hooks (execution goes through the real
+        // registry, which knows nothing about them). Pass `hook` to capture registrations.
+        hook: hook ?? (() => Effect.succeed({ dispose: Effect.void })),
       },
     })
     yield* plugin.effect(context)
