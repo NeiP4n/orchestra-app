@@ -1,5 +1,6 @@
 import { describe, expect } from "bun:test"
 import { Deferred, Effect, Fiber, Layer, Option, Schema } from "effect"
+import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
 import { LayerNode } from "@orchestra/util/effect/layer-node"
@@ -549,6 +550,40 @@ describe("Federation", () => {
       })
       expect(yield* orchestra.owns(a, legacy)).toBe(false)
       expect((yield* orchestra.sessions(a.id)).map((item) => item.id)).not.toContain(legacy.id)
+    }),
+  )
+
+  it.live("lists a project's sessions from its whole directory tree, claimed ones included", () =>
+    Effect.gen(function* () {
+      const { a, b } = yield* setup
+      const orchestra = yield* Orchestra.Service
+      const sessions = yield* Session.Service
+      const subdir = path.join(a.directory, "sub")
+      yield* Effect.promise(() => mkdir(subdir, { recursive: true }))
+      const inTree = yield* sessions.create({
+        title: "in tree",
+        location: { directory: AbsolutePath.make(a.directory) },
+      })
+      const inSubdir = yield* sessions.create({
+        title: "in subdir",
+        location: { directory: AbsolutePath.make(subdir) },
+      })
+      const elsewhere = yield* sessions.create({
+        title: "elsewhere",
+        location: { directory: AbsolutePath.make(b.directory) },
+      })
+      yield* orchestra.claim(elsewhere.id, a.id)
+      const foreign = yield* sessions.create({
+        title: "foreign",
+        location: { directory: AbsolutePath.make(b.directory) },
+      })
+      const ids = (yield* orchestra.sessions(a.id)).map((item) => item.id)
+      expect(ids).toContain(inTree.id)
+      expect(ids).toContain(inSubdir.id)
+      expect(ids).toContain(elsewhere.id)
+      expect(ids).not.toContain(foreign.id)
+      expect(ids).not.toContain(a.main)
+      expect(ids).not.toContain(b.main)
     }),
   )
 

@@ -1,8 +1,8 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "8d47d707-7732-4055-95db-6118715b47fe",
-  "prevIds": ["bd441c9e-1955-47a7-9597-b0ac4e973222"],
+  "id": "2fb00d0f-ac19-42f9-95ec-fe67da76a2a3",
+  "prevIds": ["8d47d707-7732-4055-95db-6118715b47fe"],
   "ddl": [
     {
       "name": "account_state",
@@ -2274,6 +2274,20 @@
       "where": null,
       "origin": "manual",
       "name": "session_v2_project_idx",
+      "entityType": "indexes",
+      "table": "session_v2"
+    },
+    {
+      "columns": [
+        {
+          "value": "directory",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "session_v2_directory_idx",
       "entityType": "indexes",
       "table": "session_v2"
     },

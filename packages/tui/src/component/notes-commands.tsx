@@ -29,6 +29,8 @@ export function NotesCommands() {
 
   const show = () => {
     dialog.clear()
+    if (!projects.loaded())
+      return void toast.show({ variant: "info", message: t("Loading projects…") })
     if (projects.list().length === 0)
       return void toast.show({
         variant: "info",

@@ -121,7 +121,14 @@ export function DialogGroups(props: { onClose?: () => void }) {
       <Show when={groups.loading && groups.latest === undefined}>
         <text fg={theme.text.muted}>{t("Loading groups…")}</text>
       </Show>
-      <Show when={listed().length > 0} fallback={<text fg={theme.text.muted}>{t("No groups yet.")}</text>}>
+      <Show
+        when={listed().length > 0}
+        fallback={
+          <Show when={!groups.loading && !groups.error}>
+            <text fg={theme.text.muted}>{t("No groups yet.")}</text>
+          </Show>
+        }
+      >
         <For each={listed()}>
           {(group) => (
             <box flexDirection="column">
@@ -190,12 +197,21 @@ export function DialogGroups(props: { onClose?: () => void }) {
         <Chip label={t("Coordinator")} selected={draftMode() === "lead"} onClick={() => setDraftMode("lead")} />
         <Chip label={t("Council")} selected={draftMode() === "council"} onClick={() => setDraftMode("council")} />
       </Field>
-      <Show when={projects.list().length > 0} fallback={<text fg={theme.text.muted}>{t("Create projects first.")}</text>}>
-        <Field label={t("Projects")}>
-          <For each={projects.list()}>
-            {(project) => <Chip label={project.name} selected={picked().includes(project.id)} onClick={() => toggle(project.id)} />}
-          </For>
-        </Field>
+      <Show
+        when={projects.loaded()}
+        fallback={
+          <text fg={theme.text.muted}>
+            {projects.error() ? t("Couldn't load projects") : t("Loading projects…")}
+          </text>
+        }
+      >
+        <Show when={projects.list().length > 0} fallback={<text fg={theme.text.muted}>{t("Create projects first.")}</text>}>
+          <Field label={t("Projects")}>
+            <For each={projects.list()}>
+              {(project) => <Chip label={project.name} selected={picked().includes(project.id)} onClick={() => toggle(project.id)} />}
+            </For>
+          </Field>
+        </Show>
       </Show>
     </box>
   )

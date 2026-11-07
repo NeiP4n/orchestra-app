@@ -51,6 +51,7 @@ import m48 from "./migration/20261007190000_azure_cli_external_credential.js"
 import m49 from "./migration/20261105171218_oval_joystick.js"
 import m50 from "./migration/20261106120000_seal_legacy_account_tokens.js"
 import m51 from "./migration/20261106144629_unknown_major_mapleleaf.js"
+import m52 from "./migration/20261107101054_busy_orphan.js"
 
 export const migrations = [
   m00,
@@ -105,4 +106,5 @@ export const migrations = [
   m49,
   m50,
   m51,
+  m52,
 ] satisfies DatabaseMigration.Migration[]

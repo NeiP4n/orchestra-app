@@ -47,6 +47,9 @@ export type HomeProjectsViewProps = {
   language: ReturnType<typeof useLanguage>
   servers: ServerConnection.Any[]
   projects: LocalProject[]
+  projectsLoading: boolean
+  projectsError?: string
+  onRetryProjects: () => void
   recentlyClosed: LocalProject[]
   selection: HomeProjectSelection
   homedir: string
@@ -249,7 +252,9 @@ function HomeProjectsPanel(props: HomeProjectsViewProps) {
                 <div class={props.dropdown ? "" : "pr-3"}>
                   <Show
                     when={props.projects.length > 0}
-                    fallback={<HomeProjectEmpty {...props} server={server()} items={props.recentlyClosed} />}
+                    fallback={
+                      <HomeProjectsEmptyState {...props} server={server()} items={props.recentlyClosed} />
+                    }
                   >
                     <HomeProjectList {...props} {...contextMenuProps} server={server()} items={props.projects} />
                     <Show when={props.dropdown}>
@@ -627,6 +632,43 @@ function HomeProjectSlot(
       unseen={props.unseenCount(props.server, project())}
     />
   )
+}
+
+// An empty project list means three different things: still loading, the load
+// failed, or the operator really has no projects. Only the last one is the
+// "create a team / add a project" empty state; the first two say so instead.
+function HomeProjectsEmptyState(
+  props: HomeProjectsViewProps & {
+    server: ServerConnection.Any
+    items: LocalProject[]
+  },
+) {
+  if (props.projectsLoading)
+    return (
+      <div class="flex min-w-0 flex-col gap-1">
+        <div class="flex h-7 min-w-0 items-center gap-2 pl-1.5 pr-3">
+          <Spinner class="size-3.5" />
+          <span class="text-v2-text-text-muted">{props.language.t("common.loading")}</span>
+        </div>
+      </div>
+    )
+
+  if (props.projectsError)
+    return (
+      <div class="flex min-w-0 flex-col gap-1">
+        <div class="flex h-7 min-w-0 items-center pl-1.5 pr-3">
+          <span class="truncate text-v2-text-text-muted" title={props.projectsError}>
+            {props.language.t("home.projects.loadFailed")}
+          </span>
+        </div>
+        <HomeProjectNavButton type="button" onClick={() => props.onRetryProjects()}>
+          <Icon name="refresh" size="small" />
+          <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("common.retry")}</span>
+        </HomeProjectNavButton>
+      </div>
+    )
+
+  return <HomeProjectEmpty {...props} server={props.server} items={props.items} />
 }
 
 function HomeProjectEmpty(

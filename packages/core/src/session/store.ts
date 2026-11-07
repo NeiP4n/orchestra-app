@@ -22,6 +22,9 @@ const ListInputBase = {
   parentID: Schema.NullOr(Session.ID).pipe(Schema.optional),
   archived: Schema.Boolean.pipe(Schema.optional),
   anchor: Session.ListAnchor.pipe(Schema.optional),
+  // Sessions in this directory or below it. A scoped read for one project's tree,
+  // so listing a project does not decode every session on the server.
+  directoryPrefix: AbsolutePath.pipe(Schema.optional),
 }
 
 const ListDirectoryInput = Schema.Struct({
@@ -108,7 +111,21 @@ const layer = Layer.effect(
         const order = direction === "previous" ? (requestedOrder === "asc" ? "desc" : "asc") : requestedOrder
         const sortColumn = SessionTable.time_updated
         const conditions: SQL[] = []
-        if ("directory" in input) conditions.push(eq(SessionTable.directory, input.directory))
+        if (input.directoryPrefix !== undefined) {
+          // The project's own tree: the directory itself, or anything below it.
+          // The range [prefix + "/", prefix + "0") is exactly the paths starting
+          // with prefix + "/" ("/" < "0"), so a sibling like "/proj-01-x" never
+          // matches. A prefix of "/" matches everything, so it adds no condition.
+          // Backslashes are normalized to the storage form first, as the column does.
+          const prefix = input.directoryPrefix.replaceAll("\\", "/").replace(/\/+$/, "") || "/"
+          if (prefix !== "/")
+            conditions.push(
+              or(
+                eq(SessionTable.directory, prefix),
+                and(gte(SessionTable.directory, `${prefix}/`), lt(SessionTable.directory, `${prefix}0`)),
+              )!,
+            )
+        } else if ("directory" in input) conditions.push(eq(SessionTable.directory, input.directory))
         if (input.workspaceID) conditions.push(eq(SessionTable.workspace_id, input.workspaceID))
         if ("project" in input) conditions.push(eq(SessionTable.project_id, input.project))
         if ("project" in input && input.subpath !== undefined) conditions.push(eq(SessionTable.path, input.subpath))

@@ -17,6 +17,9 @@ type GlobalStore = {
   provider_auth: ProviderAuthResponse
   config: Config
   reload: undefined | "pending" | "complete"
+  // The last project-list failure, if any: bootstrap swallows per-query failures
+  // (allSettled), so without this the home would silently show zero projects.
+  projectError?: string
 }
 
 function waitForPaint() {
@@ -66,6 +69,9 @@ type LocationApi = { readonly get: (input?: LocationGetInput) => Promise<Locatio
 export const loadProjectsQuery = (scope: ServerScope, projects: ProjectApi) =>
   queryOptions({
     queryKey: [scope, "project"],
+    // The queryFn already retries transient failures (3 attempts); a TanStack
+    // retry on top would multiply it to 9 requests and ~8s of empty list.
+    retry: false,
     queryFn: () =>
       retry(() =>
         projects.list().then((items) =>
@@ -91,22 +97,33 @@ export async function bootstrapGlobal(input: {
     () => input.queryClient.fetchQuery(loadGlobalConfigQuery(input.scope)),
     () => input.queryClient.fetchQuery(loadPathQuery(input.scope, null, input.serverAPI.location)),
     () =>
-      input.queryClient.fetchQuery(loadProjectsQuery(input.scope, input.serverAPI.project)).then((data) =>
-        input.setGlobalStore("project", (previous) =>
-          // A not-yet-ready server (or a wrong database file) answers with an empty
-          // list: keep the projects already on screen instead of flashing an empty
-          // project list. Projects are never deleted through the UI, so an empty
-          // fetch never legitimately clears a non-empty store.
-          data.length === 0 && previous.length > 0
-            ? previous
-            : data.map((project) =>
-                withWorktreeInventory(
-                  project,
-                  input.queryClient.getQueryData(worktreeInventoryKey(input.scope, project.id)),
+      input.queryClient
+        .fetchQuery(loadProjectsQuery(input.scope, input.serverAPI.project))
+        .then((data) => {
+          input.setGlobalStore("projectError", undefined)
+          input.setGlobalStore("project", (previous) =>
+            // A not-yet-ready server (or a wrong database file) answers with an empty
+            // list: keep the projects already on screen instead of flashing an empty
+            // project list. Projects are never deleted through the UI, so an empty
+            // fetch never legitimately clears a non-empty store.
+            data.length === 0 && previous.length > 0
+              ? previous
+              : data.map((project) =>
+                  withWorktreeInventory(
+                    project,
+                    input.queryClient.getQueryData(worktreeInventoryKey(input.scope, project.id)),
+                  ),
                 ),
-              ),
-        ),
-      ),
+          )
+        })
+        .catch((error: unknown) => {
+          // runAll swallows this failure (allSettled): record it so the home can
+          // say the list failed instead of showing zero projects.
+          input.setGlobalStore(
+            "projectError",
+            error instanceof Error ? error.message : String(error),
+          )
+        }),
   ]
 
   await runAll(slow)

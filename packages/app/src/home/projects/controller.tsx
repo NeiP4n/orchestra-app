@@ -173,6 +173,9 @@ export function createHomeProjectsController(home: HomeController) {
     },
     project: {
       list: home.project.list,
+      loading: home.project.loading,
+      error: home.project.error,
+      retry: home.project.retry,
       recentlyClosed: home.project.recentlyClosed,
       homedir: home.project.homedir,
       select: (conn: ServerConnection.Any, directory: string) => {

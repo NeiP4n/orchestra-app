@@ -9,11 +9,12 @@ export const { use: useProjects, provider: ProjectsProvider } = createSimpleCont
   name: "Projects",
   init: () => {
     const client = useClient()
-    const [list, { refetch, mutate }] = createResource(() => client.api.orchestra.project.list().catch(() => []))
+    // A failed fetch must not resolve to an empty list: the tree would read it as
+    // "zero projects" instead of "not loaded yet", and nothing would retry it.
+    // Leave the resource pending/errored so `loaded()` stays false until a fetch succeeds.
+    const [list, { refetch, mutate }] = createResource(() => client.api.orchestra.project.list())
     // The project that opened each session, so projects sharing a directory keep their own teams.
-    const [owners, owner] = createResource(() =>
-      client.api.orchestra.owner.list().catch((): Record<string, string> => ({})),
-    )
+    const [owners, owner] = createResource(() => client.api.orchestra.owner.list())
     onCleanup(
       client.event.on("server.connected", () => {
         void refetch()
@@ -34,6 +35,7 @@ export const { use: useProjects, provider: ProjectsProvider } = createSimpleCont
     return {
       list: () => list() ?? [],
       loaded: () => list() !== undefined,
+      error: () => list.error,
       refetch: () => void refetch(),
       mutate,
       owner: (sessionID: string) => claimed[sessionID] ?? owners.latest?.[sessionID],

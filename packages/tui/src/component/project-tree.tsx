@@ -77,11 +77,17 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
     onCleanup(() => clearInterval(timer))
   })
   // Groups the operator keeps projects in. The dialog changes them, so they are read again as it closes.
-  const [groups, { refetch: refreshGroups }] = createResource(() =>
-    client.api.orchestra.group.list().catch(() => []),
-  )
+  // A failed fetch resolves to no groups, not an empty list: the tree must not
+  // present "zero groups" while the first load is still failing.
+  const [groups, { refetch: refreshGroups }] = createResource(() => client.api.orchestra.group.list())
   onMount(() => {
-    const timer = setInterval(() => void refreshGroups(), 3000)
+    const timer = setInterval(() => {
+      void refreshGroups()
+      // The project list has no other retry: a first fetch that failed while the
+      // server was still starting would otherwise leave the tree at zero projects
+      // until the next reconnect or session creation.
+      if (!projectList.loaded()) void projectList.refetch()
+    }, 3000)
     onCleanup(() => clearInterval(timer))
   })
   const [groupClosed, setGroupClosed] = createStore<Record<string, boolean>>({})
@@ -555,9 +561,21 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           <Section
             title={t("Projects")}
             icon="◉"
-            count={projects().length}
+            // No count while the list is still loading: 0 here would claim the
+            // operator has no projects.
+            count={projectList.loaded() ? projects().length : undefined}
             actions={<SectionAction id="groups:new" label={t("+ Group")} onClick={openGroups} />}
           >
+          <Show when={!projectList.loaded()}>
+            <box paddingLeft={1} flexShrink={0}>
+              <text fg={theme.text.muted}>{t("loading…")}</text>
+            </box>
+          </Show>
+          <Show when={groups.error}>
+            <box paddingLeft={1} flexShrink={0}>
+              <text fg={theme.text.feedback.error.base}>{t("Couldn't load groups")}</text>
+            </box>
+          </Show>
           <For each={sections()}>
             {(section) => (
               <>
@@ -574,7 +592,9 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                     <box flexGrow={1} minWidth={0}>
                       <text fg={theme.text.muted} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
                         {section.name}
-                        <span style={{ fg: theme.text.muted }}>{` · ${section.projects.length}`}</span>
+                        <Show when={projectList.loaded()}>
+                          <span style={{ fg: theme.text.muted }}>{` · ${section.projects.length}`}</span>
+                        </Show>
                       </text>
                     </box>
                     {/* The switch that keeps a Society's AIs from working: held, none of its sessions starts. */}

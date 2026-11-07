@@ -485,17 +485,39 @@ const layer: Layer.Layer<
     const projectSessions = Effect.fn("Orchestra.projectSessions")(function* (project: Project) {
       const all = yield* projects()
       const claims = yield* owners()
-      const recent = yield* topLevelSessions()
-      // Another project in the same directory has its own orchestrator; it never joins this team.
-      return recent.filter((session) => {
-        const claimed = claims[session.id] ?? Orchestra.sessionOwner(session.metadata)
-        if (isGroupChat(session, claimed)) return false
-        return (
-          session.id !== project.main &&
-          session.agent !== Orchestra.agent &&
-          Orchestra.ownerOf(all, session.location.directory, claimed)?.id === project.id
-        )
+      // One scoped read instead of the full top-level scan: with ~2000 sessions on
+      // the server the scan made every project listing take ~1s, and a Society
+      // scope load paid it once per member project. Candidates are the sessions
+      // in this project's own directory tree, plus the sessions explicitly claimed
+      // to it from elsewhere; the ownership filter below still decides each one,
+      // so a session in a shared or nested directory keeps its old owner.
+      const inTree = yield* sessions.list({
+        directoryPrefix: AbsolutePath.make(project.directory),
+        parentID: null,
+        order: "desc",
       })
+      const claimedIDs = Object.entries(claims).flatMap(([id, owner]) =>
+        owner === project.id ? [SessionID.make(id)] : [],
+      )
+      const claimed = (
+        yield* Effect.forEach(claimedIDs, (id) => sessions.get(id).pipe(Effect.option), {
+          concurrency: "unbounded",
+        })
+      ).flatMap((item) => Option.toArray(item))
+      const seen = new Set<string>()
+      return [...inTree.data, ...claimed.filter((session) => session.parentID === undefined)]
+        .toSorted((a, b) => DateTime.toEpochMillis(b.time.updated) - DateTime.toEpochMillis(a.time.updated))
+        .filter((session) => {
+          if (seen.has(session.id)) return false
+          seen.add(session.id)
+          const claimed = claims[session.id] ?? Orchestra.sessionOwner(session.metadata)
+          if (isGroupChat(session, claimed)) return false
+          return (
+            session.id !== project.main &&
+            session.agent !== Orchestra.agent &&
+            Orchestra.ownerOf(all, session.location.directory, claimed)?.id === project.id
+          )
+        })
     })
 
     // When a main Session is deleted, its replacement has a new ID. Keep any outstanding

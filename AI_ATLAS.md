@@ -1173,6 +1173,17 @@ too far behind, so it resyncs instead of missing events.
   cursor. `Orchestra.outcomes` returns every report of each worker, oldest
   first — not only the latest — so earlier reports are never overwritten in
   the view (each report is its own KV entry under `orchestra/report/`).
+- **Project session listing is scoped, not a full scan**: `Orchestra.projectSessions`
+  (`packages/core/src/orchestra.ts`) reads only the sessions in the project's own
+  directory tree via `SessionStore.list({ directoryPrefix })`
+  (`packages/core/src/session/store.ts`, `session_v2_directory_idx`, migration
+  `20261107101054_busy_orphan`), plus the sessions explicitly claimed to the
+  project from elsewhere; the ownership filter (claims, nested projects, group
+  chats) still decides each candidate. The old full top-level scan made one
+  listing take ~1s at ~2000 sessions and `group.status` ~3–6s; both are now
+  ~15ms / ~60ms at the same size. The orphan-main repair in `ensureMain` still
+  uses the full `topLevelSessions` scan — it is rare and needs sessions from
+  anywhere.
 - **Chat**: `session.prompt` returns `{data, held}` — `held: true` means the
   prompt was admitted but the session is paused (hold), so the client shows
   "Session is paused" instead of silence. The composer retries a failed send

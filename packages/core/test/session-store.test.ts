@@ -5,6 +5,7 @@ import { Database } from "@orchestra/core/database/database"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
 import { ProjectTable } from "@orchestra/core/project/sql"
 import { SessionProjector } from "@orchestra/core/session/projector"
+import { SessionTable } from "@orchestra/core/session/sql"
 import { SessionStore } from "@orchestra/core/session/store"
 import { Event } from "@orchestra/schema/event"
 import { Project } from "@orchestra/schema/project"
@@ -97,6 +98,50 @@ describe("SessionStore", () => {
           expect(sessions.map((session) => String(session.id))).toEqual(page.ids)
         }),
       )
+    }),
+  )
+
+  it.effect("lists only a directory tree by prefix, never a sibling sharing the prefix", () =>
+    Effect.gen(function* () {
+      const database = yield* Database.Service
+      yield* database.db.insert(ProjectTable).values({ id: Project.ID.global, worktree: "/project", sandboxes: [] }).run()
+      yield* database.db
+        .insert(SessionTable)
+        .values([
+          { id: Session.ID.make("ses_tree_root"), project_id: Project.ID.global, directory: "/project", slug: "root", version: "test" },
+          { id: Session.ID.make("ses_tree_sub"), project_id: Project.ID.global, directory: "/project/sub", slug: "sub", version: "test" },
+          { id: Session.ID.make("ses_tree_deep"), project_id: Project.ID.global, directory: "/project/sub/deep", slug: "deep", version: "test" },
+          { id: Session.ID.make("ses_sibling"), project_id: Project.ID.global, directory: "/project-x", slug: "sibling", version: "test" },
+          { id: Session.ID.make("ses_other"), project_id: Project.ID.global, directory: "/elsewhere", slug: "other", version: "test" },
+          {
+            id: Session.ID.make("ses_tree_child"),
+            project_id: Project.ID.global,
+            directory: "/project",
+            parent_id: Session.ID.make("ses_tree_root"),
+            slug: "child",
+            version: "test",
+          },
+        ])
+        .run()
+      const store = yield* SessionStore.Service
+      const ids = (sessions: ReadonlyArray<Session.Info>) => sessions.map((session) => String(session.id)).toSorted()
+      expect(
+        ids(yield* store.list({ directoryPrefix: AbsolutePath.make("/project"), parentID: null })),
+      ).toEqual(["ses_tree_deep", "ses_tree_root", "ses_tree_sub"])
+      // A child session lives in the tree but is not top-level.
+      expect(ids(yield* store.list({ directoryPrefix: AbsolutePath.make("/project") }))).toEqual([
+        "ses_tree_child",
+        "ses_tree_deep",
+        "ses_tree_root",
+        "ses_tree_sub",
+      ])
+      // A trailing slash and a sibling prefix do not change the tree.
+      expect(
+        ids(yield* store.list({ directoryPrefix: AbsolutePath.make("/project/"), parentID: null })),
+      ).toEqual(["ses_tree_deep", "ses_tree_root", "ses_tree_sub"])
+      expect(ids(yield* store.list({ directoryPrefix: AbsolutePath.make("/project-x"), parentID: null }))).toEqual([
+        "ses_sibling",
+      ])
     }),
   )
 
