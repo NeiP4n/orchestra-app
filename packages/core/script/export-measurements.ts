@@ -9,6 +9,9 @@
 //
 // The directory defaults to ORCHESTRA_REQUEST_MEASUREMENT_DIR, then <data>/log/measurements.
 // Collection itself requires ORCHESTRA_REQUEST_MEASUREMENT=1 in the daemon's environment.
+// An attempt whose completion never landed (crash, restart, shutdown mid-request) exports
+// with outcome "unknown" and is counted in manifest.unfinished: "unknown" means the request
+// never settled, not that it failed.
 
 import { Effect } from "effect"
 import { measurementDir, readExport } from "../src/session/request-measurement.js"

@@ -624,6 +624,141 @@ describe("SessionRequestMeasurement lifecycle and export", () => {
     expect(JSON.parse(filtered.lines[0]).sessionID).toBe("ses-1")
   })
 
+  test("export: the first terminal completion wins; a later completion cannot overwrite it", async () => {
+    const dir = mkdtemp()
+    const begin = SessionRequestMeasurement.open({
+      measurementID: "m-1",
+      sessionID: "ses-1",
+      logicalRequestID: "lr-1",
+      attemptID: "a-1",
+      phase: "primary",
+      providerID: "zen",
+      modelID: "glm-4.6",
+      startedAt: 1,
+      toolCount: 0,
+      messageCount: 0,
+    })
+    const completed = {
+      ...begin,
+      outcome: "completed",
+      endedAt: 100,
+      durationMs: 99,
+      usage: { input: 10, output: 5, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
+      cost: { recordedUSD: null, estimatedUSD: 0.001, source: "catalog" },
+    }
+    const failedLater = {
+      ...completed,
+      outcome: "failed",
+      endedAt: 200,
+      durationMs: 199,
+      usage: { input: 999, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
+    }
+    // One file keeps line order deterministic: the completed line lands before the failed one.
+    fs.writeFileSync(
+      path.join(dir, "00000000-0000-4000-8000-000000000000.jsonl"),
+      `${JSON.stringify({ coverage: "primary-completion", record: completed })}\n${JSON.stringify({ coverage: "primary-completion", record: failedLater })}\n`,
+    )
+    const result = await Effect.runPromise(SessionRequestMeasurement.readExport(dir))
+    expect(result.manifest.records).toBe(1)
+    expect(result.manifest.unfinished).toBe(0)
+    const record = JSON.parse(result.lines[0])
+    expect(record.outcome).toBe("completed")
+    expect(record.usage.input).toBe(10)
+  })
+
+  test("export: a completion arriving before its begin stays terminal; the begin cannot reopen it", async () => {
+    const dir = mkdtemp()
+    const begin = SessionRequestMeasurement.open({
+      measurementID: "m-1",
+      sessionID: "ses-1",
+      logicalRequestID: "lr-1",
+      attemptID: "a-1",
+      phase: "primary",
+      providerID: "zen",
+      modelID: "glm-4.6",
+      startedAt: 1,
+      toolCount: 0,
+      messageCount: 0,
+    })
+    const completed = {
+      ...begin,
+      outcome: "completed",
+      endedAt: 100,
+      durationMs: 99,
+      usage: { input: 10, output: 5, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
+      cost: { recordedUSD: null, estimatedUSD: 0.001, source: "catalog" },
+    }
+    // Restart disorder: the completion is read before the begin of the same attempt.
+    fs.writeFileSync(
+      path.join(dir, "00000000-0000-4000-8000-000000000000.jsonl"),
+      `${JSON.stringify({ coverage: "primary-completion", record: completed })}\n${JSON.stringify({ coverage: "primary-sizes", record: begin })}\n`,
+    )
+    const result = await Effect.runPromise(SessionRequestMeasurement.readExport(dir))
+    expect(result.manifest.records).toBe(1)
+    expect(result.manifest.unfinished).toBe(0)
+    expect(JSON.parse(result.lines[0]).outcome).toBe("completed")
+  })
+
+  test("export is restart-safe: a fresh read reproduces the ledger, incomplete stays unknown", async () => {
+    const dir = mkdtemp()
+    const settled = SessionRequestMeasurement.open({
+      measurementID: "m-1",
+      sessionID: "ses-1",
+      logicalRequestID: "lr-1",
+      attemptID: "a-1",
+      phase: "primary",
+      providerID: "zen",
+      modelID: "glm-4.6",
+      startedAt: 1,
+      toolCount: 0,
+      messageCount: 0,
+    })
+    const interrupted = SessionRequestMeasurement.open({
+      measurementID: "m-2",
+      sessionID: "ses-1",
+      logicalRequestID: "lr-2",
+      attemptID: "a-2",
+      phase: "primary",
+      providerID: "zen",
+      modelID: "glm-4.6",
+      startedAt: 2,
+      toolCount: 0,
+      messageCount: 0,
+    })
+    // The daemon died after writing the begin of a-2: no completion ever lands for it.
+    await Effect.runPromise(
+      SessionRequestMeasurement.writeLine(JSON.stringify({ coverage: "primary-sizes", record: settled }), dir),
+    )
+    await Effect.runPromise(
+      SessionRequestMeasurement.writeLine(
+        JSON.stringify({
+          coverage: "primary-completion",
+          record: {
+            ...settled,
+            outcome: "completed",
+            endedAt: 50,
+            durationMs: 49,
+            usage: { input: 3, output: 1, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
+            cost: { recordedUSD: null, estimatedUSD: null, source: "unknown" },
+          },
+        }),
+        dir,
+      ),
+    )
+    await Effect.runPromise(
+      SessionRequestMeasurement.writeLine(JSON.stringify({ coverage: "primary-sizes", record: interrupted }), dir),
+    )
+    const first = await Effect.runPromise(SessionRequestMeasurement.readExport(dir))
+    const second = await Effect.runPromise(SessionRequestMeasurement.readExport(dir))
+    expect(second).toEqual(first)
+    expect(first.manifest.records).toBe(2)
+    expect(first.manifest.unfinished).toBe(1)
+    const unfinished = first.lines.map((line) => JSON.parse(line)).find((record) => record.attemptID === "a-2")
+    expect(unfinished.outcome).toBe("unknown")
+    expect(unfinished.endedAt).toBeNull()
+    expect(unfinished.durationMs).toBeNull()
+  })
+
   test("export never passes malformed stored records through (repro: object goalID, arbitrary method)", async () => {
     const dir = mkdtemp()
     const opened = SessionRequestMeasurement.open({
