@@ -3,6 +3,7 @@ import { expect, test } from "bun:test"
 import { Effect, FileSystem } from "effect"
 import { writeFile } from "node:fs/promises"
 import { Service, type EnsureReason } from "../src/effect/service"
+import { withEnsureTiming } from "../src/service-timing"
 import { expectPortAvailable, serviceFixture } from "./fixture/service-fixture"
 import { accelerate } from "./fixture/service-timing"
 
@@ -135,8 +136,43 @@ test("waits for a registered service to finish starting", async () => {
   expect((await result).url).toBe((await Bun.file(registration).json()).url)
 })
 
-test("recovers when the starting service it waits for is stopped", async () => {
+test("keeps a slow starter that answers, then times out, instead of killing it", async () => {
   await using fixture = await serviceFixture()
+  const registration = fixture.registration
+  const slow = fixture.spawn("flaky")
+  await fixture.waitForFile()
+  const original = await Bun.file(registration).json()
+
+  // Accelerated timing like the other tests, but no contender recruitment: the
+  // replacement command is empty, so any spawn attempt fails — the test only
+  // passes when ensure() waits the slow server out instead of replacing it.
+  const result = run(
+    Service.ensure(
+      withEnsureTiming(
+        { file: registration, version: "test", command: [] },
+        {
+          pollInterval: 20,
+          requestTimeout: 100,
+          spawnDelay: 5_000,
+          maxSpawnDelay: 1_200,
+          promiseTimeout: 3_000,
+          stopPollInterval: 5,
+        },
+      ),
+    ),
+  )
+  // The first hang is when probes start timing out; the release comes later,
+  // after three timed-out probes in a row would previously have killed it.
+  await fixture.waitForFile(registration + ".requests")
+  await Bun.sleep(500)
+  await writeFile(registration + ".release", "")
+
+  const endpoint = await result
+  expect(endpoint.url).toBe(original.url)
+  expect(slow.exitCode).toBe(null)
+}, 10_000)
+
+test("recovers when the starting service it waits for is stopped", async () => {  await using fixture = await serviceFixture()
   const registration = fixture.registration
   const starting = fixture.spawn("starting")
   await fixture.waitForFile()
