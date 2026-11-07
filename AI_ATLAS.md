@@ -107,6 +107,46 @@ provider cooldown (`ProviderCooldown.noteProviderDown`), so the chain also
 skips providers that are cooling down from a 429 or a 502 this process
 already saw.
 
+## Token economy — tool pruning + verify-loop early stop (`packages/core/src/session/tool-pruning.ts`, `session/runner/llm.ts`, `autoloop/kernel/decide.ts`) (TokenEconomizer pilot, run 9)
+
+Two of Microsoft TokenEconomizer's three levers, native in the autoloop —
+no foreign code, no external controller. (a) Tool pruning: every loaded
+tool's definition is sent with every request, so `runStep` in
+`session/runner/llm.ts` stops advertising tools the session has not called
+for `toolPruneUnusedSteps` turns (config `orchestra.autoloop.toolPruneUnusedSteps`,
+default 10 — TokenEconomizer p=10; the runner reads it from the location
+config once per drain, kernel default when no config is in context).
+The decision is a pure function of visible history (`ToolPruning.pruneTools`,
+`packages/core/src/session/tool-pruning.ts`), recomputed each step, with no
+stored state: the clock is assistant turns, a tool is pruned when
+`turns - lastUseTurn >= unusedSteps`. It is reversible: a tool named in the
+latest user message or the model's latest text is kept, and any call in
+history refreshes its last use. Never pruned: `execute` (the gateway to
+every MCP/codemode tool), `tools` (the on-demand index), and the tools the
+session's mode requires (`Mode.toolsOf`). Only `definitions` are pruned —
+the other surfaces already economise themselves: non-core direct tools load
+on demand through the `tools` index (`ToolRouter`), and MCP/codemode tools
+ride as one `execute` definition plus a catalog summary capped at ~600
+inline tokens (`CodeModeCatalog.summarize`). Pruning the catalog text
+itself is a follow-up, not this pilot. After a compaction the old calls are
+gone from visible history, so a tool used only before the compaction may
+look unused and get pruned until mentioned again. The pruning lives in
+`runStep`, so it covers the main model steps on every surface — serve, TUI
+and CLI all run sessions through the same `SessionRunner`. Two paths still
+send the full definitions and are a follow-up, not this pilot: compaction
+requests (`session/compaction.ts`) and title generation
+(`session/generate.ts`) pass the unpruned snapshot. And for the opencode
+provider the transport re-adds `read`, `bash`, `edit`, `glob`, `grep` after
+pruning (the Zen validator courtesy in `provider-request-compatibility.ts`
+and the Zen mirror in `session/model-request.ts`), so those five are never
+actually hidden there. (b) Verify-loop early stop: see the Autoloop journal
+section — a check that fails the same way `failureRepeatStop` times (config,
+default 3) stops before the 5-round cap. Micro-skills (the third lever —
+facts proposed by a reviewer model every k sessions) are NOT built: the
+adjacent mechanism that already exists is the one lesson per twice-failed
+run in the journal (idea #11); a reviewer-model fact system is a project
+decision for a later pilot, not this one.
+
 ## Modes — `packages/schema/src/mode.ts`
 
 A mode is rails for a run: step ceiling, read-only flag, preloaded tools, one
@@ -254,7 +294,15 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   idempotent `finish` (same receipt → same answer, different receipt under
   the same token → conflict). Orchestra limits instead of the original's:
   retries 1–2 (was 10), check rounds max 5 (`verifyIterations` on the run,
-  then an ask card), `MAX_HOPS = 8`, `RESEND_AT = [0,1,3,7,15,25,35,45,55]`,
+  then an ask card) — but a check that fails the same way stops earlier:
+  `applyReceipt` fingerprints the gate reason plus the receipt summary and
+  stops the run once the same failure repeats `failureRepeatStop` times
+  (config `orchestra.autoloop.failureRepeatStop`, default 3), with an ask
+  card "Проверка не проходит одним и тем же способом" naming the repeated
+  failure and the round count; a check that fails differently each round
+  keeps all 5 rounds, and the fingerprint, repeat count and history stay on
+  the run row (`error_fingerprint`, `error_repeat`, `error_history`).
+  `MAX_HOPS = 8`, `RESEND_AT = [0,1,3,7,15,25,35,45,55]`,
   57-minute window. Rules come from Orchestra config via the `decide`
   environment, never from a `rules.json`. Minimal five-field cron parser
   lives here too (tick needs it). Sweep: a run its worker stopped mentioning
@@ -307,7 +355,11 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
     counts consecutive repeats and repeats inside an hour. A run whose error
     repeats 3 times in a row or 3 times within an hour stops in `retryLater`
     even when retries remain, with a stop card naming the error, the attempt
-    count and the fingerprint. The fingerprint and the history stay on the
+    count and the fingerprint. The count (3) is a number in config
+    (`orchestra.autoloop.failureRepeatStop`, default 3), not a hardcoded
+    constant. The same stop-word also guards the check-fix loop:
+    `applyReceipt` stops a run whose check fails the same way that many
+    times, before the 5-round cap (see `kernel/decide.ts` above). The fingerprint and the history stay on the
     run row (`error_fingerprint`, `error_repeat`, `error_history`); an empty
     error text never trips it. The session-runner retry caps (Б4/Б5) bound
     one step only — this is the cross-attempt detection they cannot see.
