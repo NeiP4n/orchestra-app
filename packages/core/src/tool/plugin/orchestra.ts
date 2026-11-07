@@ -664,6 +664,67 @@ export function routeWorkerModel(input: {
   return { model: routed.model, ...(routed.variant ? { variant: routed.variant } : {}) }
 }
 
+export interface RoutedWorkerModelChoice extends RoutedWorkerModel {
+  /** Where the routed model came from: the operator's favorites, a reported fallback, or the open pool. */
+  readonly source: "favorite" | "fallback" | "routed"
+  /** Why a fallback took the task over the favorites; set only when source is "fallback". */
+  readonly reason?: string
+}
+
+// Feature picks outrank the role and policy fallbacks, so the router runs over the usable
+// favorites FIRST: a cheaper fallback never beats a healthy favorite. Fallbacks are routed only
+// when no favorite is left in the candidates (every one refused or on a cooling-down provider —
+// workerModels already filtered those) or none can run the task's reasoning variant, and the
+// choice says why the favorites lost, so a new provider is never billed silently. An explicit
+// task model is honored before this runs, and routeWorkerModel returns undefined for a role
+// pinned to one model, so a pin is never rerouted here either.
+export function routeWorkerModelWithFavorites(input: {
+  readonly role: Orchestra.Role
+  readonly text: string
+  readonly mode?: string
+  readonly candidates: ReadonlyArray<Model.Ref>
+  readonly favorites: ReadonlyArray<Model.Ref>
+  readonly catalog: ReadonlyArray<ModelRouter.CatalogModel>
+}): RoutedWorkerModelChoice | undefined {
+  const route = (candidates: ReadonlyArray<Model.Ref>) =>
+    routeWorkerModel({
+      role: input.role,
+      text: input.text,
+      ...(input.mode ? { mode: input.mode } : {}),
+      candidates,
+      catalog: input.catalog,
+    })
+  if (input.favorites.length === 0) {
+    const routed = route(input.candidates)
+    return routed === undefined ? undefined : { ...routed, source: "routed" }
+  }
+  const favoriteKeys = new Set(input.favorites.map(modelRef))
+  const favorites = input.candidates.filter((ref) => favoriteKeys.has(modelRef(ref)))
+  const fallbacks = input.candidates.filter((ref) => !favoriteKeys.has(modelRef(ref)))
+  if (favorites.length === 0) {
+    const routed = route(fallbacks)
+    return routed === undefined
+      ? undefined
+      : {
+          ...routed,
+          source: "fallback",
+          reason: "no favorite is usable here (refused, cooling down, or outside the role's model list)",
+        }
+  }
+  const favorite = route(favorites)
+  if (favorite === undefined) return undefined
+  // A variant on the result means the favorite can run the tier's reasoning level.
+  if (favorite.variant !== undefined) return { ...favorite, source: "favorite" }
+  const fallback = fallbacks.length > 0 ? route(fallbacks) : undefined
+  if (fallback !== undefined && fallback.variant !== undefined)
+    return {
+      ...fallback,
+      source: "fallback",
+      reason: `no favorite offers this task's reasoning variant; fell back to ${fallback.model}#${fallback.variant}`,
+    }
+  return { ...favorite, source: "favorite" }
+}
+
 export const Plugin = {
   id: "orchestra.tool.orchestra",
   effect: Effect.fn("OrchestraTool.Plugin")(function* (ctx: Context) {
@@ -727,11 +788,14 @@ export const Plugin = {
       const refs = [worker.model, ...(worker.models ?? [])].filter((item): item is Model.Ref => item !== undefined)
       const allowed = (ref: Model.Ref) =>
         role.models?.length ? role.models.some((item) => baseOf(item) === modelRef(ref)) : true
-      const routed = routeWorkerModel({
+      // Favorites route first: workerModels ranks them ahead of the role/policy fallbacks, but
+      // the router alone would let a cheaper fallback beat a healthy favorite.
+      const routed = routeWorkerModelWithFavorites({
         role,
         text,
         ...(mode ? { mode: mode.id } : {}),
         candidates: refs.filter(allowed),
+        favorites,
         catalog: available,
       })
       if (!routed) return undefined
@@ -740,11 +804,19 @@ export const Plugin = {
       // The routed variant is the tier's; a role variant still applies when the tier named none.
       const variant =
         routed.variant ?? (role.variant && known.variants.some((item) => item.id === role.variant) ? role.variant : undefined)
-      return Model.Ref.make({
-        providerID: known.providerID,
-        id: known.id,
-        ...(variant ? { variant: Model.VariantID.make(variant) } : {}),
-      })
+      return {
+        ref: Model.Ref.make({
+          providerID: known.providerID,
+          id: known.id,
+          ...(variant ? { variant: Model.VariantID.make(variant) } : {}),
+        }),
+        source:
+          routed.source === "favorite"
+            ? "your Feature favorites, routed for the task"
+            : routed.source === "fallback"
+              ? (routed.reason ?? "fell back from your favorites")
+              : "the role/worker policy, routed for the task",
+      }
     })
 
     // Every action runs on behalf of the project's main session and only
@@ -1026,9 +1098,10 @@ export const Plugin = {
                 text?: string,
                 mode?: Mode.Spec,
               ) {
-                const model = input.model?.trim()
-                  ? yield* requireModel(role, input.model.trim())
-                  : yield* routeModel(role, text, mode)
+                const explicit = input.model?.trim() || undefined
+                const routed = explicit === undefined ? yield* routeModel(role, text, mode) : undefined
+                const model = explicit !== undefined ? yield* requireModel(role, explicit) : routed?.ref
+                const modelSource = explicit !== undefined ? "your explicit choice" : routed?.source
                 const tools = input.tools?.map((tool) => tool.trim()).filter(Boolean)
                 if (tools && !role?.autoTools)
                   return yield* new ToolFailure({
@@ -1050,6 +1123,7 @@ export const Plugin = {
                   })
                 return {
                   model,
+                  ...(modelSource === undefined ? {} : { modelSource }),
                   permissions: tools ? (tools.includes("all") ? [] : Orchestra.toolRules(tools)) : undefined,
                 }
               })
@@ -1276,7 +1350,7 @@ export const Plugin = {
                   yield* dispatch(session.id, limit ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
                   return {
                     sessionID: session.id,
-                    output: `Sent to ${session.title ?? session.id}. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.${modelNote(choice.model ?? session.model, choice.model ? "your explicit choice" : "the session's existing model")}`,
+                    output: `Sent to ${session.title ?? session.id}. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.${modelNote(choice.model ?? session.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`,
                   }
                 }
                 case "create": {
@@ -1311,7 +1385,7 @@ export const Plugin = {
                         return {
                           sessionID: existing.id,
                           output: input.text?.trim()
-                            ? `Reused existing ${role.name} session ${existing.title ?? existing.id}; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.${modelNote(choice.model ?? existing.model, choice.model ? "your explicit choice" : "the session's existing model")}`
+                            ? `Reused existing ${role.name} session ${existing.title ?? existing.id}; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.${modelNote(choice.model ?? existing.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`
                             : `Reused existing ${role.name} session ${existing.title ?? existing.id}. No new session was created; use action send to assign work.`,
                         }
                       }
@@ -1360,7 +1434,7 @@ export const Plugin = {
                     yield* dispatch(created.id, limit ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
                   return {
                     sessionID: created.id,
-                    output: `Created ${created.id}${input.text?.trim() ? "; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list." : ""}.${modelNote(created.model, choice.model ? "your explicit choice" : worker.model ? "the role/worker policy" : "inherited from your own session — pass model to choose otherwise")}`,
+                    output: `Created ${created.id}${input.text?.trim() ? "; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list." : ""}.${modelNote(created.model, choice.model ? (choice.modelSource ?? "your explicit choice") : worker.model ? "the role/worker policy" : "inherited from your own session — pass model to choose otherwise")}`,
                   }
                 }
                 case "answer": {

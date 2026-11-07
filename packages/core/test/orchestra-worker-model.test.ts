@@ -8,7 +8,7 @@ import { Money } from "@orchestra/schema/money"
 import { Provider } from "@orchestra/schema/provider"
 import { Config } from "@orchestra/core/config"
 import { Orchestra } from "@orchestra/core/orchestra"
-import { resolveVariant, routeWorkerModel } from "@orchestra/core/tool/plugin/orchestra"
+import { resolveVariant, routeWorkerModel, routeWorkerModelWithFavorites } from "@orchestra/core/tool/plugin/orchestra"
 import type { Role } from "@orchestra/core/orchestra"
 import { it } from "./lib/effect"
 
@@ -321,5 +321,107 @@ describe("routeWorkerModel", () => {
     expect(routeWorkerModel({ role: role(), text: "  ", candidates, catalog })).toBeUndefined()
     expect(routeWorkerModel({ role: role(), text: "Исправь опечатку", candidates, catalog: [] })).toBeUndefined()
     expect(routeWorkerModel({ role: role(), text: "Исправь опечатку", candidates: [], catalog })).toBeUndefined()
+  })
+})
+
+describe("routeWorkerModelWithFavorites", () => {
+  const catalog = [
+    { providerID: "polza", id: "flash", variants: [{ id: "minimal" }, { id: "fast" }, { id: "low" }], cost: [{ input: 0.1, output: 0.4 }] },
+    { providerID: "polza", id: "deepseek", variants: [{ id: "low" }, { id: "medium" }, { id: "high" }], cost: [{ input: 0.3, output: 1.2 }] },
+    { providerID: "polza", id: "opus", variants: [{ id: "high" }, { id: "max" }], cost: [{ input: 3, output: 15 }] },
+    { providerID: "polza", id: "glm", variants: [{ id: "high" }], cost: [{ input: 0.05, output: 0.2 }] },
+    { providerID: "polza", id: "kimi-free", variants: [], cost: [{ input: 0, output: 0 }] },
+  ]
+  const refs = (...models: string[]) => models.map((model) => Model.Ref.parse(model))
+
+  test("a healthy favorite wins over a cheaper fallback", () => {
+    // Combined routing used to send this task to flash ($0.1) although the
+    // operator pinned deepseek: the cheaper fallback outbid the favorite.
+    expect(
+      routeWorkerModelWithFavorites({
+        role: role({ id: "developer" }),
+        text: "Напиши тест для компонента корзины",
+        candidates: refs("polza/flash", "polza/deepseek"),
+        favorites: refs("polza/deepseek"),
+        catalog,
+      }),
+    ).toEqual({ model: "polza/deepseek", variant: "low", source: "favorite" })
+  })
+
+  test("ranks several favorites by tier and cost before any fallback", () => {
+    // glm is the cheapest model that can reason deeply, but it is not a
+    // favorite; of the two favorites deepseek runs the deep tier cheapest.
+    expect(
+      routeWorkerModelWithFavorites({
+        role: role({ id: "architect" }),
+        text: "Спроектируй контракты сервиса оплаты",
+        mode: "architecture",
+        candidates: refs("polza/glm", "polza/deepseek", "polza/opus"),
+        favorites: refs("polza/opus", "polza/deepseek"),
+        catalog,
+      }),
+    ).toEqual({ model: "polza/deepseek", variant: "high", source: "favorite" })
+  })
+
+  test("falls back when every favorite is unavailable, and says why", () => {
+    // workerModels skips favorites on a cooling-down provider, so they never
+    // reach the candidates; the choice must name the fallback and its reason.
+    expect(
+      routeWorkerModelWithFavorites({
+        role: role({ id: "developer" }),
+        text: "Исправь опечатку в README",
+        candidates: refs("polza/flash"),
+        favorites: refs("polza/deepseek"),
+        catalog,
+      }),
+    ).toEqual({
+      model: "polza/flash",
+      variant: "minimal",
+      source: "fallback",
+      reason: expect.stringContaining("no favorite is usable"),
+    })
+  })
+
+  test("never reroutes a role pinned to one model, favorite or not", () => {
+    expect(
+      routeWorkerModelWithFavorites({
+        role: role({ model: "polza/opus" }),
+        text: "Исправь опечатку",
+        candidates: refs("polza/opus"),
+        favorites: refs("polza/opus"),
+        catalog,
+      }),
+    ).toBeUndefined()
+  })
+
+  test("considers fallbacks when no favorite can run the tier's reasoning variant", () => {
+    expect(
+      routeWorkerModelWithFavorites({
+        role: role({ id: "architect" }),
+        text: "Спроектируй контракты сервиса оплаты",
+        mode: "architecture",
+        candidates: refs("polza/flash", "polza/opus"),
+        favorites: refs("polza/flash"),
+        catalog,
+      }),
+    ).toEqual({
+      model: "polza/opus",
+      variant: "high",
+      source: "fallback",
+      reason: expect.stringContaining("reasoning variant"),
+    })
+  })
+
+  test("keeps the favorite when no candidate can run the tier's variant", () => {
+    expect(
+      routeWorkerModelWithFavorites({
+        role: role({ id: "architect" }),
+        text: "Спроектируй контракты сервиса оплаты",
+        mode: "architecture",
+        candidates: refs("polza/flash", "polza/kimi-free"),
+        favorites: refs("polza/flash"),
+        catalog,
+      }),
+    ).toEqual({ model: "polza/flash", source: "favorite" })
   })
 })
