@@ -49,7 +49,7 @@ export const description = [
   `Modes: ${MODE_IDS}. A mode changes how a session works and may make it read-only; it never widens the role's permissions. Pass mode to send or create, or use action set_mode. Use fast for trivial work, planning or research before building, coding for implementation, architecture for parallel-safe design, test to verify, review or debug for checks, and self-improvement for work on the product itself. A planner in coding mode still cannot edit files.`,
   "Never pass a display title as a role ID: use an exact role id from the roles listed with your team.",
   "Access per session is hidden < read < write < full: read allows list and read, write adds send, full adds stop. Sessions you create get full access.",
-  "The 6-message rule binds you: after 6 of your own messages in a row without handing a task to a worker, your other tool calls are refused until you delegate with send or create. Building the Society (society_forge found/generate, society_plan apply) is never refused by this rule and resets the count like a delegation, so creating the Society never forces a premature dispatch. The roster in your context shows how many of the 6 you have used.",
+  "The 6-message rule binds you: after 6 of your own messages in a row without handing a task to a worker, your other tool calls are refused until you delegate with send or create. Building the Society (society_forge found/generate, society_plan apply) is never refused by this rule and resets the count like a delegation, so creating the Society never forces a premature dispatch. The MCP survey (mcp_manager inspect) is never refused either — a dispatch needs a fresh survey, so survey first if you have not, then dispatch with an explicit mcp assignment. The roster in your context shows how many of the 6 you have used.",
   "MCP assignment is mandatory, and it is enforced, not advised: every send or create to a team session must pass mcp — the servers the worker may call for that task, maxCalls in total, perServer caps — and a dispatch without it is refused and sends nothing. When a task needs no MCP, say so explicitly: mcp with servers [] and maxCalls 0. You may only tighten the role's own MCP ceiling, never widen it; a refused limit says what the role allows. The limit is stamped on the worker session and stated at the top of its task brief.",
   "The assignment must come from a survey, and that is enforced too: before the first dispatch in a session, call mcp_manager with action=inspect once — it lists the configured servers (status, discovered tools, leases) and the installable catalog. A dispatch before the survey is refused and sends nothing. Judge the assignment from what the survey shows: no catalog server fitting the task is a finding, and an explicit empty assignment after the survey is the right answer for native-tool work.",
   "Worker models are a cost decision, so make it deliberately: pass model on create or send — the strongest model for design, hard debugging and review, a mid-tier or small model for mechanical implementation and routine checks. With no explicit model the role's own model or the worker policy applies, and failing those the worker inherits YOUR model, which is the expensive default, not a decision. The dispatch result names the model the worker will run and where it came from.",
@@ -92,8 +92,11 @@ export function reusableWorker<T extends WorkerRow>(
 // several tools and still counts once — and only a real delegation resets
 // the count: listing or reading the team is management, not distribution,
 // and asking the operator a question is neither counted nor blocked (the
-// operator may be the only one who can decide). A new incoming prompt (the
-// operator, or a <team-report> waking the Orchestrator) starts a new cycle.
+// operator may be the only one who can decide). The MCP survey
+// (mcp_manager inspect) is exempt too: a dispatch is refused without a
+// fresh survey, so blocking the survey at the limit would deadlock the
+// Orchestrator — it could neither survey nor dispatch. A new incoming prompt
+// (the operator, or a <team-report> waking the Orchestrator) starts a new cycle.
 // This complements the older explore-call gate in the team plugin, which
 // counts read/grep/glob/shell calls only; this one counts every own message.
 export const ORCHESTRATOR_MESSAGE_LIMIT = 6
@@ -122,15 +125,27 @@ const isSocietyBuildingCall = (tool: string, action: string | undefined) =>
 
 const isSocietyTool = (tool: string) => tool === SocietyForgeTool.name || tool === SocietyPlanTool.name
 
+// The MCP survey is a prerequisite for delegating, not the work itself:
+// a dispatch is refused without a fresh survey, so refusing the survey
+// at the limit would deadlock the Orchestrator — it could neither survey
+// nor dispatch. Inspect is read-only (it only lists the fleet), so it is
+// always available like team management. Acquiring or installing a server
+// stays gated: that mutates the fleet and belongs to setup before the
+// limit. The tool name is a literal on purpose: mcp-manager.ts imports
+// from this file, so importing its name here would be circular.
+const isSurveyCall = (tool: string, action: string | undefined) =>
+  tool === "mcp_manager" && action === "inspect"
+
 export function delegationGate(
   counted: ReadonlyArray<string>,
   input: { tool: string; messageID: string; action?: string; text?: string },
 ): DelegationGate {
   if (isDelegationCall(input.tool, input.action, input.text) || isSocietyBuildingCall(input.tool, input.action))
     return { counted: [], blocked: false, reset: true }
-  // Team management, Society building and asking the operator are always
-  // available and never count as the Orchestrator doing the work itself.
-  if (input.tool === name || input.tool === "question" || isSocietyTool(input.tool))
+  // Team management, Society building, the MCP survey and asking the
+  // operator are always available and never count as the Orchestrator
+  // doing the work itself.
+  if (input.tool === name || input.tool === "question" || isSocietyTool(input.tool) || isSurveyCall(input.tool, input.action))
     return { counted, blocked: false, reset: false }
   if (counted.includes(input.messageID)) return { counted, blocked: false, reset: false }
   if (counted.length >= ORCHESTRATOR_MESSAGE_LIMIT) return { counted, blocked: true, reset: false }
@@ -178,7 +193,7 @@ export function delegationStatus(streak: number) {
     text: mustDelegate
       ? [
           "# 6-message rule — limit reached",
-          `You have sent ${streak} of your own messages in a row without handing a task to a team session (limit ${limit}). Your next action MUST be sessions action send or create with the task; your other tool calls are refused until you delegate. Do not keep investigating, editing around it or writing a longer report instead. Building the Society (society_forge found/generate, society_plan apply) is always allowed and also resets the count.`,
+          `You have sent ${streak} of your own messages in a row without handing a task to a team session (limit ${limit}). Your next action MUST be sessions action send or create with the task; your other tool calls are refused until you delegate. Do not keep investigating, editing around it or writing a longer report instead. A dispatch also needs a fresh MCP survey (mcp_manager inspect is always allowed, even at the limit) and an explicit mcp assignment — survey first if you have not, then dispatch. Building the Society (society_forge found/generate, society_plan apply) is always allowed and also resets the count.`,
         ].join("\n")
       : [
           "# 6-message rule",
@@ -843,8 +858,13 @@ export const Plugin = {
           counted = Array.from({ length: streak }, (_, index) => `history-${index}`)
           gateCounted.set(event.sessionID, counted)
         }
+        // The gate needs the action for more than the sessions tool: the
+        // MCP survey (mcp_manager inspect) is exempt, so its action must
+        // reach the gate too. Extracting it for every tool is safe — the
+        // gate only treats an action as a delegation or a survey for the
+        // exact tool names those belong to.
         const input =
-          event.tool === name && typeof event.input === "object" && event.input !== null
+          typeof event.input === "object" && event.input !== null
             ? (event.input as { action?: string; text?: string })
             : {}
         const gate = delegationGate(counted, {
@@ -856,7 +876,7 @@ export const Plugin = {
         gateCounted.set(event.sessionID, [...gate.counted])
         if (gate.blocked)
           return yield* new Tool.Error({
-            message: `6-message rule: you have sent ${ORCHESTRATOR_MESSAGE_LIMIT} of your own messages in a row without handing a task to a team session, so this call is refused. Delegate now with the sessions tool (action send or create, with the task as text) — that call is always allowed and resets the count. Building the Society (society_forge found/generate, society_plan apply) is always allowed too.`,
+            message: `6-message rule: you have sent ${ORCHESTRATOR_MESSAGE_LIMIT} of your own messages in a row without handing a task to a team session, so this call is refused. Delegate now with the sessions tool (action send or create, with the task as text) — that call is always allowed and resets the count. A dispatch also needs a fresh MCP survey and an explicit mcp assignment: if you have not surveyed yet, run mcp_manager action=inspect first — it is always allowed, even at the limit — then dispatch with mcp (servers [] and maxCalls 0 when the task needs no MCP). Building the Society (society_forge found/generate, society_plan apply) is always allowed too.`,
           })
       }),
     )
