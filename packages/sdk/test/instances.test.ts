@@ -106,8 +106,8 @@ test("Promise instances are lazy, share by key and Location, and stay isolated b
         text: "Review this change",
         resume: false,
       })
-      expect(admitted.payload.text).toBe(`${input.prefix}: Review this change`)
-      expect(await input.host.sessions.inbox.list({ sessionID: input.session.id })).toEqual([admitted])
+      expect(admitted.data.payload.text).toBe(`${input.prefix}: Review this change`)
+      expect(await input.host.sessions.inbox.list({ sessionID: input.session.id })).toEqual([admitted.data])
     }),
   )
 
@@ -117,8 +117,8 @@ test("Promise instances are lazy, share by key and Location, and stay isolated b
   expect(fork.location).toEqual(original.location)
   expect(fork.fork?.sessionID).toBe(sessionID)
   const inherited = await first.sessions.prompt({ sessionID: fork.id, text: "Review the fork", resume: false })
-  expect(inherited.payload.text).toBe(`first:alpha@${directory.path}: Review the fork`)
-  expect(await first.sessions.inbox.list({ sessionID: fork.id })).toEqual([inherited])
+  expect(inherited.data.payload.text).toBe(`first:alpha@${directory.path}: Review the fork`)
+  expect(await first.sessions.inbox.list({ sessionID: fork.id })).toEqual([inherited.data])
 
   expect(configured.toSorted()).toEqual(["first:alpha", "first:alpha", "first:beta", "second:alpha"])
   expect(setups.toSorted()).toEqual(
@@ -135,7 +135,7 @@ test("Promise instances are lazy, share by key and Location, and stay isolated b
   expect(cleanups.toSorted()).toEqual(setups.filter((activation) => activation.startsWith("first:")).toSorted())
 
   const continued = await second.sessions.prompt({ sessionID, text: "Keep working", resume: false })
-  expect(continued.payload.text).toBe(`second:alpha@${directory.path}: Keep working`)
+  expect(continued.data.payload.text).toBe(`second:alpha@${directory.path}: Keep working`)
   expect(await second.sessions.inbox.list({ sessionID })).toHaveLength(2)
   expect(configured).toHaveLength(4)
   await second.close()
@@ -191,7 +191,7 @@ test.each(["configuration", "plugin setup"])(
       metadata: { account: "retry" },
     })
     const before = await orchestra.sessions.prompt({ sessionID: healthy.id, text: "Before failure", resume: false })
-    expect(before.payload.text).toBe("healthy: Before failure")
+    expect(before.data.payload.text).toBe("healthy: Before failure")
     const input = { sessionID: retry.id, id: SessionMessage.ID.create(), text: "Retry this input", resume: false }
 
     expect(await orchestra.sessions.prompt(input).catch((error: unknown) => error)).toMatchObject({
@@ -205,12 +205,12 @@ test.each(["configuration", "plugin setup"])(
     expect(cleanups).toEqual([])
 
     const after = await orchestra.sessions.prompt({ sessionID: healthy.id, text: "After failure", resume: false })
-    expect(after.payload.text).toBe("healthy: After failure")
-    expect(await orchestra.sessions.inbox.list({ sessionID: healthy.id })).toEqual([before, after])
+    expect(after.data.payload.text).toBe("healthy: After failure")
+    expect(await orchestra.sessions.inbox.list({ sessionID: healthy.id })).toEqual([before.data, after.data])
     const admitted = await orchestra.sessions.prompt(input)
-    expect(admitted.id).toBe(input.id)
-    expect(admitted.payload.text).toBe("retry: Retry this input")
-    expect(await orchestra.sessions.inbox.list({ sessionID: retry.id })).toEqual([admitted])
+    expect(admitted.data.id).toBe(input.id)
+    expect(admitted.data.payload.text).toBe("retry: Retry this input")
+    expect(await orchestra.sessions.inbox.list({ sessionID: retry.id })).toEqual([admitted.data])
     expect(configured).toEqual(["healthy", "retry", "retry"])
     expect(setups).toEqual(failure === "configuration" ? ["healthy", "retry"] : ["healthy", "retry", "retry"])
     expect(cleanups).toEqual([])
@@ -259,7 +259,7 @@ test("Promise instances reconstruct callbacks for persisted Sessions only on a c
     metadata: { account: "alpha", labels: ["review"] },
   })
   const before = await first.sessions.prompt({ sessionID, text: "Before restart", resume: false })
-  expect(before.payload.text).toBe("alpha/1: Before restart")
+  expect(before.data.payload.text).toBe("alpha/1: Before restart")
   await first.close()
   expect(cleanups).toEqual([1])
 
@@ -271,22 +271,22 @@ test("Promise instances reconstruct callbacks for persisted Sessions only on a c
     time: { created: created.time.created },
   })
   expect((await second.sessions.list()).data.map((session) => session.id)).toEqual([sessionID])
-  expect(await second.sessions.inbox.list({ sessionID })).toEqual([before])
+  expect(await second.sessions.inbox.list({ sessionID })).toEqual([before.data])
   expect((await second.message.list({ sessionID })).data).toEqual([])
   expect(configured).toEqual(["alpha"])
   expect(setups).toEqual([1])
 
   // The HTTP prompt boundary still acquires capabilities, even when Core reconciles an existing admission.
-  expect(await second.sessions.prompt({ sessionID, id: before.id, text: "Already admitted", resume: false })).toEqual(
-    before,
-  )
+  expect(
+    await second.sessions.prompt({ sessionID, id: before.data.id, text: "Already admitted", resume: false }),
+  ).toEqual(before)
   expect(configured).toEqual(["alpha", "alpha"])
   expect(setups).toEqual([1, 2])
   expect(await second.sessions.active()).toEqual({})
 
   const after = await second.sessions.prompt({ sessionID, text: "After restart", resume: false })
-  expect(after.payload.text).toBe("alpha/2: After restart")
-  expect(await second.sessions.inbox.list({ sessionID })).toEqual([before, after])
+  expect(after.data.payload.text).toBe("alpha/2: After restart")
+  expect(await second.sessions.inbox.list({ sessionID })).toEqual([before.data, after.data])
   expect(configured).toEqual(["alpha", "alpha"])
   expect(setups).toEqual([1, 2])
   expect(cleanups).toEqual([1])
@@ -352,9 +352,9 @@ test("Promise instance plugin ID collisions reject admission and reconstruct on 
   expect(cleanups).toEqual(["host"])
 
   const admitted = await orchestra.sessions.prompt(input)
-  expect(admitted.id).toBe(input.id)
-  expect(admitted.payload.text).toBe("alpha: Retry this input")
-  expect(await orchestra.sessions.inbox.list({ sessionID: session.id })).toEqual([admitted])
+  expect(admitted.data.id).toBe(input.id)
+  expect(admitted.data.payload.text).toBe("alpha: Retry this input")
+  expect(await orchestra.sessions.inbox.list({ sessionID: session.id })).toEqual([admitted.data])
   expect(configured).toEqual(["alpha", "alpha"])
   // The reconstructed instance runs a fresh generation: host plugin again, then the renamed instance plugin.
   expect(setups).toEqual(["host", "host", "alpha"])

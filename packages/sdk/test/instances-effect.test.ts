@@ -214,7 +214,7 @@ it.live(
       })
       for (const session of [first, second]) {
         const admitted = yield* orchestra.sessions.prompt({ sessionID: session.id, text: "Hello" })
-        expect(admitted.payload.text).toBe(`Hello:${session.location.workspaceID}`)
+        expect(admitted.data.payload.text).toBe(`Hello:${session.location.workspaceID}`)
         yield* orchestra.sessions.wait({ sessionID: session.id })
       }
       expect(configured).toEqual(["same-thread", "same-thread"])
@@ -229,7 +229,7 @@ it.live(
       const moved = yield* orchestra.sessions.get({ sessionID: first.id })
       expect(moved.location.workspaceID).toBe(secondWorkspace)
       const admitted = yield* orchestra.sessions.prompt({ sessionID: first.id, text: "Moved", resume: false })
-      expect(admitted.payload.text).toBe(`Moved:${secondWorkspace}`)
+      expect(admitted.data.payload.text).toBe(`Moved:${secondWorkspace}`)
       expect(configured).toEqual(["same-thread", "same-thread"])
     }),
   15_000,
@@ -292,7 +292,7 @@ it.live(
       expect(released).toEqual(["thread-7:1"])
 
       const admitted = yield* orchestra.sessions.prompt({ sessionID: session.id, text: "Hello", resume: false })
-      expect(admitted.payload.text).toBe("Hello:persona-for-thread-7")
+      expect(admitted.data.payload.text).toBe("Hello:persona-for-thread-7")
       expect(attempts).toEqual(["thread-7", "thread-7"])
       expect(released).toEqual(["thread-7:1"])
       yield* Scope.close(hostScope, Exit.void)

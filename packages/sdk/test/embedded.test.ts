@@ -132,7 +132,7 @@ it.live(
           text: "Promote this input",
         })
         const prompted = yield* orchestra.sessions.log({ sessionID: id, follow: true }).pipe(
-          Stream.filter((event) => event.type === "session.inbox.delivered" && event.data.inboxID === wake.id),
+          Stream.filter((event) => event.type === "session.inbox.delivered" && event.data.inboxID === wake.data.id),
           Stream.runHead,
           Effect.timeout("10 seconds"),
           Effect.map(Option.getOrThrow),
@@ -156,7 +156,9 @@ it.live(
           [
             orchestra.sessions.log({ sessionID: missingSessionID }).pipe(Stream.runHead, Effect.flip),
             orchestra.sessions.interrupt({ sessionID: missingSessionID }).pipe(Effect.flip),
-            orchestra.sessions.message.get({ sessionID: missingSessionID, messageID: modelMessage.id }).pipe(Effect.flip),
+            orchestra.sessions.message
+              .get({ sessionID: missingSessionID, messageID: modelMessage.id })
+              .pipe(Effect.flip),
             orchestra.sessions.instructions.entry.list({ sessionID: missingSessionID }).pipe(Effect.flip),
             orchestra.sessions.inbox.list({ sessionID: missingSessionID }).pipe(Effect.flip),
           ],
@@ -174,13 +176,13 @@ it.live(
         expect(selected.model?.providerID).toBe(model.providerID)
         expect(page.data.some((session) => session.id === id)).toBe(true)
         expect(active).toEqual({})
-        expect(admitted.sessionID).toBe(id)
+        expect(admitted.data.sessionID).toBe(id)
         expect(pendingAfterAdmit).toContainEqual(
-          expect.objectContaining({ id: admitted.id, type: "user", delivery: "steer" }),
+          expect.objectContaining({ id: admitted.data.id, type: "user", delivery: "steer" }),
         )
         expect(prompted.type).toBe("session.inbox.delivered")
-        expect(pendingAfterPromote.map((item) => item.id)).not.toContainAnyValues([admitted.id, wake.id])
-        expect(wakeContext).toContainEqual(expect.objectContaining({ id: wake.id, type: "user" }))
+        expect(pendingAfterPromote.map((item) => item.id)).not.toContainAnyValues([admitted.data.id, wake.data.id])
+        expect(wakeContext).toContainEqual(expect.objectContaining({ id: wake.data.id, type: "user" }))
         expect(contextEntries).toEqual([
           { key: "deploy-target", value: "production" },
           { key: "flags", value: { beta: true } },
