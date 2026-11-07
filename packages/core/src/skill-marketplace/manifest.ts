@@ -48,7 +48,9 @@ export type Version = readonly [number, number, number]
 export const parseVersion = (value: string): Version | undefined => {
   const match = VERSION_PATTERN.exec(value.trim())
   if (match === null) return undefined
-  return match[0].split(".").map(Number) as Version
+  const [major, minor, patch] = match[0].split(".").map(Number)
+  const version: Version = [major, minor, patch]
+  return version
 }
 
 const compareVersion = (a: Version, b: Version): number =>

@@ -1,7 +1,6 @@
 export * as SessionHandoff from "./handoff.js"
 
 import { readFile } from "node:fs/promises"
-import path from "node:path"
 import { Effect, Schema } from "effect"
 import { Flock } from "@orchestra/util/flock"
 // Handoff writers are plain functions with no layer, but the lock below needs
@@ -82,7 +81,7 @@ const locked = <A>(destination: string, sessionID: string, effect: Effect.Effect
       Effect.mapError((cause) =>
         cause instanceof HandoffError
           ? cause
-          : fail(`Could not lock the handoff for ${sessionID}: ${cause instanceof Error ? cause.message : String(cause)}`),
+          : fail(`Could not lock the handoff for ${sessionID}: ${String(cause)}`),
       ),
     ),
   )

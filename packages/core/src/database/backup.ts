@@ -164,13 +164,14 @@ export const backupDatabase = Effect.fn("DatabaseBackup.backup")(function* (
   const sealed = yield* liveSealedEnvelopes(db)
   let keyPath: string | undefined
   if (keyFile !== undefined && existsSync(keyFile)) {
-    keyPath = keyBackupPath(file)
+    const target = keyBackupPath(file)
+    keyPath = target
     yield* Effect.try({
-      try: () => copyFileSync(keyFile, keyPath),
-      catch: (cause) => new Error(`Cannot back up credential key ${keyFile} to ${keyPath}: ${String(cause)}`),
+      try: () => copyFileSync(keyFile, target),
+      catch: (cause) => new Error(`Cannot back up credential key ${keyFile} to ${target}: ${String(cause)}`),
     })
     if (process.platform !== "win32") {
-      yield* Effect.promise(() => chmod(keyPath as string, 0o600))
+      yield* Effect.promise(() => chmod(target, 0o600))
     }
   } else if (sealed.length > 0) {
     yield* Effect.sync(() => {

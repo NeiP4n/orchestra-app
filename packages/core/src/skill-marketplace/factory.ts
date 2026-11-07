@@ -71,7 +71,7 @@ export const compose = (goal: Goal, available: readonly NativeSkill[]): Composed
         adapters: adapters.length,
         journal: journal.length,
       }
-      const stepInputs: FactoryStep["inputs"] = []
+      const stepInputs: FactoryStep["inputs"][number][] = []
       let ready = true
       for (const input of producer.manifest.inputs) {
         if (!satisfy(input, depth + 1)) {

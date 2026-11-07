@@ -148,7 +148,7 @@ export const loadLevelDetailed = (roots: Roots, level: Level): Effect.Effect<Lev
     )
     if (Result.isFailure(read))
       return code(read.failure) === "ENOENT" ? emptyLoad : damaged(`the registry file cannot be read: ${message(read.failure)}`)
-    const json = Schema.decodeUnknownOption(Schema.UnknownFromJsonString)(read.success)
+    const json = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))(read.success)
     if (Option.isNone(json)) return damaged("the registry file is not valid JSON")
     const parsed = Schema.decodeUnknownOption(RegistrySchema)(json.value)
     if (Option.isNone(parsed) || parsed.value.version !== 1)
@@ -296,7 +296,7 @@ const locked = <A>(
         cause instanceof RegistryError
           ? cause
           : new RegistryError({
-              message: `Could not lock the ${level} skill registry to ${operation}: ${cause instanceof Error ? cause.message : String(cause)}`,
+              message: `Could not lock the ${level} skill registry to ${operation}: ${String(cause)}`,
             }),
       ),
     ),
@@ -313,7 +313,7 @@ export const effective = (roots: Roots): Effect.Effect<readonly NativeSkill[]> =
   Effect.gen(function* () {
     const byLevel = yield* Effect.all(LEVELS.map((level) => loadLevel(roots, level)))
     const merged = new Map<string, NativeSkill>()
-    for (const [index, level] of LEVELS.entries()) {
+    for (const index of LEVELS.keys()) {
       for (const skill of byLevel[index] ?? []) merged.set(skill.manifest.name, skill)
     }
     return [...merged.values()].sort(

@@ -135,7 +135,7 @@ const locked = <A>(directory: string, effect: Effect.Effect<A, ZonesError>) =>
         cause instanceof ZonesError
           ? cause
           : new ZonesError({
-              message: `Could not lock zones registry in ${directory}: ${cause instanceof Error ? cause.message : String(cause)}`,
+              message: `Could not lock zones registry in ${directory}: ${String(cause)}`,
             }),
       ),
     ),
