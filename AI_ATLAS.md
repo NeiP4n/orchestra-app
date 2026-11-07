@@ -1883,7 +1883,12 @@ replacement fought it for the port. This section is the fix, for
   and restarts it only on unclean exits (exit code, state file, live lock
   holder), with backoff 5/10/20/40/60s capped at 60s and a restart cap
   (default 5 inside a 600s sliding window, `ORCHESTRA_WATCHDOG_MAX_RESTARTS` /
-  `ORCHESTRA_WATCHDOG_WINDOW_SECONDS` / `ORCHESTRA_WATCHDOG_BACKOFF_BASE`). A
+  `ORCHESTRA_WATCHDOG_WINDOW_SECONDS` / `ORCHESTRA_WATCHDOG_BACKOFF_BASE`). Bun
+  is resolved once at startup (`ORCHESTRA_BUN`, then `command -v bun`, then
+  `/opt/hatch-image/bin/bun`, `$HOME/.bun/bin/bun`, `/usr/local/bin/bun`):
+  systemd runs the script with a minimal PATH that has no bun, so a bare
+  `bun` failed every start with exit code 127 (2026-11-07); with bun nowhere
+  the watchdog exits 1 loudly instead of spinning restarts. A
   lock counts as held only when the pid is alive and started at the lock's
   startedAt (a recycled pid is detected and the stale lock ignored). A clean
   shutdown or a lock held by a live server stops it (exit 0); past the cap it
@@ -1917,9 +1922,11 @@ replacement fought it for the port. This section is the fix, for
   root-owned), so the install is `--system --service-user root` (or a user
   unit as root); a move to an unprivileged user means re-running the
   installer as that user. Verify:
-  `packages/cli/test/server-watchdog-autostart.test.ts` (7 tests: probe
+  `packages/cli/test/server-watchdog-autostart.test.ts` (11 tests: probe
   live/stale/recycled/absent, pre-flight no-start, second-watchdog flock,
-  installer dry-run + `systemd-analyze verify`). NOT yet verified on a real
+  installer dry-run + `systemd-analyze verify`, bun resolution via
+  ORCHESTRA_BUN / fallback location with a systemd-like PATH, loud failure
+  on a broken ORCHESTRA_BUN). NOT yet verified on a real
   reboot — that is the remaining check: after the next reboot, `systemctl
   status orchestra-watchdog` + `watchdog.log` must show the watchdog up and
   the server back on port 17890 with no operator action. The installer was
