@@ -179,7 +179,9 @@ Export: `bun run packages/core/script/export-measurements.ts [directory]`
 folds the local files into one JSON document (manifest + records). Stored
 lines are rebuilt through full field validation before export:
 object-typed and prose fields are rejected and malformed lines are counted
-as skipped; an ID-shaped string is accepted as the ID it claims to be. Honest gaps: title,
+as skipped; an ID-shaped string is accepted as the ID it claims to be. Honest gaps: goalID/taskID/role are reserved but unsupported - no
+producer passes an assignment, so they are always null with attribution
+"unknown". title,
 compaction, summary and intake requests are not measured; retries hidden
 inside provider SDKs are uncounted; a local attempt ID is not a provider
 request ID. This is a diagnostic, never a source of charges.

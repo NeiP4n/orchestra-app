@@ -84,7 +84,13 @@ const costOf = (cost: Cost): Cost => ({
   source: (["provider", "catalog", "unknown"] as const).includes(cost.source) ? cost.source : "unknown",
 })
 
-/** Where the goal/task/role link came from. Never derived from text or a chat title. */
+/**
+ * Where the goal/task/role link came from. Never derived from text or a
+ * chat title. Reserved for a future assignment seam: no producer passes an
+ * assignment today, so every record has attribution "unknown" and null
+ * goalID/taskID/role. Treat the three fields as unsupported, not as
+ * evidence that the request had no goal, task or role.
+ */
 export type Attribution = "assignment" | "unknown"
 
 export interface Usage {
