@@ -17,6 +17,9 @@ export function HomeSessions(props: {
           groups={props.sessions.data.groups()}
           archivedGroups={props.sessions.data.archivedGroups()}
           loading={props.sessions.data.loading()}
+          archivedLoading={props.sessions.data.archivedLoading()}
+          archivedReady={props.sessions.data.archivedReady()}
+          sessionsUnavailable={props.sessions.data.unavailable()}
           desktop={props.sessions.platform.desktop}
           location={props.sessions.location.value}
           onRevealLocations={props.sessions.location.sync}

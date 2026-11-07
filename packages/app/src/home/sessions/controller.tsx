@@ -350,7 +350,24 @@ export function createHomeSessionsController(home: HomeController) {
       records,
       groups,
       archivedGroups,
-      loading: () => sessionLoad.isPending,
+      // A disabled query stays pending forever (its server is not connected),
+      // so pending alone is not loading: only an in-flight fetch is. Showing
+      // the skeleton for a query that will never resolve hides the list
+      // behind four grey cards with no way out.
+      loading: () => sessionLoad.isPending && sessionLoad.isFetching,
+      // The archived count is unknown until that query resolves: showing
+      // "(0)" before then is a wrong zero, not a count.
+      archivedLoading: () => archivedLoad.isPending && archivedLoad.isFetching,
+      archivedReady: () => archivedLoad.status === "success",
+      // No connected server, or the list request failed: the empty state
+      // would claim there are no sessions, which is not known.
+      unavailable: () => {
+        const ctx = home.server.focusedContext()
+
+        if (!ctx || ctx.sdk.connection.status() !== "connected") return true
+
+        return sessionLoad.isError
+      },
       searchRecords: allRecords,
     },
     platform: {
