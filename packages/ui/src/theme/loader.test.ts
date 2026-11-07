@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { buildThemeCss } from "./loader"
-import type { ResolvedTheme } from "./resolve"
-import type { ResolvedV2Theme } from "./v2/resolve"
+import type { ResolvedTheme, ResolvedV2Theme } from "./types"
 
 // buildThemeCss must emit dark tokens under the app color-scheme attribute
 // AND under the OS media query, with the same dark values in both —
