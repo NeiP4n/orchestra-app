@@ -28,6 +28,8 @@ export type EnsureReason = "missing" | "version-mismatch"
 export type EnsureOptions = DiscoverOptions & {
   /** Service command and arguments. Defaults to `orchestra serve --service`. */
   readonly command?: ReadonlyArray<string>
+  /** Working directory for the spawned service process. Defaults to the client's directory. */
+  readonly cwd?: string
   /** Environment variables added to the inherited service process environment. */
   readonly env?: Readonly<Record<string, string>>
   /** Called once before spawning a new service process. */

@@ -15,12 +15,20 @@ export function spawnServiceContender(
   command: string,
   args: ReadonlyArray<string>,
   env?: Readonly<Record<string, string | undefined>>,
+  cwd?: string,
 ): ServiceContender {
   const child = spawn(command, args, {
     detached: true,
     windowsHide: true,
     stdio: ["ignore", "ignore", "pipe"],
     env: { ...process.env, ...env },
+    // A source checkout's server only resolves its modules when Bun starts it
+    // from a directory whose tsconfig declares the Solid JSX runtime (repo
+    // root, packages/cli, packages/tui). The client inherits the caller's
+    // directory — a project directory — so without an explicit cwd the spawned
+    // server dies at import time. The service-mode server chdirs to the user's
+    // home at startup, so the spawn directory only affects module resolution.
+    cwd,
   })
   let error: Error | undefined
   let closed = false

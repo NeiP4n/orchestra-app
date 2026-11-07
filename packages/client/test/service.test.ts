@@ -99,6 +99,24 @@ test("adds configured environment variables when starting a service", async () =
   expect(await Bun.file(registration + ".environment").text()).toBe("configured")
 })
 
+test("spawns the service in the configured working directory", async () => {
+  await using fixture = await serviceFixture()
+  const registration = fixture.registration
+  const endpoint = await run(
+    ensure({
+      file: registration,
+      version: "test",
+      command: fixture.command("cwd"),
+      cwd: fixture.directory,
+    }),
+  )
+  const info = await Bun.file(registration).json()
+  fixture.track(info.pid)
+
+  expect(endpoint.url).toBe(info.url)
+  expect(await Bun.file(registration + ".cwd").text()).toBe(fixture.directory)
+})
+
 test("replaces an incompatible registered service", async () => {
   await using fixture = await serviceFixture()
   const registration = fixture.registration

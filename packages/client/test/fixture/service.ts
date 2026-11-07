@@ -15,6 +15,9 @@ if (mode === "environment") {
   await writeFile(registration + ".environment", process.env.ORCHESTRA_SERVICE_ENV_TEST ?? "")
   await writeFile(registration + ".handoff", process.env.ORCHESTRA_PTY_HANDOFF ?? "null")
 }
+if (mode === "cwd") {
+  await writeFile(registration + ".cwd", process.cwd())
+}
 if (mode === "signal") process.kill(process.pid, process.platform === "win32" ? "SIGTERM" : "SIGKILL")
 
 let controlled = ""
