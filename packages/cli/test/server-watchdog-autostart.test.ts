@@ -32,7 +32,8 @@ async function procStartISO(pid: number): Promise<string> {
   const btimeLine = (await fs.readFile("/proc/stat", "utf8")).split("\n").find((line) => line.startsWith("btime "))
   const btime = Number(btimeLine?.split(/\s+/)[1])
   // CLK_TCK is 100 on Linux x86_64 (the watchdog itself falls back to 100);
-  // the watchdog tolerates a 2s skew, so fixture precision is not critical.
+  // the watchdog tolerates a process start up to 120s before the lock time
+  // and 2s after it, so fixture precision is not critical.
   return new Date((btime + Math.floor(starttime / 100)) * 1000).toISOString()
 }
 
@@ -140,6 +141,45 @@ test("probe rejects a recycled pid: live pid, wrong startedAt", async () => {
   const sleeper = Bun.spawn(["sleep", SLEEPER_SECONDS], { stdout: "ignore", stderr: "ignore" })
   try {
     await writeLock(directory, sleeper.pid, "2026-11-06T00:00:00.000Z")
+    const result = await run(WATCHDOG, ["--data-dir", directory, "--probe"], {})
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain("using bun at")
+    expect(result.stdout).not.toContain(".lock")
+    expect(result.stderr).toContain("PID reuse")
+  } finally {
+    sleeper.kill()
+    await fs.rm(directory, { recursive: true, force: true })
+  }
+}, 180000)
+
+/** Shift an ISO timestamp by N seconds (the lock is written after process start, so startedAt lags it). */
+function offsetISO(iso: string, seconds: number): string {
+  return new Date(new Date(iso).getTime() + seconds * 1000).toISOString()
+}
+
+// Live 2026-11-07: the server process started 05:25:27 but wrote its lock
+// at 05:25:30 — bun + Effect boot takes seconds, so a lock written after
+// process start is normal and must still count as live.
+test("probe reports a live server whose lock was written seconds after process start", async () => {
+  const directory = await dataDir()
+  const sleeper = Bun.spawn(["sleep", SLEEPER_SECONDS], { stdout: "ignore", stderr: "ignore" })
+  try {
+    await writeLock(directory, sleeper.pid, offsetISO(await procStartISO(sleeper.pid), 10))
+    const result = await run(WATCHDOG, ["--data-dir", directory, "--probe"], {})
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain(`${sleeper.pid} (`)
+    expect(result.stdout).toContain("server-17890.lock")
+  } finally {
+    sleeper.kill()
+    await fs.rm(directory, { recursive: true, force: true })
+  }
+}, 180000)
+
+test("probe still rejects a pid recycled just after the lock was written", async () => {
+  const directory = await dataDir()
+  const sleeper = Bun.spawn(["sleep", SLEEPER_SECONDS], { stdout: "ignore", stderr: "ignore" })
+  try {
+    await writeLock(directory, sleeper.pid, offsetISO(await procStartISO(sleeper.pid), -10))
     const result = await run(WATCHDOG, ["--data-dir", directory, "--probe"], {})
     expect(result.code).toBe(1)
     expect(result.stdout).toContain("using bun at")

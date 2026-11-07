@@ -20,10 +20,15 @@
 # again; a clean shutdown stops the watchdog (exit 0).
 #
 # A lock is only "held by a live server" when the pid in it is alive AND
-# started at the lock's startedAt time: a bare kill -0 cannot tell a live
-# server from an unrelated process that recycled the pid. When the start
-# time cannot be verified (old lock, no /proc, no ps) the watchdog falls
-# back to kill -0 and logs that the check was unverified.
+# started within a window around the lock's startedAt time: the server
+# writes the lock seconds after its process starts (bun + Effect boot:
+# 3s observed live 2026-11-07), so the process may have started up to
+# 120s BEFORE the lock time — but a recycled pid always starts AFTER the
+# lock was written, so only 2s of skew is allowed in that direction. A
+# bare kill -0 cannot tell a live server from an unrelated process that
+# recycled the pid. When the start time cannot be verified (old lock, no
+# /proc, no ps) the watchdog falls back to kill -0 and logs that the
+# check was unverified.
 #
 # Autostart safety (2026-11-07, watchdog-autostart): the watchdog is also
 # the unit that systemd starts at boot (see
@@ -180,10 +185,12 @@ proc_start_epoch() {
   fi
 }
 
-# 0 = pid is alive and started at startedAt (ISO); 1 = dead, or alive but
-# started at a different time (the pid was recycled after the lock owner
-# died); 2 = cannot verify (no startedAt in the lock, no /proc, no ps, or
-# an unparsable lock time).
+# 0 = pid is alive and started within the window around startedAt (ISO):
+# up to 120s before it (the lock is written after process start) and at
+# most 2s after it (clock granularity). 1 = dead, or alive but started
+# outside that window (the pid was recycled after the lock owner died);
+# 2 = cannot verify (no startedAt in the lock, no /proc, no ps, or an
+# unparsable lock time).
 lock_is_live() {
   local pid="$1" started_at="$2"
   kill -0 "$pid" 2>/dev/null || return 1
@@ -194,7 +201,7 @@ lock_is_live() {
   proc_epoch="$(proc_start_epoch "$pid")"
   [ -n "$proc_epoch" ] || return 2
   diff=$((proc_epoch - lock_epoch))
-  [ "${diff#-}" -le 2 ]
+  [ "$diff" -le 2 ] && [ "$diff" -ge -120 ]
 }
 
 # Is any lock file in the data dir held by a live process? A pid alone is
