@@ -1,7 +1,7 @@
 import { Effect, FileSystem, Option, Schedule, Schema } from "effect"
 import type { DiscoverOptions, EnsureOptions, StopOptions } from "../service.js"
 import { contenderPool, spawnServiceContender } from "../service-contender.js"
-import { defaultEnsureTiming, ensureTiming, type EnsureTiming } from "../service-timing.js"
+import { defaultEnsureTiming, ensureTiming, waitingTimeoutFor, type EnsureTiming } from "../service-timing.js"
 import { matchesVersion } from "../service-version.js"
 import { PtyHandoff } from "../pty-handoff.js"
 import { decide, fallback, headers, probeResult, same } from "../service-probe.js"
@@ -52,8 +52,14 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
   let timeouts: { readonly info: Info; readonly count: number } | undefined
   let waiting: { readonly info: Info; readonly since: number } | undefined
   // A server that keeps returning 503 while starting must not block the CLI forever.
-  // Allow slower machines time to boot, but recover well before the overall ensure deadline.
-  const waitingTimeout = Math.min(timing.promiseTimeout / 2, 30_000)
+  // The budget grows with every replacement (see waitingTimeoutFor): a slow machine
+  // eventually gets a window long enough for a cold boot instead of losing the
+  // same race at the same 30 s every time.
+  let waitingKills = 0
+  // Last time a probe got any answer from the registered server. A server that
+  // answers — even slowly — is progressing, so a burst of timed-out probes must
+  // not kill it; only silence longer than the waiting budget does.
+  let lastAnsweredAt: number | undefined
   let announced = false
   const announce = (reason: "missing" | "version-mismatch", previousVersion?: string) =>
     Effect.sync(() => {
@@ -67,7 +73,7 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
     const env = yield* Effect.tryPromise(() => PtyHandoff.environment(options.file ?? fallback(), options.env))
     return yield* Effect.try({
       try: () => {
-        return spawnServiceContender(command, args, env)
+        return spawnServiceContender(command, args, env, options.cwd)
       },
       catch: (cause) => new Error("Failed to start server", { cause }),
     })
@@ -76,18 +82,27 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
     const registration = yield* registered(options.file, timing.requestTimeout)
     const info = registration.info
     const service = registration.service
+    if (service !== undefined) lastAnsweredAt = Date.now()
     if (registration.timedOut && info !== undefined) {
       timeouts = {
         info,
         count: timeouts !== undefined && same(timeouts.info, info) ? timeouts.count + 1 : 1,
       }
       if (timeouts.count >= 3) {
-        yield* announce("missing")
-        yield* Effect.logWarning("Background service is unresponsive; recovery cannot preserve persistent terminals")
-        yield* Effect.tryPromise(() => PtyHandoff.clear(options.file ?? fallback()))
-        yield* terminate(info, options, timing)
-        pool.evict(info.pid)
-        pool.recruitNow()
+        // Three timed-out probes in a row evict a server that never answers at all.
+        // One that answered recently is alive but slow — a loaded machine stretches
+        // probes past the timeout — so give it until the waiting budget runs out
+        // instead of killing it just before it would have become ready.
+        const silentFor =
+          lastAnsweredAt === undefined ? Number.POSITIVE_INFINITY : Date.now() - lastAnsweredAt
+        if (silentFor >= waitingTimeoutFor(timing, waitingKills)) {
+          yield* announce("missing")
+          yield* Effect.logWarning("Background service is unresponsive; recovery cannot preserve persistent terminals")
+          yield* Effect.tryPromise(() => PtyHandoff.clear(options.file ?? fallback()))
+          yield* terminate(info, options, timing)
+          pool.evict(info.pid)
+          pool.recruitNow()
+        }
         timeouts = undefined
       }
     } else timeouts = undefined
@@ -95,7 +110,7 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
     if (service?.state === "waiting") {
       if (waiting === undefined || !same(waiting.info, service.info))
         waiting = { info: service.info, since: Date.now() }
-      if (Date.now() - waiting.since >= waitingTimeout) {
+      if (Date.now() - waiting.since >= waitingTimeoutFor(timing, waitingKills)) {
         yield* announce("missing")
         yield* Effect.logWarning("Background service remained in startup state; replacing it")
         yield* Effect.tryPromise(() => PtyHandoff.clear(options.file ?? fallback()))
@@ -103,6 +118,7 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
         pool.evict(service.info.pid)
         pool.recruitNow()
         waiting = undefined
+        waitingKills += 1
         return Option.none()
       }
     } else waiting = undefined
@@ -112,6 +128,17 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
       const decision = decide(service, options)
       if (decision._tag === "fail") return yield* Effect.fail(decision.error)
       if (decision._tag === "reuse") {
+        // Same release, different build: the restart was skipped, so say so —
+        // otherwise a stale server looks identical to a fresh one.
+        if (
+          typeof options.version === "string" &&
+          service.version !== undefined &&
+          service.version !== options.version
+        )
+          yield* Effect.logWarning("Reusing background service from a different build", {
+            server: service.version,
+            client: options.version,
+          })
         yield* Effect.tryPromise(() => PtyHandoff.complete(options.file ?? fallback(), service.info))
         return Option.some(service)
       }

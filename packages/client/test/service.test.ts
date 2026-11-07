@@ -3,6 +3,7 @@ import { expect, test } from "bun:test"
 import { Effect, FileSystem } from "effect"
 import { writeFile } from "node:fs/promises"
 import { Service, type EnsureReason } from "../src/effect/service"
+import { withEnsureTiming } from "../src/service-timing"
 import { expectPortAvailable, serviceFixture } from "./fixture/service-fixture"
 import { accelerate } from "./fixture/service-timing"
 
@@ -59,6 +60,27 @@ test("reuses a compatible registered service", async () => {
   expect(existing.exitCode).toBe(null)
 })
 
+test("reuses a service from another commit of the same release instead of restarting it", async () => {
+  await using fixture = await serviceFixture()
+  const registration = fixture.registration
+  const existing = fixture.spawn("compatible")
+  await fixture.waitForFile()
+
+  const starts: EnsureReason[] = []
+  const endpoint = await run(
+    ensure({
+      file: registration,
+      version: "2.1.0-next.1+deadbeef0",
+      command: [],
+      onStart: (reason) => starts.push(reason),
+    }),
+  )
+
+  expect(endpoint.url).toBe((await Bun.file(registration).json()).url)
+  expect(starts).toEqual([])
+  expect(existing.exitCode).toBe(null)
+})
+
 test("adds configured environment variables when starting a service", async () => {
   await using fixture = await serviceFixture()
   const registration = fixture.registration
@@ -75,6 +97,24 @@ test("adds configured environment variables when starting a service", async () =
 
   expect(endpoint.url).toBe(info.url)
   expect(await Bun.file(registration + ".environment").text()).toBe("configured")
+})
+
+test("spawns the service in the configured working directory", async () => {
+  await using fixture = await serviceFixture()
+  const registration = fixture.registration
+  const endpoint = await run(
+    ensure({
+      file: registration,
+      version: "test",
+      command: fixture.command("cwd"),
+      cwd: fixture.directory,
+    }),
+  )
+  const info = await Bun.file(registration).json()
+  fixture.track(info.pid)
+
+  expect(endpoint.url).toBe(info.url)
+  expect(await Bun.file(registration + ".cwd").text()).toBe(fixture.directory)
 })
 
 test("replaces an incompatible registered service", async () => {
@@ -114,8 +154,43 @@ test("waits for a registered service to finish starting", async () => {
   expect((await result).url).toBe((await Bun.file(registration).json()).url)
 })
 
-test("recovers when the starting service it waits for is stopped", async () => {
+test("keeps a slow starter that answers, then times out, instead of killing it", async () => {
   await using fixture = await serviceFixture()
+  const registration = fixture.registration
+  const slow = fixture.spawn("flaky")
+  await fixture.waitForFile()
+  const original = await Bun.file(registration).json()
+
+  // Accelerated timing like the other tests, but no contender recruitment: the
+  // replacement command is empty, so any spawn attempt fails — the test only
+  // passes when ensure() waits the slow server out instead of replacing it.
+  const result = run(
+    Service.ensure(
+      withEnsureTiming(
+        { file: registration, version: "test", command: [] },
+        {
+          pollInterval: 20,
+          requestTimeout: 100,
+          spawnDelay: 5_000,
+          maxSpawnDelay: 1_200,
+          promiseTimeout: 3_000,
+          stopPollInterval: 5,
+        },
+      ),
+    ),
+  )
+  // The first hang is when probes start timing out; the release comes later,
+  // after three timed-out probes in a row would previously have killed it.
+  await fixture.waitForFile(registration + ".requests")
+  await Bun.sleep(500)
+  await writeFile(registration + ".release", "")
+
+  const endpoint = await result
+  expect(endpoint.url).toBe(original.url)
+  expect(slow.exitCode).toBe(null)
+}, 10_000)
+
+test("recovers when the starting service it waits for is stopped", async () => {  await using fixture = await serviceFixture()
   const registration = fixture.registration
   const starting = fixture.spawn("starting")
   await fixture.waitForFile()

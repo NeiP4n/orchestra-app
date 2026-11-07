@@ -6,6 +6,8 @@ export type EnsureTiming = {
   readonly promiseTimeout: number
   readonly stopPollInterval: number
   readonly stopPollAttempts: number
+  /** First budget for a server stuck in its startup state; see waitingTimeoutFor. */
+  readonly waitingTimeoutBase: number
 }
 
 const timings = new WeakMap<object, EnsureTiming>()
@@ -21,6 +23,16 @@ export const defaultEnsureTiming: EnsureTiming = {
   promiseTimeout: 120_000,
   stopPollInterval: 50,
   stopPollAttempts: 100,
+  waitingTimeoutBase: 30_000,
+}
+
+// How long a server may sit in its startup state before ensure() replaces it.
+// The budget doubles with every replacement, so a slow machine eventually gets
+// a window long enough for a cold boot instead of losing the same race at the
+// same 30 s every time. It stays capped at half the overall deadline so a
+// replacement still has time to start.
+export function waitingTimeoutFor(timing: EnsureTiming, replacements: number) {
+  return Math.min(timing.promiseTimeout / 2, timing.waitingTimeoutBase * 2 ** replacements)
 }
 
 export function ensureTiming(options: object) {

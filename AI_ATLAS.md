@@ -2055,6 +2055,22 @@ lives 10 minutes.
   (`service-probe.ts` `connectURL()`) normalizes wildcard→loopback as well.
 - `orchestra serve` serves the web UI at `/` from the app package's built
   assets; a missing `packages/app/dist` means no UI, not a server defect.
+- Version match ignores build metadata (`packages/client/src/service-version.ts`
+  `matchesVersion()`): a server from another commit of the same release
+  (`1.0.0+<sha>`) is reused with a warning, not restarted — a restart costs a
+  full cold start after every `git pull`. A different release still replaces it.
+- A server stuck in its startup state gets a budget that doubles with every
+  replacement (`waitingTimeoutFor()`: 30 s, then 60 s, capped at half the
+  `promiseTimeout`), so a slow machine eventually gets a window long enough
+  for a cold boot. Three timed-out probes evict a server that never answers
+  at all; one that answered recently is alive but slow, so it is only evicted
+  after silence longer than the waiting budget.
+- The managed server spawns from the checkout root (`ServiceConfig.options()`
+  `cwd: selfRoot()`, `packages/cli/src/util/process.ts`): Bun resolves the JSX
+  runtime from the tsconfig in the working directory, so a server spawned from
+  a project directory dies at import time (`react/jsx-dev-runtime`). The
+  service-mode server chdirs to the user's home at startup, so the spawn
+  directory only affects module resolution.
 
 ## Themes — `packages/theme`
 

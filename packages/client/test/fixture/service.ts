@@ -15,6 +15,9 @@ if (mode === "environment") {
   await writeFile(registration + ".environment", process.env.ORCHESTRA_SERVICE_ENV_TEST ?? "")
   await writeFile(registration + ".handoff", process.env.ORCHESTRA_PTY_HANDOFF ?? "null")
 }
+if (mode === "cwd") {
+  await writeFile(registration + ".cwd", process.cwd())
+}
 if (mode === "signal") process.kill(process.pid, process.platform === "win32" ? "SIGTERM" : "SIGKILL")
 
 let controlled = ""
@@ -47,6 +50,9 @@ let version = "test"
 if (mode === "old" || mode === "handoff") version = "old"
 if (mode === "incompatible") version = "1.9.0"
 if (mode === "compatible" || mode === "delayed-compatible") version = "2.1.0-next.1"
+// A slow boot measured from this process's own start: every replacement
+// restarts the clock, like a real server redoing module load and DB init.
+const bootAt = mode === "slowboot" ? Date.now() + Number(delay ?? 30_000) : 0
 const id = crypto.randomUUID()
 const handoff = {
   directory: registration + ".daemon",
@@ -79,6 +85,17 @@ const server = Bun.serve({
       await appendFile(registration + ".requests", process.pid + "\n")
       return new Promise<Response>(() => {})
     }
+    if (mode === "flaky" && !(await Bun.file(registration + ".release").exists())) {
+      // A slow starter on a loaded machine: answers 503 twice, then its probes
+      // start timing out until the release file appears, then answers 200.
+      if (requests <= 2)
+        return Response.json(
+          { version, pid: process.pid, urls: [server.url.toString()], paths: { tmp: "/tmp/opencode" } },
+          { status: 503 },
+        )
+      await appendFile(registration + ".requests", process.pid + "\n")
+      return new Promise<Response>(() => {})
+    }
     if (mode === "modern" && requests === 1) {
       await writeFile(registration + ".first-request", "")
       while (!(await Bun.file(registration + ".release").exists())) await Bun.sleep(5)
@@ -93,6 +110,11 @@ const server = Bun.serve({
       return Response.json(
         { version, pid: process.pid, urls: [server.url.toString()], paths: { tmp: "/tmp/opencode" } },
         { status: 500 },
+      )
+    if (mode === "slowboot" && Date.now() < bootAt)
+      return Response.json(
+        { version, pid: process.pid, urls: [server.url.toString()], paths: { tmp: "/tmp/opencode" } },
+        { status: 503 },
       )
     return Response.json({
       version,

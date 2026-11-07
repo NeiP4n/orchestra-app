@@ -1,7 +1,7 @@
 import { readFile, rm } from "node:fs/promises"
 import type { DiscoverOptions, Endpoint, Info, EnsureOptions, StopOptions } from "../service.js"
 import { contenderPool, spawnServiceContender } from "../service-contender.js"
-import { defaultEnsureTiming, ensureTiming, type EnsureTiming } from "../service-timing.js"
+import { defaultEnsureTiming, ensureTiming, waitingTimeoutFor, type EnsureTiming } from "../service-timing.js"
 import { matchesVersion } from "../service-version.js"
 import { PtyHandoff } from "../pty-handoff.js"
 import { decide, fallback, headers, probeResult, same } from "../service-probe.js"
@@ -32,8 +32,14 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
   let timeouts: { readonly info: Info; readonly count: number } | undefined
   let waiting: { readonly info: Info; readonly since: number } | undefined
   // A server that keeps returning 503 while starting must not block the CLI forever.
-  // Allow slower machines time to boot, but recover well before the overall ensure deadline.
-  const waitingTimeout = Math.min(timing.promiseTimeout / 2, 30_000)
+  // The budget grows with every replacement (see waitingTimeoutFor): a slow machine
+  // eventually gets a window long enough for a cold boot instead of losing the
+  // same race at the same 30 s every time.
+  let waitingKills = 0
+  // Last time a probe got any answer from the registered server. A server that
+  // answers — even slowly — is progressing, so a burst of timed-out probes must
+  // not kill it; only silence longer than the waiting budget does.
+  let lastAnsweredAt: number | undefined
   let announced = false
 
   const announce = (reason: "missing" | "version-mismatch", previousVersion?: string) => {
@@ -45,7 +51,7 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
     const [command, ...args] = options.command ?? ["opencode", "serve", "--service"]
     if (command === undefined) throw new Error("Missing service command")
     try {
-      return spawnServiceContender(command, args, await PtyHandoff.environment(options.file ?? fallback(), options.env))
+      return spawnServiceContender(command, args, await PtyHandoff.environment(options.file ?? fallback(), options.env), options.cwd)
     } catch (cause) {
       throw new Error("Failed to start server", { cause })
     }
@@ -56,18 +62,27 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
       if (Date.now() >= deadline)
         throw pool.failure() ?? new Error("Timed out waiting for the background service to start")
       const registration = await registered(options.file, timing.requestTimeout)
+      if (registration.service !== undefined) lastAnsweredAt = Date.now()
       if (registration.timedOut && registration.info !== undefined) {
         timeouts = {
           info: registration.info,
           count: timeouts !== undefined && same(timeouts.info, registration.info) ? timeouts.count + 1 : 1,
         }
         if (timeouts.count >= 3) {
-          announce("missing")
-          console.warn("Background service is unresponsive; recovery cannot preserve persistent terminals")
-          await PtyHandoff.clear(options.file ?? fallback())
-          await terminate(registration.info, options, timing)
-          pool.evict(registration.info.pid)
-          pool.recruitNow()
+          // Three timed-out probes in a row evict a server that never answers at all.
+          // One that answered recently is alive but slow — a loaded machine stretches
+          // probes past the timeout — so give it until the waiting budget runs out
+          // instead of killing it just before it would have become ready.
+          const silentFor =
+            lastAnsweredAt === undefined ? Number.POSITIVE_INFINITY : Date.now() - lastAnsweredAt
+          if (silentFor >= waitingTimeoutFor(timing, waitingKills)) {
+            announce("missing")
+            console.warn("Background service is unresponsive; recovery cannot preserve persistent terminals")
+            await PtyHandoff.clear(options.file ?? fallback())
+            await terminate(registration.info, options, timing)
+            pool.evict(registration.info.pid)
+            pool.recruitNow()
+          }
           timeouts = undefined
         }
       } else timeouts = undefined
@@ -76,7 +91,7 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
       if (service?.state === "waiting") {
         if (waiting === undefined || !same(waiting.info, service.info))
           waiting = { info: service.info, since: Date.now() }
-        if (Date.now() - waiting.since >= waitingTimeout) {
+        if (Date.now() - waiting.since >= waitingTimeoutFor(timing, waitingKills)) {
           announce("missing")
           console.warn("Background service remained in startup state; replacing it")
           await PtyHandoff.clear(options.file ?? fallback())
@@ -84,6 +99,7 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
           pool.evict(service.info.pid)
           pool.recruitNow()
           waiting = undefined
+          waitingKills += 1
           continue
         }
       } else waiting = undefined
@@ -93,6 +109,16 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
         const decision = decide(service, options)
         if (decision._tag === "fail") throw decision.error
         if (decision._tag === "reuse") {
+          // Same release, different build: the restart was skipped, so say so —
+          // otherwise a stale server looks identical to a fresh one.
+          if (
+            typeof options.version === "string" &&
+            service.version !== undefined &&
+            service.version !== options.version
+          )
+            console.warn(
+              `Reusing background service ${service.version}; this client is ${options.version}`,
+            )
           await PtyHandoff.complete(options.file ?? fallback(), service.info)
           return service.endpoint
         }
