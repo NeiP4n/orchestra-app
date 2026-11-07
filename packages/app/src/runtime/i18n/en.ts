@@ -559,6 +559,7 @@ export const dict = {
   "home.title": "Home",
   "home.projects": "Projects",
   "home.projects.all": "All projects",
+  "home.projects.loadFailed": "Couldn't load projects",
   "home.project.add": "Add project",
   "home.aiTeam.title": "Create AI team",
   "home.aiTeam.description": "A Society with one team covering every layer of the system.",

@@ -28,6 +28,7 @@ type GlobalStore = {
   provider_auth: ProviderAuthResponse
   config: Config
   reload: undefined | "pending" | "complete"
+  projectError?: string
 }
 
 export const loadLspQuery = (scope: ServerScope, directory: string) =>
@@ -303,6 +304,17 @@ export function createServerSyncContextInner(serverSDK: ServerSDK, data: Data) {
   return {
     data: globalStore,
     set: setGlobalStore,
+    // The home project list reads from the store, which starts empty: expose
+    // whether its first load is still in flight (or failed) so the panel shows
+    // a loading state instead of claiming zero projects. The bootstrap query
+    // only runs once connected and only resolves once the server answers, so
+    // isPending stays true through the whole pre-connection window — the old
+    // `connected() &&` guard turned that window into a false empty state.
+    // A failed project fetch still resolves the bootstrap (and records
+    // projectError), so the error state, not the spinner, is what shows then.
+    projectsLoading: () => bootstrap.isPending,
+    projectsError: () => globalStore.projectError,
+    retryBootstrap: () => void bootstrap.refetch(),
     child: children.child,
     disableMcp: children.disableMcp,
     // bootstrap,

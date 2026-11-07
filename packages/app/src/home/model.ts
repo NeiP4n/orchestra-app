@@ -110,6 +110,9 @@ export function createHomeController() {
     },
     project: {
       list: projects,
+      loading: () => focusedSync()?.projectsLoading() ?? false,
+      error: () => focusedSync()?.projectsError(),
+      retry: () => focusedSync()?.retryBootstrap(),
       recentlyClosed,
       homedir,
       selected: selectedProject,

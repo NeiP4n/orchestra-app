@@ -217,7 +217,7 @@ function BrainStatus(props: { energy: number; width: number }) {
           ·
         </text>
         <text fg={theme.text.muted} wrapMode="none">
-          {t("{count} projects", { count: projects.list().length })}
+          {projects.loaded() ? t("{count} projects", { count: projects.list().length }) : t("loading…")}
         </text>
         <text fg={palette().synapse} wrapMode="none">
           ·

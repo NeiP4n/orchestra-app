@@ -13,6 +13,9 @@ export function HomeProjects(props: {
       language={props.projects.copy.language}
       servers={props.projects.server.list()}
       projects={props.projects.project.list()}
+      projectsLoading={props.projects.project.loading()}
+      projectsError={props.projects.project.error()}
+      onRetryProjects={props.projects.project.retry}
       recentlyClosed={props.projects.project.recentlyClosed()}
       selection={props.projects.selection.value()}
       homedir={props.projects.project.homedir()}

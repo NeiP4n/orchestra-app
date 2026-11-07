@@ -157,6 +157,65 @@ test("recovers project metadata after the connection to the server is dropped", 
   }
 })
 
+test("a failed project list is recorded instead of silently showing zero projects", async () => {
+  // Contract: a project fetch that fails after its retries must not leave the home
+  // showing an empty list with no hint anything failed. The failure is recorded on
+  // the store (the view renders it with a retry), and a later success clears it.
+  // The query also carries retry: false, so the inner transient retry (3 attempts)
+  // is the only retry layer: a default QueryClient must not multiply it to 9.
+  let failProjects = true
+  let projectCalls = 0
+  const api = OpenCode.make({
+    baseUrl: "http://opencode.local",
+    fetch: Object.assign(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(new Request(input, init).url)
+
+        if (url.pathname === "/api/location")
+          return Response.json({
+            directory: "/repo",
+            project: { id: "project", directory: "/repo", canonical: "/repo" },
+          })
+
+        if (url.pathname === "/api/project") {
+          projectCalls += 1
+          if (failProjects) throw new TypeError("failed to fetch")
+          return Response.json([{ id: "project", canonical: "/repo", time: { created: 1, updated: 1 }, sandboxes: [] }])
+        }
+        throw new Error(`Unexpected request: ${url.pathname}`)
+      },
+      { preconnect() {} },
+    ),
+  })
+
+  const [store, setStore] = createStore<ServerSync["data"]>({
+    path: { state: "", config: "", worktree: "", directory: "", home: "" },
+    project: [],
+    provider_auth: {},
+    config: {},
+    reload: undefined,
+  })
+
+  // Default client options on purpose: the query's own retry: false must hold.
+  const queryClient = new QueryClient()
+
+  try {
+    await bootstrapGlobal({ serverAPI: api, scope: ServerScope.local, setGlobalStore: setStore, queryClient })
+    expect(projectCalls).toBe(3)
+    expect(store.project).toEqual([])
+    expect(store.projectError).toMatch(/failed to fetch/)
+
+    failProjects = false
+    projectCalls = 0
+    queryClient.invalidateQueries({ queryKey: [ServerScope.local, "project"] })
+    await bootstrapGlobal({ serverAPI: api, scope: ServerScope.local, setGlobalStore: setStore, queryClient })
+    expect(store.project.map((project) => project.id)).toEqual(["project"])
+    expect(store.projectError).toBeUndefined()
+  } finally {
+    queryClient.clear()
+  }
+})
+
 describe("query keys", () => {
   test("partitions identical directories by server scope and loads current location metadata", async () => {
     const calls: unknown[] = []
