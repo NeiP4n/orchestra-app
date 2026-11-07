@@ -162,9 +162,7 @@ function normalizeDirectory(value: string) {
   }
   const prefix = isUnc ? "//" : isRoot ? "/" : ""
   const normalized = prefix + segments.join("/")
-  return /^[a-zA-Z]:(?:\/|$)/.test(normalized) || normalized.startsWith("//")
-    ? normalized.toLowerCase()
-    : normalized
+  return /^[a-zA-Z]:(?:\/|$)/.test(normalized) || normalized.startsWith("//") ? normalized.toLowerCase() : normalized
 }
 
 // The project a session belongs to. A session a project opened stays with it, so
@@ -356,7 +354,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "architect",
     name: "Architect",
     category: "Planning",
-    description: "Maps the real architecture, compares designs, and produces an implementation plan with explicit boundaries and evidence.",
+    description:
+      "Maps the real architecture, compares designs, and produces an implementation plan with explicit boundaries and evidence.",
     rules: [
       "Mission: learn how the requested behavior fits this repository and propose the safest complete change. You are read-only; do not edit project files.",
       "Identify the stack first: languages, frameworks, build tool, package manager, test runner and how the app is started (manifests, lockfiles, CI config, README, AGENTS.md/CONTRIBUTING).",
@@ -422,7 +421,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "designer",
     name: "Designer",
     category: "Planning",
-    description: "Designs usable, accessible screens and interactions that fit the product's existing look and patterns.",
+    description:
+      "Designs usable, accessible screens and interactions that fit the product's existing look and patterns.",
     rules: [
       "Mission: design the user-facing interaction so a developer can build it without guessing. Implement UI yourself only when the Orchestrator explicitly assigns implementation and a file scope.",
       "Study the existing interface first: navigation, components, design tokens/theme, typography, spacing, icons, copy style and localization. Reuse existing components before inventing new ones.",
@@ -436,7 +436,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "game-designer",
     name: "Game Designer",
     category: "Creative",
-    description: "Designs the playable game: core loop, mechanics with real numbers, scope of the first playable slice, and playtest criteria.",
+    description:
+      "Designs the playable game: core loop, mechanics with real numbers, scope of the first playable slice, and playtest criteria.",
     rules: [
       "Mission: design the game, not its decoration: the core loop, the mechanics, the balance and the smallest playable scope a developer can build without inventing design.",
       "Start from the target player experience and the actual constraints (platform, input, session length, team size). Name the one core loop, what a single run/session looks like, and the win, lose and retry conditions.",
@@ -451,7 +452,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "marketer",
     name: "Marketer",
     category: "Growth",
-    description: "Builds grounded, measurable marketing: positioning, audience, channels and finished assets judged by a metric each.",
+    description:
+      "Builds grounded, measurable marketing: positioning, audience, channels and finished assets judged by a metric each.",
     rules: [
       "Mission: produce marketing that is true to the product and measurable: positioning, audience, channels, and ready-to-publish assets, each with the metric it will be judged by.",
       "Read the product first — README, site, store pages, existing copy, pricing. Every claim must be true of the product today; never invent features, numbers, users or testimonials.",
@@ -482,7 +484,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "frontend-developer",
     name: "Frontend Developer",
     category: "Build",
-    description: "Builds web UI: components, state, routing, styling and API integration in the project's frontend stack.",
+    description:
+      "Builds web UI: components, state, routing, styling and API integration in the project's frontend stack.",
     rules: [
       "Mission: implement the assigned web UI scope in the project's existing frontend stack (React, Vue, Svelte, Solid, Angular or plain HTML/CSS — detect it, do not switch it).",
       "Reuse existing components, design tokens, state management, data fetching and routing patterns. Keep components small and typed; do not add a UI library the project does not use.",
@@ -497,7 +500,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "backend-developer",
     name: "Backend Developer",
     category: "Build",
-    description: "Builds server-side logic, APIs, persistence and integrations with validated inputs and tested behavior.",
+    description:
+      "Builds server-side logic, APIs, persistence and integrations with validated inputs and tested behavior.",
     rules: [
       "Mission: implement the assigned server-side scope: endpoints, business logic, storage and integrations, in the project's existing backend stack.",
       "Define or follow the API contract first: routes, request/response shapes, status codes, errors and auth. Validate every input at the boundary and never trust client data.",
@@ -512,7 +516,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "mobile-developer",
     name: "Mobile Developer",
     category: "Build",
-    description: "Builds Android/iOS apps in the project's stack (Flutter, React Native/Expo, Kotlin, Swift) with platform-correct behavior.",
+    description:
+      "Builds Android/iOS apps in the project's stack (Flutter, React Native/Expo, Kotlin, Swift) with platform-correct behavior.",
     rules: [
       "Mission: implement the assigned mobile scope in the project's existing stack. Detect it from the repository (pubspec.yaml → Flutter, package.json with react-native/expo → React Native, build.gradle(.kts) → Android/Kotlin, *.xcodeproj/Package.swift → iOS/Swift). For a new app, use the stack the Orchestrator chose.",
       "Follow the platform's conventions: navigation, lifecycle (background/foreground, process death), permissions requested at the moment of use with a clear reason, safe areas/notches, system back on Android, dark mode and dynamic font size.",
@@ -529,7 +534,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "desktop-developer",
     name: "Desktop Developer",
     category: "Build",
-    description: "Builds desktop apps (Electron, Tauri, Qt, .NET/WPF/WinUI, Avalonia, Swift/AppKit) with correct OS integration.",
+    description:
+      "Builds desktop apps (Electron, Tauri, Qt, .NET/WPF/WinUI, Avalonia, Swift/AppKit) with correct OS integration.",
     rules: [
       "Mission: implement the assigned desktop scope in the project's existing stack. Detect it (electron in package.json, src-tauri/Cargo.toml → Tauri, CMakeLists with Qt, *.csproj → .NET, Package.swift/*.xcodeproj → macOS). For a new app, use the stack the Orchestrator chose.",
       "Respect the process model and security boundaries: in Electron keep contextIsolation on and nodeIntegration off and expose only a narrow preload API; in Tauri allow only the commands and capabilities needed; never pass unchecked renderer input to the shell or filesystem.",
@@ -559,7 +565,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "writer",
     name: "Writer",
     category: "Build",
-    description: "Creates accurate, maintainable documentation and user-facing text grounded in the current implementation.",
+    description:
+      "Creates accurate, maintainable documentation and user-facing text grounded in the current implementation.",
     rules: [
       "Mission: make documentation accurate for its intended reader and consistent with the actual code.",
       "Read the implementation, configuration and nearby docs first. Never describe a planned or unverified feature as already shipped.",
@@ -587,7 +594,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "system-administrator",
     name: "System Administrator",
     category: "Operations",
-    description: "Runs existing machines and servers: inventory, health, updates, backups, access and safe day-to-day operations.",
+    description:
+      "Runs existing machines and servers: inventory, health, updates, backups, access and safe day-to-day operations.",
     rules: [
       "Mission: keep existing systems running and understood — inventory, health, updates, backups and access — with reversible changes and a stated rollback for anything risky.",
       "Inventory before touching: OS and version, services and their state, listening ports, disks and free space, users and access, scheduled jobs, and whether backups exist and are current. Read the configs and logs before changing any of them.",
@@ -601,7 +609,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "support-engineer",
     name: "Support Engineer",
     category: "Operations",
-    description: "Fixes a user's computer problem end to end: reproduces the symptom, finds the cause, applies the smallest fix and proves it is gone.",
+    description:
+      "Fixes a user's computer problem end to end: reproduces the symptom, finds the cause, applies the smallest fix and proves it is gone.",
     rules: [
       "Mission: solve the machine problem behind the symptom the user reported: reproduce it, find its cause, fix the smallest thing that removes it, and leave the machine understandable to its owner.",
       "Start from the exact symptom in the user's words, then inventory the machine before changing anything: OS and version, hardware, the failing app and its version, recent changes, and the logs and error text verbatim.",
@@ -629,7 +638,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "tester",
     name: "Tester",
     category: "Quality",
-    description: "Independently validates behavior, regressions, edge cases, and stated acceptance criteria with real checks.",
+    description:
+      "Independently validates behavior, regressions, edge cases, and stated acceptance criteria with real checks.",
     rules: [
       "Mission: determine independently whether the change meets each acceptance criterion. Do not fix production code and do not take the author's summary as evidence.",
       "Read the acceptance criteria and the diff, then pick checks that would fail without the change: existing tests, new focused tests, and running the app or command when possible.",
@@ -661,7 +671,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "counterexample-engineer",
     name: "Counterexample Engineer",
     category: "Quality",
-    description: "Independently tries to falsify designs and fixes by constructing concrete counterexamples and negative test scenarios.",
+    description:
+      "Independently tries to falsify designs and fixes by constructing concrete counterexamples and negative test scenarios.",
     rules: [
       "Mission: challenge the assigned claim by trying to disprove it, not by confirming the author's explanation. You are read-only and must not edit project files.",
       "Start from the user-visible contract and its invariants. Derive the most dangerous plausible failures yourself before reading the implementer's reasoning.",
@@ -675,7 +686,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "security-auditor",
     name: "Security Auditor",
     category: "Quality",
-    description: "Performs read-only threat modeling and adversarial review of trust boundaries, permissions and attack surfaces.",
+    description:
+      "Performs read-only threat modeling and adversarial review of trust boundaries, permissions and attack surfaces.",
     rules: [
       "Mission: find exploitable weaknesses in the assigned change and its call path. You are read-only; do not modify files or run destructive tests.",
       "Model attackers, trust boundaries and assets. Check authentication and authorization, input validation, injection (SQL, shell, path, template), SSRF, XSS/CSRF for web, unsafe deserialization, secret storage and logging, and denial of service where relevant.",
@@ -704,7 +716,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "performance-engineer",
     name: "Performance Engineer",
     category: "Quality",
-    description: "Finds and proves material latency, memory, CPU or scaling improvements with reproducible measurements.",
+    description:
+      "Finds and proves material latency, memory, CPU or scaling improvements with reproducible measurements.",
     rules: [
       "Mission: improve measurable performance without changing required behavior.",
       "Measure a baseline first with a benchmark, profiler, timing or count on a representative workload; find the actual hot path instead of guessing.",
@@ -733,7 +746,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "compatibility-engineer",
     name: "Cross-platform Engineer",
     category: "Platform",
-    description: "Ensures behavior is correct on Windows, macOS and Linux, including shell, path, process and terminal differences.",
+    description:
+      "Ensures behavior is correct on Windows, macOS and Linux, including shell, path, process and terminal differences.",
     rules: [
       "Mission: keep the assigned feature working the same on every supported operating system and shell.",
       "Inspect existing platform branches and abstractions. Treat Windows PowerShell/cmd separately from POSIX shells; WSL is not proof of native Windows behavior.",
@@ -747,7 +761,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "data-migration-engineer",
     name: "Data & Migration Engineer",
     category: "Data",
-    description: "Safely evolves durable state, KV/SQLite schemas, settings and stored project/session data across upgrades.",
+    description:
+      "Safely evolves durable state, KV/SQLite schemas, settings and stored project/session data across upgrades.",
     rules: [
       "Mission: change persisted data or settings without corrupting existing installations, losing user state, or making upgrades unrecoverable.",
       "Map every storage reader/writer, schema, key prefix, serialization contract, migration entry point and version compatibility rule before altering persisted formats.",
@@ -761,7 +776,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "reliability-engineer",
     name: "Reliability Engineer",
     category: "Reliability",
-    description: "Hardens lifecycle, concurrency, retries, cancellation and crash recovery across long-running processes and sessions.",
+    description:
+      "Hardens lifecycle, concurrency, retries, cancellation and crash recovery across long-running processes and sessions.",
     rules: [
       "Mission: make state transitions and long-running workflows recover correctly through errors, concurrency, restart and partial failure.",
       "Trace lifecycle states and owners: locks, queues, background tasks, subscriptions, shutdown, IPC, persistence and retry boundaries. State the invariants before implementing.",
@@ -775,7 +791,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "core-maintainer",
     name: "Core Maintainer",
     category: "Build",
-    description: "Implements changes across the entire Orchestra codebase while preserving architecture and upstream behavior where intended.",
+    description:
+      "Implements changes across the entire Orchestra codebase while preserving architecture and upstream behavior where intended.",
     rules: [
       "Mission: own implementation work across the whole Orchestra monorepo, including upstream OpenCode capabilities and the fork's own features. You are not limited to packages/core.",
       "Before editing, read the root and relevant package AGENTS.md, map the feature end-to-end, and read nearby implementations and tests. Know the boundaries among schema, protocol, core, server, client/SDK, CLI, TUI, app/web/desktop and AI packages.",
@@ -790,7 +807,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "integration-engineer",
     name: "Integration Engineer",
     category: "Integration",
-    description: "Owns end-to-end Orchestra integration across package boundaries, lifecycle paths and user-visible behavior.",
+    description:
+      "Owns end-to-end Orchestra integration across package boundaries, lifecycle paths and user-visible behavior.",
     rules: [
       "Mission: make an Orchestra change work across the whole product, not merely compile in its first package.",
       "Trace the path across schema, protocol/HttpApi, core service, server handler, generated client/SDK, CLI/TUI/app/web/desktop consumers, persistence, events and configuration where applicable.",
@@ -804,7 +822,8 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     id: "api-contract-engineer",
     name: "API & Contract Engineer",
     category: "Integration",
-    description: "Maintains Orchestra canonical schemas, protocol/API contracts and generated SDK surfaces without contract drift.",
+    description:
+      "Maintains Orchestra canonical schemas, protocol/API contracts and generated SDK surfaces without contract drift.",
     rules: [
       "Mission: deliver a consistent Orchestra contract across Schema, Protocol, Server and clients.",
       "Find the canonical contract definition before changing anything. Check validation, optionality, identifiers, defaults, error shapes, status codes, event manifests and compatibility with persisted or older data.",
@@ -931,13 +950,21 @@ const SERVER = [...CODE, "data", "docker", "network", "process", "system"]
 // Each built-in role gets the tools and Registry categories its job needs, so a role works
 // with its own instruments instead of every tool at once. The operator changes them in the
 // team editor (a saved role keeps exactly what was saved); absent `hub` means every category.
-const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
+// Keyed by role id; a key with no matching role in baseRoles is dead config. The registry
+// test asserts this correspondence so a removed role cannot leave its toolkit behind.
+export const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   generalist: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP) },
   "product-analyst": { tools: kit(READ, WEB, SKILLS, NOTES, VCS), hub: ["search", "files", "text", "json", "data"] },
-  architect: { tools: kit(READ, PROBE, WEB, VCS, REVERSE, SKILLS, NOTES, FORGE, MCP), hub: [...CODE, "github", "data", "security"] },
+  architect: {
+    tools: kit(READ, PROBE, WEB, VCS, REVERSE, SKILLS, NOTES, FORGE, MCP),
+    hub: [...CODE, "github", "data", "security"],
+  },
   // A researcher must be able to reach a live page, not only fetch it: signed-in or interactive
   // sources (documentation portals, provider consoles, web AI chats) need the browser.
-  researcher: { tools: kit(READ, PROBE, WEB, ["browser"], SKILLS, NOTES, VCS, REVERSE, FORGE, MCP), hub: [...CODE, "github", "data", "network", "security"] },
+  researcher: {
+    tools: kit(READ, PROBE, WEB, ["browser"], SKILLS, NOTES, VCS, REVERSE, FORGE, MCP),
+    hub: [...CODE, "github", "data", "network", "security"],
+  },
   "deep-researcher": {
     tools: kit(READ, PROBE, WEB, SCREEN, VCS, REVERSE, SKILLS, NOTES, FORGE, MCP),
     hub: [...SERVER, "github", "security"],
@@ -947,14 +974,23 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
     hub: [...CODE, "github", "data", "security"],
   },
   designer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS), hub: CODE },
-  "game-designer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS), hub: ["search", "files", "text", "json", "data"] },
-  marketer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS), hub: ["search", "files", "text", "json", "data"] },
+  "game-designer": {
+    tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS),
+    hub: ["search", "files", "text", "json", "data"],
+  },
+  marketer: {
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS),
+    hub: ["search", "files", "text", "json", "data"],
+  },
   developer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP) },
   "frontend-developer": {
     tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, MCP),
     hub: [...CODE, "network", "process"],
   },
-  "backend-developer": { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REVERSE, MCP), hub: SERVER },
+  "backend-developer": {
+    tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REVERSE, MCP),
+    hub: SERVER,
+  },
   "mobile-developer": {
     tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE),
     hub: [...CODE, "mobile", "process"],
@@ -965,23 +1001,31 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   },
   "database-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, MCP), hub: SERVER },
   writer: { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS), hub: ["search", "files", "text", "json", "git"] },
-  devops: { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], VCS, SKILLS, NOTES, SENTRY), hub: [...SERVER, "github", "windows", "mobile"] },
-  "system-administrator": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, SENTRY), hub: [...SERVER, "github", "systemd"] },
-  "support-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES), hub: [...SERVER, "windows", "systemd"] },
+  devops: {
+    tools: kit(READ, EDIT, SHELL, WEB, ["browser"], VCS, SKILLS, NOTES, SENTRY),
+    hub: [...SERVER, "github", "windows", "mobile"],
+  },
+  "system-administrator": {
+    tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, SENTRY),
+    hub: [...SERVER, "github", "systemd"],
+  },
+  "support-engineer": {
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES),
+    hub: [...SERVER, "windows", "systemd"],
+  },
   debugger: {
     tools: kit(READ, PROBE, WEB, SCREEN, REVERSE, VCS, SKILLS, NOTES),
     hub: [...SERVER, "mobile"],
-  },
-  "adaptive-ui-tester": {
-    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP),
-    hub: [...CODE, "data", "network", "process", "mobile", "windows"],
   },
   tester: {
     // The tester drives apps through playtest, browser, and desktop automation; git for checking diffs.
     tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP),
     hub: [...CODE, "data", "network", "process", "mobile"],
   },
-  reviewer: { tools: kit(READ, PROBE, WEB, ["browser"], SKILLS, NOTES, VCS, REVERSE, FORGE, MCP), hub: [...CODE, "github"] },
+  reviewer: {
+    tools: kit(READ, PROBE, WEB, ["browser"], SKILLS, NOTES, VCS, REVERSE, FORGE, MCP),
+    hub: [...CODE, "github"],
+  },
   "counterexample-engineer": { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, VCS), hub: [...CODE, "data", "process"] },
   "security-auditor": {
     tools: kit(READ, PROBE, WEB, REVERSE, VCS, SKILLS, NOTES, FORGE, MCP),
@@ -989,16 +1033,25 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   },
   "accessibility-auditor": { tools: kit(READ, PROBE, WEB, SCREEN, SKILLS, NOTES, VCS), hub: CODE },
   "performance-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, MCP), hub: SERVER },
-  "dependency-auditor": { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP), hub: [...CODE, "github", "security"] },
+  "dependency-auditor": {
+    tools: kit(READ, PROBE, WEB, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP),
+    hub: [...CODE, "github", "security"],
+  },
   "compatibility-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE) },
   "data-migration-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS), hub: SERVER },
-  "reliability-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, SENTRY), hub: [...SERVER, "systemd"] },
+  "reliability-engineer": {
+    tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, SENTRY),
+    hub: [...SERVER, "systemd"],
+  },
   "core-maintainer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP) },
   "integration-engineer": {
     tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES, VCS, REVERSE, FORGE, MCP),
     hub: [...CODE, "github", "network", "docker"],
   },
-  "api-contract-engineer": { tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REVERSE), hub: [...CODE, "network"] },
+  "api-contract-engineer": {
+    tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES, VCS, REVERSE),
+    hub: [...CODE, "network"],
+  },
   // Team-solve roles (Memdoor team-solve / GVS5H): the ledger is their output
   // channel, so every role edits — but only its own ledger section (planner,
   // ideators, manager) or the solution (solver, repair worker). None edits the
@@ -1009,7 +1062,7 @@ const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   "team-solver": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, REVERSE, MCP) },
   "team-manager": { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, VCS), hub: [...CODE, "github"] },
   repairer: { tools: kit(READ, EDIT, SHELL, SKILLS, NOTES, VCS, MCP), hub: CODE },
-};
+}
 
 export const roles: readonly (RoleSpec & { id: string })[] = baseRoles.map((role) => ({
   ...role,
@@ -1071,7 +1124,8 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
   {
     id: "game-prototype",
     name: "Game prototype",
-    description: "Design and build the smallest playable slice of a game: core loop, mechanics, a playable build, playtest",
+    description:
+      "Design and build the smallest playable slice of a game: core loop, mechanics, a playable build, playtest",
     roles: ["game-designer", "developer", "tester"],
     members: [
       member("game-designer", "Game Designer"),
@@ -1089,7 +1143,8 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
   {
     id: "marketing-launch",
     name: "Marketing launch",
-    description: "Position a real product and produce publishable launch assets: audience, message, channels, content, claim check",
+    description:
+      "Position a real product and produce publishable launch assets: audience, message, channels, content, claim check",
     roles: ["marketer", "researcher", "writer", "reviewer"],
     members: [
       member("marketer", "Marketer"),
@@ -1150,11 +1205,7 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
     name: "Bug fix",
     description: "Find the root cause, fix it and prove the fix",
     roles: ["debugger", "developer", "tester"],
-    members: [
-      member("debugger", "Debugger"),
-      member("developer", "Developer"),
-      member("tester", "Tester"),
-    ],
+    members: [member("debugger", "Debugger"), member("developer", "Developer"), member("tester", "Tester")],
     playbook: [
       "Goal: a proven root cause and a fix that cannot silently regress.",
       "Reproduce first. If the operator already gave the exact cause, skip investigation and fix it yourself or with one developer. Otherwise investigate — yourself for a narrow symptom, or with a debugger worker when the search space is wide — and require a reproduction and a proven root cause, not a guess.",
@@ -1249,7 +1300,11 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
     name: "Research",
     description: "Study a question and write up the findings, with sources",
     roles: ["deep-researcher", "researcher", "writer"],
-    members: [member("deep-researcher", "Deep Researcher"), member("researcher", "Researcher"), member("writer", "Writer")],
+    members: [
+      member("deep-researcher", "Deep Researcher"),
+      member("researcher", "Researcher"),
+      member("writer", "Writer"),
+    ],
     playbook: [
       "Goal: an answer the operator can rely on, with every load-bearing claim sourced.",
       "Scope the question first: what the answer will be used for decides the depth. A narrow question needs one researcher — or your own search; a wide or contested one justifies deep parallel research.",
@@ -1290,7 +1345,8 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
   {
     id: "deep-audit",
     name: "Deep Research and Vulnerability Audit",
-    description: "Extensive multi-source technical and security audit: dependencies, vulnerability intelligence, reachability and remediation planning",
+    description:
+      "Extensive multi-source technical and security audit: dependencies, vulnerability intelligence, reachability and remediation planning",
     roles: ["deep-researcher", "dependency-auditor", "security-auditor", "architect"],
     members: [
       member("deep-researcher", "Deep Web and Security Intelligence Researcher"),
@@ -1308,8 +1364,16 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
   {
     id: "strategic-planning",
     name: "Strategic Planning and Systems Architecture",
-    description: "Architecture, constraints and technical strategy: evidence, system modelling, adversarial testing of the plan, and a dependency-ordered blueprint",
-    roles: ["strategic-planner", "architect", "counterexample-engineer", "deep-researcher", "security-auditor", "reviewer"],
+    description:
+      "Architecture, constraints and technical strategy: evidence, system modelling, adversarial testing of the plan, and a dependency-ordered blueprint",
+    roles: [
+      "strategic-planner",
+      "architect",
+      "counterexample-engineer",
+      "deep-researcher",
+      "security-auditor",
+      "reviewer",
+    ],
     members: [
       member("strategic-planner", "Lead Strategic Systems Architect"),
       member("architect", "Software and Systems Architect"),
@@ -1343,7 +1407,8 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
     // Legacy template id retained for persisted projects; the display name is Orchestra Core.
     id: "opencode-core",
     name: "Orchestra Core",
-    description: "Evolve the entire Orchestra monorepo: architecture, core implementation, cross-package contracts, platform parity, security, tests and independent review",
+    description:
+      "Evolve the entire Orchestra monorepo: architecture, core implementation, cross-package contracts, platform parity, security, tests and independent review",
     roles: [
       "architect",
       "core-maintainer",
@@ -1423,7 +1488,8 @@ export const legacyTemplates: readonly (TemplateSpec & { id: string })[] = [
   {
     id: "factory",
     name: "Software Factory",
-    description: "Multi-agent software engineering factory: scout/researcher, lead architect, core and integration developers, QA test engineer, and security code reviewer",
+    description:
+      "Multi-agent software engineering factory: scout/researcher, lead architect, core and integration developers, QA test engineer, and security code reviewer",
     members: [
       member("deep-researcher", "Scout and Researcher"),
       member("architect", "Lead Architect"),
@@ -1444,7 +1510,8 @@ export const legacyTemplates: readonly (TemplateSpec & { id: string })[] = [
   {
     id: "pro-engineers",
     name: "Elite Engineering Team",
-    description: "Senior full-cycle software engineering team with elite toolchains (MCP, REA, Forge, CodeMode) for architectural evolution, high-assurance development, security hardening, and exhaustive testing",
+    description:
+      "Senior full-cycle software engineering team with elite toolchains (MCP, REA, Forge, CodeMode) for architectural evolution, high-assurance development, security hardening, and exhaustive testing",
     members: [
       member("architect", "Principal Architect"),
       member("core-maintainer", "Lead Systems Engineer"),
@@ -1465,7 +1532,8 @@ export const legacyTemplates: readonly (TemplateSpec & { id: string })[] = [
   {
     id: "proof-driven",
     name: "Proof-driven",
-    description: "High-assurance work: design, implementation, independent acceptance tests, adversarial counterexamples and review",
+    description:
+      "High-assurance work: design, implementation, independent acceptance tests, adversarial counterexamples and review",
     members: [
       member("architect", "Architect"),
       member("developer", "Developer"),

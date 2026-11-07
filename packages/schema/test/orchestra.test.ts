@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { contains, legacyTemplates, playbookOf, roles, templateByID, templates } from "../src/orchestra.js"
+import { contains, legacyTemplates, playbookOf, roles, templateByID, templates, toolkits } from "../src/orchestra.js"
 
 describe("Orchestra.contains directory matching", () => {
   test("handles case-insensitive Windows drive paths", () => {
@@ -139,5 +139,14 @@ describe("legacy template compatibility", () => {
     expect(playbookOf({ id: "proof-driven" })).toContain("acceptance matrix")
     expect(playbookOf({ id: "feature" })).toBe(templates.find((item) => item.id === "feature")?.playbook)
     expect(playbookOf({ id: "nope" })).toBeUndefined()
+  })
+})
+
+describe("role toolkits", () => {
+  test("every toolkit entry belongs to a registered role", () => {
+    const ids = new Set(roles.map((role) => role.id))
+    for (const key of Object.keys(toolkits)) {
+      expect(ids.has(key)).toBe(true)
+    }
   })
 })
