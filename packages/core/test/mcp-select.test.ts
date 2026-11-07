@@ -34,6 +34,18 @@ describe("McpSelect.rank", () => {
     expect(McpSelect.rank("нужен playwright пожалуйста")[0]!.entry.id).toBe("playwright")
   })
 
+  test("chrome-devtools is found by name and falls back to playwright, not the other way round", () => {
+    // "browser automation" still picks playwright first: chrome-devtools is
+    // the Chrome-specific alternative, found by name.
+    expect(McpSelect.rank("browser automation")[0]!.entry.id).toBe("playwright")
+    expect(McpSelect.rank("chrome devtools")[0]!.entry.id).toBe("chrome-devtools")
+    expect(McpSelect.rank("chrome devtools").map((match) => match.entry.id)).toContain("chrome-devtools")
+    expect(McpSelect.fallbackChain("chrome-devtools")).toEqual([
+      { kind: "mcp", server: "playwright" },
+      { kind: "native", tools: ["browser", "playtest"] },
+    ])
+  })
+
   test("a server with a good rating outranks an untried one on an equal textual score", () => {
     const plain = McpSelect.rank("документация")
     expect(plain[0]!.entry.id).toBe("context7")

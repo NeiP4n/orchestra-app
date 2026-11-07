@@ -7,6 +7,7 @@ import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import { Bus } from "../bus.js"
 
 import { Mcp } from "../mcp/index.js"
+import { McpRecovery } from "./mcp-recovery.js"
 import { Permission } from "../permission.js"
 import { Tool } from "../tool.js"
 
@@ -95,9 +96,78 @@ export const layer = Layer.effect(
                             ? result.structured
                             : JSON.stringify(result.structured)
                           : undefined
-                      return yield* new ToolFailure({
-                        message: text || structuredError || `MCP tool "${tool.name}" on server "${tool.server}" returned an error`,
-                      })
+                      const fallback =
+                        text || structuredError || `MCP tool "${tool.name}" on server "${tool.server}" returned an error`
+                      // A stale element reference is not a dead end: the page
+                      // changed since the snapshot the uid/ref came from, so
+                      // retrying it fails again. Take a fresh snapshot on the
+                      // same server and hand it to the model inside the
+                      // failure, so it retries the action with the new
+                      // uid/ref in one turn instead of spending a
+                      // take_snapshot turn first. The snapshot call is
+                      // read-only on a server the model was already
+                      // permitted to call, and still asserts its own
+                      // permission; a denial or a failed snapshot only
+                      // degrades to the hint — the original error still
+                      // returns. A snapshot tool failing with a stale error
+                      // is never "recovered" with another snapshot.
+                      if (McpRecovery.isStaleElementError(text) && !McpRecovery.isSnapshotTool(tool.name)) {
+                        const serverTools = discovered.filter((candidate) => candidate.server === tool.server)
+                        const snapshot = McpRecovery.snapshotToolName(serverTools)
+                        const snapshotText =
+                          snapshot === undefined
+                            ? undefined
+                            : yield* Effect.gen(function* () {
+                                yield* permission.assert({
+                                  action: name(tool.server, snapshot),
+                                  resources: ["*"],
+                                  save: ["*"],
+                                  metadata: { transport: "mcp" },
+                                  sessionID: context.sessionID,
+                                  agent: context.agent,
+                                  source: {
+                                    type: "tool",
+                                    messageID: context.messageID,
+                                    id: context.id,
+                                  },
+                                })
+                                const fresh = yield* mcp.callTool({
+                                  server: tool.server,
+                                  name: snapshot,
+                                  args: {},
+                                  sessionID: context.sessionID,
+                                  readOnly: true,
+                                })
+                                if (fresh.isError) return undefined
+                                const freshText = fresh.content
+                                  .flatMap((part) => (part.type === "text" ? [part.text] : []))
+                                  .join("\n")
+                                  .trim()
+                                return freshText === "" ? undefined : freshText
+                              }).pipe(Effect.orElseSucceed(() => undefined))
+                        return yield* new ToolFailure({
+                          message: McpRecovery.staleElementMessage({
+                            original: text || fallback,
+                            snapshotTool: snapshot,
+                            snapshotText,
+                          }),
+                        })
+                      }
+                      // evaluate runs without timers: a setTimeout failure
+                      // names the server's wait tool instead of leaving the
+                      // model to retry the same sandbox error.
+                      const timer = McpRecovery.timerInEvaluateError(tool.name, text)
+                      if (timer !== undefined) {
+                        return yield* new ToolFailure({
+                          message: McpRecovery.timerMessage({
+                            timer,
+                            waitTool: McpRecovery.waitToolName(
+                              discovered.filter((candidate) => candidate.server === tool.server),
+                            ),
+                          }),
+                        })
+                      }
+                      return yield* new ToolFailure({ message: fallback })
                     }
                     const content = result.content.map((part) =>
                       part.type === "text"

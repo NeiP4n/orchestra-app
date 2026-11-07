@@ -302,6 +302,7 @@ export const FALLBACKS: Readonly<Record<string, readonly Fallback[]>> = {
   serena: [{ kind: "mcp", server: "xerj" }, { kind: "native", tools: ["symbols", "grep", "read"] }],
   xerj: [{ kind: "mcp", server: "serena" }, { kind: "native", tools: ["symbols", "grep", "read"] }],
   playwright: [{ kind: "mcp", server: "agent-desktop" }, { kind: "native", tools: ["browser", "playtest"] }],
+  "chrome-devtools": [{ kind: "mcp", server: "playwright" }, { kind: "native", tools: ["browser", "playtest"] }],
   "agent-desktop": [{ kind: "mcp", server: "playwright" }, { kind: "native", tools: ["desktop", "playtest"] }],
   github: [{ kind: "native", tools: ["shell"] }],
   sentry: [],
