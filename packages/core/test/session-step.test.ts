@@ -376,6 +376,69 @@ it.effect("measurement: complete usage prices from the catalog and output exclud
   ),
 )
 
+it.effect("measurement: an empty usage report keeps every field and the cost unknown", () =>
+  withMeasurement(
+    Effect.gen(function* () {
+      const { llm, sessionID, steps, dir, sizesRequest, attemptInput, enable } = yield* measurementFixture()
+      enable()
+      const attempt = yield* SessionRequestMeasurement.recordPrimarySizes({ sessionID, request: sizesRequest })
+      yield* llm.push(TestLLM.complete({ reason: { normalized: "stop" }, usage: {} }))
+      const result = yield* steps.attempt(attemptInput(attempt)).pipe(Effect.exit)
+      expect(Exit.isSuccess(result)).toBe(true)
+      const { records } = yield* exportedRecords(dir)
+      const record = records.find((entry) => entry.attemptID === attempt!.attemptID)
+      expect(record.outcome).toBe("completed")
+      expect(record.usage).toEqual({ input: null, output: null, reasoning: null, cacheRead: null, cacheWrite: null })
+      expect(record.cost).toEqual({ recordedUSD: null, estimatedUSD: null, source: "unknown" })
+    }),
+  ),
+)
+
+it.effect("measurement: output excludes reasoning when the split is known, unknown when it is not", () =>
+  withMeasurement(
+    Effect.gen(function* () {
+      const { llm, sessionID, steps, dir, sizesRequest, attemptInput, enable } = yield* measurementFixture()
+      enable()
+      // Known split: visible output is 100 - 40, never the inclusive 100.
+      const split = yield* SessionRequestMeasurement.recordPrimarySizes({ sessionID, request: sizesRequest })
+      yield* llm.push(
+        TestLLM.complete({
+          reason: { normalized: "stop" },
+          usage: {
+            inputTokens: 10,
+            nonCachedInputTokens: 10,
+            outputTokens: 100,
+            reasoningTokens: 40,
+            cacheReadInputTokens: 0,
+            cacheWriteInputTokens: 0,
+          },
+        }),
+      )
+      const splitResult = yield* steps.attempt(attemptInput(split)).pipe(Effect.exit)
+      expect(Exit.isSuccess(splitResult)).toBe(true)
+      // Missing split: output stays unknown rather than counting reasoning twice.
+      const unsplit = yield* SessionRequestMeasurement.recordPrimarySizes({ sessionID, request: sizesRequest })
+      yield* llm.push(
+        TestLLM.complete({
+          reason: { normalized: "stop" },
+          usage: { inputTokens: 10, nonCachedInputTokens: 10, outputTokens: 100 },
+        }),
+      )
+      const unsplitResult = yield* steps.attempt(attemptInput(unsplit)).pipe(Effect.exit)
+      expect(Exit.isSuccess(unsplitResult)).toBe(true)
+      const { records } = yield* exportedRecords(dir)
+      const splitRecord = records.find((entry) => entry.attemptID === split!.attemptID)
+      expect(splitRecord.usage.output).toBe(60)
+      expect(splitRecord.usage.reasoning).toBe(40)
+      // (10 * $1 + 100 * $2) / 1e6 - pricing uses the inclusive total, so it stays complete.
+      expect(splitRecord.cost.estimatedUSD).toBeCloseTo(0.00021, 10)
+      const unsplitRecord = records.find((entry) => entry.attemptID === unsplit!.attemptID)
+      expect(unsplitRecord.usage.output).toBeNull()
+      expect(unsplitRecord.usage.reasoning).toBeNull()
+    }),
+  ),
+)
+
 // The clock must be live here: it.effect runs on TestClock, which never advances the sleep
 // before Fiber.interrupt on its own.
 it.live("measurement: interrupting the step settles the attempt as cancelled", () =>

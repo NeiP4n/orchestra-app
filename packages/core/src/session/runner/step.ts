@@ -403,10 +403,12 @@ export const make = Effect.gen(function* () {
                     ? { input: null, output: null, reasoning: null, cacheRead: null, cacheWrite: null }
                     : {
                         input: field(raw.nonCachedInputTokens),
+                        // Visible output only when the total/reasoning split is fully known;
+                        // a missing split leaves output unknown instead of inflating it.
                         output:
-                          raw.outputTokens === undefined
+                          raw.outputTokens === undefined || raw.reasoningTokens === undefined
                             ? null
-                            : Math.max(0, raw.outputTokens - (raw.reasoningTokens ?? 0)),
+                            : Math.max(0, raw.outputTokens - raw.reasoningTokens),
                         reasoning: field(raw.reasoningTokens),
                         cacheRead: field(raw.cacheReadInputTokens),
                         cacheWrite: field(raw.cacheWriteInputTokens),
