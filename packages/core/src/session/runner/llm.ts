@@ -6,9 +6,11 @@ import { Mode } from "@orchestra/schema/mode"
 import { Orchestra } from "@orchestra/schema/orchestra"
 import { SessionError } from "@orchestra/schema/session-error"
 import { and, desc, eq, sql } from "drizzle-orm"
-import { Cause, Clock, DateTime, Effect, Exit, FiberMap, Layer } from "effect"
+import { Cause, Clock, DateTime, Effect, Exit, FiberMap, Layer, Option } from "effect"
 import { Database } from "../../database/database.js"
 import { Bus } from "../../bus.js"
+import { Config } from "../../config.js"
+import type { Entry } from "@orchestra/schema/config"
 import { Model } from "../../model.js"
 import { AiStandard } from "../../ai-standard.js"
 import { LocationLifecycle } from "../../location-lifecycle.js"
@@ -36,6 +38,7 @@ import { SessionRunnerRetry } from "./retry.js"
 import { mainSessionFallbackChain } from "./error-taxonomy.js"
 import { SessionStep } from "./step.js"
 import { ToolOutput } from "../../tool-output.js"
+import { ToolPruning } from "../tool-pruning.js"
 import { Plugin } from "../../plugin.js"
 import { MAX_STEPS_PROMPT } from "./max-steps.js"
 import { Limits } from "../../limits.js"
@@ -78,6 +81,12 @@ const layer = Layer.effect(
       // drain (one resume) may spend at most the wall-clock/token budget in
       // `Limits`, however many turns it admits while it runs.
       const drainBudget = { startedAtMs: yield* Clock.currentTimeMillis, tokensUsed: 0 }
+      // The pruning threshold is a number in config
+      // (`orchestra.autoloop.toolPruneUnusedSteps`, default 10), read once per
+      // drain from the location config when the context carries it — exactly
+      // like the autoloop service self-configures (`ensureConfigured`).
+      const toolPruneUnusedSteps = yield* readToolPruneThreshold()
+      const pruneState = { lastPruned: [] as Array<string> }
       if (!force && !continuing) {
         const pending = yield* SessionInbox.nextPromotable(db, sessionID, "input")
         if (!pending) return DrainResult.Complete()
@@ -214,7 +223,7 @@ const layer = Layer.effect(
         if (next._tag !== "Ready") return next
         const exceeded = Limits.drainBudgetExceeded(drainBudget, yield* Clock.currentTimeMillis)
         if (exceeded) return yield* failDrainBudget(sessionID, exceeded, drainBudget)
-        continuing = yield* runStep(next.context, step, refused, drainBudget)
+        continuing = yield* runStep(next.context, step, refused, drainBudget, toolPruneUnusedSteps, pruneState)
         step++
         force = false
         entering = false
@@ -228,12 +237,28 @@ const layer = Layer.effect(
       return selected
     })
 
+    // The tool-pruning threshold (`orchestra.autoloop.toolPruneUnusedSteps`)
+    // comes from the location config when the context carries one; without
+    // it the kernel default applies. Reading it once per drain keeps the
+    // per-step path free of config reads.
+    const readToolPruneThreshold = Effect.fn("SessionRunner.toolPruneUnusedSteps")(function* () {
+      const config = yield* Effect.serviceOption(Config.Service)
+      if (Option.isNone(config)) return ToolPruning.TOOL_PRUNE_UNUSED_STEPS_DEFAULT
+      const entries = yield* config.value.entries().pipe(Effect.catch(() => Effect.succeed([] as Array<Entry>)))
+      return (
+        Config.latest(entries, "orchestra")?.autoloop?.toolPruneUnusedSteps ??
+        ToolPruning.TOOL_PRUNE_UNUSED_STEPS_DEFAULT
+      )
+    })
+
     /** Owns logical Step policy; each attempt owns its streaming, tools, and durable settlement. */
     const runStep = Effect.fn("SessionRunner.runStep")(function* (
       first: SessionContext.Loaded,
       step: number,
       refused: Set<string>,
       drainBudget: { startedAtMs: number; tokensUsed: number },
+      toolPruneUnusedSteps: number,
+      pruneState: { lastPruned: Array<string> },
     ) {
       const sessionID = first.session.id
       let assistantMessageID = SessionMessage.ID.create()
@@ -268,6 +293,25 @@ const layer = Layer.effect(
           assistantMessageID = SessionMessage.ID.create()
           continue
         }
+        // TokenEconomizer tool pruning, native (Б4): tools the session has
+        // not called for `toolPruneUnusedSteps` turns stop being advertised
+        // with every request. The decision is a pure function of visible
+        // history (`ToolPruning.pruneTools`), recomputed each step; a tool
+        // named in the latest user or model text comes back on the next step.
+        // Execution is untouched: a pruned tool simply is not advertised,
+        // and the model cannot call what it cannot see.
+        const pruned = ToolPruning.pruneTools(loaded.tools, loaded.messages, {
+          unusedSteps: toolPruneUnusedSteps,
+          protectedNames: Mode.toolsOf(loaded.session.metadata, loaded.agent.id),
+        })
+        if (pruned.pruned.length > 0 && pruned.pruned.join(",") !== pruneState.lastPruned.join(",")) {
+          pruneState.lastPruned = [...pruned.pruned]
+          yield* Effect.logInfo("session tools pruned for this step: unused tools hidden from the model request", {
+            sessionID,
+            pruned: pruned.pruned,
+          })
+        }
+        const tools = pruned.tools
         // The agent's own ceiling and the mode's soft ceiling both apply; the smaller one wins.
         // An agent with no steps of its own falls back to the single AI standard's budget for
         // its effort class (AiStandard.stepCeilings); the standard never lowers a set ceiling.
@@ -284,7 +328,7 @@ const layer = Layer.effect(
         const transcript = SessionModelRequest.baseTranscript({
           agent: loaded.agent.info,
           model: loaded.model,
-          tools: loaded.tools,
+          tools,
           initial: loaded.initial,
           messages: loaded.messages,
         })
@@ -297,7 +341,7 @@ const layer = Layer.effect(
           session: loaded.session,
           agent: loaded.agent.id,
           model: loaded.model,
-          tools: loaded.tools,
+          tools,
           system: transcript.system,
           messages: stepLimitReached
             ? [...transcript.messages, Message.assistant(MAX_STEPS_PROMPT)]

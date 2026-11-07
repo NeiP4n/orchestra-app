@@ -77,6 +77,10 @@ export interface AutoloopLimits {
   maxAttempts: number
   /** Check-fix rounds before the run stops and asks a human (new in Orchestra). */
   maxVerifyIterations: number
+  /** Same-error repeats that stop a run early, before the retry or check caps run out (TokenEconomizer loop guard). */
+  failureRepeatStop: number
+  /** Steps a tool may go unused in a session before the runner stops sending its definition (TokenEconomizer tool pruning). */
+  toolPruneUnusedSteps: number
   /** How deep a chain of events causing events may get before it stops. */
   maxHops: number
   /** First retry pause, minutes; doubles per attempt up to `retryMaxMinutes`. */
@@ -94,6 +98,8 @@ export interface AutoloopLimits {
 export const DEFAULT_LIMITS: AutoloopLimits = {
   maxAttempts: 2,
   maxVerifyIterations: 5,
+  failureRepeatStop: 3,
+  toolPruneUnusedSteps: 10,
   maxHops: 8,
   retryBaseMinutes: 5,
   retryMaxMinutes: 60,
@@ -105,6 +111,8 @@ export const DEFAULT_LIMITS: AutoloopLimits = {
 export const resolveLimits = (given?: Partial<AutoloopLimits>): AutoloopLimits => ({
   maxAttempts: Math.max(1, given?.maxAttempts ?? DEFAULT_LIMITS.maxAttempts),
   maxVerifyIterations: Math.max(1, given?.maxVerifyIterations ?? DEFAULT_LIMITS.maxVerifyIterations),
+  failureRepeatStop: Math.max(1, given?.failureRepeatStop ?? DEFAULT_LIMITS.failureRepeatStop),
+  toolPruneUnusedSteps: Math.max(1, given?.toolPruneUnusedSteps ?? DEFAULT_LIMITS.toolPruneUnusedSteps),
   maxHops: Math.max(0, given?.maxHops ?? DEFAULT_LIMITS.maxHops),
   retryBaseMinutes: Math.max(1, given?.retryBaseMinutes ?? DEFAULT_LIMITS.retryBaseMinutes),
   retryMaxMinutes: Math.max(1, given?.retryMaxMinutes ?? DEFAULT_LIMITS.retryMaxMinutes),
@@ -1251,7 +1259,12 @@ export function retryLater(draft: Draft, run: RunRow, result: Receipt): Rejected
   // tried; an empty error text carries no fingerprint and never trips it.
   const rawError = (result.error ?? "").trim()
   const repeat =
-    rawError === "" ? undefined : recordRepeat(run.error_history ?? null, fingerprintError(rawError), draft.now)
+    rawError === ""
+      ? undefined
+      : recordRepeat(run.error_history ?? null, fingerprintError(rawError), draft.now, {
+          consecutive: draft.limits.failureRepeatStop,
+          window: draft.limits.failureRepeatStop,
+        })
   const failure = {
     attempts,
     error,
@@ -1296,7 +1309,7 @@ export function retryLater(draft: Draft, run: RunRow, result: Receipt): Rejected
   }
   if (repeat?.stuck === true) {
     const how =
-      repeat.consecutive >= 3
+      repeat.consecutive >= draft.limits.failureRepeatStop
         ? `${repeat.consecutive} раз подряд`
         : `${repeat.inWindow} раза за час`
     const summary = `Та же ошибка повторилась ${how}, автоматические повторы остановлены`
@@ -1399,6 +1412,55 @@ export function applyReceipt(draft: Draft, run: RunRow, result: Receipt): Reject
     const verifyIterations = run.verifyIterations + 1
     for (const notice of result.notice ?? []) cardFromReceipt(draft, run, "notice", notice)
     for (const later of result.later ?? []) scheduleReview(draft, run, later)
+    // TokenEconomizer loop guard for the check-fix loop: the retry path
+    // (`retryLater`) already stops on a repeating error, but this loop
+    // counted rounds to 5 no matter how identical the failures were — five
+    // full check-fix rounds on one unchanging failure. A check that fails
+    // the same way `failureRepeatStop` times stops here instead, with an ask
+    // card naming the repeated failure. The fingerprint covers the gate
+    // reason plus the receipt summary, so a check that fails differently
+    // each round keeps its five rounds: different failures are progress,
+    // not a loop. The fingerprint and the history stay on the run row, so
+    // the stop card can name what was tried.
+    const verifyRepeat = recordRepeat(
+      run.error_history ?? null,
+      fingerprintError(`${verifyError} ${summary}`),
+      draft.now,
+      { consecutive: draft.limits.failureRepeatStop, window: draft.limits.failureRepeatStop },
+    )
+    const verifyFailure = {
+      error_fingerprint: verifyRepeat.history.at(-1)!.fp,
+      error_repeat: verifyRepeat.consecutive,
+      error_history: JSON.stringify(verifyRepeat.history),
+    }
+    if (verifyRepeat.stuck === true) {
+      const how =
+        verifyRepeat.consecutive >= draft.limits.failureRepeatStop
+          ? `${verifyRepeat.consecutive} раз подряд`
+          : `${verifyRepeat.inWindow} раза за час`
+      put(draft, "runs", id, {
+        state: "cancelled",
+        finished_at: draft.at,
+        summary,
+        verifyIterations,
+        error: verifyError,
+        ...verifyFailure,
+        ...fixProof,
+        ...verificationProof,
+      })
+      closeStopped(draft, id, summary)
+      createCard(draft, {
+        key: `run:${id}:verify`,
+        kind: "ask",
+        title: "Проверка не проходит одним и тем же способом",
+        text: `Проверка не прошла ${how} одним и тем же способом (${verifyError}; ${summary || "без подробностей"}). Дальнейшие круги «исправить-проверить» повторят то же самое и только жгут токены, поэтому раунд остановлен раньше лимита в ${draft.limits.maxVerifyIterations} кругов. Что делать дальше?`,
+        options: ["Исправить и проверить снова", ACCEPT_OPTION, CANCEL_OPTION],
+        recommend: "Исправить и проверить снова",
+        ...threadOf(run),
+        run: id,
+      })
+      return rejected
+    }
     if (verifyIterations >= draft.limits.maxVerifyIterations) {
       put(draft, "runs", id, {
         state: "cancelled",
@@ -1406,6 +1468,7 @@ export function applyReceipt(draft: Draft, run: RunRow, result: Receipt): Reject
         summary,
         verifyIterations,
         error: verifyError,
+        ...verifyFailure,
         ...fixProof,
         ...verificationProof,
       })
@@ -1432,6 +1495,7 @@ export function applyReceipt(draft: Draft, run: RunRow, result: Receipt): Reject
       verifyIterations,
       summary,
       error: verifyError,
+      ...verifyFailure,
       ...fixProof,
       ...verificationProof,
     })

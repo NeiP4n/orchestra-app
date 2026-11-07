@@ -85,6 +85,8 @@ export function limitsFromConfig(autoloop: ConfigOrchestra.Autoloop | undefined)
   const picked: Partial<AutoloopLimits> = {}
   if (autoloop.maxAttempts !== undefined) picked.maxAttempts = autoloop.maxAttempts
   if (autoloop.maxVerifyIterations !== undefined) picked.maxVerifyIterations = autoloop.maxVerifyIterations
+  if (autoloop.failureRepeatStop !== undefined) picked.failureRepeatStop = autoloop.failureRepeatStop
+  if (autoloop.toolPruneUnusedSteps !== undefined) picked.toolPruneUnusedSteps = autoloop.toolPruneUnusedSteps
   if (autoloop.maxHops !== undefined) picked.maxHops = autoloop.maxHops
   if (autoloop.retryBaseMinutes !== undefined) picked.retryBaseMinutes = autoloop.retryBaseMinutes
   if (autoloop.retryMaxMinutes !== undefined) picked.retryMaxMinutes = autoloop.retryMaxMinutes

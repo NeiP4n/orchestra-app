@@ -88,12 +88,17 @@ export interface RepeatStatus {
   readonly stuck: boolean
 }
 
-/** Record one occurrence of an error (by its fingerprint) at `now` and say whether the run is stuck. */
+/** Record one occurrence of an error (by its fingerprint) at `now` and say whether the run is stuck.
+ * The stop thresholds come from the autoloop limits (`failureRepeatStop`, default 3) when given,
+ * so the operator tunes the number in config, not in a prompt. */
 export function recordRepeat(
   stored: string | null | undefined,
   fingerprint: string,
   now: number,
+  thresholds: { readonly consecutive?: number; readonly window?: number } = {},
 ): RepeatStatus {
+  const consecutiveStop = Math.max(1, thresholds.consecutive ?? REPEAT_STOP_CONSECUTIVE)
+  const windowStop = Math.max(1, thresholds.window ?? REPEAT_STOP_WINDOW)
   const history = [...parseHistory(stored), { fp: fingerprint, at: now }].slice(-REPEAT_HISTORY_KEPT)
   let consecutive = 0
   for (let index = history.length - 1; index >= 0; index--) {
@@ -105,6 +110,6 @@ export function recordRepeat(
     history,
     consecutive,
     inWindow,
-    stuck: consecutive >= REPEAT_STOP_CONSECUTIVE || inWindow >= REPEAT_STOP_WINDOW,
+    stuck: consecutive >= consecutiveStop || inWindow >= windowStop,
   }
 }
