@@ -31,7 +31,7 @@ import { LocationServiceMap } from "@orchestra/core/location-service-map"
 import { ModelResolver } from "@orchestra/core/model-resolver"
 import { SessionContext } from "@orchestra/core/session/context"
 import { PromptIntake } from "@orchestra/core/prompt-intake/index"
-import { LLMClient, type LLMClientService } from "@orchestra/ai"
+import { LLMClient, type LLMClientShape } from "@orchestra/ai"
 import type { LocationServices } from "@orchestra/core/location-services"
 import { Image } from "@orchestra/core/image"
 import { Plugin } from "@orchestra/core/plugin"
@@ -1433,7 +1433,7 @@ describe("SessionPrompt intake wiring", () => {
           clarifiedGoal: "Fix the login bug in the auth module",
         }),
       }),
-  } as unknown as LLMClientService
+  } as unknown as LLMClientShape
 
   it.effect("wires the model disambiguator when all four services are present", () =>
     Effect.gen(function* () {

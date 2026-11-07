@@ -18,7 +18,7 @@ const echoTool = {
   inputSchema: { type: "object" as const, properties: {} },
 }
 
-const readMethod = async (request: Request) => {
+const readMethod = async (request: { text(): Promise<string> }) => {
   const text = await request.text()
   try {
     return { text, method: (JSON.parse(text) as { method?: string }).method }
@@ -61,14 +61,13 @@ async function serveModern(options?: { tasks?: boolean }) {
   const handler = createMcpHandler(() => makeServer())
   const server = Bun.serve({
     port: 0,
-    fetch: async (incoming) => {
-      // Bun.serve overload inference lands on the undici Request type here, but
-      // the runtime object is Bun's Request, which has the textStream the SDK
-      // handler's own Request type requires.
-      const request = incoming as unknown as Request
+    fetch: async (request) => {
       // The handler reads the body itself, so sniff the method off a clone.
       const { method } = await readMethod(request.clone())
       requests.push({ method, headers: request.headers })
+      // Bun.serve overload inference lands on the undici Request type here, but
+      // the runtime object is Bun's Request, which has the textStream the SDK
+      // handler's own Request type requires.
       return handler.fetch(request as unknown as Parameters<typeof handler.fetch>[0])
     },
   })

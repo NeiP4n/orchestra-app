@@ -1,6 +1,6 @@
 export * as SessionPrompt from "./prompt.js"
 
-import { LLMClient, type LLMClientService } from "@orchestra/ai"
+import { LLMClient } from "@orchestra/ai"
 import { Base64, FileAttachment, Prompt } from "@orchestra/schema/prompt"
 import { PromptInput } from "@orchestra/schema/prompt-input"
 import { SessionInbox } from "@orchestra/schema/session-inbox"
