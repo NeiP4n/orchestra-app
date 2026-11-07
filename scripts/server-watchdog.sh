@@ -103,7 +103,10 @@ log() {
 # loudly instead of silently falling through to a different bun.
 resolve_bun() {
   if [ -n "${ORCHESTRA_BUN:-}" ]; then
-    [ -x "$ORCHESTRA_BUN" ] || { log "ORCHESTRA_BUN is set but not executable: $ORCHESTRA_BUN"; return 1; }
+    # >&2: resolve_bun runs inside $(...) to capture the path, so a plain
+    # log line here would be swallowed into the captured output instead
+    # of reaching the terminal. The log-file append inside log() still runs.
+    [ -x "$ORCHESTRA_BUN" ] || { log "ORCHESTRA_BUN is set but not executable: $ORCHESTRA_BUN" >&2; return 1; }
     echo "$ORCHESTRA_BUN"
     return 0
   fi
