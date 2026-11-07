@@ -287,6 +287,8 @@ export const CommandMap = {
   scrollbar_toggle: "session.toggle.scrollbar",
   status_view: "orchestra.status",
   debug_view: "orchestra.debug",
+  // The rebrand renamed this canonical id without an alias; old configs keep their binding.
+  "opencode.settings": "orchestra.settings",
   session_export: "session.export",
   session_copy: "session.copy",
   session_move: "session.move",

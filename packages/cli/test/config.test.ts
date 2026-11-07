@@ -322,6 +322,23 @@ test("migrates legacy keybind names in an existing cli.json", async () => {
   })
 })
 
+test("migrates pre-rename opencode.settings keybinds to orchestra.settings", async () => {
+  await using directory = await tmpdir()
+  const file = path.join(directory.path, "cli.json")
+  await Bun.write(file, `{"keybinds":{"opencode.settings":"ctrl+o"}}`)
+
+  const config = await run(
+    directory.path,
+    Effect.gen(function* () {
+      const service = yield* Config.Service
+      return yield* service.get()
+    }),
+  )
+
+  expect(config.keybinds).toEqual({ "orchestra.settings": "ctrl+o" })
+  expect(parse(await Bun.file(file).text()).keybinds).toEqual({ "orchestra.settings": "ctrl+o" })
+})
+
 test("migrates copy_on_select in an existing cli.json", async () => {
   for (const item of [
     { legacy: true, expected: "select" },
@@ -489,24 +506,24 @@ test("updates effective duplicate canonical keybinds", async () => {
   const file = path.join(directory.path, "cli.json")
   await Bun.write(
     file,
-    `{"keybinds":{"session.delete":"first","session.delete":"last","opencode.settings":"off","opencode.settings":"on"}}`,
+    `{"keybinds":{"session.delete":"first","session.delete":"last","orchestra.settings":"off","orchestra.settings":"on"}}`,
   )
 
   const config = await run(
     directory.path,
     Effect.gen(function* () {
       const service = yield* Config.Service
-      expect((yield* service.get()).keybinds).toEqual({ "session.delete": "last", "opencode.settings": "on" })
+      expect((yield* service.get()).keybinds).toEqual({ "session.delete": "last", "orchestra.settings": "on" })
       return yield* service.update((draft) => {
-        draft.keybinds = { ...draft.keybinds, "session.delete": "changed", "opencode.settings": "changed" }
+        draft.keybinds = { ...draft.keybinds, "session.delete": "changed", "orchestra.settings": "changed" }
       })
     }),
   )
 
-  expect(config.keybinds).toEqual({ "session.delete": "changed", "opencode.settings": "changed" })
+  expect(config.keybinds).toEqual({ "session.delete": "changed", "orchestra.settings": "changed" })
   expect(parse(await Bun.file(file).text()).keybinds).toEqual({
     "session.delete": "changed",
-    "opencode.settings": "changed",
+    "orchestra.settings": "changed",
   })
 })
 
