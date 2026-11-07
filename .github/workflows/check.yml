@@ -17,8 +17,8 @@ concurrency:
 jobs:
   check:
     name: typecheck
-    # Use GitHub-hosted runners on lan-rooms so this fork does not depend on Blacksmith capacity.
-    runs-on: ${{ (github.ref_name == 'lan-rooms' || github.base_ref == 'lan-rooms') && 'ubuntu-latest' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # This repo has no Blacksmith capacity: run on GitHub-hosted runners everywhere.
+    runs-on: ubuntu-latest
     # A hung typecheck must fail instead of burning the 6h GitHub default.
     timeout-minutes: 20
     steps:
