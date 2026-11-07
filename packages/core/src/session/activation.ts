@@ -1,6 +1,6 @@
 export * as SessionActivation from "./activation.js"
 
-import { Effect, Option, Schema } from "effect"
+import { Effect, Option, Schema, Scope } from "effect"
 import { KV } from "../kv.js"
 import { Session } from "../session.js"
 import { SessionHold } from "./hold.js"
@@ -19,11 +19,22 @@ import { SessionStore } from "./store.js"
 //
 // This module is the verification side of that fix. `Orchestra.dispatch`
 // records a watch when it hands a task to a worker; the watch checks after
-// N minutes whether a run started (input tokens > 0, or a live execution
-// claim), restarts the worker once when it did not, and escalates to the
-// Orchestrator when the restart also fails. No human gate anywhere: the
-// escalation is a durable message to the Orchestrator, not a confirmation
-// prompt.
+// N minutes whether a run started, restarts the worker once when it did
+// not, and escalates to the Orchestrator when the restart also fails. No
+// human gate anywhere: the escalation is a durable message to the
+// Orchestrator, not a confirmation prompt.
+//
+// "Started" is real progress since the dispatch, never a lifetime total:
+// input tokens consumed after the watch was created, or a live execution in
+// this process (`sessions.active`). Cumulative `info.tokens.input` alone
+// proves nothing — a worker that ran yesterday and never started today
+// still shows old tokens — and a durable execution claim alone proves
+// nothing either: the claim is a write-ahead marker that survives a crash,
+// so after a restart it names a dead turn, not a running one. A watch that
+// dies with its server is re-armed by `recover` from
+// `Orchestra.recoverPendingTasks`: the baseline is refreshed to the current
+// token count, and the check cycle resumes — a watch that already spent its
+// one restart escalates instead of restarting again.
 
 export const DEFAULT_CHECK_MINUTES = 5
 const MIN_CHECK_MINUTES = 1
@@ -52,6 +63,14 @@ export const Record = Schema.Struct({
   status: Status,
   lastCheckAt: Schema.optional(Schema.Number),
   note: Schema.optional(Schema.String),
+  /**
+   * Input tokens the session had already consumed when the watch was
+   * created. Only tokens above this baseline count as the worker starting;
+   * the lifetime total never does. Absent on records written before the
+   * baseline existed — those prove a start by live execution only, until
+   * `recover` re-baselines them.
+   */
+  tokensInputAtDispatch: Schema.optional(Schema.Number),
 })
 export type Record = typeof Record.Type
 
@@ -66,9 +85,21 @@ export interface Deps {
   readonly store: SessionStore.Interface
 }
 
-/** A run counts as started when the model consumed input tokens or a turn is claimed. */
-export function isStarted(signals: { readonly tokensInput: number; readonly claimed: boolean }): boolean {
-  return signals.tokensInput > 0 || signals.claimed
+/**
+ * A run counts as started when the model consumed input tokens after the
+ * dispatch, or a turn is executing live in this process right now. A
+ * lifetime token total without a baseline proves nothing — the tokens may
+ * predate the dispatch — and neither does a durable execution claim, which
+ * survives a crash and names a dead turn after a restart. When no baseline
+ * is known, only live execution counts.
+ */
+export function isStarted(signals: {
+  readonly tokensInput: number
+  readonly tokensInputAtDispatch?: number
+  readonly active: boolean
+}): boolean {
+  if (signals.active) return true
+  return signals.tokensInputAtDispatch !== undefined && signals.tokensInput > signals.tokensInputAtDispatch
 }
 
 /** Whether a pending inbox item is work the runner would pick up on a resume. */
@@ -79,19 +110,27 @@ export function isRunnable(item: SessionInbox.Info): boolean {
 }
 
 export type VerifyResult =
-  | { readonly status: "started"; readonly tokensInput: number; readonly claimed: boolean }
+  | { readonly status: "started"; readonly tokensInput: number; readonly active: boolean }
   | { readonly status: "idle"; readonly tokensInput: number; readonly pending: number }
   | { readonly status: "held" }
   | { readonly status: "gone" }
   | { readonly status: "settled"; readonly note: string }
 
-export const verify = Effect.fn("SessionActivation.verify")(function* (deps: Deps, sessionID: SessionSchema.ID) {
+export const verify = Effect.fn("SessionActivation.verify")(function* (
+  deps: Deps,
+  sessionID: SessionSchema.ID,
+  tokensInputAtDispatch?: number,
+) {
   const info = yield* deps.store.get(sessionID)
   if (!info) return { status: "gone" } as VerifyResult
   if (yield* SessionHold.held(sessionID)) return { status: "held" } as VerifyResult
   const tokensInput = info.tokens.input
-  const claimed = (yield* deps.store.listSuspended()).includes(sessionID)
-  if (isStarted({ tokensInput, claimed })) return { status: "started", tokensInput, claimed } as VerifyResult
+  // Live execution in this process, not the durable claim: `listSuspended`
+  // still lists a turn whose process died, and a stale claim is not a
+  // running worker.
+  const active = (yield* deps.sessions.active).has(sessionID)
+  if (isStarted({ tokensInput, tokensInputAtDispatch, active }))
+    return { status: "started", tokensInput, active } as VerifyResult
   // A failed or interrupted run already ended: its own reporting
   // (team-report, error ladder) owns the outcome, not this watch. A run
   // that "succeeded" without a model run and with work still pending did
@@ -132,7 +171,7 @@ const escalate = Effect.fn("SessionActivation.escalate")(function* (
       description: `Worker did not start: ${input.sessionID}`,
       text: [
         `<activation-failure session="${input.sessionID}">`,
-        `Worker ${input.sessionID} never started: no input tokens and no execution claim after dispatch, and a restart did not start it either.`,
+        `Worker ${input.sessionID} never started: no new input tokens since dispatch and no live execution after dispatch, and a restart did not start it either.`,
         `Escalation: ${escalation.target}. ${escalation.reason}`,
         "The task is still queued in the worker's inbox (or was consumed without a model run). Reassign it or inspect the worker session; do not assume it is running.",
         "</activation-failure>",
@@ -143,6 +182,85 @@ const escalate = Effect.fn("SessionActivation.escalate")(function* (
   yield* Effect.logWarning("worker never started; escalated to the orchestrator", {
     sessionID: input.sessionID,
     target: escalation.target,
+  })
+})
+
+const scanRecords = Effect.fn("SessionActivation.scanRecords")(function* (deps: Deps) {
+  const read = (after?: string): Effect.Effect<Array<KV.Entry>> =>
+    deps.kv.scan({ prefix: "orchestra/activation/", after, limit: 1000 }).pipe(
+      Effect.flatMap((result) =>
+        result.next
+          ? read(result.next).pipe(Effect.map((rest) => [...result.entries, ...rest]))
+          : Effect.succeed([...result.entries]),
+      ),
+    )
+  return (yield* read()).flatMap((entry) => Option.toArray(decodeRecord(entry.value)))
+})
+
+/**
+ * One check cycle for a watch record: after `checkAfterMs` verify the run
+ * started; restart once when it did not, then verify again and escalate
+ * when the restart also failed. A record that already spent its restart
+ * (re-armed by `recover` after a crash) escalates on an idle first check
+ * instead of restarting a second time.
+ */
+const runChecks = Effect.fn("SessionActivation.runChecks")(function* (deps: Deps, record: Record) {
+  const checkAfterMs = record.checkAfterMs
+  yield* Effect.sleep(checkAfterMs)
+  const first = yield* verify(deps, record.sessionID, record.tokensInputAtDispatch).pipe(
+    Effect.catchCause((cause) => Effect.logWarning("activation check failed", { cause }).pipe(Effect.as(undefined))),
+  )
+  if (first === undefined) return
+  if (first.status !== "idle") {
+    yield* updateRecord(deps, record.sessionID, {
+      status: first.status,
+      attempts: record.attempts + 1,
+      lastCheckAt: Date.now(),
+      ...(first.status === "settled" ? { note: first.note } : {}),
+    })
+    return
+  }
+  if (record.restarts >= 1) {
+    yield* escalate(deps, { sessionID: record.sessionID, mainID: record.mainID, restarts: record.restarts })
+    yield* updateRecord(deps, record.sessionID, {
+      status: "escalated",
+      attempts: record.attempts + 1,
+      lastCheckAt: Date.now(),
+      note: "no model run after dispatch and one restart",
+    })
+    return
+  }
+  yield* Effect.logWarning("worker did not start after dispatch; restarting it", {
+    sessionID: record.sessionID,
+    pending: first.pending,
+  })
+  yield* deps.sessions.resume(record.sessionID).pipe(Effect.ignore)
+  yield* updateRecord(deps, record.sessionID, {
+    status: "restarted",
+    attempts: record.attempts + 1,
+    restarts: 1,
+    lastCheckAt: Date.now(),
+  })
+  yield* Effect.sleep(checkAfterMs)
+  const second = yield* verify(deps, record.sessionID, record.tokensInputAtDispatch).pipe(
+    Effect.catchCause((cause) => Effect.logWarning("activation re-check failed", { cause }).pipe(Effect.as(undefined))),
+  )
+  if (second === undefined) return
+  if (second.status !== "idle") {
+    yield* updateRecord(deps, record.sessionID, {
+      status: second.status,
+      attempts: record.attempts + 2,
+      lastCheckAt: Date.now(),
+      ...(second.status === "settled" ? { note: second.note } : {}),
+    })
+    return
+  }
+  yield* escalate(deps, { sessionID: record.sessionID, mainID: record.mainID, restarts: 1 })
+  yield* updateRecord(deps, record.sessionID, {
+    status: "escalated",
+    attempts: record.attempts + 2,
+    lastCheckAt: Date.now(),
+    note: "no model run after dispatch and one restart",
   })
 })
 
@@ -163,6 +281,11 @@ export const watch = Effect.fn("SessionActivation.watch")(function* (
   },
 ) {
   const checkAfterMs = input.checkAfterMs ?? checkDelayMs()
+  // The baseline is read here, at dispatch time: any tokens the worker
+  // already consumed belong to earlier work, not to this dispatch.
+  const baseline = yield* deps.store
+    .get(input.sessionID)
+    .pipe(Effect.map((info) => info?.tokens.input), Effect.orElseSucceed(() => undefined))
   const record: Record = {
     sessionID: input.sessionID,
     projectID: input.projectID,
@@ -173,47 +296,50 @@ export const watch = Effect.fn("SessionActivation.watch")(function* (
     attempts: 0,
     restarts: 0,
     status: "watching",
+    ...(baseline !== undefined ? { tokensInputAtDispatch: baseline } : {}),
   }
   yield* deps.kv.set(key(input.sessionID), encodeRecord(record))
-  yield* Effect.sleep(checkAfterMs)
-  const first = yield* verify(deps, input.sessionID).pipe(
-    Effect.catchCause((cause) => Effect.logWarning("activation check failed", { cause }).pipe(Effect.as(undefined))),
-  )
-  if (first === undefined) return
-  if (first.status !== "idle") {
-    yield* updateRecord(deps, input.sessionID, {
-      status: first.status,
-      attempts: 1,
-      lastCheckAt: Date.now(),
-      ...(first.status === "settled" ? { note: first.note } : {}),
-    })
-    return
+  yield* runChecks(deps, record)
+})
+
+/**
+ * Re-arm the watches a server restart killed: their forked check fibers
+ * are gone, but the durable records survive. Called from
+ * `Orchestra.recoverPendingTasks` at startup, after the restart sweep has
+ * resumed the claimed sessions — so a worker that is running again reads
+ * as started instead of escalating.
+ *
+ * Each surviving `watching` / `restarted` record is re-baselined to the
+ * token count at recovery time (progress before the crash must not satisfy
+ * a check about starting now) and its check cycle is forked again into
+ * the layer scope. Terminal records (started, settled, escalated, held,
+ * gone) are left alone. Best-effort: a failure here must never fail
+ * startup recovery.
+ */
+export const recover = Effect.fn("SessionActivation.recover")(function* (
+  deps: Deps,
+  input: { readonly scope: Scope.Scope; readonly checkAfterMs?: number },
+) {
+  const checkAfterMs = input.checkAfterMs ?? checkDelayMs()
+  const reArmed: Array<SessionSchema.ID> = []
+  for (const record of yield* scanRecords(deps)) {
+    if (record.status !== "watching" && record.status !== "restarted") continue
+    const current = yield* deps.store.get(record.sessionID).pipe(Effect.orElseSucceed(() => undefined))
+    const refreshed: Record = {
+      ...record,
+      checkAfterMs,
+      ...(current ? { tokensInputAtDispatch: current.tokens.input } : {}),
+    }
+    yield* deps.kv.set(key(record.sessionID), encodeRecord(refreshed))
+    yield* runChecks(deps, refreshed).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("re-armed activation watch failed", { cause, sessionID: record.sessionID }),
+      ),
+      Effect.forkIn(input.scope),
+      Effect.asVoid,
+    )
+    reArmed.push(record.sessionID)
   }
-  yield* Effect.logWarning("worker did not start after dispatch; restarting it", {
-    sessionID: input.sessionID,
-    pending: first.pending,
-  })
-  yield* deps.sessions.resume(input.sessionID).pipe(Effect.ignore)
-  yield* updateRecord(deps, input.sessionID, { status: "restarted", attempts: 1, restarts: 1, lastCheckAt: Date.now() })
-  yield* Effect.sleep(checkAfterMs)
-  const second = yield* verify(deps, input.sessionID).pipe(
-    Effect.catchCause((cause) => Effect.logWarning("activation re-check failed", { cause }).pipe(Effect.as(undefined))),
-  )
-  if (second === undefined) return
-  if (second.status === "started" || second.status === "settled" || second.status === "held" || second.status === "gone") {
-    yield* updateRecord(deps, input.sessionID, {
-      status: second.status,
-      attempts: 2,
-      lastCheckAt: Date.now(),
-      ...(second.status === "settled" ? { note: second.note } : {}),
-    })
-    return
-  }
-  yield* escalate(deps, { sessionID: input.sessionID, mainID: input.mainID, restarts: 1 })
-  yield* updateRecord(deps, input.sessionID, {
-    status: "escalated",
-    attempts: 2,
-    lastCheckAt: Date.now(),
-    note: "no model run after dispatch and one restart",
-  })
+  if (reArmed.length > 0)
+    yield* Effect.logInfo("re-armed activation watches left behind by a restart", { sessions: reArmed })
 })

@@ -2638,6 +2638,14 @@ const layer: Layer.Layer<
         )
         yield* recoverPending()
         yield* reclaimDueRuns()
+        // Watches forked by dispatch die with the server; their durable
+        // records survive. Re-arm them here, after the restart sweep has
+        // resumed the claimed sessions — a worker running again must read
+        // as started, not escalate. Best-effort: a failure here must never
+        // fail startup recovery.
+        yield* SessionActivation.recover({ kv, sessions, store: sessionStore }, { scope: layerScope }).pipe(
+          Effect.catchCause((cause) => Effect.logWarning("activation watch recovery failed", { cause })),
+        )
       }),
       roles,
       saveRole: Effect.fn("Orchestra.saveRole")(function* (id, input) {
