@@ -1695,6 +1695,41 @@ replacement fought it for the port. This section is the fix, for
   gives up loudly (exit 1).
   It is a shell loop, not an in-process supervisor: a supervisor inside
   the process it watches cannot report its own SIGKILL.
+- Autostart (2026-11-07, watchdog-autostart): the watchdog does NOT survive
+  a VM reboot on its own — nothing started it after the 2026-11-06 reboot
+  (uptime 44 min, log cut 22:30 +04), and the live server died silently 3
+  times that day. Mechanism chosen: a systemd unit, NOT cron — this VM has
+  no cron daemon at all (no crontab binary), while systemd is PID 1 and
+  reports `running`. Files: `scripts/orchestra-watchdog.service` (template
+  with placeholders, never installed directly) +
+  `scripts/install-watchdog-autostart.sh` (renders, installs, enables;
+  `--dry-run` / `--check` for a no-touch preview; `--scope user` default
+  with `loginctl enable-linger`, `--scope system` for a system unit). The
+  unit starts ONLY the watchdog; `Restart=no` is deliberate so systemd
+  never resets the watchdog's restart cap. Guards, all in the watchdog
+  script: a second watchdog exits 0 at once on the flock
+  (`$DATA_DIR/watchdog.lock`, released by the kernel on death, so a stale
+  file never blocks the next start); a pre-flight check exits 0 without
+  starting `serve` when a live server already holds a lock; `--probe` is
+  the read-only form of that check (exit 0 + holder, else exit 1) used by
+  the installer. The installer starts the unit after install ONLY when no
+  server and no watchdog is live — otherwise it leaves the unit enabled
+  for the next boot and starts nothing. Two install-time facts the operator
+  must get right: the service user must own the data directory (state/lock
+  files are 0600; a mismatch refuses the install), and secrets come from
+  `%h/.config/orchestra/watchdog.env` (mode 0600, created by the operator),
+  never from the unit. On this VM the live server runs as root (data dir
+  root-owned), so the install is `--system --service-user root` (or a user
+  unit as root); a move to an unprivileged user means re-running the
+  installer as that user. Verify:
+  `packages/cli/test/server-watchdog-autostart.test.ts` (7 tests: probe
+  live/stale/recycled/absent, pre-flight no-start, second-watchdog flock,
+  installer dry-run + `systemd-analyze verify`). NOT yet verified on a real
+  reboot — that is the remaining check: after the next reboot, `systemctl
+  status orchestra-watchdog` + `watchdog.log` must show the watchdog up and
+  the server back on port 17890 with no operator action. The installer was
+  deliberately never run for real in this change (no live systemd change
+  without separate approval); only code, scripts and docs.
 - Deliberately NOT covered: `orchestra serve --service` (already owns
   startup through ServiceClaim + registration; sharing one state file
   between the modes would confuse the verdict) and `serve --stdio` (owned

@@ -25,10 +25,32 @@
 # time cannot be verified (old lock, no /proc, no ps) the watchdog falls
 # back to kill -0 and logs that the check was unverified.
 #
+# Autostart safety (2026-11-07, watchdog-autostart): the watchdog is also
+# the unit that systemd starts at boot (see
+# scripts/orchestra-watchdog.service and scripts/install-watchdog-autostart.sh).
+# Two guards keep a second watchdog — manual or autostarted — from ever
+# starting a second server next to a live one:
+#
+#   * single instance: a flock on $DATA_DIR/watchdog.lock, held for the
+#     watchdog's whole lifetime. A second watchdog exits 0 at once. The
+#     lock is released by the kernel when the holder dies, so a stale file
+#     after a crash or a reboot never blocks the next start. When `flock`
+#     is not installed the guard is skipped with a loud log line instead of
+#     failing the watchdog (the pre-flight check below still applies).
+#   * pre-flight: before the first `serve` start, a live lock holder
+#     means a server is already running, so the watchdog exits 0 without
+#     starting anything. (Previously a second watchdog spawned a second
+#     `serve` that only failed fast with ServerAlreadyRunningError.)
+#
+# `--probe` is the read-only form of the same check, for the installer and
+# for operators: it prints the live holder (`pid (lock file)`) and exits 0
+# when a server is running, exits 1 otherwise, and never starts a server
+# or takes the watchdog lock.
+#
 # Usage (from the repo root of the worktree the server should run from):
 #   scripts/server-watchdog.sh [--data-dir DIR] [--max-restarts N]
 #                              [--window-seconds N] [--backoff-base SECONDS]
-#                              [--log FILE] [--port PORT] -- [extra `serve` args...]
+#                              [--log FILE] [--probe] -- [extra `serve` args...]
 #
 # The serve command is `bun packages/cli/src/index.ts serve "$@"` so the
 # watchdog runs the worktree's own code; pass --port to serve through the
@@ -44,6 +66,7 @@ MAX_RESTARTS="${ORCHESTRA_WATCHDOG_MAX_RESTARTS:-5}"
 WINDOW_SECONDS="${ORCHESTRA_WATCHDOG_WINDOW_SECONDS:-600}"
 BACKOFF_BASE="${ORCHESTRA_WATCHDOG_BACKOFF_BASE:-5}"
 LOG_FILE=""
+PROBE=0
 SERVE_ARGS=()
 
 while [ $# -gt 0 ]; do
@@ -53,6 +76,7 @@ while [ $# -gt 0 ]; do
     --window-seconds) WINDOW_SECONDS="$2"; shift 2 ;;
     --backoff-base) BACKOFF_BASE="$2"; shift 2 ;;
     --log) LOG_FILE="$2"; shift 2 ;;
+    --probe) PROBE=1; shift ;;
     --) shift; SERVE_ARGS+=("$@"); break ;;
     *) SERVE_ARGS+=("$1"); shift ;;
   esac
@@ -202,6 +226,44 @@ failures_in_window() {
 }
 
 # --- main loop ---
+
+# Read-only probe: does a live server hold a lock right now? Prints the
+# holder (`pid (lock file)`) and exits 0, or exits 1 when no live server
+# holds one. Takes no watchdog lock and starts no server, so the installer
+# and operators can ask safely while a watchdog is already running.
+if [ "$PROBE" = "1" ]; then
+  holder="$(live_lock_holder || true)"
+  if [ -n "$holder" ]; then
+    echo "$holder"
+    exit 0
+  fi
+  exit 1
+fi
+
+# Single watchdog instance: a second watchdog (manual, or autostarted
+# while one already runs) exits at once instead of spawning a second
+# `serve` next to the live one. The lock is held on fd 9 for the
+# watchdog's whole lifetime and released by the kernel on death, so a
+# stale file after a crash or reboot never blocks the next start.
+if command -v flock >/dev/null 2>&1; then
+  touch "$DATA_DIR/watchdog.lock" 2>/dev/null || { log "cannot create $DATA_DIR/watchdog.lock; refusing to run without the single-instance guard."; exit 1; }
+  exec 9>"$DATA_DIR/watchdog.lock"
+  if ! flock -n 9; then
+    log "another watchdog already holds $DATA_DIR/watchdog.lock; exiting."
+    exit 0
+  fi
+else
+  log "flock not available; single-watchdog guard disabled (the pre-flight live-server check below still applies)."
+fi
+
+# Pre-flight: a live lock holder means a server is already running, so
+# there is nothing to watch. Exit before starting a duplicate `serve`
+# (which would only fail fast with ServerAlreadyRunningError).
+holder="$(live_lock_holder || true)"
+if [ -n "$holder" ]; then
+  log "server already running ($holder); not starting another one."
+  exit 0
+fi
 
 log "starting; data dir $DATA_DIR; max restarts $MAX_RESTARTS within ${WINDOW_SECONDS}s; serve args: ${SERVE_ARGS[*]:-(none)}"
 while true; do
