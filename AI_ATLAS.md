@@ -601,12 +601,62 @@ no skill lookup runs for them.
   run 10 minutes; explicit per-server config still wins over the table.
   Transient failures retry for read-only tools and for calls the caller marked
   idempotent (`idempotencyKey`); other calls run exactly once.
+- `client.ts` negotiates the MCP protocol era (news run7, БРАТЬ №4; SDK
+  `@modelcontextprotocol/*` 2.4.0): absent `protocol` in the server config is
+  **auto** — the SDK probes the server with `server/discover` for revision
+  2026-07-28 and falls back to the plain legacy `initialize` handshake when
+  the server answers the probe with Method Not Found or an unrecognized
+  result; `"legacy"` skips the probe entirely; `"2026-07-28"` pins the modern
+  era and fails the connect loudly otherwise. A modern connection is
+  stateless (no `Mcp-Session-Id`, no `initialize`/`notifications/initialized`
+  handshake — every request carries the protocol version and client
+  capabilities in `_meta`); a legacy one is byte-identical to a 2025 client.
+  `Connection` exposes what `server/discover`/`initialize` reported:
+  `modern`, `protocolVersion`, `serverVersion` (name/version, undefined when
+  a modern server stays anonymous — display label only, never an identity
+  proof) and `supportsTasks`. The `mcp connected` log line records the era,
+  protocol version and server version. Known costs of auto: a stdio probe
+  spawns one short-lived sibling process per connect, and on HTTP a probe
+  that times out rejects the connect (silence on a deployed server is an
+  outage, not a legacy signal); a 401/403/5xx answer to the probe fails it
+  outright too (the SDK treats 5xx as a broken server, never as a legacy
+  signal) — only a 4xx or a JSON-RPC Method Not Found falls back to
+  initialize. All of that is SDK behavior, not ours.
 - `client.ts` passes upstream `--read-only` (servers v2.3.0) to a local
   filesystem server when the server config sets `readOnly: true`
   (`Mcp.LocalConfig`, off by default); any other server ignores the flag with
   a warning, so a stray flag can never break a server's startup. The native
   file tools (`read`/`edit`/`write`) are NOT covered by this flag — they stay
   permission-gated, not hard read-only.
+- MCP 2026-07-28, what is NOT migrated yet (next step, not a gap to hide):
+  tasks were moved out of the core protocol into the official extension
+  `io.modelcontextprotocol/tasks`, but SDK 2.4.0 ships wire schemas for
+  `tasks/*` with **no runtime** — its typed method surface explicitly does
+  not offer them — so Orchestra does not call tasks at all. `supportsTasks`
+  on the connection is only the gate a future tasks-extension caller checks
+  (server advertised the `tasks` capability in discover/initialize) before
+  speaking the extension; adding real tasks calls needs either an SDK with a
+  tasks runtime or a raw transport call, and must stay behind that gate.
+  HTTP+SSE transport is Deprecated in the revision and is never used here
+  (remote servers go through Streamable HTTP; stdio for local ones).
+  Sampling, roots and logging are in the deprecation process (cannot be
+  removed before 2027-07-28): the client still declares the `roots`
+  capability because some legacy servers refuse to run without one, and the
+  `notifications/elicitation/complete` handler stays legacy-only — on a
+  modern connection the form settles when the SDK retries the tool call.
+  Header mirroring (Б13): on a modern connection the SDK transport sends
+  `MCP-Protocol-Version` and `Mcp-Method` on every request POST (`Mcp-Name`
+  for the methods that mirror `params.name`/`params.uri`/`params.taskId`,
+  plus `Mcp-Param-*` for declared tool params), so a gateway can filter by
+  method/name/version without parsing the JSON-RPC body; our
+  `loggedFetch`/`Ssrf.fetchPublic` chain passes those headers through
+  untouched. Legacy traffic carries only the 2025 `MCP-Protocol-Version`
+  header — no `Mcp-Method`/`Mcp-Name`. Old revisions keep working for at
+  least 12 months from the revision date, so the legacy fallback is not on
+  a deadline. Caveat, stated plainly: Claude API, OpenAI Responses API and
+  Gemini API had not confirmed support for the new revision as of October
+  2026 — a provider-backed MCP endpoint that only speaks 2025 stays on the
+  legacy path by auto-detection, not by configuration.
 - `index.ts`: a server that dies on its own is restarted up to 3 times with
   growing delays (5s/15s/30s), then stays failed; explicit stops never restart.
   The circuit breaker (`catalog.ts`, `McpCircuitBreaker`) is wired into the

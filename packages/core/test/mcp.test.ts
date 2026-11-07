@@ -131,6 +131,7 @@ function resourceServer(
           progressToken: unknown
         }>,
         initializations: 0,
+        initializeUrls: [] as string[],
         urls: [] as string[],
         sessions: [] as string[],
       }
@@ -250,6 +251,7 @@ function resourceServer(
           const body: unknown = request.method === "POST" ? await request.clone().json() : undefined
           if (typeof body === "object" && body !== null && "method" in body && body.method === "initialize") {
             state.initializations += 1
+            state.initializeUrls.push(request.url)
           }
           return (await input.respond?.(request)) ?? modern?.fetch(request) ?? current.transport.handleRequest(request)
         },
@@ -1100,8 +1102,11 @@ for (const { status, query } of [400, 404].flatMap((status) =>
       yield* connection.resources()
 
       expect(server.state.initializations).toBe(2)
-      expect(new URL(server.state.urls[0]).searchParams.get("codemode")).toBe("false")
-      expect(new Set(server.state.urls.slice(1))).toEqual(new Set([config.url]))
+      // The auto probe (server/discover) runs before each initialize on the
+      // same URL, so the retry assertions read the initialize attempts, not
+      // every request the connect made.
+      expect(new URL(server.state.initializeUrls[0]).searchParams.get("codemode")).toBe("false")
+      expect(new Set(server.state.initializeUrls.slice(1))).toEqual(new Set([config.url]))
       expect(new Set(headers)).toEqual(new Set(["preserved"]))
       expect(server.state.toolLists).toBe(1)
       expect(server.state.resourceLists).toBe(1)
@@ -1113,9 +1118,9 @@ for (const { status, query } of [400, 404].flatMap((status) =>
 for (const entry of [
   { name: "second 404", status: 404, query: "", codemode: undefined, attempts: 2 },
   { name: "second 400", status: 400, query: "", codemode: undefined, attempts: 2 },
-  { name: "401", status: 401, query: "", codemode: undefined, attempts: 1 },
-  { name: "403", status: 403, query: "", codemode: undefined, attempts: 1 },
-  { name: "501", status: 501, query: "", codemode: undefined, attempts: 1 },
+  { name: "401", status: 401, query: "", codemode: undefined, attempts: 0 },
+  { name: "403", status: 403, query: "", codemode: undefined, attempts: 0 },
+  { name: "501", status: 501, query: "", codemode: undefined, attempts: 0 },
   { name: "user codemode=true", status: 404, query: "?codemode=true", codemode: undefined, attempts: 1 },
   { name: "user codemode=false", status: 404, query: "?codemode=false", codemode: undefined, attempts: 1 },
   { name: "empty user codemode", status: 404, query: "?codemode=", codemode: undefined, attempts: 1 },
@@ -1139,10 +1144,13 @@ for (const entry of [
       const error = yield* connect("resources", config, import.meta.dir).pipe(Effect.flip)
 
       expect(error).toBeInstanceOf(McpClient.ConnectError)
+      // Attempts are initialize handshakes, not every request: the auto
+      // probe (server/discover) runs before each one on the same URL, and a
+      // 401/403/5xx probe fails before any initialize is sent at all.
       expect(server.state.initializations).toBe(entry.attempts)
-      expect(server.state.urls).toHaveLength(entry.attempts)
-      if (entry.query || entry.codemode === false) expect(server.state.urls).toEqual([config.url])
-      if (entry.attempts === 2) expect(server.state.urls[1]).toBe(config.url)
+      expect(server.state.initializeUrls).toHaveLength(entry.attempts)
+      if (entry.query || entry.codemode === false) expect(server.state.initializeUrls).toEqual([config.url])
+      if (entry.attempts === 2) expect(server.state.initializeUrls[1]).toBe(config.url)
     }),
   )
 }
