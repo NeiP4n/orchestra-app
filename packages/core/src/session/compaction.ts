@@ -19,7 +19,7 @@ import type { SessionCompactionResult } from "@orchestra/plugin/effect/session"
 import type { SessionError } from "@orchestra/schema/session-error"
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import { eq } from "drizzle-orm"
-import { Context, Effect, Layer, Result, Stream } from "effect"
+import { Cause, Context, Effect, Layer, Result, Stream } from "effect"
 import { Agent } from "../agent.js"
 import { Bus } from "../bus.js"
 import { Database } from "../database/database.js"
@@ -30,6 +30,7 @@ import { Token } from "../util/token.js"
 import type { SessionContext } from "./context.js"
 import { SessionEvent } from "./event.js"
 import { SessionHistory } from "./history.js"
+import { SessionMemory } from "../memory/session.js"
 import { InstructionStateTable } from "./sql.js"
 import type { SessionMessage } from "./message.js"
 import { SessionModelRequest } from "./model-request.js"
@@ -438,12 +439,40 @@ export const layer = Layer.effect(
         .get()
         .pipe(Effect.orDie)
 
+      // Checkpoint BEFORE compaction rewrites the context (Б17): snapshot
+      // memory.md + handoff.md, so an interruption between checkpoint and
+      // compaction loses nothing. A failed checkpoint never fails the
+      // compaction itself — it only means there is nothing to re-inject.
+      const checkpoint = yield* SessionMemory.checkpointBeforeCompaction(
+        context.session.location.directory,
+        sessionID,
+      ).pipe(
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.interrupt
+            : Effect.logWarning("Session memory checkpoint before compaction failed", {
+                sessionID,
+                error: String(cause),
+              }).pipe(Effect.as(SessionMemory.emptyCheckpoint())),
+        ),
+      )
+
       const compaction = native
         ? compactNatively(selected, budget, settings.keep)
         : summarize(selected, budget, settings.keep)
       return yield* compaction.pipe(
         Effect.matchEffect({
-          onSuccess: (result) => publish(selected, result, baselineInstructionState),
+          // Re-inject (Б17): the checkpointed session summary rides the
+          // checkpoint message that opens later requests, so compaction
+          // cannot silently drop what the session remembered.
+          onSuccess: (result) =>
+            publish(
+              selected,
+              checkpoint.summary !== undefined
+                ? { ...result, text: SessionMemory.reinjectSummary(result.text, checkpoint.summary) }
+                : result,
+              baselineInstructionState,
+            ),
           onFailure: (failure) => publish(selected, failure, baselineInstructionState),
         }),
       )

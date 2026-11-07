@@ -8,6 +8,7 @@ import { Instance } from "../instance/service.js"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { SessionEvent } from "./event.js"
 import { SessionHandoff } from "./handoff.js"
+import { SessionMemory } from "../memory/session.js"
 import { SessionHold } from "./hold.js"
 import { SessionRunCoordinator } from "./run-coordinator.js"
 import { SessionRunner } from "./runner/index.js"
@@ -150,6 +151,7 @@ export const layer = Layer.effect(
             const outcome = terminal(exit, reason)
             if (outcome.type === "succeeded") {
               yield* bus.publish(SessionEvent.Execution.Succeeded, { sessionID }, releaseOnCommit(sessionID))
+              yield* finalizeMemory(sessionID)
               return
             }
             if (outcome.type === "interrupted") {
@@ -165,6 +167,7 @@ export const layer = Layer.effect(
               // one itself. The stub never overwrites an agent-written handoff, and a
               // failure to write it must not fail the settlement.
               yield* writeHandoffStub(sessionID, outcome.reason)
+              yield* finalizeMemory(sessionID)
               return
             }
             yield* bus.publish(
@@ -176,9 +179,35 @@ export const layer = Layer.effect(
               releaseOnCommit(sessionID),
             )
             yield* writeHandoffStub(sessionID, "failed")
+            yield* finalizeMemory(sessionID)
           }),
         ),
     })
+
+    // Best-effort L3 finalization (Б17): on every terminal outcome, writes
+    // `memory.md` (≤ 8 KiB) and guarantees `handoff.md` exists. The summary
+    // here is extractive (from the session journal): this layer has no
+    // LLMClient/Model/SessionContext services, so the cheap-model summary
+    // (`SessionMemorySummary.summarize`, B10 router tier `trivial`) is NOT
+    // wired at settle — it is injectable through `finalizeSession`'s
+    // `summarize` option, and wiring it needs either those services added
+    // to this node or a hook at the runner drain end where they are in
+    // scope. A failure here is a warning, never a failed settlement.
+    const finalizeMemory = (sessionID: SessionSchema.ID) =>
+      Effect.gen(function* () {
+        const session = yield* store.get(sessionID)
+        if (!session) return
+        yield* SessionMemory.finalizeSession(session.location.directory, sessionID)
+      }).pipe(
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.interrupt
+            : Effect.logWarning("Could not finalize session memory", {
+                sessionID,
+                error: Cause.pretty(cause),
+              }),
+        ),
+      )
 
     // Best-effort handoff stub for a stopped session (see session/handoff.ts): the
     // session's project directory comes from the store, and anything that goes wrong
