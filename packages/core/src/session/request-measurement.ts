@@ -2,7 +2,7 @@ export * as SessionRequestMeasurement from "./request-measurement.js"
 
 import path from "path"
 import { randomUUID } from "node:crypto"
-import { chmod, readdir, stat, unlink, writeFile } from "node:fs/promises"
+import { chmod, mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises"
 import { Effect } from "effect"
 import { Global } from "@orchestra/util/global"
 
@@ -15,9 +15,10 @@ import { Global } from "@orchestra/util/global"
 
 export const schemaVersion = 1
 
-// Set ORCHESTRA_REQUEST_MEASUREMENT=1 to collect the safe numbers. Off by default, and it never
-// enables the detailed ORCHESTRA_REQUEST_REPORT mode (which persists prompt text).
-export const enabled = () => Boolean(process.env.ORCHESTRA_REQUEST_MEASUREMENT)
+// Set ORCHESTRA_REQUEST_MEASUREMENT=1 to collect the safe numbers. Exactly "1" opts in: unset,
+// empty, "0" or "false" all stay off, and it never enables the detailed ORCHESTRA_REQUEST_REPORT
+// mode (which persists prompt text).
+export const enabled = () => process.env.ORCHESTRA_REQUEST_MEASUREMENT === "1"
 
 export const DEFAULT_RETENTION_DAYS = 7
 
@@ -32,9 +33,52 @@ export const MAX_LINE_BYTES = 64 * 1024
 /** What this collector covers; it is not full per-request billing. */
 export const coverage = "primary-sizes"
 
-export type Phase = "primary" | "intake" | "title" | "compaction" | "summary" | "unknown"
+export const PHASES = ["primary", "intake", "title", "compaction", "summary", "unknown"] as const
+export type Phase = (typeof PHASES)[number]
 
-export type Outcome = "completed" | "failed" | "cancelled" | "unknown"
+export const OUTCOMES = ["completed", "failed", "cancelled", "unknown"] as const
+export type Outcome = (typeof OUTCOMES)[number]
+
+// Allowed string fields carry trusted IDs and enum labels, never prose: short, no whitespace or
+// quotes, so a stray chat title or prompt fragment cannot land in the JSONL.
+const idOf = (value: string, field: string): string => {
+  if (typeof value !== "string" || value.length === 0 || value.length > 256 || /[\s"]/.test(value))
+    throw new Error(`measurement: invalid ${field}`)
+  return value
+}
+
+const nonNeg = (value: number, field: string): number => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0)
+    throw new Error(`measurement: invalid ${field}`)
+  return value
+}
+
+const nonNegOrNull = (value: number | null, field: string): number | null =>
+  value === null ? null : nonNeg(value, field)
+
+const phaseOf = (value: string): Phase => {
+  if (!(PHASES as ReadonlyArray<string>).includes(value)) throw new Error("measurement: invalid phase")
+  return value as Phase
+}
+
+const outcomeOf = (value: string): Outcome => {
+  if (!(OUTCOMES as ReadonlyArray<string>).includes(value)) throw new Error("measurement: invalid outcome")
+  return value as Outcome
+}
+
+const usageOf = (usage: Usage): Usage => ({
+  input: nonNegOrNull(usage.input, "usage.input"),
+  output: nonNegOrNull(usage.output, "usage.output"),
+  reasoning: nonNegOrNull(usage.reasoning, "usage.reasoning"),
+  cacheRead: nonNegOrNull(usage.cacheRead, "usage.cacheRead"),
+  cacheWrite: nonNegOrNull(usage.cacheWrite, "usage.cacheWrite"),
+})
+
+const costOf = (cost: Cost): Cost => ({
+  recordedUSD: nonNegOrNull(cost.recordedUSD, "cost.recordedUSD"),
+  estimatedUSD: nonNegOrNull(cost.estimatedUSD, "cost.estimatedUSD"),
+  source: (["provider", "catalog", "unknown"] as const).includes(cost.source) ? cost.source : "unknown",
+})
 
 /** Where the goal/task/role link came from. Never derived from text or a chat title. */
 export type Attribution = "assignment" | "unknown"
@@ -133,37 +177,40 @@ export function attempt(ledger: Ledger, attemptID: string): Attempt | undefined 
 export function open(input: BeginInput): Attempt {
   return {
     schemaVersion,
-    measurementID: input.measurementID,
-    sessionID: input.sessionID,
-    logicalRequestID: input.logicalRequestID,
-    attemptID: input.attemptID,
-    retryOf: input.retryOf ?? null,
-    goalID: input.assignment?.goalID ?? null,
-    taskID: input.assignment?.taskID ?? null,
-    role: input.assignment?.role ?? null,
+    measurementID: idOf(input.measurementID, "measurementID"),
+    sessionID: idOf(input.sessionID, "sessionID"),
+    logicalRequestID: idOf(input.logicalRequestID, "logicalRequestID"),
+    attemptID: idOf(input.attemptID, "attemptID"),
+    retryOf: input.retryOf === undefined ? null : idOf(input.retryOf, "retryOf"),
+    goalID: input.assignment?.goalID === undefined ? null : idOf(input.assignment.goalID, "goalID"),
+    taskID: input.assignment?.taskID === undefined ? null : idOf(input.assignment.taskID, "taskID"),
+    role: input.assignment?.role === undefined ? null : idOf(input.assignment.role, "role"),
     attribution: input.assignment ? "assignment" : "unknown",
-    phase: input.phase,
-    providerID: input.providerID,
-    modelID: input.modelID,
-    startedAt: input.startedAt,
+    phase: phaseOf(input.phase),
+    providerID: idOf(input.providerID, "providerID"),
+    modelID: idOf(input.modelID, "modelID"),
+    startedAt: nonNeg(input.startedAt, "startedAt"),
     endedAt: null,
     durationMs: null,
     outcome: "unknown",
     usage: unknownUsage,
     cost: unknownCost,
-    toolCount: input.toolCount,
-    messageCount: input.messageCount,
+    toolCount: nonNeg(input.toolCount, "toolCount"),
+    messageCount: nonNeg(input.messageCount, "messageCount"),
     estimates: {
-      system: input.estimates?.system ?? null,
-      tools: input.estimates?.tools ?? null,
-      history: input.estimates?.history ?? null,
+      system: input.estimates?.system === undefined ? null : nonNeg(input.estimates.system, "estimates.system"),
+      tools: input.estimates?.tools === undefined ? null : nonNeg(input.estimates.tools, "estimates.tools"),
+      history: input.estimates?.history === undefined ? null : nonNeg(input.estimates.history, "estimates.history"),
       method: input.estimates?.method ?? "none",
     },
     sdkRetries: "uncounted",
   }
 }
 
+// Idempotent: an attempt ID that already exists - open or terminal - is never overwritten. The
+// lifecycle owns the record; a repeated begin is a bug in the caller, not new information.
 export function begin(ledger: Ledger, input: BeginInput): Ledger {
+  if (input.attemptID in ledger.attempts) return ledger
   return { attempts: { ...ledger.attempts, [input.attemptID]: open(input) } }
 }
 
@@ -171,16 +218,17 @@ export function begin(ledger: Ledger, input: BeginInput): Ledger {
 export function finish(ledger: Ledger, attemptID: string, input: FinishInput): Ledger {
   const current = ledger.attempts[attemptID]
   if (!current || current.outcome !== "unknown") return ledger
+  const endedAt = nonNeg(input.endedAt, "endedAt")
   return {
     attempts: {
       ...ledger.attempts,
       [attemptID]: {
         ...current,
-        endedAt: input.endedAt,
-        durationMs: input.endedAt - current.startedAt,
-        outcome: input.outcome,
-        usage: input.usage ?? current.usage,
-        cost: input.cost ?? current.cost,
+        endedAt,
+        durationMs: Math.max(0, endedAt - current.startedAt),
+        outcome: outcomeOf(input.outcome),
+        usage: input.usage === undefined ? current.usage : usageOf(input.usage),
+        cost: input.cost === undefined ? current.cost : costOf(input.cost),
       },
     },
   }
@@ -317,6 +365,7 @@ export const writeLine = (line: string, directory = path.join(Global.Path.log, "
   Effect.tryPromise({
     try: async () => {
       if (Buffer.byteLength(line) > MAX_LINE_BYTES) return
+      await mkdir(directory, { recursive: true, mode: 0o700 })
       await pruneOldMeasurements(directory)
       const file = path.join(directory, `${randomUUID()}.jsonl`)
       await writeFile(file, `${line}\n`, { mode: 0o600, flag: "wx" })
@@ -324,3 +373,45 @@ export const writeLine = (line: string, directory = path.join(Global.Path.log, "
     },
     catch: () => new Error("measurement write failed"),
   }).pipe(Effect.ignore)
+
+// The whole primary-sizes hook behind one best-effort boundary: a serialization failure in
+// sizesOf (a circular message part, a throwing toJSON) can never abort request preparation,
+// and a write failure never reaches the request either. Measurement observes; it does not act.
+export const recordPrimarySizes = (
+  input: {
+    readonly sessionID: string
+    readonly request: Parameters<typeof sizesOf>[0]
+    readonly startedAt?: number
+  },
+  directory = path.join(Global.Path.log, "measurements"),
+) =>
+  Effect.suspend(() => {
+    if (!enabled()) return Effect.void
+    return Effect.try({
+      try: () => {
+        const sizes = sizesOf(input.request)
+        const attemptID = randomUUID()
+        return sizesLine(
+          track(
+            open({
+              measurementID: randomUUID(),
+              sessionID: input.sessionID,
+              logicalRequestID: attemptID,
+              attemptID,
+              phase: "primary",
+              providerID: sizes.providerID,
+              modelID: sizes.modelID,
+              startedAt: input.startedAt ?? Date.now(),
+              toolCount: sizes.toolCount,
+              messageCount: sizes.messageCount,
+              estimates: sizes.estimates,
+            }),
+          ),
+        )
+      },
+      catch: () => new Error("measurement failed"),
+    }).pipe(
+      Effect.flatMap((line) => writeLine(line, directory)),
+      Effect.ignore,
+    )
+  })

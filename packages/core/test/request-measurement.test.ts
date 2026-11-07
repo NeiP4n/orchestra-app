@@ -122,7 +122,9 @@ describe("SessionRequestMeasurement.toLine", () => {
     const done = SessionRequestMeasurement.finish(begun, "a-1", { outcome: "completed", endedAt: 1600 })
     const attempt = SessionRequestMeasurement.attempt(done, "a-1")!
     expect(SessionRequestMeasurement.toLine(attempt)).toBe(SessionRequestMeasurement.toLine(attempt))
-    expect(SessionRequestMeasurement.toLine(attempt)).toBe(JSON.stringify(JSON.parse(SessionRequestMeasurement.toLine(attempt))))
+    expect(SessionRequestMeasurement.toLine(attempt)).toBe(
+      JSON.stringify(JSON.parse(SessionRequestMeasurement.toLine(attempt))),
+    )
   })
 
   test("keeps null distinct from zero", () => {
@@ -238,9 +240,12 @@ describe("SessionRequestMeasurement opt-in collection", () => {
   test("concurrent writes keep every line", async () => {
     const dir = mkdtemp()
     await Effect.runPromise(
-      Effect.all([SessionRequestMeasurement.writeLine("{\"a\":1}", dir), SessionRequestMeasurement.writeLine("{\"b\":2}", dir)], {
-        concurrency: "unbounded",
-      }),
+      Effect.all(
+        [SessionRequestMeasurement.writeLine('{"a":1}', dir), SessionRequestMeasurement.writeLine('{"b":2}', dir)],
+        {
+          concurrency: "unbounded",
+        },
+      ),
     )
     const lines = fs
       .readdirSync(dir)
@@ -296,7 +301,10 @@ describe("SessionRequestMeasurement opt-in collection", () => {
         dir,
       ),
     )
-    const saved = fs.readdirSync(dir).map((file) => fs.readFileSync(path.join(dir, file), "utf8")).join("")
+    const saved = fs
+      .readdirSync(dir)
+      .map((file) => fs.readFileSync(path.join(dir, file), "utf8"))
+      .join("")
     expect(saved).not.toContain(canary)
     expect(saved).not.toContain("Authorization")
     const parsed = JSON.parse(saved.trim())
@@ -304,5 +312,74 @@ describe("SessionRequestMeasurement opt-in collection", () => {
     expect(parsed.record.estimates.system).toBeGreaterThan(0)
     const mode = fs.statSync(path.join(dir, fs.readdirSync(dir)[0])).mode & 0o777
     expect(mode).toBe(0o600)
+  })
+})
+
+describe("SessionRequestMeasurement contract invariants", () => {
+  test("begin never overwrites an existing attempt, terminal or open", () => {
+    const done = SessionRequestMeasurement.finish(begun, "a-1", { outcome: "completed", endedAt: 1600 })
+    const again = SessionRequestMeasurement.begin(done, {
+      measurementID: "m-x",
+      sessionID: "ses-1",
+      logicalRequestID: "lr-x",
+      attemptID: "a-1",
+      phase: "title",
+      providerID: "other",
+      modelID: "other",
+      startedAt: 5000,
+      toolCount: 0,
+      messageCount: 0,
+    })
+    expect(again).toBe(done)
+    expect(SessionRequestMeasurement.attempt(again, "a-1")?.outcome).toBe("completed")
+  })
+
+  test("prose-like IDs and invalid enums are rejected", () => {
+    const base = {
+      measurementID: "m-1",
+      sessionID: "ses-1",
+      logicalRequestID: "lr-1",
+      attemptID: "a-1",
+      providerID: "zen",
+      modelID: "glm-4.6",
+      startedAt: 1000,
+      toolCount: 0,
+      messageCount: 0,
+    }
+    expect(() =>
+      SessionRequestMeasurement.open({ ...base, phase: "primary", sessionID: "Fix the login bug now" }),
+    ).toThrow()
+    expect(() => SessionRequestMeasurement.open({ ...base, phase: "tell me a story" as never })).toThrow()
+    expect(() => SessionRequestMeasurement.open({ ...base, phase: "primary", providerID: "" })).toThrow()
+    expect(() => SessionRequestMeasurement.open({ ...base, phase: "primary", modelID: 'say "hi"' })).toThrow()
+  })
+
+  test("NaN and negative numbers are rejected", () => {
+    const base = {
+      measurementID: "m-1",
+      sessionID: "ses-1",
+      logicalRequestID: "lr-1",
+      attemptID: "a-1",
+      providerID: "zen",
+      modelID: "glm-4.6",
+      toolCount: 0,
+      messageCount: 0,
+    }
+    expect(() => SessionRequestMeasurement.open({ ...base, phase: "primary", startedAt: Number.NaN })).toThrow()
+    expect(() => SessionRequestMeasurement.open({ ...base, phase: "primary", startedAt: -5 })).toThrow()
+    expect(() =>
+      SessionRequestMeasurement.finish(begun, "a-1", {
+        outcome: "completed",
+        endedAt: 1600,
+        usage: { input: -1, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
+      }),
+    ).toThrow()
+    expect(() =>
+      SessionRequestMeasurement.finish(begun, "a-1", {
+        outcome: "completed",
+        endedAt: 1600,
+        cost: { recordedUSD: Number.NaN, estimatedUSD: null, source: "provider" },
+      }),
+    ).toThrow()
   })
 })
