@@ -172,7 +172,9 @@ only where usage is complete for pricing and an applicable price tier
 exists - partial usage or a missing price stays null, never zero). Only an explicit runner retry
 (Retry/RecoverFull/Compacted/Switched) links attempts via `retryOf` and a
 shared `logicalRequestID`; any other request starts a new logical request.
-The step settles the attempt carried on its `Prepared`.
+The step settles the attempt carried on its `Prepared`. `durationMs`
+is elapsed wall time from request formation to step settlement (queueing
+and in-step work included), never provider latency.
 Export: `bun run packages/core/script/export-measurements.ts [directory]`
 folds the local files into one JSON document (manifest + records). Stored
 lines are rebuilt through full field validation before export:

@@ -118,6 +118,12 @@ export interface Attempt {
   readonly modelID: string
   readonly startedAt: number
   readonly endedAt: number | null
+  /**
+   * Elapsed wall time from request formation to the step's settlement of
+   * this attempt: it spans queueing, the provider call, and any in-step
+   * work until the branch resolves. It is NOT provider latency - the
+   * provider's own timing is not available at this seam.
+   */
   readonly durationMs: number | null
   readonly outcome: Outcome
   readonly usage: Usage
