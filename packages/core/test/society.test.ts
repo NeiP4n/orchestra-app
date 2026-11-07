@@ -53,7 +53,7 @@ describe("Society model table", () => {
     expect(Society.isDeadModelId(Society.FALLBACK_MODEL_ID)).toBe(false)
   })
 
-  test("the catalog lists all 17 Anymodel models from the 2026-11-06 listing", () => {
+  test("the catalog lists all 17 Anymodel models from the 2026-11-07 listing (unchanged since 2026-11-06)", () => {
     expect(Society.ANYMODEL_MODEL_IDS).toEqual([
       "anymodel-coder",
       "anymodel-reasoner",
@@ -88,6 +88,42 @@ describe("Society model table", () => {
     ]) {
       expect(Society.ANYMODEL_MODEL_IDS).toContain(id)
     }
+  })
+
+  test("the models checked 2026-11-07 are absent from the catalog, never a tier or fallback", () => {
+    // gpt-6.1-terra, mistral-large-4 and ripple-65b are not at Anymodel yet
+    // (live /models listing, 2026-11-07, 17 models), and neither are the
+    // run7 models deepseek-v4.1-flash-1017, deepseek-v4.1-flash and
+    // glm-5.3-flash (checked the same day, same listing): no catalog id and
+    // no tier, fallback or dead id may name one, so a worker can never be
+    // dispatched to a model the account does not have. When one arrives,
+    // this test fails and forces the catalog update with a worker role and
+    // a fallback.
+    for (const id of Society.ANYMODEL_MODEL_IDS) {
+      expect(Society.matchesAbsentModelMarker(id)).toBe(false)
+    }
+    for (const id of [
+      Society.STRONG_MODEL_ID,
+      Society.MID_MODEL_ID,
+      Society.CHEAP_MODEL_ID,
+      Society.FALLBACK_MODEL_ID,
+      Society.CHEAP_FLASH_MODEL_ID,
+      Society.REASONING_MODEL_ID,
+      ...Society.DEAD_MODEL_IDS,
+    ]) {
+      expect(Society.matchesAbsentModelMarker(id)).toBe(false)
+    }
+    expect(Society.matchesAbsentModelMarker("gpt-6.1-terra")).toBe(true)
+    expect(Society.matchesAbsentModelMarker("mistral-large-4")).toBe(true)
+    expect(Society.matchesAbsentModelMarker("ripple-65b")).toBe(true)
+    expect(Society.matchesAbsentModelMarker("deepseek-v4.1-flash-1017")).toBe(true)
+    expect(Society.matchesAbsentModelMarker("deepseek-v4.1-flash")).toBe(true)
+    expect(Society.matchesAbsentModelMarker("glm-5.3-flash")).toBe(true)
+    // The marker must not catch the models that ARE there: gpt-6.1-sol is
+    // a Sol, not a Terra — and anymodel-v4.1-flash is Anymodel's own model,
+    // not DeepSeek, so the "deepseek" marker must not catch it either.
+    expect(Society.matchesAbsentModelMarker("gpt-6.1-sol")).toBe(false)
+    expect(Society.matchesAbsentModelMarker("anymodel-v4.1-flash")).toBe(false)
   })
 
   test("strong, mid and cheap tiers name the verified working models", () => {
