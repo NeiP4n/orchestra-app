@@ -39,7 +39,12 @@ export const create: <R = never>(
 ) => Effect.Effect<Interface, Config.ConfigError | Error, Scope.Scope | R> = Effect.fn("Orchestra.create")(function* <
   R = never,
 >(options: CreateOptions<R> = {}, embed: EmbedOptions = {}) {
-  const host = yield* Effect.acquireRelease(EmbeddedHost.create(options, embed), (host) => Effect.promise(host.close))
+  // Temporary diagnostic: the annotation forces the compiler to print create's full error channel.
+  const hostEffect: Effect.Effect<EmbeddedHost.Interface, never, Scope.Scope | R> = EmbeddedHost.create(
+    options,
+    embed,
+  )
+  const host = yield* Effect.acquireRelease(hostEffect, (host) => Effect.promise(host.close))
   const httpClient = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer))
   const client = yield* OpenCode.make({ baseUrl: "http://opencode.local" }).pipe(
     Effect.provideService(
