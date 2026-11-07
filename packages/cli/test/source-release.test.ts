@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { $ } from "bun"
+import { FFIType } from "bun:ffi"
+import { Database } from "bun:sqlite"
 import { SourceRelease } from "../src/services/source-release"
 
 describe("SourceRelease capability guard", () => {
@@ -7,6 +9,16 @@ describe("SourceRelease capability guard", () => {
     // vite.node.config.ts aliases "bun" to a throwing shim for the node build only.
     // If that alias ever leaks into the Bun graph, this call throws.
     expect(await $`printf source-release-ok`.text()).toBe("source-release-ok")
+  })
+
+  test("bun:sqlite in the Bun test graph is the real module, not the node shim", () => {
+    const db = new Database(":memory:")
+    db.run("CREATE TABLE t (x INTEGER)")
+    db.close()
+  })
+
+  test("bun:ffi in the Bun test graph is the real module, not the node shim", () => {
+    expect(FFIType.ptr).toBeDefined()
   })
 
   test("supported() requires both a non-node artifact and the Bun runtime", () => {

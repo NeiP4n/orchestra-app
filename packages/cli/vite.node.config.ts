@@ -107,9 +107,14 @@ ${code.slice(start)}`
 
 const resolve = {
   alias: [
-    // The source-install updater imports the Bun shell; the node artifact never
-    // runs it, so bundle a shim that fails loudly if it is ever called.
+    // Bun-only modules are statically imported from the graph (the source
+    // updater's shell, memory/codegraph's bun:sqlite, the desktop-action
+    // tool's bun:ffi), so the bundler needs modules to resolve. The node
+    // build refuses these paths through capability guards; the shims fail
+    // loudly on any call that still happens.
     { find: /^bun$/, replacement: path.join(dir, "src/node/bun-shim.ts") },
+    { find: /^bun:sqlite$/, replacement: path.join(dir, "src/node/bun-sqlite-shim.ts") },
+    { find: /^bun:ffi$/, replacement: path.join(dir, "src/node/bun-ffi-shim.ts") },
     { find: /^solid-js\/store$/, replacement: "solid-js/store/dist/store.js" },
     { find: /^solid-js$/, replacement: "solid-js/dist/solid.js" },
     {
