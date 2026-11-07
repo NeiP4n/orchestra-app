@@ -28,6 +28,10 @@ import { resumeBlockedKey } from "@orchestra/core/session/restart-state"
 import { SessionInboxTable, SessionMessageTable, SessionTable } from "@orchestra/core/session/sql"
 import { SessionStore } from "@orchestra/core/session/store"
 import { LocationServiceMap } from "@orchestra/core/location-service-map"
+import { ModelResolver } from "@orchestra/core/model-resolver"
+import { SessionContext } from "@orchestra/core/session/context"
+import { PromptIntake } from "@orchestra/core/prompt-intake/index"
+import { LLMClient, type LLMClientService } from "@orchestra/ai"
 import type { LocationServices } from "@orchestra/core/location-services"
 import { Image } from "@orchestra/core/image"
 import { Plugin } from "@orchestra/core/plugin"
@@ -763,9 +767,7 @@ describe("Session.prompt", () => {
       // with the original instead of equalling it.
       const messages = yield* session.messages({ sessionID })
       expect(messages).toMatchObject([{ id: messageID, type: "user" }])
-      expect(messages[0]?.type === "user" ? messages[0].text.startsWith("Fix the failing tests") : false).toBe(
-        true,
-      )
+      expect(messages[0]?.type === "user" ? messages[0].text.startsWith("Fix the failing tests") : false).toBe(true)
     }),
   )
 
@@ -1247,9 +1249,7 @@ describe("Session.prompt", () => {
         (yield* session.messages({ sessionID, order: "asc" })).map((message) =>
           // The stored user text is the original prompt, verbatim; compare
           // the first line.
-          message.type === "user" || message.type === "synthetic"
-            ? message.text.split("\n")[0]
-            : message.type,
+          message.type === "user" || message.type === "synthetic" ? message.text.split("\n")[0] : message.type,
         ),
       ).toEqual(["First prompt", "Background completion", "Second prompt"])
     }),
@@ -1387,6 +1387,119 @@ describe("Session.inbox", () => {
       expect(wakeCalls).toEqual([])
       expect(yield* eventCount(Bus.versionedType(SessionEvent.InboxDeliveryChanged.type, 1))).toBe(2)
       expect(yield* eventCount(Bus.versionedType(SessionEvent.InboxCancelled.type, 1))).toBe(1)
+    }),
+  )
+})
+
+describe("SessionPrompt intake wiring", () => {
+  // Two heuristic ambiguities (fix verb without a file, no constraints) make
+  // the intake ask for the model step; a normal task verdict allows it.
+  const intakePrompt = "Fix the login bug"
+
+  const recordingIntake = (calls: Array<boolean>) =>
+    Layer.succeed(PromptIntake.Service, {
+      process: (input) => {
+        calls.push(input.disambiguate !== undefined)
+        return PromptIntake.process(input)
+      },
+    })
+
+  // The mocks stand in for the four services the disambiguator needs. Only the
+  // members the disambiguation path touches are real; the rest is never read.
+  // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion
+  const modelMock = Model.Service.of({
+    get: () => Effect.succeed({ id: "deepseek-v4.1-flash" }),
+  } as unknown as Model.Interface)
+  // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion
+  const resolverMock = ModelResolver.Service.of({
+    resolveModel: () => Effect.succeed({ ref: { providerID: "lix", modelID: "deepseek-v4.1-flash" } }),
+  } as unknown as ModelResolver.Interface)
+  // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion
+  const contextMock = SessionContext.Service.of({
+    select: () =>
+      Effect.succeed({
+        session: {},
+        agent: { id: "build" },
+        tools: {},
+      }),
+    request: { generate: () => Effect.succeed({ request: {}, options: {} }) },
+  } as unknown as SessionContext.Interface)
+  // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion
+  const llmMock = {
+    generate: () =>
+      Effect.succeed({
+        text: JSON.stringify({
+          assumptions: ["Use the auth module"],
+          clarifiedGoal: "Fix the login bug in the auth module",
+        }),
+      }),
+  } as unknown as LLMClientService
+
+  it.effect("wires the model disambiguator when all four services are present", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* Session.Service
+      const calls: Array<boolean> = []
+      const message = yield* session
+        .prompt({ sessionID, text: intakePrompt, resume: false })
+        .pipe(
+          Effect.provide(recordingIntake(calls)),
+          Effect.provideService(Model.Service, modelMock),
+          Effect.provideService(ModelResolver.Service, resolverMock),
+          Effect.provideService(SessionContext.Service, contextMock),
+          Effect.provideService(LLMClient.Service, llmMock),
+        )
+      expect(calls).toEqual([true])
+      const intake = message.payload.metadata?.intake as { modelUsed?: unknown; goal?: unknown } | undefined
+      expect(intake?.modelUsed).toBe(true)
+      // The short clarified goal replaces the misstated one...
+      expect(intake?.goal).toBe("Fix the login bug in the auth module")
+      // ...but the stored message text is always the raw prompt.
+      expect(message.payload.text).toBe(intakePrompt)
+    }),
+  )
+
+  it.effect("skips the model step when any of the four services is missing", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* Session.Service
+      for (const missing of ["model", "resolver", "context", "llm"] as const) {
+        const calls: Array<boolean> = []
+        const base = session
+          .prompt({ sessionID, text: intakePrompt, resume: false })
+          .pipe(Effect.provide(recordingIntake(calls)))
+        const message = yield* missing === "model"
+          ? base.pipe(
+              Effect.provideService(ModelResolver.Service, resolverMock),
+              Effect.provideService(SessionContext.Service, contextMock),
+              Effect.provideService(LLMClient.Service, llmMock),
+            )
+          : missing === "resolver"
+            ? base.pipe(
+                Effect.provideService(Model.Service, modelMock),
+                Effect.provideService(SessionContext.Service, contextMock),
+                Effect.provideService(LLMClient.Service, llmMock),
+              )
+            : missing === "context"
+              ? base.pipe(
+                  Effect.provideService(Model.Service, modelMock),
+                  Effect.provideService(ModelResolver.Service, resolverMock),
+                  Effect.provideService(LLMClient.Service, llmMock),
+                )
+              : base.pipe(
+                  Effect.provideService(Model.Service, modelMock),
+                  Effect.provideService(ModelResolver.Service, resolverMock),
+                  Effect.provideService(SessionContext.Service, contextMock),
+                )
+        // No disambiguator is wired: the intake keeps its requirement-free
+        // contract and the heuristic reading stands.
+        expect(calls).toEqual([false])
+        const intake = message.payload.metadata?.intake as { modelUsed?: unknown; goal?: unknown } | undefined
+        expect(intake?.modelUsed).toBe(false)
+        // No raw bypass: the intake still ran, and the stored text is the raw prompt.
+        expect(intake?.goal).toBe(intakePrompt)
+        expect(message.payload.text).toBe(intakePrompt)
+      }
     }),
   )
 })
