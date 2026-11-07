@@ -401,8 +401,14 @@ export function permissionAsked(
 }
 
 /** The response to a submission the server admitted to the session inbox. */
-export function enqueued(sessionID: string, id: string, type: string, payload: object) {
-  return Response.json({ data: { id, sessionID, time: { created: 0 }, type, payload, delivery: "steer" } })
+export function enqueued(
+  sessionID: string,
+  id: string,
+  type: string,
+  payload: object,
+  extra?: Record<string, unknown>,
+) {
+  return Response.json({ data: { id, sessionID, time: { created: 0 }, type, payload, delivery: "steer" }, ...extra })
 }
 
 export async function startWire(options: WireOptions = {}) {
@@ -785,7 +791,8 @@ function startServer(options: WireOptions, changed: () => void) {
           fake.submissions.push({ kind: "prompt", sessionID, ...input })
           const hook = options.onPrompt ?? (() => turn(sessionID, input.id))
           await emit(hook({ sessionID, id: input.id, text: input.text, signal: req.signal }))
-          return enqueued(sessionID, input.id, "user", { text: input.text })
+          // The real handler reports hold state alongside the admission (b5b07489).
+          return enqueued(sessionID, input.id, "user", { text: input.text }, { held: false })
         }),
       },
       "/api/session/:sessionID/command": {
