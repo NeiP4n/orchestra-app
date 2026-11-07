@@ -195,7 +195,7 @@ export const Plugin = {
             display,
             state: "started",
             sessionID: context.sessionID,
-            detail: { pid: ensured.status.pid },
+            detail: { pid: ensured.status.pid, windowManagerPid: ensured.status.windowManagerPid },
           }).pipe(Effect.ignore)
       }
       const lines: string[] = []

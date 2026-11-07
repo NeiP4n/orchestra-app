@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import path from "node:path"
 import { Effect } from "effect"
 import { DesktopIsolation } from "@orchestra/core/desktop-isolation"
 import { McpCatalog } from "@orchestra/core/mcp/catalog"
@@ -68,6 +71,168 @@ describe("B7 virtual display", () => {
     expect(DesktopIsolation.isVirtualDisplayAlive(":99", () => false)).toBe(false)
     expect(DesktopIsolation.isVirtualDisplayAlive("garbage", () => true)).toBe(false)
   })
+
+  test("window manager command: openbox with DISPLAY, no arguments", () => {
+    expect(DesktopIsolation.windowManagerCommand(":99")).toEqual({
+      command: "openbox",
+      args: [],
+      env: { DISPLAY: ":99" },
+    })
+    expect(DesktopIsolation.windowManagerCommand(":100")).toEqual({
+      command: "openbox",
+      args: [],
+      env: { DISPLAY: ":100" },
+    })
+  })
+})
+
+// A display socket faked with an empty file: isVirtualDisplayAlive only
+// checks the socket exists, so ensureVirtualDisplay treats the display as
+// "Xvfb is up" and goes straight to the window manager — no real X needed.
+const fakeDisplaySocket = (display: string): string => {
+  const dir = "/tmp/.X11-unix"
+  mkdirSync(dir, { recursive: true })
+  const socket = path.join(dir, `X${display.slice(1)}`)
+  if (existsSync(socket)) throw new Error(`test display ${display} is already in use (socket ${socket} exists)`)
+  writeFileSync(socket, "")
+  return socket
+}
+
+const removeFakeSocket = (socket: string): void => {
+  try {
+    unlinkSync(socket)
+  } catch {}
+}
+
+const isProcessAlive = (pid: number | undefined): boolean => {
+  if (pid === undefined) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+const waitForDeath = async (pid: number | undefined, timeoutMs = 5_000): Promise<boolean> => {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) return true
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  return !isProcessAlive(pid)
+}
+
+/** Run a block with a fake `openbox` first on PATH. `script` is the stub's
+ * body; undefined means no openbox at all (PATH is an empty directory). */
+const withOpenboxOnPath = async (script: string | undefined, run: () => Promise<void>): Promise<void> => {
+  const dir = mkdtempSync(path.join(tmpdir(), "b7-openbox-"))
+  if (script !== undefined) {
+    const stub = path.join(dir, "openbox")
+    writeFileSync(stub, script)
+    chmodSync(stub, 0o755)
+  }
+  const prevPath = process.env.PATH ?? ""
+  process.env.PATH = script === undefined ? dir : `${dir}:${prevPath}`
+  try {
+    await run()
+  } finally {
+    process.env.PATH = prevPath
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+describe("B7 virtual display window manager", () => {
+  test("a bare Xvfb socket is not a ready display: ensure starts openbox on it, stop kills it", async () => {
+    const display = ":97"
+    const socket = fakeDisplaySocket(display)
+    const recordPath = path.join(tmpdir(), `b7-wm-display-${process.pid}.txt`)
+    // The stub records the DISPLAY it was given, then sleeps so the test can
+    // watch it live; `exec` keeps the spawned pid.
+    const stub = `#!/bin/sh\necho "$DISPLAY" > "${recordPath}"\nexec sleep 30\n`
+    try {
+      await withOpenboxOnPath(stub, async () => {
+        const status = await DesktopIsolation.ensureVirtualDisplay(display)
+        expect(status.display).toBe(display)
+        expect(status.started).toBe(false)
+        if (status.windowManagerPid === undefined) throw new Error("expected a window manager pid")
+        expect(status.windowManagerPid).toBeGreaterThan(0)
+        expect(isProcessAlive(status.windowManagerPid)).toBe(true)
+        expect(readFileSync(recordPath, "utf8").trim()).toBe(display)
+        // A second ensure reuses the running manager instead of starting another.
+        const again = await DesktopIsolation.ensureVirtualDisplay(display)
+        expect(again.windowManagerPid).toBe(status.windowManagerPid)
+        DesktopIsolation.stopVirtualDisplay(display)
+        expect(await waitForDeath(status.windowManagerPid)).toBe(true)
+      })
+    } finally {
+      try {
+        DesktopIsolation.stopVirtualDisplay(display)
+      } catch {}
+      removeFakeSocket(socket)
+      try {
+        unlinkSync(recordPath)
+      } catch {}
+    }
+  }, 30_000)
+
+  test("without openbox ensure fails loudly and names the install", async () => {
+    const display = ":96"
+    const socket = fakeDisplaySocket(display)
+    try {
+      await withOpenboxOnPath(undefined, async () => {
+        let message = ""
+        try {
+          await DesktopIsolation.ensureVirtualDisplay(display)
+        } catch (error) {
+          message = error instanceof Error ? error.message : String(error)
+        }
+        expect(message).toContain("openbox")
+        expect(message).toContain("Install openbox")
+        expect(message).toContain("native_window_unproven")
+      })
+    } finally {
+      removeFakeSocket(socket)
+    }
+  }, 30_000)
+
+  test("a window manager already running on the display counts as ready", async () => {
+    const display = ":95"
+    const socket = fakeDisplaySocket(display)
+    // The real openbox message, verified live 2026-11-07 (a second openbox
+    // on a display that already has one prints this and exits 0).
+    const stub = `#!/bin/sh\necho "Openbox-Message: A window manager is already running on screen 0" >&2\nexit 0\n`
+    try {
+      await withOpenboxOnPath(stub, async () => {
+        const status = await DesktopIsolation.ensureVirtualDisplay(display)
+        expect(status.display).toBe(display)
+        expect(status.started).toBe(false)
+        expect(status.windowManagerPid).toBeUndefined()
+      })
+    } finally {
+      removeFakeSocket(socket)
+    }
+  }, 30_000)
+
+  test("a window manager that exits at once fails loudly", async () => {
+    const display = ":94"
+    const socket = fakeDisplaySocket(display)
+    const stub = `#!/bin/sh\necho "openbox: cannot open display $DISPLAY" >&2\nexit 1\n`
+    try {
+      await withOpenboxOnPath(stub, async () => {
+        let message = ""
+        try {
+          await DesktopIsolation.ensureVirtualDisplay(display)
+        } catch (error) {
+          message = error instanceof Error ? error.message : String(error)
+        }
+        expect(message).toContain("openbox")
+        expect(message).toContain("exited with code 1")
+      })
+    } finally {
+      removeFakeSocket(socket)
+    }
+  }, 30_000)
 })
 
 describe("B7 real-screen opt-in", () => {
@@ -269,6 +434,13 @@ describe("B7 dedup across re-entry", () => {
     get: (key) => Effect.succeed(store.get(key)),
     set: (key, value) => Effect.sync(() => void store.set(key, value)),
     remove: (key) => Effect.sync(() => void store.delete(key)),
+    atomicUpdate: (key, update) =>
+      Effect.sync(() => {
+        const next = update(store.get(key))
+        if (next === undefined) store.delete(key)
+        else store.set(key, next)
+        return next
+      }),
     scan: (options) =>
       Effect.sync(() => ({
         entries: [...store.entries()]
