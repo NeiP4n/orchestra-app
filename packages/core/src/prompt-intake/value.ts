@@ -132,13 +132,27 @@ export function checkValue(text: string, context: IntakeContext): ValueAssessmen
   }
   const journalMatch = bestJournalMatch(trimmed, context.journalTitles)
   if (journalMatch && journalMatch.score >= REPEAT_THRESHOLD) {
+    // A failed earlier attempt is not a duplicate to merge into: the work
+    // does not exist, it has to be done again. A retry is legitimate, so it
+    // executes — with the failure named, so the agent investigates the
+    // failure first instead of blindly restarting.
+    if (journalMatch.item.outcome === "failed") {
+      return {
+        verdict: "execute",
+        confidence: journalMatch.score,
+        reasons: [
+          `Такая задача уже есть в журнале autoloop («${journalMatch.item.title}») и она падала — сначала разберись, почему она упала, а не начинай заново.`,
+        ],
+        evidence: [{ kind: "autoloop-journal", ref: journalMatch.item.title, title: journalMatch.item.title, score: journalMatch.score }],
+        questions: [],
+        sources,
+      }
+    }
     return {
       verdict: "merge",
       confidence: journalMatch.score,
       reasons: [
-        journalMatch.item.outcome === "failed"
-          ? `Такая задача уже есть в журнале autoloop («${journalMatch.item.title}») и она падала — сначала разберись, почему она упала, а не начинай заново.`
-          : `Такая задача уже есть в журнале autoloop («${journalMatch.item.title}»).`,
+        `Такая задача уже есть в журнале autoloop («${journalMatch.item.title}»).`,
       ],
       evidence: [{ kind: "autoloop-journal", ref: journalMatch.item.title, title: journalMatch.item.title, score: journalMatch.score }],
       questions: [],

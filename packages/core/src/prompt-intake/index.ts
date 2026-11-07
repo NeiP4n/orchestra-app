@@ -1,6 +1,7 @@
 export * as PromptIntake from "./index.js"
 
 export { checkValue } from "./value.js"
+export { dispositionFor, MIN_KEYWORDS_FOR_REFUSAL } from "./policy.js"
 export { understand } from "./understand.js"
 export { recommendSkills, type SkillRef } from "./skills.js"
 export { similarity, jaccard, containment } from "./similarity.js"
@@ -10,6 +11,7 @@ export { process, processPure, Service, node, type Interface } from "./service.j
 export type {
   Ambiguity,
   Disambiguation,
+  Disposition,
   DodItemRef,
   Evidence,
   EvidenceKind,

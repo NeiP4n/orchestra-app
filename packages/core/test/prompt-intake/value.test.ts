@@ -55,11 +55,11 @@ describe("prompt-intake value check", () => {
     expect(checkValue("Добавь kanban в DoD", context).verdict).toBe("merge")
   })
 
-  test("a failed autoloop journal entry merges with a reason to check the failure first", () => {
+  test("a failed autoloop journal entry is a retry, not a duplicate: it executes with a reason to check the failure first", () => {
     const context = emptyContext()
     context.journalTitles.push({ title: "Собрать приложение для Android", outcome: "failed" })
     const result = checkValue("Собери приложение для Android", context)
-    expect(result.verdict).toBe("merge")
+    expect(result.verdict).toBe("execute")
     expect(result.evidence[0]?.kind).toBe("autoloop-journal")
     expect(result.reasons.join(" ")).toContain("падала")
   })

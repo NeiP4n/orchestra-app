@@ -6,6 +6,7 @@ import type { SessionSchema } from "../session/schema.js"
 import { Skill } from "../skill.js"
 import type { Disambiguator } from "./model.js"
 import { recommendSkills, valueVerdictForMarketplace, type SkillRef } from "./skills.js"
+import { dispositionFor } from "./policy.js"
 import { isContinuation } from "./normalize.js"
 import type {
   Disambiguation,
@@ -43,14 +44,33 @@ const VERDICT_RU: Record<ValueAssessment["verdict"], string> = {
   skip: "пропустить",
 }
 
+// A model "clarification" is not allowed to replace the user's goal with an
+// unbounded blob of text (m-09): the clarified goal is used only when it is a
+// real, short goal; anything empty or longer than a sentence is dropped and
+// the heuristic goal stands. Assumptions are advisory text, so an overlong
+// one is truncated instead of dropped.
+const MAX_CLARIFIED_GOAL_CHARS = 500
+const MAX_ASSUMPTION_CHARS = 500
+
 function applyDisambiguation(task: StructuredTask, disambiguation: Disambiguation): StructuredTask {
+  const clarifiedGoal = disambiguation.clarifiedGoal?.trim()
+  const goal =
+    clarifiedGoal !== undefined && clarifiedGoal !== "" && clarifiedGoal.length <= MAX_CLARIFIED_GOAL_CHARS
+      ? clarifiedGoal
+      : task.goal
   return {
     ...task,
-    goal: disambiguation.clarifiedGoal ?? task.goal,
-    ambiguities: task.ambiguities.map((ambiguity, index) => ({
-      ...ambiguity,
-      assumption: disambiguation.assumptions[index] ?? ambiguity.assumption,
-    })),
+    goal,
+    ambiguities: task.ambiguities.map((ambiguity, index) => {
+      const assumption = disambiguation.assumptions[index]?.trim()
+      return {
+        ...ambiguity,
+        assumption:
+          assumption !== undefined && assumption !== ""
+            ? assumption.slice(0, MAX_ASSUMPTION_CHARS)
+            : ambiguity.assumption,
+      }
+    }),
   }
 }
 
@@ -110,6 +130,7 @@ export function processPure(input: {
       skills: [],
       enrichedPrompt: input.text,
       modelUsed: false,
+      disposition: dispositionFor(value, input.text),
     }
   }
   const value = checkValue(input.text, input.context)
@@ -123,6 +144,7 @@ export function processPure(input: {
     skills: recommended,
     enrichedPrompt: buildEnrichedPrompt(input.text, value, task, recommended),
     modelUsed: false,
+    disposition: dispositionFor(value, input.text),
   }
 }
 
@@ -142,6 +164,7 @@ export const process = Effect.fn("PromptIntake.process")(function* (input: {
       skills: [],
       enrichedPrompt: input.text,
       modelUsed: false,
+      disposition: dispositionFor(value, input.text),
     }
   }
   const value = checkValue(input.text, input.context)
@@ -167,6 +190,7 @@ export const process = Effect.fn("PromptIntake.process")(function* (input: {
     skills: recommended,
     enrichedPrompt: buildEnrichedPrompt(input.text, value, task, recommended),
     modelUsed,
+    disposition: dispositionFor(value, input.text),
   }
 })
 

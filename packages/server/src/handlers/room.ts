@@ -988,6 +988,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
                 sessionID: session.id,
                 id: ctx.payload.id,
                 text: ctx.payload.text,
+                // A guest's own words come from a human; a guest AI's words
+                // are a dispatch, so the value verdict may refuse only the
+                // former (see SessionPrompt.Input.origin).
+                origin: ctx.payload.ai ? "agent" : "user",
                 // The server stamps the author from the token, so a guest cannot speak as someone else.
                 metadata: {
                   room: {
@@ -1003,6 +1007,14 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
                 Effect.catchTag("Session.NotFoundError", missingSession),
                 Effect.catchTag("Session.PromptConflictError", () =>
                   Effect.fail(new InvalidRequestError({ message: "This message ID is already taken", field: "id" })),
+                ),
+                Effect.catchTag("PromptInput.Rejected", (error) =>
+                  Effect.fail(
+                    new InvalidRequestError({
+                      message: `Prompt rejected: ${error.reason}`,
+                      field: "text",
+                    }),
+                  ),
                 ),
                 Effect.orDie,
               ),

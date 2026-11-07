@@ -243,13 +243,17 @@ describe("Session.prompt", () => {
         resume: false,
       })
 
-      expect(message.payload.text).toBe("Fix the failing tests")
+      // The intake now runs in this harness, so the admitted text is the
+      // enriched prompt: the original verbatim first, then the structured
+      // interpretation. The test's point is admission before promotion.
+      expect(message.payload.text.startsWith("Fix the failing tests")).toBe(true)
+      expect(message.payload.metadata).toMatchObject({ intake: { goal: "Fix the failing tests" } })
       expect(yield* session.messages({ sessionID })).toEqual([])
       expect(yield* admitted(message.id)).toMatchObject({
         id: message.id,
         sessionID,
         type: "user",
-        payload: { text: "Fix the failing tests", resumeOnStart: false },
+        payload: { resumeOnStart: false },
         delivery: "steer",
       })
     }),
@@ -265,7 +269,7 @@ describe("Session.prompt", () => {
 
       expect(yield* admitted(message.id)).toMatchObject({
         type: "user",
-        payload: { text: "Continue after restart", resumeOnStart: true },
+        payload: { resumeOnStart: true },
       })
       expect(wakeCalls).toEqual([sessionID])
     }),
@@ -688,9 +692,13 @@ describe("Session.prompt", () => {
       const retried = yield* session.prompt(input)
 
       expect(retried).toMatchObject({ id: first.id, type: "user", payload: { text: first.payload.text } })
-      expect(yield* session.messages({ sessionID })).toMatchObject([
-        { id: messageID, type: "user", text: "Fix the failing tests" },
-      ])
+      // The promoted message carries the enriched prompt, so its text starts
+      // with the original instead of equalling it.
+      const messages = yield* session.messages({ sessionID })
+      expect(messages).toMatchObject([{ id: messageID, type: "user" }])
+      expect(messages[0]?.type === "user" ? messages[0].text.startsWith("Fix the failing tests") : false).toBe(
+        true,
+      )
     }),
   )
 
@@ -706,7 +714,8 @@ describe("Session.prompt", () => {
 
       const retried = yield* session.prompt({ ...input, delivery: "queue" })
 
-      expect(retried).toMatchObject({ id: messageID, type: "user", payload: { text: input.text } })
+      expect(retried).toMatchObject({ id: messageID, type: "user" })
+      expect(retried.payload.text.startsWith(input.text)).toBe(true)
       expect(yield* admitted(messageID)).toBeUndefined()
     }),
   )
@@ -749,7 +758,7 @@ describe("Session.prompt", () => {
       })
 
       expect(retried).toEqual(first)
-      expect(retried.payload.text).toBe("Fix the failing tests")
+      expect(retried.payload.text.startsWith("Fix the failing tests")).toBe(true)
       expect(yield* session.messages({ sessionID })).toHaveLength(0)
       expect(yield* admittedCount).toBe(1)
     }),
@@ -820,9 +829,9 @@ describe("Session.prompt", () => {
 
       expect(yield* eventCount(Bus.versionedType(SessionEvent.InboxDelivered.type, 1))).toBe(1)
       expect(yield* admitted(messageID)).toBeUndefined()
-      expect(yield* session.messages({ sessionID })).toMatchObject([
-        { id: messageID, type: "user", text: "Promote once" },
-      ])
+      const promoted = yield* session.messages({ sessionID })
+      expect(promoted).toMatchObject([{ id: messageID, type: "user" }])
+      expect(promoted[0]?.type === "user" ? promoted[0].text.startsWith("Promote once") : false).toBe(true)
     }),
   )
 
@@ -871,7 +880,7 @@ describe("Session.prompt", () => {
       expect(yield* admitted(messageID)).toMatchObject({
         id: messageID,
         type: "user",
-        payload: { text: "Replay pending" },
+        payload: { resumeOnStart: false },
       })
       expect(yield* admitted(syntheticID)).toMatchObject({
         id: syntheticID,
@@ -960,6 +969,60 @@ describe("Session.prompt", () => {
     }),
   )
 
+  it.effect("refuses a vague user prompt without admitting it or waking execution", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* Session.Service
+      wakeCalls.length = 0
+      const before = yield* admittedCount
+
+      const failure = yield* session
+        .prompt({ sessionID, text: "сделай лучше", origin: "user" })
+        .pipe(Effect.flip)
+
+      expect(failure).toMatchObject({
+        _tag: "PromptInput.Rejected",
+        source: "prompt-intake:value-check",
+        reason: expect.stringContaining("Уточни"),
+      })
+      expect(yield* admittedCount).toBe(before)
+      expect(wakeCalls).toEqual([])
+    }),
+  )
+
+  it.effect("admits the same vague prompt when it comes from an agent, not a human", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* Session.Service
+      wakeCalls.length = 0
+      const before = yield* admittedCount
+
+      const message = yield* session.prompt({ sessionID, text: "сделай лучше" })
+
+      expect(message.payload.text).toContain("сделай лучше")
+      expect(message.payload.metadata).toMatchObject({ intake: { verdict: "clarify" } })
+      expect(yield* admittedCount).toBe(before + 1)
+      expect(wakeCalls).toEqual([sessionID])
+    }),
+  )
+
+  it.effect("admits a clear user prompt and wakes execution", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* Session.Service
+      wakeCalls.length = 0
+
+      const message = yield* session.prompt({
+        sessionID,
+        text: "Исправь ошибку в packages/core/src/session/prompt.ts: сервер падает при пустом промпте",
+        origin: "user",
+      })
+
+      expect(yield* admitted(message.id)).toMatchObject({ type: "user" })
+      expect(wakeCalls).toEqual([sessionID])
+    }),
+  )
+
   it.effect("starts execution when resume is explicitly true", () =>
     Effect.gen(function* () {
       yield* setup
@@ -1010,7 +1073,11 @@ describe("Session.prompt", () => {
 
       expect(retried).toEqual(first)
       expect(differing).toEqual(first)
-      expect(first.payload.metadata).toEqual({ source: "api" })
+      // The intake summary now rides in the metadata next to the caller's own
+      // metadata; the first admission's metadata still wins on retry.
+      // ("Deploy" is a one-word prompt, so its verdict is clarify — it is
+      // still admitted here because it came from an agent, not a human.)
+      expect(first.payload.metadata).toMatchObject({ source: "api", intake: { verdict: "clarify" } })
       expect(yield* admittedCount).toBe(1)
     }),
   )
@@ -1129,7 +1196,11 @@ describe("Session.prompt", () => {
 
       expect(
         (yield* session.messages({ sessionID, order: "asc" })).map((message) =>
-          message.type === "user" || message.type === "synthetic" ? message.text : message.type,
+          // User prompts carry the enriched prompt; compare the original
+          // first line, which the intake keeps verbatim.
+          message.type === "user" || message.type === "synthetic"
+            ? message.text.split("\n")[0]
+            : message.type,
         ),
       ).toEqual(["First prompt", "Background completion", "Second prompt"])
     }),
