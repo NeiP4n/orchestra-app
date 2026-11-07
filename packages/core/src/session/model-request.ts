@@ -42,6 +42,8 @@ import { SessionPlan } from "./plan.js"
 import { SessionPrefixPin } from "./prefix-pin.js"
 import { SessionProviderContext } from "./provider-context.js"
 import { SessionRequestReport } from "./request-report.js"
+import { SessionRequestMeasurement } from "./request-measurement.js"
+import { randomUUID } from "node:crypto"
 import { SessionRunnerModel } from "./runner/model.js"
 import { SessionSchema } from "./schema.js"
 import { SessionSystemPrompt } from "./system-prompt.js"
@@ -431,6 +433,30 @@ export const layer = Layer.effect(
         )
       if (kind === "primary" && SessionRequestReport.enabled())
         yield* SessionRequestReport.write({ sessionID: session.id, agent: input.agent, request })
+      if (kind === "primary" && SessionRequestMeasurement.enabled()) {
+        // Numbers only, computed from the formed request without changing it; nothing is sent
+        // to the provider. A write failure is swallowed inside writeLine and never alters the
+        // request or a retry. Covers primary sizes only - not full per-request billing.
+        const sizes = SessionRequestMeasurement.sizesOf(request)
+        const attemptID = randomUUID()
+        yield* SessionRequestMeasurement.writeLine(
+          SessionRequestMeasurement.sizesLine(
+            SessionRequestMeasurement.open({
+              measurementID: randomUUID(),
+              sessionID: session.id,
+              logicalRequestID: attemptID,
+              attemptID,
+              phase: "primary",
+              providerID: sizes.providerID,
+              modelID: sizes.modelID,
+              startedAt: Date.now(),
+              toolCount: sizes.toolCount,
+              messageCount: sizes.messageCount,
+              estimates: sizes.estimates,
+            }),
+          ),
+        )
+      }
 
       const hasHttpHooks =
         (yield* hooks.has("session", "http.request", model.ref.providerID)) ||

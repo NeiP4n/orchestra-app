@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test"
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
+import { Effect } from "effect"
 import { SessionRequestMeasurement } from "@orchestra/core/session/request-measurement"
 
 const begun = SessionRequestMeasurement.begin(SessionRequestMeasurement.empty, {
@@ -181,5 +185,124 @@ describe("SessionRequestMeasurement.toLine", () => {
     const parsed = JSON.parse(SessionRequestMeasurement.toLine(attempt))
     expect(parsed.goalID).toBe("g-1")
     expect(parsed.attribution).toBe("assignment")
+  })
+})
+
+describe("SessionRequestMeasurement opt-in collection", () => {
+  const mkdtemp = () => fs.mkdtempSync(path.join(os.tmpdir(), "measure-"))
+  const request = {
+    model: { provider: "zen", id: "glm-4.6" },
+    system: [{ text: "You are helpful." }],
+    tools: [{ name: "bash", description: "Run commands", inputSchema: { type: "object" } }],
+    messages: [{ role: "user", content: "Fix the bug" }],
+  }
+
+  test("the flag is off by default and never enables the old report", () => {
+    delete process.env.ORCHESTRA_REQUEST_MEASUREMENT
+    delete process.env.ORCHESTRA_REQUEST_REPORT
+    expect(SessionRequestMeasurement.enabled()).toBe(false)
+    process.env.ORCHESTRA_REQUEST_MEASUREMENT = "1"
+    expect(SessionRequestMeasurement.enabled()).toBe(true)
+    expect(process.env.ORCHESTRA_REQUEST_REPORT).toBeUndefined()
+    delete process.env.ORCHESTRA_REQUEST_MEASUREMENT
+  })
+
+  test("measuring leaves the request byte-identical", () => {
+    const frozen = Object.freeze({
+      ...request,
+      model: Object.freeze(request.model),
+      system: Object.freeze(request.system.map(Object.freeze)),
+      tools: Object.freeze(request.tools.map(Object.freeze)),
+      messages: Object.freeze(request.messages.map(Object.freeze)),
+    })
+    const before = JSON.stringify(frozen)
+    SessionRequestMeasurement.sizesOf(frozen)
+    expect(JSON.stringify(frozen)).toBe(before)
+  })
+
+  test("sizesOf counts without keeping the text", () => {
+    const sizes = SessionRequestMeasurement.sizesOf(request)
+    expect(sizes.providerID).toBe("zen")
+    expect(sizes.toolCount).toBe(1)
+    expect(sizes.messageCount).toBe(1)
+    expect(sizes.estimates.method).toBe("chars/3.5")
+    expect(sizes.estimates.system).toBeGreaterThan(0)
+    expect(sizes.estimates.tools).toBeGreaterThan(0)
+    expect(sizes.estimates.history).toBeGreaterThan(0)
+  })
+
+  test("a disk error is swallowed and changes nothing", async () => {
+    await Effect.runPromise(SessionRequestMeasurement.writeLine("{}", path.join(os.tmpdir(), "no-such-dir-\u0000bad")))
+  })
+
+  test("concurrent writes keep every line", async () => {
+    const dir = mkdtemp()
+    await Effect.runPromise(
+      Effect.all([SessionRequestMeasurement.writeLine("{\"a\":1}", dir), SessionRequestMeasurement.writeLine("{\"b\":2}", dir)], {
+        concurrency: "unbounded",
+      }),
+    )
+    const lines = fs
+      .readdirSync(dir)
+      .flatMap((file) => fs.readFileSync(path.join(dir, file), "utf8").trim().split("\n"))
+    expect(lines.toSorted()).toEqual(['{"a":1}', '{"b":2}'])
+  })
+
+  test("retention removes old measurements but never foreign files", async () => {
+    const dir = mkdtemp()
+    const old = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const ours = path.join(dir, "0e1c4b32-0000-4000-8000-000000000000.jsonl")
+    const foreign = path.join(dir, "keepme.json")
+    const foreignJsonl = path.join(dir, "UPPERCASE.JSONL")
+    fs.writeFileSync(ours, "{}\n")
+    fs.writeFileSync(foreign, "do not touch")
+    fs.writeFileSync(foreignJsonl, "{}\n")
+    fs.utimesSync(ours, old, old)
+    fs.utimesSync(foreign, old, old)
+    fs.utimesSync(foreignJsonl, old, old)
+    await SessionRequestMeasurement.pruneOldMeasurements(dir)
+    expect(fs.existsSync(ours)).toBe(false)
+    expect(fs.readFileSync(foreign, "utf8")).toBe("do not touch")
+    expect(fs.existsSync(foreignJsonl)).toBe(true)
+  })
+
+  test("canary secrets from the prompt never reach the saved bytes", async () => {
+    const canary = "sk-canarySECRET0123456789"
+    const dirty = {
+      model: { provider: "zen", id: "glm-4.6" },
+      system: [{ text: `The key is ${canary}` }],
+      tools: [{ name: "bash", description: `uses ${canary} in examples` }],
+      messages: [{ role: "user", content: `Authorization: Bearer ${canary}` }],
+    }
+    const sizes = SessionRequestMeasurement.sizesOf(dirty)
+    const dir = mkdtemp()
+    await Effect.runPromise(
+      SessionRequestMeasurement.writeLine(
+        SessionRequestMeasurement.sizesLine(
+          SessionRequestMeasurement.open({
+            measurementID: "m-1",
+            sessionID: "ses-1",
+            logicalRequestID: "lr-1",
+            attemptID: "a-1",
+            phase: "primary",
+            providerID: sizes.providerID,
+            modelID: sizes.modelID,
+            startedAt: 1000,
+            toolCount: sizes.toolCount,
+            messageCount: sizes.messageCount,
+            estimates: sizes.estimates,
+          }),
+        ),
+        dir,
+      ),
+    )
+    const saved = fs.readdirSync(dir).map((file) => fs.readFileSync(path.join(dir, file), "utf8")).join("")
+    expect(saved).not.toContain(canary)
+    expect(saved).not.toContain("Authorization")
+    const parsed = JSON.parse(saved.trim())
+    expect(parsed.coverage).toBe("primary-sizes")
+    expect(parsed.record.estimates.system).toBeGreaterThan(0)
+    const mode = fs.statSync(path.join(dir, fs.readdirSync(dir)[0])).mode & 0o777
+    expect(mode).toBe(0o600)
   })
 })

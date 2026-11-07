@@ -1,5 +1,11 @@
 export * as SessionRequestMeasurement from "./request-measurement.js"
 
+import path from "path"
+import { randomUUID } from "node:crypto"
+import { chmod, readdir, stat, unlink, writeFile } from "node:fs/promises"
+import { Effect } from "effect"
+import { Global } from "@orchestra/util/global"
+
 // Safe per-request measurement (Step 0): numbers only, no prompt text, no filenames, no URLs, no
 // headers, no keys, no error bodies. Every record is built from explicit scalar fields — never
 // from `...request` spreads, arbitrary metadata or serialized errors — so a secret cannot ride
@@ -8,6 +14,23 @@ export * as SessionRequestMeasurement from "./request-measurement.js"
 // "uncounted" until they are instrumented.
 
 export const schemaVersion = 1
+
+// Set ORCHESTRA_REQUEST_MEASUREMENT=1 to collect the safe numbers. Off by default, and it never
+// enables the detailed ORCHESTRA_REQUEST_REPORT mode (which persists prompt text).
+export const enabled = () => Boolean(process.env.ORCHESTRA_REQUEST_MEASUREMENT)
+
+export const DEFAULT_RETENTION_DAYS = 7
+
+export const retentionDays = () => {
+  const parsed = Number.parseInt(process.env.ORCHESTRA_REQUEST_MEASUREMENT_RETENTION_DAYS ?? "", 10)
+  return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : DEFAULT_RETENTION_DAYS
+}
+
+/** One record never grows past this; a bigger line is a bug, so it is dropped, not truncated. */
+export const MAX_LINE_BYTES = 64 * 1024
+
+/** What this collector covers; it is not full per-request billing. */
+export const coverage = "primary-sizes"
 
 export type Phase = "primary" | "intake" | "title" | "compaction" | "summary" | "unknown"
 
@@ -107,8 +130,8 @@ export function attempt(ledger: Ledger, attemptID: string): Attempt | undefined 
   return ledger.attempts[attemptID]
 }
 
-export function begin(ledger: Ledger, input: BeginInput): Ledger {
-  const opened: Attempt = {
+export function open(input: BeginInput): Attempt {
+  return {
     schemaVersion,
     measurementID: input.measurementID,
     sessionID: input.sessionID,
@@ -138,7 +161,10 @@ export function begin(ledger: Ledger, input: BeginInput): Ledger {
     },
     sdkRetries: "uncounted",
   }
-  return { attempts: { ...ledger.attempts, [input.attemptID]: opened } }
+}
+
+export function begin(ledger: Ledger, input: BeginInput): Ledger {
+  return { attempts: { ...ledger.attempts, [input.attemptID]: open(input) } }
 }
 
 /** Terminal and idempotent: a duplicate finish returns the ledger unchanged, never a second record. */
@@ -205,3 +231,96 @@ export function toLine(record: Attempt): string {
     sdkRetries: record.sdkRetries,
   })
 }
+
+// About 3.5 characters per token across prose, JSON schema and code; providers differ by ~15%.
+// The same heuristic the detailed request report uses, kept honest by carrying the method name.
+export const estimateMethod = "chars/3.5"
+export const estimateTokens = (text: string) => Math.ceil(text.length / 3.5)
+
+export interface RequestSizes {
+  readonly providerID: string
+  readonly modelID: string
+  readonly toolCount: number
+  readonly messageCount: number
+  readonly estimates: {
+    readonly system: number
+    readonly tools: number
+    readonly history: number
+    readonly method: string
+  }
+}
+
+// Pure extraction of the numbers from a formed request. The request is only read, never
+// mutated, and nothing is sent back to the provider; the strings are measured and dropped.
+export function sizesOf(request: {
+  readonly model: { readonly provider: string; readonly id: string }
+  readonly system: ReadonlyArray<{ readonly text: string }>
+  readonly tools: ReadonlyArray<{ readonly name: string; readonly description?: string | undefined }>
+  readonly messages: ReadonlyArray<{ readonly content: unknown }>
+}): RequestSizes {
+  return {
+    providerID: request.model.provider,
+    modelID: request.model.id,
+    toolCount: request.tools.length,
+    messageCount: request.messages.length,
+    estimates: {
+      system: request.system.reduce((total, part) => total + estimateTokens(part.text), 0),
+      tools: request.tools.reduce(
+        (total, tool) =>
+          total +
+          estimateTokens(
+            JSON.stringify({
+              name: tool.name,
+              description: tool.description,
+              input: "inputSchema" in tool ? (tool as { inputSchema?: unknown }).inputSchema : undefined,
+            }),
+          ),
+        0,
+      ),
+      history: request.messages.reduce((total, message) => total + estimateTokens(JSON.stringify(message.content)), 0),
+      method: estimateMethod,
+    },
+  }
+}
+
+/** The line written for one formed request: the coverage label plus the safe record. */
+export function sizesLine(record: Attempt): string {
+  return JSON.stringify({ coverage, record: JSON.parse(toLine(record)) as unknown })
+}
+
+const ownFile = /^[0-9a-f-]+\.jsonl$/
+
+/** Delete measurement files older than the retention window. Only our own files; anything else stays. */
+export const pruneOldMeasurements = async (directory: string, now = Date.now()) => {
+  const cutoff = now - retentionDays() * 24 * 60 * 60 * 1000
+  let entries: string[]
+  try {
+    entries = await readdir(directory)
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    if (!ownFile.test(entry)) continue
+    const file = path.join(directory, entry)
+    try {
+      if ((await stat(file)).mtimeMs < cutoff) await unlink(file)
+    } catch {
+      // A file that cannot be read or removed stays; the next write retries it.
+    }
+  }
+}
+
+// Append one line to <data>/log/measurements with owner-only permissions. A write failure is
+// swallowed (Effect.ignore): measurement must never break the request it only observes, never
+// change a retry decision, and the warning path carries no record content.
+export const writeLine = (line: string, directory = path.join(Global.Path.log, "measurements")) =>
+  Effect.tryPromise({
+    try: async () => {
+      if (Buffer.byteLength(line) > MAX_LINE_BYTES) return
+      await pruneOldMeasurements(directory)
+      const file = path.join(directory, `${randomUUID()}.jsonl`)
+      await writeFile(file, `${line}\n`, { mode: 0o600, flag: "wx" })
+      await chmod(file, 0o600)
+    },
+    catch: () => new Error("measurement write failed"),
+  }).pipe(Effect.ignore)
