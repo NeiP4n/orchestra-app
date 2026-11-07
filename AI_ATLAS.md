@@ -167,13 +167,17 @@ owner-only (`0700` dir, `0600` files), pruned after
 primary session-step requests only — sizes at request formation
 (`recordPrimarySizes` in `session/model-request.ts`), settled by
 `session/runner/step.ts` on every outcome branch (completed with
-SessionUsage-normalized tokens and catalog-estimated cost; failed/cancelled
-with unknown usage). Retries of one logical request share a
-`logicalRequestID` and link via `retryOf`. The step settles the attempt
-carried on its `Prepared`, so a retry never overwrites the previous attempt.
+SessionUsage-normalized tokens and catalog-estimated cost only where the
+provider actually reported usage and an applicable price tier exists;
+unknown stays null, never zero). Only an explicit runner retry
+(Retry/RecoverFull/Compacted/Switched) links attempts via `retryOf` and a
+shared `logicalRequestID`; any other request starts a new logical request.
+The step settles the attempt carried on its `Prepared`.
 Export: `bun run packages/core/script/export-measurements.ts [directory]`
-folds the local files into one JSON document (manifest + records; malformed
-lines are counted as skipped, never exported). Honest gaps: title,
+folds the local files into one JSON document (manifest + records). Stored
+lines are rebuilt through full field validation before export:
+object-typed and prose fields are rejected and malformed lines are counted
+as skipped; an ID-shaped string is accepted as the ID it claims to be. Honest gaps: title,
 compaction, summary and intake requests are not measured; retries hidden
 inside provider SDKs are uncounted; a local attempt ID is not a provider
 request ID. This is a diagnostic, never a source of charges.

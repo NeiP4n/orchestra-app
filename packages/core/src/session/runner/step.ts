@@ -136,12 +136,17 @@ export const make = Effect.gen(function* () {
 
     // Settle this step's measured attempt (Step 0). Idempotent and best-effort inside: safe to
     // call on every branch, and a failure here can never change the step's own outcome. The
-    // attempt identity travels with Prepared, not with session-global state.
+    // attempt identity travels with Prepared, not with session-global state; without it there
+    // is nothing to settle (measurement off or its hook failed).
     const settleMeasurement = (outcome: "completed" | "failed" | "cancelled") =>
-      SessionRequestMeasurement.completePrimary(
-        input.sessionID,
-        { outcome, endedAt: Date.now() },
-        { attemptID: input.prepared.measurement?.attemptID },
+      Effect.suspend(() =>
+        input.prepared.measurement === undefined
+          ? Effect.void
+          : SessionRequestMeasurement.completePrimary(
+              input.sessionID,
+              { outcome, endedAt: Date.now() },
+              { attemptID: input.prepared.measurement.attemptID },
+            ),
       )
     const executeTool = (call: ToolCall) => {
       if (input.prepared.request.toolChoice?.type === "none")
@@ -370,24 +375,39 @@ export const make = Effect.gen(function* () {
         // source of charges.
         if (SessionRequestMeasurement.enabled()) {
           const outcome = record.finish && !record.failure ? "completed" : interrupted ? "cancelled" : "failed"
-          if (outcome === "completed" && usage)
+          if (outcome === "completed" && usage && record.finish && input.prepared.measurement !== undefined) {
+            // Unknown stays unknown in the diagnostic record: only usage fields the provider
+            // actually reported become numbers, read from the optional raw fields - not the
+            // zero-filled getters billing normalization uses - and a cost is estimated only when
+            // an applicable price tier exists: a free tier estimates to 0, a missing price null.
+            const raw = record.finish.rawUsage
+            const field = (value: number | undefined) =>
+              typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null
+            const priced = raw !== undefined && SessionUsage.hasPrice(input.model.cost, usage.tokens)
             yield* SessionRequestMeasurement.completePrimary(
               input.sessionID,
               {
                 outcome,
                 endedAt: Date.now(),
-                usage: {
-                  input: usage.tokens.input,
-                  output: usage.tokens.output,
-                  reasoning: usage.tokens.reasoning,
-                  cacheRead: usage.tokens.cache.read,
-                  cacheWrite: usage.tokens.cache.write,
+                usage:
+                  raw === undefined
+                    ? { input: null, output: null, reasoning: null, cacheRead: null, cacheWrite: null }
+                    : {
+                        input: field(raw.nonCachedInputTokens),
+                        output: field(raw.outputTokens),
+                        reasoning: field(raw.reasoningTokens),
+                        cacheRead: field(raw.cacheReadInputTokens),
+                        cacheWrite: field(raw.cacheWriteInputTokens),
+                      },
+                cost: {
+                  recordedUSD: null,
+                  estimatedUSD: priced ? usage.cost : null,
+                  source: priced ? "catalog" : "unknown",
                 },
-                cost: { recordedUSD: null, estimatedUSD: usage.cost, source: "catalog" as const },
               },
-              { attemptID: input.prepared.measurement?.attemptID },
+              { attemptID: input.prepared.measurement.attemptID },
             )
-          else yield* settleMeasurement(outcome)
+          } else yield* settleMeasurement(outcome)
         }
 
         if (

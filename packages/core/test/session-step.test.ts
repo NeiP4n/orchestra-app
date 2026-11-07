@@ -25,7 +25,7 @@ import { ToolOutput } from "@orchestra/core/tool-output"
 import { Money } from "@orchestra/schema/money"
 import { LayerNode } from "@orchestra/util/effect/layer-node"
 import { asc, eq } from "drizzle-orm"
-import { Effect, Exit, Layer } from "effect"
+import { Effect, Exit, Fiber, Layer } from "effect"
 import { testEffect } from "./lib/effect"
 
 const it = testEffect(
@@ -164,70 +164,79 @@ for (const fixture of [
   )
 }
 
-// Step 0 measurement through the real step seam: the attempt ID travels on Prepared, every
-// outcome branch settles it, and a retry links to the failed attempt it continues.
-const measurementFixture = Effect.gen(function* () {
-  const db = (yield* Database.Service).db
-  const llm = yield* TestLLM.Test
-  const sessionID = Session.ID.create()
-  const steps = yield* SessionStep.make.pipe(
-    Effect.provide(
-      Layer.mock(Snapshot.Service)({
-        capture: () => Effect.succeed(Snapshot.ID.make("snap")),
-        files: () => Effect.succeed([]),
-      }),
-    ),
-  )
-  yield* db
-    .insert(ProjectTable)
-    .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
-    .run()
-  yield* db
-    .insert(SessionTable)
-    .values({ id: sessionID, project_id: Project.ID.global, slug: "step", directory: "/project", version: "test" })
-    .run()
-  const model = SessionRunnerModel.resolved(
-    LanguageModel.make({ id: "test-model", provider: "test", route: OpenAIChat.route }),
-    {
-      capabilities: { tools: true, input: ["text"], output: ["text"] },
-      limit: { context: 100_000, output: 1_000 },
-      cost: [
-        {
-          input: Money.USDPerMillionTokens.make(1),
-          output: Money.USDPerMillionTokens.make(2),
-          cache: { read: Money.USDPerMillionTokens.make(0.1), write: Money.USDPerMillionTokens.make(0.5) },
-        },
-      ],
-    },
-  )
-  const dir = mkdtempSync(path.join(tmpdir(), "measurement-step-"))
-  const sizesRequest = {
-    model: { provider: "test", id: "test-model" },
-    system: [{ text: "system" }],
-    tools: [],
-    messages: [{ role: "user", content: "hi" }],
-  }
-  const attemptInput = (attemptID: string | undefined) => ({
-    isLocationClosed: () => false,
-    sessionID,
-    assistantMessageID: SessionMessage.ID.create(),
-    agent: Agent.defaultID,
-    model,
-    prepared: {
-      retry: () => Effect.void,
-      request: LLM.request({ model: model.model, prompt: "Hi" }),
-      options: {},
-      executeTool: () => Effect.die("no tools in this test"),
-      ...(attemptID === undefined ? {} : { measurement: { attemptID } }),
-    },
-    retry: (_cause: AIError, _error: unknown, retry: boolean) =>
-      Effect.succeed(retry ? { retry: true as const, attempt: 2, delay: 0 } : { retry: false as const }),
-    recoverContinuation: false,
-    recoverOverflow: Effect.succeed(false),
-    fallback: () => Effect.succeed(false),
+// Step 0 measurement through the real step seam: the attempt identity travels on Prepared,
+// every outcome branch settles it, unknown usage/price stays null, and only the runner's
+// explicit retry token links a retry to the logical request it continues.
+const measurementFixture = (options?: { readonly priced?: boolean }) =>
+  Effect.gen(function* () {
+    const db = (yield* Database.Service).db
+    const llm = yield* TestLLM.Test
+    const sessionID = Session.ID.create()
+    const steps = yield* SessionStep.make.pipe(
+      Effect.provide(
+        Layer.mock(Snapshot.Service)({
+          capture: () => Effect.succeed(Snapshot.ID.make("snap")),
+          files: () => Effect.succeed([]),
+        }),
+      ),
+    )
+    yield* db
+      .insert(ProjectTable)
+      .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
+      .run()
+    yield* db
+      .insert(SessionTable)
+      .values({ id: sessionID, project_id: Project.ID.global, slug: "step", directory: "/project", version: "test" })
+      .run()
+    const model = SessionRunnerModel.resolved(
+      LanguageModel.make({ id: "test-model", provider: "test", route: OpenAIChat.route }),
+      {
+        capabilities: { tools: true, input: ["text"], output: ["text"] },
+        limit: { context: 100_000, output: 1_000 },
+        cost:
+          options?.priced === false
+            ? []
+            : [
+                {
+                  input: Money.USDPerMillionTokens.make(1),
+                  output: Money.USDPerMillionTokens.make(2),
+                  cache: { read: Money.USDPerMillionTokens.make(0.1), write: Money.USDPerMillionTokens.make(0.5) },
+                },
+              ],
+      },
+    )
+    const dir = mkdtempSync(path.join(tmpdir(), "measurement-step-"))
+    const sizesRequest = {
+      model: { provider: "test", id: "test-model" },
+      system: [{ text: "system" }],
+      tools: [],
+      messages: [{ role: "user", content: "hi" }],
+    }
+    const attemptInput = (measurement?: SessionRequestMeasurement.RetryToken) => ({
+      isLocationClosed: () => false,
+      sessionID,
+      assistantMessageID: SessionMessage.ID.create(),
+      agent: Agent.defaultID,
+      model,
+      prepared: {
+        retry: () => Effect.void,
+        request: LLM.request({ model: model.model, prompt: "Hi" }),
+        options: {},
+        executeTool: () => Effect.die("no tools in this test"),
+        ...(measurement === undefined ? {} : { measurement }),
+      },
+      retry: (_cause: AIError, _error: unknown, retry: boolean) =>
+        Effect.succeed(retry ? { retry: true as const, attempt: 2, delay: 0 } : { retry: false as const }),
+      recoverContinuation: false,
+      recoverOverflow: Effect.succeed(false),
+      fallback: () => Effect.succeed(false),
+    })
+    const enable = () => {
+      process.env.ORCHESTRA_REQUEST_MEASUREMENT = "1"
+      process.env.ORCHESTRA_REQUEST_MEASUREMENT_DIR = dir
+    }
+    return { llm, sessionID, steps, dir, sizesRequest, attemptInput, enable }
   })
-  return { llm, sessionID, steps, dir, sizesRequest, attemptInput }
-})
 
 const withMeasurement = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
@@ -240,12 +249,19 @@ const withMeasurement = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     ),
   )
 
-it.effect("measurement: a retry settles the failed attempt and the retried request links to it", () =>
+const exportedRecords = (dir: string) =>
+  SessionRequestMeasurement.readExport(dir).pipe(
+    Effect.map((exported) => ({
+      unfinished: exported.manifest.unfinished,
+      records: exported.lines.map((line) => JSON.parse(line)),
+    })),
+  )
+
+it.effect("measurement: a retry settles the failed attempt and the runner's token links the next one", () =>
   withMeasurement(
     Effect.gen(function* () {
-      const { llm, sessionID, steps, dir, sizesRequest, attemptInput } = yield* measurementFixture
-      process.env.ORCHESTRA_REQUEST_MEASUREMENT = "1"
-      process.env.ORCHESTRA_REQUEST_MEASUREMENT_DIR = dir
+      const { llm, sessionID, steps, dir, sizesRequest, attemptInput, enable } = yield* measurementFixture()
+      enable()
       const first = yield* SessionRequestMeasurement.recordPrimarySizes({ sessionID, request: sizesRequest })
       expect(first).toBeDefined()
       yield* llm.push(TestLLM.failAfter(new AIError({ reason: new RateLimitError({ message: "Too many requests" }) })))
@@ -253,25 +269,92 @@ it.effect("measurement: a retry settles the failed attempt and the retried reque
       expect(Exit.isSuccess(retried)).toBe(true)
       if (Exit.isSuccess(retried)) expect(retried.value._tag).toBe("Retry")
 
-      const second = yield* SessionRequestMeasurement.recordPrimarySizes({ sessionID, request: sizesRequest })
+      // The runner hands the failed attempt's identity back as the explicit retry token.
+      const second = yield* SessionRequestMeasurement.recordPrimarySizes({
+        sessionID,
+        request: sizesRequest,
+        retryOf: first,
+      })
       expect(second).toBeDefined()
-      expect(second).not.toBe(first)
+      expect(second!.attemptID).not.toBe(first!.attemptID)
       yield* llm.push(TestLLM.textWithUsage("done", "msg-1", 15))
       const completed = yield* steps.attempt(attemptInput(second)).pipe(Effect.exit)
       expect(Exit.isSuccess(completed)).toBe(true)
 
-      const exported = yield* SessionRequestMeasurement.readExport(dir)
-      expect(exported.manifest.records).toBe(2)
-      expect(exported.manifest.unfinished).toBe(0)
-      const records = exported.lines.map((line) => JSON.parse(line))
-      const failed = records.find((record) => record.attemptID === first)
-      const retriedRecord = records.find((record) => record.attemptID === second)
+      const { unfinished, records } = yield* exportedRecords(dir)
+      expect(records).toHaveLength(2)
+      expect(unfinished).toBe(0)
+      const failed = records.find((record) => record.attemptID === first!.attemptID)
+      const retriedRecord = records.find((record) => record.attemptID === second!.attemptID)
       expect(failed.outcome).toBe("failed")
       expect(failed.usage.input).toBeNull()
       expect(retriedRecord.outcome).toBe("completed")
-      expect(retriedRecord.retryOf).toBe(first)
-      expect(retriedRecord.logicalRequestID).toBe(failed.logicalRequestID)
-      expect(retriedRecord.usage.input).toBeGreaterThan(0)
+      expect(retriedRecord.retryOf).toBe(first!.attemptID)
+      expect(retriedRecord.logicalRequestID).toBe(first!.logicalRequestID)
+      // Raw presence: the provider reported only nonCachedInputTokens.
+      expect(retriedRecord.usage.input).toBe(15)
+      expect(retriedRecord.usage.output).toBeNull()
+      expect(retriedRecord.cost.estimatedUSD).not.toBeNull()
+      expect(retriedRecord.cost.source).toBe("catalog")
+    }),
+  ),
+)
+
+it.effect("measurement: a completion without provider usage keeps usage and cost unknown", () =>
+  withMeasurement(
+    Effect.gen(function* () {
+      const { llm, sessionID, steps, dir, sizesRequest, attemptInput, enable } = yield* measurementFixture()
+      enable()
+      const attempt = yield* SessionRequestMeasurement.recordPrimarySizes({ sessionID, request: sizesRequest })
+      yield* llm.push(TestLLM.text("done", "msg-1"))
+      const result = yield* steps.attempt(attemptInput(attempt)).pipe(Effect.exit)
+      expect(Exit.isSuccess(result)).toBe(true)
+      const { records } = yield* exportedRecords(dir)
+      const record = records.find((entry) => entry.attemptID === attempt!.attemptID)
+      expect(record.outcome).toBe("completed")
+      expect(record.usage).toEqual({ input: null, output: null, reasoning: null, cacheRead: null, cacheWrite: null })
+      expect(record.cost).toEqual({ recordedUSD: null, estimatedUSD: null, source: "unknown" })
+    }),
+  ),
+)
+
+it.effect("measurement: a model without a price tier keeps the estimated cost null, not zero", () =>
+  withMeasurement(
+    Effect.gen(function* () {
+      const { llm, sessionID, steps, dir, sizesRequest, attemptInput, enable } = yield* measurementFixture({
+        priced: false,
+      })
+      enable()
+      const attempt = yield* SessionRequestMeasurement.recordPrimarySizes({ sessionID, request: sizesRequest })
+      yield* llm.push(TestLLM.textWithUsage("done", "msg-1", 15))
+      const result = yield* steps.attempt(attemptInput(attempt)).pipe(Effect.exit)
+      expect(Exit.isSuccess(result)).toBe(true)
+      const { records } = yield* exportedRecords(dir)
+      const record = records.find((entry) => entry.attemptID === attempt!.attemptID)
+      expect(record.outcome).toBe("completed")
+      expect(record.usage.input).toBe(15)
+      expect(record.cost).toEqual({ recordedUSD: null, estimatedUSD: null, source: "unknown" })
+    }),
+  ),
+)
+
+// The clock must be live here: it.effect runs on TestClock, which never advances the sleep
+// before Fiber.interrupt on its own.
+it.live("measurement: interrupting the step settles the attempt as cancelled", () =>
+  withMeasurement(
+    Effect.gen(function* () {
+      const { llm, sessionID, steps, dir, sizesRequest, attemptInput, enable } = yield* measurementFixture()
+      enable()
+      const attempt = yield* SessionRequestMeasurement.recordPrimarySizes({ sessionID, request: sizesRequest })
+      yield* llm.push(TestLLM.hangAfter())
+      const fiber = yield* Effect.forkDetach(steps.attempt(attemptInput(attempt)))
+      yield* Effect.sleep("100 millis")
+      yield* Fiber.interrupt(fiber)
+      const exit = yield* Fiber.await(fiber)
+      expect(Exit.isFailure(exit) && Exit.hasInterrupts(exit)).toBe(true)
+      const { records } = yield* exportedRecords(dir)
+      const record = records.find((entry) => entry.attemptID === attempt!.attemptID)
+      expect(record.outcome).toBe("cancelled")
     }),
   ),
 )

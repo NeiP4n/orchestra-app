@@ -22,6 +22,7 @@ import { SessionInbox } from "../inbox.js"
 import { SessionHistory } from "../history.js"
 import { SessionProviderContext } from "../provider-context.js"
 import { SessionModelRequest } from "../model-request.js"
+import { SessionRequestMeasurement } from "../request-measurement.js"
 import { SessionModelTransport } from "../model-transport.js"
 import { SessionMessage } from "../message.js"
 import { SessionSchema } from "../schema.js"
@@ -269,6 +270,10 @@ const layer = Layer.effect(
       let recoverOverflow = true
       let recoverContinuation = true
       let autoCompactions = 0
+      // Step 0 measurement: retry identity for the NEXT attempt, set only when this attempt's
+      // outcome is an actual retry/recovery (Retry/RecoverFull/Compacted/Switched). A Completed
+      // or Continue outcome starts a new logical request; linkage is never inferred.
+      let measurementRetryOf: SessionRequestMeasurement.RetryToken | undefined
       // The current model is refused from the start, so a fallback never picks it back.
       refused.add(modelKey(first.model.ref))
       while (true) {
@@ -345,6 +350,7 @@ const layer = Layer.effect(
           model: loaded.model,
           tools,
           system: transcript.system,
+          measurementRetryOf,
           messages: stepLimitReached
             ? [...transcript.messages, Message.assistant(MAX_STEPS_PROMPT)]
             : transcript.messages,
@@ -405,6 +411,13 @@ const layer = Layer.effect(
           directory: location.project.directory,
           owner: { id: sessionID, name: `AI ${sessionID.slice(-8)}` },
         }).pipe(Effect.ignore)
+        measurementRetryOf =
+          outcome._tag === "Retry" ||
+          outcome._tag === "RecoverFull" ||
+          outcome._tag === "Compacted" ||
+          outcome._tag === "Switched"
+            ? prepared.measurement
+            : undefined
         const completed = yield* SessionStep.Outcome.$match(outcome, {
           Completed: (outcome) => Effect.succeed(outcome.needsContinuation),
           Retry: (outcome) =>
@@ -521,7 +534,10 @@ const layer = Layer.effect(
           sessionID: loaded.session.id,
           text: `Провайдер отказался от модели ${loaded.model.ref.id}; сессия продолжается на запасной модели ${next.id} (провайдер ${next.providerID}). Это не тихая подмена: если запасная тоже откажет, ошибка уйдёт на эскалацию.`,
           description: "Model fallback",
-          metadata: { previous: `${loaded.model.ref.providerID}/${loaded.model.ref.id}`, next: `${next.providerID}/${next.id}` },
+          metadata: {
+            previous: `${loaded.model.ref.providerID}/${loaded.model.ref.id}`,
+            next: `${next.providerID}/${next.id}`,
+          },
         })
       yield* bus.publish(SessionEvent.ModelSelected, {
         sessionID: loaded.session.id,
@@ -628,8 +644,7 @@ const modelKey = (model: Model.Ref) => `${model.providerID}/${model.id}#${model.
 const modelIdentity = (model: Model.Ref) => `${model.providerID}/${model.id}`
 
 /** `refused` holds full keys (`provider/id#variant`); a refusal is per model, not per variant. */
-const refusedIdentities = (refused: ReadonlySet<string>) =>
-  new Set([...refused].map((key) => key.split("#")[0] ?? key))
+const refusedIdentities = (refused: ReadonlySet<string>) => new Set([...refused].map((key) => key.split("#")[0] ?? key))
 
 /**
  * The next model a session may try after its provider refused the current one outright. This
@@ -656,9 +671,7 @@ export function fallbackModel(input: {
   if (isContextOverflowFailure(input.cause)) return undefined
   const refusedModels = refusedIdentities(input.refused)
   const current = modelIdentity(input.current)
-  return input.models.find(
-    (model) => !refusedModels.has(modelIdentity(model)) && modelIdentity(model) !== current,
-  )
+  return input.models.find((model) => !refusedModels.has(modelIdentity(model)) && modelIdentity(model) !== current)
 }
 
 export const node = makeLocationNode({

@@ -1,4 +1,4 @@
-import { type LLMEvent, type ProviderMetadata, type ToolResultValue } from "@orchestra/ai"
+import { type LLMEvent, type ProviderMetadata, type ToolResultValue, type Usage } from "@orchestra/ai"
 import type { Agent } from "@orchestra/schema/agent"
 import type { Model } from "@orchestra/schema/model"
 import type { RelativePath } from "@orchestra/schema/schema"
@@ -41,6 +41,8 @@ export interface StepRecord {
     readonly rawFinish?: string
     readonly providerState?: SessionMessage.ProviderState
     readonly tokens: ReturnType<typeof SessionUsage.tokens>
+    /** The provider's usage as sent, undefined when it sent none. Diagnostic consumers only. */
+    readonly rawUsage?: Usage
   }
   readonly needsContinuation: boolean
 }
@@ -541,6 +543,7 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
           rawFinish: event.reason.raw,
           providerState: providerState(event.providerMetadata),
           tokens: SessionUsage.tokens(event.usage),
+          rawUsage: event.usage,
         }
         if (event.reason.normalized === "content-filter") {
           providerFailed = true

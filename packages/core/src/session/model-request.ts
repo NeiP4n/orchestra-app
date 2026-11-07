@@ -78,7 +78,7 @@ export interface Prepared<Event = SessionRequest> {
     input: Parameters<Tool.Snapshot["execute"]>[0],
   ) => Effect.Effect<Tool.NormalizedResult, ExecuteError>
   /** Step 0 measurement: the attempt opened for this request (ORCHESTRA_REQUEST_MEASUREMENT=1 only). */
-  readonly measurement?: { readonly attemptID: string }
+  readonly measurement?: SessionRequestMeasurement.RetryToken
 }
 
 export interface Input {
@@ -93,6 +93,11 @@ export interface Input {
   readonly webSocket?: "session"
   /** Prompt size, measured by the provider or estimated. The default output limit leaves room for it. */
   readonly inputTokens?: { readonly measured: number; readonly estimated: number }
+  /**
+   * Step 0 measurement retry identity: set by the runner only when this request retries one it
+   * already attempted (Retry/RecoverFull/Compacted/Switched). Measurement never infers linkage.
+   */
+  readonly measurementRetryOf?: SessionRequestMeasurement.RetryToken
 }
 
 /** The default output limit: the catalog limit, fitted to the room the prompt leaves in the context window. */
@@ -430,9 +435,13 @@ export const layer = Layer.effect(
       // Numbers-only measurement, opt-in via ORCHESTRA_REQUEST_MEASUREMENT=1 and fully
       // best-effort inside: the request is byte-identical afterwards, nothing is sent to the
       // provider, and no failure here can reach the request or a retry. Primary sizes only.
-      const measurementAttemptID =
+      const measurementAttempt =
         kind === "primary"
-          ? yield* SessionRequestMeasurement.recordPrimarySizes({ sessionID: session.id, request })
+          ? yield* SessionRequestMeasurement.recordPrimarySizes({
+              sessionID: session.id,
+              request,
+              retryOf: input.measurementRetryOf,
+            })
           : undefined
 
       const hasHttpHooks =
@@ -531,7 +540,7 @@ export const layer = Layer.effect(
         event: shaped,
         request,
         options: { ...(http ? { http } : {}), ...(webSocket ? { webSocket } : {}) },
-        ...(measurementAttemptID === undefined ? {} : { measurement: { attemptID: measurementAttemptID } }),
+        ...(measurementAttempt === undefined ? {} : { measurement: measurementAttempt }),
         retry: (event: Parameters<Prepared["retry"]>[0]) =>
           hooks.trigger("session", "retry", event).pipe(Effect.asVoid),
         // Permission.assert and the question tool throw declines as defects so tools cannot

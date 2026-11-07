@@ -35,6 +35,18 @@ export function calculateCost(costs: Model.Info["cost"], usage: TokenUsage.Info)
   )
 }
 
+/**
+ * Whether calculateCost finds an applicable price tier for this usage. A tier priced at zero
+ * counts (free is a known price); no applicable tier means the cost is unknown, not zero.
+ */
+export const hasPrice = (costs: Model.Info["cost"], usage: TokenUsage.Info) => {
+  const context = usage.input + usage.cache.read + usage.cache.write
+  const tier = costs
+    .filter((cost) => cost.tier?.type === "context" && context > cost.tier.size)
+    .toSorted((a, b) => (b.tier?.size ?? 0) - (a.tier?.size ?? 0))[0]
+  return (tier ?? costs.find((cost) => cost.tier === undefined)) !== undefined
+}
+
 export type Recorded = { readonly tokens: TokenUsage.Info; readonly cost: Money.USD }
 
 export const record = (usage: Usage | undefined, costs: Model.Info["cost"]): Recorded => {

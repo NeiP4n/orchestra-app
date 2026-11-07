@@ -378,37 +378,44 @@ export const writeLine = (line: string, directory = measurementDir()) =>
     catch: () => new Error("measurement write failed"),
   }).pipe(Effect.ignore)
 
+/** Explicit retry identity, supplied by the runner only when it actually retries a request. */
+export interface RetryToken {
+  readonly attemptID: string
+  readonly logicalRequestID: string
+}
+
 // The whole primary-sizes hook behind one best-effort boundary: a serialization failure in
 // sizesOf (a circular message part, a throwing toJSON) can never abort request preparation,
 // and a write failure never reaches the request either. Measurement observes; it does not act.
-// Returns the opened attempt ID so the caller (Prepared) can settle exactly this attempt later.
+// Returns the opened attempt identity so the caller (Prepared) can settle exactly this attempt
+// and the runner can pass it back as the retry token when it retries. Linkage is never inferred:
+// without an explicit token the attempt starts a new logical request.
 export const recordPrimarySizes = (
   input: {
     readonly sessionID: string
     readonly request: Parameters<typeof sizesOf>[0]
     readonly startedAt?: number
+    readonly retryOf?: RetryToken
   },
   directory = measurementDir(),
-): Effect.Effect<string | undefined> =>
+): Effect.Effect<RetryToken | undefined> =>
   Effect.suspend(() => {
     if (!enabled()) return Effect.succeed(undefined)
     return Effect.try({
       try: () => {
         const sizes = sizesOf(input.request)
         const attemptID = randomUUID()
-        // Retry linkage: when this session's previous attempt settled as failed or cancelled,
-        // this request is a retry of the same logical request and keeps its logicalRequestID.
-        // A completed attempt (or none) starts a new logical request.
-        const previous = pending.get(input.sessionID) ?? lastSettled.get(input.sessionID)
-        const retryOf = previous !== undefined && previous.outcome !== "completed" ? previous.attemptID : undefined
+        // Linkage is never inferred: only an explicit retry token from the runner joins this
+        // attempt to the logical request it retries; without one it starts a new logical request.
+        const ids: RetryToken = { attemptID, logicalRequestID: input.retryOf?.logicalRequestID ?? attemptID }
         const line = sizesLine(
           track(
             open({
               measurementID: randomUUID(),
               sessionID: input.sessionID,
-              logicalRequestID: retryOf !== undefined && previous !== undefined ? previous.logicalRequestID : attemptID,
+              logicalRequestID: ids.logicalRequestID,
               attemptID,
-              retryOf,
+              retryOf: input.retryOf?.attemptID,
               phase: "primary",
               providerID: sizes.providerID,
               modelID: sizes.modelID,
@@ -419,13 +426,11 @@ export const recordPrimarySizes = (
             }),
           ),
         )
-        return { line, attemptID }
+        return { line, ids }
       },
       catch: () => new Error("measurement failed"),
     }).pipe(
-      Effect.flatMap(({ line, attemptID }) =>
-        writeLine(line, directory).pipe(Effect.as(attemptID as string | undefined)),
-      ),
+      Effect.flatMap(({ line, ids }) => writeLine(line, directory).pipe(Effect.as(ids as RetryToken | undefined))),
       Effect.catchCause((cause) => (Cause.hasInterruptsOnly(cause) ? Effect.interrupt : Effect.succeed(undefined))),
     )
   })
@@ -437,11 +442,6 @@ export const completionCoverage = "primary-completion"
 // per session: a session's steps are sequential. completePrimary removes the entry it settles.
 const pending = new Map<string, Attempt>()
 
-// The most recently settled attempt per session, kept so the next primary request can link a
-// retry chain: a new attempt after a failed/cancelled one is a retry of the same logical
-// request; after a completed one it starts a new logical request.
-const lastSettled = new Map<string, Attempt>()
-
 export const track = (record: Attempt): Attempt => {
   pending.set(record.sessionID, record)
   return record
@@ -449,40 +449,35 @@ export const track = (record: Attempt): Attempt => {
 
 export const pendingAttempt = (sessionID: string): Attempt | undefined => pending.get(sessionID)
 
-/** Test hook: forget every pending and settled attempt. */
-export const untrackAll = () => {
-  pending.clear()
-  lastSettled.clear()
-}
+/** Test hook: forget every pending attempt. */
+export const untrackAll = () => pending.clear()
 
 export function completionLine(record: Attempt): string {
   return JSON.stringify({ coverage: completionCoverage, record: JSON.parse(toLine(record)) as unknown })
 }
 
-// Finalize the session's pending attempt and write its completion line. Idempotent: with no
-// pending attempt (already finalized, or measurement off when the step started) it does nothing,
-// so a duplicate terminal event can never create a second record. When options.attemptID is
-// given, only that attempt settles - a newer attempt for the session is left alone. Fully
+// Finalize one pending attempt and write its completion line. The attempt ID is required:
+// measurement never guesses which attempt a settlement belongs to, so a mismatched or missing
+// pending attempt is a no-op, and a duplicate terminal event can never create a second record. Fully
 // best-effort inside: invalid input (NaN usage, a defect in serialization) drops the completion
 // and keeps the attempt open, but can never fail the step that triggered it.
 export const completePrimary = (
   sessionID: string,
   input: FinishInput,
-  options: { readonly attemptID?: string; readonly directory?: string } = {},
+  options: { readonly attemptID: string; readonly directory?: string },
 ) =>
   Effect.suspend(() =>
     Effect.try({
       try: () => {
         const current = pending.get(sessionID)
         if (!current) return undefined
-        if (options.attemptID !== undefined && current.attemptID !== options.attemptID) return undefined
+        if (current.attemptID !== options.attemptID) return undefined
         if (current.outcome !== "unknown") return undefined
         const finished = finish({ attempts: { [current.attemptID]: current } }, current.attemptID, input).attempts[
           current.attemptID
         ]
         if (!finished || finished.outcome === "unknown") return undefined
-        if (pending.get(sessionID)?.attemptID === finished.attemptID) pending.delete(sessionID)
-        lastSettled.set(sessionID, finished)
+        pending.delete(sessionID)
         return completionLine(finished)
       },
       catch: () => new Error("measurement completion failed"),
@@ -498,7 +493,7 @@ export const gaps = [
   "title, compaction, summary and intake requests are not measured yet",
   "retries hidden inside the provider SDK are not counted",
   "a local attempt ID is not the provider's request ID and does not prove billed HTTP attempts",
-  "an attempt whose step was interrupted at fiber level stays unfinished and is listed as such",
+  "retry linkage is recorded only when the runner explicitly retries (Retry/RecoverFull/Compacted/Switched); any other follow-up request starts a new logical request",
   "project filtering is not supported by schema v1 records",
 ] as const
 
@@ -532,8 +527,9 @@ const labelOf = (value: unknown, field: string): string => {
 }
 
 // A stored line is untrusted input: the record is rebuilt field by field through the same
-// validators a fresh open()/finish() applies - IDs and enums only, finite non-negative numbers,
-// known coverage handled by the caller - so malformed JSON can never reach the export as text.
+// validators a fresh open()/finish() applies - bounded ID-shaped strings and enum labels, finite
+// non-negative numbers, known coverage handled by the caller. Object-typed and prose fields are
+// rejected outright; a short ID-shaped string is still accepted as the ID it claims to be.
 const decodeAttempt = (raw: unknown): Attempt | undefined => {
   try {
     if (typeof raw !== "object" || raw === null) return undefined

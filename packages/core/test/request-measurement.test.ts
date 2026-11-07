@@ -444,7 +444,10 @@ describe("SessionRequestMeasurement lifecycle and export", () => {
   test("completePrimary finalizes once; a duplicate is a no-op", async () => {
     const dir = mkdtemp()
     await withFlag(async () => {
-      await Effect.runPromise(SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-1", request }, dir))
+      const first = await Effect.runPromise(
+        SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-1", request }, dir),
+      )
+      expect(first).toBeDefined()
       await Effect.runPromise(
         SessionRequestMeasurement.completePrimary(
           "ses-1",
@@ -454,14 +457,14 @@ describe("SessionRequestMeasurement lifecycle and export", () => {
             usage: { input: 10, output: 5, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
             cost: { recordedUSD: null, estimatedUSD: 0.0001, source: "catalog" },
           },
-          { directory: dir },
+          { attemptID: first!.attemptID, directory: dir },
         ),
       )
       await Effect.runPromise(
         SessionRequestMeasurement.completePrimary(
           "ses-1",
           { outcome: "failed", endedAt: Date.now() },
-          { directory: dir },
+          { attemptID: first!.attemptID, directory: dir },
         ),
       )
     })
@@ -478,7 +481,9 @@ describe("SessionRequestMeasurement lifecycle and export", () => {
   test("export folds sizes plus completion into one record and reports the manifest", async () => {
     const dir = mkdtemp()
     await withFlag(async () => {
-      await Effect.runPromise(SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-1", request }, dir))
+      const first = await Effect.runPromise(
+        SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-1", request }, dir),
+      )
       await Effect.runPromise(
         SessionRequestMeasurement.completePrimary(
           "ses-1",
@@ -488,7 +493,7 @@ describe("SessionRequestMeasurement lifecycle and export", () => {
             usage: { input: 10, output: 5, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
             cost: { recordedUSD: null, estimatedUSD: 0.0001, source: "catalog" },
           },
-          { directory: dir },
+          { attemptID: first!.attemptID, directory: dir },
         ),
       )
       await Effect.runPromise(SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-2", request }, dir))
@@ -597,7 +602,9 @@ describe("SessionRequestMeasurement lifecycle and export", () => {
   test("a NaN completion cannot fail the caller and leaves the attempt open (repro 2)", async () => {
     const dir = mkdtemp()
     await withFlag(async () => {
-      await Effect.runPromise(SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-1", request }, dir))
+      const opened = await Effect.runPromise(
+        SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-1", request }, dir),
+      )
       await Effect.runPromise(
         SessionRequestMeasurement.completePrimary(
           "ses-1",
@@ -606,7 +613,7 @@ describe("SessionRequestMeasurement lifecycle and export", () => {
             endedAt: Date.now(),
             usage: { input: Number.NaN, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
           },
-          { directory: dir },
+          { attemptID: opened!.attemptID, directory: dir },
         ),
       )
       expect(SessionRequestMeasurement.pendingAttempt("ses-1")).toBeDefined()
@@ -624,7 +631,7 @@ describe("SessionRequestMeasurement lifecycle and export", () => {
             endedAt: Date.now(),
             usage: { input: 3, output: 1, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
           },
-          { directory: dir },
+          { attemptID: opened!.attemptID, directory: dir },
         ),
       )
       expect(SessionRequestMeasurement.pendingAttempt("ses-1")).toBeUndefined()
@@ -656,7 +663,7 @@ describe("SessionRequestMeasurement lifecycle and export", () => {
     })
   })
 
-  test("a retry links to the failed attempt; a completed attempt starts a new logical request", async () => {
+  test("only an explicit retry token links attempts; a new task never joins a failed or cancelled one", async () => {
     const dir = mkdtemp()
     await withFlag(async () => {
       const first = await Effect.runPromise(
@@ -668,36 +675,36 @@ describe("SessionRequestMeasurement lifecycle and export", () => {
           "ses-1",
           { outcome: "failed", endedAt: Date.now() },
           {
-            attemptID: first,
+            attemptID: first!.attemptID,
             directory: dir,
           },
         ),
       )
-      const second = await Effect.runPromise(
+      // Without a token the next request starts a new logical request, even after a failure.
+      const unrelated = await Effect.runPromise(
         SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-1", request }, dir),
       )
-      const retry = SessionRequestMeasurement.pendingAttempt("ses-1")
-      expect(retry?.attemptID).toBe(second)
-      expect(retry?.retryOf).toBe(first)
-      expect(retry?.logicalRequestID).toBe(
-        (await Effect.runPromise(SessionRequestMeasurement.readExport(dir))).lines
-          .map((line) => JSON.parse(line))
-          .find((record) => record.attemptID === first).logicalRequestID,
-      )
+      const unrelatedAttempt = SessionRequestMeasurement.pendingAttempt("ses-1")
+      expect(unrelatedAttempt?.retryOf).toBeNull()
+      expect(unrelatedAttempt?.logicalRequestID).toBe(unrelatedAttempt?.attemptID)
       await Effect.runPromise(
         SessionRequestMeasurement.completePrimary(
           "ses-1",
-          { outcome: "completed", endedAt: Date.now() },
+          { outcome: "cancelled", endedAt: Date.now() },
           {
-            attemptID: second,
+            attemptID: unrelated!.attemptID,
             directory: dir,
           },
         ),
       )
-      await Effect.runPromise(SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-1", request }, dir))
-      const fresh = SessionRequestMeasurement.pendingAttempt("ses-1")
-      expect(fresh?.retryOf).toBeNull()
-      expect(fresh?.logicalRequestID).toBe(fresh?.attemptID)
+      // With the runner's token the retry joins the cancelled attempt's logical request.
+      const retried = await Effect.runPromise(
+        SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-1", request, retryOf: unrelated! }, dir),
+      )
+      const retry = SessionRequestMeasurement.pendingAttempt("ses-1")
+      expect(retry?.attemptID).toBe(retried?.attemptID)
+      expect(retry?.retryOf).toBe(unrelated!.attemptID)
+      expect(retry?.logicalRequestID).toBe(unrelated!.logicalRequestID)
     })
   })
 })
