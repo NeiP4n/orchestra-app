@@ -28,7 +28,7 @@ const SYSTEM =
 export type Disambiguator = (input: {
   session: SessionSchema.Info
   task: StructuredTask
-}) => Effect.Effect<Disambiguation, never, Model.Service | ModelResolver.Service | SessionContext.Service | LLMClient.Service>
+}) => Effect.Effect<Disambiguation, never>
 
 function heuristic(task: StructuredTask): Disambiguation {
   return {
@@ -64,7 +64,7 @@ function parseDisambiguation(text: string): Disambiguation | undefined {
  * Never throws: any failure (no cheap model, no credentials, a timeout,
  * unparsable output) falls back to the heuristic assumptions.
  */
-export const disambiguateWithModel: Disambiguator = Effect.fn("PromptIntake.disambiguateWithModel")(function* (
+export const disambiguateWithModel = Effect.fn("PromptIntake.disambiguateWithModel")(function* (
   input: { session: SessionSchema.Info; task: StructuredTask },
 ) {
   return yield* Effect.gen(function* () {

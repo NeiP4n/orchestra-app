@@ -1,12 +1,13 @@
 export * as SessionPrompt from "./prompt.js"
 
+import { LLMClient } from "@orchestra/ai"
 import { Base64, FileAttachment, Prompt } from "@orchestra/schema/prompt"
 import { PromptInput } from "@orchestra/schema/prompt-input"
 import { SessionInbox } from "@orchestra/schema/session-inbox"
 import type { Session } from "@orchestra/schema/session"
 import type { SessionMessage } from "@orchestra/schema/session-message"
 import { FSUtil } from "@orchestra/util/fs-util"
-import { Effect, Option } from "effect"
+import { Context, Effect, Option } from "effect"
 import path from "path"
 import { fileURLToPath } from "url"
 import { Autoloop } from "../autoloop/service.js"
@@ -14,11 +15,14 @@ import { Dod } from "../dod.js"
 import { Image } from "../image.js"
 import { Instance } from "../instance/service.js"
 import { Location } from "../location.js"
+import { Model } from "../model.js"
+import { ModelResolver } from "../model-resolver.js"
 import { Mime } from "../mime.js"
 import { Plugin } from "../plugin/service.js"
 import { PluginHooks } from "../plugin/hooks.js"
 import { PromptIntake } from "../prompt-intake/index.js"
 import { Skill } from "../skill.js"
+import { SessionContext } from "./context.js"
 import { AttachmentError, SkillNotFoundError } from "./error.js"
 import { SessionStore } from "./store.js"
 
@@ -195,11 +199,17 @@ const runPromptIntake = Effect.fn("SessionPrompt.intake")(function* (input: {
       sources: { dod: dodAvailable, history: historyAvailable, journal: journalAvailable },
     }
     if (Option.isSome(intakeService)) {
+      // The disambiguator needs session services; capture them here so the
+      // intake service keeps its requirement-free (R = never) contract.
+      const intakeEnv = Context.pick(Model.Service, ModelResolver.Service, SessionContext.Service, LLMClient.Service)(
+        yield* Effect.context<Model.Service | ModelResolver.Service | SessionContext.Service | LLMClient.Service>(),
+      )
       return yield* intakeService.value.process({
         session: input.session,
         text: input.text,
         context,
-        disambiguate: PromptIntake.disambiguateWithModel,
+        disambiguate: (disambiguationInput) =>
+          PromptIntake.disambiguateWithModel(disambiguationInput).pipe(Effect.provide(intakeEnv)),
       })
     }
     return PromptIntake.processPure({ text: input.text, context })
