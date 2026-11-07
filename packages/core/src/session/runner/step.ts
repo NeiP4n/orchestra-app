@@ -107,7 +107,9 @@ const notifyToolSettled = (
 ) =>
   notify === undefined
     ? Effect.void
-    : notify(event).pipe(Effect.catchCause(() => Effect.void))
+    : notify(event).pipe(
+        Effect.catchCause((cause) => (Cause.hasInterruptsOnly(cause) ? Effect.interrupt : Effect.void)),
+      )
 
 /** Captures Location-scoped dependencies without introducing another service or execution loop. */
 export const make = Effect.gen(function* () {

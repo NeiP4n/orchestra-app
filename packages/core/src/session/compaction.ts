@@ -19,7 +19,7 @@ import type { SessionCompactionResult } from "@orchestra/plugin/effect/session"
 import type { SessionError } from "@orchestra/schema/session-error"
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import { eq } from "drizzle-orm"
-import { Context, Effect, Layer, Result, Stream } from "effect"
+import { Cause, Context, Effect, Layer, Result, Stream } from "effect"
 import { Agent } from "../agent.js"
 import { Bus } from "../bus.js"
 import { Database } from "../database/database.js"
@@ -448,10 +448,12 @@ export const layer = Layer.effect(
         sessionID,
       ).pipe(
         Effect.catchCause((cause) =>
-          Effect.logWarning("Session memory checkpoint before compaction failed", {
-            sessionID,
-            error: String(cause),
-          }).pipe(Effect.as(SessionMemory.emptyCheckpoint())),
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.interrupt
+            : Effect.logWarning("Session memory checkpoint before compaction failed", {
+                sessionID,
+                error: String(cause),
+              }).pipe(Effect.as(SessionMemory.emptyCheckpoint())),
         ),
       )
 

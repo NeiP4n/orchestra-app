@@ -1,8 +1,9 @@
 export * as SessionMemory from "./session.js"
 
-import { appendFile, mkdir, readFile } from "node:fs/promises"
+import { appendFile, mkdir } from "node:fs/promises"
+import { readFileSync } from "node:fs"
 import path from "node:path"
-import { Effect, Schema } from "effect"
+import { Cause, Effect, Schema } from "effect"
 import { Flock } from "@orchestra/util/flock"
 // The lock below needs Flock's global (the state directory). Importing Global
 // sets it as a module side effect, so the lock never throws "Flock global not
@@ -364,14 +365,31 @@ const parseState = (sessionID: string, text: string | undefined): SessionState =
   }
 }
 
-const readFileSafe = (file: string) =>
-  Effect.tryPromise({
-    try: () => readFile(file, "utf8").catch((cause: unknown) => {
-      if (typeof cause === "object" && cause !== null && "code" in cause && cause.code === "ENOENT") return undefined
-      throw cause
-    }),
-    catch: (cause) => fail(`Could not read ${file}: ${cause instanceof Error ? cause.message : String(cause)}`),
+/**
+ * Synchronous small-file read. Session memory files are ≤ 12 KiB and this
+ * runs inside request preparation (`Instructions.read`), where an async yield
+ * lets a TestClock-driven retry window advance past the retry: the second
+ * request then registers its stream sleep after the clock already passed,
+ * and the retry never fires (session-runner backoff tests). A sync read
+ * completes atomically, so no such interleave is possible. Missing or
+ * unreadable files read as undefined — a broken memory file must never fail
+ * request preparation (the old async version failed non-ENOENT reads; the
+ * callers treat "unreadable" as "absent", which is the safe direction).
+ */
+const readFileSafe = (file: string): Effect.Effect<string | undefined, never> =>
+  Effect.sync(() => {
+    try {
+      return readFileSync(file, "utf8")
+    } catch {
+      return undefined
+    }
   })
+
+/** Recover from a failure without swallowing an interruption: an interrupted fiber must die, not fall back. */
+const recoverUnlessInterrupted =
+  <A>(fallback: (cause: Cause.Cause<unknown>) => Effect.Effect<A, never>) =>
+  (cause: Cause.Cause<unknown>) =>
+    Cause.hasInterruptsOnly(cause) ? Effect.interrupt : fallback(cause)
 
 const readState = (directory: string, sessionID: string) =>
   readFileSafe(pathsFor(directory, sessionID).state).pipe(
@@ -500,12 +518,14 @@ export const captureToolUse = Effect.fn("SessionMemory.captureToolUse")(function
       return { status: "recorded" } as const
     }),
   ).pipe(
-    Effect.catchCause((cause) =>
-      Effect.logWarning("Session memory capture failed", {
-        sessionID: input.sessionID,
-        toolUseID: input.toolUseID,
-        error: String(cause),
-      }).pipe(Effect.as({ status: "filtered" } as const)),
+    Effect.catchCause(
+      recoverUnlessInterrupted((cause) =>
+        Effect.logWarning("Session memory capture failed", {
+          sessionID: input.sessionID,
+          toolUseID: input.toolUseID,
+          error: String(cause),
+        }).pipe(Effect.as({ status: "filtered" } as const)),
+      ),
     ),
   )
 })
@@ -538,8 +558,10 @@ export const finalizeSession = Effect.fn("SessionMemory.finalizeSession")(functi
   const observations = yield* readFileSafe(paths.journal).pipe(Effect.map(parseJournal))
   // handoff.md is mandatory at stop, even for a session with nothing to remember.
   yield* SessionHandoff.writeStubIfMissing(directory, sessionID, "inactivity").pipe(
-    Effect.catchCause((cause) =>
-      Effect.logWarning("Session memory finalize could not ensure handoff", { sessionID, error: String(cause) }),
+    Effect.catchCause(
+      recoverUnlessInterrupted((cause) =>
+        Effect.logWarning("Session memory finalize could not ensure handoff", { sessionID, error: String(cause) }),
+      ),
     ),
   )
   if (!worthSummarizing(observations.length)) {
@@ -548,11 +570,13 @@ export const finalizeSession = Effect.fn("SessionMemory.finalizeSession")(functi
   const prompt = buildSummaryPrompt(sessionID, observations)
   const summarized = options?.summarize
     ? yield* options.summarize(prompt).pipe(
-        Effect.catchCause((cause) =>
-          Effect.logWarning("Session summary model call failed; using the extractive summary", {
-            sessionID,
-            error: String(cause),
-          }).pipe(Effect.as(renderMemory(sessionID, observations))),
+        Effect.catchCause(
+          recoverUnlessInterrupted((cause) =>
+            Effect.logWarning("Session summary model call failed; using the extractive summary", {
+              sessionID,
+              error: String(cause),
+            }).pipe(Effect.as(renderMemory(sessionID, observations))),
+          ),
         ),
       )
     : renderMemory(sessionID, observations)
@@ -621,7 +645,6 @@ export const loadCheckpointSummary = (directory: string, sessionID: string): Eff
     Effect.flatMap((checkpoint) =>
       checkpoint !== undefined ? Effect.succeed(checkpoint) : readFileSafe(paths.memory),
     ),
-    Effect.catchCause(() => Effect.succeed(undefined)),
   )
 }
 
@@ -630,7 +653,6 @@ export const loadStartContext = (directory: string, sessionID: string): Effect.E
   const paths = pathsFor(directory, sessionID)
   return Effect.all([readFileSafe(paths.memory), readFileSafe(paths.handoff)]).pipe(
     Effect.map(([memory, handoff]) => applyStartBudget(memory ?? "", handoff ?? "")),
-    Effect.catchCause(() => Effect.succeed("")),
   )
 }
 
