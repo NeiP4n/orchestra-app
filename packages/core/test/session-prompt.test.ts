@@ -993,28 +993,7 @@ describe("Session.prompt", () => {
     }),
   )
 
-  it.effect("refuses a vague user prompt without admitting it or waking execution", () =>
-    Effect.gen(function* () {
-      yield* setup
-      const session = yield* Session.Service
-      wakeCalls.length = 0
-      const before = yield* admittedCount
-
-      const failure = yield* session
-        .prompt({ sessionID, text: "сделай лучше", origin: "user" })
-        .pipe(Effect.flip)
-
-      expect(failure).toMatchObject({
-        _tag: "PromptInput.Rejected",
-        source: "prompt-intake:value-check",
-        reason: expect.stringContaining("Уточни"),
-      })
-      expect(yield* admittedCount).toBe(before)
-      expect(wakeCalls).toEqual([])
-    }),
-  )
-
-  it.effect("admits the same vague prompt when it comes from an agent, not a human", () =>
+  it.effect("admits a vague user prompt and wakes execution, carrying its questions in the intake metadata", () =>
     Effect.gen(function* () {
       yield* setup
       const session = yield* Session.Service
@@ -1024,7 +1003,9 @@ describe("Session.prompt", () => {
       const message = yield* session.prompt({ sessionID, text: "сделай лучше" })
 
       expect(message.payload.text).toContain("сделай лучше")
-      expect(message.payload.metadata).toMatchObject({ intake: { verdict: "clarify" } })
+      expect(message.payload.metadata).toMatchObject({
+        intake: { verdict: "clarify", questions: [expect.stringContaining("Уточни")] },
+      })
       expect(yield* admittedCount).toBe(before + 1)
       expect(wakeCalls).toEqual([sessionID])
     }),
@@ -1039,7 +1020,6 @@ describe("Session.prompt", () => {
       const message = yield* session.prompt({
         sessionID,
         text: "Исправь ошибку в packages/core/src/session/prompt.ts: сервер падает при пустом промпте",
-        origin: "user",
       })
 
       expect(yield* admitted(message.id)).toMatchObject({ type: "user" })
@@ -1222,8 +1202,8 @@ describe("Session.prompt", () => {
 
       expect(
         (yield* session.messages({ sessionID, order: "asc" })).map((message) =>
-          // User prompts carry the enriched prompt; compare the original
-          // first line, which the intake keeps verbatim.
+          // The stored user text is the original prompt, verbatim; compare
+          // the first line.
           message.type === "user" || message.type === "synthetic"
             ? message.text.split("\n")[0]
             : message.type,

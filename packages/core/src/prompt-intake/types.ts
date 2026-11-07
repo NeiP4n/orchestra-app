@@ -122,14 +122,16 @@ export type IntakeResult = {
 }
 
 /**
- * The admission decision for one prompt. `admit` means the prompt goes
- * through (the verdict, if any, stays advisory in the short internal intake
- * note); `refuse` means nothing is admitted, no drain starts, and the reason
- * goes back to the sender.
+ * The admission decision for one prompt. The intake advises, it never
+ * refuses: every prompt is admitted, and the verdict — with the reasons
+ * and, for clarify, the questions — stays advisory in the short internal
+ * intake note the model sees. Nothing the user typed is ever dropped by
+ * the intake, so a wrong verdict costs a clarifying question in chat,
+ * never a red "Prompt rejected" box. `reason` carries the advisory text
+ * (why the intake flagged the prompt) for observability; it is not
+ * shown to the sender as an error.
  */
-export type Disposition =
-  | { readonly action: "admit" }
-  | { readonly action: "refuse"; readonly reason: string }
+export type Disposition = { readonly action: "admit"; readonly reason?: string }
 
 /** What a model disambiguation returns; the heuristic reading is the fallback. */
 export type Disambiguation = {

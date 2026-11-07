@@ -36,6 +36,7 @@ it.live("reports a held session in the prompt response instead of staying silent
         models: { fetch: false },
       },
       {
+        allowUnauthenticated: true,
         overrides: [
           SessionExecution.node.replace(
             makeGlobalNode({ service: SessionExecution.Service, layer: execution, deps: [Bus.node] }),
@@ -74,5 +75,68 @@ it.live("reports a held session in the prompt response instead of staying silent
     })
     expect(admitted.status).toBe(200)
     expect(admitted.body.held).toBe(false)
+  }),
+)
+
+it.live("admits a vague human prompt instead of rejecting it", () =>
+  Effect.gen(function* () {
+    const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-session-prompt-vague-")))
+    const execution = Layer.effect(
+      SessionExecution.Service,
+      Effect.succeed(
+        SessionExecution.Service.of({
+          active: Effect.succeed(new Set()),
+          isActive: () => Effect.succeed(false),
+          resume: () => Effect.void,
+          wake: () => Effect.void,
+          interrupt: () => Effect.succeed(false),
+          awaitIdle: () => Effect.void,
+        }),
+      ),
+    )
+    const handler = yield* ServerFetch.make(
+      {
+        app: { version: "test-version" },
+        database: { path: ":memory:" },
+        fs: { filewatcher: false },
+        models: { fetch: false },
+      },
+      {
+        allowUnauthenticated: true,
+        overrides: [
+          SessionExecution.node.replace(
+            makeGlobalNode({ service: SessionExecution.Service, layer: execution, deps: [Bus.node] }),
+          ),
+        ],
+      },
+    )
+    const request = (path: string, body?: unknown) =>
+      Effect.promise(async () => {
+        const response = await handler(
+          new Request(`http://opencode.local${path}`, {
+            method: body === undefined ? "GET" : "POST",
+            headers: body === undefined ? undefined : { "content-type": "application/json" },
+            body: body === undefined ? undefined : JSON.stringify(body),
+          }),
+        )
+        return { status: response.status, body: (await response.json()) as Record<string, unknown> }
+      })
+    const created = yield* request("/api/session", { location: { directory: tmp.path } })
+    const sessionID = Session.ID.make((created.body.data as { id: string }).id)
+
+    // A vague prompt from a human used to come back as PromptRejectedError
+    // ("Prompt rejected: Промпт расплывчатый...") and never reach the model.
+    // It is admitted now: the clarify verdict and its questions ride in the
+    // intake metadata, and the model asks the user in chat instead.
+    const vague = yield* request(`/api/session/${sessionID}/prompt`, {
+      id: SessionMessage.ID.create(),
+      text: "сделай что-нибудь",
+    })
+    expect(vague.status).toBe(200)
+    const payload = (vague.body.data as { payload: { text: string; metadata?: { intake?: Record<string, unknown> } } })
+      .payload
+    expect(payload.text).toBe("сделай что-нибудь")
+    expect(payload.metadata?.intake).toMatchObject({ verdict: "clarify", trivial: false })
+    expect((payload.metadata?.intake?.questions as Array<string> | undefined)?.length).toBeGreaterThan(0)
   }),
 )

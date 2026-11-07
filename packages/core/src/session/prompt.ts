@@ -30,14 +30,6 @@ export type Input = {
   metadata?: Record<string, unknown>
   delivery?: SessionInbox.Delivery
   resume?: boolean
-  /**
-   * Who sent the prompt. `"user"` is a human (HTTP prompt endpoints pass
-   * it); anything sent by an agent — orchestrator dispatches, subagents,
-   * forge runs, `sessions` tool calls — passes nothing and defaults to
-   * `"agent"`. Only `"user"` prompts are ever refused by the value verdict:
-   * a dispatch restating a board item IS the work, not a duplicate of it.
-   */
-  origin?: "user" | "agent"
 }
 
 export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
@@ -69,20 +61,11 @@ export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
     // admission, the raw prompt goes through untouched. The stored message
     // text is always the original prompt: the analysis reaches the model
     // only as a short internal note built from metadata.intake, never as
-    // message text (see to-llm-message.ts).
+    // message text (see to-llm-message.ts). The intake never refuses a
+    // prompt: a vague, duplicate or already-done verdict stays advisory in
+    // that note, and the model itself asks the user or says the work is
+    // done — the sender never gets a "Prompt rejected" box for it.
     const intake = yield* runPromptIntake({ session: request.session, text: input.text })
-    // A refusal verdict is policy, not a hint: for a prompt that came from a
-    // human, nothing is admitted and no drain starts — the reason goes back
-    // to the sender through PromptInput.Rejected, the channel the session
-    // prompt hook already uses to refuse a prompt before it is enqueued.
-    // This runs before attachments are materialized and skills are selected,
-    // so a refused prompt costs no work at all. Agent-origin prompts are
-    // never refused (see Input.origin).
-    if (intake?.disposition.action === "refuse" && request.input.origin === "user")
-      return yield* new PromptInput.Rejected({
-        reason: intake.disposition.reason,
-        source: "prompt-intake:value-check",
-      })
     const files = input.files
       ? yield* Effect.forEach(input.files, materializeAttachment, { concurrency: 8 })
       : undefined

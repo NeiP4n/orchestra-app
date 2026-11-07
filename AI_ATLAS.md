@@ -579,7 +579,7 @@ receive a structured task instead of a raw one-liner. Runs in
 `SessionPrompt.prepare` (`packages/core/src/session/prompt.ts`) after the
 `session.prompt` plugin hook, before the prompt is admitted to the inbox.
 An intake failure never blocks admission: it falls back to the raw prompt (a
-warning is logged). A refusal verdict DOES block admission — see the policy
+warning is logged). No verdict blocks admission either — see the policy
 below. Trivial prompts — greetings, thanks, short acknowledgements
 ("отлично", "привет", "спасибо", "ок") and continuations ("продолжай", "да")
 — skip analysis entirely (`normalize.ts:isTrivial`, purely lexical, no model
@@ -596,24 +596,19 @@ no skill lookup runs for them.
   executes, with the earlier failure named so the agent investigates it
   first. Runs before any deep processing so tokens are never spent on
   work that already exists.
-- **Value policy as code** (`policy.ts`, pure; enforced in
-  `SessionPrompt.prepare`, not in the prompt text): the pipeline returns a
-  `disposition` with every result — `admit`, or `refuse` with a reason.
-  `skip`/`merge` refuse, `clarify` refuses carrying its questions in the
-  reason, `execute` admits. A refused prompt is never admitted and never
-  wakes a drain: `prepare` fails with `PromptInput.Rejected` (the channel
-  the `session.prompt` hook already uses), the reason goes back to the
-  sender (`PromptRejectedError` on HTTP, `InvalidRequestError` for a room
-  guest), and the refusal happens before attachments are materialized or
-  skills are selected, so it costs no work at all. Two guards keep refusal
-  from dropping real work: it applies only to prompts from a human
-  (`Input.origin === "user"` — the HTTP `session.prompt` handler passes it,
-  a room guest passes it unless its AI wrote the message; agent dispatches,
-  subagents and forge runs pass no origin and are never refused, because a
-  dispatch restating a board item IS the work), and `skip`/`merge` refuse
-  only when the prompt has at least 3 content keywords
-  (`MIN_KEYWORDS_FOR_REFUSAL`) — a shorter prompt that merely shares words
-  with a board item stays admitted, its verdict advisory text. Caveat: the
+- **Value policy as code** (`policy.ts`, pure): the pipeline returns a
+  `disposition` with every result — always `admit`, with an advisory
+  reason for anything but `execute`. The intake never refuses a prompt:
+  a `clarify` verdict admits with its questions in the reason, so the
+  model asks the user in chat instead of the sender getting a "Prompt
+  rejected" box; `skip`/`merge` admit with the reason, so the model
+  verifies the "already done / duplicate" claim and tells the user
+  instead of the prompt being dropped unseen. This used to refuse
+  (`refuse` + `PromptInput.Rejected` → `PromptRejectedError` on HTTP),
+  gated on human origin and a 3-keyword minimum — both gates are gone
+  with the refusal. `PromptInput.Rejected` still exists as the channel
+  the `session.prompt` plugin hook uses to refuse a prompt; the intake
+  no longer raises it. Caveat: the
   session-history `succeeded` branch can never fire in production —
   `prepare` feeds recent prompts without an outcome, so a repeated prompt
   that already succeeded is only ever `merge`, never `skip`.
@@ -662,30 +657,43 @@ no skill lookup runs for them.
   `session/runner/to-llm-message.ts` (`intakeNoteText`, in the style of
   `roomContextText`): the distilled goal (only when it differs from the
   message), a verdict line only for `skip`/`merge`/`clarify`, open
-  questions, suggested skills. The note is omitted for trivial prompts,
-  when there is no intake metadata, and when it adds nothing beyond the
-  message itself — so a simple single-sentence task costs the model 0
-  extra tokens, and a task that does get a note costs roughly a third of
-  the old block (~50–70 tokens for a clarify with questions, vs ~150–200
-  for the old enriched prompt).
+  questions, suggested skills. The note is omitted when there is no intake
+  metadata and when it adds nothing beyond the message itself — so a simple
+  single-sentence task costs the model 0 extra tokens, and a task that does
+  get a note costs roughly a third of the old block (~50–70 tokens for a
+  clarify with questions, vs ~150–200 for the old enriched prompt). A
+  trivial prompt gets a different note instead of the analysis: a greeting
+  or acknowledgement is not a task, so the note tells the model to answer
+  briefly, in one short sentence, in the user's language, with no
+  follow-up questions or task list. A trivial continuation ("продолжай",
+  "да") resumes the work in progress and gets no note at all, so the
+  brevity instruction cannot cut the resumed reply short. The same
+  one-sentence rule for greetings also lives in the default system prompt
+  (`session/runner/prompt/system.txt`, Communication), so it applies on
+  paths without intake metadata too.
 - Tests: `packages/core/test/prompt-intake/` — value (duplicate, subset,
   done, repeat, failed journal entry retries instead of merging, vague, clear,
-  continuation), policy (refuse/admit matrix, short-prompt guard, clarify
-  questions in the reason), understand (goal/context/constraints/ambiguities/
+  continuation), policy (admit-always matrix, clarify questions in the
+  advisory reason, the reported vague prompts admit), understand (goal/context/constraints/ambiguities/
   plan/needsModel), skills (alias matching, top-3), service (mock
   disambiguator, no model, continuation passthrough, trivial prompts skip
   analysis, no enriched prompt field, never fails, disposition on the
   pipeline result, overlong clarified goal ignored), normalize (trivial
   detection: greetings/thanks/acknowledgements true, real tasks false).
   Enforcement at the session level: `packages/core/test/session-prompt.test.ts`
-  — a vague user prompt is refused with nothing admitted and no wake; the
-  same prompt from an agent is admitted; a clear user prompt is admitted
-  and wakes; stored text is the original prompt (trivial and non-trivial),
-  intake metadata present.
+  — a vague user prompt is admitted and wakes, carrying its questions in
+  the intake metadata; a clear user prompt is admitted and wakes; stored
+  text is the original prompt (trivial and non-trivial),
+  intake metadata present. HTTP level:
+  `packages/server/test/session-prompt-held.test.ts` — a vague human prompt
+  posted over HTTP is admitted (200) with a clarify verdict and questions
+  in the intake metadata, not rejected.
   `test/session-runner-message.test.ts` — the model message carries the
   short intake note (goal/skills/questions/verdict), the stored text does
-  not; no note for trivial prompts, for prompts where the note adds
-  nothing, or without intake metadata.
+  not; a brief-reply note for trivial greetings, no note for trivial
+  continuations, for prompts where the note adds nothing, or without
+  intake metadata. `test/session-system-prompt.test.ts` — the default
+  system prompt answers greetings in one sentence.
 
 ## MCP — `packages/core/src/mcp/`
 

@@ -1,7 +1,7 @@
 export * as PromptIntake from "./index.js"
 
 export { checkValue } from "./value.js"
-export { dispositionFor, MIN_KEYWORDS_FOR_REFUSAL } from "./policy.js"
+export { dispositionFor } from "./policy.js"
 export { understand } from "./understand.js"
 export { recommendSkills, type SkillRef } from "./skills.js"
 export { similarity, jaccard, containment } from "./similarity.js"

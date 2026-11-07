@@ -112,23 +112,23 @@ describe("prompt-intake service", () => {
     expect(result.trivial).toBe(false)
   })
 
-  test("the pipeline refuses a duplicate: the disposition is refuse, not just text", async () => {
+  test("the pipeline flags a duplicate as advisory: the disposition admits, naming the finished item", async () => {
     const context = emptyContext()
     context.dodItems.push({ id: "S1", title: "Добавить kanban в DoD", state: "DONE" })
     const result = await run(
       PromptIntake.process({ session: fakeSession, text: "Добавь kanban в DoD", context }),
     )
-    expect(result.disposition.action).toBe("refuse")
-    if (result.disposition.action === "refuse")
-      expect(result.disposition.reason).toContain("Добавить kanban в DoD")
+    expect(result.disposition.action).toBe("admit")
+    expect(result.disposition.reason).toContain("Добавить kanban в DoD")
   })
 
-  test("the pipeline refuses a vague prompt and admits a clear one", async () => {
+  test("the pipeline admits a vague prompt and a clear one", async () => {
     const vague = await run(
       PromptIntake.process({ session: fakeSession, text: "сделай лучше", context: emptyContext() }),
     )
     expect(vague.value.verdict).toBe("clarify")
-    expect(vague.disposition.action).toBe("refuse")
+    expect(vague.disposition.action).toBe("admit")
+    expect(vague.disposition.reason).toContain("Уточни")
     const clear = await run(
       PromptIntake.process({
         session: fakeSession,

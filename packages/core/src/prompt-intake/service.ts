@@ -99,7 +99,7 @@ function trivialResult(text: string): IntakeResult {
     trivial: true,
     modelUsed: false,
     // The hardcoded value verdict is "execute", so this always admits.
-    disposition: dispositionFor(value, text),
+    disposition: dispositionFor(value),
   }
 }
 
@@ -127,7 +127,7 @@ export function processPure(input: {
     skills: recommended,
     trivial: false,
     modelUsed: false,
-    disposition: dispositionFor(value, input.text),
+    disposition: dispositionFor(value),
   }
 }
 
@@ -163,7 +163,7 @@ export const process = Effect.fn("PromptIntake.process")(function* (input: {
     skills: recommended,
     trivial: false,
     modelUsed,
-    disposition: dispositionFor(value, input.text),
+    disposition: dispositionFor(value),
   }
 })
 

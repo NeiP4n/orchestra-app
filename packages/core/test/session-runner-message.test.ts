@@ -163,7 +163,7 @@ describe("toLLMMessages", () => {
     expect(message.text).toBe(text)
   })
 
-  test("skips the intake note for a trivial prompt", () => {
+  test("adds a brief-reply note for a trivial greeting, not the stored text", () => {
     const message = SessionMessage.User.make({
       id: id("intake-trivial"),
       type: "user",
@@ -182,8 +182,38 @@ describe("toLLMMessages", () => {
     })
 
     const [lowered] = toLLMMessages([message], model)
+    const loweredText = JSON.stringify(lowered)
+    expect(loweredText).toContain("[PromptIntake — internal note")
+    expect(loweredText).toContain("one short sentence")
+    expect(loweredText).toContain("отлично")
+    // The stored message keeps the original text: no internal note.
+    expect(message.text).toBe("отлично")
+    expect(message.text).not.toContain("[PromptIntake")
+  })
+
+  test("skips the intake note for a trivial continuation", () => {
+    // "продолжай" is trivial too, but it resumes the work in progress: a
+    // brevity note here would cut the resumed reply short.
+    const message = SessionMessage.User.make({
+      id: id("intake-continuation"),
+      type: "user",
+      text: "продолжай",
+      metadata: {
+        intake: {
+          verdict: "execute",
+          goal: "продолжай",
+          questions: [],
+          skills: [],
+          modelUsed: false,
+          trivial: true,
+        },
+      },
+      time: { created },
+    })
+
+    const [lowered] = toLLMMessages([message], model)
     expect(JSON.stringify(lowered)).not.toContain("[PromptIntake")
-    expect(lowered?.content).toEqual([Message.text("отлично")])
+    expect(lowered?.content).toEqual([Message.text("продолжай")])
   })
 
   test("skips the intake note when it adds nothing beyond the message", () => {

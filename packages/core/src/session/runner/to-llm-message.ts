@@ -12,6 +12,7 @@ import { Option, Schema } from "effect"
 import { fileURLToPath } from "url"
 import { SessionMessage } from "../message.js"
 import { SessionProviderContext } from "../provider-context.js"
+import { isContinuation } from "../../prompt-intake/normalize.js"
 import type { FileAttachment } from "@orchestra/schema/prompt"
 
 const imageMimes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"])
@@ -51,15 +52,28 @@ function roomContextText(metadata: Record<string, unknown> | undefined, text: st
  * analysis is metadata (verdict, goal, questions, skills); the model gets
  * just its essence, not the verbose structured block the old enriched
  * prompt used to carry (~150-200 tokens). The note is skipped when there
- * is no intake metadata, when the prompt is trivial, or when it adds
- * nothing beyond the message text itself (goal restates the message, no
- * open questions or recommended skills, plain "execute" verdict).
+ * is no intake metadata or when it adds nothing beyond the message text
+ * itself (goal restates the message, no open questions or recommended
+ * skills, plain "execute" verdict). A trivial prompt gets a different
+ * note instead of the analysis: a greeting or acknowledgement is not a
+ * task, so the model answers it briefly, in one short sentence. A
+ * continuation ("продолжай", "да") is trivial too, but it resumes the
+ * work in progress — it gets no note at all, so the reply is not cut
+ * short by the brevity instruction.
  */
 function intakeNoteText(metadata: Record<string, unknown> | undefined, text: string) {
   const value = metadata?.intake
   if (!value || typeof value !== "object" || Array.isArray(value)) return text
   const intake = value as Record<string, unknown>
-  if (intake.trivial === true) return text
+  if (intake.trivial === true) {
+    if (isContinuation(text)) return text
+    return [
+      "[PromptIntake — internal note, not part of the user's message]",
+      "This is a greeting or small talk, not a task. Reply briefly, in one short sentence, in the user's language. Do not ask follow-up questions or offer a task list.",
+      "",
+      text,
+    ].join("\n")
+  }
   const goal = typeof intake.goal === "string" && intake.goal.trim() ? intake.goal.trim() : undefined
   const verdict = typeof intake.verdict === "string" ? intake.verdict : undefined
   const questions = Array.isArray(intake.questions)
