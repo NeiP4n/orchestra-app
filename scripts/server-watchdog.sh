@@ -52,9 +52,13 @@
 #                              [--window-seconds N] [--backoff-base SECONDS]
 #                              [--log FILE] [--probe] -- [extra `serve` args...]
 #
-# The serve command is `bun packages/cli/src/index.ts serve "$@"` so the
+# The serve command is `$BUN packages/cli/src/index.ts serve "$@"` so the
 # watchdog runs the worktree's own code; pass --port to serve through the
-# extra args as usual. ORCHESTRA_CONFIG_DIR / ORCHESTRA_DATA_DIR /
+# extra args as usual. $BUN is resolved once at startup (see resolve_bun
+# below): systemd runs this script with a minimal PATH that has no bun in
+# it, so a bare `bun` here failed with exit code 127 on every start.
+# ORCHESTRA_BUN overrides the resolution with an explicit bun path.
+# ORCHESTRA_CONFIG_DIR / ORCHESTRA_DATA_DIR /
 # ORCHESTRA_PASSWORD are inherited from the environment, exactly as for a
 # manual `orchestra serve`. The data directory defaults to
 # $ORCHESTRA_DATA_DIR, else ~/.local/share/orchestra.
@@ -91,11 +95,45 @@ log() {
   echo "$line" >>"$LOG_FILE" 2>/dev/null || true
 }
 
+# Resolve bun once, up front: systemd runs this script with a minimal
+# PATH that has no bun in it, so a bare `bun` failed with exit code 127
+# on every start from the unit (2026-11-07) while the interactive shell
+# worked. Order: explicit ORCHESTRA_BUN, then `command -v bun`, then
+# known install locations. A set-but-unusable ORCHESTRA_BUN fails
+# loudly instead of silently falling through to a different bun.
+resolve_bun() {
+  if [ -n "${ORCHESTRA_BUN:-}" ]; then
+    # >&2: resolve_bun runs inside $(...) to capture the path, so a plain
+    # log line here would be swallowed into the captured output instead
+    # of reaching the terminal. The log-file append inside log() still runs.
+    [ -x "$ORCHESTRA_BUN" ] || { log "ORCHESTRA_BUN is set but not executable: $ORCHESTRA_BUN" >&2; return 1; }
+    echo "$ORCHESTRA_BUN"
+    return 0
+  fi
+  local found
+  found="$(command -v bun 2>/dev/null || true)"
+  if [ -n "$found" ] && [ -x "$found" ]; then
+    echo "$found"
+    return 0
+  fi
+  local candidate
+  for candidate in /opt/hatch-image/bin/bun "${HOME:-}/.bun/bin/bun" /usr/local/bin/bun; do
+    if [ -x "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+BUN="$(resolve_bun)" || { log "bun not found: not on PATH and not at /opt/hatch-image/bin/bun, \$HOME/.bun/bin/bun or /usr/local/bin/bun (set ORCHESTRA_BUN to its full path). Refusing to run: without bun every serve start would fail with exit code 127."; exit 1; }
+log "using bun at $BUN"
+
 # Reads one field out of the lifecycle state file with bun (no jq dependency).
 # Prints nothing when the file is missing or unreadable.
 state_field() {
   [ -f "$DATA_DIR/server-state.json" ] || return 0
-  bun -e '
+  "$BUN" -e '
     const fs = require("node:fs");
     try {
       const s = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -109,7 +147,7 @@ state_field() {
 # Reads one field out of a lock file with bun (no jq dependency).
 # Prints nothing when the file is missing or unreadable.
 lock_field() {
-  bun -e '
+  "$BUN" -e '
     const fs = require("node:fs");
     try {
       const lock = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -269,7 +307,7 @@ log "starting; data dir $DATA_DIR; max restarts $MAX_RESTARTS within ${WINDOW_SE
 while true; do
   failures="$(failures_in_window)"
   log "starting server (attempt $((failures + 1)))"
-  (cd "$ROOT" && bun packages/cli/src/index.ts serve "${SERVE_ARGS[@]}")
+  (cd "$ROOT" && "$BUN" packages/cli/src/index.ts serve "${SERVE_ARGS[@]}")
   code=$?
   log "server exited with code $code"
 

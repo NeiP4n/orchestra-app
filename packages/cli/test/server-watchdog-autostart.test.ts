@@ -126,7 +126,10 @@ test("probe says no server for a stale lock from a dead pid", async () => {
     await writeLock(directory, await deadPid(), "2026-11-06T00:00:00.000Z")
     const result = await run(WATCHDOG, ["--data-dir", directory, "--probe"], {})
     expect(result.code).toBe(1)
-    expect(result.stdout).toBe("")
+    // The watchdog logs which bun it resolved; the probe itself reports
+    // no holder, so no lock file is named.
+    expect(result.stdout).toContain("using bun at")
+    expect(result.stdout).not.toContain(".lock")
   } finally {
     await fs.rm(directory, { recursive: true, force: true })
   }
@@ -139,7 +142,8 @@ test("probe rejects a recycled pid: live pid, wrong startedAt", async () => {
     await writeLock(directory, sleeper.pid, "2026-11-06T00:00:00.000Z")
     const result = await run(WATCHDOG, ["--data-dir", directory, "--probe"], {})
     expect(result.code).toBe(1)
-    expect(result.stdout).toBe("")
+    expect(result.stdout).toContain("using bun at")
+    expect(result.stdout).not.toContain(".lock")
     expect(result.stderr).toContain("PID reuse")
   } finally {
     sleeper.kill()
@@ -152,7 +156,8 @@ test("probe says no server when there is no lock", async () => {
   try {
     const result = await run(WATCHDOG, ["--data-dir", directory, "--probe"], {})
     expect(result.code).toBe(1)
-    expect(result.stdout).toBe("")
+    expect(result.stdout).toContain("using bun at")
+    expect(result.stdout).not.toContain(".lock")
   } finally {
     await fs.rm(directory, { recursive: true, force: true })
   }
@@ -230,3 +235,117 @@ test("installer dry-run renders a unit with no placeholders, and --check passes 
     await fs.rm(directory, { recursive: true, force: true })
   }
 }, 180000)
+
+// systemd runs the watchdog with a minimal PATH that has no bun in it
+// (2026-11-07: the unit got `server exited with code 127` four times
+// while the interactive shell worked). The watchdog must resolve bun
+// itself: ORCHESTRA_BUN, then `command -v bun`, then known locations.
+const SYSTEMD_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+/** process.env without ORCHESTRA_BUN, so a test controls bun resolution fully. */
+function envWithoutBunOverride() {
+  const { ORCHESTRA_BUN: _ignored, ...rest } = process.env
+  return rest
+}
+
+test("probe finds bun via ORCHESTRA_BUN when PATH has no bun", async () => {
+  const directory = await dataDir()
+  const sleeper = Bun.spawn(["sleep", SLEEPER_SECONDS], { stdout: "ignore", stderr: "ignore" })
+  const stub = await stubBun(directory)
+  try {
+    await writeLock(directory, sleeper.pid, await procStartISO(sleeper.pid))
+    const result = await run(
+      WATCHDOG,
+      ["--data-dir", directory, "--probe"],
+      {
+        ...envWithoutBunOverride(),
+        PATH: SYSTEMD_PATH,
+        HOME: directory,
+        ORCHESTRA_BUN: path.join(stub.directory, "bun"),
+      },
+    )
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain(`using bun at ${stub.directory}/bun`)
+    expect(result.stdout).toContain(`${sleeper.pid} (`)
+  } finally {
+    sleeper.kill()
+    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(stub.directory, { recursive: true, force: true })
+  }
+}, 180000)
+
+test("serve starts through ORCHESTRA_BUN when PATH has no bun", async () => {
+  const directory = await dataDir()
+  const stub = await stubBun(directory)
+  try {
+    const result = await run(
+      WATCHDOG,
+      ["--data-dir", directory, "--max-restarts", "0", "--window-seconds", "60", "--backoff-base", "0", "--", "--port", "17890"],
+      {
+        ...envWithoutBunOverride(),
+        PATH: SYSTEMD_PATH,
+        HOME: directory,
+        ORCHESTRA_BUN: path.join(stub.directory, "bun"),
+        STUB_SERVE_DELAY: "0",
+        STUB_SERVE_EXIT: "0",
+      },
+    )
+    expect(await invocationCount(stub.log)).toBe(1)
+    expect(result.stdout).toContain(`using bun at ${stub.directory}/bun`)
+    expect(result.code).toBe(1)
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(stub.directory, { recursive: true, force: true })
+  }
+}, 180000)
+
+test("a broken ORCHESTRA_BUN fails loudly instead of exit 127 restarts", async () => {
+  const directory = await dataDir()
+  const stub = await stubBun(directory)
+  try {
+    const result = await run(
+      WATCHDOG,
+      ["--data-dir", directory, "--max-restarts", "0", "--window-seconds", "60", "--backoff-base", "0", "--", "--port", "17890"],
+      {
+        ...envWithoutBunOverride(),
+        PATH: SYSTEMD_PATH,
+        HOME: directory,
+        ORCHESTRA_BUN: "/nonexistent/bun",
+      },
+    )
+    expect(result.code).toBe(1)
+    // The specific cause goes to stderr (the resolver runs inside $(...),
+    // so a stdout log line there would be swallowed); the summary is on stdout.
+    expect(result.stderr).toContain("ORCHESTRA_BUN is set but not executable")
+    expect(result.stdout).toContain("bun not found")
+    expect(await invocationCount(stub.log)).toBe(0)
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(stub.directory, { recursive: true, force: true })
+  }
+}, 180000)
+
+// The exact 2026-11-07 regression: systemd PATH, no override, bun only
+// at its image location. Only runs where that location exists.
+test.skipIf(!await fs.stat("/opt/hatch-image/bin/bun").then(() => true).catch(() => false))(
+  "probe works with a systemd-like PATH via the fallback bun location",
+  async () => {
+    const directory = await dataDir()
+    const sleeper = Bun.spawn(["sleep", SLEEPER_SECONDS], { stdout: "ignore", stderr: "ignore" })
+    try {
+      await writeLock(directory, sleeper.pid, await procStartISO(sleeper.pid))
+      const result = await run(
+        WATCHDOG,
+        ["--data-dir", directory, "--probe"],
+        { ...envWithoutBunOverride(), PATH: SYSTEMD_PATH, HOME: directory },
+      )
+      expect(result.code).toBe(0)
+      expect(result.stdout).toContain("using bun at /opt/hatch-image/bin/bun")
+      expect(result.stdout).toContain(`${sleeper.pid} (`)
+    } finally {
+      sleeper.kill()
+      await fs.rm(directory, { recursive: true, force: true })
+    }
+  },
+  180000,
+)
