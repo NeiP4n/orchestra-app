@@ -1,7 +1,7 @@
 export * as PromptIntakeModel from "./model.js"
 
 import { Duration, Effect, Option } from "effect"
-import { LLMClient, Message } from "@orchestra/ai"
+import { LLMClient, Message, SystemPart } from "@orchestra/ai"
 import { Model } from "../model.js"
 import { ModelResolver } from "../model-resolver.js"
 import { Provider } from "../provider.js"
@@ -28,7 +28,7 @@ const SYSTEM =
 export type Disambiguator = (input: {
   session: SessionSchema.Info
   task: StructuredTask
-}) => Effect.Effect<Disambiguation, never>
+}) => Effect.Effect<Disambiguation, never, Model.Service | ModelResolver.Service | SessionContext.Service | LLMClient.Service>
 
 function heuristic(task: StructuredTask): Disambiguation {
   return {
@@ -95,7 +95,7 @@ export const disambiguateWithModel: Disambiguator = Effect.fn("PromptIntake.disa
       agent: selection.agent.id,
       model: resolved,
       tools: selection.tools,
-      system: SYSTEM,
+      system: [SystemPart.make(SYSTEM)],
       messages: [Message.user(prompt)],
     })
     const llm = yield* LLMClient.Service

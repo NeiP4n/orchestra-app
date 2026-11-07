@@ -136,7 +136,7 @@ export const process = Effect.fn("PromptIntake.process")(function* (input: {
   text: string
   context: IntakeContext
   disambiguate?: Disambiguator
-}): Effect.Effect<IntakeResult, never> {
+}) {
   if (isTrivial(input.text)) {
     return trivialResult(input.text)
   }
