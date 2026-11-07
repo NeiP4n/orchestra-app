@@ -93,6 +93,16 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
         const decision = decide(service, options)
         if (decision._tag === "fail") throw decision.error
         if (decision._tag === "reuse") {
+          // Same release, different build: the restart was skipped, so say so —
+          // otherwise a stale server looks identical to a fresh one.
+          if (
+            typeof options.version === "string" &&
+            service.version !== undefined &&
+            service.version !== options.version
+          )
+            console.warn(
+              `Reusing background service ${service.version}; this client is ${options.version}`,
+            )
           await PtyHandoff.complete(options.file ?? fallback(), service.info)
           return service.endpoint
         }

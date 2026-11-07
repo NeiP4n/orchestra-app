@@ -53,6 +53,19 @@ test("a version mismatch replaces the service, handing off terminals only when i
   })
 })
 
+test("a server from another commit of the same release is reused, a different release is replaced", () => {
+  expect(
+    decide(service({ version: "1.0.0+a3727276a", state: "ready", compatible: true }), {
+      version: "1.0.0+deadbeef0",
+    }),
+  ).toEqual({ _tag: "reuse" })
+  expect(
+    decide(service({ version: "1.0.0+a3727276a", state: "ready", compatible: true }), {
+      version: "1.0.1+deadbeef0",
+    }),
+  ).toEqual({ _tag: "replace", pty: "handoff" })
+})
+
 test("connectURL rewrites a wildcard bind address to loopback and leaves connectable URLs alone", () => {
   // A LAN-open service registers its wildcard bind address; Windows clients
   // cannot connect to 0.0.0.0, so discovery must dial loopback instead.

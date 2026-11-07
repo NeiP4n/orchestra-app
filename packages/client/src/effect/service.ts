@@ -112,6 +112,17 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
       const decision = decide(service, options)
       if (decision._tag === "fail") return yield* Effect.fail(decision.error)
       if (decision._tag === "reuse") {
+        // Same release, different build: the restart was skipped, so say so —
+        // otherwise a stale server looks identical to a fresh one.
+        if (
+          typeof options.version === "string" &&
+          service.version !== undefined &&
+          service.version !== options.version
+        )
+          yield* Effect.logWarning("Reusing background service from a different build", {
+            server: service.version,
+            client: options.version,
+          })
         yield* Effect.tryPromise(() => PtyHandoff.complete(options.file ?? fallback(), service.info))
         return Option.some(service)
       }

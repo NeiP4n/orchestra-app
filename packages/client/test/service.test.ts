@@ -59,6 +59,27 @@ test("reuses a compatible registered service", async () => {
   expect(existing.exitCode).toBe(null)
 })
 
+test("reuses a service from another commit of the same release instead of restarting it", async () => {
+  await using fixture = await serviceFixture()
+  const registration = fixture.registration
+  const existing = fixture.spawn("compatible")
+  await fixture.waitForFile()
+
+  const starts: EnsureReason[] = []
+  const endpoint = await run(
+    ensure({
+      file: registration,
+      version: "2.1.0-next.1+deadbeef0",
+      command: [],
+      onStart: (reason) => starts.push(reason),
+    }),
+  )
+
+  expect(endpoint.url).toBe((await Bun.file(registration).json()).url)
+  expect(starts).toEqual([])
+  expect(existing.exitCode).toBe(null)
+})
+
 test("adds configured environment variables when starting a service", async () => {
   await using fixture = await serviceFixture()
   const registration = fixture.registration
