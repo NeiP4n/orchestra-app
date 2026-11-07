@@ -59,9 +59,16 @@ describe("McpSelect.selectForTask", () => {
     expect(decision.explanation).toContain("agent-desktop")
   })
 
-  test("context7 falls back to deepwiki, serena to native symbols/grep", () => {
+  test("context7 falls back to deepwiki, serena and xerj fall back to each other then native", () => {
     expect(McpSelect.fallbackChain("context7")).toEqual([{ kind: "mcp", server: "deepwiki" }])
-    expect(McpSelect.fallbackChain("serena")).toEqual([{ kind: "native", tools: ["symbols", "grep", "read"] }])
+    expect(McpSelect.fallbackChain("serena")).toEqual([
+      { kind: "mcp", server: "xerj" },
+      { kind: "native", tools: ["symbols", "grep", "read"] },
+    ])
+    expect(McpSelect.fallbackChain("xerj")).toEqual([
+      { kind: "mcp", server: "serena" },
+      { kind: "native", tools: ["symbols", "grep", "read"] },
+    ])
     const docs = McpSelect.selectForTask("документация библиотеки")
     expect(docs.kind).toBe("mcp")
     if (docs.kind === "mcp") {

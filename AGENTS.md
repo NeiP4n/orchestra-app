@@ -75,6 +75,7 @@ Orchestra relies deeply on Effect v4 for structured concurrency, type safety, an
 - **Server Integration**: Orchestra's curated catalog integrates MCP servers only where they add a capability the native tools do not have:
   - `context7`: Up-to-date documentation resolution and library reference retrieval.
   - `serena`: Semantic code intelligence at symbol level via language servers.
+  - `xerj`: Indexed code search (BM25 + vector passages with file:line citations) over a local node the operator starts; needs the node running and the project indexed first, and is off by default like every catalog server.
   - `rea-anything`: Binary analysis and reverse-engineering capabilities.
   - `playwright`: Browser automation for live pages and web apps.
   - `agent-desktop`: Desktop application control via the OS accessibility tree.

@@ -479,7 +479,7 @@ they are not new tasks.
 
 - `catalog.ts` is the curated catalog: a server is catalogued only if it adds a
   capability the native tools lack. Current entries: context7, serena,
-  rea-anything, playwright, agent-desktop, github, deepwiki, sentry. Servers
+  xerj, rea-anything, playwright, agent-desktop, github, deepwiki, sentry. Servers
   duplicating native tools (filesystem, git, fetch, memory, sequential-thinking,
   time, generic search) are deliberately absent — do not re-add them; the
   classes live in `catalog.ts` as `nativeAnalogues` instead, and the selector
@@ -487,7 +487,7 @@ they are not new tasks.
 - `select.ts` is the smart selector: Russian needs translate to English before
   matching, every candidate carries a confidence score, and below the threshold
   (or on a tie at the top) it returns an ask-card instead of guessing. Fallback
-  chains are fixed per server (context7 → deepwiki, serena → native
+  chains are fixed per server (context7 → deepwiki, serena ↔ xerj → native
   symbols/grep, playwright → agent-desktop); `mcp_manager acquire` walks the
   chain when the winner is down. Persistent ratings (`ratings.ts`, KV-backed)
   nudge the ranking; every dispatch records its outcome.
@@ -542,6 +542,73 @@ they are not new tasks.
   MCP.callTool`, the choke point for every MCP tool call) while the real-screen
   opt-in is invalid — even when installed by hand in the config. The selector
   (`select.ts`) still matches them; the gate lives in acquire/call, not in ranking.
+
+## Code search (xerj) — `packages/core/src/mcp/catalog.ts`, `packages/core/src/memory/code-search.ts` (Б17, pilot run6)
+
+- The search layer under the three-level memory is xerj v1.0.0-rc.101 (news
+  run6 №5), chosen over Graphify v0.9.102 (№2) on a pilot of the same six
+  agent questions over `packages/core/src` (688 files, both tools indexed the
+  same corpus; full-repo indexing was abandoned mid-pilot — see below).
+  Scores (2 = file + symbol, 1 = file only, 0 = wrong): tie 8/24 each
+  (graphify EN 5/12, RU 3/12; xerj EN 4/12, RU 4/12). Tie-breakers for xerj:
+  ~35% fewer answer tokens (8 693 vs 13 345 chars/4 over 24 answers),
+  ~5x faster to index (4m38s vs ~23 min for the same 688 files),
+  ~5x faster per query (~2–3.5 s vs ~15 s), deterministic output size
+  (`-k`/`--full`), and Russian questions return ranked passages instead of
+  an empty hard fail (graphify `query` exits 4 with "No matching nodes
+  found" on 3 of 6 Russian questions — it matches code keywords only).
+  Honest limit: neither beats a grep from an agent that already knows the
+  symbol name (the six perfect greps cost 324 tokens total); the tools pay
+  off only when the agent does NOT know the name — and there they score
+  33%, so xerj is a first try with a fallback chain, not an oracle.
+- Graphify's failure modes, for the record: `query --budget 2000` returned
+  ~6 600 tokens anyway (the budget flag is not honoured — edges are never
+  dropped once every node fits), the full-repo extract ran ~30 min to 80%
+  (5 700/7 048 files) before a runtime restart killed it, and the rerun
+  reused only 562 cached files, so it does not resume after a kill.
+  The full-repo xerj autoindex also never finished in the pilot (82.9% of
+  91.7 MB when the runtime restart killed it; the resume then stalled on
+  edge invalidation) — the full-repo numbers above are scoped-corpus
+  numbers, and a full-repo re-index is a documented follow-up, not a
+  claim made here.
+- Wiring (minimal, off by default like every catalog server): the catalog
+  entry `xerj` runs `xerj mcp --url http://127.0.0.1:9200
+  --disable-feedback` (stdio) against a node the OPERATOR starts first:
+  `xerj --data-dir ~/xerj-data` (auth on by default — export
+  `XERJ_API_KEY` from `<data_dir>/admin.key`), then `xerj autoindex
+  <project>` once. Orchestra never starts, stops, or restarts the node,
+  and never passes `--insecure`: that flag is a local-sandbox flag only
+  (the pilot used it on 127.0.0.1:9217 because the sandbox node had no
+  key yet) — in production a node without auth is a refusal, not a
+  fallback. `MemoryCodeSearch` (`memory/code-search.ts`) holds the seam:
+  `DEFAULT_NODE_URL`, `nodeUrlFromEnv` (`XERJ_URL`), `mcpCommand`, and
+  `loopbackProblem` (refuses any non-loopback node URL, fail-closed).
+- Fallbacks: `xerj` → `serena` → native symbols/grep; `serena` →
+  `xerj` → native. A generic "поиск по коду" still ranks serena first
+  (xerj needs a running node; serena needs only uvx) — xerj wins only
+  when the need names it (`xerj`, `indexed search`).
+- Roles: `xerj_*` rides with `serena_*` in the MCP Servers group, the
+  `read` implied tools, and the role-toolkit `MCP` const
+  (`packages/schema/src/orchestra.ts`) — that is what makes at least one
+  team role allowed to use it (the role-profiles test enforces this for
+  every catalog server, and two of its exact-list expectations name
+  xerj next to serena).
+- Fragility, stated plainly: the pilot node died 5 times in ~3 hours on
+  this 8 GB shared VM (no crash line in its log; each death coincided
+  with <200 MB free memory, so OOM-kill is the likely cause, unproven —
+  `dmesg` is not permitted here). The node recovers its index from WAL
+  on restart (9 297 / 18 736 entries replayed) and autoindex resumes
+  from its journal, but a society must treat xerj as optional: acquire
+  with the normal MCP timeout and circuit breaker, and let the fallback
+  chain serve when the node is down. Do not add a watchdog or auto-restart
+  for the node until someone owns running it.
+- Tests: `packages/core/test/memory-code-search.test.ts` (4: default URL,
+  env override, MCP command incl. no `--insecure`, loopback guard),
+  `mcp-catalog.test.ts` (xerj entry), `mcp-select.test.ts` (both fallback
+  chains), `mcp-role-profiles.test.ts` (xerj in the derived profiles).
+  Verify: `bun test test/memory-code-search.test.ts
+  test/mcp-catalog.test.ts test/mcp-select.test.ts
+  test/mcp-role-profiles.test.ts` in `packages/core` (31 pass).
 
 ## SSRF gate — `packages/core/src/tool/ssrf.ts` (Б13, extended in G2-2)
 

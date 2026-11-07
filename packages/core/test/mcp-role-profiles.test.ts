@@ -18,7 +18,7 @@ describe("MCP role profiles", () => {
     expect(serversOf(["webfetch"])).toEqual(["context7", "deepwiki"])
     expect(serversOf(["read"])).toContain("serena")
     // `mcp_*` is the management toolset, not a server; bare actions name no server.
-    expect(serversOf(["mcp_*", "mcp_forge", "read"])).toEqual(["serena"])
+    expect(serversOf(["mcp_*", "mcp_forge", "read"])).toEqual(["serena", "xerj"])
   })
 
   test("servers a role's own rules name are required, the rest allowed", () => {
@@ -113,6 +113,7 @@ describe("MCP role profiles", () => {
     expect(profile.servers).toEqual([
       { server: "context7", access: "required" },
       { server: "serena", access: "allowed" },
+      { server: "xerj", access: "allowed" },
     ])
     // A role with no tool list inherits its kind's toolkit (RoleToolkits),
     // not the whole catalog: the "General" kind gets the generalist floor,
