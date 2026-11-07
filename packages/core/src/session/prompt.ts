@@ -66,7 +66,10 @@ export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
     const input = event.prompt
     // Deep-process the prompt before the agent sees it: value check, structured
     // task, recommended skills. Best-effort — a failure here never blocks
-    // admission, the raw prompt goes through untouched.
+    // admission, the raw prompt goes through untouched. The stored message
+    // text is always the original prompt: the analysis reaches the model
+    // only as a short internal note built from metadata.intake, never as
+    // message text (see to-llm-message.ts).
     const intake = yield* runPromptIntake({ session: request.session, text: input.text })
     // A refusal verdict is policy, not a hint: for a prompt that came from a
     // human, nothing is admitted and no drain starts — the reason goes back
@@ -108,7 +111,7 @@ export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
       type: "user",
       payload: SessionInbox.UserPayload.make({
         ...Prompt.make({
-          text: intake?.enrichedPrompt ?? input.text,
+          text: input.text,
           agents: input.agents,
           files,
           skills: selected?.length ? selected : undefined,
@@ -123,6 +126,7 @@ export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
                 questions: intake.value.questions,
                 skills: intake.skills.map((skill) => skill.id),
                 modelUsed: intake.modelUsed,
+                trivial: intake.trivial,
               },
             }
           : event.metadata,

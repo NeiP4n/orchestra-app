@@ -243,11 +243,14 @@ describe("Session.prompt", () => {
         resume: false,
       })
 
-      // The intake now runs in this harness, so the admitted text is the
-      // enriched prompt: the original verbatim first, then the structured
-      // interpretation. The test's point is admission before promotion.
-      expect(message.payload.text.startsWith("Fix the failing tests")).toBe(true)
-      expect(message.payload.metadata).toMatchObject({ intake: { goal: "Fix the failing tests" } })
+      expect(message.payload.text).toBe("Fix the failing tests")
+      // The intake analysis is metadata, not message text: no structured
+      // block is stored in the visible message.
+      expect(message.payload.text).not.toContain("[PromptIntake")
+      const intake = message.payload.metadata?.intake as { trivial?: unknown; goal?: unknown } | undefined
+      expect(intake).toBeDefined()
+      expect(intake?.trivial).toBe(false)
+      expect(intake?.goal).toBe("Fix the failing tests")
       expect(yield* session.messages({ sessionID })).toEqual([])
       expect(yield* admitted(message.id)).toMatchObject({
         id: message.id,
@@ -256,6 +259,27 @@ describe("Session.prompt", () => {
         payload: { resumeOnStart: false },
         delivery: "steer",
       })
+    }),
+  )
+
+  it.effect("admits a trivial prompt as-is, marked trivial in the intake metadata", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* Session.Service
+
+      const message = yield* session.prompt({
+        sessionID,
+        text: "отлично",
+        resume: false,
+      })
+
+      // The user sees exactly what they typed: no structured block, and
+      // no analysis was run (no model call, no skills, no DoD).
+      expect(message.payload.text).toBe("отлично")
+      expect(message.payload.text).not.toContain("[PromptIntake")
+      const intake = message.payload.metadata?.intake as { trivial?: unknown; verdict?: unknown } | undefined
+      expect(intake?.trivial).toBe(true)
+      expect(intake?.verdict).toBe("execute")
     }),
   )
 
@@ -1078,6 +1102,8 @@ describe("Session.prompt", () => {
       // ("Deploy" is a one-word prompt, so its verdict is clarify — it is
       // still admitted here because it came from an agent, not a human.)
       expect(first.payload.metadata).toMatchObject({ source: "api", intake: { verdict: "clarify" } })
+      const intake = first.payload.metadata?.intake as { trivial?: unknown } | undefined
+      expect(intake?.trivial).toBe(false)
       expect(yield* admittedCount).toBe(1)
     }),
   )

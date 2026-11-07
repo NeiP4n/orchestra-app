@@ -25,7 +25,7 @@ const mockDisambiguate: PromptIntake.Disambiguator = () =>
   })
 
 describe("prompt-intake service", () => {
-  test("processPure enriches a clear prompt with goal, DoD, and skills", () => {
+  test("processPure structures a clear prompt into goal, DoD, and skills", () => {
     const result = PromptIntake.processPure({
       text: "Исправь ошибку в packages/core/src/session/prompt.ts. Сервер падает при пустом промпте.",
       context: emptyContext(),
@@ -34,10 +34,12 @@ describe("prompt-intake service", () => {
       ],
     })
     expect(result.value.verdict).toBe("execute")
-    expect(result.enrichedPrompt).toContain("Исправь ошибку в packages/core/src/session/prompt.ts.")
-    expect(result.enrichedPrompt).toContain("Цель:")
-    expect(result.enrichedPrompt).toContain("Готово, когда:")
+    expect(result.task.goal).toContain("Исправь ошибку")
+    expect(result.task.dod.length).toBeGreaterThan(0)
+    expect(result.trivial).toBe(false)
     expect(result.modelUsed).toBe(false)
+    // The structured block is gone: the result carries no enriched text.
+    expect("enrichedPrompt" in result).toBe(false)
   })
 
   test("process with a mock model refines an ambiguous prompt and marks model use", async () => {
@@ -62,13 +64,32 @@ describe("prompt-intake service", () => {
     expect(result.task.ambiguities.length).toBeGreaterThan(0)
   })
 
-  test("a continuation passes through untouched", async () => {
+  test("a continuation is trivial and passes through untouched", async () => {
     const result = await run(
       PromptIntake.process({ session: fakeSession, text: "продолжай", context: emptyContext() }),
     )
-    expect(result.enrichedPrompt).toBe("продолжай")
+    expect(result.trivial).toBe(true)
+    expect(result.original).toBe("продолжай")
     expect(result.value.verdict).toBe("execute")
     expect(result.modelUsed).toBe(false)
+    expect(result.skills).toHaveLength(0)
+  })
+
+  test("a trivial prompt skips analysis entirely: no model, no skills, no structure", async () => {
+    for (const text of ["отлично", "привет", "спасибо", "ок", "так, давай"]) {
+      const result = await run(PromptIntake.process({ session: fakeSession, text, context: emptyContext() }))
+      expect(result.trivial).toBe(true)
+      expect(result.original).toBe(text)
+      expect(result.value.verdict).toBe("execute")
+      expect(result.modelUsed).toBe(false)
+      expect(result.skills).toHaveLength(0)
+      expect(result.task.dod).toHaveLength(0)
+      expect(result.task.plan).toHaveLength(0)
+    }
+    // The pure pipeline agrees: no model is involved for a trivial prompt.
+    const pure = PromptIntake.processPure({ text: "отлично", context: emptyContext() })
+    expect(pure.trivial).toBe(true)
+    expect(pure.modelUsed).toBe(false)
   })
 
   test("process never fails, even on an empty prompt", async () => {
@@ -86,8 +107,9 @@ describe("prompt-intake service", () => {
       PromptIntake.process({ session: fakeSession, text: "Добавь kanban в DoD", context }),
     )
     expect(result.value.verdict).toBe("skip")
-    expect(result.enrichedPrompt).toContain("Добавить kanban в DoD")
-    expect(result.enrichedPrompt).toContain("Ценность: пропустить")
+    expect(result.task.goal).toContain("Добавь kanban в DoD")
+    expect(result.value.reasons.join(" ")).toContain("kanban")
+    expect(result.trivial).toBe(false)
   })
 
   test("the pipeline refuses a duplicate: the disposition is refuse, not just text", async () => {

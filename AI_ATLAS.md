@@ -468,8 +468,11 @@ receive a structured task instead of a raw one-liner. Runs in
 `session.prompt` plugin hook, before the prompt is admitted to the inbox.
 An intake failure never blocks admission: it falls back to the raw prompt (a
 warning is logged). A refusal verdict DOES block admission — see the policy
-below. Continuations ("продолжай", "да", "ok") pass through untouched —
-they are not new tasks.
+below. Trivial prompts — greetings, thanks, short acknowledgements
+("отлично", "привет", "спасибо", "ок") and continuations ("продолжай", "да")
+— skip analysis entirely (`normalize.ts:isTrivial`, purely lexical, no model
+call): they are not tasks, so no value check, no model disambiguation and
+no skill lookup runs for them.
 
 - **Value check first** (`value.ts`, pure): duplicate → `merge`, already
   done → `skip`, too vague → `clarify` (1–3 questions), clear → `execute`.
@@ -533,23 +536,44 @@ they are not new tasks.
   content (Russian task words map to English skill words via
   `DOMAIN_ALIASES`), top 3 with a reason. The agent loads them itself.
 - **Service** (`service.ts`): `PromptIntake.Service.process` wires value →
-  understand → model → skills → enriched prompt (original verbatim +
-  structured interpretation). The pure pipeline (`processPure`) is the same
-  without a model or services. Registered as a location node in
+  understand → model → skills into a structured result (`IntakeResult`:
+  value verdict, structured task, recommended skills, `trivial` flag,
+  `modelUsed`). The pure pipeline (`processPure`) is the same without a
+  model or services. There is no enriched prompt text: the structured
+  interpretation is data, not message text. Registered as a location node in
   `packages/core/src/instance.ts`, so it is available in the session scope.
-- **Integration**: the enriched prompt becomes the user message text; a
-  compact intake summary (verdict, goal, questions, skill ids, modelUsed)
-  is attached to the message metadata under `intake`.
+- **Integration**: the stored user message text is always the original
+  prompt — no structured block ever enters it. A compact intake summary
+  (verdict, goal, questions, skill ids, modelUsed, trivial) is attached to
+  the message metadata under `intake`. The model sees the analysis only as
+  a short internal note built from that metadata in
+  `session/runner/to-llm-message.ts` (`intakeNoteText`, in the style of
+  `roomContextText`): the distilled goal (only when it differs from the
+  message), a verdict line only for `skip`/`merge`/`clarify`, open
+  questions, suggested skills. The note is omitted for trivial prompts,
+  when there is no intake metadata, and when it adds nothing beyond the
+  message itself — so a simple single-sentence task costs the model 0
+  extra tokens, and a task that does get a note costs roughly a third of
+  the old block (~50–70 tokens for a clarify with questions, vs ~150–200
+  for the old enriched prompt).
 - Tests: `packages/core/test/prompt-intake/` — value (duplicate, subset,
   done, repeat, failed journal entry retries instead of merging, vague, clear,
   continuation), policy (refuse/admit matrix, short-prompt guard, clarify
   questions in the reason), understand (goal/context/constraints/ambiguities/
   plan/needsModel), skills (alias matching, top-3), service (mock
-  disambiguator, no model, continuation passthrough, never fails, disposition
-  on the pipeline result, overlong clarified goal ignored). Enforcement at
-  the session level: `packages/core/test/session-prompt.test.ts` — a vague
-  user prompt is refused with nothing admitted and no wake; the same prompt
-  from an agent is admitted; a clear user prompt is admitted and wakes.
+  disambiguator, no model, continuation passthrough, trivial prompts skip
+  analysis, no enriched prompt field, never fails, disposition on the
+  pipeline result, overlong clarified goal ignored), normalize (trivial
+  detection: greetings/thanks/acknowledgements true, real tasks false).
+  Enforcement at the session level: `packages/core/test/session-prompt.test.ts`
+  — a vague user prompt is refused with nothing admitted and no wake; the
+  same prompt from an agent is admitted; a clear user prompt is admitted
+  and wakes; stored text is the original prompt (trivial and non-trivial),
+  intake metadata present.
+  `test/session-runner-message.test.ts` — the model message carries the
+  short intake note (goal/skills/questions/verdict), the stored text does
+  not; no note for trivial prompts, for prompts where the note adds
+  nothing, or without intake metadata.
 
 ## MCP — `packages/core/src/mcp/`
 

@@ -6,8 +6,8 @@ import type { Disposition, ValueAssessment } from "./types.js"
 /**
  * A prompt this short cannot be proven to be the same work: its keywords may
  * all sit inside a longer board item by accident (a subset match, m-10), so
- * a skip/merge verdict on it stays advisory text in the enriched prompt and
- * never blocks admission. Refusal needs enough words to be sure.
+ * a skip/merge verdict on it stays advisory in the short internal intake
+ * note and never blocks admission. Refusal needs enough words to be sure.
  */
 export const MIN_KEYWORDS_FOR_REFUSAL = 3
 

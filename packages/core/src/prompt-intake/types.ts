@@ -103,8 +103,15 @@ export type IntakeResult = {
   readonly valueVerdict: import("../skill-marketplace/types.js").ValueVerdict
   readonly task: StructuredTask
   readonly skills: ReadonlyArray<SkillRecommendation>
-  /** Original prompt verbatim, followed by the structured interpretation the agent receives. */
-  readonly enrichedPrompt: string
+  /**
+   * True when the prompt carries no task at all (a greeting, a thank-you,
+   * or a short acknowledgement). Trivial prompts skip structured analysis
+   * entirely: no value check, no model call, no skill recommendations.
+   * The stored message text is always the original prompt; the analysis
+   * reaches the model only as a short internal note built from this
+   * result (see `to-llm-message.ts`), never as message text.
+   */
+  readonly trivial: boolean
   readonly modelUsed: boolean
   /**
    * Whether the prompt may be admitted, or must be refused with the reason.
@@ -116,9 +123,9 @@ export type IntakeResult = {
 
 /**
  * The admission decision for one prompt. `admit` means the prompt goes
- * through (the verdict, if any, stays advisory text in the enriched prompt);
- * `refuse` means nothing is admitted, no drain starts, and the reason goes
- * back to the sender.
+ * through (the verdict, if any, stays advisory in the short internal intake
+ * note); `refuse` means nothing is admitted, no drain starts, and the reason
+ * goes back to the sender.
  */
 export type Disposition =
   | { readonly action: "admit" }

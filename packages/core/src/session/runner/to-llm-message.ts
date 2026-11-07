@@ -45,6 +45,46 @@ function roomContextText(metadata: Record<string, unknown> | undefined, text: st
   ].join("\n")
 }
 
+/**
+ * A short internal note from the stored prompt-intake analysis, added to
+ * the model-visible text only — never to the stored message. The intake
+ * analysis is metadata (verdict, goal, questions, skills); the model gets
+ * just its essence, not the verbose structured block the old enriched
+ * prompt used to carry (~150-200 tokens). The note is skipped when there
+ * is no intake metadata, when the prompt is trivial, or when it adds
+ * nothing beyond the message text itself (goal restates the message, no
+ * open questions or recommended skills, plain "execute" verdict).
+ */
+function intakeNoteText(metadata: Record<string, unknown> | undefined, text: string) {
+  const value = metadata?.intake
+  if (!value || typeof value !== "object" || Array.isArray(value)) return text
+  const intake = value as Record<string, unknown>
+  if (intake.trivial === true) return text
+  const goal = typeof intake.goal === "string" && intake.goal.trim() ? intake.goal.trim() : undefined
+  const verdict = typeof intake.verdict === "string" ? intake.verdict : undefined
+  const questions = Array.isArray(intake.questions)
+    ? intake.questions.filter(
+        (question): question is string => typeof question === "string" && question.trim().length > 0,
+      )
+    : []
+  const skills = Array.isArray(intake.skills)
+    ? intake.skills.filter((skill): skill is string => typeof skill === "string" && skill.trim().length > 0)
+    : []
+  // The note adds nothing when the goal restates the message, there are no
+  // open questions or recommended skills, and the verdict is plain "execute".
+  const goalAdds = goal !== undefined && goal !== text.trim()
+  if (!goalAdds && questions.length === 0 && skills.length === 0 && verdict !== "skip" && verdict !== "merge" && verdict !== "clarify")
+    return text
+  const lines = ["[PromptIntake — internal analysis, not part of the user's message]"]
+  if (goalAdds && goal !== undefined) lines.push(`Goal: ${goal}`)
+  if (verdict === "skip") lines.push("Verdict: this work is already done — do not redo it, say so.")
+  if (verdict === "merge") lines.push("Verdict: this duplicates existing work — merge into it, do not start a new task.")
+  if (verdict === "clarify") lines.push("Verdict: the request is unclear — ask the user before acting.")
+  for (const question of questions) lines.push(`Open question: ${question}`)
+  if (skills.length > 0) lines.push(`Suggested skills: ${skills.join(", ")}`)
+  return [...lines, "", text].join("\n")
+}
+
 const media = (file: FileAttachment): ContentPart => ({
   type: "media",
   media: Media.base64(file.data, file.mime),
@@ -311,7 +351,9 @@ function toLLMMessage(message: SessionMessage.Info, model: Model.Ref, providerMe
         }),
       ]
     case "user":
-      const text = roomContextText(message.metadata, message.text)
+      // The intake note is built from the raw stored text (so the goal
+      // comparison is exact), then the room context wraps the whole thing.
+      const text = roomContextText(message.metadata, intakeNoteText(message.metadata, message.text))
       const content = [
         ...(message.skills ?? []).flatMap((skill) => (skill.text === undefined ? [] : [Message.text(skill.text)])),
         ...(text === "" ? [] : [Message.text(text)]),

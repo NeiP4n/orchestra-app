@@ -107,6 +107,123 @@ describe("toLLMMessages", () => {
     expect(message.text).toBe(text)
   })
 
+  test("adds a short intake note to the model message, not the stored text", () => {
+    const text = "Fix the failing tests"
+    const message = SessionMessage.User.make({
+      id: id("intake-note"),
+      type: "user",
+      text,
+      metadata: {
+        intake: {
+          verdict: "clarify",
+          goal: "Fix the failing tests",
+          questions: ["В каком файле или модуле работать?"],
+          skills: [],
+          modelUsed: false,
+          trivial: false,
+        },
+      },
+      time: { created },
+    })
+
+    const lowered = JSON.stringify(toLLMMessages([message], model))
+    expect(lowered).toContain("[PromptIntake — internal analysis")
+    expect(lowered).toContain("Verdict: the request is unclear")
+    expect(lowered).toContain("Open question: В каком файле или модуле работать?")
+    // The goal restates the message, so it is not repeated in the note.
+    expect(lowered).not.toContain("Goal: Fix the failing tests")
+    expect(lowered).toContain(text)
+    // The stored message keeps the original text: no structured block.
+    expect(message.text).toBe(text)
+    expect(message.text).not.toContain("[PromptIntake")
+  })
+
+  test("adds the distilled goal and suggested skills when they add signal", () => {
+    const text = "Исправь ошибку. Сервер падает при пустом промпте."
+    const message = SessionMessage.User.make({
+      id: id("intake-goal"),
+      type: "user",
+      text,
+      metadata: {
+        intake: {
+          verdict: "execute",
+          goal: "Исправь ошибку в сервере при пустом промпте",
+          questions: [],
+          skills: ["testing"],
+          modelUsed: false,
+          trivial: false,
+        },
+      },
+      time: { created },
+    })
+
+    const lowered = JSON.stringify(toLLMMessages([message], model))
+    expect(lowered).toContain("Goal: Исправь ошибку в сервере при пустом промпте")
+    expect(lowered).toContain("Suggested skills: testing")
+    expect(message.text).toBe(text)
+  })
+
+  test("skips the intake note for a trivial prompt", () => {
+    const message = SessionMessage.User.make({
+      id: id("intake-trivial"),
+      type: "user",
+      text: "отлично",
+      metadata: {
+        intake: {
+          verdict: "execute",
+          goal: "отлично",
+          questions: [],
+          skills: [],
+          modelUsed: false,
+          trivial: true,
+        },
+      },
+      time: { created },
+    })
+
+    const [lowered] = toLLMMessages([message], model)
+    expect(JSON.stringify(lowered)).not.toContain("[PromptIntake")
+    expect(lowered?.content).toEqual([Message.text("отлично")])
+  })
+
+  test("skips the intake note when it adds nothing beyond the message", () => {
+    const text = "Исправь баг в авторизации"
+    const message = SessionMessage.User.make({
+      id: id("intake-nothing"),
+      type: "user",
+      text,
+      metadata: {
+        intake: {
+          verdict: "execute",
+          goal: "Исправь баг в авторизации",
+          questions: [],
+          skills: [],
+          modelUsed: false,
+          trivial: false,
+        },
+      },
+      time: { created },
+    })
+
+    const [lowered] = toLLMMessages([message], model)
+    expect(JSON.stringify(lowered)).not.toContain("[PromptIntake")
+    expect(lowered?.content).toEqual([Message.text(text)])
+  })
+
+  test("skips the intake note without intake metadata", () => {
+    const text = "Исправь баг в авторизации"
+    const message = SessionMessage.User.make({
+      id: id("intake-none"),
+      type: "user",
+      text,
+      time: { created },
+    })
+
+    const [lowered] = toLLMMessages([message], model)
+    expect(JSON.stringify(lowered)).not.toContain("[PromptIntake")
+    expect(lowered?.content).toEqual([Message.text(text)])
+  })
+
   test("maps every top-level Session message type", () => {
     const file = FileAttachment.make({
       data: Base64.make("aGVsbG8="),
