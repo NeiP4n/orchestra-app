@@ -77,6 +77,8 @@ export interface Prepared<Event = SessionRequest> {
   readonly executeTool: (
     input: Parameters<Tool.Snapshot["execute"]>[0],
   ) => Effect.Effect<Tool.NormalizedResult, ExecuteError>
+  /** Step 0 measurement: the attempt opened for this request (ORCHESTRA_REQUEST_MEASUREMENT=1 only). */
+  readonly measurement?: { readonly attemptID: string }
 }
 
 export interface Input {
@@ -428,7 +430,10 @@ export const layer = Layer.effect(
       // Numbers-only measurement, opt-in via ORCHESTRA_REQUEST_MEASUREMENT=1 and fully
       // best-effort inside: the request is byte-identical afterwards, nothing is sent to the
       // provider, and no failure here can reach the request or a retry. Primary sizes only.
-      if (kind === "primary") yield* SessionRequestMeasurement.recordPrimarySizes({ sessionID: session.id, request })
+      const measurementAttemptID =
+        kind === "primary"
+          ? yield* SessionRequestMeasurement.recordPrimarySizes({ sessionID: session.id, request })
+          : undefined
 
       const hasHttpHooks =
         (yield* hooks.has("session", "http.request", model.ref.providerID)) ||
@@ -526,6 +531,7 @@ export const layer = Layer.effect(
         event: shaped,
         request,
         options: { ...(http ? { http } : {}), ...(webSocket ? { webSocket } : {}) },
+        ...(measurementAttemptID === undefined ? {} : { measurement: { attemptID: measurementAttemptID } }),
         retry: (event: Parameters<Prepared["retry"]>[0]) =>
           hooks.trigger("session", "retry", event).pipe(Effect.asVoid),
         // Permission.assert and the question tool throw declines as defects so tools cannot

@@ -133,6 +133,16 @@ export const make = Effect.gen(function* () {
       readonly fiber: Fiber.Fiber<void, Permission.DeclinedError | QuestionTool.CancelledError>
     }> = []
     const interruptTools = Effect.suspend(() => Fiber.interruptAll(toolRuns.map((run) => run.fiber)))
+
+    // Settle this step's measured attempt (Step 0). Idempotent and best-effort inside: safe to
+    // call on every branch, and a failure here can never change the step's own outcome. The
+    // attempt identity travels with Prepared, not with session-global state.
+    const settleMeasurement = (outcome: "completed" | "failed" | "cancelled") =>
+      SessionRequestMeasurement.completePrimary(
+        input.sessionID,
+        { outcome, endedAt: Date.now() },
+        { attemptID: input.prepared.measurement?.attemptID },
+      )
     const executeTool = (call: ToolCall) => {
       if (input.prepared.request.toolChoice?.type === "none")
         return new Tool.Error({ message: "Tools are disabled after the maximum agent steps" })
@@ -225,6 +235,7 @@ export const make = Effect.gen(function* () {
             model: input.model.ref,
             message: overflow?.message,
           })
+          yield* settleMeasurement("failed")
           return Outcome.Compacted()
         }
 
@@ -246,8 +257,10 @@ export const make = Effect.gen(function* () {
           llmFailure?.reason._tag === "Transport" &&
           (llmFailure.reason.recovery === "retry-full" || llmFailure.reason.recovery === "rotate-and-retry-full") &&
           !recorded.outputStarted
-        )
+        ) {
+          yield* settleMeasurement("failed")
           return Outcome.RecoverFull()
+        }
         const retry =
           llmFailure && llmError && !isContextOverflowFailure(llmFailure)
             ? yield* restore(
@@ -262,12 +275,16 @@ export const make = Effect.gen(function* () {
         if (llmFailure && llmError && retry?.retry && !recorded.outputStarted) {
           // Retry state projects onto the existing assistant, even before it has produced output.
           yield* publisher.startAssistant()
+          yield* settleMeasurement("failed")
           return Outcome.Retry({ error: llmError, decision: retry })
         }
         // Another model is the only way forward when waiting cannot help, so a worker moves on
         // instead of failing the task. Nothing was produced yet, so the new attempt is clean.
         if (llmFailure && llmError && !retry?.retry && !recorded.outputStarted) {
-          if (yield* restore(input.fallback(llmFailure, llmError))) return Outcome.Switched()
+          if (yield* restore(input.fallback(llmFailure, llmError))) {
+            yield* settleMeasurement("failed")
+            return Outcome.Switched()
+          }
         }
         // Retries and fallbacks are exhausted: the failure is announced in the session itself
         // (escalation ladder, block Б5) instead of failing silently into the log. The
@@ -348,34 +365,29 @@ export const make = Effect.gen(function* () {
 
         // Settle the measured attempt for this step: completed with the SessionUsage-normalized
         // tokens and the catalog-estimated cost, cancelled on interruption, failed on an LLM or
-        // step failure. A fiber-level interrupt leaves the attempt unfinished, which the export
-        // manifest reports as such. Diagnostic only; never a second source of charges.
+        // step failure (usage stays unknown then). Early-return branches above settle their own
+        // attempts; this covers every path that reaches the end. Diagnostic only; never a second
+        // source of charges.
         if (SessionRequestMeasurement.enabled()) {
-          const outcome =
-            record.finish && !record.failure
-              ? "completed"
-              : interrupted
-                ? "cancelled"
-                : record.failure || llmError
-                  ? "failed"
-                  : undefined
-          if (outcome)
-            yield* SessionRequestMeasurement.completePrimary(input.sessionID, {
-              outcome,
-              endedAt: Date.now(),
-              ...(usage
-                ? {
-                    usage: {
-                      input: usage.tokens.input,
-                      output: usage.tokens.output,
-                      reasoning: usage.tokens.reasoning,
-                      cacheRead: usage.tokens.cache.read,
-                      cacheWrite: usage.tokens.cache.write,
-                    },
-                    cost: { recordedUSD: null, estimatedUSD: usage.cost, source: "catalog" as const },
-                  }
-                : {}),
-            })
+          const outcome = record.finish && !record.failure ? "completed" : interrupted ? "cancelled" : "failed"
+          if (outcome === "completed" && usage)
+            yield* SessionRequestMeasurement.completePrimary(
+              input.sessionID,
+              {
+                outcome,
+                endedAt: Date.now(),
+                usage: {
+                  input: usage.tokens.input,
+                  output: usage.tokens.output,
+                  reasoning: usage.tokens.reasoning,
+                  cacheRead: usage.tokens.cache.read,
+                  cacheWrite: usage.tokens.cache.write,
+                },
+                cost: { recordedUSD: null, estimatedUSD: usage.cost, source: "catalog" as const },
+              },
+              { attemptID: input.prepared.measurement?.attemptID },
+            )
+          else yield* settleMeasurement(outcome)
         }
 
         if (
@@ -399,7 +411,13 @@ export const make = Effect.gen(function* () {
         return Outcome.Completed({
           needsContinuation: input.prepared.request.toolChoice?.type !== "none" && record.needsContinuation,
         })
-      }),
+      }).pipe(
+        // A defect or fiber-level interrupt escapes the branches above; settle the attempt as
+        // failed/cancelled so it never stays open. Already-settled attempts are untouched.
+        Effect.onExit((exit) =>
+          Exit.isSuccess(exit) ? Effect.void : settleMeasurement(Exit.hasInterrupts(exit) ? "cancelled" : "failed"),
+        ),
+      ),
     )
   }, Effect.scoped)
 

@@ -454,19 +454,23 @@ describe("SessionRequestMeasurement lifecycle and export", () => {
             usage: { input: 10, output: 5, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
             cost: { recordedUSD: null, estimatedUSD: 0.0001, source: "catalog" },
           },
-          dir,
+          { directory: dir },
         ),
       )
       await Effect.runPromise(
-        SessionRequestMeasurement.completePrimary("ses-1", { outcome: "failed", endedAt: Date.now() }, dir),
+        SessionRequestMeasurement.completePrimary(
+          "ses-1",
+          { outcome: "failed", endedAt: Date.now() },
+          { directory: dir },
+        ),
       )
     })
     const lines = fs
       .readdirSync(dir)
       .flatMap((file) => fs.readFileSync(path.join(dir, file), "utf8").trim().split("\n"))
     expect(lines).toHaveLength(2)
-    const completion = JSON.parse(lines[1])
-    expect(completion.coverage).toBe("primary-completion")
+    const completion = lines.map((line) => JSON.parse(line)).find((line) => line.coverage === "primary-completion")
+    expect(completion).toBeDefined()
     expect(completion.record.outcome).toBe("completed")
     expect(completion.record.usage.input).toBe(10)
   })
@@ -484,7 +488,7 @@ describe("SessionRequestMeasurement lifecycle and export", () => {
             usage: { input: 10, output: 5, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
             cost: { recordedUSD: null, estimatedUSD: 0.0001, source: "catalog" },
           },
-          dir,
+          { directory: dir },
         ),
       )
       await Effect.runPromise(SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-2", request }, dir))
@@ -557,5 +561,143 @@ describe("SessionRequestMeasurement lifecycle and export", () => {
     const filtered = await Effect.runPromise(SessionRequestMeasurement.readExport(dir, { sessions: ["ses-1"] }))
     expect(filtered.lines).toHaveLength(1)
     expect(JSON.parse(filtered.lines[0]).sessionID).toBe("ses-1")
+  })
+
+  test("export never passes malformed stored records through (repro: object goalID, arbitrary method)", async () => {
+    const dir = mkdtemp()
+    const opened = SessionRequestMeasurement.open({
+      measurementID: "m-1",
+      sessionID: "ses-1",
+      logicalRequestID: "lr-1",
+      attemptID: "a-1",
+      phase: "primary",
+      providerID: "zen",
+      modelID: "glm-4.6",
+      startedAt: 1,
+      toolCount: 0,
+      messageCount: 0,
+    })
+    const dirty = {
+      ...opened,
+      goalID: { privateText: "CANARY_PRIVATE_TEXT" },
+      estimates: { ...opened.estimates, method: "CANARY_PRIVATE_TEXT" },
+    }
+    await Effect.runPromise(
+      SessionRequestMeasurement.writeLine(JSON.stringify({ coverage: "primary-sizes", record: dirty }), dir),
+    )
+    await Effect.runPromise(
+      SessionRequestMeasurement.writeLine(JSON.stringify({ coverage: "anything", record: opened }), dir),
+    )
+    const result = await Effect.runPromise(SessionRequestMeasurement.readExport(dir))
+    expect(result.manifest.records).toBe(0)
+    expect(result.manifest.skippedLines).toBe(2)
+    expect(JSON.stringify(result)).not.toContain("CANARY_PRIVATE_TEXT")
+  })
+
+  test("a NaN completion cannot fail the caller and leaves the attempt open (repro 2)", async () => {
+    const dir = mkdtemp()
+    await withFlag(async () => {
+      await Effect.runPromise(SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-1", request }, dir))
+      await Effect.runPromise(
+        SessionRequestMeasurement.completePrimary(
+          "ses-1",
+          {
+            outcome: "completed",
+            endedAt: Date.now(),
+            usage: { input: Number.NaN, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
+          },
+          { directory: dir },
+        ),
+      )
+      expect(SessionRequestMeasurement.pendingAttempt("ses-1")).toBeDefined()
+      // Only the begin line exists; the invalid completion was dropped, not written.
+      const before = fs
+        .readdirSync(dir)
+        .flatMap((file) => fs.readFileSync(path.join(dir, file), "utf8").trim().split("\n"))
+      expect(before).toHaveLength(1)
+      // A later valid completion still settles the same attempt.
+      await Effect.runPromise(
+        SessionRequestMeasurement.completePrimary(
+          "ses-1",
+          {
+            outcome: "completed",
+            endedAt: Date.now(),
+            usage: { input: 3, output: 1, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
+          },
+          { directory: dir },
+        ),
+      )
+      expect(SessionRequestMeasurement.pendingAttempt("ses-1")).toBeUndefined()
+      const after = fs
+        .readdirSync(dir)
+        .flatMap((file) => fs.readFileSync(path.join(dir, file), "utf8").trim().split("\n"))
+      expect(after).toHaveLength(2)
+      const completion = after.map((line) => JSON.parse(line)).find((line) => line.coverage === "primary-completion")
+      expect(completion.record.usage.input).toBe(3)
+    })
+  })
+
+  test("a completion for a superseded attempt ID is a no-op", async () => {
+    const dir = mkdtemp()
+    await withFlag(async () => {
+      await Effect.runPromise(SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-1", request }, dir))
+      await Effect.runPromise(
+        SessionRequestMeasurement.completePrimary(
+          "ses-1",
+          { outcome: "failed", endedAt: Date.now() },
+          { attemptID: "not-the-pending-one", directory: dir },
+        ),
+      )
+      expect(SessionRequestMeasurement.pendingAttempt("ses-1")).toBeDefined()
+      const lines = fs
+        .readdirSync(dir)
+        .flatMap((file) => fs.readFileSync(path.join(dir, file), "utf8").trim().split("\n"))
+      expect(lines).toHaveLength(1)
+    })
+  })
+
+  test("a retry links to the failed attempt; a completed attempt starts a new logical request", async () => {
+    const dir = mkdtemp()
+    await withFlag(async () => {
+      const first = await Effect.runPromise(
+        SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-1", request }, dir),
+      )
+      expect(first).toBeDefined()
+      await Effect.runPromise(
+        SessionRequestMeasurement.completePrimary(
+          "ses-1",
+          { outcome: "failed", endedAt: Date.now() },
+          {
+            attemptID: first,
+            directory: dir,
+          },
+        ),
+      )
+      const second = await Effect.runPromise(
+        SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-1", request }, dir),
+      )
+      const retry = SessionRequestMeasurement.pendingAttempt("ses-1")
+      expect(retry?.attemptID).toBe(second)
+      expect(retry?.retryOf).toBe(first)
+      expect(retry?.logicalRequestID).toBe(
+        (await Effect.runPromise(SessionRequestMeasurement.readExport(dir))).lines
+          .map((line) => JSON.parse(line))
+          .find((record) => record.attemptID === first).logicalRequestID,
+      )
+      await Effect.runPromise(
+        SessionRequestMeasurement.completePrimary(
+          "ses-1",
+          { outcome: "completed", endedAt: Date.now() },
+          {
+            attemptID: second,
+            directory: dir,
+          },
+        ),
+      )
+      await Effect.runPromise(SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-1", request }, dir))
+      const fresh = SessionRequestMeasurement.pendingAttempt("ses-1")
+      expect(fresh?.retryOf).toBeNull()
+      expect(fresh?.logicalRequestID).toBe(fresh?.attemptID)
+    })
   })
 })

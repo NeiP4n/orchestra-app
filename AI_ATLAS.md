@@ -2,7 +2,7 @@
 
 The whole application as one instruction map for an AI working in this repository.
 `AGENTS.md` holds the rules (style, Effect conventions, architecture layers, testing).
-This atlas holds the *map*: where each system lives, what it guarantees, how to change
+This atlas holds the _map_: where each system lives, what it guarantees, how to change
 it, and how to verify the change. Read the section for the system you are touching
 before you touch it.
 
@@ -21,18 +21,18 @@ before you touch it.
 Layers flow `schema → protocol → client` and `schema → core → server → cli/tui/app`
 (full rules in `AGENTS.md`). The areas an AI most often needs:
 
-| Area | Path | What it is |
-| --- | --- | --- |
-| Schemas & domain | `packages/schema` | Serializable entities: config, modes, roles, teams, interactive blocks. Zero internal deps. |
-| HTTP contract | `packages/protocol` | `Effect.HttpApi` endpoint groups, incl. federation groups (`src/groups/orchestra.ts`). |
-| Generated client | `packages/client` | Regenerate with `bun run generate` after Protocol/Server HttpApi changes; never hand-edit. |
-| Domain engine | `packages/core` | Sessions, runner, tools, MCP, federation, forges, the AI standard. Prompt intake (`src/prompt-intake/`) deep-processes every user prompt before admission. |
-| Providers/models | `packages/ai` | Model transports, provider adapters (incl. the Zen provider), streaming. |
-| Server | `packages/server` | HttpApi handlers (`src/handlers/*`), SSE, authorization. |
-| CLI & service | `packages/cli` | `orchestra serve`, background-service lifecycle, web-UI assets. Recovery mini-chat page (`services/recovery-page.ts`, served at `/recovery`). |
-| TUI | `packages/tui` | SolidJS/OpenTUI interface: dialogs, sidebar, composer, themes binding. |
-| Web/desktop app | `packages/app` | Web UI; question dock, transcript. Built assets are served by the CLI in production. |
-| Themes | `packages/theme` | Theme registry, TUI token resolution and readability floors. |
+| Area             | Path                | What it is                                                                                                                                                 |
+| ---------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Schemas & domain | `packages/schema`   | Serializable entities: config, modes, roles, teams, interactive blocks. Zero internal deps.                                                                |
+| HTTP contract    | `packages/protocol` | `Effect.HttpApi` endpoint groups, incl. federation groups (`src/groups/orchestra.ts`).                                                                     |
+| Generated client | `packages/client`   | Regenerate with `bun run generate` after Protocol/Server HttpApi changes; never hand-edit.                                                                 |
+| Domain engine    | `packages/core`     | Sessions, runner, tools, MCP, federation, forges, the AI standard. Prompt intake (`src/prompt-intake/`) deep-processes every user prompt before admission. |
+| Providers/models | `packages/ai`       | Model transports, provider adapters (incl. the Zen provider), streaming.                                                                                   |
+| Server           | `packages/server`   | HttpApi handlers (`src/handlers/*`), SSE, authorization.                                                                                                   |
+| CLI & service    | `packages/cli`      | `orchestra serve`, background-service lifecycle, web-UI assets. Recovery mini-chat page (`services/recovery-page.ts`, served at `/recovery`).              |
+| TUI              | `packages/tui`      | SolidJS/OpenTUI interface: dialogs, sidebar, composer, themes binding.                                                                                     |
+| Web/desktop app  | `packages/app`      | Web UI; question dock, transcript. Built assets are served by the CLI in production.                                                                       |
+| Themes           | `packages/theme`    | Theme registry, TUI token resolution and readability floors.                                                                                               |
 
 ## The single AI standard — `packages/core/src/ai-standard.ts`
 
@@ -151,6 +151,33 @@ adjacent mechanism that already exists is the one lesson per twice-failed
 run in the journal (idea #11); a reviewer-model fact system is a project
 decision for a later pilot, not this one.
 
+## Request measurement (Step 0) — `packages/core/src/session/request-measurement.ts`
+
+Opt-in, numbers-only diagnostic for formed LLM requests. Set
+`ORCHESTRA_REQUEST_MEASUREMENT=1` (exactly "1") in the daemon's environment
+to collect; unset it and nothing is measured or written. It never enables
+`ORCHESTRA_REQUEST_REPORT` (the detailed mode that persists prompt text).
+Privacy contract: records carry IDs, enum labels, counts and byte/token
+estimates only — no prompt text, filenames, URLs, headers, keys or error
+bodies, and every record is built field by field, never from spreads of the
+request. Files land in `<data>/log/measurements` (override:
+`ORCHESTRA_REQUEST_MEASUREMENT_DIR`), one UUID-named `.jsonl` per line,
+owner-only (`0700` dir, `0600` files), pruned after
+`ORCHESTRA_REQUEST_MEASUREMENT_RETENTION_DAYS` (default 7). Coverage:
+primary session-step requests only — sizes at request formation
+(`recordPrimarySizes` in `session/model-request.ts`), settled by
+`session/runner/step.ts` on every outcome branch (completed with
+SessionUsage-normalized tokens and catalog-estimated cost; failed/cancelled
+with unknown usage). Retries of one logical request share a
+`logicalRequestID` and link via `retryOf`. The step settles the attempt
+carried on its `Prepared`, so a retry never overwrites the previous attempt.
+Export: `bun run packages/core/script/export-measurements.ts [directory]`
+folds the local files into one JSON document (manifest + records; malformed
+lines are counted as skipped, never exported). Honest gaps: title,
+compaction, summary and intake requests are not measured; retries hidden
+inside provider SDKs are uncounted; a local attempt ID is not a provider
+request ID. This is a diagnostic, never a source of charges.
+
 ## Modes — `packages/schema/src/mode.ts`
 
 A mode is rails for a run: step ceiling, read-only flag, preloaded tools, one
@@ -173,7 +200,7 @@ guidance block. It never widens a role's permissions.
 - A role's tools must be real: every action in a toolkit exists, every implied tool
   group resolves, hub categories exist. `packages/core` role-quality tests enforce
   this — a role with invented tools fails the suite.
-- MCP access is *derived* from a role, never hand-assigned per run:
+- MCP access is _derived_ from a role, never hand-assigned per run:
   `packages/core/src/mcp/role-profiles.ts` (`fromRole`) maps the role's native
   actions to catalog servers via `impliedTools`/`toolGroups` in the same schema
   file.
@@ -184,7 +211,7 @@ guidance block. It never widens a role's permissions.
   resulting permission rules for every role and logs a warning for kind-default
   roles, and the `sessions` tool refuses per-task tools outside the effective
   toolkit. The full map is `docs/role-toolkits.md`.
-- `templates` are dynamic team *recommendations* (roles + playbook); a built-in
+- `templates` are dynamic team _recommendations_ (roles + playbook); a built-in
   project opens only the Orchestrator, which composes the actual team. Removed
   built-ins survive as `legacyTemplates` for compatibility. A template test pins
   the kept-template roster — update it when adding a template.
@@ -273,7 +300,7 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   `rebuild`, `snapshot`, `rows`). No Effect, no I/O — `decide` (block Б3)
   reuses it and any decision can be replayed from the journal.
 - **`kernel/store.ts`**: the ONLY writer of facts. `commit(facts,
-  expectedSeq?)` appends facts and updates projections in one transaction; a
+expectedSeq?)` appends facts and updates projections in one transaction; a
   commit on a stale `seq` fails with `Autoloop.StaleSeq` and writes nothing.
   `commitLatest` reads the latest sequence inside the same transaction.
   `readLog` / `iterateLog` / `openView` are the reads. Projections are
@@ -291,8 +318,8 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   instead of returning `NaN` (arch3 №51).
 - **`kernel/decide.ts`** (block Б3, подшаг 1): pure `decide(view, input, now, env)` — no
   Effect, no I/O. Handlers `ingest / claimNext / started / finish / cancel /
-  answer / resolve / nextCard / delivered / failed / tick / sweep / heartbeat /
-  raiseDispute / resolveDispute / escalateDispute`,
+answer / resolve / nextCard / delivered / failed / tick / sweep / heartbeat /
+raiseDispute / resolveDispute / escalateDispute`,
   helpers `retryLater`, `applyReceipt`, `createCard`, `enqueue`. Event dedup
   by `(source, key)`; claim by token (repeat claim returns the same run);
   idempotent `finish` (same receipt → same answer, different receipt under
@@ -349,7 +376,7 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   (`AutoloopCard.Card`, `autoloop.card.created / answered / updated`,
   in `ServerDefinitions`, so the existing SSE feed carries them — no new
   transport). HTTP: `GET /api/autoloop/cards`, `POST
-  /api/autoloop/cards/:id/answer` (`packages/protocol/src/groups/autoloop.ts`,
+/api/autoloop/cards/:id/answer` (`packages/protocol/src/groups/autoloop.ts`,
   `packages/server/src/handlers/autoloop.ts`, client regenerated).
   No TUI/web card view yet — that is the remaining UI sub-step.
 - **Autoloop safety core (ideas #2, #6, #11, #14, #18 — slice A)**:
@@ -458,7 +485,7 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   `deadlines` also wakes the clock for a dead worker's runs: a lease due for
   a stale claimed run, a `requeue` due for an unknown one.
 - **`kernel/rules.ts`**: cycle rule shape (`Rule { name, when, to, cwd,
-  group, tell }`, `typeMatches`, `eventRule`, `cronOf`).
+group, tell }`, `typeMatches`, `eventRule`, `cronOf`).
 - **Cycle limits in config**: `Config.Orchestra.Autoloop`
   (`packages/schema/src/config/orchestra.ts`, next to `orchestra.worker`):
   `maxAttempts` (2), `maxVerifyIterations` (5), `maxHops` (8),
@@ -825,7 +852,7 @@ no skill lookup runs for them.
 - `instructions.ts`: server instructions are sanitized before they reach the
   model — terminal escapes and control characters stripped, prompt-injection
   lines dropped and named in place, never pasted as-is.
-- `acquire.ts`: a server is *healthy* only when connected **and** its tools were
+- `acquire.ts`: a server is _healthy_ only when connected **and** its tools were
   discovered. `ensure()` = reuse healthy → connect installed → validate
   platform/missing-env/runtime → add+connect+verify. Missing credentials stop at
   `needs_auth` before any install; disabled servers are never re-enabled; failed
@@ -839,7 +866,7 @@ no skill lookup runs for them.
   operator turned servers on first.
 - Serena is a session-REPL server, not flat tools: `initial_instructions` →
   session id → `activate_project` → `serena_repl` against the `cfg/fs/edit/mem/
-  shell/lsp` facades. Its catalog entry runs via `uvx` (`--context desktop-app`);
+shell/lsp` facades. Its catalog entry runs via `uvx` (`--context desktop-app`);
   `uvx` must be on PATH.
 - agent-desktop drives real apps through the OS accessibility tree; GTK3 apps
   without atk-bridge may be invisible to it — that is an app limitation, not a
@@ -870,7 +897,7 @@ no skill lookup runs for them.
   `ai.opencode/*` idempotency/session keys in `client.ts` are untouched.
 - B7 (desktop isolation): agent-desktop and playwright are `realScreen` servers.
   They are never acquired (`acquire.ts: ensure()`) nor called (`index.ts:
-  MCP.callTool`, the choke point for every MCP tool call) while the real-screen
+MCP.callTool`, the choke point for every MCP tool call) while the real-screen
   opt-in is invalid — even when installed by hand in the config. The selector
   (`select.ts`) still matches them; the gate lives in acquire/call, not in ranking.
 
@@ -904,10 +931,10 @@ no skill lookup runs for them.
   claim made here.
 - Wiring (minimal, off by default like every catalog server): the catalog
   entry `xerj` runs `xerj mcp --url http://127.0.0.1:9200
-  --disable-feedback` (stdio) against a node the OPERATOR starts first:
+--disable-feedback` (stdio) against a node the OPERATOR starts first:
   `xerj --data-dir ~/xerj-data` (auth on by default — export
   `XERJ_API_KEY` from `<data_dir>/admin.key`), then `xerj autoindex
-  <project>` once. Orchestra never starts, stops, or restarts the node,
+<project>` once. Orchestra never starts, stops, or restarts the node,
   and never passes `--insecure`: that flag is a local-sandbox flag only
   (the pilot used it on 127.0.0.1:9217 because the sandbox node had no
   key yet) — in production a node without auth is a refusal, not a
@@ -938,8 +965,8 @@ no skill lookup runs for them.
   `mcp-catalog.test.ts` (xerj entry), `mcp-select.test.ts` (both fallback
   chains), `mcp-role-profiles.test.ts` (xerj in the derived profiles).
   Verify: `bun test test/memory-code-search.test.ts
-  test/mcp-catalog.test.ts test/mcp-select.test.ts
-  test/mcp-role-profiles.test.ts` in `packages/core` (31 pass).
+test/mcp-catalog.test.ts test/mcp-select.test.ts
+test/mcp-role-profiles.test.ts` in `packages/core` (31 pass).
 
 ## SSRF gate — `packages/core/src/tool/ssrf.ts` (Б13, extended in G2-2)
 
@@ -1129,7 +1156,7 @@ messages and builds the rest with `society_forge generate` and `society_plan`.
 - The team workers are counted, not assumed (`openSocietyTeam`): one retry
   per failed role, then a live read-back of every opened session. The
   creation result carries `team: {expected, opened, live, failedRoles,
-  unverifiedRoles}`. Zero live workers fails the creation and rolls it back;
+unverifiedRoles}`. Zero live workers fails the creation and rolls it back;
   a partial team stands, with a warning, for the planner to top up.
 - Generation is tracked in the federation KV store (`founded` → `generated` →
   `planned`, forward only): `generate` records `generated`, `society_plan apply`
@@ -1415,12 +1442,12 @@ the network.
 - **Manifest (`manifest.ts`)**: a native skill carries a manifest in the YAML
   frontmatter of its SKILL.md — `name`, `version` (semver), `purpose`,
   `inputs`/`outputs` (named ports `name:type`, types `text | json | list |
-  file | code | plan | report`), `depends` (`name@range`, ranges `^ ~ >= <=
-  > <`, exact, `*`), `rules`. There is no YAML parser in core, so the
-  frontmatter is read by a strict line parser; a broken manifest refuses the
-  install instead of guessing. A skill without a manifest gets a derived one
-  (`version 0.0.0`, no ports, `derived: true`): it can run alone, never
-  chained, because its inputs and outputs are unknown.
+file | code | plan | report`), `depends` (`name@range`, ranges `^ ~ >= <=
+  > <`, exact, `\*`), `rules`. There is no YAML parser in core, so the
+frontmatter is read by a strict line parser; a broken manifest refuses the
+install instead of guessing. A skill without a manifest gets a derived one
+(`version 0.0.0`, no ports, `derived: true`): it can run alone, never
+  > chained, because its inputs and outputs are unknown.
 - **Three levels (`levels.ts`)**: `society > project > session`. A society
   skill is visible everywhere below it; a project skill to its project and
   its sessions; a session skill only to its session. Lower levels inherit the
@@ -1461,13 +1488,13 @@ the network.
   read lazily, only for the skill a task actually uses, and only while the
   token budget allows it. `pick.ts` is the one function prompt-intake calls:
   `pickSkillsForTask({ goal, context, index, outputs, inputs, value,
-  maxSkills })` ranks the compact index (name hits 100, purpose hits 10,
+maxSkills })` ranks the compact index (name hits 100, purpose hits 10,
   same weights as the catalog search), composes a factory when outputs are
   given, and never loads full text. It takes the value verdict
   prompt-intake's value checker produced (`ValueVerdict { proceed, reason
-  }`): a refused request is not searched at all. The verdict maps to
+}`): a refused request is not searched at all. The verdict maps to
   prompt-intake's real `ValueAssessment` as `proceed = verdict ===
-  "execute"`, `reason = reasons.join(" ")` — `clarify`, `merge` and `skip`
+"execute"`, `reason = reasons.join(" ")` — `clarify`, `merge` and `skip`
   all mean "do not search".
 - **Token budget (`budget.ts`)**: one request may spend 10,000 tokens on
   marketplace-loaded skill text by default (`DEFAULT_PER_REQUEST_TOKENS`,
@@ -1570,7 +1597,7 @@ make writing one mandatory before the implementing code.
 Before any pause or stop, the agent writes `.orchestra/sessions/<id>/handoff.md`
 (where it stopped, what works, what does not, the next step) — a default society
 rule. The execution layer also writes one: on an interrupted or failed terminal
-outcome it leaves a *stub* (marked `<!-- orchestra-handoff-stub -->`, with
+outcome it leaves a _stub_ (marked `<!-- orchestra-handoff-stub -->`, with
 "(not recorded)" placeholders) when no handoff exists, refreshes an existing stub,
 and never overwrites an agent-written handoff. Writing the stub is best-effort
 inside settlement: an interruption stays an interruption, anything else is a
@@ -1893,7 +1920,7 @@ the claim path would refuse. Columns come from `task_state`:
   the doc; CLI wiring is `orchestra integrate <manifest.yaml|json>`
   (`packages/cli/src/commands/handlers/integrate.ts`, `--dry-run`
   validates only, `--force` overwrites) and `orchestra integrations
-  list` (`packages/cli/src/commands/handlers/integrations/list.ts`,
+list` (`packages/cli/src/commands/handlers/integrations/list.ts`,
   read-only). Live smoke test: `packages/cli/test/live-smoke.test.ts`
   probes a running server read-only (`GET /health`, and with
   `ORCHESTRA_LIVE_PASSWORD` also `GET /api/info` with Basic auth) via
@@ -1919,8 +1946,8 @@ the claim path would refuse. Columns come from `task_state`:
   frameworks on a real temp DB+KV, gitignore split, registry),
   `project-files-state.test.ts` (19), `project-files-data.test.ts` (19),
   `project-files-integrations.test.ts` (17). Verify: `bun test
-  test/project-files-core.test.ts test/project-files-state.test.ts
-  test/project-files-data.test.ts test/project-files-integrations.test.ts`
+test/project-files-core.test.ts test/project-files-state.test.ts
+test/project-files-data.test.ts test/project-files-integrations.test.ts`
   in `packages/core` (72 pass); `bun typecheck` in `packages/core`
   (0 errors in the `project-files/` files). CLI:
   `packages/cli/test/integrate.test.ts` (9: spec registration, real
@@ -1929,7 +1956,7 @@ the claim path would refuse. Columns come from `task_state`:
   and `packages/cli/test/live-smoke.test.ts` (4 pass + 2 skip when the
   live server is down: probe logic on a local server, unreachable =
   not reachable, unhealthy = probe fails). Verify: `bun test
-  test/integrate.test.ts test/live-smoke.test.ts` in `packages/cli`.
+test/integrate.test.ts test/live-smoke.test.ts` in `packages/cli`.
 
 ## Block Б17 — three-level memory, L2 (project) + L1 (society) — `packages/core/src/memory/levels.ts`
 
@@ -1945,12 +1972,12 @@ the claim path would refuse. Columns come from `task_state`:
   `index.json`, `MEMORY.md`, `daily/`, `actors/`; all `git: false` —
   memory is local, like notes):
   - `index.json` is the store of promoted facts (`{version: 1, facts:
-    [{id, text, type, tags, painful, sourceSession, created,
-    promotedAt}]}`); `MEMORY.md` is its render (one bullet per fact,
+[{id, text, type, tags, painful, sourceSession, created,
+promotedAt}]}`); `MEMORY.md` is its render (one bullet per fact,
     ≤ 12 KiB, rewritten on promotion — hand edits are overwritten).
   - `daily/YYYY-MM-DD.md` holds candidates, one structured line each
     (`- [ ] <id> | <type> | painful|routine | session:<id> |
-    tags:<a,b> | <text>`); `[x]` = promoted, `[-]` = rejected.
+tags:<a,b> | <text>`); `[x]` = promoted, `[-]` = rejected.
     Unparseable lines are free-form notes, ignored by promotion.
   - `actors/<name>.md` — one dated line per note, name a lowercase slug.
   - `promoteSessionFacts(root, sessionId)` — the only way into
@@ -1984,7 +2011,7 @@ the claim path would refuse. Columns come from `task_state`:
     daily. `acl.yaml` is a generated human-readable mirror of the
     table; enforcement reads the table, not the file.
   - `promoteProjectToSociety(projectRoot, societyRoot, {by, kind,
-    factIds})` — `kind` is `decision`/`lesson`/`rule`; `by` must be
+factIds})` — `kind` is `decision`/`lesson`/`rule`; `by` must be
     `human` or `council`, anyone else gets `denied`. A promoted rule
     is appended to the `## soft` section of `rules.md` as
     `- [project:<name>] <text> (факт <id>)`; decisions/lessons become
@@ -2033,7 +2060,7 @@ the claim path would refuse. Columns come from `task_state`:
 - `GET /health` — `server.health` in `packages/protocol/src/groups/server.ts`,
   handler `packages/server/src/handlers/server.ts`, probes
   `packages/server/src/health.ts`. 200 `{status:"ok",
-  checks:{database,bus,autoloop}}` only when all three answer; otherwise 503
+checks:{database,bus,autoloop}}` only when all three answer; otherwise 503
   `ServiceUnavailableError` naming the first dead component. Database is
   `SELECT 1`; bus is an ephemeral `health.ping` round-trip (nonce, forkScoped
   subscriber) plus a durable log drain; autoloop is `stats()` + `getView()`
@@ -2308,7 +2335,7 @@ replacement fought it for the port. This section is the fix, for
   ORCHESTRA_BUN / fallback location with a systemd-like PATH, loud failure
   on a broken ORCHESTRA_BUN). NOT yet verified on a real
   reboot — that is the remaining check: after the next reboot, `systemctl
-  status orchestra-watchdog` + `watchdog.log` must show the watchdog up and
+status orchestra-watchdog` + `watchdog.log` must show the watchdog up and
   the server back on port 17890 with no operator action. The installer was
   deliberately never run for real in this change (no live systemd change
   without separate approval); only code, scripts and docs.
@@ -2583,7 +2610,7 @@ use them in.
 - A claim is verified only when the check ran and its output was seen. Report
   NOT RUN items as not run.
 - Mutation testing (idea #15): `bun script/mutation-check.ts <target>
-  <test>` mutates one comparison / condition / constant / `&&`|`||` at a
+<test>` mutates one comparison / condition / constant / `&&`|`||` at a
   time, runs the tests on each mutant in a temp copy of the package (the
   working tree is never touched), and reports survivors — tests that stay
   green. Exit 0 only when every mutant is killed. Critical modules —
@@ -2668,14 +2695,14 @@ keep their own versions; `packages/posts`, `packages/script`, `packages/storyboo
 have no version field.
 
 - Registry: `releases.json` at the root (`{releases: [{version, commit, date,
-  channel, notes, yanked?}]}`), newest first. Parser/validator:
+channel, notes, yanked?}]}`), newest first. Parser/validator:
   `packages/cli/src/services/release-registry.ts` (`parseRegistry`, `latestEntry`,
   `entryForVersion`, `cliUpdateManifest`); tests
   `packages/cli/test/release-registry.test.ts`. Strict: semver, 40-hex commit,
   `YYYY-MM-DD`, channel `latest`|`beta`, non-empty notes, unique versions.
 - CHANGELOG: `CHANGELOG.md` (Keep a Changelog). Generator `script/changelog.ts`
   (`bun script/changelog.ts 1.1.0 [--dry-run] [--notes ...] [--from <ref>] [--to <ref>]
-  [--date ...] [--channel ...]`): groups conventional commits since the newest
+[--date ...] [--channel ...]`): groups conventional commits since the newest
   registry entry's commit, `BREAKING CHANGE`/`!` → Breaking, merge commits skipped.
 - Bump: `script/bump-version.ts 1.1.0 [--channel beta] [--notes ...] [--dry-run]`
   validates (semver, newer than root, not already registered, clean tree, on `main`),
@@ -2765,7 +2792,7 @@ have no version field.
   so the same version cannot be bumped twice.
 - Smoke: `sh script/release-smoke.sh` — registry parses + CHANGELOG covers the
   current version, all workflow/action YAML files parse, `bun
-  packages/cli/script/build.ts --single`, `bun packages/cli/script/service-smoke.ts`,
+packages/cli/script/build.ts --single`, `bun packages/cli/script/service-smoke.ts`,
   `bump-version --dry-run 9.9.9`, `update-manifests --dry-run`. This is the 8 GB
   substitute: the full `clean-build.sh --smoke` needs a machine with 16 GB or more
   (its typecheck OOMs here). Verified green end-to-end on 2026-11-06 (all 5 steps).
@@ -2779,7 +2806,7 @@ have no version field.
   Stale-dist trap (found while verifying fix 1): the CLI bundles
   `@orchestra/plugin-antigravity-auth` from its COMMITTED `dist/`, not from `src/`
   — a source fix reaches no binary until `bun run --cwd
-  packages/plugin-antigravity-auth build` runs. `release.yml`, `release-desktop.yml`
+packages/plugin-antigravity-auth build` runs. `release.yml`, `release-desktop.yml`
   and `release-smoke.sh` all rebuild that dist before building the CLI; it is the
   only workspace package whose exports point at `dist/`.
 - Deleted in D2: `.github/workflows/publish.yml` + `.github/workflows/deploy.yml`
@@ -2833,7 +2860,7 @@ others is the broken approach this project has repeatedly paid for (habitual
 dispatch, trust-based acceptance, lessons lost with the session).
 
 1. **Orient from live inventories** (capability awareness): what tools, MCP
-   servers, models and peers exist *now* — never from habit or memory of a
+   servers, models and peers exist _now_ — never from habit or memory of a
    previous session.
 2. **Plan deliberately** (the single AI standard): roles matched to the task,
    worker models from the operator's Feature favorites with rotation and a

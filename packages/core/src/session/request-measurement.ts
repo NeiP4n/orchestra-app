@@ -3,7 +3,7 @@ export * as SessionRequestMeasurement from "./request-measurement.js"
 import path from "path"
 import { randomUUID } from "node:crypto"
 import { chmod, mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises"
-import { Effect } from "effect"
+import { Cause, Effect } from "effect"
 import { Global } from "@orchestra/util/global"
 
 // Safe per-request measurement (Step 0): numbers only, no prompt text, no filenames, no URLs, no
@@ -19,6 +19,10 @@ export const schemaVersion = 1
 // empty, "0" or "false" all stay off, and it never enables the detailed ORCHESTRA_REQUEST_REPORT
 // mode (which persists prompt text).
 export const enabled = () => process.env.ORCHESTRA_REQUEST_MEASUREMENT === "1"
+
+/** Where measurement files live; ORCHESTRA_REQUEST_MEASUREMENT_DIR overrides it (tests, exports). */
+export const measurementDir = () =>
+  process.env.ORCHESTRA_REQUEST_MEASUREMENT_DIR ?? path.join(Global.Path.log, "measurements")
 
 export const DEFAULT_RETENTION_DAYS = 7
 
@@ -361,7 +365,7 @@ export const pruneOldMeasurements = async (directory: string, now = Date.now()) 
 // Append one line to <data>/log/measurements with owner-only permissions. A write failure is
 // swallowed (Effect.ignore): measurement must never break the request it only observes, never
 // change a retry decision, and the warning path carries no record content.
-export const writeLine = (line: string, directory = path.join(Global.Path.log, "measurements")) =>
+export const writeLine = (line: string, directory = measurementDir()) =>
   Effect.tryPromise({
     try: async () => {
       if (Buffer.byteLength(line) > MAX_LINE_BYTES) return
@@ -377,27 +381,34 @@ export const writeLine = (line: string, directory = path.join(Global.Path.log, "
 // The whole primary-sizes hook behind one best-effort boundary: a serialization failure in
 // sizesOf (a circular message part, a throwing toJSON) can never abort request preparation,
 // and a write failure never reaches the request either. Measurement observes; it does not act.
+// Returns the opened attempt ID so the caller (Prepared) can settle exactly this attempt later.
 export const recordPrimarySizes = (
   input: {
     readonly sessionID: string
     readonly request: Parameters<typeof sizesOf>[0]
     readonly startedAt?: number
   },
-  directory = path.join(Global.Path.log, "measurements"),
-) =>
+  directory = measurementDir(),
+): Effect.Effect<string | undefined> =>
   Effect.suspend(() => {
-    if (!enabled()) return Effect.void
+    if (!enabled()) return Effect.succeed(undefined)
     return Effect.try({
       try: () => {
         const sizes = sizesOf(input.request)
         const attemptID = randomUUID()
-        return sizesLine(
+        // Retry linkage: when this session's previous attempt settled as failed or cancelled,
+        // this request is a retry of the same logical request and keeps its logicalRequestID.
+        // A completed attempt (or none) starts a new logical request.
+        const previous = pending.get(input.sessionID) ?? lastSettled.get(input.sessionID)
+        const retryOf = previous !== undefined && previous.outcome !== "completed" ? previous.attemptID : undefined
+        const line = sizesLine(
           track(
             open({
               measurementID: randomUUID(),
               sessionID: input.sessionID,
-              logicalRequestID: attemptID,
+              logicalRequestID: retryOf !== undefined && previous !== undefined ? previous.logicalRequestID : attemptID,
               attemptID,
+              retryOf,
               phase: "primary",
               providerID: sizes.providerID,
               modelID: sizes.modelID,
@@ -408,20 +419,28 @@ export const recordPrimarySizes = (
             }),
           ),
         )
+        return { line, attemptID }
       },
       catch: () => new Error("measurement failed"),
     }).pipe(
-      Effect.flatMap((line) => writeLine(line, directory)),
-      Effect.ignore,
+      Effect.flatMap(({ line, attemptID }) =>
+        writeLine(line, directory).pipe(Effect.as(attemptID as string | undefined)),
+      ),
+      Effect.catchCause((cause) => (Cause.hasInterruptsOnly(cause) ? Effect.interrupt : Effect.succeed(undefined))),
     )
   })
 
 /** What a completion line is labelled with; begin lines keep the "primary-sizes" label. */
 export const completionCoverage = "primary-completion"
 
-// The attempt opened when a primary request is formed, held until the step settles. One pending
-// attempt per session: a session's steps are sequential, and a retry opens a new attempt.
+// The unsettled attempt opened for a primary request, held until its step settles. One entry
+// per session: a session's steps are sequential. completePrimary removes the entry it settles.
 const pending = new Map<string, Attempt>()
+
+// The most recently settled attempt per session, kept so the next primary request can link a
+// retry chain: a new attempt after a failed/cancelled one is a retry of the same logical
+// request; after a completed one it starts a new logical request.
+const lastSettled = new Map<string, Attempt>()
 
 export const track = (record: Attempt): Attempt => {
   pending.set(record.sessionID, record)
@@ -430,8 +449,11 @@ export const track = (record: Attempt): Attempt => {
 
 export const pendingAttempt = (sessionID: string): Attempt | undefined => pending.get(sessionID)
 
-/** Test hook: forget every pending attempt. */
-export const untrackAll = () => pending.clear()
+/** Test hook: forget every pending and settled attempt. */
+export const untrackAll = () => {
+  pending.clear()
+  lastSettled.clear()
+}
 
 export function completionLine(record: Attempt): string {
   return JSON.stringify({ coverage: completionCoverage, record: JSON.parse(toLine(record)) as unknown })
@@ -439,21 +461,38 @@ export function completionLine(record: Attempt): string {
 
 // Finalize the session's pending attempt and write its completion line. Idempotent: with no
 // pending attempt (already finalized, or measurement off when the step started) it does nothing,
-// so a duplicate terminal event can never create a second record.
+// so a duplicate terminal event can never create a second record. When options.attemptID is
+// given, only that attempt settles - a newer attempt for the session is left alone. Fully
+// best-effort inside: invalid input (NaN usage, a defect in serialization) drops the completion
+// and keeps the attempt open, but can never fail the step that triggered it.
 export const completePrimary = (
   sessionID: string,
   input: FinishInput,
-  directory = path.join(Global.Path.log, "measurements"),
+  options: { readonly attemptID?: string; readonly directory?: string } = {},
 ) =>
-  Effect.suspend(() => {
-    const current = pending.get(sessionID)
-    if (!current) return Effect.void
-    pending.delete(sessionID)
-    const finished = finish({ attempts: { [current.attemptID]: current } }, current.attemptID, input).attempts[
-      current.attemptID
-    ]
-    return writeLine(completionLine(finished), directory)
-  })
+  Effect.suspend(() =>
+    Effect.try({
+      try: () => {
+        const current = pending.get(sessionID)
+        if (!current) return undefined
+        if (options.attemptID !== undefined && current.attemptID !== options.attemptID) return undefined
+        if (current.outcome !== "unknown") return undefined
+        const finished = finish({ attempts: { [current.attemptID]: current } }, current.attemptID, input).attempts[
+          current.attemptID
+        ]
+        if (!finished || finished.outcome === "unknown") return undefined
+        if (pending.get(sessionID)?.attemptID === finished.attemptID) pending.delete(sessionID)
+        lastSettled.set(sessionID, finished)
+        return completionLine(finished)
+      },
+      catch: () => new Error("measurement completion failed"),
+    }).pipe(
+      Effect.flatMap((line) =>
+        line === undefined ? Effect.void : writeLine(line, options.directory ?? measurementDir()),
+      ),
+      Effect.catchCause((cause) => (Cause.hasInterruptsOnly(cause) ? Effect.interrupt : Effect.void)),
+    ),
+  )
 
 export const gaps = [
   "title, compaction, summary and intake requests are not measured yet",
@@ -485,28 +524,79 @@ export interface ExportResult {
   readonly lines: ReadonlyArray<string>
 }
 
-// A stored line is untrusted input: only records that pass the same field, enum and number
-// validation as a fresh open() are folded in; the rest are counted as skipped.
-const wellFormed = (record: Attempt): boolean => {
+// A bounded enum-like label (estimation method name), same character rules as an ID.
+const labelOf = (value: unknown, field: string): string => {
+  if (typeof value !== "string" || value.length === 0 || value.length > 64 || /[\s"]/.test(value))
+    throw new Error(`measurement: invalid ${field}`)
+  return value
+}
+
+// A stored line is untrusted input: the record is rebuilt field by field through the same
+// validators a fresh open()/finish() applies - IDs and enums only, finite non-negative numbers,
+// known coverage handled by the caller - so malformed JSON can never reach the export as text.
+const decodeAttempt = (raw: unknown): Attempt | undefined => {
   try {
-    idOf(record.measurementID, "measurementID")
-    idOf(record.sessionID, "sessionID")
-    idOf(record.logicalRequestID, "logicalRequestID")
-    idOf(record.attemptID, "attemptID")
-    if (record.retryOf !== null) idOf(record.retryOf, "retryOf")
-    phaseOf(record.phase)
-    outcomeOf(record.outcome)
-    idOf(record.providerID, "providerID")
-    idOf(record.modelID, "modelID")
-    nonNeg(record.startedAt, "startedAt")
-    if (record.endedAt !== null) nonNeg(record.endedAt, "endedAt")
-    nonNeg(record.toolCount, "toolCount")
-    nonNeg(record.messageCount, "messageCount")
-    usageOf(record.usage)
-    costOf(record.cost)
-    return true
+    if (typeof raw !== "object" || raw === null) return undefined
+    const record = raw as Record<string, unknown>
+    if (record.schemaVersion !== schemaVersion) return undefined
+    if (record.sdkRetries !== "uncounted") return undefined
+    const nullableId = (value: unknown, field: string): string | null =>
+      value === null ? null : idOf(value as string, field)
+    const nullableNumber = (value: unknown, field: string): number | null =>
+      value === null ? null : nonNeg(value as number, field)
+    const usage = record.usage
+    const cost = record.cost
+    const estimates = record.estimates
+    if (typeof usage !== "object" || usage === null) return undefined
+    if (typeof cost !== "object" || cost === null) return undefined
+    if (typeof estimates !== "object" || estimates === null) return undefined
+    const u = usage as Record<string, unknown>
+    const c = cost as Record<string, unknown>
+    const e = estimates as Record<string, unknown>
+    if (c.source !== "provider" && c.source !== "catalog" && c.source !== "unknown") return undefined
+    if (record.attribution !== "assignment" && record.attribution !== "unknown") return undefined
+    return {
+      schemaVersion,
+      measurementID: idOf(record.measurementID as string, "measurementID"),
+      sessionID: idOf(record.sessionID as string, "sessionID"),
+      logicalRequestID: idOf(record.logicalRequestID as string, "logicalRequestID"),
+      attemptID: idOf(record.attemptID as string, "attemptID"),
+      retryOf: nullableId(record.retryOf, "retryOf"),
+      goalID: nullableId(record.goalID, "goalID"),
+      taskID: nullableId(record.taskID, "taskID"),
+      role: nullableId(record.role, "role"),
+      attribution: record.attribution,
+      phase: phaseOf(record.phase as string),
+      providerID: idOf(record.providerID as string, "providerID"),
+      modelID: idOf(record.modelID as string, "modelID"),
+      startedAt: nonNeg(record.startedAt as number, "startedAt"),
+      endedAt: nullableNumber(record.endedAt, "endedAt"),
+      durationMs: nullableNumber(record.durationMs, "durationMs"),
+      outcome: outcomeOf(record.outcome as string),
+      usage: usageOf({
+        input: u.input as number | null,
+        output: u.output as number | null,
+        reasoning: u.reasoning as number | null,
+        cacheRead: u.cacheRead as number | null,
+        cacheWrite: u.cacheWrite as number | null,
+      }),
+      cost: {
+        recordedUSD: nullableNumber(c.recordedUSD, "cost.recordedUSD"),
+        estimatedUSD: nullableNumber(c.estimatedUSD, "cost.estimatedUSD"),
+        source: c.source,
+      },
+      toolCount: nonNeg(record.toolCount as number, "toolCount"),
+      messageCount: nonNeg(record.messageCount as number, "messageCount"),
+      estimates: {
+        system: nullableNumber(e.system, "estimates.system"),
+        tools: nullableNumber(e.tools, "estimates.tools"),
+        history: nullableNumber(e.history, "estimates.history"),
+        method: labelOf(e.method, "estimates.method"),
+      },
+      sdkRetries: "uncounted",
+    }
   } catch {
-    return false
+    return undefined
   }
 }
 
@@ -535,9 +625,13 @@ export const readExport = (directory: string, options: ExportOptions = {}) =>
         for (const raw of text.split("\n")) {
           if (!raw.trim()) continue
           try {
-            const parsed = JSON.parse(raw) as { coverage?: string; record?: Attempt }
-            const record = parsed.record
-            if (!record || typeof record.attemptID !== "string" || !wellFormed(record)) {
+            const parsed = JSON.parse(raw) as { coverage?: unknown; record?: unknown }
+            if (parsed.coverage !== coverage && parsed.coverage !== completionCoverage) {
+              skipped++
+              continue
+            }
+            const record = decodeAttempt(parsed.record)
+            if (!record) {
               skipped++
               continue
             }
