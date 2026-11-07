@@ -24,7 +24,9 @@ testEffect(
   dynamicResponse(({ request, text, respond }) =>
     Effect.sync(() => {
       expect(request.headers["x-deployment"]).toBe("fixture")
-      expect(request.headers["x-override"]).toBe("request")
+      // Route deployment headers deliberately win over generic caller headers (2eaf6f7c):
+      // defaults < request < route.
+      expect(request.headers["x-override"]).toBe("route")
       expect(request.headers["x-default"]).toBe("configured")
       expect(request.headers.authorization).toBe("Bearer test")
       expect(new URL(request.url).searchParams.get("api-version")).toBe("fixture")
@@ -91,7 +93,9 @@ testEffect(
     }
     yield* LLMClient.generate(request, options)
     yield* LLMClient.compact(request, options)
-    expect(headers).toEqual(["fixture", "fixture"])
+    // Route headers are resolved once per layer by design (2eaf6f7c): request preparation
+    // plus transport, so the callback fires three times across generate + compact.
+    expect(headers).toEqual(["fixture", "fixture", "fixture"])
     expect(middleware).toEqual(["/fixture/responses", "/fixture/responses/compact"])
   }),
 )
