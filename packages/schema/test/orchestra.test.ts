@@ -51,6 +51,7 @@ const KEPT_TEMPLATES = [
   "opencode-core",
   "game-prototype",
   "marketing-launch",
+  "team-solve",
 ]
 
 describe("built-in templates", () => {
@@ -75,6 +76,7 @@ describe("built-in templates", () => {
 
   test("no built-in playbook prescribes a fixed stage count or a mandatory roster", () => {
     for (const template of templates) {
+      if (template.id === "team-solve") continue
       const playbook = template.playbook ?? ""
       expect(playbook).not.toMatch(/\bPhase \d/)
       expect(playbook).not.toMatch(/\d+-stage\b/)
@@ -82,6 +84,37 @@ describe("built-in templates", () => {
       expect(playbook.toLowerCase()).not.toContain("full factory")
       expect(playbook.toLowerCase()).not.toContain("deploy the full")
     }
+  })
+
+  test("team-solve is the one fixed-roster method preset: six roles, in pipeline order", () => {
+    const preset = templates.find((item) => item.id === "team-solve")
+    expect(preset).toBeDefined()
+    expect([...(preset?.roles ?? [])]).toEqual([
+      "team-planner",
+      "ideator-a",
+      "ideator-b",
+      "team-solver",
+      "team-manager",
+      "repairer",
+    ])
+    expect(preset?.members.map((member) => member.agent.replace(/^team-/, ""))).toEqual([...(preset?.roles ?? [])])
+    for (const id of preset?.roles ?? []) {
+      const role = roles.find((item) => item.id === id)
+      expect(role).toBeDefined()
+      expect(role?.rules).toContain("Fresh context")
+      expect(role?.rules).toContain("Mission:")
+    }
+  })
+
+  test("team-solve playbook: files only, fresh contexts, test verdict, one repair round", () => {
+    const playbook = templates.find((item) => item.id === "team-solve")?.playbook ?? ""
+    expect(playbook).toContain("fresh session")
+    expect(playbook).toContain("no shared chat")
+    expect(playbook).toContain(".orchestra/team-notes.md")
+    expect(playbook).toContain("dod verify")
+    expect(playbook).toContain("never by a vote")
+    expect(playbook).toContain("at most one round")
+    expect(playbook).toContain("exit code is the verdict")
   })
 })
 
