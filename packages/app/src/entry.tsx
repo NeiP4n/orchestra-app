@@ -119,6 +119,10 @@ if (root instanceof HTMLElement && root.dataset.opencodeMounted === undefined) {
       ),
       root,
     )
+    // The boot watchdog (public/orchestra-boot.js) shows an error if the app
+    // never mounts; take the loading fallback down and tell it we mounted.
+    root.querySelector("[data-boot-fallback]")?.remove()
+    root.dataset.opencodeRendered = ""
   }).catch((error) => {
     console.error(error)
     showStartupError(root)
