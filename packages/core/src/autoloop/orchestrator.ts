@@ -6,6 +6,7 @@ import { Effect } from "effect"
 import type { Autoloop } from "./service.js"
 import { AutoloopCards } from "./cards.js"
 import type { AutoloopLimits, Job, Receipt, Rejected, RunRow } from "./kernel/decide.js"
+import { DEFAULT_AUTONOMY, type AutonomyMode, type BatchLimits } from "./kernel/autonomy.js"
 import { emptyRules, type Rules } from "./kernel/rules.js"
 
 // The bridge between the Orchestrator and the autoloop cycle (block Б3,
@@ -90,6 +91,26 @@ export function limitsFromConfig(autoloop: ConfigOrchestra.Autoloop | undefined)
   if (autoloop.runLeaseMinutes !== undefined) picked.runLeaseMinutes = autoloop.runLeaseMinutes
   if (autoloop.workerFreshMinutes !== undefined) picked.workerFreshMinutes = autoloop.workerFreshMinutes
   if (autoloop.offlineAfterMinutes !== undefined) picked.offlineAfterMinutes = autoloop.offlineAfterMinutes
+  return picked
+}
+
+/**
+ * The Society's autonomy mode from the operator's `Config.Orchestra`
+ * (`orchestra.society.autonomy`). Nothing set means `observe` — the
+ * router watches and prepares, but executes nothing until the operator
+ * says `auto`. A live autonomous society must set `auto` explicitly;
+ * that is the gate, not a silent default.
+ */
+export function autonomyFromConfig(info: ConfigOrchestra.Info | undefined): AutonomyMode {
+  return info?.society?.autonomy ?? DEFAULT_AUTONOMY
+}
+
+/** Router batch limits from the operator's `Config.Orchestra.Autoloop`, if any. Missing numbers fall back to the kernel defaults. */
+export function batchLimitsFromConfig(autoloop: ConfigOrchestra.Autoloop | undefined): Partial<BatchLimits> {
+  if (autoloop === undefined) return {}
+  const picked: Partial<BatchLimits> = {}
+  if (autoloop.batchWindowMs !== undefined) picked.windowMs = autoloop.batchWindowMs
+  if (autoloop.maxBatchEvents !== undefined) picked.maxEvents = autoloop.maxBatchEvents
   return picked
 }
 
@@ -260,13 +281,21 @@ export function createRun(
           hops: 0,
         },
       ],
-    })) as { event: number; duplicate: boolean; routed: string[] }
+    })) as { event: number; duplicate: boolean; routed: string[]; dropped: boolean }
     const job = (yield* cycle.execute({
       type: "claimNext",
       args: [WORKER, `dispatch:${task.messageID}`],
     })) as Job | null
     if (job === null) {
-      yield* Effect.logWarning("autoloop: цикл не отдал задачу диспетча", { event: ingested.event })
+      if (ingested.dropped === true) {
+        // `off` mode: the event is recorded and nothing is routed — the
+        // task is not sent, and that is the mode working, not a failure.
+        yield* Effect.logInfo("autoloop: автономность выключена — событие записано, задача не отправлена", {
+          event: ingested.event,
+        })
+      } else {
+        yield* Effect.logWarning("autoloop: цикл не отдал задачу диспетча", { event: ingested.event })
+      }
       return null
     }
     yield* cycle.execute({ type: "started", args: [job.run, job.token, { session: task.sessionID }] })

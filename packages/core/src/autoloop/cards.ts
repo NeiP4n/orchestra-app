@@ -4,6 +4,7 @@ import { AutoloopCard } from "@orchestra/schema/autoloop-card"
 import type { Event } from "@orchestra/schema/event"
 import { Effect, Schema } from "effect"
 import { decide, type AutoloopLimits, type CardRow, type DecideInput } from "./kernel/decide.js"
+import type { AutonomyMode } from "./kernel/autonomy.js"
 import type { View } from "./kernel/evolve.js"
 import { rows } from "./kernel/evolve.js"
 import { emptyRules, type Rules } from "./kernel/rules.js"
@@ -26,6 +27,11 @@ export interface CardsEnv {
   rules?: Rules
   /** Cycle limits; anything missing falls back to `decide`'s defaults. */
   limits?: Partial<AutoloopLimits>
+  /**
+   * Autonomy mode (`off` / `observe` / `auto`); when absent the kernel
+   * runs as before (`auto`).
+   */
+  autonomy?: AutonomyMode
   /** Secret the claim/finish tokens are derived from (credential store). */
   tokenSecret?: string
   /** Clock override, for tests: the service passes nothing and gets real time. */
@@ -142,6 +148,7 @@ const decideEnv = (view: View, lastSeq: number, env?: CardsEnv) => {
   return {
     rules: env?.rules ?? stored?.rules ?? emptyRules(),
     limits: env?.limits,
+    autonomy: env?.autonomy,
     tokenSecret: env?.tokenSecret,
     seq: lastSeq + 1,
     rulesVersion: stored?.version ?? 1,
