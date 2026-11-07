@@ -516,16 +516,17 @@ export type RoomDodItem = {
   what: string
   stage: string
   state: string
-  done: number
-  total: number
-  owner?: string | undefined
-  ownerID?: string | undefined
-  standby?: string | undefined
-  standbyID?: string | undefined
-  stale?: boolean | undefined
-  mine?: boolean | undefined
-  waits?: Array<string> | undefined
-  verify?: string | undefined
+  done: number | "Infinity" | "-Infinity" | "NaN"
+  total: number | "Infinity" | "-Infinity" | "NaN"
+  owner?: string | null
+  ownerID?: string | null
+  standby?: string | null
+  standbyID?: string | null
+  stale?: boolean | null
+  mine?: boolean | null
+  waits?: Array<string> | null
+  verify?: string | null
+  human?: boolean
 }
 
 export type RoomDodNote = { name: string; text: string }
@@ -549,6 +550,7 @@ export type RoomDodBoardCard = {
   canTake: boolean
   takeRefusal?: string
   readOnly: boolean
+  human?: boolean
 }
 
 export type RoomEvent = {
@@ -651,6 +653,10 @@ export type OrchestraOrigin = "builtin" | "edited" | "custom"
 export type OrchestraAccess = "hidden" | "read" | "write" | "full"
 
 export type FederationCoordinationMode = "lead" | "council"
+
+export type AutoloopCardDisputeLevel = "agent" | "group-leader" | "council" | "orchestrator" | "operator"
+
+export type AutoloopCardResolveDisputeResult = { resolved: boolean }
 
 export type QuotaQuotaStatus = "ok" | "approaching_limit" | "exceeded"
 
@@ -1987,10 +1993,10 @@ export type RoomInfo = {
 
 export type RoomDod = {
   items: Array<RoomDodItem>
-  status?: "ready" | "disabled" | undefined
-  taken?: string | undefined
-  note?: RoomDodNote | undefined
-  check?: { exitCode: number; output: string } | undefined
+  status?: "ready" | "disabled" | null
+  taken?: string | null
+  note?: RoomDodNote | null
+  check?: { exitCode: number | "Infinity" | "-Infinity" | "NaN"; output: string } | null
 }
 
 export type RoomDodBoardColumn = {
@@ -2089,6 +2095,15 @@ export type FederationGroup = {
   mode?: FederationCoordinationMode | undefined
   supervisor?: string | undefined
   budget?: MoneyUSD | undefined
+}
+
+export type AutoloopCardRaiseDisputeResult = { dispute: number; level: AutoloopCardDisputeLevel; deadline: string }
+
+export type AutoloopCardEscalateDisputeResult = {
+  escalated: boolean
+  reason: string
+  level: AutoloopCardDisputeLevel
+  state: string
 }
 
 export type QuotaTokenQuotaSpec = {
@@ -2620,14 +2635,21 @@ export type ConfigEntry =
           autoloop?: {
             maxAttempts?: number
             maxVerifyIterations?: number
+            failureRepeatStop?: number
+            toolPruneUnusedSteps?: number
             maxHops?: number
             retryBaseMinutes?: number
             retryMaxMinutes?: number
             runLeaseMinutes?: number
             workerFreshMinutes?: number
             offlineAfterMinutes?: number
+            batchWindowMs?: number
+            maxBatchEvents?: number
           }
-          society?: { baseProjects?: Array<{ key: string; folder: string; name: string; role: string; brief: string }> }
+          society?: {
+            baseProjects?: Array<{ key: string; folder: string; name: string; role: string; brief: string }>
+            autonomy?: "off" | "observe" | "auto"
+          }
         }
         proxy?: ConfigProxy
         update?: "disable" | "notify" | "auto"
@@ -2688,6 +2710,7 @@ export type ConfigEntry =
                   cwd?: string
                   environment?: { [x: string]: string }
                   disabled?: boolean
+                  readOnly?: boolean
                   codemode?: boolean
                   timeout?: { startup?: number; catalog?: number; execution?: number }
                   protocol?: McpProtocol
@@ -6491,6 +6514,7 @@ export type McpAddInput = {
           readonly cwd?: string
           readonly environment?: { readonly [x: string]: string }
           readonly disabled?: boolean
+          readonly readOnly?: boolean
           readonly codemode?: boolean
           readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
           readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -7692,6 +7716,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -7947,6 +7972,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -8202,6 +8228,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -8457,6 +8484,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -8712,6 +8740,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -8967,6 +8996,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -9222,6 +9252,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -9477,6 +9508,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -9732,6 +9764,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -9987,6 +10020,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -10242,6 +10276,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -10497,6 +10532,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -10752,6 +10788,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -11007,6 +11044,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -11262,6 +11300,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -11517,6 +11556,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -11772,6 +11812,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -12027,6 +12068,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -12282,6 +12324,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -12537,6 +12580,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -12792,6 +12836,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -13047,6 +13092,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -13302,6 +13348,7 @@ export type ConfigUpdateInput = {
             readonly cwd?: string
             readonly environment?: { readonly [x: string]: string }
             readonly disabled?: boolean
+            readonly readOnly?: boolean
             readonly codemode?: boolean
             readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
             readonly protocol?: "legacy" | "auto" | "2026-07-28"
@@ -15286,6 +15333,46 @@ export type ServerAutoloopCardsAnswerInput = {
 }
 
 export type ServerAutoloopCardsAnswerOutput = AutoloopCardAnswerResult
+
+export type ServerAutoloopDisputesRaiseInput = {
+  readonly subject: {
+    readonly subject: string
+    readonly positionA: string
+    readonly positionB: string
+    readonly level?: "agent" | "group-leader" | "council" | "orchestrator" | "operator"
+  }["subject"]
+  readonly positionA: {
+    readonly subject: string
+    readonly positionA: string
+    readonly positionB: string
+    readonly level?: "agent" | "group-leader" | "council" | "orchestrator" | "operator"
+  }["positionA"]
+  readonly positionB: {
+    readonly subject: string
+    readonly positionA: string
+    readonly positionB: string
+    readonly level?: "agent" | "group-leader" | "council" | "orchestrator" | "operator"
+  }["positionB"]
+  readonly level?: {
+    readonly subject: string
+    readonly positionA: string
+    readonly positionB: string
+    readonly level?: "agent" | "group-leader" | "council" | "orchestrator" | "operator"
+  }["level"]
+}
+
+export type ServerAutoloopDisputesRaiseOutput = AutoloopCardRaiseDisputeResult
+
+export type ServerAutoloopDisputesResolveInput = {
+  readonly id: { readonly id: string }["id"]
+  readonly decision: { readonly decision: string }["decision"]
+}
+
+export type ServerAutoloopDisputesResolveOutput = AutoloopCardResolveDisputeResult
+
+export type ServerAutoloopDisputesEscalateInput = { readonly id: { readonly id: string }["id"] }
+
+export type ServerAutoloopDisputesEscalateOutput = AutoloopCardEscalateDisputeResult
 
 export type ServerRecoveryModelsInput = {
   readonly location?: { readonly location?: { readonly directory?: string | undefined } | undefined }["location"]

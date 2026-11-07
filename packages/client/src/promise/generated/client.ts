@@ -454,6 +454,12 @@ import type {
   ServerAutoloopCardsListOutput,
   ServerAutoloopCardsAnswerInput,
   ServerAutoloopCardsAnswerOutput,
+  ServerAutoloopDisputesRaiseInput,
+  ServerAutoloopDisputesRaiseOutput,
+  ServerAutoloopDisputesResolveInput,
+  ServerAutoloopDisputesResolveOutput,
+  ServerAutoloopDisputesEscalateInput,
+  ServerAutoloopDisputesEscalateOutput,
   ServerRecoveryModelsInput,
   ServerRecoveryModelsOutput,
   ServerRecoveryChatInput,
@@ -3781,6 +3787,48 @@ export function make(options: ClientOptions) {
               method: "POST",
               path: `/api/autoloop/cards/${encodeURIComponent(input.id)}/answer`,
               body: { choice: input["choice"], text: input["text"], by: input["by"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401, 404, 409, 503],
+              empty: false,
+            },
+            requestOptions,
+          ),
+      },
+      disputes: {
+        raise: (input: ServerAutoloopDisputesRaiseInput, requestOptions?: RequestOptions) =>
+          request<ServerAutoloopDisputesRaiseOutput>(
+            {
+              method: "POST",
+              path: `/api/autoloop/disputes`,
+              body: {
+                subject: input["subject"],
+                positionA: input["positionA"],
+                positionB: input["positionB"],
+                level: input["level"],
+              },
+              successStatus: 200,
+              declaredStatuses: [400, 401, 404, 409, 503],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        resolve: (input: ServerAutoloopDisputesResolveInput, requestOptions?: RequestOptions) =>
+          request<ServerAutoloopDisputesResolveOutput>(
+            {
+              method: "POST",
+              path: `/api/autoloop/disputes/${encodeURIComponent(input.id)}/resolve`,
+              body: { decision: input["decision"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401, 404, 409, 503],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        escalate: (input: ServerAutoloopDisputesEscalateInput, requestOptions?: RequestOptions) =>
+          request<ServerAutoloopDisputesEscalateOutput>(
+            {
+              method: "POST",
+              path: `/api/autoloop/disputes/${encodeURIComponent(input.id)}/escalate`,
               successStatus: 200,
               declaredStatuses: [400, 401, 404, 409, 503],
               empty: false,
