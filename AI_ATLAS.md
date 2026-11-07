@@ -83,7 +83,11 @@ Anymodel models (`sonnet-5`, `anymodel-coder`, `gemini-3.8-flash`), then lix
 `https://klinch.cloud/v1`), then whatever else the catalog has, sorted by
 provider then model id — never in catalog order, so the order does not
 depend on registration order. A provider with no stored key has no models in the catalog and contributes
-nothing, so a fallback can never invent a provider that does not exist. The
+nothing, so a fallback can never invent a provider that does not exist. One
+verified model is an exception to "in the catalog": `anymodel-coder` left the
+Anymodel `/models` listing on 2026-11-07 (run10) but still answers live chat
+(45 tokens), so the chain keeps offering it while the catalog holds any
+Anymodel model at all — chat is the real proof, the listing lags. The
 current model is excluded by identity (`provider/id`), never by variant: another
 variant of the same model fails the same way (a 401 on `sonnet-5` is a 401 on
 `sonnet-5#max` too). Dead Anymodel models (`anymodel-v4.1-flash` et al.) never
@@ -1085,11 +1089,17 @@ messages and builds the rest with `society_forge generate` and `society_plan`.
   MCP assignment for the whole Society. Budget is a field (`orchestra.budget-tokens`),
   not prose. Rules reach new projects by scope (`society:<name>`).
 - Model table (`society.ts`, verified against Anymodel 2026-11-06,
-  re-verified twice on 2026-11-07 (run6 + run7), still 17 models in the same order):
+  re-verified twice on 2026-11-07 (run6 + run7), still 17 models in the same
+  order — then re-verified again the same day (run10): the listing shrank to
+  14 models, `anymodel-coder`, `anymodel-reasoner` and `anymodel-v4.1-flash`
+  left `/models`):
   strong `opus-5.5`, mid `sonnet-5.5`, cheap `anymodel-coder` (quality work),
   fallback `sonnet-5`; cheap flash alternative `gemini-3.8-flash` (also a
   main-session fallback after `anymodel-coder`), reasoning `grok-4.7` next to
-  `opus-5.5`. The other new models (`gemini-3.5-flash-lite`, `gemini-3.6-flash`,
+  `opus-5.5`. `anymodel-coder` is not in `/models` anymore but still answers
+  live chat (run10, 45 tokens), so it stays the cheap tier and a fallback
+  while the catalog holds any Anymodel model at all; `anymodel-reasoner` and
+  `anymodel-v4.1-flash` are dead in chat too and stay dead. The other new models (`gemini-3.5-flash-lite`, `gemini-3.6-flash`,
   `gemini-4-argon`) are catalogued in `ANYMODEL_MODEL_IDS` but have no assigned
   role yet. Checked 2026-11-07 and absent at Anymodel, so not catalogued:
   `gpt-6.1-terra` (cheap worker / computer-use candidate), `mistral-large-4`

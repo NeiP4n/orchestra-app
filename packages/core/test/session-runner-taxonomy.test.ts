@@ -168,10 +168,16 @@ describe("SessionErrorTaxonomy", () => {
       "anymodel/gemini-3.8-flash",
     ])
     expect(MAIN_SESSION_FALLBACK_MODELS).not.toContain("anymodel/anymodel-v4.1-flash")
-    // Every fallback must exist in the catalog snapshot, so the runner can
-    // never fall back to a model the account does not have.
+    // Every fallback must exist in the catalog snapshot or be a model live
+    // chat proved alive, so the runner can never fall back to a model the
+    // account does not have. anymodel-coder left /models on 2026-11-07
+    // (run10) but answered chat that day, so it is chat-verified, not
+    // catalogued.
     for (const ref of MAIN_SESSION_FALLBACK_MODELS) {
-      expect(Society.ANYMODEL_MODEL_IDS).toContain(ref.split("/")[1])
+      const id = ref.split("/")[1]
+      expect(
+        Society.ANYMODEL_MODEL_IDS.includes(id) || Society.isChatVerifiedModelId(id),
+      ).toBe(true)
     }
   })
 })

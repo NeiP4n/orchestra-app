@@ -2,6 +2,7 @@ export * as Society from "./society.js"
 
 import { Schema } from "effect"
 import { Model } from "./model.js"
+import { Provider } from "./provider.js"
 
 // Б10: the Society's numbers, model table and generation state, in one place
 // so no caller re-encodes them. The planner builds the Society; this module
@@ -20,9 +21,11 @@ export const SOCIETY_GENERATION_TIMEOUT_MS = 30 * 60 * 1000
 
 // The Anymodel model table, verified 2026-11-06 in live chat tests
 // against https://anymodel.ghostly.su/v1/models (17 models, up from 12 on
-// 2026-11-05) and re-verified twice more on 2026-11-07 (run6 and run7
-// checks): still 17 models, same ids in the same order. Model ids are
-// matched against the catalog, so the provider id comes from what the
+// 2026-11-05), re-verified twice more on 2026-11-07 (run6 and run7 checks):
+// still 17 models, same ids in the same order — and re-verified again on
+// 2026-11-07 (run10): the listing shrank to 14 models. Three ids left
+// /models: anymodel-coder, anymodel-reasoner, anymodel-v4.1-flash. Model ids
+// are matched against the catalog, so the provider id comes from what the
 // account actually has instead of a hardcoded guess.
 export const STRONG_MODEL_ID = "opus-5.5"
 export const MID_MODEL_ID = "sonnet-5.5"
@@ -36,14 +39,11 @@ export const CHEAP_FLASH_MODEL_ID = "gemini-3.8-flash"
 // fallback next to opus-5.5 for work where a mistake costs the most.
 export const REASONING_MODEL_ID = "grok-4.7"
 
-// Every model id the Anymodel /models listing returned on 2026-11-06, in
-// listing order: the catalog snapshot the tests pin, so a model that leaves
-// the account (or a new one that arrives) fails loudly instead of silently
-// changing which tier and fallback ids resolve.
+// Every model id the Anymodel /models listing returned on 2026-11-07
+// (run10), in listing order: the catalog snapshot the tests pin, so a model
+// that leaves the account (or a new one that arrives) fails loudly instead
+// of silently changing which tier and fallback ids resolve.
 export const ANYMODEL_MODEL_IDS: ReadonlyArray<string> = [
-  "anymodel-coder",
-  "anymodel-reasoner",
-  "anymodel-v4.1-flash",
   "fable-5.1",
   "gemini-3.5-flash-lite",
   "gemini-3.6-flash",
@@ -60,8 +60,25 @@ export const ANYMODEL_MODEL_IDS: ReadonlyArray<string> = [
   "sonnet-5.5",
 ]
 
+// Models that left the Anymodel /models listing but still answer live
+// chat: verified 2026-11-07 (run10) — anymodel-coder answered twice, 45
+// tokens each time, after the listing dropped it (its first attempt hit a
+// transient provider timeout; the retry answered). Chat is the real proof
+// and the listing lags, so the cheap tier and the main-session fallback keep
+// using it — but only while the live catalog holds an Anymodel model at all,
+// which proves the provider key exists. anymodel-reasoner and
+// anymodel-v4.1-flash left the listing too and are dead in chat, so they
+// stay in DEAD_MODEL_IDS and never come back this way.
+export const CHAT_VERIFIED_MODEL_IDS: ReadonlyArray<string> = ["anymodel-coder"]
+
+export const isChatVerifiedModelId = (id: string) =>
+  CHAT_VERIFIED_MODEL_IDS.includes(id.trim().toLowerCase())
+
 // Dead in all three rounds (mostly timeouts — provider overload, not a
 // single outage): never a primary, never a fallback, anywhere.
+// anymodel-reasoner and anymodel-v4.1-flash have since also left the /models
+// listing (2026-11-07, run10); they stay dead here so nothing can revive
+// them by re-adding the id.
 export const DEAD_MODEL_IDS: ReadonlyArray<string> = [
   "anymodel-reasoner",
   "anymodel-v4.1-flash",
@@ -118,15 +135,25 @@ export function tierForCategory(category: string | undefined): ModelTier {
 
 // A tier model from the catalog, with the provider id the catalog gives it;
 // undefined when the account does not have that model, so callers fall
-// through to the next choice instead of inventing a provider.
+// through to the next choice instead of inventing a provider. One exception:
+// a chat-verified model that left /models (see CHAT_VERIFIED_MODEL_IDS)
+// still resolves while the catalog holds any model of its provider — the
+// provider entry proves the key exists, and live chat proved the model
+// answers. Without a single model of that provider in the catalog there is
+// no provider to call, so it stays unresolved.
 export function resolveSocietyModel(
   tier: ModelTier | "fallback",
   catalog: ReadonlyArray<Model.Info> | undefined,
 ): Model.Ref | undefined {
   const wanted = tier === "fallback" ? FALLBACK_MODEL_ID : modelIdForTier(tier)
   const info = catalog?.find((item) => item.id.toLowerCase() === wanted)
-  if (!info) return undefined
-  return Model.Ref.make({ id: info.id, providerID: info.providerID })
+  if (info) return Model.Ref.make({ id: info.id, providerID: info.providerID })
+  if (
+    isChatVerifiedModelId(wanted) &&
+    catalog?.some((item) => item.providerID === Provider.ID.make("anymodel"))
+  )
+    return Model.Ref.make({ id: Model.ID.make(wanted), providerID: Provider.ID.make("anymodel") })
+  return undefined
 }
 
 // ---------------------------------------------------------------------------

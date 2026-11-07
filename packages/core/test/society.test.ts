@@ -53,11 +53,8 @@ describe("Society model table", () => {
     expect(Society.isDeadModelId(Society.FALLBACK_MODEL_ID)).toBe(false)
   })
 
-  test("the catalog lists all 17 Anymodel models from the 2026-11-07 listing (unchanged since 2026-11-06)", () => {
+  test("the catalog lists all 14 Anymodel models from the 2026-11-07 listing (down from 17: anymodel-coder, anymodel-reasoner and anymodel-v4.1-flash left /models)", () => {
     expect(Society.ANYMODEL_MODEL_IDS).toEqual([
-      "anymodel-coder",
-      "anymodel-reasoner",
-      "anymodel-v4.1-flash",
       "fable-5.1",
       "gemini-3.5-flash-lite",
       "gemini-3.6-flash",
@@ -74,25 +71,37 @@ describe("Society model table", () => {
       "sonnet-5.5",
     ])
     expect(new Set(Society.ANYMODEL_MODEL_IDS).size).toBe(Society.ANYMODEL_MODEL_IDS.length)
-    // Every id the table names — tiers, fallback, dead list and the two new
-    // profiles — must exist in the catalog, so no fallback can point at a
-    // model the account does not have.
+    // Every id the table names — tiers, fallback and the dead list — must
+    // exist in the catalog, so no fallback can point at a model the account
+    // does not have. One exception: the cheap tier is anymodel-coder, which
+    // left /models but still answers live chat (2026-11-07, run10) — it must
+    // be chat-verified, never silently dropped. Two more exceptions, the
+    // other way: anymodel-reasoner and anymodel-v4.1-flash left /models and
+    // are dead in chat, so they must be dead and absent from the catalog.
     for (const id of [
       Society.STRONG_MODEL_ID,
       Society.MID_MODEL_ID,
-      Society.CHEAP_MODEL_ID,
       Society.FALLBACK_MODEL_ID,
       Society.CHEAP_FLASH_MODEL_ID,
       Society.REASONING_MODEL_ID,
-      ...Society.DEAD_MODEL_IDS,
     ]) {
+      expect(Society.ANYMODEL_MODEL_IDS).toContain(id)
+    }
+    expect(Society.isChatVerifiedModelId(Society.CHEAP_MODEL_ID)).toBe(true)
+    expect(Society.ANYMODEL_MODEL_IDS).not.toContain(Society.CHEAP_MODEL_ID)
+    for (const id of ["anymodel-reasoner", "anymodel-v4.1-flash"]) {
+      expect(Society.isDeadModelId(id)).toBe(true)
+      expect(Society.ANYMODEL_MODEL_IDS).not.toContain(id)
+    }
+    for (const id of ["fable-5.1", "gpt-6-astra", "gpt-6-sol", "gpt-6.1-sol"]) {
+      expect(Society.isDeadModelId(id)).toBe(true)
       expect(Society.ANYMODEL_MODEL_IDS).toContain(id)
     }
   })
 
   test("the models checked 2026-11-07 are absent from the catalog, never a tier or fallback", () => {
     // gpt-6.1-terra, mistral-large-4 and ripple-65b are not at Anymodel yet
-    // (live /models listing, 2026-11-07, 17 models), and neither are the
+    // (live /models listing, 2026-11-07, 14 models), and neither are the
     // run7 models deepseek-v4.1-flash-1017, deepseek-v4.1-flash and
     // glm-5.3-flash (checked the same day, same listing): no catalog id and
     // no tier, fallback or dead id may name one, so a worker can never be
@@ -158,6 +167,25 @@ describe("Society model table", () => {
     // the caller falls through instead of running a model that is not there.
     expect(Society.resolveSocietyModel("strong", catalog(["sonnet-5"]))).toBeUndefined()
     expect(Society.resolveSocietyModel("mid", undefined)).toBeUndefined()
+  })
+
+  test("the cheap tier still resolves anymodel-coder while Anymodel is in the catalog, even though it left /models", () => {
+    // anymodel-coder left the /models listing on 2026-11-07 (run10) but
+    // still answers live chat: the cheap tier must keep resolving it while
+    // the catalog holds any Anymodel model at all (the key exists), instead
+    // of silently falling through to the Orchestrator's flagship.
+    const withoutCoder = catalog(["opus-5.5", "sonnet-5.5", "sonnet-5"])
+    expect(Society.resolveSocietyModel("cheap", withoutCoder)).toEqual(
+      Model.Ref.make({ id: Model.ID.make("anymodel-coder"), providerID: Provider.ID.make("anymodel") }),
+    )
+    // No Anymodel model in the catalog at all means no provider to call:
+    // the cheap tier stays unresolved instead of inventing one.
+    const otherProvider = [Model.Info.default(Provider.ID.make("lix"), Model.ID.make("lix-test-model"))]
+    expect(Society.resolveSocietyModel("cheap", otherProvider)).toBeUndefined()
+    expect(Society.resolveSocietyModel("cheap", [])).toBeUndefined()
+    // A dead model that left the listing is never revived this way.
+    expect(Society.isChatVerifiedModelId("anymodel-reasoner")).toBe(false)
+    expect(Society.isChatVerifiedModelId("anymodel-v4.1-flash")).toBe(false)
   })
 })
 

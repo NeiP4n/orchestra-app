@@ -3,7 +3,7 @@ export * as SessionErrorTaxonomy from "./error-taxonomy.js"
 import { AIError } from "@orchestra/ai"
 import { ToolFailure } from "@orchestra/ai"
 import { Model } from "@orchestra/schema/model"
-import { isDeadModelId } from "../../society.js"
+import { isChatVerifiedModelId, isDeadModelId } from "../../society.js"
 
 /**
  * Error taxonomy (block Б5, from audit №4: 10 families A–J).
@@ -187,6 +187,10 @@ export const KLINCH_BASE_URL = "https://klinch.cloud/v1"
  * chat tests: sonnet-5 and anymodel-coder in the 2026-11-05 rounds,
  * gemini-3.8-flash in the 2026-11-06 round (sonnet-5 answered again
  * there too — its earlier timeout was provider overload, not death).
+ * anymodel-coder answered again on 2026-11-07 (run10, 45 tokens) even
+ * though it left the /models listing that day — chat is the real proof,
+ * so it stays a fallback; `mainSessionFallbackChain` keeps it while the
+ * catalog holds any Anymodel model at all (see `usableVerified`).
  * `anymodel-v4.1-flash` is DEAD in all three 2026-11-05 rounds — never
  * use it as a fallback. These are a preference order, not a promise:
  * `mainSessionFallbackChain` only uses entries the live catalog actually
@@ -246,6 +250,14 @@ export function mainSessionFallbackChain(input: {
   const verified = MAIN_SESSION_FALLBACK_MODELS.map((ref) => Model.Ref.parse(ref))
   const inCatalog = (ref: Model.Ref) =>
     input.catalog.some((info) => info.providerID === ref.providerID && info.id === ref.id)
+  // A verified model that left /models still counts while its provider is in
+  // the catalog at all: live chat proved it answers, and a provider entry
+  // proves the key exists. Without a single model of that provider, it is
+  // not offered — the chain never invents a provider.
+  const usableVerified = (ref: Model.Ref) =>
+    inCatalog(ref) ||
+    (isChatVerifiedModelId(ref.id) &&
+      input.catalog.some((info) => info.providerID === ref.providerID))
   const fromCatalog = (info: Model.Info) => Model.Ref.make({ providerID: info.providerID, id: info.id })
   // The tail is sorted, not catalog order: the catalog's insertion order is
   // an accident of registration, and a fallback must not depend on it.
@@ -254,14 +266,14 @@ export function mainSessionFallbackChain(input: {
   const sameProvider = wholeProviderDead
     ? []
     : [
-        ...verified.filter((ref) => ref.providerID === input.current.providerID && inCatalog(ref)),
+        ...verified.filter((ref) => ref.providerID === input.current.providerID && usableVerified(ref)),
         ...[...input.catalog]
           .filter((info) => info.providerID === input.current.providerID)
           .sort(byProviderThenId)
           .map(fromCatalog),
       ]
   const crossProvider = [
-    ...verified.filter(inCatalog),
+    ...verified.filter(usableVerified),
     ...input.catalog.filter((info) => info.providerID === LIX_PROVIDER_ID).map(fromCatalog),
     ...input.catalog.filter((info) => info.providerID === KLINCH_PROVIDER_ID).map(fromCatalog),
     ...[...input.catalog].sort(byProviderThenId).map(fromCatalog),
