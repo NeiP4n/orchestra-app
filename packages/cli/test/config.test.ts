@@ -339,6 +339,23 @@ test("migrates pre-rename opencode.settings keybinds to orchestra.settings", asy
   expect(parse(await Bun.file(file).text()).keybinds).toEqual({ "orchestra.settings": "ctrl+o" })
 })
 
+test("migrates mixed pre-rename and canonical keybinds with canonical precedence", async () => {
+  await using directory = await tmpdir()
+  const file = path.join(directory.path, "cli.json")
+  await Bun.write(file, `{"keybinds":{"opencode.settings":"ctrl+o","orchestra.settings":"ctrl+shift+o"}}`)
+
+  const config = await run(
+    directory.path,
+    Effect.gen(function* () {
+      const service = yield* Config.Service
+      return yield* service.get()
+    }),
+  )
+
+  expect(config.keybinds).toEqual({ "orchestra.settings": "ctrl+shift+o" })
+  expect(parse(await Bun.file(file).text()).keybinds).toEqual({ "orchestra.settings": "ctrl+shift+o" })
+})
+
 test("migrates copy_on_select in an existing cli.json", async () => {
   for (const item of [
     { legacy: true, expected: "select" },
