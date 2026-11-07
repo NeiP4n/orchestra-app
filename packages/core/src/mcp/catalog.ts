@@ -215,6 +215,15 @@ export const all: readonly Entry[] = [
     config: local(["uvx", "--from", "serena-agent", "serena", "start-mcp-server", "--context", "desktop-app"]),
   },
   {
+    id: "xerj",
+    name: "Xerj",
+    description:
+      "Indexed retrieval over the project's code and docs: BM25 + vector passages with file:line citations, plus agent memory, from a local node.",
+    usage:
+      "Use xerj_search to search the indexed code instead of reading files one by one, and xerj_def when you already know the symbol name. A local node must be running first (xerj --data-dir ~/xerj-data, auth on by default — export XERJ_API_KEY from <data_dir>/admin.key); index once with xerj autoindex <project>. Never start a node with --insecure outside a local sandbox. If the node is down, fall back to serena, then native symbols/grep.",
+    config: local(["xerj", "mcp", "--url", "http://127.0.0.1:9200", "--disable-feedback"]),
+  },
+  {
     id: "rea-anything",
     name: "REA — Reverse Engineer Anything",
     description:

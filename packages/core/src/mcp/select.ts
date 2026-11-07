@@ -292,13 +292,15 @@ export type Fallback =
 /**
  * What to try when the winner is down. A fallback is never a guess: the
  * chain is fixed per server, and the caller reports which link served.
- * `serena` falls back to the native tools it wraps (symbols/grep), because
- * there is no second semantic-code server in the catalog.
+ * `serena` and `xerj` are the two semantic-code servers in the catalog, so
+ * they fall back to each other first, then to the native tools they wrap
+ * (symbols/grep).
  */
 export const FALLBACKS: Readonly<Record<string, readonly Fallback[]>> = {
   context7: [{ kind: "mcp", server: "deepwiki" }],
   deepwiki: [{ kind: "mcp", server: "context7" }],
-  serena: [{ kind: "native", tools: ["symbols", "grep", "read"] }],
+  serena: [{ kind: "mcp", server: "xerj" }, { kind: "native", tools: ["symbols", "grep", "read"] }],
+  xerj: [{ kind: "mcp", server: "serena" }, { kind: "native", tools: ["symbols", "grep", "read"] }],
   playwright: [{ kind: "mcp", server: "agent-desktop" }, { kind: "native", tools: ["browser", "playtest"] }],
   "agent-desktop": [{ kind: "mcp", server: "playwright" }, { kind: "native", tools: ["desktop", "playtest"] }],
   github: [{ kind: "native", tools: ["shell"] }],

@@ -33,6 +33,24 @@ describe("MCP registry catalog", () => {
     expect(forPlatform("darwin").some((entry) => entry.id === "rea-anything")).toBe(true)
   })
 
+  test("includes the xerj code-search launcher, loopback-only and never --insecure", () => {
+    const xerj = all.find((entry) => entry.id === "xerj")
+
+    expect(xerj).toMatchObject({
+      id: "xerj",
+      name: "Xerj",
+      config: {
+        type: "local",
+        command: ["xerj", "mcp", "--url", "http://127.0.0.1:9200", "--disable-feedback"],
+      },
+    })
+    expect(xerj?.description).toContain("Indexed retrieval")
+    if (xerj?.config.type === "local") {
+      expect(xerj.config.command.some((arg) => arg === "--insecure")).toBe(false)
+      expect(xerj.config.command.some((arg) => arg.startsWith("http://127.0.0.1"))).toBe(true)
+    }
+  })
+
   test("names the keys a catalog server cannot start without", () => {
     const sentry = all.find((entry) => entry.id === "sentry")!.config
     const previous = process.env.SENTRY_ACCESS_TOKEN

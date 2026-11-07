@@ -20,6 +20,7 @@ export { MemoryEngine, getMemoryEngine } from "./engine.js"
 export { openMemoryDatabase } from "./db.js"
 export { hashEmbed, cosineSimilarity } from "./embed.js"
 export { hybridSearch } from "./search.js"
+export * as MemoryCodeSearch from "./code-search.js"
 export { stem, stemRU, stemEN, extractTerms, trigrams, trigramSimilarity } from "./text.js"
 
 import { FSUtil } from "@orchestra/util/fs-util"

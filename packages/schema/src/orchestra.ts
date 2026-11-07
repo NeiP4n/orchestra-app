@@ -244,7 +244,7 @@ export const toolGroups: readonly { id: string; name: string; actions: readonly 
   { id: "reverse", name: "Reverse engineering", actions: ["rea-anything_*", "rea_*"] },
   { id: "vcs", name: "Version control", actions: ["github_*"] },
   { id: "forge", name: "Tool & MCP Forge", actions: ["mcp_forge", "command_forge", "plugin_forge"] },
-  { id: "mcp", name: "MCP Servers", actions: ["mcp_*", "context7_*", "deepwiki_*", "serena_*", "sentry_*"] },
+  { id: "mcp", name: "MCP Servers", actions: ["mcp_*", "context7_*", "deepwiki_*", "serena_*", "xerj_*", "sentry_*"] },
 ]
 
 // Tools added to a group after roles were saved with it: a saved role that has the first
@@ -252,7 +252,7 @@ export const toolGroups: readonly { id: string; name: string; actions: readonly 
 // MCP servers follow the built-in tool that does the same kind of work: documentation lookups come with web
 // access, browser automation with the browser. Without this a role limited to a tool list can never call them.
 export const impliedTools: Readonly<Record<string, readonly string[]>> = {
-  read: ["symbols", "file-diff", "serena_*"],
+  read: ["symbols", "file-diff", "serena_*", "xerj_*"],
   edit: ["patch", "write"],
   desktop: ["playtest", "agent-desktop_*"],
   webfetch: ["context7_*", "deepwiki_*"],
@@ -827,7 +827,7 @@ const NOTES = ["note", "idea_bank", "plots"]
 const REVERSE = ["rea-anything_*", "rea_*"]
 const VCS = ["github_*"]
 const FORGE = ["mcp_forge", "command_forge", "plugin_forge"]
-const MCP = ["mcp_*", "context7_*", "deepwiki_*", "serena_*"]
+const MCP = ["mcp_*", "context7_*", "deepwiki_*", "serena_*", "xerj_*"]
 // Production error data exists only where the team runs Sentry, so only the roles that
 // investigate production failures carry it by default; the editor can add it anywhere.
 const SENTRY = ["sentry_*"]
