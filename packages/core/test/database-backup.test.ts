@@ -277,7 +277,7 @@ describe("Database backup and restore", () => {
     expect(cycle.backup.keyBackedUp).toBe(true)
     expect(cycle.backup.keyPath).toBe(`${cycle.backup.path}.key`)
     expect(existsSync(cycle.backup.keyPath!)).toBe(true)
-    expect(readFileSync(cycle.backup.keyPath!)).toEqual(key)
+    expect(readFileSync(cycle.backup.keyPath!).equals(key)).toBe(true)
     expect(statSync(cycle.backup.keyPath!).mode & 0o777).toBe(0o600)
 
     // Lose the data directory the way a dead disk would: garbage database, no key.
@@ -288,7 +288,7 @@ describe("Database backup and restore", () => {
       DatabaseBackup.restoreDatabase(file, cycle.backup.path, { keyFile }),
     )
     expect(restored).toEqual({ database: file, key: "restored" })
-    expect(readFileSync(keyFile)).toEqual(key)
+    expect(readFileSync(keyFile).equals(key)).toBe(true)
     expect(readdirSync(tmp.path).filter((name) => name.includes("pre-restore"))).toEqual([])
 
     // The restored key opens the restored sealed row.
@@ -436,7 +436,7 @@ describe("Database backup and restore", () => {
       DatabaseBackup.restoreDatabase(file, cycle.backup.path, { keyFile }),
     )
     expect(refused._tag).toBe("Failure")
-    expect(readFileSync(keyFile)).toEqual(wrongKey)
+    expect(readFileSync(keyFile).equals(wrongKey)).toBe(true)
     expect(readdirSync(tmp.path).filter((name) => name.includes("pre-restore"))).toEqual([])
     const live = new BunDatabase(file, { readonly: true })
     try {
@@ -451,7 +451,7 @@ describe("Database backup and restore", () => {
       DatabaseBackup.restoreDatabase(file, cycle.backup.path, { keyFile }),
     )
     expect(refused2._tag).toBe("Failure")
-    expect(readFileSync(keyFile)).toEqual(wrongKey)
+    expect(readFileSync(keyFile).equals(wrongKey)).toBe(true)
     expect(readdirSync(tmp.path).filter((name) => name.includes("pre-restore"))).toEqual([])
   })
 
@@ -493,7 +493,7 @@ describe("Database backup and restore", () => {
       DatabaseBackup.restoreDatabase(file, cycle.backup.path, { keyFile }),
     )
     expect(restored).toEqual({ database: file, key: "kept-live" })
-    expect(readFileSync(keyFile)).toEqual(key)
+    expect(readFileSync(keyFile).equals(key)).toBe(true)
   })
 
   // A3-01: rotation deletes a pruned backup's key sibling with it, and keeps

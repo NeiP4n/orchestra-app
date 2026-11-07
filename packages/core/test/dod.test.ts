@@ -608,7 +608,7 @@ describe("Dod", () => {
       rename: () => Promise.reject(eperm),
       copyFile,
       unlink: (target) => {
-        unlinked.push(target)
+        unlinked.push(String(target))
         return unlink(target)
       },
     })
@@ -630,7 +630,7 @@ describe("Dod", () => {
         rename: () => Promise.reject(eperm),
         copyFile: () => Promise.reject(new Error("disk full")),
         unlink: (target) => {
-          unlinked.push(target)
+          unlinked.push(String(target))
           return unlink(target)
         },
       }),

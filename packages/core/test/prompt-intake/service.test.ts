@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { PromptIntake } from "@orchestra/core/prompt-intake/index"
-import type { SessionSchema } from "@orchestra/schema/session"
+import type { SessionSchema } from "@orchestra/core/session/schema"
 import type { IntakeContext } from "@orchestra/core/prompt-intake/types"
 
 const run = <A>(effect: Effect.Effect<A, never>) => Effect.runPromise(effect)
 
-const emptyContext = (): IntakeContext => ({
-  dodItems: [],
-  recentPrompts: [],
-  journalTitles: [],
+const emptyContext = () => ({
+  dodItems: [] as IntakeContext["dodItems"][number][],
+  recentPrompts: [] as IntakeContext["recentPrompts"][number][],
+  journalTitles: [] as IntakeContext["journalTitles"][number][],
   sources: { dod: true, history: true, journal: true },
 })
 

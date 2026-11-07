@@ -213,9 +213,9 @@ describe("SessionRequestMeasurement opt-in collection", () => {
     const frozen = Object.freeze({
       ...request,
       model: Object.freeze(request.model),
-      system: Object.freeze(request.system.map(Object.freeze)),
-      tools: Object.freeze(request.tools.map(Object.freeze)),
-      messages: Object.freeze(request.messages.map(Object.freeze)),
+      system: Object.freeze(request.system.map((part) => Object.freeze(part))),
+      tools: Object.freeze(request.tools.map((tool) => Object.freeze(tool))),
+      messages: Object.freeze(request.messages.map((message) => Object.freeze(message))),
     })
     const before = JSON.stringify(frozen)
     SessionRequestMeasurement.sizesOf(frozen)
@@ -432,7 +432,7 @@ describe("SessionRequestMeasurement lifecycle and export", () => {
     await withFlag(async () => {
       await Effect.runPromise(
         SessionRequestMeasurement.recordPrimarySizes(
-          { sessionID: "ses-1", request: { ...request, messages: [{ role: "user", content: circular }] } },
+          { sessionID: "ses-1", request: { ...request, messages: [{ content: circular }] } },
           dir,
         ),
       )

@@ -100,7 +100,7 @@ describe("SessionHistory.load with corrupt rows", () => {
 
       const messages = yield* SessionHistory.load(db, sessionID, "latest")
 
-      const summaries = messages.flatMap((message) => (message.type === "compaction" ? [message.summary] : []))
+      const summaries = messages.flatMap((message) => (message.type === "compaction" && "summary" in message ? [message.summary] : []))
       expect(summaries).toEqual(["old summary"])
       expect(messages.map((message) => (message.type === "user" ? message.text : message.type))).toEqual([
         "compaction",

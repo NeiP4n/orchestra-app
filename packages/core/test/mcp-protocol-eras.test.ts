@@ -19,7 +19,7 @@ type RecordedRequest = { readonly method: string | undefined; readonly headers: 
 const echoTool = {
   name: "echo",
   description: "Echoes the call back",
-  inputSchema: { type: "object", properties: {} },
+  inputSchema: { type: "object" as const, properties: {} },
 }
 
 const readMethod = async (request: Request) => {
@@ -67,7 +67,7 @@ async function serveModern(options?: { tasks?: boolean }) {
   const handler = createMcpHandler(() => makeServer())
   const server = Bun.serve({
     port: 0,
-    fetch: async (request) => {
+    fetch: async (request: Request) => {
       // The handler reads the body itself, so sniff the method off a clone.
       const { method } = await readMethod(request.clone())
       requests.push({ method, headers: request.headers })

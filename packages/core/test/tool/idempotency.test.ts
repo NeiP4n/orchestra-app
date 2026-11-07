@@ -9,6 +9,16 @@ const fakeKV = (): { kv: KV.Interface; store: Map<string, KV.Value> } => {
     get: (key) => Effect.succeed(store.get(key)),
     set: (key, value) => Effect.sync(() => void store.set(key, value)),
     remove: (key) => Effect.sync(() => void store.delete(key)),
+    atomicUpdate: (key, update) =>
+      Effect.sync(() => {
+        const next = update(store.get(key))
+        if (next === undefined) {
+          store.delete(key)
+          return undefined
+        }
+        store.set(key, next)
+        return next
+      }),
     scan: (options) =>
       Effect.sync(() => ({
         entries: [...store.entries()]

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect } from "bun:test"
 import { Effect, Layer, Stream } from "effect"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
 import { LayerNode } from "@orchestra/util/effect/layer-node"
@@ -6,11 +6,9 @@ import { Bus } from "@orchestra/core/bus"
 import { Mcp } from "@orchestra/core/mcp/index"
 import { Permission } from "@orchestra/core/permission"
 import { Session } from "@orchestra/core/session"
-import { SessionMessage } from "@orchestra/core/session/message"
 import { Tool } from "@orchestra/core/tool"
 import { McpTool } from "@orchestra/core/tool/mcp"
 import { Image } from "@orchestra/core/image"
-import { Agent } from "@orchestra/core/agent"
 import { executeTool, toolIdentity } from "./lib/tool"
 import { testEffect } from "./lib/effect"
 import { imagePassthrough } from "./lib/image"
@@ -56,7 +54,7 @@ const mcp = Layer.mock(Mcp.Service, {
     ]),
   callTool: (input) =>
     Effect.sync(() => {
-      calls.push({ server: String(input.server), name: input.name, args: input.args })
+      calls.push({ server: String(input.server), name: input.name, args: input.args ?? {} })
       if (input.server === "chrome-devtools" && input.name === "take_snapshot")
         return result(input.server, input.name, false, FRESH_SNAPSHOT)
       if (input.server === "chrome-devtools" && input.name === "click") {

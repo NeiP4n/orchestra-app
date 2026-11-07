@@ -3,10 +3,10 @@ import { checkValue } from "@orchestra/core/prompt-intake/value"
 import { dispositionFor } from "@orchestra/core/prompt-intake/policy"
 import type { IntakeContext } from "@orchestra/core/prompt-intake/types"
 
-const emptyContext = (): IntakeContext => ({
-  dodItems: [],
-  recentPrompts: [],
-  journalTitles: [],
+const emptyContext = () => ({
+  dodItems: [] as IntakeContext["dodItems"][number][],
+  recentPrompts: [] as IntakeContext["recentPrompts"][number][],
+  journalTitles: [] as IntakeContext["journalTitles"][number][],
   sources: { dod: true, history: true, journal: true },
 })
 

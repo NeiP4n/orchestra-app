@@ -104,7 +104,7 @@ describe("SessionStore", () => {
   it.effect("lists only a directory tree by prefix, never a sibling sharing the prefix", () =>
     Effect.gen(function* () {
       const database = yield* Database.Service
-      yield* database.db.insert(ProjectTable).values({ id: Project.ID.global, worktree: "/project", sandboxes: [] }).run()
+      yield* database.db.insert(ProjectTable).values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] }).run()
       yield* database.db
         .insert(SessionTable)
         .values([

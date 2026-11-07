@@ -66,7 +66,7 @@ const assertNoSecrets = (text: string) => {
 
 describe("secret scrubber", () => {
   test("redacts every planted secret shape and keeps the label", () => {
-    for (const [name, planted] of Object.entries(PLANTED)) {
+    for (const planted of Object.values(PLANTED)) {
       const clean = scrubText(planted)
       assertNoSecrets(clean)
       expect(clean).toContain(REDACTED)
