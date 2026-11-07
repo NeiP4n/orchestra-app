@@ -110,8 +110,10 @@ const resolve = {
     // Bun-only modules are statically imported from the graph (the source
     // updater's shell, memory/codegraph's bun:sqlite, the desktop-action
     // tool's bun:ffi), so the bundler needs modules to resolve. The node
-    // build refuses these paths through capability guards; the shims fail
-    // loudly on any call that still happens.
+    // build refuses these features at their boundaries: the updater
+    // capability guard, the memory and codegraph tool gates, the desktop
+    // media-key gate, degraded journal-only session memory. The shims fail
+    // loudly on any call that still happens past a boundary.
     { find: /^bun$/, replacement: path.join(dir, "src/node/bun-shim.ts") },
     { find: /^bun:sqlite$/, replacement: path.join(dir, "src/node/bun-sqlite-shim.ts") },
     { find: /^bun:ffi$/, replacement: path.join(dir, "src/node/bun-ffi-shim.ts") },
@@ -290,7 +292,11 @@ export function mainConfig(input: NodeBuildInput): UserConfig {
       FFF_LIBC: input.target.platform === "linux" ? JSON.stringify("gnu") : "undefined",
       "process.env.WS_NO_BUFFER_UTIL": JSON.stringify("1"),
     },
-    ssr: { noExternal: true },
+    // @vscode/ripgrep throws at module top level when the platform package is
+    // absent; ripgrep/binary.ts imports it lazily and falls back (PATH, then
+    // download), but inlining would evaluate that throw at startup. Keep it
+    // external so the lazy guard survives the bundle.
+    ssr: { noExternal: true, external: ["@vscode/ripgrep"] },
     build: {
       ssr: "src/node/index.ts",
       target: "node26",
