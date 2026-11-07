@@ -58,6 +58,21 @@ describe("VcsPatch quoted paths", () => {
     expect([...byFile.keys()].sort()).toEqual(["plain.txt", "привет.txt"])
   })
 
+  // Real `git diff` output for a file whose name contains U+0007 (bell):
+  // git quotes it as \a, which JavaScript has no literal for.
+  test("decodes the bell escape from real git output", () => {
+    const chunk = [
+      'diff --git "a/bell\\aname.txt" "b/bell\\aname.txt"',
+      "index 587be6b..975fbec 100644",
+      '--- "a/bell\\aname.txt"',
+      '+++ "b/bell\\aname.txt"',
+      "@@ -1 +1 @@",
+      "-x",
+      "+y",
+    ].join("\n")
+    expect(VcsPatch.fileFromPatchChunk(chunk)).toBe("bell\u0007name.txt")
+  })
+
   test("leaves plain unquoted paths untouched", () => {
     const chunk = ["--- a/src/index.ts", "+++ b/src/index.ts", "@@ -1 +1 @@", "-a", "+b"].join("\n")
     expect(VcsPatch.fileFromPatchChunk(chunk)).toBe("src/index.ts")

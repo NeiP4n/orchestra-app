@@ -32,7 +32,7 @@ export const countPatch = (patch: string) => {
 }
 
 const QUOTED_ESCAPES: Record<string, string> = {
-  a: "\a",
+  a: "\x07",
   b: "\b",
   f: "\f",
   n: "\n",
