@@ -262,6 +262,49 @@ describe("Session.prompt", () => {
     }),
   )
 
+  it.effect("stores the structured task (DoD, plan, ambiguities) in the intake metadata", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* Session.Service
+
+      const message = yield* session.prompt({
+        sessionID,
+        text: "Fix the failing tests",
+        resume: false,
+      })
+
+      // The structured task reaches the model through the metadata, not the
+      // stored text: the goal alone used to be stored, the DoD and the plan
+      // were dropped in prepare and never reached the model at all.
+      const intake = message.payload.metadata?.intake as
+        | { dod?: unknown; plan?: unknown; ambiguities?: unknown; constraints?: unknown }
+        | undefined
+      expect(intake?.dod).toEqual([
+        "Fix the failing tests — выполнено",
+        "Результат проверен: связанные проверки пройдены",
+        "Нет регрессий в смежной работе",
+      ])
+      expect(intake?.plan).toEqual([
+        "Воспроизвести проблему",
+        "Найти причину",
+        "Исправить",
+        "Проверить исправление и прогнать связанные тесты",
+      ])
+      expect(intake?.constraints).toEqual([])
+      expect(intake?.ambiguities).toEqual([
+        {
+          question: "В каком файле или модуле работать?",
+          assumption: "Найду место работы сам по ключевым словам задачи.",
+        },
+        {
+          question: "Как поймём, что готово?",
+          assumption: "Считаю готовым, когда цель достигнута и проверка пройдена.",
+        },
+      ])
+      expect(message.payload.text).toBe("Fix the failing tests")
+    }),
+  )
+
   it.effect("admits a trivial prompt as-is, marked trivial in the intake metadata", () =>
     Effect.gen(function* () {
       yield* setup

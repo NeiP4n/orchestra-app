@@ -40,6 +40,21 @@ export const CAPABILITY_AWARENESS = [
 ].join("\n")
 
 /**
+ * The plan-first contract every chat carries, regardless of role, mode, provider or surface.
+ * A browser or desktop agent that starts clicking before it understands the task burns turns
+ * on blind probes: this states the order — goal and done-criteria first, a short plan next,
+ * actions only after that, verification before reporting done — and makes an unclear task a
+ * question, not a guess.
+ */
+export const PLAN_FIRST = [
+  "# Plan before acting — understand, then act",
+  "- Before the first tool call for a task, state the goal in one line and the criteria that prove it done, then list the short plan (2-5 steps) you will follow.",
+  "- Act on the plan one step at a time; if the plan breaks, say so and replan instead of probing at random.",
+  "- Verify the result against the criteria before reporting done; if a criterion is not met, keep working or say exactly which one failed.",
+  "- If the task is unclear — the goal, the target, or the criteria are missing — ask one clarifying question instead of guessing with tool calls. Never probe a live page or app at random to figure out what was asked.",
+].join("\n")
+
+/**
  * The system prompt of a custom agent, with whichever global contracts it does not already
  * carry appended. A prompt that embeds a contract keeps its own copy — neither contract is
  * ever duplicated.
@@ -48,6 +63,7 @@ export function withGlobalContracts(system: string) {
   const missing: string[] = []
   if (!system.includes("# Truthfulness — no simulation")) missing.push(TRUTHFULNESS)
   if (!system.includes("# Capability awareness — compose what Orchestra can do")) missing.push(CAPABILITY_AWARENESS)
+  if (!system.includes("# Plan before acting — understand, then act")) missing.push(PLAN_FIRST)
   return missing.length === 0 ? system : `${system}\n\n${missing.join("\n\n")}\n`
 }
 
@@ -73,5 +89,5 @@ export function render(prompt: string, tools: string[]) {
       "- Use the edit tool for targeted changes to existing text files. It replaces the exact text in `oldString` with `newString`, and the values must differ. By default, `oldString` must occur exactly once. If it occurs multiple times, include more surrounding context to make it unique or set `replaceAll` to true to replace every occurrence.",
     )
   }
-  return `${prompt.replace("${ORCHESTRA_TOOL_GUIDANCE}", instructions.join("\n"))}\n\n${TRUTHFULNESS}\n\n${CAPABILITY_AWARENESS}\n`
+  return `${prompt.replace("${ORCHESTRA_TOOL_GUIDANCE}", instructions.join("\n"))}\n\n${TRUTHFULNESS}\n\n${CAPABILITY_AWARENESS}\n\n${PLAN_FIRST}\n`
 }

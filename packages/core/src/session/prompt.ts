@@ -127,6 +127,14 @@ export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
                 skills: intake.skills.map((skill) => skill.id),
                 modelUsed: intake.modelUsed,
                 trivial: intake.trivial,
+                // The structured task itself, not just its goal: the model
+                // message builder (to-llm-message.ts) turns these into the
+                // short internal note, so the agent plans from the DoD and
+                // the plan instead of guessing them from the raw prompt.
+                dod: intake.task.dod.slice(0, 5),
+                constraints: intake.task.constraints.slice(0, 3),
+                plan: intake.task.plan.slice(0, 5),
+                ambiguities: intake.task.ambiguities.slice(0, 3),
               },
             }
           : event.metadata,
