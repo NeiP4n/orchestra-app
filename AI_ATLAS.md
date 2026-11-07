@@ -1473,7 +1473,47 @@ inside settlement: an interruption stays an interruption, anything else is a
 warning. Both writers run under one cross-process lock per file and write
 atomically (temp + rename, arch3 A3-16): the stub's read-then-write used to
 race the agent's write and could clobber a real handoff. The layout follows the three-level memory design (L3, session level);
-`memory.md` in the same folder is not this module's job.
+`memory.md` in the same folder is `SessionMemory`'s job (see "Session memory (L3)" below).
+
+## Session memory (L3) — `packages/core/src/memory/session.ts`, `session/memory-summary.ts`
+
+The session level of the three-level memory design (Б17). One folder per
+session, `.orchestra/sessions/<id>/`: `memory.md` (the session's own summary,
+≤ 8 KiB, decisions and lessons first, overflow in `scratch.md`), the mandatory
+`handoff.md` (see "Session handoffs"), `journal.jsonl` (raw tool-use records —
+facts; memory is conclusions, the journal/memory boundary is not to be
+erased), `state.json` (idempotency + checkpoint bookkeeping). Capture:
+`SessionStep` calls `onToolSettled` once per settled tool call
+(`session/runner/step.ts`, wired in `session/runner/llm.ts`); `captureToolUse`
+classifies the call (`decision/bugfix/feature/refactor/discovery/change`),
+drops noise with the `code--chill` filter (tiny reads go, failures/writes/big
+outputs stay), truncates raw I/O at 64 KiB with a `…[truncated: N bytes]`
+marker, and is idempotent on (session + tool call) via `state.json` — a retry
+records nothing twice. The single write point for `MemoryEngine.remember` is
+inside `captureToolUse`. Secrets: there is NO scrubber here on purpose — the
+foundation slice owns `memory/scrub.ts` and wires it through the `scrub`
+hook-point on `captureToolUse`; until then capture writes tool I/O as-is.
+Stop: `SessionExecution` settlement calls `finalizeSession` on every terminal
+outcome (succeeded, interrupted, failed), best-effort, never failing the
+settlement. Empty sessions are skipped (no summary, no model call) but still
+get their handoff. The summary wired at settle is extractive (from the
+journal): the execution layer has no LLMClient/Model/SessionContext services,
+so the cheap-model summary is NOT wired there — `SessionMemorySummary.summarize`
+(picks the cheapest model the B10 router offers for tier `trivial`) exists and
+is injectable through `finalizeSession`'s `summarize` option, with an
+extractive fallback on any failure; wiring it live needs those services added
+to the execution node or a hook at the runner drain end where they are in
+scope. Compaction: `SessionCompaction.compact`
+snapshots `memory.md` + `handoff.md` into `checkpoint/` BEFORE rewriting the
+context, and re-injects the checkpointed summary into the checkpoint message
+that opens later requests; thresholds from `compaction-policy.ts` are
+unchanged. Start: `SessionContext.select` loads the session's previous
+`memory.md` + `handoff.md` as an instruction source within a 12 000-character
+budget (memory first, markers counted); empty memory costs 0 tokens.
+Tests: `packages/core/test/session-memory.test.ts` (15: truncation,
+classification, chill filter, idempotency, 8 KiB, 12 000 chars, checkpoint
+surviving an interruption, handoff mandatory, router pick, instruction
+source).
 
 ## Sprint cold start — `packages/core/src/sprint.ts`
 
