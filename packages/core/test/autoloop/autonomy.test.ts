@@ -14,6 +14,7 @@ import {
   DEFAULT_BATCH_LIMITS,
   MAX_BATCH_EVENTS,
   resolveAutonomy,
+  resolveBatchLimits,
   shouldFlushBatch,
   type AutonomyMode,
 } from "@orchestra/core/autoloop/kernel/autonomy"
@@ -218,6 +219,12 @@ describe("Router batching", () => {
     expect(shouldFlushBatch(1, T0, T0 + DEFAULT_BATCH_LIMITS.windowMs, DEFAULT_BATCH_LIMITS)).toBe(true)
     expect(shouldFlushBatch(1, T0, T0 + DEFAULT_BATCH_LIMITS.windowMs - 1, DEFAULT_BATCH_LIMITS)).toBe(false)
     expect(shouldFlushBatch(0, T0, T0, DEFAULT_BATCH_LIMITS)).toBe(false)
+  })
+
+  test("a zero window is clamped to 1 ms so the batch loop cannot spin on sleep(0)", () => {
+    expect(resolveBatchLimits({ windowMs: 0 }).windowMs).toBe(1)
+    expect(resolveBatchLimits({ windowMs: -5 }).windowMs).toBe(1)
+    expect(resolveBatchLimits({ maxEvents: 0 }).maxEvents).toBe(1)
   })
 })
 

@@ -95,7 +95,9 @@ export const DEFAULT_BATCH_LIMITS: BatchLimits = {
 export const MAX_BATCH_EVENTS = 200
 
 export const resolveBatchLimits = (given?: Partial<BatchLimits>): BatchLimits => ({
-  windowMs: Math.max(0, given?.windowMs ?? DEFAULT_BATCH_LIMITS.windowMs),
+  // At least 1 ms: with a zero window the service's batch loop would spin
+  // on `sleep(0)` forever, burning CPU while flushing nothing.
+  windowMs: Math.max(1, given?.windowMs ?? DEFAULT_BATCH_LIMITS.windowMs),
   maxEvents: Math.max(1, given?.maxEvents ?? DEFAULT_BATCH_LIMITS.maxEvents),
 })
 
