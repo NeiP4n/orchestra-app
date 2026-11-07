@@ -31,22 +31,51 @@ export const countPatch = (patch: string) => {
   return { additions, deletions }
 }
 
+const QUOTED_ESCAPES: Record<string, string> = {
+  a: "\a",
+  b: "\b",
+  f: "\f",
+  n: "\n",
+  r: "\r",
+  t: "\t",
+  v: "\v",
+  '"': '"',
+  "\\": "\\",
+}
+
 const parseQuotedPath = (value: string) => {
   let out = ""
+  // Octal escapes (\NNN) carry raw bytes, so collect them and decode as UTF-8
+  // once the run ends; literal characters append straight to the output.
+  const bytes: number[] = []
+  const flush = () => {
+    if (!bytes.length) return
+    out += new TextDecoder().decode(new Uint8Array(bytes))
+    bytes.length = 0
+  }
   for (let idx = 1; idx < value.length; idx++) {
     const char = value[idx]
-    if (char === '"') return { value: out, end: idx + 1 }
+    if (char === '"') {
+      flush()
+      return { value: out, end: idx + 1 }
+    }
     if (char !== "\\") {
+      flush()
       out += char
       continue
     }
 
     const next = value[++idx]
-    if (next === "t") out += "\t"
-    else if (next === "n") out += "\n"
-    else if (next === "r") out += "\r"
-    else if (next === '"' || next === "\\") out += next
-    else out += next ?? ""
+    if (next >= "0" && next <= "7") {
+      let octal = next
+      while (octal.length < 3 && value[idx + 1] >= "0" && value[idx + 1] <= "7") {
+        octal += value[++idx]
+      }
+      bytes.push(parseInt(octal, 8))
+      continue
+    }
+    flush()
+    out += QUOTED_ESCAPES[next] ?? next ?? ""
   }
 }
 
