@@ -1,6 +1,6 @@
 export * as SessionPrompt from "./prompt.js"
 
-import { LLMClient } from "@orchestra/ai"
+import { LLMClient, type LLMClientService } from "@orchestra/ai"
 import { Base64, FileAttachment, Prompt } from "@orchestra/schema/prompt"
 import { PromptInput } from "@orchestra/schema/prompt-input"
 import { SessionInbox } from "@orchestra/schema/session-inbox"
@@ -202,7 +202,7 @@ const runPromptIntake = Effect.fn("SessionPrompt.intake")(function* (input: {
       // The disambiguator needs session services; capture them here so the
       // intake service keeps its requirement-free (R = never) contract.
       const intakeEnv = Context.pick(Model.Service, ModelResolver.Service, SessionContext.Service, LLMClient.Service)(
-        yield* Effect.context<Model.Service | ModelResolver.Service | SessionContext.Service | LLMClient.Service>(),
+        yield* Effect.context<Model.Service | ModelResolver.Service | SessionContext.Service | LLMClientService>(),
       )
       return yield* intakeService.value.process({
         session: input.session,
