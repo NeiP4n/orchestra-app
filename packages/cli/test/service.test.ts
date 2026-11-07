@@ -39,7 +39,7 @@ test("generated server password is stored 0600 and retrievable (arch3 №8)", as
     expect(await run(ServiceConfig.password())).toBe(first)
     expect(await run(ServiceConfig.get("password"))).toBe(first)
     const file = path.join(root, "config", ServiceConfig.filename())
-    expect(((await fs.stat(file)).mode & 0o777)).toBe(0o600)
+    expect((await fs.stat(file)).mode & 0o777).toBe(0o600)
     expect((await Bun.file(file).json()) as { password?: string }).toEqual({ password: first })
   } finally {
     await fs.rm(root, { recursive: true, force: true })
@@ -250,73 +250,77 @@ test("clean managed service shutdown removes its registration", async () => {
   }
 }, 30_000)
 
-processTest("concurrent service processes elect one server", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-election-"))
-  const env = serviceEnv(root)
-  const command = [process.execPath, path.join(import.meta.dir, "../src/index.ts"), "serve", "--service"]
-  const registration = path.join(root, "state", "orchestra", "service-local.json")
-  const port = await availablePort()
-  const config = path.join(root, "config", "orchestra", "service-local.json")
-  await fs.mkdir(path.join(root, "config", "orchestra"), { recursive: true })
-  await fs.writeFile(config, JSON.stringify({ port }))
-  const processes = Array.from({ length: 10 }, () => Bun.spawn(command, { env, stderr: "pipe", stdout: "pipe" }))
+processTest(
+  "concurrent service processes elect one server",
+  async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-election-"))
+    const env = serviceEnv(root)
+    const command = [process.execPath, path.join(import.meta.dir, "../src/index.ts"), "serve", "--service"]
+    const registration = path.join(root, "state", "orchestra", "service-local.json")
+    const port = await availablePort()
+    const config = path.join(root, "config", "orchestra", "service-local.json")
+    await fs.mkdir(path.join(root, "config", "orchestra"), { recursive: true })
+    await fs.writeFile(config, JSON.stringify({ port }))
+    const processes = Array.from({ length: 10 }, () => Bun.spawn(command, { env, stderr: "pipe", stdout: "pipe" }))
 
-  try {
-    const info = await waitForInfo(registration)
-    const winner = processes.find((process) => process.pid === info.pid)
-    const losers = processes.filter((process) => process.pid !== info.pid)
-    const exited = await Promise.all(
-      losers.map((process) => Promise.race([process.exited.then(() => true), Bun.sleep(60_000).then(() => false)])),
-    )
-
-    expect(exited).toEqual(losers.map(() => true))
-    const errors = await Promise.all(
-      losers.map(
-        async (process) => (await new Response(process.stdout).text()) + (await new Response(process.stderr).text()),
-      ),
-    )
-    expect(
-      losers.map((process) => process.exitCode),
-      errors.filter(Boolean).join("\n"),
-    ).toEqual(losers.map(() => 0))
-    expect(winner?.exitCode).toBe(null)
-    expect(new URL(info.url).port).toBe(String(port))
-    expect((await Bun.file(config).json()).password).toBe(info.password)
-    expect(await Bun.file(registration + ".lock").exists()).toBe(false)
-    expect(
-      await fetch(new URL("/api/info", info.url), {
-        headers: { authorization: "Basic " + btoa(`opencode:${info.password}`) },
-      }).then((response) => response.json()),
-    ).toEqual({
-      version: info.version,
-      pid: info.pid,
-      urls: [info.url],
-      // The server reports the canonical tmp directory; Windows os.tmpdir() can be an 8.3 short name.
-      paths: { tmp: await fs.realpath(path.join(os.tmpdir(), "orchestra")) },
-      capabilities: { persistentPty: process.platform !== "win32" },
-    })
-    const contender = Bun.spawn(command, { env, stderr: "pipe", stdout: "ignore" })
     try {
-      const contenderExited = await Promise.race([
-        contender.exited.then(() => true),
-        Bun.sleep(10_000).then(() => false),
-      ])
-      expect(contenderExited).toBe(true)
-      expect(contender.exitCode).toBe(0)
-      expect((await waitForInfo(registration)).id).toBe(info.id)
+      const info = await waitForInfo(registration)
+      const winner = processes.find((process) => process.pid === info.pid)
+      const losers = processes.filter((process) => process.pid !== info.pid)
+      const exited = await Promise.all(
+        losers.map((process) => Promise.race([process.exited.then(() => true), Bun.sleep(60_000).then(() => false)])),
+      )
+
+      expect(exited).toEqual(losers.map(() => true))
+      const errors = await Promise.all(
+        losers.map(
+          async (process) => (await new Response(process.stdout).text()) + (await new Response(process.stderr).text()),
+        ),
+      )
+      expect(
+        losers.map((process) => process.exitCode),
+        errors.filter(Boolean).join("\n"),
+      ).toEqual(losers.map(() => 0))
+      expect(winner?.exitCode).toBe(null)
+      expect(new URL(info.url).port).toBe(String(port))
+      expect((await Bun.file(config).json()).password).toBe(info.password)
+      expect(await Bun.file(registration + ".lock").exists()).toBe(false)
+      expect(
+        await fetch(new URL("/api/info", info.url), {
+          headers: { authorization: "Basic " + btoa(`opencode:${info.password}`) },
+        }).then((response) => response.json()),
+      ).toEqual({
+        version: info.version,
+        pid: info.pid,
+        urls: [info.url],
+        // The server reports the canonical tmp directory; Windows os.tmpdir() can be an 8.3 short name.
+        paths: { tmp: await fs.realpath(path.join(os.tmpdir(), "orchestra")) },
+        capabilities: { persistentPty: process.platform !== "win32" },
+      })
+      const contender = Bun.spawn(command, { env, stderr: "pipe", stdout: "ignore" })
+      try {
+        const contenderExited = await Promise.race([
+          contender.exited.then(() => true),
+          Bun.sleep(10_000).then(() => false),
+        ])
+        expect(contenderExited).toBe(true)
+        expect(contender.exitCode).toBe(0)
+        expect((await waitForInfo(registration)).id).toBe(info.id)
+      } finally {
+        contender.kill("SIGTERM")
+        await contender.exited
+      }
+      await Effect.runPromise(Service.stop({ file: registration }).pipe(Effect.provide(NodeFileSystem.layer)))
+      await winner?.exited
+      expect(await Bun.file(registration).exists()).toBe(false)
     } finally {
-      contender.kill("SIGTERM")
-      await contender.exited
+      processes.forEach((process) => process.kill("SIGTERM"))
+      await Promise.all(processes.map((process) => process.exited))
+      await fs.rm(root, { recursive: true, force: true })
     }
-    await Effect.runPromise(Service.stop({ file: registration }).pipe(Effect.provide(NodeFileSystem.layer)))
-    await winner?.exited
-    expect(await Bun.file(registration).exists()).toBe(false)
-  } finally {
-    processes.forEach((process) => process.kill("SIGTERM"))
-    await Promise.all(processes.map((process) => process.exited))
-    await fs.rm(root, { recursive: true, force: true })
-  }
-}, 120_000)
+  },
+  120_000,
+)
 
 test("configured managed service port overrides the channel default", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-port-"))
@@ -387,182 +391,235 @@ test.each([
   30_000,
 )
 
-processTest("the original managed service contender binds when the occupied port is released", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-bind-retry-"))
-  const recognizing = Promise.withResolvers<void>()
-  const requests: string[] = []
-  using listener = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    fetch(request) {
-      requests.push(new URL(request.url).pathname)
-      if (requests.length === 2) recognizing.resolve()
-      return Response.json({ unrelated: true })
-    },
-  })
-  const port = listener.port
-  if (port === undefined) throw new Error("Server did not bind a port")
-  const registration = path.join(root, "state", "orchestra", "service-local.json")
-  await fs.mkdir(path.join(root, "config"), { recursive: true })
-  await fs.mkdir(path.dirname(registration), { recursive: true })
-  await fs.writeFile(path.join(root, "config", "service-local.json"), JSON.stringify({ port }))
-  await fs.writeFile(
-    registration,
-    JSON.stringify({
-      id: "stale",
-      version: ORCHESTRA_VERSION,
-      url: "http://127.0.0.1:1",
-      pid: 2_147_483_647,
-      password: "stale",
-    }),
-  )
-  const contender = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/index.ts"), "serve", "--service"], {
-    env: isolatedEnv(root),
-    stderr: "pipe",
-    stdout: "ignore",
-  })
-  const stderr = new Response(contender.stderr).text()
-  try {
-    // The first probe is preflight; the second only happens after start() fails to bind.
-    expect(await Promise.race([recognizing.promise.then(() => true), Bun.sleep(20_000).then(() => false)])).toBe(true)
-    expect(requests).toEqual(["/api/info", "/api/info"])
-    await listener.stop(true)
-
-    const info = await Promise.race([
-      waitForInfo(registration, (info) => info.pid === contender.pid),
-      contender.exited.then(() => undefined),
-    ])
-    expect(info?.pid, contender.exitCode === null ? undefined : await stderr).toBe(contender.pid)
-    const endpoint = await Effect.runPromise(
-      Service.discover({ file: registration }).pipe(
-        Effect.filterOrFail((value) => value !== undefined),
-        Effect.retry({ times: 400, schedule: Schedule.spaced("50 millis") }),
-        Effect.provide(NodeFileSystem.layer),
-      ),
+processTest(
+  "the managed service falls back to a free port while the configured port is occupied",
+  async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "orchestra-service-port-fallback-"))
+    using listener = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => Response.json({ unrelated: true }),
+    })
+    const port = listener.port
+    if (port === undefined) throw new Error("Server did not bind a port")
+    const registration = path.join(root, "state", "orchestra", "service-local.json")
+    await fs.mkdir(path.join(root, "config"), { recursive: true })
+    await fs.mkdir(path.dirname(registration), { recursive: true })
+    await fs.writeFile(path.join(root, "config", "service-local.json"), JSON.stringify({ port }))
+    await fs.writeFile(
+      registration,
+      JSON.stringify({
+        id: "stale",
+        version: ORCHESTRA_VERSION,
+        url: "http://127.0.0.1:1",
+        pid: 2_147_483_647,
+        password: "stale",
+      }),
     )
-    expect(new URL(endpoint.url).port).toBe(String(port))
-    expect(
-      await fetch(new URL("/api/info", endpoint.url), { headers: Service.headers(endpoint) }).then((response) =>
-        response.json(),
-      ),
-    ).toMatchObject({ pid: contender.pid, version: ORCHESTRA_VERSION, urls: [endpoint.url] })
-    expect(contender.exitCode).toBe(null)
-    await Effect.runPromise(Service.stop({ file: registration }).pipe(Effect.provide(NodeFileSystem.layer)))
-    expect(await waitForExit(contender)).toBe(true)
-    expect(await Bun.file(registration).exists()).toBe(false)
-    await expectPortAvailable(port)
-  } finally {
-    contender.kill("SIGTERM")
-    await contender.exited
-    await fs.rm(root, { recursive: true, force: true })
-  }
-}, 45_000)
-
-processTest("unresponsive managed port occupancy reports a bounded conflict", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-unresponsive-conflict-"))
-  const recognizing = Promise.withResolvers<void>()
-  const requests = { count: 0 }
-  using listener = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    fetch() {
-      requests.count += 1
-      if (requests.count === 2) recognizing.resolve()
-      return new Promise<Response>(() => {})
-    },
-  })
-  const registration = path.join(root, "state", "orchestra", "service-local.json")
-  await fs.mkdir(path.join(root, "config", "orchestra"), { recursive: true })
-  await fs.mkdir(path.dirname(registration), { recursive: true })
-  await fs.writeFile(
-    path.join(root, "config", "orchestra", "service-local.json"),
-    JSON.stringify({ port: listener.port }),
-  )
-  const stale = {
-    id: "stale",
-    version: ORCHESTRA_VERSION,
-    url: "http://127.0.0.1:1",
-    pid: process.pid,
-    password: "stale",
-  }
-  await fs.writeFile(registration, JSON.stringify(stale))
-  const contender = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/index.ts"), "serve", "--service"], {
-    env: serviceEnv(root),
-    stderr: "pipe",
-    stdout: "pipe",
-  })
-
-  try {
-    expect(await Promise.race([recognizing.promise.then(() => true), Bun.sleep(20_000).then(() => false)])).toBe(true)
-    const exitCode = await Promise.race([contender.exited, Bun.sleep(20_000).then(() => undefined)])
-    expect(exitCode).toBe(1)
-    const output = (await new Response(contender.stdout).text()) + (await new Response(contender.stderr).text())
-    expect(output).toContain(`Managed service port ${listener.port} on 127.0.0.1 is already in use by another process`)
-    expect(await Bun.file(registration).json()).toEqual(stale)
-  } finally {
-    contender.kill("SIGTERM")
-    await contender.exited
-    await fs.rm(root, { recursive: true, force: true })
-  }
-}, 45_000)
-
-processTest("port contender recognizes an incumbent registered during the bind race", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-bind-race-"))
-  const recognizing = Promise.withResolvers<void>()
-  const requests = { count: 0 }
-  using listener = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    fetch() {
-      requests.count += 1
-      if (requests.count === 2) recognizing.resolve()
-      return Response.json(
-        { version: ORCHESTRA_VERSION, pid: process.pid, urls: [], paths: { tmp: "/tmp/orchestra" } },
-        { status: 503 },
+    const spawn = () =>
+      Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/index.ts"), "serve", "--service"], {
+        env: isolatedEnv(root),
+        stderr: "pipe",
+        stdout: "ignore",
+      })
+    const contender = spawn()
+    const stderr = new Response(contender.stderr).text()
+    try {
+      // The configured port belongs to an unrelated process, so the service binds an
+      // OS-assigned port and registers the address it actually bound; clients discover
+      // it from the registration.
+      const info = await Promise.race([
+        waitForInfo(registration, (info) => info.pid === contender.pid),
+        contender.exited.then(() => undefined),
+      ])
+      expect(info?.pid, contender.exitCode === null ? undefined : await stderr).toBe(contender.pid)
+      if (info === undefined) throw new Error("Contender did not register")
+      expect(new URL(info.url).port).not.toBe(String(port))
+      expect(info.id).not.toBe("stale")
+      const endpoint = await Effect.runPromise(
+        Service.discover({ file: registration }).pipe(
+          Effect.filterOrFail((value) => value !== undefined),
+          Effect.retry({ times: 400, schedule: Schedule.spaced("50 millis") }),
+          Effect.provide(NodeFileSystem.layer),
+        ),
       )
-    },
-  })
-  const registration = path.join(root, "state", "orchestra", "service-local.json")
-  const config = path.join(root, "config", "orchestra", "service-local.json")
-  await fs.mkdir(path.dirname(config), { recursive: true })
-  await fs.writeFile(config, JSON.stringify({ port: listener.port }))
-  await fs.mkdir(path.dirname(registration), { recursive: true })
-  await fs.writeFile(
-    registration,
-    JSON.stringify({
-      id: "stale",
-      version: ORCHESTRA_VERSION,
-      url: "http://127.0.0.1:1",
-      pid: 2_147_483_647,
-      password: "stale",
-    }),
-  )
-  const contender = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/index.ts"), "serve", "--service"], {
-    env: serviceEnv(root),
-    stderr: "pipe",
-    stdout: "ignore",
-  })
+      expect(new URL(endpoint.url).port).toBe(new URL(info.url).port)
+      expect(
+        await fetch(new URL("/api/info", endpoint.url), { headers: Service.headers(endpoint) }).then((response) =>
+          response.json(),
+        ),
+      ).toMatchObject({ pid: contender.pid, version: ORCHESTRA_VERSION, urls: [endpoint.url] })
+      // The unrelated occupant is left untouched.
+      expect(await fetch(`http://127.0.0.1:${port}/api/info`).then((response) => response.json())).toEqual({
+        unrelated: true,
+      })
+      expect(contender.exitCode).toBe(null)
+      await Effect.runPromise(Service.stop({ file: registration }).pipe(Effect.provide(NodeFileSystem.layer)))
+      expect(await waitForExit(contender)).toBe(true)
+      expect(await Bun.file(registration).exists()).toBe(false)
 
-  try {
-    expect(await Promise.race([recognizing.promise.then(() => true), Bun.sleep(20_000).then(() => false)])).toBe(true)
-    await Bun.sleep(8_000)
-    const info = {
-      id: "incumbent",
-      version: ORCHESTRA_VERSION,
-      url: `http://127.0.0.1:${listener.port}`,
-      pid: process.pid,
-      password: "incumbent",
+      // Once the occupant releases the configured port, the next start binds it.
+      await listener.stop(true)
+      await expectPortAvailable(port)
+      const second = spawn()
+      try {
+        const rebound = await Promise.race([
+          waitForInfo(registration, (info) => info.pid === second.pid),
+          second.exited.then(() => undefined),
+        ])
+        expect(rebound?.pid).toBe(second.pid)
+        expect(rebound && new URL(rebound.url).port).toBe(String(port))
+        expect(second.exitCode).toBe(null)
+        await Effect.runPromise(Service.stop({ file: registration }).pipe(Effect.provide(NodeFileSystem.layer)))
+        expect(await waitForExit(second)).toBe(true)
+        expect(await Bun.file(registration).exists()).toBe(false)
+        await expectPortAvailable(port)
+      } finally {
+        second.kill("SIGTERM")
+        await second.exited
+      }
+    } finally {
+      contender.kill("SIGTERM")
+      await contender.exited
+      await fs.rm(root, { recursive: true, force: true })
     }
-    await fs.writeFile(registration, JSON.stringify(info))
+  },
+  90_000,
+)
 
-    expect(await Promise.race([contender.exited, Bun.sleep(20_000).then(() => undefined)])).toBe(0)
-    expect(await Bun.file(registration).json()).toEqual(info)
-  } finally {
-    contender.kill("SIGTERM")
-    await contender.exited
-    await fs.rm(root, { recursive: true, force: true })
-  }
-}, 45_000)
+processTest(
+  "unresponsive managed port occupancy falls back to a free port in bounded time",
+  async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "orchestra-service-unresponsive-fallback-"))
+    using listener = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch() {
+        return new Promise<Response>(() => {})
+      },
+    })
+    const registration = path.join(root, "state", "orchestra", "service-local.json")
+    await fs.mkdir(path.join(root, "config", "orchestra"), { recursive: true })
+    await fs.mkdir(path.dirname(registration), { recursive: true })
+    await fs.writeFile(
+      path.join(root, "config", "orchestra", "service-local.json"),
+      JSON.stringify({ port: listener.port }),
+    )
+    await fs.writeFile(
+      registration,
+      JSON.stringify({
+        id: "stale",
+        version: ORCHESTRA_VERSION,
+        url: "http://127.0.0.1:1",
+        pid: process.pid,
+        password: "stale",
+      }),
+    )
+    const contender = Bun.spawn(
+      [process.execPath, path.join(import.meta.dir, "../src/index.ts"), "serve", "--service"],
+      {
+        env: serviceEnv(root),
+        stderr: "pipe",
+        stdout: "pipe",
+      },
+    )
+    const stderr = new Response(contender.stderr).text()
+
+    try {
+      // Probes of the unresponsive occupant are capped by the request timeout, then the
+      // service binds an OS-assigned port and registers the address it actually bound.
+      // The 20s waitForInfo budget is the bound on the whole startup.
+      const info = await Promise.race([
+        waitForInfo(registration, (info) => info.pid === contender.pid),
+        contender.exited.then(() => undefined),
+      ])
+      expect(info?.pid, contender.exitCode === null ? undefined : await stderr).toBe(contender.pid)
+      expect(info && new URL(info.url).port).not.toBe(String(listener.port))
+      expect(info?.id).not.toBe("stale")
+      expect(contender.exitCode).toBe(null)
+      await Effect.runPromise(Service.stop({ file: registration }).pipe(Effect.provide(NodeFileSystem.layer)))
+      expect(await waitForExit(contender)).toBe(true)
+      expect(await Bun.file(registration).exists()).toBe(false)
+    } finally {
+      contender.kill("SIGTERM")
+      await contender.exited
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  },
+  60_000,
+)
+
+processTest(
+  "port contender yields to an incumbent registration through the self-check",
+  async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "orchestra-service-bind-race-"))
+    using listener = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch() {
+        return Response.json(
+          { version: ORCHESTRA_VERSION, pid: process.pid, urls: [], paths: { tmp: "/tmp/orchestra" } },
+          { status: 503 },
+        )
+      },
+    })
+    const registration = path.join(root, "state", "orchestra", "service-local.json")
+    const config = path.join(root, "config", "orchestra", "service-local.json")
+    await fs.mkdir(path.dirname(config), { recursive: true })
+    await fs.writeFile(config, JSON.stringify({ port: listener.port }))
+    await fs.mkdir(path.dirname(registration), { recursive: true })
+    await fs.writeFile(
+      registration,
+      JSON.stringify({
+        id: "stale",
+        version: ORCHESTRA_VERSION,
+        url: "http://127.0.0.1:1",
+        pid: 2_147_483_647,
+        password: "stale",
+      }),
+    )
+    const contender = Bun.spawn(
+      [process.execPath, path.join(import.meta.dir, "../src/index.ts"), "serve", "--service"],
+      {
+        env: serviceEnv(root),
+        stderr: "pipe",
+        stdout: "ignore",
+      },
+    )
+    const stderr = new Response(contender.stderr).text()
+
+    try {
+      // The configured port is occupied by a booting server, so the contender binds an
+      // OS-assigned port and registers the address it actually bound.
+      const mine = await Promise.race([
+        waitForInfo(registration, (info) => info.pid === contender.pid),
+        contender.exited.then(() => undefined),
+      ])
+      expect(mine?.pid, contender.exitCode === null ? undefined : await stderr).toBe(contender.pid)
+      expect(mine && new URL(mine.url).port).not.toBe(String(listener.port))
+
+      // An incumbent registration written afterwards wins the race: the contender's
+      // registration self-check notices the overwrite and shuts it down without
+      // touching the incumbent's registration.
+      const info = {
+        id: "incumbent",
+        version: ORCHESTRA_VERSION,
+        url: `http://127.0.0.1:${listener.port}`,
+        pid: process.pid,
+        password: "incumbent",
+      }
+      await fs.writeFile(registration, JSON.stringify(info))
+
+      expect(await Promise.race([contender.exited, Bun.sleep(30_000).then(() => undefined)])).toBe(0)
+      expect(await Bun.file(registration).json()).toEqual(info)
+    } finally {
+      contender.kill("SIGTERM")
+      await contender.exited
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  },
+  60_000,
+)
 
 test("service registration replaces a stale owner with the bound address", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-stale-"))
@@ -741,4 +798,3 @@ async function expectPortAvailable(port: number) {
   const server = Bun.serve({ hostname: "127.0.0.1", port, fetch: () => new Response() })
   await server.stop(true)
 }
-

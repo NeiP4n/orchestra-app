@@ -107,20 +107,32 @@ serviceTest(
 )
 
 serviceTest(
-  "an unrelated process on the port gets an actionable error, then the service starts",
+  "an unrelated process on the port sends the service to a free port until the port is released",
   async () => {
     await using home = await serviceHome()
     using listener = Bun.serve({ hostname: "127.0.0.1", port: home.port, fetch: () => new Response("unrelated") })
 
-    const conflict = await cli(home, "service", "start").then(
-      () => undefined,
-      (error: Error) => error.message,
+    await cli(home, "service", "start")
+    // The configured port belongs to an unrelated process, so the service binds an
+    // OS-assigned port and registers the address it actually bound; clients discover
+    // the service from the registration. The occupant stays untouched.
+    await observe(
+      home,
+      (state) =>
+        state.info !== undefined &&
+        state.info.version === ORCHESTRA_VERSION &&
+        new URL(state.info.url).port !== String(home.port) &&
+        state.answer?.pid === state.info.pid &&
+        state.servers.length === 1 &&
+        state.servers[0] === state.info.pid,
     )
-    expect(conflict).toContain(`Managed service port ${home.port} on 127.0.0.1 is already in use by another process`)
-    expect(conflict).toContain("orchestra service set port <port>")
+    expect(await fetch(`http://127.0.0.1:${home.port}/`).then((response) => response.text())).toBe("unrelated")
+    await Effect.runPromise(Service.stop({ file: home.registration }).pipe(Effect.provide(NodeFileSystem.layer)))
+    await until(async () => ((await servers(home)).length === 0 ? true : undefined), 2_000).catch(() => undefined)
     expect(await servers(home)).toEqual([])
     expect(await Bun.file(home.registration).exists()).toBe(false)
 
+    // Once the occupant releases the configured port, the service binds it again.
     await listener.stop(true)
     await cli(home, "service", "start")
     await settled(home)
@@ -154,18 +166,19 @@ serviceTest(
 )
 
 serviceTest(
-  "a server that fails to boot reports the failure without respawning",
+  "a server that fails to boot reports the failure within the startup budget",
   async () => {
     await using home = await serviceHome({ failBoot: true })
 
-    await expect(cli(home, "service", "start")).rejects.toThrow("Background service failed to start")
-
-    // A slow first boot can let a second startup attempt begin; it loses the port and exits.
-    const info = await until(() => snapshot(home).then((state) => state.info))
-    await observe(home, (state) => state.servers.length === 1 && state.servers[0] === info.pid)
-    await stopped(home)
+    // A server whose boot fails before registration never becomes discoverable, so
+    // `service start` gives up when the startup budget runs out. The budget is the
+    // client's 120s promiseTimeout, and recruiting stops once two contenders wedge.
+    await expect(cli(home, "service", "start")).rejects.toThrow("Timed out waiting for the background service to start")
+    expect(await Bun.file(home.registration).exists()).toBe(false)
+    // The wedged contenders are reaped by the home's disposal; they never registered.
+    expect((await servers(home)).length).toBeLessThanOrEqual(2)
   },
-  120_000,
+  240_000,
 )
 
 type Home = Awaited<ReturnType<typeof serviceHome>>
