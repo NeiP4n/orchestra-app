@@ -801,10 +801,12 @@ no skill lookup runs for them.
   re-snapshot loop works on GTK3/GTK4 apps under Xvfb `:99` + openbox
   (at-spi2-core required on Linux). The virtual display MUST run a window
   manager: on bare Xvfb snapshots refuse with `native_window_unproven`, and
-  twm is not enough (`frames_unanswered`). Follow-up, not done here:
-  `ensureVirtualDisplay` (`desktop-isolation.ts`) starts bare Xvfb with no
-  window manager, so agent-desktop cannot work on Orchestra's own virtual
-  display until a WM (openbox) is started there too. B13: snapshots,
+  twm is not enough (`frames_unanswered`). Done (2026-11-07, b7-window-manager):
+  `ensureVirtualDisplay` (`desktop-isolation.ts`) now starts openbox on the
+  display (`DISPLAY=<display>`) right after Xvfb, tracks its process, and
+  stops it in `stopVirtualDisplay`; without openbox it fails loudly (install
+  openbox) instead of silently leaving a bare Xvfb. A window manager already
+  running on the display (started by hand) counts as ready. B13: snapshots,
   screenshots and the clipboard can hold private screen data — never paste
   them into public logs or shared chats (noted in the catalog `usage`).
 - B7 (desktop isolation): agent-desktop and playwright are `realScreen` servers.
@@ -969,6 +971,7 @@ no skill lookup runs for them.
   applies to the shell tool AND the hub tool (both run `shell.create`; the
   hub's `prepare` calls the same `forbiddenDesktopEscape`). Shell-spawned GUI
   apps get `DISPLAY` pinned to the virtual display when capture is on (Linux).
+- The virtual display runs a window manager (openbox, pilot-verified): `ensureVirtualDisplay` starts it with `DISPLAY=<display>` right after Xvfb, tracks the process, and `stopVirtualDisplay` stops it first, then Xvfb. A bare Xvfb is never reported ready. Without openbox the call fails loudly ("Install openbox", `native_window_unproven` named); a manager already running on the display counts as ready. The `started` journal event records the manager pid too.
 - Virtual-display state is a journal fact (`journal.ts`: `recordDisplayEvent`,
   type `desktop.display`, states `started`/`alive`/`died`): which display, whose
   session, and a death is an event, never silence.

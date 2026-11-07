@@ -35,7 +35,10 @@ const has = (command: string): boolean => {
   }
 }
 
-const hasLiveTools = process.platform === "linux" && has("Xvfb") && has("ffmpeg") && has("python3")
+const hasLiveTools =
+  process.platform === "linux" && has("Xvfb") && has("ffmpeg") && has("python3") && has("openbox")
+// ensureVirtualDisplay now requires openbox on the agent display (a bare
+// Xvfb is never a ready display), so the live tests need it too.
 
 const waitFor = async (check: () => boolean, timeoutMs = 10_000): Promise<boolean> => {
   const deadline = Date.now() + timeoutMs
@@ -88,6 +91,11 @@ describe("B7 virtual display (live Xvfb)", () => {
       const agent = await DesktopIsolation.ensureVirtualDisplay(AGENT_DISPLAY)
       expect(agent.display).toBe(AGENT_DISPLAY)
       expect(DesktopIsolation.isVirtualDisplayAlive(AGENT_DISPLAY)).toBe(true)
+      // ensureVirtualDisplay starts a window manager on the agent display:
+      // without it agent-desktop cannot snapshot the display.
+      expect(typeof agent.windowManagerPid).toBe("number")
+      // The host display stays bare Xvfb on purpose: it stands in for the
+      // operator's real screen, not an agent display — no window manager there.
       const host = spawn("Xvfb", [HOST_DISPLAY, "-screen", "0", "1280x800x24", "-nolisten", "tcp"], {
         detached: true,
         stdio: "ignore",

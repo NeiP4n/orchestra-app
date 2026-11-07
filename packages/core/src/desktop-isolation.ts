@@ -16,6 +16,9 @@ import { existsSync } from "node:fs"
  *   Any of the three missing, expired, or not naming the app → denied.
  * - A denied action fails with a plain-language error. It is never run
  *   "somehow" on the real screen as a fallback.
+ * - The virtual display runs a window manager (openbox): bare Xvfb cannot be
+ *   snapshotted by agent-desktop (`native_window_unproven`), so a display
+ *   without one is never reported ready.
  * - Rollback is a deny: remove the opt-in and every real-screen path
  *   (desktop_action/inspect, playtest real input, zen_browser, MCP
  *   agent-desktop/playwright, shell screen escapes) refuses.
@@ -193,6 +196,18 @@ export function isVirtualDisplayAlive(
   return exists(socket)
 }
 
+/** The window manager on the virtual display. Pilot-verified (agent-desktop
+ * 1.2.0, 2026-11-07): on bare Xvfb snapshots refuse with
+ * `native_window_unproven`, and twm is not enough (`frames_unanswered`) —
+ * only Xvfb + openbox works. A display without a window manager is never
+ * reported ready. */
+export const VIRTUAL_DISPLAY_WINDOW_MANAGER = "openbox"
+
+/** How long to wait for the window manager to prove it stays up after
+ * starting: a manager that cannot connect (or finds one already running)
+ * exits within a fraction of this. */
+export const WINDOW_MANAGER_SETTLE_MS = 1_000
+
 /** The command that starts the virtual display. Kept pure so tests can assert it without spawning. */
 export function xvfbCommand(display: string): { command: string; args: ReadonlyArray<string> } {
   return {
@@ -201,56 +216,159 @@ export function xvfbCommand(display: string): { command: string; args: ReadonlyA
   }
 }
 
+/**
+ * The command that starts the window manager on a display. openbox takes no
+ * display argument — it reads DISPLAY from its environment. Kept pure like
+ * xvfbCommand so tests can assert it without spawning.
+ */
+export function windowManagerCommand(display: string): {
+  command: string
+  args: ReadonlyArray<string>
+  env: { DISPLAY: string }
+} {
+  return { command: VIRTUAL_DISPLAY_WINDOW_MANAGER, args: [], env: { DISPLAY: display } }
+}
+
+export interface VirtualDisplaySpawnOptions {
+  readonly env?: NodeJS.ProcessEnv
+  readonly captureStderr?: boolean
+}
+
+export type VirtualDisplaySpawnFn = (
+  command: string,
+  args: ReadonlyArray<string>,
+  options?: VirtualDisplaySpawnOptions,
+) => ChildProcess
+
+const defaultSpawn: VirtualDisplaySpawnFn = (command, args, options) =>
+  spawn(command, [...args], {
+    detached: true,
+    stdio: options?.captureStderr ? ["ignore", "ignore", "pipe"] : "ignore",
+    env: options?.env ? { ...process.env, ...options.env } : process.env,
+  })
+
 const startedDisplays = new Map<string, ChildProcess>()
+const startedWindowManagers = new Map<string, ChildProcess>()
 
 export interface VirtualDisplayStatus {
   readonly display: string
   /** True when this call started the display; false when it was already up. */
   readonly started: boolean
   readonly pid?: number
+  /** The window manager this call started, if it started one. */
+  readonly windowManagerPid?: number
 }
 
 /**
- * Make sure the virtual display is up, starting Xvfb when it is not.
- * Throws a plain Error when Xvfb is missing or the display does not come up:
- * the caller turns that into a ToolFailure, never into a screenshot of the
- * real screen.
+ * Make sure the virtual display is up, starting Xvfb when it is not — and
+ * always with a window manager (openbox) on top of it. A bare Xvfb is never
+ * reported ready: agent-desktop cannot snapshot it (`native_window_unproven`).
+ * Throws a plain Error when Xvfb is missing, the display does not come up,
+ * or openbox is missing / fails to start: the caller turns that into a
+ * ToolFailure, never into a screenshot of the real screen. The one exception
+ * is a window manager already running on the display (started by hand or by
+ * another process): then the display is ready as-is and nothing is started.
  */
 export async function ensureVirtualDisplay(
   display: string,
   waitMs = 5_000,
-  spawnFn: (command: string, args: ReadonlyArray<string>) => ChildProcess = (command, args) =>
-    spawn(command, [...args], { detached: true, stdio: "ignore" }),
+  spawnFn: VirtualDisplaySpawnFn = defaultSpawn,
 ): Promise<VirtualDisplayStatus> {
-  if (isVirtualDisplayAlive(display)) return { display, started: false, pid: startedDisplays.get(display)?.pid }
-  const { command, args } = xvfbCommand(display)
-  let child: ChildProcess
-  try {
-    child = spawnFn(command, args)
-  } catch (error) {
-    throw new Error(
-      `Virtual display ${display} is not running and Xvfb could not be started (${error instanceof Error ? error.message : String(error)}). ` +
-        "Install Xvfb to let agents work on their own screen; the real screen stays closed.",
-    )
-  }
-  child.unref?.()
-  startedDisplays.set(display, child)
-  const deadline = Date.now() + waitMs
-  while (Date.now() < deadline) {
-    if (isVirtualDisplayAlive(display)) return { display, started: true, pid: child.pid }
-    if (child.exitCode !== null)
+  const liveManager = startedWindowManagers.get(display)
+  if (isVirtualDisplayAlive(display) && liveManager && liveManager.exitCode === null)
+    return { display, started: false, pid: startedDisplays.get(display)?.pid, windowManagerPid: liveManager.pid }
+  let started = false
+  if (!isVirtualDisplayAlive(display)) {
+    const { command, args } = xvfbCommand(display)
+    let child: ChildProcess
+    try {
+      child = spawnFn(command, args)
+    } catch (error) {
       throw new Error(
-        `Virtual display ${display} did not come up: Xvfb exited with code ${child.exitCode}. The real screen stays closed.`,
+        `Virtual display ${display} is not running and Xvfb could not be started (${error instanceof Error ? error.message : String(error)}). ` +
+          "Install Xvfb to let agents work on their own screen; the real screen stays closed.",
       )
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    child.unref?.()
+    startedDisplays.set(display, child)
+    const deadline = Date.now() + waitMs
+    while (Date.now() < deadline) {
+      if (isVirtualDisplayAlive(display)) break
+      if (child.exitCode !== null)
+        throw new Error(
+          `Virtual display ${display} did not come up: Xvfb exited with code ${child.exitCode}. The real screen stays closed.`,
+        )
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    if (!isVirtualDisplayAlive(display))
+      throw new Error(`Virtual display ${display} did not come up within ${waitMs} ms. The real screen stays closed.`)
+    started = true
   }
-  throw new Error(
-    `Virtual display ${display} did not come up within ${waitMs} ms. The real screen stays closed.`,
-  )
+  const manager = await startWindowManager(display, spawnFn)
+  if (manager !== "foreign") startedWindowManagers.set(display, manager)
+  return {
+    display,
+    started,
+    pid: startedDisplays.get(display)?.pid,
+    windowManagerPid: manager === "foreign" ? undefined : manager.pid,
+  }
 }
 
-/** Stop a display this process started (tests and shutdown only; the shared display normally stays up). */
+const windowManagerMissingMessage = (display: string, error: unknown): string =>
+  `Virtual display ${display} has no window manager: openbox could not be started (${error instanceof Error ? error.message : String(error)}). ` +
+  "Install openbox (for example `sudo apt install openbox`) — on bare Xvfb agent-desktop snapshots refuse with " +
+  "native_window_unproven, so the display is not usable without it. The real screen stays closed."
+
+/** What startWindowManager found: the manager process, or "foreign" when a
+ * window manager is already running on the display (not started by us). */
+type WindowManagerStart = ChildProcess | "foreign"
+
+async function startWindowManager(display: string, spawnFn: VirtualDisplaySpawnFn): Promise<WindowManagerStart> {
+  const { command, args, env } = windowManagerCommand(display)
+  let child: ChildProcess
+  try {
+    child = spawnFn(command, args, { env, captureStderr: true })
+  } catch (error) {
+    throw new Error(windowManagerMissingMessage(display, error))
+  }
+  // A missing binary never throws synchronously: spawn reports it through
+  // the 'error' event. Without a listener that event would crash the process.
+  let spawnError: Error | undefined
+  child.on("error", (error) => {
+    spawnError = error
+  })
+  child.unref?.()
+  let stderr = ""
+  child.stderr?.on("data", (chunk) => {
+    stderr += String(chunk)
+  })
+  const deadline = Date.now() + WINDOW_MANAGER_SETTLE_MS
+  while (Date.now() < deadline) {
+    if (spawnError !== undefined || child.exitCode !== null) break
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  if (spawnError !== undefined) throw new Error(windowManagerMissingMessage(display, spawnError))
+  if (child.exitCode !== null) {
+    // openbox refuses a display that already has a window manager. That is
+    // not a failure: the display is ready, the manager just is not ours.
+    if (/already running|another window manager/i.test(stderr)) return "foreign"
+    throw new Error(
+      `Window manager ${command} on display ${display} exited with code ${child.exitCode}${stderr.trim() ? `: ${stderr.trim()}` : ""}. ` +
+        "Install openbox and make sure the virtual display is up; the real screen stays closed.",
+    )
+  }
+  return child
+}
+
+/** Stop a display this process started (tests and shutdown only; the shared display normally stays up). The window manager goes first, then Xvfb. */
 export function stopVirtualDisplay(display: string): void {
+  const manager = startedWindowManagers.get(display)
+  if (manager) {
+    try {
+      manager.kill()
+    } catch {}
+    startedWindowManagers.delete(display)
+  }
   const child = startedDisplays.get(display)
   if (child) {
     try {
