@@ -355,24 +355,63 @@ export function sizesLine(record: Attempt): string {
 
 const ownFile = /^[0-9a-f-]+\.jsonl$/
 
-/** Delete measurement files older than the retention window. Only our own files; anything else stays. */
-export const pruneOldMeasurements = async (directory: string, now = Date.now()) => {
+/**
+ * Delete measurement files older than the retention window.
+ * Only our own files; anything else stays. Bounded: at most `limit` entries
+ * are examined per call, so a flooded directory costs bounded work per sweep
+ * and the rest waits for the next interval. Returns how many files it removed.
+ */
+export const pruneOldMeasurements = async (directory: string, now = Date.now(), limit = SWEEP_EXAMINE_LIMIT) => {
   const cutoff = now - retentionDays() * 24 * 60 * 60 * 1000
   let entries: string[]
   try {
     entries = await readdir(directory)
   } catch {
-    return
+    return 0
   }
-  for (const entry of entries) {
+  let removed = 0
+  for (const entry of entries.slice(0, limit)) {
     if (!ownFile.test(entry)) continue
     const file = path.join(directory, entry)
     try {
-      if ((await stat(file)).mtimeMs < cutoff) await unlink(file)
+      if ((await stat(file)).mtimeMs < cutoff) {
+        await unlink(file)
+        removed += 1
+      }
     } catch {
-      // A file that cannot be read or removed stays; the next write retries it.
+      // A file that cannot be read or removed stays; the next sweep retries it.
     }
   }
+  return removed
+}
+
+/** At most this many directory entries are examined in one retention sweep. */
+export const SWEEP_EXAMINE_LIMIT = 100
+/** At most one retention sweep per interval per process, however often writes happen. */
+export const SWEEP_INTERVAL_MS = 60 * 60 * 1000
+
+let lastSweepAt = Number.NEGATIVE_INFINITY
+let sweeping: Promise<number> | undefined
+
+/**
+ * The write path's retention hook: infrequent (once per SWEEP_INTERVAL_MS),
+ * serialized (concurrent callers share one in-flight sweep), bounded (the
+ * sweep itself examines at most SWEEP_EXAMINE_LIMIT entries).
+ */
+export const maybeSweep = (directory: string, now = Date.now()): Promise<number> => {
+  if (now - lastSweepAt < SWEEP_INTERVAL_MS) return Promise.resolve(0)
+  if (sweeping) return sweeping
+  lastSweepAt = now
+  sweeping = pruneOldMeasurements(directory, now).finally(() => {
+    sweeping = undefined
+  })
+  return sweeping
+}
+
+/** Test-only: clears the sweep throttle so each case starts with a due sweep. */
+export const resetSweepThrottleForTests = () => {
+  lastSweepAt = Number.NEGATIVE_INFINITY
+  sweeping = undefined
 }
 
 // Append one line to <data>/log/measurements with owner-only permissions. A write failure is
@@ -383,7 +422,7 @@ export const writeLine = (line: string, directory = measurementDir()) =>
     try: async () => {
       if (Buffer.byteLength(line) > MAX_LINE_BYTES) return
       await mkdir(directory, { recursive: true, mode: 0o700 })
-      await pruneOldMeasurements(directory)
+      await maybeSweep(directory)
       const file = path.join(directory, `${randomUUID()}.jsonl`)
       await writeFile(file, `${line}\n`, { mode: 0o600, flag: "wx" })
       await chmod(file, 0o600)

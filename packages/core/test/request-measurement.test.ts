@@ -271,6 +271,62 @@ describe("SessionRequestMeasurement opt-in collection", () => {
     expect(fs.existsSync(foreignJsonl)).toBe(true)
   })
 
+  test("retention sweep is bounded: at most the limit is examined per call", async () => {
+    const dir = mkdtemp()
+    const old = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    for (let i = 0; i < 5; i++) {
+      const file = path.join(dir, `0e1c4b32-0000-4000-8000-00000000000${i}.jsonl`)
+      fs.writeFileSync(file, "{}\n")
+      fs.utimesSync(file, old, old)
+    }
+    const removed = await SessionRequestMeasurement.pruneOldMeasurements(dir, Date.now(), 3)
+    expect(removed).toBe(3)
+    expect(fs.readdirSync(dir).length).toBe(2)
+    expect(await SessionRequestMeasurement.pruneOldMeasurements(dir, Date.now(), 3)).toBe(2)
+    expect(fs.readdirSync(dir).length).toBe(0)
+  })
+
+  test("write path sweeps infrequently: a second write inside the interval does not rescan", async () => {
+    SessionRequestMeasurement.resetSweepThrottleForTests()
+    const dir = mkdtemp()
+    const old = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const first = path.join(dir, "0e1c4b32-0000-4000-8000-0000000000aa.jsonl")
+    fs.writeFileSync(first, "{}\n")
+    fs.utimesSync(first, old, old)
+    const t0 = Date.now()
+    expect(await SessionRequestMeasurement.maybeSweep(dir, t0)).toBe(1)
+    expect(fs.existsSync(first)).toBe(false)
+
+    const second = path.join(dir, "0e1c4b32-0000-4000-8000-0000000000bb.jsonl")
+    fs.writeFileSync(second, "{}\n")
+    fs.utimesSync(second, old, old)
+    expect(await SessionRequestMeasurement.maybeSweep(dir, t0 + 1000)).toBe(0)
+    expect(fs.existsSync(second)).toBe(true)
+
+    expect(await SessionRequestMeasurement.maybeSweep(dir, t0 + SessionRequestMeasurement.SWEEP_INTERVAL_MS + 1)).toBe(
+      1,
+    )
+    expect(fs.existsSync(second)).toBe(false)
+    SessionRequestMeasurement.resetSweepThrottleForTests()
+  })
+
+  test("concurrent sweeps serialize onto one in-flight scan", async () => {
+    SessionRequestMeasurement.resetSweepThrottleForTests()
+    const dir = mkdtemp()
+    const old = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const file = path.join(dir, "0e1c4b32-0000-4000-8000-0000000000cc.jsonl")
+    fs.writeFileSync(file, "{}\n")
+    fs.utimesSync(file, old, old)
+    const t0 = Date.now()
+    const [a, b] = await Promise.all([
+      SessionRequestMeasurement.maybeSweep(dir, t0),
+      SessionRequestMeasurement.maybeSweep(dir, t0),
+    ])
+    expect(a + b).toBe(1)
+    expect(fs.existsSync(file)).toBe(false)
+    SessionRequestMeasurement.resetSweepThrottleForTests()
+  })
+
   test("canary secrets from the prompt never reach the saved bytes", async () => {
     const canary = "sk-canarySECRET0123456789"
     const dirty = {
