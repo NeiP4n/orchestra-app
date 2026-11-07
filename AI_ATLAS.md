@@ -1164,14 +1164,37 @@ Windows fallback never unlinks the live file first (arch3 A3-14).
 - **Standby (idea #19)**: an item names a reserve agent (`standby` /
   `standby_id`, set by `dod add`); when the holder's lease expires the
   standby takes it over on its own (`dod takeover`, or `dod take` by the
-  standby), recording `took_over_at` / `took_over_by`. The society's reserve
+  standby, or `dod check` / `dod block` by the standby — all three record
+  `took_over_at` / `took_over_by`). Anyone else taking a stalled item that
+  names a standby is refused (`take`, `takeover`, `next`, `check`, `block`,
+  and the kanban's `canTake` share the one rule in `refusal`, arch3 M-08),
+  so a stranger can no longer create a second writer in one item. A stalled
+  item with no standby still passes to anyone — otherwise it could never
+  move again, since `takeover` needs a standby too — and the holder
+  re-taking their own stale item is never blocked. The society's reserve
   group is named `reserve` (`Zones.RESERVE_GROUP`) and holds no planned tasks.
+- **Lease heartbeat (arch3 M-08)**: the lease is a silence timer, and a
+  session doing real work is not silent. After every model step the runner
+  renews the leases its session holds (`Dod.heartbeatHeld`, called in
+  `packages/core/src/session/runner/llm.ts`, best-effort so a board write
+  never fails the step); `Dod.heartbeat` renews one item for its holder
+  only. A heartbeat renews only leases with under `HEARTBEAT_WINDOW_MS`
+  (2 min) left, or already expired while nobody took the item over, and
+  writes nothing when nothing is due — a project without a board renews
+  nothing. Separately, a holder whose session is provably running never
+  reads as stale even past its lease: the `dod` tool passes an `active`
+  callback built from `SessionExecution.active` into `take` / `next` /
+  `takeover` / `check` / `block` / `release` / `read`, so a long step or
+  tool call cannot lose the item mid-work. An idle session is not `active`,
+  so its items still go stale once the lease expires. The room path is
+  unchanged: its `live` (presence) still decides staleness on its own.
 - **WIP limit (idea #20)**: at most 3 tasks in work (`IN_PROGRESS` or
   `BLOCKED`) per group — a 4th concurrent claim is refused with a queue
   message, `next` skips blocked items. Re-taking an item the caller already
   holds is not a new claim and is never blocked. Known gap: `dod check` and
-  `dod block` claim a free item without the guards, so they can push a group
-  past 3 in work.
+  `dod block` claim a free item without the WIP/zone guards, so they can
+  push a group past 3 in work — but since arch3 M-08 they do enforce the
+  standby rule above.
 - **Zones (idea #25)**: the registry
   `.orchestra/zones.yaml` (`packages/core/src/zones.ts`) maps zone → owner
   group; taking an item from a foreign zone needs a pass
@@ -1191,7 +1214,8 @@ Windows fallback never unlinks the live file first (arch3 A3-14).
 - Every guard decision is recorded in `.orchestra/dod-events.jsonl`
   (`standby.takeover`, `wip.refusal`, `zone.refusal`, `zone.auto-pass`),
   best-effort: a failed write never fails the claim it records.
-  Tests: `packages/core/test/dod-guards.test.ts`.
+  Tests: `packages/core/test/dod-guards.test.ts`,
+  `packages/core/test/dod-heartbeat.test.ts` (heartbeat + session activity).
 
 ## DoD kanban board (block Б11) — `packages/core/src/dod-kanban.ts`
 

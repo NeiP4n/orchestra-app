@@ -14,6 +14,7 @@ import { Location } from "../../location.js"
 import { Orchestra } from "../../orchestra.js"
 import { Passport } from "../../passport.js"
 import { Permission } from "../../permission.js"
+import { SessionExecution } from "../../session/execution.js"
 import { Zones } from "../../zones.js"
 
 export const name = "dod"
@@ -101,6 +102,22 @@ export const Plugin = {
     const run = Effect.fn("DodTool.run")(function* (input: Input, context: Tool.Context) {
       const source = { type: "tool" as const, messageID: context.messageID, id: context.id }
       const owner = ownerOf(context.sessionID)
+      // Whether a holder's session is running in this process right now, so an item
+      // whose lease ran out mid-step still reads as held while its session works.
+      // Best-effort: without the execution service the board falls back to the lease
+      // alone, as before.
+      const active = yield* Effect.serviceOption(SessionExecution.Service).pipe(
+        Effect.flatMap((execution) =>
+          Option.isNone(execution)
+            ? Effect.succeed(undefined)
+            : execution.value.active.pipe(
+                Effect.map((running: ReadonlySet<string>) => {
+                  const active: Dod.Active = (ownerID) => running.has(ownerID)
+                  return active
+                }),
+              ),
+        ),
+      )
       if (writes(input.action))
         yield* permission.assert({
           action: name,
@@ -129,22 +146,22 @@ export const Plugin = {
 
       switch (input.action) {
         case "show":
-          return board(yield* Dod.read(directory))
+          return board(yield* Dod.read(directory, undefined, active))
         case "item":
-          return yield* describe(yield* need(input.id, "id"))
+          return yield* describe(yield* need(input.id, "id"), active)
         case "next": {
-          const taken = yield* Dod.next({ directory, owner, group: input.group })
-          return [`You hold ${taken.id} now.`, yield* describe(taken.id)].join("\n\n")
+          const taken = yield* Dod.next({ directory, owner, group: input.group, ...(active ? { active } : {}) })
+          return [`You hold ${taken.id} now.`, yield* describe(taken.id, active)].join("\n\n")
         }
         case "take": {
           const id = yield* need(input.id, "id")
-          yield* Dod.take({ directory, id, owner, group: input.group })
-          return [`You hold ${id} now.`, yield* describe(id)].join("\n\n")
+          yield* Dod.take({ directory, id, owner, group: input.group, ...(active ? { active } : {}) })
+          return [`You hold ${id} now.`, yield* describe(id, active)].join("\n\n")
         }
         case "takeover": {
           const id = yield* need(input.id, "id")
-          yield* Dod.takeover({ directory, id, owner, group: input.group })
-          return [`You took ${id} over from its stalled holder.`, yield* describe(id)].join("\n\n")
+          yield* Dod.takeover({ directory, id, owner, group: input.group, ...(active ? { active } : {}) })
+          return [`You took ${id} over from its stalled holder.`, yield* describe(id, active)].join("\n\n")
         }
         case "contracts_accept": {
           const accepted = yield* Contracts.accept(directory, owner.name)
@@ -160,17 +177,17 @@ export const Plugin = {
         case "uncheck": {
           const id = yield* need(input.id, "id")
           const step = Number(yield* need(input.step, "step"))
-          yield* Dod.check({ directory, id, step, checked: input.action === "check", owner })
-          return yield* describe(id)
+          yield* Dod.check({ directory, id, step, checked: input.action === "check", owner, ...(active ? { active } : {}) })
+          return yield* describe(id, active)
         }
         case "block": {
           const id = yield* need(input.id, "id")
-          yield* Dod.block({ directory, id, owner, reason: input.reason })
-          return yield* describe(id)
+          yield* Dod.block({ directory, id, owner, reason: input.reason, ...(active ? { active } : {}) })
+          return yield* describe(id, active)
         }
         case "release": {
           const id = yield* need(input.id, "id")
-          yield* Dod.release({ directory, id, owner })
+          yield* Dod.release({ directory, id, owner, ...(active ? { active } : {}) })
           return `${id} is free again.`
         }
         case "add": {
@@ -199,7 +216,7 @@ export const Plugin = {
               ? { name: input.standby, id: input.standby_id?.trim() || input.standby }
               : undefined,
           })
-          return [`Added ${added.id}. Take it before you start on it.`, yield* describe(added.id)].join("\n\n")
+          return [`Added ${added.id}. Take it before you start on it.`, yield* describe(added.id, active)].join("\n\n")
         }
         case "verify": {
           const id = yield* need(input.id, "id")
@@ -266,8 +283,8 @@ export const Plugin = {
       }
     })
 
-    const describe = Effect.fn("DodTool.describe")(function* (id: string) {
-      const { item, steps } = yield* Dod.detail(directory, id)
+    const describe = Effect.fn("DodTool.describe")(function* (id: string, active?: Dod.Active) {
+      const { item, steps } = yield* Dod.detail(directory, id, active)
       return [
         `${item.id} [${item.state}] ${item.what}`,
         `Stage: ${item.stage} · steps ${item.done}/${item.total}${item.owner ? ` · held by ${item.owner}${item.stale ? " (lease expired)" : ""}` : " · free"}${item.standby ? ` · standby ${item.standby}` : ""}${item.human ? " · for a human — agents do not take it" : ""}`,
