@@ -1,0 +1,53 @@
+# Orchestra server watchdog — systemd unit TEMPLATE.
+#
+# DO NOT install this file directly: it contains placeholders
+# (WORKTREE, DATA_DIR, ENV_FILE, SERVE_ARGS, SERVICE_USER, WANTED_BY)
+# that the installer fills in.
+# Run scripts/install-watchdog-autostart.sh to render and install it:
+#
+#   scripts/install-watchdog-autostart.sh --dry-run    # show what it would do
+#   scripts/install-watchdog-autostart.sh --check      # validate the rendering
+#   scripts/install-watchdog-autostart.sh              # install (user scope)
+#   scripts/install-watchdog-autostart.sh --system     # install (system scope)
+#
+# Why systemd, and not cron: this VM has no cron daemon at all (no crontab
+# binary, no cron service), so @reboot cannot run. systemd is PID 1 and
+# `is-system-running` reports `running`; a user unit with linger (or a
+# system unit) starts at boot with no login. See AI_ATLAS.md, "Foreground
+# server lifecycle", for the choice and the guarantees.
+#
+# The unit starts ONLY the watchdog. The watchdog itself decides whether
+# to start the server: it exits at once when another watchdog holds the
+# flock, or when a live server already holds a PID lock (pre-flight check).
+# Restart=no is deliberate: the watchdog already loops with backoff and a
+# restart cap (5 unclean restarts in 600s, then exit 1). A systemd restart
+# would reset that cap and turn a crash loop into an infinite one, and a
+# clean shutdown exits 0 and must stay stopped until an operator restarts it.
+[Unit]
+Description=Orchestra server watchdog (restarts orchestra serve on unclean exit)
+Documentation=file://@WORKTREE@/AI_ATLAS.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+@SERVICE_USER@
+WorkingDirectory=@WORKTREE@
+# Secrets (ORCHESTRA_PASSWORD) and live-run environment
+# (ORCHESTRA_CONFIG_DIR, ORCHESTRA_SOCIETY_ROOT, ORCHESTRA_LOCAL) come from
+# this file, never from the unit itself. Create it mode 0600; a missing
+# file is fine (the leading "-" makes it optional). %h is the service
+# user's home directory in both scopes.
+EnvironmentFile=-@ENV_FILE@
+ExecStart=@WORKTREE@/scripts/server-watchdog.sh --data-dir @DATA_DIR@ -- @SERVE_ARGS@
+# No Restart=: see the header. Stopping the unit stops the server too
+# (same cgroup): SIGTERM lets the server write its clean-shutdown marker,
+# so the next boot starts fresh instead of reporting the previous run
+# unclean.
+Restart=no
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=@WANTED_BY@
