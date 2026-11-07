@@ -41,6 +41,26 @@ describe("the 6-message delegation gate", () => {
     const reset = gate(counted, { tool: "sessions", messageID: "m7", action: "create", text: "Build the thing" })
     expect(reset).toEqual({ counted: [], blocked: false, reset: true })
   })
+
+  test("the MCP survey is always allowed at the limit — otherwise dispatch could never happen", () => {
+    // A dispatch is refused without a fresh survey, so refusing the survey
+    // at the limit would deadlock the Orchestrator: it could neither survey
+    // nor dispatch. Inspect is read-only, so it never counts and never resets.
+    const counted = ["m1", "m2", "m3", "m4", "m5", "m6"]
+    expect(gate(counted, { tool: "mcp_manager", messageID: "m7", action: "inspect" })).toEqual({
+      counted,
+      blocked: false,
+      reset: false,
+    })
+    // Only inspect is exempt: acquiring or installing a server still counts
+    // as doing the work and stays gated past the limit.
+    expect(gate(counted, { tool: "mcp_manager", messageID: "m7", action: "acquire" }).blocked).toBe(true)
+    expect(gate(counted, { tool: "mcp_manager", messageID: "m7" }).blocked).toBe(true)
+  })
+
+  test("the limit-reached text names the survey as the way out", () => {
+    expect(OrchestraTool.delegationStatus(LIMIT).text).toContain("mcp_manager inspect")
+  })
 })
 
 describe("own message streak from history", () => {
@@ -74,12 +94,12 @@ describe("MCP limits the Orchestrator distributes", () => {
   const role = { name: "Developer", tools: ["read", "edit", "context7_*", "playwright_*"], readOnly: false }
 
   test("a role's ceiling comes from its own tool list", () => {
-    // withImplied expands the list first: `read` implies the serena MCP server.
-    expect(OrchestraTool.mcpServersOf(role)).toEqual(["context7", "playwright", "serena"])
+    // withImplied expands the list first: `read` implies the serena and xerj MCP servers.
+    expect(OrchestraTool.mcpServersOf(role)).toEqual(["context7", "playwright", "serena", "xerj"])
     expect(OrchestraTool.mcpServersOf({ tools: ["mcp_*"] })).toBe("all")
     expect(OrchestraTool.mcpServersOf({})).toBe("all")
     expect(OrchestraTool.defaultMcpLimit(role)).toEqual({
-      servers: ["context7", "playwright", "serena"],
+      servers: ["context7", "playwright", "serena", "xerj"],
       maxCalls: 24,
       perServer: {},
     })

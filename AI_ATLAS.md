@@ -1160,6 +1160,11 @@ messages and builds the rest with `society_forge generate` and `society_plan`.
   `workerModels` also gives cheap work the cheap model instead of the
   Orchestrator's flagship. Building the Society (`society_forge found/generate`,
   `society_plan apply`) is exempt from the 6-message rule and resets its count;
+  the MCP survey (`mcp_manager inspect`) is exempt too — a dispatch is refused
+  without a fresh survey, so blocking the survey at the limit would deadlock
+  the Orchestrator (it could neither survey nor dispatch); acquiring or
+  installing a server stays gated. The refusal text names the survey and the
+  explicit `mcp` assignment as the way out.
   the orientation limit is ten calls with investigation as a valid first dispatch;
   MCP deny rules are replaced per dispatch, never piled onto a reused worker;
   the Orchestrator's reconnaissance travels to the worker whole.
