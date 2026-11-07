@@ -21,6 +21,7 @@ export { openMemoryDatabase, backupMemoryDatabase, resolveDefaultMemoryDbPath } 
 export { scrubText, scrubSecrets, scrubValue, countSecrets, REDACTED } from "./scrub.js"
 export { hashEmbed, cosineSimilarity } from "./embed.js"
 export { hybridSearch } from "./search.js"
+export * as MemoryLevels from "./levels.js"
 export * as MemoryCodeSearch from "./code-search.js"
 export { stem, stemRU, stemEN, extractTerms, trigrams, trigramSimilarity } from "./text.js"
 
