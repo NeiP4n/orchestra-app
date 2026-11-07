@@ -3,6 +3,7 @@ import { Effect } from "effect"
 import { Command } from "effect/unstable/cli"
 import { Commands } from "../../src/commands/commands"
 import upgrade from "../../src/commands/handlers/upgrade"
+import { SourceRelease } from "../../src/services/source-release"
 import { Updater } from "../../src/services/updater"
 
 const record = (event: unknown) => console.log(`EVENT ${JSON.stringify(event)}`)
@@ -19,11 +20,11 @@ await Effect.runPromise(
           record("check")
           return Effect.succeed({ type: "available" as const, version: "0.0.0-beta-new" })
         }),
-      apply: (version: string) =>
+      apply: (version: string): Effect.Effect<SourceRelease.Kept | undefined, Error> =>
         Effect.suspend(() => {
           if (!process.env.UPGRADE_TEST_LOCAL) return Effect.die("Manual upgrades must not apply TUI updates")
           record({ applied: version })
-          return Effect.void
+          return Effect.succeed(undefined)
         }),
       removal: () => undefined,
       method: () =>
