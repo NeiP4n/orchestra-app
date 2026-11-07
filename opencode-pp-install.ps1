@@ -1,4 +1,4 @@
-# Installs Orchestra (Opencode++) for Windows with one command. In PowerShell:
+# Installs Orchestra for Windows with one command. In PowerShell:
 #
 #   irm https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/opencode-pp-install.ps1 | iex
 #
@@ -167,7 +167,7 @@ if (Test-Path $Preflight) {
     if ($LASTEXITCODE -ne 0) { throw "Could not refresh update-preflight.tsx." }
     $PreflightText = Get-Content -Raw -LiteralPath $Preflight
     if ($PreflightText -match '@orchestra/tui') {
-      throw "The selected Opencode++ revision still contains an @orchestra/tui import in update-preflight.tsx."
+      throw "The selected Orchestra revision still contains an @orchestra/tui import in update-preflight.tsx."
     }
   }
 }

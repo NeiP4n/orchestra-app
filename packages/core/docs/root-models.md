@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This set of root files of `packages/core/src` describes how opencode knows the providers, what models they have and how a ready-to-request model is made out of a catalog record. Here also lie three model-independent services: the generation of one-off text, web search, file formatting and the normalization of the pictures.
+This set of root files of `packages/core/src` describes how Orchestra knows the providers, what models they have and how a ready-to-request model is made out of a catalog record. Here also lie three model-independent services: the generation of one-off text, web search, file formatting and the normalization of the pictures.
 
 ## What's In This Folder
 

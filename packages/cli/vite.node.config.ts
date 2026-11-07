@@ -30,10 +30,10 @@ function appAssetsPlugin(): Plugin {
   return {
     name: "opencode:app-assets",
     resolveId(id) {
-      if (id === "virtual:opencode-app-assets") return "\0virtual:opencode-app-assets"
+      if (id === "virtual:orchestra-app-assets") return "\0virtual:orchestra-app-assets"
     },
     load(id) {
-      if (id !== "\0virtual:opencode-app-assets") return
+      if (id !== "\0virtual:orchestra-app-assets") return
       return `import { readFileSync } from "node:fs"
 import path from "node:path"
 import { getRawAsset, isSea } from "node:sea"

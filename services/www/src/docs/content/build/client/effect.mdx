@@ -2,8 +2,8 @@
 title: "Effect"
 ---
 
-`@orchestra/client/effect` is the Effect-native client for the OpenCode HTTP API. It returns typed Effects and Streams
-and decodes responses into OpenCode schema values.
+`@orchestra/client/effect` is the Effect-native client for the Orchestra HTTP API. It returns typed Effects and Streams
+and decodes responses into Orchestra schema values.
 
 ```sh
 bun add @orchestra/client effect
@@ -14,12 +14,12 @@ bun add @orchestra/client effect
 Create a client with the server URL, then call methods grouped by API resource.
 
 ```ts
-import { AbsolutePath, Location, OpenCode } from "@orchestra/client/effect"
+import { AbsolutePath, Location, Orchestra } from "@orchestra/client/effect"
 import { Effect } from "effect"
 import { FetchHttpClient } from "effect/unstable/http"
 
 const program = Effect.gen(function* () {
-  const client = yield* OpenCode.make({ baseUrl: "http://localhost:4096" })
+  const client = yield* Orchestra.make({ baseUrl: "http://localhost:4096" })
   const session = yield* client.session.create({
     location: Location.Ref.make({ directory: AbsolutePath.make("/workspace") }),
   })
@@ -45,7 +45,7 @@ import { HttpClient, HttpClientRequest } from "effect/unstable/http"
 const httpClient = yield * HttpClient.HttpClient
 const client =
   yield *
-  OpenCode.make({ baseUrl: "https://opencode.example.com" }).pipe(
+  Orchestra.make({ baseUrl: "https://orchestra.example.com" }).pipe(
     Effect.provideService(
       HttpClient.HttpClient,
       HttpClient.mapRequest(httpClient, (request) =>
@@ -65,7 +65,7 @@ Streaming operations such as `event.subscribe()` and `session.log()` return Effe
 import { Effect, Stream } from "effect"
 
 yield *
-  client.event.subscribe().pipe(Stream.runForEach((event) => Effect.logInfo("OpenCode event", { type: event.type })))
+  client.event.subscribe().pipe(Stream.runForEach((event) => Effect.logInfo("Orchestra event", { type: event.type })))
 ```
 
 Native and RPC event Streams share one lazy connection per client. Constructing
@@ -79,7 +79,7 @@ receive the current connection marker before live events.
 Use the same shared contract as Promise clients and server plugins:
 
 ```ts
-import { Acme } from "opencode-acme-plugin/rpc"
+import { Acme } from "orchestra-acme-plugin/rpc"
 
 const acme = client.rpc(Acme)
 const result = yield * acme.search({ query: "hello" }, { location: { directory: "/workspace" } })
@@ -120,7 +120,7 @@ Create an authenticated client for the ensured service.
 
 ```ts
 import { NodeFileSystem } from "@effect/platform-node"
-import { OpenCode } from "@orchestra/client/effect"
+import { Orchestra } from "@orchestra/client/effect"
 import { Service } from "@orchestra/client/effect/service"
 import { Effect } from "effect"
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http"
@@ -128,7 +128,7 @@ import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/
 const program = Effect.gen(function* () {
   const endpoint = yield* Service.ensure()
   const httpClient = yield* HttpClient.HttpClient
-  const client = yield* OpenCode.make({ baseUrl: endpoint.url }).pipe(
+  const client = yield* Orchestra.make({ baseUrl: endpoint.url }).pipe(
     Effect.provideService(
       HttpClient.HttpClient,
       HttpClient.mapRequest(httpClient, (request) => HttpClientRequest.setHeaders(request, Service.headers(endpoint))),

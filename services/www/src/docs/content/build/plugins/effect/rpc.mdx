@@ -120,13 +120,13 @@ Once the RPC is registered, it can be called over HTTP or from another plugin.
 Create the Effect client, then create the RPC subclient:
 
 ```ts
-import { OpenCode } from "@orchestra/client/effect"
+import { Orchestra } from "@orchestra/client/effect"
 import { Effect } from "effect"
 import { FetchHttpClient } from "effect/unstable/http"
-import { Acme } from "opencode-acme-plugin/rpc"
+import { Acme } from "orchestra-acme-plugin/rpc"
 
 const program = Effect.gen(function* () {
-  const client = yield* OpenCode.make({ baseUrl: "http://localhost:4096" })
+  const client = yield* Orchestra.make({ baseUrl: "http://localhost:4096" })
   const acme = client.rpc(Acme)
   return yield* acme.search({ query: "hello" })
 })

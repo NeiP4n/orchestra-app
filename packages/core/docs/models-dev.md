@@ -1,4 +1,4 @@
-# core/models-dev — the built-in snapshot of the OpenCode model catalog
+# core/models-dev — the built-in snapshot of the Orchestra model catalog
 
 ## What's In This Folder
 

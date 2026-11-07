@@ -2,7 +2,7 @@
 title: "Tools"
 ---
 
-Ask for the outcome you want. OpenCode chooses the available tools, requests
+Ask for the outcome you want. Orchestra chooses the available tools, requests
 approval when required, and returns the result.
 
 ```text
@@ -73,7 +73,7 @@ is true.
 In src/config.ts, replace the unique text "timeout: 60" with "timeout: 30".
 ```
 
-Use `edit` for a focused change. OpenCode may format the file after writing it.
+Use `edit` for a focused change. Orchestra may format the file after writing it.
 Permission: `edit` with the target path as its resource.
 
 ### Write
@@ -98,7 +98,7 @@ sections.
 Use patch to rename src/old.ts to src/new.ts and update its exported name.
 ```
 
-OpenCode exposes `patch` for supported GPT models; other models receive `edit`
+Orchestra exposes `patch` for supported GPT models; other models receive `edit`
 and `write` instead. Permission: `edit` with every affected path as a resource.
 
 Paths outside the active Location or its project worktree also require
@@ -219,7 +219,7 @@ permission.
 
 ### Sessions
 
-The `opencode` Code Mode namespace contains session utilities:
+The `orchestra` Code Mode namespace contains session utilities:
 
 - `session_rename` changes the title of the current session, or another session
   selected by `sessionID`.
@@ -235,7 +235,7 @@ These utilities do not request a built-in permission action.
 
 ## Browser
 
-The `browser` Code Mode namespace controls the browser attached by the OpenCode
+The `browser` Code Mode namespace controls the browser attached by the Orchestra
 desktop app. Open a tab, keep its returned `tabID`, then pass that explicit ID to
 every page operation.
 

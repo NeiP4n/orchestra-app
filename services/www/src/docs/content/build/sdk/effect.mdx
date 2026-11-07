@@ -14,16 +14,16 @@ bun add @orchestra/sdk effect
 Create the host inside `Effect.scoped`, then use its generated API groups or the `sessions` alias.
 
 ```ts
-import { AbsolutePath, Location, OpenCode } from "@orchestra/sdk/effect"
+import { AbsolutePath, Location, Orchestra } from "@orchestra/sdk/effect"
 import { Effect } from "effect"
 
 const program = Effect.scoped(
   Effect.gen(function* () {
-    const opencode = yield* OpenCode.create()
-    const session = yield* opencode.sessions.create({
+    const orchestra = yield* Orchestra.create()
+    const session = yield* orchestra.sessions.create({
       location: Location.Ref.make({ directory: AbsolutePath.make("/workspace") }),
     })
-    yield* opencode.sessions.prompt({
+    yield* orchestra.sessions.prompt({
       sessionID: session.id,
       text: "Review the current changes",
     })
@@ -38,8 +38,8 @@ The embedded host uses the same schema values, declared errors, request options,
 `@orchestra/client/effect`.
 
 ```ts
-const info = yield* opencode.server.info()
-const sessions = yield* opencode.sessions.list()
+const info = yield* orchestra.server.info()
+const sessions = yield* orchestra.sessions.list()
 ```
 
 ## Stream events
@@ -50,15 +50,15 @@ background.
 ```ts
 import { Effect, Stream } from "effect"
 
-yield* opencode.events.subscribe().pipe(
-  Stream.runForEach((event) => Effect.logInfo("OpenCode event", { type: event.type })),
+yield* orchestra.events.subscribe().pipe(
+  Stream.runForEach((event) => Effect.logInfo("Orchestra event", { type: event.type })),
   Effect.forkScoped,
 )
 ```
 
 ## Customize
 
-Customize your OpenCode instance by registering Effect plugins. Use the embedded
+Customize your Orchestra instance by registering Effect plugins. Use the embedded
 host to customize agents, models, tools, and other behavior:
 
 ```ts
@@ -78,7 +78,7 @@ const plugin = Plugin.define({
     }),
 })
 
-yield* opencode.plugin(plugin)
+yield* orchestra.plugin(plugin)
 ```
 
 See the [full Effect plugins documentation](/build/plugins/effect) for plugin
@@ -86,16 +86,16 @@ hooks, transforms, tools, and the complete plugin context.
 
 ## Layer
 
-Use `OpenCode.layer()` when the embedded host should be an application service.
+Use `Orchestra.layer()` when the embedded host should be an application service.
 
 ```ts
-import { OpenCode } from "@orchestra/sdk/effect"
+import { Orchestra } from "@orchestra/sdk/effect"
 import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
-  const opencode = yield* OpenCode.Service
-  return yield* opencode.server.info()
+  const orchestra = yield* Orchestra.Service
+  return yield* orchestra.server.info()
 })
 
-const health = await Effect.runPromise(program.pipe(Effect.provide(OpenCode.layer())))
+const health = await Effect.runPromise(program.pipe(Effect.provide(Orchestra.layer())))
 ```

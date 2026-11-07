@@ -496,7 +496,7 @@ describe("Project.resolve", () => {
     }),
   )
 
-  it.live("returns previous cached id from common dir", () =>
+  it.live("ignores a stale opencode marker file in the common dir", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireRelease(
         Effect.promise(() => tmpdir()),
@@ -508,7 +508,7 @@ describe("Project.resolve", () => {
 
       const result = yield* project.resolve(abs(tmp.path))
 
-      expect(result.previous).toBe(Project.ID.make("old-id"))
+      expect(result.previous).toBeUndefined()
       expect(result.id).toBe(remoteID("github.com/owner/repo"))
     }),
   )
@@ -618,7 +618,7 @@ describe("Project.resolve", () => {
     }),
   )
 
-  it.live("linked worktree returns opened worktree directory and previous from common dir", () =>
+  it.live("linked worktree returns opened worktree directory and ignores a stale marker in the common dir", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireRelease(
         Effect.promise(() => tmpdir()),
@@ -654,7 +654,7 @@ describe("Project.resolve", () => {
 
       expect(result.directory).toBe(yield* real(worktree))
       expect(result.canonical).toBe(yield* real(tmp.path))
-      expect(result.previous).toBe(Project.ID.make("old-id"))
+      expect(result.previous).toBeUndefined()
       expect(result.id).toBe(id)
       expect(result.vcs?.type).toBe("git")
       expect((yield* project.list()).find((item) => item.id === id)).toMatchObject({

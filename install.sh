@@ -1,5 +1,5 @@
 #!/bin/sh
-# Canonical Orchestra (Opencode++) installer for Linux, macOS and Android/Termux.
+# Canonical Orchestra installer for Linux, macOS and Android/Termux.
 # Contains the runtime compatibility checks directly; no pinned helper script is downloaded.
 INSTALLER_REVISION="orchestra-unified-2026-10-26-r1"
 echo "orchestra: installer revision $INSTALLER_REVISION"
@@ -433,7 +433,7 @@ import path from "node:path"
 const root = path.resolve(process.argv[2] ?? "")
 const version = process.argv[3] ?? "0.5.17"
 if (!root || !existsSync(path.join(root, "package.json"))) {
-  throw new Error("Could not locate the OpenCode++ package.json for Termux configuration")
+  throw new Error("Could not locate the Orchestra package.json for Termux configuration")
 }
 const aliases = {
   "@opentui/core": `npm:@androidtui/core@${version}`,
@@ -806,7 +806,7 @@ C_SOURCE
   clang -shared -fPIC -O2 -Wall -Wextra \
     -Wl,-soname,libopencode-sigsys-compat.so \
     -o "$shim" "$src" -ldl || {
-      echo "opencode-pp: could not build final Android seccomp shim" >&2
+      echo "orchestra: could not build final Android seccomp shim" >&2
       exit 1
     }
   rm -f "$src"
@@ -815,7 +815,7 @@ C_SOURCE
   probe_log="$PREFIX/tmp/opencode-pp-final-spawn-probe.log"
   if ! LD_PRELOAD="$shim${LD_PRELOAD:+:$LD_PRELOAD}" "$PREFIX/bin/bun" -e 'const p = Bun.spawnSync([process.execPath, "-e", "process.exit(0)"]); if (p.exitCode !== 0) { process.stderr.write(p.stderr); console.error("child Bun exit code:", p.exitCode); process.exit(1) }' >"$probe_log" 2>&1; then
     cat "$probe_log" >&2
-    echo "opencode-pp: final seccomp shim did not pass Bun's pidfd_open/spawn probe." >&2
+    echo "orchestra: final seccomp shim did not pass Bun's pidfd_open/spawn probe." >&2
     echo "The installer and OpenTUI are present, but this Android/Bun combination is still incompatible." >&2
     exit 1
   fi
@@ -824,11 +824,11 @@ C_SOURCE
 else
   case "${PREFIX:-}" in
     */com.termux/*)
-      echo "opencode-pp: clang is unavailable; cannot apply Android seccomp compatibility shim" >&2
+      echo "orchestra: clang is unavailable; cannot apply Android seccomp compatibility shim" >&2
       exit 1
       ;;
     *)
-      echo "opencode-pp: skipping Android seccomp shim outside Termux"
+      echo "orchestra: skipping Android seccomp shim outside Termux"
       ;;
   esac
 fi
@@ -853,7 +853,7 @@ const aliases = {
 const readJson = (file) => JSON.parse(readFileSync(file, "utf8"))
 const writeJson = (file, data) => writeFileSync(file, JSON.stringify(data, null, 2) + "\n")
 const rootFile = path.join(root, "package.json")
-if (!existsSync(rootFile)) throw new Error("OpenCode++ package.json is missing")
+if (!existsSync(rootFile)) throw new Error("Orchestra package.json is missing")
 const rootPkg = readJson(rootFile)
 rootPkg.workspaces ??= {}
 rootPkg.workspaces.catalog ??= {}
@@ -899,16 +899,16 @@ ANDROIDTUI_RUNTIME
   shim="$PREFIX/lib/libopencode-sigsys-compat.so"
   LD_PRELOAD="$shim${LD_PRELOAD:+:$LD_PRELOAD}" "$PREFIX/bin/bun" "$aliaser" "$opencode_dir" "${ORCHESTRA_PP_TERMUX_OPENTUI_VERSION:-0.5.17}" || {
     rm -f "$aliaser"
-    echo "opencode-pp: failed to configure Android OpenTUI aliases" >&2
+    echo "orchestra: failed to configure Android OpenTUI aliases" >&2
     exit 1
   }
   rm -f "$aliaser"
   (cd "$opencode_dir" && LD_PRELOAD="$shim${LD_PRELOAD:+:$LD_PRELOAD}" "$PREFIX/bin/bun" install --filter ./packages/cli) || {
-    echo "opencode-pp: failed to reinstall Android OpenTUI dependencies" >&2
+    echo "orchestra: failed to reinstall Android OpenTUI dependencies" >&2
     exit 1
   }
   (cd "$opencode_dir/packages/cli" && LD_PRELOAD="$shim${LD_PRELOAD:+:$LD_PRELOAD}" "$PREFIX/bin/bun" -e 'const resolved = import.meta.resolve("@opentui/core"); console.log("Resolved OpenTUI core:", resolved); if (!resolved.includes("@androidtui")) throw new Error("CLI still resolves upstream @opentui/core instead of @androidtui/core")') || {
-    echo "opencode-pp: the CLI still resolves the incompatible upstream OpenTUI package" >&2
+    echo "orchestra: the CLI still resolves the incompatible upstream OpenTUI package" >&2
     exit 1
   }
 fi

@@ -6,16 +6,16 @@ Session warming sends periodic model requests to preserve provider-side prompt
 caches or other short-lived state while you pause between prompts. It is
 disabled by default.
 
-Enable warming in any [OpenCode configuration file](/config):
+Enable warming in any [Orchestra configuration file](/config):
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "warming": true,
 }
 ```
 
-With this configuration, OpenCode warms a recently active session after four
+With this configuration, Orchestra warms a recently active session after four
 minutes without a model request. It continues every four minutes until 30
 minutes have passed since the latest non-warming request.
 
@@ -24,7 +24,7 @@ minutes have passed since the latest non-warming request.
 Use the object form to change the warming prompt, idle interval, or active
 window:
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "warming": {
@@ -44,7 +44,7 @@ window:
 Omitted object fields keep their defaults. For example, this changes only the
 interval:
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "warming": {
     "interval": "2 minutes",
@@ -55,9 +55,9 @@ interval:
 ## Durations
 
 `interval` and `duration` accept duration strings. Both must resolve to finite
-values greater than zero; otherwise OpenCode skips warming and logs a warning.
+values greater than zero; otherwise Orchestra skips warming and logs a warning.
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "warming": {
     "interval": "30 seconds",
@@ -92,7 +92,7 @@ request is sent.
 ## Requests
 
 A warming request uses the session's current model, agent, instructions, and
-conversation context. OpenCode appends the configured prompt transiently,
+conversation context. Orchestra appends the configured prompt transiently,
 makes one model call, and discards the response.
 
 ```text
@@ -102,12 +102,12 @@ makes one model call, and discards the response.
 ```
 
 The request does not admit input, add messages to history, or mutate durable
-session state. OpenCode does not dispatch local tool calls or continue a tool
+session state. Orchestra does not dispatch local tool calls or continue a tool
 loop; the default prompt also tells the model not to use tools.
 
 ## Failures
 
-Warming failures are logged without failing or changing the session. OpenCode
+Warming failures are logged without failing or changing the session. Orchestra
 waits until the next interval before trying again, while the original active
 window continues to count down.
 
@@ -133,7 +133,7 @@ uninterrupted 30-minute window: at minutes 4, 8, 12, 16, 20, 24, and 28.
 Set `warming` to `false` to disable it explicitly. Omitting the field also
 leaves warming disabled.
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "warming": false,
 }

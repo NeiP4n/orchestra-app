@@ -4,7 +4,7 @@
 
 - `chat/` — the implementation of the `/chat/completions` protocol for Copilot: request body assembly, stream and regular response parsing, prompt to message translation.
 - `responses/` — the implementation of the `/responses` protocol for Copilot: the same model class, but with another input, output and event stream format, plus the provider's built-in tools.
-- `models.ts` — bringing the Copilot model catalog to OpenCode models.
+- `models.ts` — bringing the Copilot model catalog to Orchestra models.
 - `copilot-provider.ts` — the provider factory: assembles the headers, the base URL and chooses the needed protocol implementation.
 - `openai-compatible-error.ts` — the error schema of the compatible provider and the structure of error handling.
 - 23 files in total; the two largest are `chat/openai-compatible-chat-language-model.ts` (817 lines) and `responses/openai-responses-language-model.ts` (1636 lines).
@@ -74,7 +74,7 @@
 - Reasoning variants in `models.ts` are built in three ways. For a non-Anthropic protocol with the effort levels set — variants with `reasoningEffort`, `reasoningSummary: "auto"` and `include: ["reasoning.encrypted_content"]`. For the Anthropic protocol with adaptive thinking — variants with `thinking: { type: "adaptive", display: "summarized" }`. If there are no levels but `max_thinking_budget` is set, exactly two variants are made: `max` with the budget `max - 1` and `high` with half the budget.
 - Subtracting one from the maximum budget is done deliberately: the maximum budget value is not allowed by the API.
 - The merge with local models in `models.ts` starts from the existing models, not from an empty map: local aliases and settings survive a catalog update. But a model is removed if its declared `modelID` no longer occurs in the response. The comment explains the reason: a partial or broken element must not create a broken model.
-- The `snapshot.txt` import for this catalog is not used: `load` always goes to the network. The built-in snapshot exists only for the OpenCode catalog.
+- The `snapshot.txt` import for this catalog is not used: `load` always goes to the network. The built-in snapshot exists only for the Orchestra catalog.
 
 ## Connections
 
@@ -87,7 +87,7 @@
 - `zod/v4` — all the shape checks: provider options, built-in tool arguments, response and chunk schemas.
 - `packages/core/src/models-dev.ts` — a neighboring model catalog loader working with the built-in snapshot; both subsystems bring external data to `Model.Info`, but by different rules.
 - `packages/core/src/modal/models.ts` — a neighboring catalog converter: there the prices are also recalculated, but the multiplier is different and they come from another source.
-- `packages/core/docs/models-dev.md` — the document about the built-in snapshot of the OpenCode catalog.
+- `packages/core/docs/models-dev.md` — the document about the built-in snapshot of the Orchestra catalog.
 
 ## Pitfalls
 

@@ -2,11 +2,11 @@
 title: "References"
 ---
 
-References give OpenCode named access to directories outside the current
-project. Add one in `opencode.json` or `opencode.jsonc`, then attach its alias in
+References give Orchestra named access to directories outside the current
+project. Add one in `orchestra.json` or `orchestra.jsonc`, then attach its alias in
 your client when you need it.
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "references": {
@@ -103,7 +103,7 @@ Use the string shorthand to follow the remote's default branch:
 }
 ```
 
-Without `branch`, OpenCode checks out and refreshes the remote's default branch.
+Without `branch`, Orchestra checks out and refreshes the remote's default branch.
 Branch names may contain letters, numbers, `/`, `_`, `.`, and `-`, but cannot
 start with `-` or contain `..`.
 
@@ -120,7 +120,7 @@ start with `-` or contain `..`.
 
 ## Storage
 
-OpenCode normalizes each remote and stores one checkout per remote and branch
+Orchestra normalizes each remote and stores one checkout per remote and branch
 under its global data directory. Without an explicit branch, the path uses this
 shape:
 
@@ -131,13 +131,13 @@ opencode/repos/<host>/<repository-path>
 On a typical Linux installation, `Effect-TS/effect` is stored at:
 
 ```text
-~/.local/share/opencode/repos/github.com/Effect-TS/effect
+~/.local/share/orchestra/repos/github.com/Effect-TS/effect
 ```
 
 An explicit branch adds an encoded `@<branch>` suffix:
 
 ```text
-~/.local/share/opencode/repos/github.com/Effect-TS/effect@main
+~/.local/share/orchestra/repos/github.com/Effect-TS/effect@main
 ```
 
 ## Refresh

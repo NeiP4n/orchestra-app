@@ -43,7 +43,7 @@ export default function Home() {
   }
 
   return (
-    <main data-page="opencode">
+    <main data-page="orchestra">
       {/*<HttpHeader name="Cache-Control" value="public, max-age=1, s-maxage=3600, stale-while-revalidate=86400" />*/}
       <Title>{i18n.t("home.title")}</Title>
       <LocaleLinks path="/" />
@@ -95,17 +95,8 @@ export default function Home() {
                   <Tabs.Trigger value="curl" data-slot="tab">
                     curl
                   </Tabs.Trigger>
-                  <Tabs.Trigger value="npm" data-slot="tab">
-                    npm
-                  </Tabs.Trigger>
-                  <Tabs.Trigger value="bun" data-slot="tab">
-                    bun
-                  </Tabs.Trigger>
-                  <Tabs.Trigger value="brew" data-slot="tab">
-                    brew
-                  </Tabs.Trigger>
-                  <Tabs.Trigger value="paru" data-slot="tab">
-                    paru
+                  <Tabs.Trigger value="powershell" data-slot="tab">
+                    powershell
                   </Tabs.Trigger>
                   <Tabs.Indicator />
                 </Tabs.List>
@@ -115,44 +106,18 @@ export default function Home() {
                       <span data-slot="command-script">
                         <span>curl -fsSL </span>
                         <span data-slot="protocol">https://</span>
-                        <span data-slot="highlight">opencode.ai/install</span>
-                        <span> | bash</span>
+                        <span data-slot="highlight">raw.githubusercontent.com/NeiP4n/orchestra-app/main/installer/get.sh</span>
+                        <span> | sh</span>
                       </span>
                       <CopyStatus />
                     </button>
                   </Tabs.Content>
-                  <Tabs.Content as="pre" data-slot="panel" value="npm">
+                  <Tabs.Content as="pre" data-slot="panel" value="powershell">
                     <button data-copy data-slot="command" onClick={handleCopyClick}>
                       <span>
-                        <span data-slot="protocol">npm i -g </span>
-                        <span data-slot="highlight">opencode-ai</span>
-                      </span>
-                      <CopyStatus />
-                    </button>
-                  </Tabs.Content>
-                  <Tabs.Content as="pre" data-slot="panel" value="bun">
-                    <button data-copy data-slot="command" onClick={handleCopyClick}>
-                      <span>
-                        <span data-slot="protocol">bun add -g </span>
-                        <span data-slot="highlight">opencode-ai</span>
-                      </span>
-                      <CopyStatus />
-                    </button>
-                  </Tabs.Content>
-                  <Tabs.Content as="pre" data-slot="panel" value="brew">
-                    <button data-copy data-slot="command" onClick={handleCopyClick}>
-                      <span>
-                        <span data-slot="protocol">brew install </span>
-                        <span data-slot="highlight">anomalyco/tap/opencode</span>
-                      </span>
-                      <CopyStatus />
-                    </button>
-                  </Tabs.Content>
-                  <Tabs.Content as="pre" data-slot="panel" value="paru">
-                    <button data-copy data-slot="command" onClick={handleCopyClick}>
-                      <span>
-                        <span data-slot="protocol">paru -S </span>
-                        <span data-slot="highlight">opencode</span>
+                        <span data-slot="protocol">irm </span>
+                        <span data-slot="highlight">raw.githubusercontent.com/NeiP4n/orchestra-app/main/installer/get.ps1</span>
+                        <span> | iex</span>
                       </span>
                       <CopyStatus />
                     </button>

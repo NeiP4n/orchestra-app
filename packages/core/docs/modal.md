@@ -1,4 +1,4 @@
-# core/modal — bringing the Modal model catalog to OpenCode models
+# core/modal — bringing the Modal model catalog to Orchestra models
 
 ## What's In This Folder
 
@@ -37,7 +37,7 @@
 - `packages/core/src/provider.ts` — the source of `Provider.ID` and `Provider.mergeOverlay`.
 - `packages/schema/src/money.ts` — `Money.USDPerMillionTokens`, in which the price is stored after multiplication by a million.
 - `packages/core/src/models-dev.ts` — a neighboring mechanism: it brings a model catalog to the internal form, but from another source (`models.opencode.ai`).
-- `packages/core/src/models-dev/snapshot.txt` — a built-in snapshot of the same kind of data for the OpenCode catalog.
+- `packages/core/src/models-dev/snapshot.txt` — a built-in snapshot of the same kind of data for the Orchestra catalog.
 
 ## Pitfalls
 

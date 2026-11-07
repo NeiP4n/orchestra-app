@@ -67,8 +67,8 @@ export default function Home() {
               <span>
                 <span>curl -fsSL </span>
                 <span data-slot="protocol">https://</span>
-                <span data-slot="highlight">opencode.ai/install</span>
-                <span> | bash</span>
+                <span data-slot="highlight">raw.githubusercontent.com/NeiP4n/orchestra-app/main/installer/get.sh</span>
+                <span> | sh</span>
               </span>
               <CopyStatus />
             </button>
@@ -110,37 +110,19 @@ export default function Home() {
 
         <section data-component="install">
           <div data-component="method">
-            <h3 data-component="title">npm</h3>
+            <h3 data-component="title">curl</h3>
             <button data-copy data-slot="button">
               <span>
-                npm install -g <strong>opencode-ai</strong>
+                curl -fsSL https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/installer/get.sh | sh
               </span>
               <CopyStatus />
             </button>
           </div>
           <div data-component="method">
-            <h3 data-component="title">bun</h3>
+            <h3 data-component="title">powershell</h3>
             <button data-copy data-slot="button">
               <span>
-                bun install -g <strong>opencode-ai</strong>
-              </span>
-              <CopyStatus />
-            </button>
-          </div>
-          <div data-component="method">
-            <h3 data-component="title">homebrew</h3>
-            <button data-copy data-slot="button">
-              <span>
-                brew install <strong>opencode</strong>
-              </span>
-              <CopyStatus />
-            </button>
-          </div>
-          <div data-component="method">
-            <h3 data-component="title">paru</h3>
-            <button data-copy data-slot="button">
-              <span>
-                paru -S <strong>opencode-bin</strong>
+                irm https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/installer/get.ps1 | iex
               </span>
               <CopyStatus />
             </button>
@@ -158,20 +140,14 @@ export default function Home() {
 
         <footer data-component="footer">
           <div data-slot="cell">
-            <a href="https://x.com/opencode">{i18n.t("footer.x")}</a>
-          </div>
-          <div data-slot="cell">
-            <a href="https://github.com/anomalyco/opencode">{i18n.t("footer.github")}</a>
-          </div>
-          <div data-slot="cell">
-            <a href="https://opencode.ai/discord">{i18n.t("footer.discord")}</a>
+            <a href="https://github.com/NeiP4n/orchestra-app">{i18n.t("footer.github")}</a>
           </div>
         </footer>
       </div>
 
       <div data-component="legal">
         <span>
-          ©2025 <a href="https://anoma.ly">Anomaly</a>
+          ©2025 <a href="https://github.com/NeiP4n/orchestra-app">Orchestra</a>
         </span>
       </div>
     </main>

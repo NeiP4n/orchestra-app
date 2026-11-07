@@ -1,18 +1,18 @@
 ---
 title: "Models"
-description: "Curated coding models, pay-as-you-go pricing, and API access through OpenCode Console."
+description: "Curated coding models, pay-as-you-go pricing, and API access through the `opencode` provider."
 ---
 
-OpenCode Console provides a list of models tested and verified by the OpenCode team. Sign in, add credits, and get an
-API key to use them with OpenCode or another coding agent.
+The `opencode` provider gives you access to a curated list of models tested and verified by the Orchestra team. Sign in, add credits, and get an
+API key to use them with Orchestra or another coding agent.
 
-Console works like any other provider in OpenCode. It's **completely optional**, and you can use any other provider
-instead. For a subscription with included usage, see [OpenCode Go](/console/go).
+The `opencode` provider works like any other provider in Orchestra. It's **completely optional**, and you can use any other provider
+instead. For a subscription with included usage, see [`opencode-go`](/console/go).
 
 ## How it works
 
 1. Sign in to the [console](https://opencode.ai/console), add your billing details and credits, and copy your API key.
-2. Run `/connect` in the TUI, choose the OpenCode pay-as-you-go provider, and paste your API key.
+2. Run `/connect` in the TUI, choose the `opencode` pay-as-you-go provider, and paste your API key.
 
    ```text
    /connect
@@ -124,10 +124,10 @@ You can also access the models directly through the following API endpoints.
 
 </div>
 
-These AI SDK packages are for applications calling the endpoints directly. To select a [model](/models) in OpenCode,
+These AI SDK packages are for applications calling the endpoints directly. To select a [model](/models) in Orchestra,
 use the format `opencode/<model-id>`:
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "model": "opencode/gpt-5.5",
@@ -146,7 +146,7 @@ curl https://opencode.ai/zen/v1/models
 
 Jev is a System One model from TypeSafe AI for fast, structured decisions. Instead of generating text, it evaluates a `state` against typed questions and returns values and probabilities that your code can use directly. It supports yes/no (`noul`), multiple-choice (`choice`), and rubric-based (`score`) questions.
 
-Use your OpenCode Console API key with the `https://opencode.ai/zen/v1/systemone` endpoint. This example checks whether a support request is urgent:
+Use your Orchestra Console API key with the `https://opencode.ai/zen/v1/systemone` endpoint. This example checks whether a support request is urgent:
 
 ```bash
 curl https://opencode.ai/zen/v1/systemone \
@@ -196,7 +196,7 @@ Use `jev-1.13-free` instead of `jev-1.13` to use the limited-time free model. Se
 
 ## Pricing
 
-Console uses pay-as-you-go pricing. Below are the prices **per 1M tokens**.
+The `opencode` provider uses pay-as-you-go pricing. Below are the prices **per 1M tokens**.
 
 <div class="docs-table-scroll" role="region" aria-label="Console model pricing" tabIndex={0}>
 
@@ -309,7 +309,7 @@ Console uses pay-as-you-go pricing. Below are the prices **per 1M tokens**.
 
 **DeepSeek V4 Flash Vision Exp:** Images are converted into tokens based on their dimensions and billed as input tokens alongside text tokens. [Learn more](https://api-docs.deepseek.com/quick_start/pricing/).
 
-You may notice [low-cost models](/models), such as Haiku, Nano, or Flash, in your usage history. OpenCode uses these
+You may notice [low-cost models](/models), such as Haiku, Nano, or Flash, in your usage history. Orchestra uses these
 models to generate session titles.
 
 <Callout>
@@ -318,19 +318,19 @@ models to generate session titles.
 
 ### Free models
 
-- Exo Free is available on OpenCode for a limited time. The team is using this time to collect feedback and improve the model.
-- Fledge Alpha Free is available on OpenCode for a limited time. The team is using this time to collect feedback and improve the model.
-- MiMo-V2.6-Flash Free is available on OpenCode for a limited time. The team is using this time to collect feedback and improve the model.
-- MiMo-V2.5 Free is available on OpenCode for a limited time. The team is using this time to collect feedback and improve the model.
-- Ling 3.1 Flash Free is available on OpenCode for a limited time. The team is using this time to collect feedback and improve the model.
-- Ling 3.0 Flash Fin Free is available on OpenCode for a limited time. The team is using this time to collect feedback and improve the model.
-- Nemotron 3 Ultra Free is available on OpenCode for a limited time. The team is using this time to collect feedback and improve the model.
-- Nemotron 3.5 Lightning Free is available on OpenCode for a limited time. The team is using this time to collect feedback and improve the model.
-- Big Pickle is a stealth model that's free on OpenCode for a limited time. The team is using this time to collect feedback and improve the model.
-- Space Bunny Free is a stealth model that's free on OpenCode for a limited time. Its provider follows a zero-retention policy and does not use your data for model training.
-- LongCat 2.5 Preview Free is free on OpenCode for a limited time. Its provider follows a zero-retention policy and does not use your data for model training.
-- Muse Spark 1.3 Contributor Free is available on OpenCode for a limited time. The team is using this time to collect feedback and improve the model.
-- Jev 1.13 Free is available on OpenCode for a limited time.
+- Exo Free is available through the `opencode` provider for a limited time. The team is using this time to collect feedback and improve the model.
+- Fledge Alpha Free is available through the `opencode` provider for a limited time. The team is using this time to collect feedback and improve the model.
+- MiMo-V2.6-Flash Free is available through the `opencode` provider for a limited time. The team is using this time to collect feedback and improve the model.
+- MiMo-V2.5 Free is available through the `opencode` provider for a limited time. The team is using this time to collect feedback and improve the model.
+- Ling 3.1 Flash Free is available through the `opencode` provider for a limited time. The team is using this time to collect feedback and improve the model.
+- Ling 3.0 Flash Fin Free is available through the `opencode` provider for a limited time. The team is using this time to collect feedback and improve the model.
+- Nemotron 3 Ultra Free is available through the `opencode` provider for a limited time. The team is using this time to collect feedback and improve the model.
+- Nemotron 3.5 Lightning Free is available through the `opencode` provider for a limited time. The team is using this time to collect feedback and improve the model.
+- Big Pickle is a stealth model that's free through the `opencode` provider for a limited time. The team is using this time to collect feedback and improve the model.
+- Space Bunny Free is a stealth model that's free through the `opencode` provider for a limited time. Its provider follows a zero-retention policy and does not use your data for model training.
+- LongCat 2.5 Preview Free is free on Orchestra for a limited time. Its provider follows a zero-retention policy and does not use your data for model training.
+- Muse Spark 1.3 Contributor Free is available through the `opencode` provider for a limited time. The team is using this time to collect feedback and improve the model.
+- Jev 1.13 Free is available through the `opencode` provider for a limited time.
 
 [Contact us](mailto:help@anoma.ly) if you have any questions.
 
@@ -400,7 +400,7 @@ Share Console models with your team from a [workspace](/console/workspaces). Own
 There are many models available, but only a few work well as coding agents. Providers also vary in configuration,
 performance, and quality, so a model accessed through a gateway such as OpenRouter may perform differently.
 
-<Callout type="tip">We tested a select group of models and providers that work well with OpenCode.</Callout>
+<Callout type="tip">We tested a select group of models and providers that work well with Orchestra.</Callout>
 
 To build this catalog, we:
 
@@ -417,4 +417,4 @@ We built Console to:
 1. **Benchmark** the best models and providers for coding agents.
 2. Provide the **highest quality** options without downgrading performance or routing to cheaper providers.
 3. Pass along **price drops** by selling at cost, with markup only to cover processing fees.
-4. Have **no lock-in**: use Console with any coding agent, or use another provider with OpenCode.
+4. Have **no lock-in**: use Console with any coding agent, or use another provider with Orchestra.

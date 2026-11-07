@@ -1,5 +1,5 @@
 ---
-title: Go
+title: The opencode-go provider
 description: Low cost subscription for open coding models.
 ---
 
@@ -7,11 +7,11 @@ import config from "../../../config.mjs"
 export const console = config.console
 export const email = `mailto:${config.email}`
 
-OpenCode Go is a low cost **$10/month subscription** that gives you reliable access to popular open coding models.
+`opencode-go` is a low cost **$10/month subscription** that gives you reliable access to popular open coding models.
 
-Go works like any other provider in OpenCode. You subscribe to OpenCode Go and
+It works like any other provider in Orchestra. You subscribe to `opencode-go` and
 get your API key. It's **completely optional** and you don't need to use it to
-use OpenCode.
+use Orchestra.
 
 It is designed primarily for international users and provides stable global access.
 
@@ -27,7 +27,7 @@ However, getting reliable, low latency access to them can be difficult. Provider
 vary in quality and availability.
 
 :::tip
-We tested a select group of models and providers that work well with OpenCode.
+We tested a select group of models and providers that work well with Orchestra.
 :::
 
 To fix this, we did a couple of things:
@@ -39,22 +39,22 @@ To fix this, we did a couple of things:
 3. Finally, we benchmarked the combination of the model/provider and came up
    with a list that we feel good recommending.
 
-OpenCode Go gives you access to these models for **$10/month**.
+`opencode-go` gives you access to these models for **$10/month**.
 
 ---
 
 ## How it works
 
-OpenCode Go works like any other provider in OpenCode.
+`opencode-go` works like any other provider in Orchestra.
 
-1. You sign in to **<a href={console}>OpenCode Zen</a>**, subscribe to Go, and
+1. You sign in to the **<a href={console}>provider console</a>**, subscribe to `opencode-go`, and
    copy your API key.
-2. You run the `/connect` command in the TUI, select `OpenCode Go`, and paste
+2. You run the `/connect` command in the TUI, select `opencode-go`, and paste
    your API key.
-3. Run `/models` in the TUI to see the list of models available through Go.
+3. Run `/models` in the TUI to see the list of models available through `opencode-go`.
 
 :::note
-Only one member per workspace can subscribe to OpenCode Go.
+Only one member per workspace can subscribe to `opencode-go`.
 :::
 
 The current list of models includes:
@@ -84,7 +84,7 @@ The list of models may change as we test and add new ones.
 
 ## Usage limits
 
-OpenCode Go includes the following limits:
+`opencode-go` includes the following limits:
 
 - **5 hour limit** — $12 of usage
 - **Weekly limit** — $30 of usage
@@ -92,7 +92,7 @@ OpenCode Go includes the following limits:
 
 Limits are defined in dollar value. This means your actual request count depends on the model you use. Cheaper models like DeepSeek V4 Flash allow for more requests, while higher-cost models like GLM-5.2 allow for fewer.
 
-The table below provides an estimated request count based on typical Go usage patterns:
+The table below provides an estimated request count based on typical `opencode-go` usage patterns:
 
 | Model             | requests per 5 hour | requests per week | requests per month |
 | ----------------- | ------------------- | ----------------- | ------------------ |
@@ -173,15 +173,15 @@ Usage limits may change as we learn from early usage and feedback.
 
 ### Usage beyond limits
 
-If you also have credits on your Zen balance, you can enable the **Use balance**
-option in the console. When enabled, Go will fall back to your Zen balance
+If you also have credits on your `opencode` balance, you can enable the **Use balance**
+option in the console. When enabled, `opencode-go` will fall back to your `opencode` balance
 after you've reached your usage limits instead of blocking requests.
 
 ---
 
 ### Why some models have lower usage
 
-With Go, you pay $10/month and we aim to give you 6x that in usage.
+With `opencode-go`, you pay $10/month and we aim to give you 6x that in usage.
 
 For most models, we make this work through bulk discounts and reserved GPU capacity. We then pass those savings on to you through the 6x multiplier.
 
@@ -193,7 +193,7 @@ For these models, you still get a little more than if you paid the model provide
 
 ## Endpoints
 
-You can also access Go models through the following API endpoints.
+You can also access `opencode-go` models through the following API endpoints.
 
 | Model             | Model ID          | Endpoint                                         | AI SDK Package              |
 | ----------------- | ----------------- | ------------------------------------------------ | --------------------------- |
@@ -217,7 +217,7 @@ You can also access Go models through the following API endpoints.
 | Qwen3.6 Plus      | qwen3.6-plus      | `https://opencode.ai/zen/go/v1/messages`         | `@ai-sdk/anthropic`         |
 | Hy3               | hy3               | `https://opencode.ai/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
 
-The [model id](/docs/config/#models) in your OpenCode config
+The [model id](/docs/config/#models) in your Orchestra config
 uses the format `opencode-go/<model-id>`. For example, for Kimi K3, you would
 use `opencode-go/kimi-k3` in your config.
 
@@ -264,9 +264,9 @@ https://opencode.ai/zen/go/v1/models
 
 ## Goals
 
-We created OpenCode Go to:
+The `opencode-go` provider exists to:
 
 1. Make AI coding **accessible** to more people with a low cost subscription.
 2. Provide **reliable** access to the best open coding models.
 3. Curate models that are **tested and benchmarked** for coding agent use.
-4. Have **no lock-in** by allowing you to use any other provider with OpenCode as well.
+4. Have **no lock-in** by allowing you to use any other provider with Orchestra as well.

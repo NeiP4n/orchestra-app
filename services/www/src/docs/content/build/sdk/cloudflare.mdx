@@ -12,15 +12,15 @@ bun add @orchestra/sdk
 Hold one host for the lifetime of the Durable Object instance instead of creating one for every request.
 
 ```ts
-import { OpenCodeWorkerd } from "@orchestra/sdk/workerd"
+import { OrchestraWorkerd } from "@orchestra/sdk/workerd"
 import myPlugin from "./my-plugin"
 
-export class OpenCodeDO {
-  private readonly opencode: Promise<OpenCodeWorkerd.Interface>
+export class OrchestraDO {
+  private readonly orchestra: Promise<OrchestraWorkerd.Interface>
 
   constructor(state: DurableObjectState) {
-    this.opencode = state.blockConcurrencyWhile(() =>
-      OpenCodeWorkerd.create({
+    this.orchestra = state.blockConcurrencyWhile(() =>
+      OrchestraWorkerd.create({
         storage: state.storage,
         config: { default_agent: "build" },
         plugins: [myPlugin],
@@ -29,8 +29,8 @@ export class OpenCodeDO {
   }
 
   async fetch() {
-    const opencode = await this.opencode
-    return Response.json(await opencode.server.info())
+    const orchestra = await this.orchestra
+    return Response.json(await orchestra.server.info())
   }
 }
 ```
@@ -40,13 +40,13 @@ initialization fails. The retained Promise gives request handlers direct access 
 
 ```ts
 constructor(state: DurableObjectState) {
-  this.opencode = state.blockConcurrencyWhile(() =>
-    OpenCodeWorkerd.create({ storage: state.storage }),
+  this.orchestra = state.blockConcurrencyWhile(() =>
+    OrchestraWorkerd.create({ storage: state.storage }),
   )
 }
 ```
 
-Wrangler selects OpenCode's Workerd-safe implementations through the `workerd` package condition. Cloudflare may evict
+Wrangler selects Orchestra's Workerd-safe implementations through the `workerd` package condition. Cloudflare may evict
 a Durable Object without running cleanup, so correctness does not depend on `close()` being called.
 
 ```jsonc title="wrangler.jsonc"
@@ -57,13 +57,13 @@ a Durable Object without running cleanup, so correctness does not depend on `clo
 
 ## Customize
 
-Customize your OpenCode instance by registering plugins bundled with your
-Worker. Pass plugins to `OpenCodeWorkerd.create()` to customize agents, models,
+Customize your Orchestra instance by registering plugins bundled with your
+Worker. Pass plugins to `OrchestraWorkerd.create()` to customize agents, models,
 tools, and other behavior:
 
 ```ts
 import { Plugin } from "@orchestra/plugin"
-import { OpenCodeWorkerd } from "@orchestra/sdk/workerd"
+import { OrchestraWorkerd } from "@orchestra/sdk/workerd"
 
 const plugin = Plugin.define({
   id: "customize-agent",
@@ -76,7 +76,7 @@ const plugin = Plugin.define({
   },
 })
 
-await OpenCodeWorkerd.create({
+await OrchestraWorkerd.create({
   storage: state.storage,
   config: { default_agent: "build" },
   plugins: [plugin],

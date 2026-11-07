@@ -3,7 +3,7 @@
 ## What's In This Folder
 
 - Four base files: `discovery.ts` (where to look for configs), `watch.ts` (what to watch), `normalize.ts` (how to bring the old format to the current one), `markdown.ts` (frontmatter parsing), plus `variable.ts` (`{env:}` and `{file:}` substitutions).
-- `plugin/` — 21 files. These are not "OpenCode plugins in general", but plugins that read a specific config section and pass it to their own subsystem: agents, commands, providers, skills, MCP, policies, instructions, formatting, snapshots, web search, worktree, shell, tool output, images, references, compaction.
+- `plugin/` — 21 files. These are not "Orchestra plugins in general", but plugins that read a specific config section and pass it to their own subsystem: agents, commands, providers, skills, MCP, policies, instructions, formatting, snapshots, web search, worktree, shell, tool output, images, references, compaction.
 - The root `packages/core/src/config.ts` — the service that ties all of this together: it loads the documents, keeps the list of watched targets and publishes a stream of changes.
 
 ## Key Files

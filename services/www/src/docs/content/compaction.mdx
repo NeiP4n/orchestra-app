@@ -7,7 +7,7 @@ summary, so the session can keep going past the model's context limit.
 
 ## How it works
 
-When a session approaches the model's context limit, OpenCode summarizes
+When a session approaches the model's context limit, Orchestra summarizes
 everything except the most recent conversation, about 15,000 tokens by default.
 Once the summary is ready, it is placed in front of that recent conversation and
 the session continues from there.
@@ -24,7 +24,7 @@ same summary rather than starting over.
 
 Automatic compaction is on by default:
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "compaction": {
@@ -42,7 +42,7 @@ or request compaction yourself before the automatic one.
 Request compaction at any time, even for a short history:
 
 ```sh
-opencode api post /api/session/ses_example/compact --data '{}'
+orchestra api post /api/session/ses_example/compact --data '{}'
 ```
 
 The `api` command discovers and authenticates with the background service. Its
@@ -60,14 +60,14 @@ Pass an `id` to make an exact retry idempotent. Reusing that ID for a different
 request returns a conflict.
 
 ```sh
-opencode api post /api/session/ses_example/compact --data '{"id":"msg_compact_once"}'
+orchestra api post /api/session/ses_example/compact --data '{"id":"msg_compact_once"}'
 ```
 
 ## Settings
 
-Add `compaction` to any [OpenCode configuration file](/config):
+Add `compaction` to any [Orchestra configuration file](/config):
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "compaction": {
@@ -88,11 +88,11 @@ Add `compaction` to any [OpenCode configuration file](/config):
 
 ## Providers
 
-By default OpenCode writes the summary itself, using the session's model. Some
+By default Orchestra writes the summary itself, using the session's model. Some
 providers can compact the conversation on their side instead. Enable it per
 provider or model with `settings.compaction`:
 
-```jsonc title="opencode.jsonc"
+```jsonc title="orchestra.jsonc"
 {
   "$schema": "https://opencode.ai/config.json",
   "providers": {
@@ -107,9 +107,9 @@ provider or model with `settings.compaction`:
 ```
 
 A model setting overrides the provider setting. `native` uses the provider's
-compaction; `summary` uses OpenCode's own.
+compaction; `summary` uses Orchestra's own.
 
-With native compaction, OpenCode sends the conversation to the provider's
+With native compaction, Orchestra sends the conversation to the provider's
 compaction endpoint. The provider returns an opaque, encrypted item that stands
 in for the older conversation. Your recent messages and attachments, up to
 `keep.tokens`, are kept alongside it:
@@ -124,7 +124,7 @@ after    [ encrypted checkpoint + recent user messages ]
 | Support | OpenAI Responses models. Support varies by deployment and model. |
 | Threshold | Same `auto` and `buffer` settings as summary compaction. Manual requests work too. |
 | Portability | An encrypted checkpoint only works with the same provider, model, and endpoint. If you switch models, the session continues from the original conversation instead. |
-| Too long | If the provider rejects a compaction as too long, OpenCode retries it with a smaller request. It does not switch to a summary. |
+| Too long | If the provider rejects a compaction as too long, Orchestra retries it with a smaller request. It does not switch to a summary. |
 
 ## Summaries
 
@@ -153,7 +153,7 @@ session's baseline; see [Instructions](/instructions).
 | --- | --- |
 | Model | Compaction uses the session's model. There is no separate compaction model. |
 | History | Compaction needs older conversation to replace. It cannot create room when a request is mostly fixed instructions and tool schemas. |
-| Size | If the conversation to compact is itself too long, OpenCode sends a shortened text version and may leave out the oldest exchanges. |
+| Size | If the conversation to compact is itself too long, Orchestra sends a shortened text version and may leave out the oldest exchanges. |
 | Recovery | A request rejected as too long is compacted and retried once. A second rejection is returned as an error. |
 | Storage | Earlier messages remain stored even when they are no longer sent to the model. |
 

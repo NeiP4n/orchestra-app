@@ -2,22 +2,21 @@
  * Application-wide constants and configuration
  */
 export const config = {
-  // Base URL
-  baseUrl: "https://opencode.ai",
+  // Base URL — Orchestra has no own domain; the repository is the canonical home.
+  baseUrl: "https://github.com/NeiP4n/orchestra-app",
 
   // GitHub
   github: {
-    repoUrl: "https://github.com/anomalyco/opencode",
+    repoUrl: "https://github.com/NeiP4n/orchestra-app",
     starsFormatted: {
       compact: "205K",
       full: "205,000",
     },
   },
 
-  // Social links
+  // Social links — Orchestra has no X/Discord accounts; both point at the repository.
   social: {
-    twitter: "https://x.com/opencode",
-    discord: "https://discord.gg/opencode",
+    twitter: "https://github.com/NeiP4n/orchestra-app",
   },
 
   // Static stats (used on landing page)

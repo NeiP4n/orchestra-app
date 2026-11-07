@@ -7,9 +7,9 @@ import config from "../../../../config.mjs"
 export const console = config.console
 export const email = `mailto:${config.email}`
 
-OpenCode Go, popüler açık kodlama modellerine güvenilir erişim sağlayan düşük maliyetli **aylık 10$ aboneliğidir**.
+`opencode-go`, popüler açık kodlama modellerine güvenilir erişim sağlayan düşük maliyetli **aylık 10$ aboneliğidir**.
 
-Go, OpenCode'daki diğer sağlayıcılar gibi çalışır. OpenCode Go'ya abone olur ve API anahtarınızı alırsınız. Bu **tamamen isteğe bağlıdır** ve OpenCode'u kullanmak için bunu kullanmanıza gerek yoktur.
+Go, Orchestra'daki diğer sağlayıcılar gibi çalışır. `opencode-go`'ya abone olur ve API anahtarınızı alırsınız. Bu **tamamen isteğe bağlıdır** ve Orchestra'u kullanmak için bunu kullanmanıza gerek yoktur.
 
 Öncelikle uluslararası kullanıcılar için tasarlanmıştır ve dünya genelinde istikrarlı erişim sağlar.
 
@@ -22,7 +22,7 @@ Açık modeller gerçekten çok iyi hale geldi. Artık kodlama görevleri için 
 Ancak, bu modellere güvenilir, düşük gecikmeli erişim sağlamak zor olabilir. Sağlayıcılar kalite ve erişilebilirlik açısından farklılık gösterir.
 
 :::tip
-OpenCode ile iyi çalışan seçili bir model ve sağlayıcı grubunu test ettik.
+Orchestra ile iyi çalışan seçili bir model ve sağlayıcı grubunu test ettik.
 :::
 
 Bunu çözmek için birkaç şey yaptık:
@@ -31,20 +31,20 @@ Bunu çözmek için birkaç şey yaptık:
 2. Ardından, bunların doğru şekilde sunulduğundan emin olmak için birkaç sağlayıcıyla birlikte çalıştık.
 3. Son olarak, model/sağlayıcı kombinasyonunu kıyasladık (benchmark) ve gönül rahatlığıyla önerebileceğimiz bir liste oluşturduk.
 
-OpenCode Go, bu modellere **aylık 10$** karşılığında erişmenizi sağlar.
+`opencode-go`, bu modellere **aylık 10$** karşılığında erişmenizi sağlar.
 
 ---
 
 ## Nasıl çalışır?
 
-OpenCode Go, OpenCode'daki diğer sağlayıcılar gibi çalışır.
+`opencode-go`, Orchestra'daki diğer sağlayıcılar gibi çalışır.
 
-1. **<a href={console}>OpenCode Zen</a>**'e giriş yapın, Go'ya abone olun ve API anahtarınızı kopyalayın.
-2. TUI'de `/connect` komutunu çalıştırın, `OpenCode Go`yu seçin ve API anahtarınızı yapıştırın.
+1. **<a href={console}>`opencode`</a>**'e giriş yapın, Go'ya abone olun ve API anahtarınızı kopyalayın.
+2. TUI'de `/connect` komutunu çalıştırın, ``opencode-go``yu seçin ve API anahtarınızı yapıştırın.
 3. Go üzerinden kullanabileceğiniz modellerin listesini görmek için TUI'de `/models` komutunu çalıştırın.
 
 :::note
-Her çalışma alanından yalnızca bir üye OpenCode Go'ya abone olabilir.
+Her çalışma alanından yalnızca bir üye `opencode-go`'ya abone olabilir.
 :::
 
 Mevcut model listesi şunları içerir:
@@ -74,7 +74,7 @@ Test edip yenilerini ekledikçe model listesi değişebilir.
 
 ## Kullanım limitleri
 
-OpenCode Go aşağıdaki limitleri içerir:
+`opencode-go` aşağıdaki limitleri içerir:
 
 - **5 saatlik limit** — 12$ kullanım
 - **Haftalık limit** — 30$ kullanım
@@ -163,7 +163,7 @@ Erken kullanımlardan ve geri bildirimlerden edindiğimiz deneyimlere bağlı ol
 
 ### Limit dışı kullanım
 
-Eğer Zen bakiyenizde kredileriniz varsa, konsoldan **Bakiye kullan (Use balance)** seçeneğini etkinleştirebilirsiniz. Bu özellik etkinleştirildiğinde, kullanım limitlerinize ulaştıktan sonra Go, istekleri engellemek yerine Zen bakiyenizi kullanmaya devam edecektir.
+Eğer `opencode` bakiyenizde kredileriniz varsa, konsoldan **Bakiye kullan (Use balance)** seçeneğini etkinleştirebilirsiniz. Bu özellik etkinleştirildiğinde, kullanım limitlerinize ulaştıktan sonra Go, istekleri engellemek yerine `opencode` bakiyenizi kullanmaya devam edecektir.
 
 ---
 
@@ -205,7 +205,7 @@ Go modellerine aşağıdaki API uç noktaları aracılığıyla da erişebilirsi
 | Qwen3.6 Plus      | qwen3.6-plus      | `https://opencode.ai/zen/go/v1/messages`         | `@ai-sdk/anthropic`         |
 | Hy3               | hy3               | `https://opencode.ai/zen/go/v1/chat/completions` | `@ai-sdk/openai-compatible` |
 
-OpenCode yapılandırmanızdaki [model id](/docs/config/#models) formatı `opencode-go/<model-id>` şeklindedir. Örneğin, Kimi K3 için yapılandırmanızda `opencode-go/kimi-k3` kullanmalısınız.
+Orchestra yapılandırmanızdaki [model id](/docs/config/#models) formatı `opencode-go/<model-id>` şeklindedir. Örneğin, Kimi K3 için yapılandırmanızda `opencode-go/kimi-k3` kullanmalısınız.
 
 ---
 
@@ -250,9 +250,9 @@ https://opencode.ai/zen/go/v1/models
 
 ## Hedefler
 
-OpenCode Go'yu şu amaçlarla oluşturduk:
+`opencode-go`'yu şu amaçlarla oluşturduk:
 
 1. Düşük maliyetli bir abonelik ile yapay zeka destekli kodlamayı daha fazla kişi için **erişilebilir** kılmak.
 2. En iyi açık kodlama modellerine **güvenilir** erişim sağlamak.
 3. Kodlama aracısı (agent) kullanımı için **test edilmiş ve kıyaslanmış** modelleri bir araya getirmek.
-4. OpenCode ile diğer sağlayıcıları da kullanmanıza olanak tanıyarak **kilitlenme (vendor lock-in) olmamasını** sağlamak.
+4. Orchestra ile diğer sağlayıcıları da kullanmanıza olanak tanıyarak **kilitlenme (vendor lock-in) olmamasını** sağlamak.
