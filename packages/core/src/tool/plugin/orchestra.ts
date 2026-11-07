@@ -18,6 +18,7 @@ import { Orchestra } from "../../orchestra.js"
 import { OrchestraStage } from "../../stage.js"
 import { RoleToolkits } from "../../roles/toolkits.js"
 import { ModelRouter } from "../../session/model-router.js"
+import { AiStandard } from "../../ai-standard.js"
 import { Token } from "../../util/token.js"
 import { FormDecision } from "../../form-decision.js"
 import { Session } from "../../session.js"
@@ -685,6 +686,8 @@ export function routeWorkerModelWithFavorites(input: {
   readonly candidates: ReadonlyArray<Model.Ref>
   readonly favorites: ReadonlyArray<Model.Ref>
   readonly catalog: ReadonlyArray<ModelRouter.CatalogModel>
+  /** Providers in a recorded cooldown; names the cause when a favorite is missing for it. */
+  readonly downProviders?: ReadonlyArray<string>
 }): RoutedWorkerModelChoice | undefined {
   const route = (candidates: ReadonlyArray<Model.Ref>) =>
     routeWorkerModel({
@@ -702,19 +705,38 @@ export function routeWorkerModelWithFavorites(input: {
   const favorites = input.candidates.filter((ref) => favoriteKeys.has(modelRef(ref)))
   const fallbacks = input.candidates.filter((ref) => !favoriteKeys.has(modelRef(ref)))
   if (favorites.length === 0) {
+    // Name the actual cause: workerModels drops favorites on a cooling-down provider, and the
+    // role's model list can exclude the rest.
+    const down = new Set(input.downProviders ?? [])
+    const cooled = input.favorites.filter((ref) => down.has(ref.providerID))
+    const reason =
+      cooled.length > 0
+        ? `favorite ${cooled.map(modelRef).join(", ")} is on a cooling-down provider`
+        : input.role.models?.length
+          ? "no favorite is in the role's model list"
+          : "no favorite is currently usable (refused or unavailable)"
     const routed = route(fallbacks)
-    return routed === undefined
-      ? undefined
-      : {
-          ...routed,
-          source: "fallback",
-          reason: "no favorite is usable here (refused, cooling down, or outside the role's model list)",
-        }
+    return routed === undefined ? undefined : { ...routed, source: "fallback", reason }
   }
   const favorite = route(favorites)
   if (favorite === undefined) return undefined
   // A variant on the result means the favorite can run the tier's reasoning level.
   if (favorite.variant !== undefined) return { ...favorite, source: "favorite" }
+  // The routed favorite carries no tier variant, but ModelRouter skips candidates without a
+  // price, so a favorite that CAN run the tier may simply be unpriced. Check capability over
+  // every usable favorite before falling back, or the note would falsely say none offers it.
+  const decision = ModelRouter.classify({
+    task: input.text,
+    role: `${input.role.id} ${input.role.category}`,
+    ...(input.mode ? { mode: input.mode } : {}),
+  })
+  const wanted = ModelRouter.tierVariants(decision.tier)
+  const capable = favorites.some((ref) => {
+    if (ref.variant !== undefined) return wanted.includes(ref.variant)
+    const entry = input.catalog.find((item) => item.providerID === ref.providerID && item.id === ref.id)
+    return entry?.variants?.some((variant) => wanted.includes(variant.id)) ?? false
+  })
+  if (capable) return { ...favorite, source: "favorite" }
   const fallback = fallbacks.length > 0 ? route(fallbacks) : undefined
   if (fallback !== undefined && fallback.variant !== undefined)
     return {
@@ -789,7 +811,9 @@ export const Plugin = {
       const allowed = (ref: Model.Ref) =>
         role.models?.length ? role.models.some((item) => baseOf(item) === modelRef(ref)) : true
       // Favorites route first: workerModels ranks them ahead of the role/policy fallbacks, but
-      // the router alone would let a cheaper fallback beat a healthy favorite.
+      // the router alone would let a cheaper fallback beat a healthy favorite. The fallback pool
+      // is exactly what workerModels configured — the router never sees the raw catalog as
+      // candidates, so routing cannot pick a provider the operator did not name.
       const routed = routeWorkerModelWithFavorites({
         role,
         text,
@@ -797,6 +821,7 @@ export const Plugin = {
         candidates: refs.filter(allowed),
         favorites,
         catalog: available,
+        downProviders: AiStandard.downProviders(available),
       })
       if (!routed) return undefined
       const known = available.find((item) => `${item.providerID}/${item.id}` === routed.model)

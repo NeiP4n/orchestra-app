@@ -112,6 +112,11 @@ const variants: Record<Tier, ReadonlyArray<string>> = {
   deep: ["high", "max"],
 }
 
+/** The reasoning variants a tier asks for, in preference order. */
+export function tierVariants(tier: Tier): ReadonlyArray<string> {
+  return variants[tier]
+}
+
 export function classify(input: ClassifyInput): Classification {
   const task = input.task.toLowerCase()
   const role = (input.role ?? "").toLowerCase()

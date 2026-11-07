@@ -378,7 +378,7 @@ describe("routeWorkerModelWithFavorites", () => {
       model: "polza/flash",
       variant: "minimal",
       source: "fallback",
-      reason: expect.stringContaining("no favorite is usable"),
+      reason: expect.stringContaining("no favorite is currently usable"),
     })
   })
 
@@ -423,5 +423,91 @@ describe("routeWorkerModelWithFavorites", () => {
         catalog,
       }),
     ).toEqual({ model: "polza/flash", source: "favorite" })
+  })
+
+  test("an unpriced favorite that can run the tier still blocks the fallback (architect reproducer)", () => {
+    // The priced favorite lacks the deep variant and the capable favorite has
+    // no price, so ModelRouter skips it; the wrapper used to fall back to the
+    // paid non-favorite and falsely report that no favorite offers the variant.
+    const reproCatalog = [
+      { providerID: "favorites", id: "known-price-no-high", variants: [{ id: "low" }], cost: [{ input: 0.1, output: 0.1 }] },
+      { providerID: "favorites", id: "unknown-price-high", variants: [{ id: "high" }] },
+      { providerID: "other", id: "paid-high", variants: [{ id: "high" }], cost: [{ input: 3, output: 15 }] },
+    ]
+    expect(
+      routeWorkerModelWithFavorites({
+        role: role({ id: "architect" }),
+        text: "Design architecture",
+        mode: "architecture",
+        candidates: refs("favorites/known-price-no-high", "favorites/unknown-price-high", "other/paid-high"),
+        favorites: refs("favorites/known-price-no-high", "favorites/unknown-price-high"),
+        catalog: reproCatalog,
+      }),
+    ).toEqual({ model: "favorites/known-price-no-high", source: "favorite" })
+  })
+
+  test("a favorite on another provider beats a cheaper fallback at home", () => {
+    const crossCatalog = [
+      ...catalog,
+      { providerID: "zen", id: "glm-4.6", variants: [{ id: "low" }, { id: "high" }], cost: [{ input: 0.6, output: 0.6 }] },
+    ]
+    expect(
+      routeWorkerModelWithFavorites({
+        role: role({ id: "developer" }),
+        text: "Напиши тест для компонента корзины",
+        candidates: refs("polza/flash", "zen/glm-4.6"),
+        favorites: refs("zen/glm-4.6"),
+        catalog: crossCatalog,
+      }),
+    ).toEqual({ model: "zen/glm-4.6", variant: "low", source: "favorite" })
+  })
+
+  test("the fallback reason names the favorite's cooling-down provider", () => {
+    expect(
+      routeWorkerModelWithFavorites({
+        role: role({ id: "developer" }),
+        text: "Исправь опечатку в README",
+        candidates: refs("polza/flash"),
+        favorites: refs("zen/glm-4.6"),
+        catalog,
+        downProviders: ["zen"],
+      }),
+    ).toEqual({
+      model: "polza/flash",
+      variant: "minimal",
+      source: "fallback",
+      reason: expect.stringContaining("zen/glm-4.6 is on a cooling-down provider"),
+    })
+  })
+
+  test("the reason says when the role's model list excludes the favorites", () => {
+    expect(
+      routeWorkerModelWithFavorites({
+        role: role({ id: "developer", models: ["polza/flash"] }),
+        text: "Исправь опечатку в README",
+        candidates: refs("polza/flash"),
+        favorites: refs("polza/deepseek"),
+        catalog,
+      }),
+    ).toEqual({
+      model: "polza/flash",
+      variant: "minimal",
+      source: "fallback",
+      reason: expect.stringContaining("role's model list"),
+    })
+  })
+
+  test("never routes to a catalog model outside the configured candidates", () => {
+    // flash is the cheapest model in the catalog, but it was never configured
+    // for this worker, so routing may not pick it.
+    expect(
+      routeWorkerModelWithFavorites({
+        role: role({ id: "developer" }),
+        text: "Напиши тест для компонента корзины",
+        candidates: refs("polza/deepseek"),
+        favorites: refs("polza/deepseek"),
+        catalog,
+      }),
+    ).toEqual({ model: "polza/deepseek", variant: "low", source: "favorite" })
   })
 })
