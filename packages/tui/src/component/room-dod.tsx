@@ -372,7 +372,11 @@ export function RoomDodRows(props: {
                                 />
                               </box>
                               <Show
-                                when={!card.canTake && card.takeRefusal && !FINISHED.has(card.state) ? card.takeRefusal : undefined}
+                                when={
+                                  !card.canTake && card.takeRefusal && !FINISHED.has(card.state)
+                                    ? card.takeRefusal
+                                    : undefined
+                                }
                               >
                                 {(reason) => (
                                   <box paddingLeft={2}>
@@ -393,60 +397,60 @@ export function RoomDodRows(props: {
             )}
           </Show>
           <Show when={view() === "list"}>
-          <For each={remaining()}>
-            {(item) => {
-              const mine = () => item.mine === true
-              const free = () => !item.owner || item.stale === true
-              return (
-                <box flexDirection="row" paddingLeft={indent() + 3} paddingRight={1}>
-                  <text flexShrink={0} fg={color(item.state)}>
-                    {`${MARK[item.state] ?? "·"} `}
-                  </text>
-                  <box flexGrow={1} minWidth={0}>
-                    <text fg={theme.text.base} wrapMode="none" truncate>
-                      <span style={{ fg: theme.text.muted }}>{`${item.id} `}</span>
-                      {item.what || item.id}
-                      <span style={{ fg: theme.text.muted }}>{item.total > 0 ? ` ${item.done}/${item.total}` : ""}</span>
+            <For each={remaining()}>
+              {(item) => {
+                const mine = () => item.mine === true
+                const free = () => !item.owner || item.stale === true
+                return (
+                  <box flexDirection="row" paddingLeft={indent() + 3} paddingRight={1}>
+                    <text flexShrink={0} fg={color(item.state)}>
+                      {`${MARK[item.state] ?? "·"} `}
                     </text>
+                    <box flexGrow={1} minWidth={0}>
+                      <text fg={theme.text.base} wrapMode="none" truncate>
+                        <span style={{ fg: theme.text.muted }}>{`${item.id} `}</span>
+                        {item.what || item.id}
+                        <span style={{ fg: theme.text.muted }}>
+                          {typeof item.total === "number" && item.total > 0 ? ` ${item.done}/${item.total}` : ""}
+                        </span>
+                      </text>
+                    </box>
+                    <Show when={item.stale && item.owner}>
+                      <text flexShrink={0} fg={theme.text.muted}>
+                        {` ${t("{name}, lease ran out", { name: item.owner ?? "" })}`}
+                      </text>
+                    </Show>
+                    <DodItemActions
+                      id={item.id}
+                      owner={item.owner ?? undefined}
+                      mine={mine()}
+                      stale={item.stale ?? undefined}
+                      verify={item.verify ?? undefined}
+                      takeable={free() && !item.waits}
+                      blockedReason={item.waits ? t("waits for {items}", { items: item.waits.join(", ") }) : undefined}
+                      take={props.take}
+                      submit={props.submit}
+                      release={props.release}
+                      actionId={actionId(item)}
+                      armed={armed}
+                      setArmed={setArmed}
+                      act={act}
+                      submitted={submitted}
+                    />
                   </box>
-                  <Show when={item.stale && item.owner}>
-                    <text flexShrink={0} fg={theme.text.muted}>
-                      {` ${t("{name}, lease ran out", { name: item.owner ?? "" })}`}
-                    </text>
-                  </Show>
-                  <DodItemActions
-                    id={item.id}
-                    owner={item.owner}
-                    mine={mine()}
-                    stale={item.stale}
-                    verify={item.verify}
-                    takeable={free() && !item.waits}
-                    blockedReason={
-                      item.waits ? t("waits for {items}", { items: item.waits.join(", ") }) : undefined
-                    }
-                    take={props.take}
-                    submit={props.submit}
-                    release={props.release}
-                    actionId={actionId(item)}
-                    armed={armed}
-                    setArmed={setArmed}
-                    act={act}
-                    submitted={submitted}
-                  />
-                </box>
-              )
-            }}
-          </For>
-          <Show when={items().length > 0 && remaining().length === 0}>
-            <box paddingLeft={indent() + 3} paddingRight={1}>
-              <text fg={theme.text.feedback.success.base}>{t("Everything is done.")}</text>
-            </box>
-          </Show>
-          <Show when={items().length === 0}>
-            <box paddingLeft={indent() + 3} paddingRight={1}>
-              <text fg={theme.text.muted}>{t("The DoD file exists but contains no tasks.")}</text>
-            </box>
-          </Show>
+                )
+              }}
+            </For>
+            <Show when={items().length > 0 && remaining().length === 0}>
+              <box paddingLeft={indent() + 3} paddingRight={1}>
+                <text fg={theme.text.feedback.success.base}>{t("Everything is done.")}</text>
+              </box>
+            </Show>
+            <Show when={items().length === 0}>
+              <box paddingLeft={indent() + 3} paddingRight={1}>
+                <text fg={theme.text.muted}>{t("The DoD file exists but contains no tasks.")}</text>
+              </box>
+            </Show>
           </Show>
           <For each={events()}>
             {(event) => (
@@ -510,9 +514,7 @@ function DodItemActions(props: {
                 onHoverChange={setSubmitHovered}
                 onClick={() => props.act(() => submit()(props.id), props.submitted(props.id))}
               >
-                <text fg={submitHovered() ? theme.text.base : theme.text.action.primary.base}>
-                  {` ${t("submit")}`}
-                </text>
+                <text fg={submitHovered() ? theme.text.base : theme.text.action.primary.base}>{` ${t("submit")}`}</text>
               </HoverAction>
             )}
           </Show>
