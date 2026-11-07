@@ -56,6 +56,12 @@ export class Autoloop extends Schema.Class<Autoloop>("Config.Orchestra.Autoloop"
   offlineAfterMinutes: PositiveInt.pipe(optional).annotate({
     description: "How long work waits on a silent worker before the owner hears, in minutes (default 10)",
   }),
+  batchWindowMs: PositiveInt.pipe(optional).annotate({
+    description: "How long single router events accumulate before one decision pass, in milliseconds (default 1000)",
+  }),
+  maxBatchEvents: PositiveInt.pipe(optional).annotate({
+    description: "How many router events force one decision pass at once, however fresh (default 50)",
+  }),
 }) {}
 
 // One of the Society's base projects, as the operator configured it. A Society
@@ -77,6 +83,10 @@ export class BaseProject extends Schema.Class<BaseProject>("Config.Orchestra.Soc
 export class Society extends Schema.Class<Society>("Config.Orchestra.Society")({
   baseProjects: Schema.Array(BaseProject).pipe(optional).annotate({
     description: "The Society's base projects, replacing the built-in planner/architects/coders/testers when set",
+  }),
+  autonomy: Schema.Literals(["off", "observe", "auto"]).pipe(optional).annotate({
+    description:
+      "How much work the Society's router may take on its own (default observe): off takes nothing, observe prepares runs but executes none, auto executes",
   }),
 }) {}
 
