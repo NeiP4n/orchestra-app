@@ -11,6 +11,12 @@ test("renders the default system prompt instructions", () => {
   expect(prompt).toContain("Use the edit tool for targeted changes to existing text files")
 })
 
+test("the default system prompt answers greetings in one sentence", () => {
+  const prompt = SessionSystemPrompt.make([])
+  expect(prompt).toContain("one-sentence reply in the user's language")
+  expect(prompt).toContain("no follow-up questions and no task list")
+})
+
 test("every chat carries the truthfulness contract", () => {
   for (const tools of [[], ["read"], ["read", "edit", "shell", "browser"]]) {
     const prompt = SessionSystemPrompt.make(tools)

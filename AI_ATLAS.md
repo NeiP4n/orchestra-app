@@ -662,12 +662,20 @@ no skill lookup runs for them.
   `session/runner/to-llm-message.ts` (`intakeNoteText`, in the style of
   `roomContextText`): the distilled goal (only when it differs from the
   message), a verdict line only for `skip`/`merge`/`clarify`, open
-  questions, suggested skills. The note is omitted for trivial prompts,
-  when there is no intake metadata, and when it adds nothing beyond the
-  message itself — so a simple single-sentence task costs the model 0
-  extra tokens, and a task that does get a note costs roughly a third of
-  the old block (~50–70 tokens for a clarify with questions, vs ~150–200
-  for the old enriched prompt).
+  questions, suggested skills. The note is omitted when there is no intake
+  metadata and when it adds nothing beyond the message itself — so a simple
+  single-sentence task costs the model 0 extra tokens, and a task that does
+  get a note costs roughly a third of the old block (~50–70 tokens for a
+  clarify with questions, vs ~150–200 for the old enriched prompt). A
+  trivial prompt gets a different note instead of the analysis: a greeting
+  or acknowledgement is not a task, so the note tells the model to answer
+  briefly, in one short sentence, in the user's language, with no
+  follow-up questions or task list. A trivial continuation ("продолжай",
+  "да") resumes the work in progress and gets no note at all, so the
+  brevity instruction cannot cut the resumed reply short. The same
+  one-sentence rule for greetings also lives in the default system prompt
+  (`session/runner/prompt/system.txt`, Communication), so it applies on
+  paths without intake metadata too.
 - Tests: `packages/core/test/prompt-intake/` — value (duplicate, subset,
   done, repeat, failed journal entry retries instead of merging, vague, clear,
   continuation), policy (refuse/admit matrix, short-prompt guard, clarify
@@ -684,8 +692,10 @@ no skill lookup runs for them.
   intake metadata present.
   `test/session-runner-message.test.ts` — the model message carries the
   short intake note (goal/skills/questions/verdict), the stored text does
-  not; no note for trivial prompts, for prompts where the note adds
-  nothing, or without intake metadata.
+  not; a brief-reply note for trivial greetings, no note for trivial
+  continuations, for prompts where the note adds nothing, or without
+  intake metadata. `test/session-system-prompt.test.ts` — the default
+  system prompt answers greetings in one sentence.
 
 ## MCP — `packages/core/src/mcp/`
 
