@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Mode } from "../src/mode.js"
+import { roles } from "../src/orchestra.js"
 
 const required = (id: string) => {
   const mode = Mode.of(id)
@@ -49,8 +50,7 @@ describe("work modes", () => {
   })
 
   test("gives every kind of role a sensible default without changing its identity", () => {
-    const role = (id: string, category: string, readOnly = false) =>
-      Mode.defaultForRole({ id, category, readOnly })?.id
+    const role = (id: string, category: string, readOnly = false) => Mode.defaultForRole({ id, category, readOnly })?.id
 
     expect(String(role("developer", "Build"))).toBe("coding")
     expect(String(role("architect", "Planning", true))).toBe("architecture")
@@ -73,6 +73,16 @@ describe("work modes", () => {
     expect(Mode.defaultForRole({ id: "tester", category: "Quality", readOnly: false })?.readOnly).toBe(false)
     // Another planning role that may edit keeps coding; only the architect gets the architecture mode.
     expect(String(role("planner", "Planning", true))).toBe("planning")
+  })
+
+  test("the registered reliability-engineer role defaults to ops mode (documents current policy)", () => {
+    // Regression pin for the ops default: reliability work is lifecycle/concurrency/ops-flavored,
+    // so the role starts in ops like devops and system-administrator. This documents the current
+    // default as-is; changing it is a product decision, not a drive-by refactor.
+    const registered = roles.find((item) => item.id === "reliability-engineer")
+    if (!registered) throw new Error("reliability-engineer role must be registered")
+    expect(String(Mode.defaultForRole(registered)?.id)).toBe("ops")
+    expect(Mode.defaultForRole(registered)?.readOnly).toBe(false)
   })
 
   test("only the test mode is silent, and unknown or missing modes are not", () => {
