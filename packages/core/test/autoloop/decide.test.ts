@@ -240,10 +240,10 @@ describe("AutoloopDecide cancel", () => {
 })
 
 describe("AutoloopDecide verify iterations", () => {
-  test("a failed code check requeues the run; after 5 rounds the run stops and asks a human", () => {
+  test("a check that fails the same way stops early: after 3 identical rounds, not 5", () => {
     let view = emptyView()
     view = ingestTask(view, T0).view
-    for (let round = 1; round <= 5; round += 1) {
+    for (let round = 1; round <= 3; round += 1) {
       const now = T0 + round * MINUTE
       const claimed = claimTask(view, now, `claim-${round}`, round + 1)
       expect(claimed.job.run).toBe(1)
@@ -254,13 +254,44 @@ describe("AutoloopDecide verify iterations", () => {
         round + 2,
       )
       view = finished.view
+      if (round < 3) {
+        expect(runRow(view, 1)).toMatchObject({ state: "queued", verifyIterations: round })
+      }
+    }
+    // The same failure three times in a row is a loop, not progress: the
+    // run stops two rounds before the 5-round cap, and the journal names
+    // what repeated instead of going silent.
+    expect(runRow(view, 1)).toMatchObject({ state: "cancelled", verifyIterations: 3, error_repeat: 3 })
+    expect(typeof runRow(view, 1)?.["error_fingerprint"]).toBe("string")
+    const ask = cardRows(view).find((card) => card["key"] === "run:1:verify")
+    expect(ask).toMatchObject({ kind: "ask", state: "open", title: "Проверка не проходит одним и тем же способом" })
+    expect(ask?.["options"]).toHaveLength(3)
+  })
+
+  test("a check that fails differently each round keeps all 5 rounds", () => {
+    let view = emptyView()
+    view = ingestTask(view, T0).view
+    for (let round = 1; round <= 5; round += 1) {
+      const now = T0 + round * MINUTE
+      const claimed = claimTask(view, now, `claim-${round}`, round + 1)
+      expect(claimed.job.run).toBe(1)
+      const finished = step(
+        claimed.view,
+        {
+          type: "finish",
+          args: [1, claimed.job.token, { outcome: "done", summary: ["login test fails", "checkout test fails", "lint fails", "build fails", "typecheck fails"][round - 1], verifyFailed: true }],
+        },
+        now + 1000,
+        round + 2,
+      )
+      view = finished.view
       if (round < 5) {
         expect(runRow(view, 1)).toMatchObject({ state: "queued", verifyIterations: round })
       }
     }
     expect(runRow(view, 1)).toMatchObject({ state: "cancelled", verifyIterations: 5 })
     const ask = cardRows(view).find((card) => card["key"] === "run:1:verify")
-    expect(ask).toMatchObject({ kind: "ask", state: "open" })
+    expect(ask).toMatchObject({ kind: "ask", state: "open", title: "Проверка не проходит" })
     expect(ask?.["options"]).toHaveLength(3)
   })
 })
@@ -358,7 +389,7 @@ describe("AutoloopDecide cancelling a task (G2-12)", () => {
       const claimed = claimTask(current, now, `claim-${round}`, round + 1)
       const finished = step(
         claimed.view,
-        { type: "finish", args: [1, claimed.job.token, { outcome: "done", summary: "still broken", verifyFailed: true }] },
+        { type: "finish", args: [1, claimed.job.token, { outcome: "done", summary: ["login test fails", "checkout test fails", "lint fails", "build fails", "typecheck fails"][round - 1], verifyFailed: true }] },
         now + 1000,
         round + 2,
       )
@@ -519,7 +550,7 @@ describe("AutoloopDecide test-before-fix gate (idea #6)", () => {
     let view = ingestTask(emptyView(), T0).view
     for (let round = 1; round <= 5; round += 1) {
       const now = T0 + round * MINUTE
-      view = finishDone(view, now, round + 1, { outcome: "done", summary: "fixed", fixTask: true }).view
+      view = finishDone(view, now, round + 1, { outcome: "done", summary: ["fixed the login", "fixed the checkout", "fixed the lint", "fixed the build", "fixed the types"][round - 1], fixTask: true }).view
     }
     expect(runRow(view, 1)).toMatchObject({ state: "cancelled", verifyIterations: 5 })
     const ask = cardRows(view).find((card) => card["key"] === "run:1:verify")
@@ -768,7 +799,7 @@ describe("AutoloopDecide arch3-core fixes", () => {
       const claimed = claimTask(current, now, `claim-${round}`, round + 1)
       const finished = step(
         claimed.view,
-        { type: "finish", args: [1, claimed.job.token, { outcome: "done", summary: "still broken", verifyFailed: true }] },
+        { type: "finish", args: [1, claimed.job.token, { outcome: "done", summary: ["login test fails", "checkout test fails", "lint fails", "build fails", "typecheck fails"][round - 1], verifyFailed: true }] },
         now + 1000,
         round + 2,
       )

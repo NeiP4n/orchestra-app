@@ -187,7 +187,7 @@ describe("AutoloopCards answer", () => {
           const now = T0 + round * MINUTE
           const job = (yield* applyDecide({ type: "claimNext", args: ["worker-1", `claim-${round}`] }, now, round + 1)) as Job
           yield* applyDecide(
-            { type: "finish", args: [1, job.token, { outcome: "done", summary: "still broken", verifyFailed: true }] },
+            { type: "finish", args: [1, job.token, { outcome: "done", summary: ["login test fails", "checkout test fails", "lint fails", "build fails", "typecheck fails"][round - 1], verifyFailed: true }] },
             now + 1000,
             round + 2,
           )
