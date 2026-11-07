@@ -418,6 +418,8 @@ export const dict = {
   "toast.session.export.failed.description": "An error occurred while exporting the session",
   "toast.session.copyID.failed.title": "Failed to copy session ID",
   "toast.session.copyID.failed.description": "An error occurred while copying the session ID",
+  "toast.session.model.switchFailed.title": "Failed to switch model",
+  "toast.session.model.switchFailed.description": "The model will be applied when you send your next message",
   "toast.project.copyID.failed.title": "Failed to copy project ID",
   "toast.project.copyID.failed.description": "An error occurred while copying the project ID",
 

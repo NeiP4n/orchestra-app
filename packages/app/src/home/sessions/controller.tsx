@@ -20,6 +20,7 @@ import { sessionHasOpenTab, useTabs } from "@/shell/tabs/tabs"
 import { errorMessage } from "@/shell/layout/helpers"
 import { useSessionTabAvatarState } from "@/shell/layout/project-avatar-state"
 import { sessionTreeIDs } from "@/session/requests/session-request-tree"
+import { sessionHref } from "@/shell/routes/session"
 import { pathKey } from "@/workspaces/path-key"
 import { fetchSessionExport, saveSessionExport, sessionExportFilename } from "@/session/commands/export"
 import { usePlatform } from "@/runtime/platform/platform"
@@ -379,6 +380,17 @@ export function createHomeSessionsController(home: HomeController) {
         })[0]
       },
       create: home.project.openNewSession,
+      // Warms the session route chunk on hover/focus so opening a session does
+      // not pay the chunk download on click. The routes module is imported
+      // dynamically: it owns the Home route, so a static import would cycle.
+      preload: (session: SessionInfo) => {
+        const conn = home.server.focused()
+
+        if (!conn) return
+        const url = sessionHref(ServerConnection.key(conn), session.id)
+
+        void import("@/shell/routes/routes").then(({ preloadRoute }) => preloadRoute(url))
+      },
       open: (session: SessionInfo, options?: OpenSessionOptions) => {
         const project = homeProjectForSession(session, home.project.list())
         const conn = home.server.focused()

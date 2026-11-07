@@ -17,6 +17,10 @@ import { normalizeAgentList } from "@/runtime/server/global-sync/utils"
 import { useServerSDK } from "@/runtime/server/client"
 import { ScopedKey, type ServerScope } from "@/runtime/server/scope"
 import { useConfiguredModel } from "./configured"
+import { useLanguage } from "@/runtime/i18n/language"
+import { formatServerError } from "@/runtime/server/errors"
+import { showToast } from "@/shell/notifications/toast"
+import { commitSessionSelection, sameSelection } from "./selection-commit"
 
 const ModelKeySchema = Schema.Struct({
   providerID: Schema.String,
@@ -89,6 +93,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const models = useModels()
     const settings = useSettings()
     const configuredModel = useConfiguredModel()
+    const language = useLanguage()
 
     const id = createMemo(() => params.id || undefined)
 
@@ -243,6 +248,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           const selected = current()
 
           if (selected) model.set({ providerID: selected.provider.id, modelID: selected.id })
+          commitNow()
         })
       },
       move(direction: 1 | -1) {
@@ -350,12 +356,6 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const recent = createMemo(() => models.recent.list().filter(validModel).map(models.find).filter(Boolean))
     const pending = new Map<string, State>()
 
-    const sameSelection = (a: State, b: State) =>
-      a.agent === b.agent &&
-      a.model?.providerID === b.model?.providerID &&
-      a.model?.modelID === b.model?.modelID &&
-      (a.variant ?? "default") === (b.variant ?? "default")
-
     const reconcile = (sessionID: string) => {
       const expected = pending.get(sessionID)
       const session = data.session.get(sessionID)
@@ -385,6 +385,53 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         setSaved("session", event.data.sessionID, undefined)
       }),
     )
+
+    // Sends the picked agent/model to the open session immediately, so a model
+    // picked in the header takes effect without waiting for the next message.
+    // A pick made while the same selection is still committing collapses into
+    // that request; a failed commit toasts, and the next submit retries it
+    // through the normal path.
+    const committing = new Map<string, string>()
+    const commitNow = () => {
+      const sessionID = id()
+
+      if (!sessionID) return
+      const selection = snapshot()
+      const key = JSON.stringify(selection)
+
+      if (committing.get(sessionID) === key) return
+      committing.set(sessionID, key)
+      const done = commitSessionSelection({
+        sessionID,
+        selection,
+        session: data.session.get(sessionID),
+        track: (commit) => model.trackSessionCommit(sessionID, commit),
+        switchAgent: (input) => serverSDK.api.session.switchAgent(input),
+        switchModel: (input) => serverSDK.api.session.switchModel(input),
+        onError: (error) =>
+          showToast({
+            variant: "error",
+            title: language.t("toast.session.model.switchFailed.title"),
+            description: formatServerError(
+              error,
+              language.t,
+              language.t("toast.session.model.switchFailed.description"),
+            ),
+          }),
+      })
+
+      if (!done) {
+        committing.delete(sessionID)
+
+        return
+      }
+
+      const clear = () => {
+        if (committing.get(sessionID) === key) committing.delete(sessionID)
+      }
+
+      void done.then(clear, clear)
+    }
 
     const model = {
       ready: Object.assign(() => models.ready() && configuredModel.ready(), { promise: models.ready.promise }),
@@ -429,6 +476,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           // A session draft owns its variant even when preferences change in another session.
           if (id() && !same) write({ variant: model.variant.current() ?? null })
           models.setVisibility(item, true)
+          commitNow()
 
           if (!options?.recent) return
           models.recent.push(item)
@@ -467,6 +515,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
             if (!model) return
             write({ model: { providerID: model.provider.id, modelID: model.id }, variant: value ?? null })
             models.variant.set({ providerID: model.provider.id, modelID: model.id }, value)
+            commitNow()
           })
         },
         cycle() {

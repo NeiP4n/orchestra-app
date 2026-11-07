@@ -1,7 +1,6 @@
 // @refresh reload
 
 import "@/runtime/polyfills"
-import { init } from "@sentry/solid"
 import { render } from "solid-js/web"
 import { AppBaseProviders, AppInterface } from "@/app"
 import { loadInitialLocale } from "@/runtime/i18n/language"
@@ -56,22 +55,29 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
 }
 
 if (import.meta.env.VITE_SENTRY_DSN) {
-  init({
-    dsn: import.meta.env.VITE_SENTRY_DSN,
-    environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? import.meta.env.MODE,
-    release: import.meta.env.VITE_SENTRY_RELEASE ?? `web@${pkg.version}`,
-    initialScope: {
-      tags: {
-        platform: "web",
+  // Sentry stays out of the startup bundle: it loads only when a DSN is
+  // configured, after the app has started rendering.
+  const dsn = import.meta.env.VITE_SENTRY_DSN
+  const environment = import.meta.env.VITE_SENTRY_ENVIRONMENT ?? import.meta.env.MODE
+  const release = import.meta.env.VITE_SENTRY_RELEASE ?? `web@${pkg.version}`
+  const channel = import.meta.env.ORCHESTRA_CHANNEL
+  void import("@sentry/solid").then(({ init }) =>
+    init({
+      dsn,
+      environment,
+      release,
+      initialScope: {
+        tags: {
+          platform: "web",
+        },
       },
-    },
-    integrations: (integrations) => {
-      return integrations.filter(
-        (i) =>
-          i.name !== "Breadcrumbs" && !(import.meta.env.ORCHESTRA_CHANNEL === "prod" && i.name === "GlobalHandlers"),
-      )
-    },
-  })
+      integrations: (integrations) => {
+        return integrations.filter(
+          (i) => i.name !== "Breadcrumbs" && !(channel === "prod" && i.name === "GlobalHandlers"),
+        )
+      },
+    }),
+  )
 }
 
 if (root instanceof HTMLElement && root.dataset.opencodeMounted === undefined) {

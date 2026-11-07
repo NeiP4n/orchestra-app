@@ -2159,6 +2159,21 @@ below. What IS in:
   right side, always in place; the home footer is visible on mobile too
   (`lg:hidden` instead of `hidden md:block lg:hidden` — on large screens the
   projects sidebar nav still serves it).
+- **Browser assistant responsiveness (perf-browser)**: picking a model, variant
+  or agent in the session header commits to the session immediately
+  (`packages/app/src/providers/models/selection.tsx` — `commitNow()` on
+  `model.set()` / `variant.set()` / `agent.set()`; the switch itself is the pure
+  `commitSessionSelection()` in `selection-commit.ts`, unit-tested in
+  `selection-commit.test.ts`: agent first, then model, no-op when the server
+  already reports the pick, failure toasts and the next submit retries). Before
+  this, the pick only wrote local state and reached the server on the next
+  submit (`submit.ts` `applySelection`). Hovering or focusing a session row
+  preloads the session route chunk (`preloadRoute` via
+  `packages/app/src/home/sessions/controller.tsx` `session.preload`, wired in
+  `home/sessions/view.tsx` + `region.tsx`), so opening a session does not pay
+  the chunk download on click. Sentry loads lazily: `packages/app/src/entry.tsx`
+  dynamically imports `@sentry/solid` only when `VITE_SENTRY_DSN` is set, so it
+  leaves the startup bundle otherwise.
 - **Deferred from D1 (honest list, with reasons)**:
   - Home rebuild (prompt on top, project-chip лента, sessions with status
     dots): needs the new-session composer on home + a browser to verify the

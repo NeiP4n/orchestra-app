@@ -68,6 +68,7 @@ export type HomeSessionsViewProps = {
   isOpenTab: (record: HomeSessionRecord) => boolean
   onCreateSession: () => void
   onOpenSession: (session: SessionInfo, options?: OpenSessionOptions) => void
+  onPreloadSession: (session: SessionInfo) => void
   onArchiveSession: (session: SessionInfo) => Promise<void>
   onRestoreSession: (session: SessionInfo) => Promise<void>
   onRenameSession: (server: ServerConnection.Key, session: SessionInfo, title: string) => Promise<boolean>
@@ -452,8 +453,10 @@ function HomeSessionSearchResultRow(
       onMouseEnter={() => {
         props.onSearchHighlight(props.record)
         props.onHoverSession(props.record.session.id)
+        props.onPreloadSession(props.record.session)
         props.onRevealLocations(props.record)
       }}
+      onFocus={() => props.onPreloadSession(props.record.session)}
       onMouseLeave={() => props.onHoverSession(undefined)}
       onMouseDown={(event) => {
         if (event.button === 1) event.preventDefault()
@@ -681,8 +684,10 @@ function HomeSessionRow(
           }}
           onMouseEnter={() => {
             props.onHoverSession(props.record.session.id)
+            props.onPreloadSession(props.record.session)
             props.onRevealLocations(props.record)
           }}
+          onFocus={() => props.onPreloadSession(props.record.session)}
           onMouseLeave={() => props.onHoverSession(undefined)}
           onPointerDown={(event) => {
             suppressClick = false
