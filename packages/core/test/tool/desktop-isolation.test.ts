@@ -200,17 +200,58 @@ describe("B7 virtual display window manager", () => {
     const display = ":95"
     const socket = fakeDisplaySocket(display)
     // The real openbox message, verified live 2026-11-07 (a second openbox
-    // on a display that already has one prints this and exits 0).
-    const stub = `#!/bin/sh\necho "Openbox-Message: A window manager is already running on screen 0" >&2\nexit 0\n`
+    // on a display that already has one prints this and exits 0) — on
+    // STDOUT, not stderr: the first version of this test stubbed it to
+    // stderr and passed while the live check failed. Both streams are
+    // accepted, so a future openbox that moves the message still works.
+    try {
+      for (const redirect of ["", " >&2"]) {
+        const stub = `#!/bin/sh\necho "Openbox-Message: A window manager is already running on screen 0"${redirect}\nexit 0\n`
+        await withOpenboxOnPath(stub, async () => {
+          const status = await DesktopIsolation.ensureVirtualDisplay(display)
+          expect(status.display).toBe(display)
+          expect(status.started).toBe(false)
+          expect(status.windowManagerPid).toBeUndefined()
+          expect(status.windowManagerForeign).toBe(true)
+        })
+      }
+    } finally {
+      removeFakeSocket(socket)
+    }
+  }, 30_000)
+
+  test("a stale socket is recovered: openbox cannot connect once, Xvfb restarts and the retry succeeds", async () => {
+    const display = ":93"
+    const socket = fakeDisplaySocket(display)
+    const countPath = path.join(tmpdir(), `b7-wm-count-${process.pid}.txt`)
+    // First openbox call fails like a real one on a dead display (verified
+    // live 2026-11-07: "Failed to open the display", exit 1) and removes
+    // the stale socket, as a dying X server would; later calls stay up.
+    const stub =
+      `#!/bin/sh\n` +
+      `n=$(cat "${countPath}" 2>/dev/null || echo 0)\n` +
+      `n=$((n + 1))\n` +
+      `echo "$n" > "${countPath}"\n` +
+      `if [ "$n" = "1" ]; then rm -f "${socket}"; echo "Openbox-Message: Failed to open the display from the DISPLAY environment variable."; exit 1; fi\n` +
+      `exec sleep 30\n`
     try {
       await withOpenboxOnPath(stub, async () => {
         const status = await DesktopIsolation.ensureVirtualDisplay(display)
         expect(status.display).toBe(display)
-        expect(status.started).toBe(false)
-        expect(status.windowManagerPid).toBeUndefined()
+        expect(status.started).toBe(true)
+        if (status.windowManagerPid === undefined) throw new Error("expected a window manager pid")
+        expect(status.windowManagerPid).toBeGreaterThan(0)
+        expect(readFileSync(countPath, "utf8").trim()).toBe("2")
+        expect(DesktopIsolation.isVirtualDisplayAlive(display)).toBe(true)
       })
     } finally {
+      try {
+        DesktopIsolation.stopVirtualDisplay(display)
+      } catch {}
       removeFakeSocket(socket)
+      try {
+        unlinkSync(countPath)
+      } catch {}
     }
   }, 30_000)
 

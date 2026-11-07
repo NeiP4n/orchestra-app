@@ -975,7 +975,7 @@ no skill lookup runs for them.
   applies to the shell tool AND the hub tool (both run `shell.create`; the
   hub's `prepare` calls the same `forbiddenDesktopEscape`). Shell-spawned GUI
   apps get `DISPLAY` pinned to the virtual display when capture is on (Linux).
-- The virtual display runs a window manager (openbox, pilot-verified): `ensureVirtualDisplay` starts it with `DISPLAY=<display>` right after Xvfb, tracks the process, and `stopVirtualDisplay` stops it first, then Xvfb. A bare Xvfb is never reported ready. Without openbox the call fails loudly ("Install openbox", `native_window_unproven` named); a manager already running on the display counts as ready. The `started` journal event records the manager pid too.
+- The virtual display runs a window manager (openbox, pilot-verified): `ensureVirtualDisplay` starts it with `DISPLAY=<display>` right after Xvfb, tracks the process, and `stopVirtualDisplay` stops it first, then Xvfb. A bare Xvfb is never reported ready. Without openbox the call fails loudly ("Install openbox", `native_window_unproven` named); a manager already running on the display counts as ready (the status reports it as `windowManagerForeign`, with no pid of ours — openbox prints that message on stdout, not stderr). The `started` journal event records the manager pid too.
 - Virtual-display state is a journal fact (`journal.ts`: `recordDisplayEvent`,
   type `desktop.display`, states `started`/`alive`/`died`): which display, whose
   session, and a death is an event, never silence.
