@@ -77,6 +77,10 @@ export interface AutoloopLimits {
   maxAttempts: number
   /** Check-fix rounds before the run stops and asks a human (new in Orchestra). */
   maxVerifyIterations: number
+  /** Same-error repeats that stop a run early, before the retry or check caps run out (TokenEconomizer loop guard). */
+  failureRepeatStop: number
+  /** Steps a tool may go unused in a session before the runner stops sending its definition (TokenEconomizer tool pruning). */
+  toolPruneUnusedSteps: number
   /** How deep a chain of events causing events may get before it stops. */
   maxHops: number
   /** First retry pause, minutes; doubles per attempt up to `retryMaxMinutes`. */
@@ -94,6 +98,8 @@ export interface AutoloopLimits {
 export const DEFAULT_LIMITS: AutoloopLimits = {
   maxAttempts: 2,
   maxVerifyIterations: 5,
+  failureRepeatStop: 3,
+  toolPruneUnusedSteps: 10,
   maxHops: 8,
   retryBaseMinutes: 5,
   retryMaxMinutes: 60,
@@ -105,6 +111,8 @@ export const DEFAULT_LIMITS: AutoloopLimits = {
 export const resolveLimits = (given?: Partial<AutoloopLimits>): AutoloopLimits => ({
   maxAttempts: Math.max(1, given?.maxAttempts ?? DEFAULT_LIMITS.maxAttempts),
   maxVerifyIterations: Math.max(1, given?.maxVerifyIterations ?? DEFAULT_LIMITS.maxVerifyIterations),
+  failureRepeatStop: Math.max(1, given?.failureRepeatStop ?? DEFAULT_LIMITS.failureRepeatStop),
+  toolPruneUnusedSteps: Math.max(1, given?.toolPruneUnusedSteps ?? DEFAULT_LIMITS.toolPruneUnusedSteps),
   maxHops: Math.max(0, given?.maxHops ?? DEFAULT_LIMITS.maxHops),
   retryBaseMinutes: Math.max(1, given?.retryBaseMinutes ?? DEFAULT_LIMITS.retryBaseMinutes),
   retryMaxMinutes: Math.max(1, given?.retryMaxMinutes ?? DEFAULT_LIMITS.retryMaxMinutes),
@@ -1251,7 +1259,12 @@ export function retryLater(draft: Draft, run: RunRow, result: Receipt): Rejected
   // tried; an empty error text carries no fingerprint and never trips it.
   const rawError = (result.error ?? "").trim()
   const repeat =
-    rawError === "" ? undefined : recordRepeat(run.error_history ?? null, fingerprintError(rawError), draft.now)
+    rawError === ""
+      ? undefined
+      : recordRepeat(run.error_history ?? null, fingerprintError(rawError), draft.now, {
+          consecutive: draft.limits.failureRepeatStop,
+          window: draft.limits.failureRepeatStop,
+        })
   const failure = {
     attempts,
     error,
@@ -1296,7 +1309,7 @@ export function retryLater(draft: Draft, run: RunRow, result: Receipt): Rejected
   }
   if (repeat?.stuck === true) {
     const how =
-      repeat.consecutive >= 3
+      repeat.consecutive >= draft.limits.failureRepeatStop
         ? `${repeat.consecutive} раз подряд`
         : `${repeat.inWindow} раза за час`
     const summary = `Та же ошибка повторилась ${how}, автоматические повторы остановлены`

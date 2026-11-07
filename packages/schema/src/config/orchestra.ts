@@ -30,13 +30,21 @@ export class Worker extends Schema.Class<Worker>("Config.Orchestra.Worker")({
 // decide environment and enforces them in code. Anything missing falls back
 // to the kernel defaults (maxAttempts 2, maxVerifyIterations 5, maxHops 8,
 // retryBaseMinutes 5, retryMaxMinutes 60, runLeaseMinutes 5,
-// workerFreshMinutes 2, offlineAfterMinutes 10).
+// workerFreshMinutes 2, offlineAfterMinutes 10, failureRepeatStop 3,
+// toolPruneUnusedSteps 10).
 export class Autoloop extends Schema.Class<Autoloop>("Config.Orchestra.Autoloop")({
   maxAttempts: PositiveInt.pipe(optional).annotate({
     description: "Failed-run retries before the run stops (default 2; the original autoloop used 10)",
   }),
   maxVerifyIterations: PositiveInt.pipe(optional).annotate({
     description: "Check-fix rounds before the run stops and asks a human (default 5)",
+  }),
+  failureRepeatStop: PositiveInt.pipe(optional).annotate({
+    description: "Same-error repeats that stop a run early, before the retry or check caps run out (default 3)",
+  }),
+  toolPruneUnusedSteps: PositiveInt.pipe(optional).annotate({
+    description:
+      "Steps a tool may go unused in a session before the runner stops sending its definition with every request (default 10; TokenEconomizer p=10)",
   }),
   maxHops: PositiveInt.pipe(optional).annotate({
     description: "How deep a chain of events causing events may get before it stops (default 8)",
