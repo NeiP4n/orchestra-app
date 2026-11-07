@@ -92,7 +92,7 @@ describe("ClaudeAgents", () => {
         { action: "grep", resource: "*", effect: "allow" },
       ],
     })
-    expect(converted.skipped.map((item) => item.reason)).toEqual(['tool "TodoWrite" has no OpenCode counterpart'])
+    expect(converted.skipped.map((item) => item.reason)).toEqual(['tool "TodoWrite" has no Orchestra counterpart'])
   })
 })
 
@@ -156,7 +156,7 @@ describe("ClaudeSettings", () => {
     expect(result.disabledMcpServers).toEqual(["x"])
     expect(result.skipped.map((item) => item.reason)).toEqual([
       "defaultMode bypassPermissions is never carried over",
-      "env has no OpenCode equivalent yet",
+      "env has no Orchestra equivalent yet",
     ])
   })
 

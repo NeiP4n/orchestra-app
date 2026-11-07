@@ -139,14 +139,16 @@ for (const target of ["policy-fixture@1.2.3", "@scope/policy-fixture@1.2.3"]) {
   )
 }
 
-it.live("loads an OpenCode plugin that exports a bare function", () =>
+it.live("rejects an OpenCode plugin that exports a bare function", () =>
   Effect.gen(function* () {
+    // OpenCode plugin compat is gone: a bare-function default has no id,
+    // so the loader must refuse it like any other non-Orchestra module.
     const directory = yield* tmpdirScoped()
     const entry = path.join(directory.path, "plugin/index.ts")
     yield* Effect.promise(() => Bun.write(entry, "export default async () => ({})"))
     const modules = yield* PluginModule.make()
-    const loaded = yield* modules.load({ type: "add" as const, target: path.dirname(entry), options: {} })
-    expect(loaded).toMatchObject({ id: "plugin" })
+    const exit = yield* modules.load({ type: "add" as const, target: path.dirname(entry), options: {} }).pipe(Effect.exit)
+    expect(Exit.isFailure(exit)).toBe(true)
   }),
 )
 

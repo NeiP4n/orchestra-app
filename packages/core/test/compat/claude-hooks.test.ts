@@ -69,7 +69,7 @@ describe("ClaudeHookConfig", () => {
     ])
     expect(parsed.skipped.map((item) => item.reason)).toEqual([
       "Stop hook of type prompt is not supported; only command hooks run",
-      "hook event TeammateIdle has no OpenCode counterpart",
+      "hook event TeammateIdle has no Orchestra counterpart",
     ])
   })
 
