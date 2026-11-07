@@ -163,7 +163,9 @@ bodies, and every record is built field by field, never from spreads of the
 request. Files land in `<data>/log/measurements` (override:
 `ORCHESTRA_REQUEST_MEASUREMENT_DIR`), one UUID-named `.jsonl` per line,
 owner-only (`0700` dir, `0600` files), pruned after
-`ORCHESTRA_REQUEST_MEASUREMENT_RETENTION_DAYS` (default 7). Coverage:
+`ORCHESTRA_REQUEST_MEASUREMENT_RETENTION_DAYS` (default 7) - best-effort,
+not a deadline: one sweep per hour visits at most 100 entries, so a flooded
+directory drains over hours and the rotation offset resets on restart. Coverage:
 primary session-step requests only — sizes at request formation
 (`recordPrimarySizes` in `session/model-request.ts`), settled by
 `session/runner/step.ts` on every outcome branch (completed with

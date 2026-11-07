@@ -289,21 +289,20 @@ describe("SessionRequestMeasurement opt-in collection", () => {
   test("retention reaches expired entries past the first sweep window (repro: 110 files, expired at index 105)", async () => {
     const dir = mkdtemp()
     const old = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-    // The expired files are created last so they land past index 100 in the
-    // listing: a prefix-only sweep examines the same first 100 fresh entries
-    // on every run and removes 0, however often it runs (architect's repro).
-    for (let i = 0; i < 105; i++) {
+    for (let i = 0; i < 110; i++) {
       fs.writeFileSync(path.join(dir, `f1e4c000-0000-4000-8000-${String(i).padStart(12, "0")}.jsonl`), "{}\n")
     }
-    for (let i = 0; i < 5; i++) {
-      const file = path.join(dir, `f1e4c000-0000-4000-8001-${String(i).padStart(12, "0")}.jsonl`)
-      fs.writeFileSync(file, "{}\n")
-      fs.utimesSync(file, old, old)
+    // Age the entries at listing indices 105-109 - the actual readdir order,
+    // not creation order (they differ on some filesystems). A prefix-only
+    // sweep examines the same first 100 fresh entries on every run and
+    // removes 0, however often it runs (architect's repro).
+    for (const entry of fs.readdirSync(dir).slice(105)) {
+      fs.utimesSync(path.join(dir, entry), old, old)
     }
     SessionRequestMeasurement.resetSweepThrottleForTests()
     const now = Date.now()
-    await SessionRequestMeasurement.pruneOldMeasurements(dir, now, 100)
-    await SessionRequestMeasurement.pruneOldMeasurements(dir, now, 100)
+    expect(await SessionRequestMeasurement.pruneOldMeasurements(dir, now, 100)).toBe(0)
+    expect(await SessionRequestMeasurement.pruneOldMeasurements(dir, now, 100)).toBe(5)
     expect(fs.readdirSync(dir).length).toBe(105)
     SessionRequestMeasurement.resetSweepThrottleForTests()
   })

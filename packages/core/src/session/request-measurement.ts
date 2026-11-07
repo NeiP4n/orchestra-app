@@ -388,6 +388,11 @@ const sweepStateFor = (directory: string): DirectorySweep => {
  * moves that window on every call, so successive calls visit every entry and
  * an expired file can never starve behind a fresh prefix. Returns how many
  * files it removed.
+ *
+ * Retention is best-effort, not a deadline: the write path sweeps at most
+ * once per hour, each sweep visits at most SWEEP_EXAMINE_LIMIT entries, and
+ * the offset resets on restart - a flooded directory is drained over hours,
+ * and a file can outlive its retention age by that much.
  */
 export const pruneOldMeasurements = async (directory: string, now = Date.now(), limit = SWEEP_EXAMINE_LIMIT) => {
   const state = sweepStateFor(directory)
