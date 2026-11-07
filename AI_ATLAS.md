@@ -1525,9 +1525,10 @@ drops noise with the `code--chill` filter (tiny reads go, failures/writes/big
 outputs stay), truncates raw I/O at 64 KiB with a `…[truncated: N bytes]`
 marker, and is idempotent on (session + tool call) via `state.json` — a retry
 records nothing twice. The single write point for `MemoryEngine.remember` is
-inside `captureToolUse`. Secrets: there is NO scrubber here on purpose — the
-foundation slice owns `memory/scrub.ts` and wires it through the `scrub`
-hook-point on `captureToolUse`; until then capture writes tool I/O as-is.
+inside `captureToolUse`. Secrets: the live call site in
+`session/runner/llm.ts` passes the foundation scrubber (`memory/scrub.ts`,
+`scrubText`) through the `scrub` option on `captureToolUse`; raw tool I/O
+never reaches the journal unscrubbed.
 Stop: `SessionExecution` settlement calls `finalizeSession` on every terminal
 outcome (succeeded, interrupted, failed), best-effort, never failing the
 settlement. Empty sessions are skipped (no summary, no model call) but still
@@ -1923,19 +1924,16 @@ the claim path would refuse. Columns come from `task_state`:
     hard project rules, then soft rules most-specific-first
     (specificity = count of non-wildcard segments in `applies`; a
     society soft rule wins a tie).
-- Secrets: this module has NO scrubber on purpose — the foundation
-  slice owns `memory/scrub.ts`. Every write takes an optional `scrub`
-  function (`WriteOptions.scrub`) that is applied to user text before
-  writing; without it text is stored as-is. Do not grow a second
+- Secrets: the foundation scrubber (`memory/scrub.ts`, `scrubText`) is
+  wired as the default for every write (`WriteOptions.scrub` overrides it
+  per call); no text reaches the files unscrubbed. Do not grow a second
   scrubber here.
-- What is NOT covered (other slices): L3 session capture (hooks,
-  `memory.md` ≤ 8 KiB, `handoff.md`, checkpoint before compaction,
-  start budget ≤ 12k chars), the foundation scrubber itself, and the
-  full ACL model beyond the minimal table above. The existing
-  Letta-style memory (`memory/index.ts`: blocks + `archive.jsonl` in
-  the same `.orchestra/memory/` directory) is untouched — the L2 files
-  coexist with it, and `index.json` here is a different file from the
-  Б16 `index.yaml` at `.orchestra/index.yaml`.
+- What is NOT covered (other slices): the full ACL model beyond the
+  minimal table above. The existing Letta-style memory
+  (`memory/index.ts`: blocks + `archive.jsonl` in the same
+  `.orchestra/memory/` directory) is untouched — the L2 files coexist
+  with it, and `index.json` here is a different file from the Б16
+  `index.yaml` at `.orchestra/index.yaml`.
 - Tests: `packages/core/test/memory-levels.test.ts` (20: promotion,
   no-leak, 5-per-session cap, painful-only, 12 KiB fail-closed,
   idempotence, cross-root isolation, actors, compact search,

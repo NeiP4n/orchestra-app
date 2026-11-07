@@ -27,10 +27,11 @@ import { MemoryEngine } from "./engine.js"
  * - `state.json` — idempotency + checkpoint bookkeeping.
  *
  * All L3 writes go through the single write point `captureToolUse` /
- * `finalizeSession` below. Secrets: the scrubber is a separate slice
- * (foundation, `memory/scrub.ts`); until it lands, `captureToolUse` accepts an
- * optional `scrub` and otherwise writes tool I/O as-is — see the HOOK-POINT
- * note on the `scrub` option. Do NOT write a second scrubber here.
+ * `finalizeSession` below. Secrets: the live call site
+ * (`session/runner/llm.ts`) passes the foundation scrubber
+ * (`memory/scrub.ts`, `scrubText`); `captureToolUse` accepts an optional
+ * `scrub` override for tests, defaulting to identity there. Do NOT write a
+ * second scrubber here.
  */
 
 export class SessionMemoryError extends Schema.TaggedError<SessionMemoryError>()("SessionMemory.Error", {
@@ -453,9 +454,10 @@ export interface CaptureInput {
   /** When given, the observation also lands in MemoryEngine (the single write point). */
   readonly engine?: MemoryEngine
   /**
-   * HOOK-POINT for the foundation slice: pass `MemoryScrub.scrub` here once it
-   * exists. Until then the text is written as-is — raw tool I/O may carry
-   * secrets, so do NOT treat an unwired capture as secret-safe.
+   * Secret scrubber, wired by the live call site in `session/runner/llm.ts`
+   * to the foundation slice (`memory/scrub.ts`, `scrubText`). When omitted
+   * the text is written as-is — tests only; never leave a live capture
+   * unwired, raw tool I/O may carry secrets.
    */
   readonly scrub?: (text: string) => string
 }

@@ -5,6 +5,7 @@ import { appendFile, mkdir, readFile, readdir } from "node:fs/promises"
 import path from "node:path"
 import { ProjectFilesPaths } from "../project-files/paths.js"
 import { MemoryRank } from "./rank.js"
+import { scrubText } from "./scrub.js"
 import { writeAtomic } from "../write-atomic.js"
 
 /**
@@ -31,11 +32,10 @@ import { writeAtomic } from "../write-atomic.js"
  *   `promoteProjectToSociety` by a human or the council.
  * - The two levels live under different roots. A call that takes a
  *   project root can never write into a society root and vice versa.
- * - Secrets never land in files. There is NO scrubber in this module on
- *   purpose: the foundation slice owns `memory/scrub.ts`, and every write
- *   here takes an optional `scrub` function (HOOK-POINT below) that the
- *   caller plugs in. Until the foundation slice lands, callers pass
- *   nothing and text is stored as-is — a known gap, see the slice report.
+ * - Secrets never land in files. The scrubber lives in the foundation
+ *   slice (`memory/scrub.ts`); every write here runs user text through
+ *   `scrubText` by default, and a caller may override it with its own
+ *   `WriteOptions.scrub` (tests do this).
  * - No vector database, no Chroma, no Python: search is the existing
  *   offline BM25 rank (`rank.ts`) over the file store, with progressive
  *   disclosure — compact index, then timeline, then details by ID.
@@ -45,14 +45,13 @@ import { writeAtomic } from "../write-atomic.js"
  * pattern (legacy `.opencode/` fallback stays in one place).
  */
 
-// HOOK-POINT: plug the foundation slice's scrubber here (memory/scrub.ts,
+// Secret scrubber, wired to the foundation slice (`memory/scrub.ts`,
 // `scrubText`). Every write in this module runs user text through the
-// `scrub` option when one is supplied; without it text is stored as-is.
-// Do NOT grow a second scrubber in this file.
+// `scrub` option when one is supplied, and through `scrubText` otherwise.
 export type ScrubFn = (text: string) => string
 
 export interface WriteOptions {
-  /** Secret scrubber from the foundation slice; identity when omitted. */
+  /** Secret scrubber; `scrubText` from the foundation slice when omitted. */
   scrub?: ScrubFn
   /** Override for "today" (`YYYY-MM-DD`); the real date when omitted. */
   date?: string
@@ -160,7 +159,7 @@ const today = (override?: string): string => override ?? new Date().toISOString(
 const oneLine = (text: string): string => text.replaceAll(/\s+/g, " ").trim()
 
 const cleanText = (text: string, scrub?: ScrubFn): string => {
-  const cleaned = oneLine(scrub ? scrub(text) : text)
+  const cleaned = oneLine((scrub ?? scrubText)(text))
   if (cleaned.length <= MAX_FACT_CHARS) return cleaned
   return `${cleaned.slice(0, MAX_FACT_CHARS)}…[truncated: ${cleaned.length - MAX_FACT_CHARS} chars]`
 }

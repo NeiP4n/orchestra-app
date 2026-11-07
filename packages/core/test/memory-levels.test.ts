@@ -360,4 +360,23 @@ describe("secret scrub hook-point", () => {
       expect(memory).not.toContain("sk-SECRET")
     })
   })
+
+  test("without an explicit scrub the foundation scrubber applies by default (merge wiring)", async () => {
+    await withRoots(async (project) => {
+      const root = projectRoot(project)
+      const key = "sk-abcdefgh12345678"
+      await MemoryLevels.appendDailyCandidate(
+        root,
+        { text: `Нашли ключ ${key} в логах`, type: "decision", sessionId: "ses-1" },
+        { date: DATE },
+      )
+      const daily = await readFile(path.join(root, "daily", `${DATE}.md`), "utf8")
+      expect(daily).not.toContain(key)
+      expect(daily).toContain("[REDACTED]")
+      const result = await MemoryLevels.promoteSessionFacts(root, "ses-1")
+      expect(result.promoted).toHaveLength(1)
+      const memory = await readFile(path.join(root, "MEMORY.md"), "utf8")
+      expect(memory).not.toContain(key)
+    })
+  })
 })

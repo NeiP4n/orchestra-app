@@ -45,6 +45,7 @@ import { Limits } from "../../limits.js"
 import { Dod } from "../../dod.js"
 import { Location } from "../../location.js"
 import { SessionMemory } from "../../memory/session.js"
+import { scrubText } from "../../memory/scrub.js"
 import { SessionCompletionGate } from "../completion-gate.js"
 
 const CONTINUE_AFTER_INCOMPLETE_STREAM =
@@ -372,6 +373,9 @@ const layer = Layer.effect(
               inputText: event.inputText,
               outputText: event.outputText,
               ...(event.error !== undefined ? { error: event.error } : {}),
+              // Б17: raw tool I/O is scrubbed before it reaches the journal
+              // (foundation slice `memory/scrub.ts`), never stored as-is.
+              scrub: scrubText,
               engine: SessionMemory.openSessionEngine(location.project.directory),
             }),
           retry: (cause, error, proposed) =>
