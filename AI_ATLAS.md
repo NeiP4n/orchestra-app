@@ -1963,8 +1963,10 @@ replacement fought it for the port. This section is the fix, for
   systemd runs the script with a minimal PATH that has no bun, so a bare
   `bun` failed every start with exit code 127 (2026-11-07); with bun nowhere
   the watchdog exits 1 loudly instead of spinning restarts. A
-  lock counts as held only when the pid is alive and started at the lock's
-  startedAt (a recycled pid is detected and the stale lock ignored). A clean
+  lock counts as held only when the pid is alive and started within a
+  window around the lock's startedAt — up to 120s before it (the server
+  writes the lock seconds after its process starts) and at most 2s after
+  it — so a recycled pid is detected and the stale lock ignored. A clean
   shutdown or a lock held by a live server stops it (exit 0); past the cap it
   gives up loudly (exit 1).
   It is a shell loop, not an in-process supervisor: a supervisor inside
