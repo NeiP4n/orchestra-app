@@ -3,6 +3,7 @@ export * as SourceRelease from "./source-release"
 import { $ } from "bun"
 import path from "node:path"
 import { existsSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import { parseReleaseVersion } from "./updater-action"
 import { entryForVersion, latestEntry, parseRegistry, readRegistryFile } from "./release-registry"
 import type { ReleaseChannel, ReleaseEntry } from "./release-registry"
@@ -24,7 +25,9 @@ export const UNSUPPORTED_MESSAGE =
 // created through the snapshot-push flow that publishes this repo. A release entry points
 // at its bump commit's SHA, so resolving a version means reading the registry, not a tag.
 const DEFAULT_INSTALL_BRANCH = "main"
-const checkout = path.resolve(import.meta.dir, "../../../..")
+// import.meta.url works under Bun and Node alike; import.meta.dir is Bun-only
+// and undefined in the node artifact, which crashes path.resolve at startup.
+const checkout = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..")
 const DEPENDENCY_TIMEOUT_MS = 5 * 60 * 1000
 const VALIDATION_TIMEOUT_MS = 2 * 60 * 1000
 

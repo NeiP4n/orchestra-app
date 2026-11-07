@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import path from "path"
 
 declare const ORCHESTRA_VERSION: string
@@ -15,7 +16,9 @@ const MINIMUM_ANNOUNCED_VERSION = "1.0.0"
 // to be started: a project directory is the cwd, so a lookup that follows cwd silently falls
 // back for every project that is not this repository, and the announced version stops matching
 // the build the free tier is asked to accept.
-const REPO_ROOT = path.resolve(import.meta.dir, "../../..")
+// import.meta.url works under Bun and Node alike; import.meta.dir is Bun-only
+// and undefined in the node artifact, which crashes path.resolve at startup.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..")
 
 // The fallback version comes from Orchestra's own package.json, never from upstream.
 function packageJsonVersion(): string | undefined {
