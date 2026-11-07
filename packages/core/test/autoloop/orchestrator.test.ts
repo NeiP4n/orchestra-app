@@ -347,6 +347,11 @@ describe("AutoloopOrchestrator config", () => {
           info: new Info({
             orchestra: new ConfigOrchestra.Info({
               autoloop: new ConfigOrchestra.Autoloop({ maxAttempts: 1 }),
+              // The test needs execution, so it declares the mode: a
+              // config without `society.autonomy` defaults to `observe`
+              // (watch, don't execute), and `createRun` would hand back
+              // no run. The limits under test are unaffected by the mode.
+              society: new ConfigOrchestra.Society({ autonomy: "auto" }),
             }),
           }),
         }),

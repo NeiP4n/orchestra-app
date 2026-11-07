@@ -395,7 +395,53 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
   (`packages/schema/src/config/orchestra.ts`, next to `orchestra.worker`):
   `maxAttempts` (2), `maxVerifyIterations` (5), `maxHops` (8),
   `retryBaseMinutes` (5), `retryMaxMinutes` (60), `runLeaseMinutes` (5),
-  `workerFreshMinutes` (2), `offlineAfterMinutes` (10).
+  `workerFreshMinutes` (2), `offlineAfterMinutes` (10), plus router
+  batching `batchWindowMs` (1000) and `maxBatchEvents` (50).
+- **Autonomy modes (news run5, DeepSeek super-agent — ideas only, no
+  prototype code; `packages/core/src/autoloop/kernel/autonomy.ts`)**:
+  the Society's router runs in one of `off` / `observe` / `auto`, set by
+  the operator as `orchestra.society.autonomy` and resolved by
+  `autonomyFromConfig` in `src/autoloop/orchestrator.ts`. `off` takes
+  nothing — events are still recorded in the journal, but nothing is
+  routed, no run is queued, no worker claims, and no human is notified.
+  `observe` (the default when a config is present) prepares but does not
+  execute: events route and queue runs as proposals, `claimNext` hands
+  nothing out, and flipping the mode to `auto` claims the queued
+  proposals — no work is lost. `auto` executes as before. The kernel
+  default when no mode is given is `auto` (legacy behaviour, so existing
+  callers and tests keep working); the service default is `auto` until a
+  config is present, when `ensureConfigured` applies the operator's mode.
+  A live autonomous society must set `auto` explicitly — that is the gate.
+  In `observe`/`off`, `createRun` returns null (the task is not sent to
+  the worker session), and dispatch fails with a `DispatchError` naming
+  the mode as a possible cause. `claimDueRun` likewise claims nothing
+  until the mode allows it.
+- **Silence rule** ("speak only when the human must act or can use a
+  result", same source): every notice the kernel creates declares why the
+  human needs it (`NotifyKind`: `action` — something needs doing;
+  `result` — a finished outcome the human can use). There is no third
+  kind — a notice that is neither must not be created. Ingest itself
+  never notifies: N events in, zero cards out. In `off` mode every notice
+  is dropped at the `notify` gate. Worker-initiated cards from receipts
+  pass through untouched — they are the worker's own messages, not the
+  router's.
+- **Router batching** (same source): `decide` input `ingestBatch` records
+  a whole burst from one source in a single pass (one commit, one
+  deadlines recompute), deduping inside the batch and against the journal
+  (same `(source, key)` twice is recorded once), and coalescing
+  same-rule, same-lane events into one queued run through `enqueue`.
+  One call is capped at `MAX_BATCH_EVENTS` (200) — split bigger bursts.
+  The service accumulates single events per source
+  (`Autoloop.ingestEvent`) and flushes them in one `ingestBatch` pass
+  when the window (`batchWindowMs`) runs out or `maxBatchEvents` arrive
+  (`shouldFlushBatch` in `kernel/autonomy.ts` is the pure predicate the
+  service and the tests share); `flushBatch` forces the flush, and
+  `start()` forks the window loop next to the clock loop. An event is not
+  in the journal until its batch flushes. `Autoloop.configure` accepts
+  `autonomy` and `batch`; `AutoloopCards` carries the mode through
+  (`CardsEnv.autonomy`). Tests:
+  `packages/core/test/autoloop/autonomy.test.ts` — modes, silence,
+  batching, config resolution, service batching.
 - **Tick service (block Б3, подшаг 3)**: `src/autoloop/service.ts` is the
   Effect service around the journal and `decide` (`Autoloop.Service`,
   node in the server layer next to `Orchestra`/`Federation`,
@@ -917,6 +963,13 @@ messages and builds the rest with `society_forge generate` and `society_plan`.
 - Base projects come from the operator's `orchestra.society.baseProjects` config
   when it is set and complete, otherwise the built-in four (planner, architects,
   coders, testers). A configured entry missing a field falls back to the built-ins.
+- Autonomy mode: `orchestra.society.autonomy` (`off` / `observe` / `auto`,
+  default `observe` when a config is present) says how much work the
+  Society's router (the autoloop, see "Autoloop journal") may take on its
+  own. A live autonomous society must set `auto` explicitly; in
+  `observe` work piles up as queued proposals and dispatch is refused,
+  in `off` nothing is even queued. The kernel and the service default to
+  `auto` without a config, so existing callers keep working.
 - A project created from a built-in team template opens one worker per template
   role at once — in `createSociety` for the team project and in `generate` for
   base and extra projects — never zero workers. Operator-saved templates open

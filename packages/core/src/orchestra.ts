@@ -2529,7 +2529,7 @@ const layer: Layer.Layer<
                 if (cycle === null) {
                   yield* kv.remove(key)
                   return yield* new DispatchError({
-                    message: `Autoloop has no run ready for this task (the dispatch rule is missing, or ${AutoloopOrchestrator.MAX_CONCURRENT_RUNS} runs are already in flight).`,
+                    message: `Autoloop has no run ready for this task (the dispatch rule is missing, ${AutoloopOrchestrator.MAX_CONCURRENT_RUNS} runs are already in flight, or the Society's autonomy mode is observe/off — the task is queued as a proposal, flip the mode to auto to execute it).`,
                   })
                 }
                 yield* kv.set(

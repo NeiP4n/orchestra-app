@@ -9,7 +9,7 @@ import { Database } from "../database/database.js"
 import type { Entry } from "@orchestra/schema/config"
 import { AutoloopCards } from "./cards.js"
 import type { CardChange, CardsEnv } from "./cards.js"
-import { limitsFromConfig, mergeDispatchRule, orchestraRules } from "./orchestrator.js"
+import { autonomyFromConfig, batchLimitsFromConfig, limitsFromConfig, mergeDispatchRule, orchestraRules } from "./orchestrator.js"
 import {
   decide,
   resolveLimits,
@@ -17,7 +17,14 @@ import {
   type CardRow,
   type DecideInput,
   type DeliveryRow,
+  type EventInput,
 } from "./kernel/decide.js"
+import {
+  resolveBatchLimits,
+  shouldFlushBatch,
+  type AutonomyMode,
+  type BatchLimits,
+} from "./kernel/autonomy.js"
 import { deadlines, MINUTE, type DueLimits } from "./kernel/due.js"
 import type { View } from "./kernel/evolve.js"
 import { emptyRules, type Rules } from "./kernel/rules.js"
@@ -64,6 +71,21 @@ export interface Interface {
    * `decide` returned for the input.
    */
   readonly execute: (input: DecideInput, now?: number) => Effect.Effect<unknown, ServiceFailure>
+  /**
+   * Ingest a whole burst of events from one source in a single decide
+   * pass (one commit, one deadlines recompute) instead of one pass per
+   * event. The value is what `decide` returned for `ingestBatch`.
+   */
+  readonly ingestBatch: (source: string, events: ReadonlyArray<EventInput>) => Effect.Effect<unknown, ServiceFailure>
+  /**
+   * Ingest one event through the batching window: it accumulates with
+   * other events from the same source and flushes in one `ingestBatch`
+   * pass when the window runs out or `maxBatchEvents` arrive. The event
+   * is not in the journal until the flush — `flushBatch` forces it out.
+   */
+  readonly ingestEvent: (source: string, event: EventInput) => Effect.Effect<void, ServiceFailure>
+  /** Flush every accumulated batch now, in one `ingestBatch` pass each. */
+  readonly flushBatch: () => Effect.Effect<void, ServiceFailure>
   /** Current view, read fresh from the journal — it includes writes from the API handlers. */
   readonly getView: () => Effect.Effect<View, ServiceFailure>
   /** The view after each execute that committed facts, for live subscribers. */
@@ -82,15 +104,17 @@ export interface Interface {
   /** How many ticks the clock has run, and when the last one ran. */
   readonly stats: () => Effect.Effect<Stats>
   /**
-   * Apply operator options at runtime — rules and limits from the Orchestra
-   * config, set once at server boot before the clock starts. Only the
-   * fields given change; the rest keep what the layer was built with. The
-   * claim/finish secret stays construction-only: tokens already issued
-   * must keep verifying.
+   * Apply operator options at runtime — rules, limits, autonomy mode and
+   * batch limits from the Orchestra config, set once at server boot
+   * before the clock starts. Only the fields given change; the rest keep
+   * what the layer was built with. The claim/finish secret stays
+   * construction-only: tokens already issued must keep verifying.
    */
   readonly configure: (options: {
     rules?: Rules
     limits?: Partial<AutoloopLimits>
+    autonomy?: AutonomyMode
+    batch?: Partial<BatchLimits>
   }) => Effect.Effect<void>
 }
 
@@ -102,6 +126,15 @@ export interface Options {
   rules?: Rules
   /** Cycle limits; anything missing falls back to `decide`'s defaults. */
   limits?: Partial<AutoloopLimits>
+  /**
+   * Autonomy mode (`off` / `observe` / `auto`). When absent the service
+   * runs as before (`auto`); the operator-facing default (`observe`) is
+   * applied by `ensureConfigured` from `orchestra.society.autonomy` when
+   * a config is present in the context.
+   */
+  autonomy?: AutonomyMode
+  /** Router batch limits; anything missing falls back to the kernel defaults. */
+  batch?: Partial<BatchLimits>
   /** Secret the claim/finish tokens are derived from (credential store).
    * When absent, a random 32-byte secret is generated per process: tokens
    * are `sha256(secret:run:id:issued)`, so an empty secret makes every token
@@ -116,6 +149,12 @@ interface State {
   readonly rules: Ref.Ref<Rules | undefined>
   /** Set at build, replaced by `configure` at server boot. */
   readonly limits: Ref.Ref<Partial<AutoloopLimits> | undefined>
+  /** Autonomy mode; `auto` until a config (or `configure`) says otherwise. */
+  readonly autonomy: Ref.Ref<AutonomyMode>
+  /** Router batch limits; replaced by `configure` at server boot. */
+  readonly batch: Ref.Ref<BatchLimits>
+  /** Single events waiting for the batch window, one batch per source. */
+  readonly pending: Ref.Ref<Map<string, { events: Array<EventInput>; firstAt: number }>>
   /** Whether the operator config has been applied once (see `ensureConfigured`). */
   readonly configured: Ref.Ref<boolean>
   readonly tokenSecret: string | undefined
@@ -162,9 +201,15 @@ const signal = (state: State) =>
     yield* Ref.set(state.wakeup, yield* Deferred.make<void>())
   })
 
-const cardsEnv = (rules: Rules | undefined, limits: Partial<AutoloopLimits> | undefined, tokenSecret: string | undefined): CardsEnv => ({
+const cardsEnv = (
+  rules: Rules | undefined,
+  limits: Partial<AutoloopLimits> | undefined,
+  tokenSecret: string | undefined,
+  autonomy?: AutonomyMode,
+): CardsEnv => ({
   rules,
   limits,
+  autonomy,
   tokenSecret,
 })
 
@@ -178,7 +223,12 @@ const cardsEnv = (rules: Rules | undefined, limits: Partial<AutoloopLimits> | un
  */
 const drainDelivery = (state: State): Effect.Effect<void> =>
   Effect.gen(function* () {
-    const env = cardsEnv(yield* Ref.get(state.rules), yield* Ref.get(state.limits), state.tokenSecret)
+    const env = cardsEnv(
+      yield* Ref.get(state.rules),
+      yield* Ref.get(state.limits),
+      state.tokenSecret,
+      yield* Ref.get(state.autonomy),
+    )
     while (true) {
       const handed = yield* AutoloopCards.nextCard("web", env).pipe(Effect.exit)
       if (handed._tag === "Failure") {
@@ -225,11 +275,13 @@ const executeInner = (state: State, input: DecideInput, now = Date.now()) =>
       const stored = AutoloopCards.storedRules(opened.view)
       const rules = (yield* Ref.get(state.rules)) ?? stored?.rules ?? emptyRules()
       const limits = yield* Ref.get(state.limits)
+      const autonomy = yield* Ref.get(state.autonomy)
       const decided = yield* Effect.try({
         try: () =>
           decide(opened.view, input, now, {
             rules,
             limits,
+            autonomy,
             tokenSecret: state.tokenSecret,
             seq: opened.lastSeq + 1,
             rulesVersion: stored?.version ?? 1,
@@ -347,6 +399,9 @@ const make = (options: Options = {}) =>
     const state: State = {
       rules: yield* Ref.make(options.rules),
       limits: yield* Ref.make(options.limits),
+      autonomy: yield* Ref.make<AutonomyMode>(options.autonomy ?? "auto"),
+      batch: yield* Ref.make(resolveBatchLimits(options.batch)),
+      pending: yield* Ref.make(new Map()),
       configured: yield* Ref.make(false),
       tokenSecret: options.tokenSecret ?? randomBytes(32).toString("hex"),
       bus,
@@ -376,7 +431,8 @@ const make = (options: Options = {}) =>
         const entries = yield* config.value.entries().pipe(
           Effect.catch(() => Effect.succeed([] as Entry[])),
         )
-        const autoloop = Config.latest(entries, "orchestra")?.autoloop
+        const info = Config.latest(entries, "orchestra")
+        const autoloop = info?.autoloop
         const opened = yield* AutoloopStore.openView().pipe(
           Effect.provideService(Database.Service, state.database),
           Effect.catch(() => Effect.succeed(null)),
@@ -385,7 +441,60 @@ const make = (options: Options = {}) =>
         const rules = stored === undefined ? orchestraRules() : mergeDispatchRule(stored.rules)
         yield* Ref.set(state.rules, rules)
         yield* Ref.set(state.limits, limitsFromConfig(autoloop))
+        yield* Ref.set(state.autonomy, autonomyFromConfig(info))
+        yield* Ref.set(state.batch, resolveBatchLimits(batchLimitsFromConfig(autoloop)))
         yield* Ref.set(state.configured, true)
+      })
+
+    /** One decide input with the operator config applied first, as `execute` does. */
+    const run = (state: State, input: DecideInput, now?: number) =>
+      Effect.gen(function* () {
+        yield* ensureConfigured(state)
+        return yield* executeInner(state, input, now)
+      })
+
+    /**
+     * Flush every accumulated batch in one `ingestBatch` pass each. Never
+     * fails the caller: a stuck flush is logged and the batch stays
+     * pending for the next window instead of being dropped silently.
+     */
+    const flushPending = (state: State) =>
+      Effect.gen(function* () {
+        const pending = yield* Ref.get(state.pending)
+        if (pending.size === 0) return
+        yield* Ref.set(state.pending, new Map())
+        for (const [source, batch] of pending) {
+          yield* run(state, { type: "ingestBatch", args: [source, batch.events] }).pipe(
+            Effect.catchCause((cause) =>
+              Effect.gen(function* () {
+                yield* Effect.logError("autoloop: не удалось сбросить пачку событий", { cause, source })
+                const rest = new Map(yield* Ref.get(state.pending))
+                const kept = rest.get(source) ?? { events: [], firstAt: batch.firstAt }
+                rest.set(source, { events: [...batch.events, ...kept.events], firstAt: batch.firstAt })
+                yield* Ref.set(state.pending, rest)
+              }),
+            ),
+          )
+        }
+      })
+
+    /**
+     * The batch window: every `windowMs` the accumulated events flush in
+     * one pass per source. A failed flush never kills the loop — it is
+     * logged and retried on the next window, so a broken journal cannot
+     * spin and a fixed one is picked up on its own.
+     */
+    const batchLoop = (state: State): Effect.Effect<void, never, never> =>
+      Effect.gen(function* () {
+        while (true) {
+          const limits = yield* Ref.get(state.batch)
+          yield* Effect.sleep(Duration.millis(limits.windowMs))
+          yield* flushPending(state).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logError("autoloop: сброс пачки событий не удался", { cause }),
+            ),
+          )
+        }
       })
 
     const service: Interface = {
@@ -394,6 +503,23 @@ const make = (options: Options = {}) =>
           yield* ensureConfigured(state)
           return yield* executeInner(state, input, now)
         }),
+      ingestBatch: (source, events) => run(state, { type: "ingestBatch", args: [source, [...events]] }),
+      ingestEvent: (source, event) =>
+        Effect.gen(function* () {
+          yield* ensureConfigured(state)
+          const now = Date.now()
+          const limits = yield* Ref.get(state.batch)
+          const pending = new Map(yield* Ref.get(state.pending))
+          const batch = pending.get(source) ?? { events: [], firstAt: now }
+          batch.events.push(event)
+          pending.set(source, batch)
+          yield* Ref.set(state.pending, pending)
+          if (!shouldFlushBatch(batch.events.length, batch.firstAt, now, limits)) return
+          const rest = new Map([...pending].filter(([key]) => key !== source))
+          yield* Ref.set(state.pending, rest)
+          yield* executeInner(state, { type: "ingestBatch", args: [source, batch.events] })
+        }),
+      flushBatch: () => flushPending(state),
       getView: () =>
         AutoloopStore.openView().pipe(
           Effect.provideService(Database.Service, database),
@@ -408,6 +534,7 @@ const make = (options: Options = {}) =>
           const already = yield* Ref.getAndSet(state.started, true)
           if (already) return
           yield* Effect.forkScoped(loop(state))
+          yield* Effect.forkScoped(batchLoop(state))
         }),
       stats: () => Ref.get(state.stats),
       configure: (given) =>
@@ -415,6 +542,11 @@ const make = (options: Options = {}) =>
           Effect.gen(function* () {
             if (given.rules !== undefined) yield* Ref.set(state.rules, given.rules)
             if (given.limits !== undefined) yield* Ref.set(state.limits, given.limits)
+            if (given.autonomy !== undefined) yield* Ref.set(state.autonomy, given.autonomy)
+            if (given.batch !== undefined) {
+              const current = yield* Ref.get(state.batch)
+              yield* Ref.set(state.batch, resolveBatchLimits({ ...current, ...given.batch }))
+            }
           }),
         ),
     }
