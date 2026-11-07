@@ -43,7 +43,6 @@ import { SessionPrefixPin } from "./prefix-pin.js"
 import { SessionProviderContext } from "./provider-context.js"
 import { SessionRequestReport } from "./request-report.js"
 import { SessionRequestMeasurement } from "./request-measurement.js"
-import { randomUUID } from "node:crypto"
 import { SessionRunnerModel } from "./runner/model.js"
 import { SessionSchema } from "./schema.js"
 import { SessionSystemPrompt } from "./system-prompt.js"
@@ -120,12 +119,7 @@ export const baseTranscript = (input: {
     : SessionSystemPrompt.make(input.tools.definitions.map((tool) => tool.name))
   return {
     providerMetadataKey,
-    system: [
-      systemPrompt,
-      input.initial,
-    ]
-      .filter((part) => part.length > 0)
-      .map(SystemPart.make),
+    system: [systemPrompt, input.initial].filter((part) => part.length > 0).map(SystemPart.make),
     messages: toLLMMessages(input.messages, input.model.ref, providerMetadataKey),
   }
 }
@@ -264,8 +258,7 @@ export const layer = Layer.effect(
       // the built-in OpenCode provider, while Tool.snapshot.execute still enforces local policy.
       // This does not grant permission to execute either tool: hidden tools are not present in the
       // snapshot's active executor maps.
-      const deniedCompatibility =
-        model.ref.providerID === "opencode" ? (tools.compatibilityDefinitions ?? []) : []
+      const deniedCompatibility = model.ref.providerID === "opencode" ? (tools.compatibilityDefinitions ?? []) : []
       // On-demand direct tools join the request once the session loaded or called them, or the
       // user's words triggered them. The rest stay one line each in the `tools` index.
       const picked = new Set([
@@ -339,8 +332,7 @@ export const layer = Layer.effect(
       // well-formed token goes into both. A group chat keeps a derived id (`ses_group_…`) so
       // reopening the group finds the same chat. Other providers and the remaining headers keep
       // the real id.
-      const gateway =
-        model.ref.providerID === "opencode" ? SessionAffinity.gateway(session) : affinity
+      const gateway = model.ref.providerID === "opencode" ? SessionAffinity.gateway(session) : affinity
       // Only the agent loop resends a growing history; titles, summaries, and generation are one-shot.
       const prefix =
         kind === "primary"
@@ -433,30 +425,10 @@ export const layer = Layer.effect(
         )
       if (kind === "primary" && SessionRequestReport.enabled())
         yield* SessionRequestReport.write({ sessionID: session.id, agent: input.agent, request })
-      if (kind === "primary" && SessionRequestMeasurement.enabled()) {
-        // Numbers only, computed from the formed request without changing it; nothing is sent
-        // to the provider. A write failure is swallowed inside writeLine and never alters the
-        // request or a retry. Covers primary sizes only - not full per-request billing.
-        const sizes = SessionRequestMeasurement.sizesOf(request)
-        const attemptID = randomUUID()
-        yield* SessionRequestMeasurement.writeLine(
-          SessionRequestMeasurement.sizesLine(
-            SessionRequestMeasurement.open({
-              measurementID: randomUUID(),
-              sessionID: session.id,
-              logicalRequestID: attemptID,
-              attemptID,
-              phase: "primary",
-              providerID: sizes.providerID,
-              modelID: sizes.modelID,
-              startedAt: Date.now(),
-              toolCount: sizes.toolCount,
-              messageCount: sizes.messageCount,
-              estimates: sizes.estimates,
-            }),
-          ),
-        )
-      }
+      // Numbers-only measurement, opt-in via ORCHESTRA_REQUEST_MEASUREMENT=1 and fully
+      // best-effort inside: the request is byte-identical afterwards, nothing is sent to the
+      // provider, and no failure here can reach the request or a retry. Primary sizes only.
+      if (kind === "primary") yield* SessionRequestMeasurement.recordPrimarySizes({ sessionID: session.id, request })
 
       const hasHttpHooks =
         (yield* hooks.has("session", "http.request", model.ref.providerID)) ||
@@ -560,22 +532,23 @@ export const layer = Layer.effect(
         // catch them and turn a "no" into model-visible output. Recover them here as failures.
         executeTool: (call: Parameters<Prepared["executeTool"]>[0]) => {
           const guide = unguided(call.call.name)
-          return (unloaded(call.call.name)
-            ? Effect.fail(
-                new Tool.Error({
-                  message: `${call.call.name} was not loaded for this step. It is loaded now: call it again.`,
-                }),
-              )
-            : guide !== undefined
-              ? Effect.succeed<Tool.NormalizedResult>({
-                  content: [
-                    {
-                      type: "text" as const,
-                      text: `${guide}\n\nThis is how ${call.call.name} works; the call did not run. Call it again with what you need.`,
-                    },
-                  ],
-                })
-              : tools.execute({ ...call, definitions: hooked })
+          return (
+            unloaded(call.call.name)
+              ? Effect.fail(
+                  new Tool.Error({
+                    message: `${call.call.name} was not loaded for this step. It is loaded now: call it again.`,
+                  }),
+                )
+              : guide !== undefined
+                ? Effect.succeed<Tool.NormalizedResult>({
+                    content: [
+                      {
+                        type: "text" as const,
+                        text: `${guide}\n\nThis is how ${call.call.name} works; the call did not run. Call it again with what you need.`,
+                      },
+                    ],
+                  })
+                : tools.execute({ ...call, definitions: hooked })
           ).pipe(
             Effect.catchCauseFilter(
               (cause) => {

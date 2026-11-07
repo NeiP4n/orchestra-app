@@ -383,3 +383,179 @@ describe("SessionRequestMeasurement contract invariants", () => {
     ).toThrow()
   })
 })
+
+describe("SessionRequestMeasurement lifecycle and export", () => {
+  const mkdtemp = () => fs.mkdtempSync(path.join(os.tmpdir(), "measure-"))
+  const request = {
+    model: { provider: "zen", id: "glm-4.6" },
+    system: [{ text: "You are helpful." }],
+    tools: [{ name: "bash", description: "Run commands" }],
+    messages: [{ role: "user", content: "Fix the bug" }],
+  }
+  const withFlag = async (run: () => Promise<void>) => {
+    process.env.ORCHESTRA_REQUEST_MEASUREMENT = "1"
+    try {
+      await run()
+    } finally {
+      delete process.env.ORCHESTRA_REQUEST_MEASUREMENT
+      SessionRequestMeasurement.untrackAll()
+    }
+  }
+
+  test("disabled means no filesystem effects and nothing tracked", async () => {
+    const dir = mkdtemp()
+    await Effect.runPromise(SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-1", request }, dir))
+    expect(fs.readdirSync(dir)).toEqual([])
+    expect(SessionRequestMeasurement.pendingAttempt("ses-1")).toBeUndefined()
+  })
+
+  test("a line over the size cap is dropped, not truncated", async () => {
+    const dir = mkdtemp()
+    await Effect.runPromise(
+      SessionRequestMeasurement.writeLine("x".repeat(SessionRequestMeasurement.MAX_LINE_BYTES + 1), dir),
+    )
+    expect(fs.readdirSync(dir)).toEqual([])
+  })
+
+  test("writeLine creates a missing directory tree with private permissions", async () => {
+    const dir = path.join(mkdtemp(), "nested", "deeper")
+    await Effect.runPromise(SessionRequestMeasurement.writeLine("{}", dir))
+    expect(fs.readdirSync(dir)).toHaveLength(1)
+    expect(fs.statSync(dir).mode & 0o777).toBe(0o700)
+    expect(fs.statSync(path.join(dir, fs.readdirSync(dir)[0])).mode & 0o777).toBe(0o600)
+  })
+
+  test("a throwing extraction cannot fail the caller", async () => {
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    const dir = mkdtemp()
+    await withFlag(async () => {
+      await Effect.runPromise(
+        SessionRequestMeasurement.recordPrimarySizes(
+          { sessionID: "ses-1", request: { ...request, messages: [{ role: "user", content: circular }] } },
+          dir,
+        ),
+      )
+    })
+    expect(fs.readdirSync(dir)).toEqual([])
+    expect(SessionRequestMeasurement.pendingAttempt("ses-1")).toBeUndefined()
+  })
+
+  test("completePrimary finalizes once; a duplicate is a no-op", async () => {
+    const dir = mkdtemp()
+    await withFlag(async () => {
+      await Effect.runPromise(SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-1", request }, dir))
+      await Effect.runPromise(
+        SessionRequestMeasurement.completePrimary(
+          "ses-1",
+          {
+            outcome: "completed",
+            endedAt: Date.now(),
+            usage: { input: 10, output: 5, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
+            cost: { recordedUSD: null, estimatedUSD: 0.0001, source: "catalog" },
+          },
+          dir,
+        ),
+      )
+      await Effect.runPromise(
+        SessionRequestMeasurement.completePrimary("ses-1", { outcome: "failed", endedAt: Date.now() }, dir),
+      )
+    })
+    const lines = fs
+      .readdirSync(dir)
+      .flatMap((file) => fs.readFileSync(path.join(dir, file), "utf8").trim().split("\n"))
+    expect(lines).toHaveLength(2)
+    const completion = JSON.parse(lines[1])
+    expect(completion.coverage).toBe("primary-completion")
+    expect(completion.record.outcome).toBe("completed")
+    expect(completion.record.usage.input).toBe(10)
+  })
+
+  test("export folds sizes plus completion into one record and reports the manifest", async () => {
+    const dir = mkdtemp()
+    await withFlag(async () => {
+      await Effect.runPromise(SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-1", request }, dir))
+      await Effect.runPromise(
+        SessionRequestMeasurement.completePrimary(
+          "ses-1",
+          {
+            outcome: "completed",
+            endedAt: Date.now(),
+            usage: { input: 10, output: 5, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
+            cost: { recordedUSD: null, estimatedUSD: 0.0001, source: "catalog" },
+          },
+          dir,
+        ),
+      )
+      await Effect.runPromise(SessionRequestMeasurement.recordPrimarySizes({ sessionID: "ses-2", request }, dir))
+      const file = fs.readdirSync(dir)[0]
+      fs.appendFileSync(path.join(dir, file), "not json at all\n")
+    })
+    const result = await Effect.runPromise(SessionRequestMeasurement.readExport(dir))
+    expect(result.lines).toHaveLength(2)
+    expect(result.manifest.records).toBe(2)
+    expect(result.manifest.unfinished).toBe(1)
+    expect(result.manifest.skippedLines).toBe(1)
+    expect(result.manifest.coverage).toEqual(["primary-sizes", "primary-completion"])
+    expect(result.manifest.gaps.length).toBeGreaterThan(0)
+    const finished = result.lines.map((line) => JSON.parse(line)).find((record) => record.sessionID === "ses-1")
+    expect(finished.outcome).toBe("completed")
+    expect(finished.usage.input).toBe(10)
+    expect(finished.cost.estimatedUSD).toBe(0.0001)
+  })
+
+  test("export filters by window and sessions and skips malformed records", async () => {
+    const dir = mkdtemp()
+    const write = (record: object, coverage = "primary-sizes") =>
+      Effect.runPromise(SessionRequestMeasurement.writeLine(JSON.stringify({ coverage, record }), dir))
+    const base = {
+      schemaVersion: 1,
+      measurementID: "m-1",
+      sessionID: "ses-1",
+      logicalRequestID: "lr-1",
+      attemptID: "a-1",
+      retryOf: null,
+      goalID: null,
+      taskID: null,
+      role: null,
+      attribution: "unknown",
+      phase: "primary",
+      providerID: "zen",
+      modelID: "glm-4.6",
+      endedAt: null,
+      durationMs: null,
+      outcome: "unknown",
+      usage: { input: null, output: null, reasoning: null, cacheRead: null, cacheWrite: null },
+      cost: { recordedUSD: null, estimatedUSD: null, source: "unknown" },
+      toolCount: 0,
+      messageCount: 0,
+      estimates: { system: null, tools: null, history: null, method: "none" },
+      sdkRetries: "uncounted",
+    }
+    await write({ ...base, startedAt: 1000 })
+    await write({
+      ...base,
+      measurementID: "m-2",
+      sessionID: "ses-2",
+      logicalRequestID: "lr-2",
+      attemptID: "a-2",
+      startedAt: 9000,
+    })
+    await write({
+      ...base,
+      measurementID: "m-3",
+      sessionID: "ses-3",
+      logicalRequestID: "lr-3",
+      attemptID: "a-3",
+      startedAt: "oops",
+    })
+    const all = await Effect.runPromise(SessionRequestMeasurement.readExport(dir))
+    expect(all.manifest.records).toBe(2)
+    expect(all.manifest.skippedLines).toBe(1)
+    const windowed = await Effect.runPromise(SessionRequestMeasurement.readExport(dir, { from: 5000 }))
+    expect(windowed.lines).toHaveLength(1)
+    const filtered = await Effect.runPromise(SessionRequestMeasurement.readExport(dir, { sessions: ["ses-1"] }))
+    expect(filtered.lines).toHaveLength(1)
+    expect(JSON.parse(filtered.lines[0]).sessionID).toBe("ses-1")
+  })
+})

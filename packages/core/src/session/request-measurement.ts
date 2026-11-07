@@ -415,3 +415,172 @@ export const recordPrimarySizes = (
       Effect.ignore,
     )
   })
+
+/** What a completion line is labelled with; begin lines keep the "primary-sizes" label. */
+export const completionCoverage = "primary-completion"
+
+// The attempt opened when a primary request is formed, held until the step settles. One pending
+// attempt per session: a session's steps are sequential, and a retry opens a new attempt.
+const pending = new Map<string, Attempt>()
+
+export const track = (record: Attempt): Attempt => {
+  pending.set(record.sessionID, record)
+  return record
+}
+
+export const pendingAttempt = (sessionID: string): Attempt | undefined => pending.get(sessionID)
+
+/** Test hook: forget every pending attempt. */
+export const untrackAll = () => pending.clear()
+
+export function completionLine(record: Attempt): string {
+  return JSON.stringify({ coverage: completionCoverage, record: JSON.parse(toLine(record)) as unknown })
+}
+
+// Finalize the session's pending attempt and write its completion line. Idempotent: with no
+// pending attempt (already finalized, or measurement off when the step started) it does nothing,
+// so a duplicate terminal event can never create a second record.
+export const completePrimary = (
+  sessionID: string,
+  input: FinishInput,
+  directory = path.join(Global.Path.log, "measurements"),
+) =>
+  Effect.suspend(() => {
+    const current = pending.get(sessionID)
+    if (!current) return Effect.void
+    pending.delete(sessionID)
+    const finished = finish({ attempts: { [current.attemptID]: current } }, current.attemptID, input).attempts[
+      current.attemptID
+    ]
+    return writeLine(completionLine(finished), directory)
+  })
+
+export const gaps = [
+  "title, compaction, summary and intake requests are not measured yet",
+  "retries hidden inside the provider SDK are not counted",
+  "a local attempt ID is not the provider's request ID and does not prove billed HTTP attempts",
+  "an attempt whose step was interrupted at fiber level stays unfinished and is listed as such",
+  "project filtering is not supported by schema v1 records",
+] as const
+
+export interface ExportOptions {
+  /** Epoch milliseconds bounds on startedAt; either side may be omitted. */
+  readonly from?: number
+  readonly to?: number
+  readonly sessions?: ReadonlyArray<string>
+}
+
+export interface ExportResult {
+  readonly manifest: {
+    readonly schemaVersion: number
+    readonly coverage: ReadonlyArray<string>
+    readonly gaps: ReadonlyArray<string>
+    readonly estimateMethod: string
+    readonly records: number
+    readonly unfinished: number
+    readonly skippedLines: number
+    readonly window: { readonly from: number | null; readonly to: number | null }
+    readonly sessions: ReadonlyArray<string> | null
+  }
+  readonly lines: ReadonlyArray<string>
+}
+
+// A stored line is untrusted input: only records that pass the same field, enum and number
+// validation as a fresh open() are folded in; the rest are counted as skipped.
+const wellFormed = (record: Attempt): boolean => {
+  try {
+    idOf(record.measurementID, "measurementID")
+    idOf(record.sessionID, "sessionID")
+    idOf(record.logicalRequestID, "logicalRequestID")
+    idOf(record.attemptID, "attemptID")
+    if (record.retryOf !== null) idOf(record.retryOf, "retryOf")
+    phaseOf(record.phase)
+    outcomeOf(record.outcome)
+    idOf(record.providerID, "providerID")
+    idOf(record.modelID, "modelID")
+    nonNeg(record.startedAt, "startedAt")
+    if (record.endedAt !== null) nonNeg(record.endedAt, "endedAt")
+    nonNeg(record.toolCount, "toolCount")
+    nonNeg(record.messageCount, "messageCount")
+    usageOf(record.usage)
+    costOf(record.cost)
+    return true
+  } catch {
+    return false
+  }
+}
+
+// Fold every stored line back through the ledger: sizes lines open attempts, completion lines
+// finish them, the first terminal event wins, and one attempt is exactly one record - a primary
+// plus its completion is never two charges. Read and merge only; nothing is sent anywhere.
+export const readExport = (directory: string, options: ExportOptions = {}) =>
+  Effect.tryPromise({
+    try: async () => {
+      let entries: string[]
+      try {
+        entries = await readdir(directory)
+      } catch {
+        entries = []
+      }
+      let ledger: Ledger = empty
+      let skipped = 0
+      for (const entry of entries.toSorted()) {
+        if (!ownFile.test(entry)) continue
+        let text: string
+        try {
+          text = await readFile(path.join(directory, entry), "utf8")
+        } catch {
+          continue
+        }
+        for (const raw of text.split("\n")) {
+          if (!raw.trim()) continue
+          try {
+            const parsed = JSON.parse(raw) as { coverage?: string; record?: Attempt }
+            const record = parsed.record
+            if (!record || typeof record.attemptID !== "string" || !wellFormed(record)) {
+              skipped++
+              continue
+            }
+            if (parsed.coverage === completionCoverage && record.outcome !== "unknown") {
+              const before = ledger.attempts[record.attemptID]
+              // File order is arbitrary, so the completion can arrive before its begin: keep the
+              // terminal record either way, and never let a later begin reopen it.
+              if (before === undefined) ledger = { attempts: { ...ledger.attempts, [record.attemptID]: record } }
+              else if (before.outcome === "unknown")
+                ledger = finish(ledger, record.attemptID, {
+                  outcome: record.outcome,
+                  endedAt: record.endedAt ?? record.startedAt,
+                  usage: record.usage,
+                  cost: record.cost,
+                })
+            } else if (!(record.attemptID in ledger.attempts)) {
+              ledger = { attempts: { ...ledger.attempts, [record.attemptID]: record } }
+            }
+          } catch {
+            skipped++
+          }
+        }
+      }
+      const sessions = options.sessions?.length ? new Set(options.sessions) : undefined
+      const records = Object.values(ledger.attempts)
+        .filter((record) => (sessions ? sessions.has(record.sessionID) : true))
+        .filter((record) => (options.from === undefined ? true : record.startedAt >= options.from))
+        .filter((record) => (options.to === undefined ? true : record.startedAt <= options.to))
+        .toSorted((left, right) => left.startedAt - right.startedAt)
+      return {
+        manifest: {
+          schemaVersion,
+          coverage: [coverage, completionCoverage],
+          gaps,
+          estimateMethod,
+          records: records.length,
+          unfinished: records.filter((record) => record.outcome === "unknown").length,
+          skippedLines: skipped,
+          window: { from: options.from ?? null, to: options.to ?? null },
+          sessions: options.sessions ?? null,
+        },
+        lines: records.map(toLine),
+      } satisfies ExportResult
+    },
+    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+  })

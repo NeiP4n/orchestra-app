@@ -26,6 +26,7 @@ import { SessionModelRequest } from "../model-request.js"
 import { SessionSchema } from "../schema.js"
 import { asRateLimit, toSessionError } from "../to-session-error.js"
 import { SessionUsage } from "../usage.js"
+import { SessionRequestMeasurement } from "../request-measurement.js"
 import { SessionRunnerModel } from "./model.js"
 import { createLLMEventPublisher } from "./publish-llm-event.js"
 import { SessionRunnerRetry } from "./retry.js"
@@ -90,9 +91,7 @@ const stringifyToolInput = (input: unknown): string => {
 }
 
 const toolContentText = (content: ReadonlyArray<Tool.Content>): string =>
-  content
-    .flatMap((item) => (item.type === "text" ? [item.text] : [`[file: ${item.name ?? item.mime}]`]))
-    .join("\n")
+  content.flatMap((item) => (item.type === "text" ? [item.text] : [`[file: ${item.name ?? item.mime}]`])).join("\n")
 
 /** Best-effort L3 notification: a missing callback or a failing one is a no-op for the step. */
 const notifyToolSettled = (
@@ -320,6 +319,9 @@ export const make = Effect.gen(function* () {
         }
 
         const record = publisher.record()
+        const usage = record.finish
+          ? { cost: SessionUsage.calculateCost(input.model.cost, record.finish.tokens), tokens: record.finish.tokens }
+          : undefined
         if (record.finish || record.failure) {
           const snapshot = yield* snapshots.capture()
           const files =
@@ -330,9 +332,6 @@ export const make = Effect.gen(function* () {
                     .files({ from: startSnapshot, to: snapshot })
                     .pipe(Effect.orElseSucceed(() => undefined))
               : undefined
-          const usage = record.finish
-            ? { cost: SessionUsage.calculateCost(input.model.cost, record.finish.tokens), tokens: record.finish.tokens }
-            : undefined
           if (record.failure) yield* publisher.publishStepFailure({ ...usage, snapshot, files })
           if (record.finish && usage && !record.failure)
             yield* bus.publish(SessionEvent.Step.Ended, {
@@ -344,6 +343,38 @@ export const make = Effect.gen(function* () {
               ...usage,
               snapshot,
               files,
+            })
+        }
+
+        // Settle the measured attempt for this step: completed with the SessionUsage-normalized
+        // tokens and the catalog-estimated cost, cancelled on interruption, failed on an LLM or
+        // step failure. A fiber-level interrupt leaves the attempt unfinished, which the export
+        // manifest reports as such. Diagnostic only; never a second source of charges.
+        if (SessionRequestMeasurement.enabled()) {
+          const outcome =
+            record.finish && !record.failure
+              ? "completed"
+              : interrupted
+                ? "cancelled"
+                : record.failure || llmError
+                  ? "failed"
+                  : undefined
+          if (outcome)
+            yield* SessionRequestMeasurement.completePrimary(input.sessionID, {
+              outcome,
+              endedAt: Date.now(),
+              ...(usage
+                ? {
+                    usage: {
+                      input: usage.tokens.input,
+                      output: usage.tokens.output,
+                      reasoning: usage.tokens.reasoning,
+                      cacheRead: usage.tokens.cache.read,
+                      cacheWrite: usage.tokens.cache.write,
+                    },
+                    cost: { recordedUSD: null, estimatedUSD: usage.cost, source: "catalog" as const },
+                  }
+                : {}),
             })
         }
 
