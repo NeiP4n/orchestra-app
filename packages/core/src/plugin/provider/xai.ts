@@ -51,7 +51,7 @@ const device = (app: App.Info) =>
         {
           method: "POST",
           headers: headers(app),
-          body: new URLSearchParams({ client_id: clientID, scope, referrer: "opencode" }).toString(),
+          body: new URLSearchParams({ client_id: clientID, scope, referrer: "orchestra" }).toString(),
         },
         Device,
       ).pipe(

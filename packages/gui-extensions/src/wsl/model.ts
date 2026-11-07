@@ -1,5 +1,5 @@
 import fuzzysort from "fuzzysort"
-import type { WslInstalledDistro, WslOnlineDistro, WslOpencodeCheck, WslServersState } from "./contract"
+import type { WslInstalledDistro, WslOnlineDistro, WslOrchestraCheck, WslServersState } from "./contract"
 
 export type AddServerText = {
   key: string
@@ -17,7 +17,7 @@ export type AddServerPrimaryButton = {
   variant: "neutral" | "contrast"
   label: AddServerText
   disabled: boolean
-  action: "install-opencode" | "add" | null
+  action: "install-orchestra" | "add" | null
   loading: boolean
   width: string | null
 }
@@ -41,12 +41,12 @@ function isHiddenDistro(name: string) {
   return /^docker-desktop(?:-data)?$/i.test(name)
 }
 
-export function wslOpencodeAction(check?: WslOpencodeCheck) {
+export function wslOrchestraAction(check?: WslOrchestraCheck) {
   if (!check) return
 
-  if (!check.resolvedPath) return "onboarding.installOpencode"
+  if (!check.resolvedPath) return "onboarding.installOrchestra"
 
-  if (check.matchesDesktop === false) return "onboarding.updateOpencode"
+  if (check.matchesDesktop === false) return "onboarding.updateOrchestra"
 }
 
 export function wslDistroReady(state: WslServersState | undefined, name: string) {
@@ -75,7 +75,7 @@ export function addServerViewModel(input: {
   const existingServerDistros = new Set((state?.servers ?? []).map((item) => item.config.distro))
   const addableInstalledDistros = visibleInstalledDistros.filter((item) => !existingServerDistros.has(item.name))
   const selectedDistro = addServerSelectedDistro(input.selectedDistro, visibleInstalledDistros, addableInstalledDistros)
-  const opencodeCheck = selectedDistro ? (state?.opencodeChecks[selectedDistro] ?? null) : null
+  const orchestraCheck = selectedDistro ? (state?.orchestraChecks[selectedDistro] ?? null) : null
   const installableDistros = addServerInstallableDistros(visibleInstalledDistros, visibleOnlineDistros)
   const filteredInstallableDistros = addServerFilteredInstallableDistros(installableDistros, input.catalogSearch)
   const catalogTarget = addServerCatalogTarget(input.catalogTarget, filteredInstallableDistros)
@@ -88,7 +88,7 @@ export function addServerViewModel(input: {
     visibleOnlineDistros,
     addableInstalledDistros,
     selectedDistro,
-    opencodeCheck,
+    orchestraCheck,
     wslReady: !!state?.runtime?.available && !state?.pendingRestart,
     distroStatuses: Object.fromEntries(
       addableInstalledDistros.flatMap((item) => {
@@ -102,7 +102,7 @@ export function addServerViewModel(input: {
     primaryButton: addServerPrimaryButton({
       state,
       selectedDistro,
-      opencodeCheck,
+      orchestraCheck,
       adding: input.adding,
       probingAddable: input.probingAddable,
     }),
@@ -175,7 +175,7 @@ function addServerDistroStatus(input: {
     return { label: { key: "onboarding.distroStatus.missingTools" }, tone: "warning" }
   }
 
-  const check = input.state?.opencodeChecks[input.name]
+  const check = input.state?.orchestraChecks[input.name]
 
   if (!check) {
     if (input.probingAddable || (job?.kind === "probe-addable" && job.distros.includes(input.name))) {
@@ -185,11 +185,11 @@ function addServerDistroStatus(input: {
     return
   }
 
-  if (check.matchesDesktop === false) return { label: { key: "onboarding.updateOpencode" }, tone: "warning" }
+  if (check.matchesDesktop === false) return { label: { key: "onboarding.updateOrchestra" }, tone: "warning" }
 
-  if (!check.resolvedPath) return { label: { key: "onboarding.distroStatus.opencodeMissing" }, tone: "warning" }
+  if (!check.resolvedPath) return { label: { key: "onboarding.distroStatus.orchestraMissing" }, tone: "warning" }
 
-  if (check.error) return { label: { key: "onboarding.installOpencode" }, tone: "warning" }
+  if (check.error) return { label: { key: "onboarding.installOrchestra" }, tone: "warning" }
 
   return { label: { key: "onboarding.distroStatus.ready" }, tone: "success" }
 }
@@ -201,25 +201,25 @@ function checkingStatus(): DistroStatus {
 function addServerPrimaryButton(input: {
   state: WslServersState | undefined
   selectedDistro: string | null
-  opencodeCheck: WslOpencodeCheck | null
+  orchestraCheck: WslOrchestraCheck | null
   adding: boolean
   probingAddable: boolean
 }): AddServerPrimaryButton {
   const ready = !!input.selectedDistro && wslDistroReady(input.state, input.selectedDistro)
   const probingSelected = input.probingAddable && !addServerSelectedDistroSettled(input.state, input.selectedDistro)
 
-  const probingOpencode =
+  const probingOrchestra =
     probingSelected ||
     (ready &&
-      (!input.opencodeCheck ||
+      (!input.orchestraCheck ||
         (!!input.selectedDistro &&
           input.state?.job?.kind === "probe-addable" &&
           input.state.job.distros.includes(input.selectedDistro))))
 
-  const installingOpencode =
-    input.state?.job?.kind === "install-opencode" && input.state.job.distro === input.selectedDistro
+  const installingOrchestra =
+    input.state?.job?.kind === "install-orchestra" && input.state.job.distro === input.selectedDistro
 
-  if (!ready || probingOpencode) {
+  if (!ready || probingOrchestra) {
     return {
       variant: "contrast",
       label: probingSelected ? { key: "onboarding.distroStatus.checking" } : { key: "server.add" },
@@ -230,19 +230,19 @@ function addServerPrimaryButton(input: {
     }
   }
 
-  if (!addServerOpencodeReady(input.opencodeCheck)) {
-    const update = !!input.opencodeCheck?.resolvedPath && input.opencodeCheck.matchesDesktop === false
+  if (!addServerOrchestraReady(input.orchestraCheck)) {
+    const update = !!input.orchestraCheck?.resolvedPath && input.orchestraCheck.matchesDesktop === false
 
     return {
       variant: "neutral",
-      label: installingOpencode
-        ? { key: "onboarding.updatingOpencode" }
+      label: installingOrchestra
+        ? { key: "onboarding.updatingOrchestra" }
         : update
-          ? { key: "onboarding.updateOpencode" }
-          : { key: "onboarding.installOpencode" },
+          ? { key: "onboarding.updateOrchestra" }
+          : { key: "onboarding.installOrchestra" },
       disabled: !!input.state?.job || input.adding,
-      action: "install-opencode",
-      loading: installingOpencode,
+      action: "install-orchestra",
+      loading: installingOrchestra,
       width: update ? "138px" : "129px",
     }
   }
@@ -257,7 +257,7 @@ function addServerPrimaryButton(input: {
   }
 }
 
-function addServerOpencodeReady(check: WslOpencodeCheck | null) {
+function addServerOrchestraReady(check: WslOrchestraCheck | null) {
   return !!check?.resolvedPath && check.matchesDesktop !== false && !check.error
 }
 
@@ -271,7 +271,7 @@ function addServerSelectedDistroSettled(state: WslServersState | undefined, sele
 
   if (!wslDistroReady(state, selectedDistro)) return true
 
-  return !!state.opencodeChecks[selectedDistro]
+  return !!state.orchestraChecks[selectedDistro]
 }
 
 function addServerInstallableDistros(installedDistros: WslInstalledDistro[], onlineDistros: WslOnlineDistro[]) {
@@ -322,7 +322,7 @@ export function addableProbePlan(input: {
 
     if (!state.distroProbes[item.name]) return [`distro:${item.name}`]
 
-    if (wslDistroReady(state, item.name) && !state.opencodeChecks[item.name]) return [`opencode:${item.name}`]
+    if (wslDistroReady(state, item.name) && !state.orchestraChecks[item.name]) return [`orchestra:`]
 
     return []
   })

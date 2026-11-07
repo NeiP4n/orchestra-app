@@ -457,7 +457,7 @@ export const authorize = (input: {
           jsonrpc: "2.0",
           id: 0,
           method: "initialize",
-          params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "opencode" } },
+          params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "orchestra" } },
         }),
         signal,
       }),

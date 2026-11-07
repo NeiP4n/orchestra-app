@@ -150,16 +150,16 @@ describe("OpenAIPlugin", () => {
       expect(provider.package).toBe("@orchestra/ai/providers/openai")
       expect(provider.settings).toMatchObject({ baseURL: "https://chatgpt.com/backend-api/codex" })
       expect(provider.headers).toMatchObject({
-        originator: "opencode",
+        originator: "orchestra",
         "chatgpt-account-id": "acct_123",
         "x-codex-beta-features": "remote_compaction_v2",
       })
       expect(direct.baseURL).toBe("https://chatgpt.com/backend-api/codex")
-      expect(direct.headers).toMatchObject({ originator: "opencode", "session-id": "ses_test" })
+      expect(direct.headers).toMatchObject({ originator: "orchestra", "session-id": "ses_test" })
       expect(direct.hasHttpHooks).toBe(false)
       expect(custom.headers).not.toHaveProperty("originator")
       expect(proxy.baseURL).toBe("https://proxy.example/v1?region=us")
-      expect(proxy.headers).toMatchObject({ originator: "opencode", "session-id": "ses_test" })
+      expect(proxy.headers).toMatchObject({ originator: "orchestra", "session-id": "ses_test" })
       const sessions = yield* Session.Service
       const location = yield* Location.Service
       const parent = yield* sessions.create({ location: { directory: location.directory } })
@@ -168,7 +168,7 @@ describe("OpenAIPlugin", () => {
       expect(childRequest.headers).toMatchObject({ "session-id": parent.id })
       const eligible = required(yield* models.get(Provider.ID.openai, Model.ID.make("gpt-5.5")))
       expect(eligible.package).toBe("@orchestra/ai/providers/openai")
-      expect(eligible.headers).toMatchObject({ originator: "opencode", "chatgpt-account-id": "acct_123" })
+      expect(eligible.headers).toMatchObject({ originator: "orchestra", "chatgpt-account-id": "acct_123" })
       expect(eligible.cost).toEqual([])
       expect(eligible.limit).toEqual({ context: 400_000, input: 272_000, output: 128_000 })
       expect(eligible.enabled).toBe(true)

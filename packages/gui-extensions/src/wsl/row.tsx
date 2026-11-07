@@ -5,7 +5,7 @@ import { Menu } from "@orchestra/ui/menu"
 import { Show } from "solid-js"
 import { useExtension, type IpcClient, type ServerRow } from "../sdk"
 import type { Wsl, WslServersState } from "./contract"
-import { wslOpencodeAction } from "./model"
+import { wslOrchestraAction } from "./model"
 
 export default function WslRow(props: {
   row: ServerRow
@@ -16,13 +16,13 @@ export default function WslRow(props: {
   request: <T>(key: string, action: () => Promise<T>) => void
 }) {
   const extension = useExtension()
-  const check = () => props.state()?.opencodeChecks[props.distro]
-  const opencodeAction = () => wslOpencodeAction(check())
+  const check = () => props.state()?.orchestraChecks[props.distro]
+  const orchestraAction = () => wslOrchestraAction(check())
 
   const busy = () => {
     const job = props.state()?.job
 
-    return job?.kind === "install-opencode" && job.distro === props.distro
+    return job?.kind === "install-orchestra" && job.distro === props.distro
   }
 
   return (
@@ -44,12 +44,12 @@ export default function WslRow(props: {
             </div>
           </div>
           <div class="settings-servers-actions">
-            <Show when={opencodeAction()}>
+            <Show when={orchestraAction()}>
               {(label) => (
                 <Button
                   size="small"
                   disabled={busy() || props.pending(props.row.key)}
-                  onClick={() => props.request(props.row.key, () => api().installOpencode({ name: props.distro }))}
+                  onClick={() => props.request(props.row.key, () => api().installOrchestra({ name: props.distro }))}
                 >
                   {busy() ? extension.t("server.updating") : extension.t(label())}
                 </Button>

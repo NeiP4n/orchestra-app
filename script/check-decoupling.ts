@@ -96,11 +96,6 @@ export const ALLOWLIST: readonly DecouplingAllowlistEntry[] = [
     reason: "External OpenCode Zen provider implementation and upstream console URL",
   },
   {
-    path: "packages/core/src/plugin/skill/opencode.md",
-    allowed: ["opencode.ai"],
-    reason: "Built-in skill documentation referencing upstream OpenCode documentation",
-  },
-  {
     path: "packages/core/src/persistent-pty/pty-binding.ts",
     allowed: ["anomalyco/opencode"],
     reason: "Reference to upstream opencode-pty package origin",
@@ -198,30 +193,7 @@ export const ALLOWLIST: readonly DecouplingAllowlistEntry[] = [
     allowed: ["opencode.ai"],
     reason: "Storybook layout fixture with upstream links",
   },
-  {
-    path: "packages/ui/src/data-display/project-avatar/project-avatar.tsx",
-    allowed: ["opencode.ai"],
-    reason: "Avatar fallback image URL",
-  },
-  {
-    path: "packages/ui/src/theme/desktop-theme.schema.json",
-    allowed: ["opencode.ai"],
-    reason: "Desktop theme schema ID URL",
-  },
 
-  // --------------------------------------------------------------------------
-  // Theme Assets (JSON Schemas & Palettes)
-  // --------------------------------------------------------------------------
-  {
-    path: /^packages\/tui\/src\/theme\/assets\//,
-    allowed: ["opencode.ai"],
-    reason: "Upstream theme schema URLs and theme author references",
-  },
-  {
-    path: /^packages\/ui\/src\/theme\/themes\//,
-    allowed: ["opencode.ai"],
-    reason: "Upstream desktop theme schema and theme palette references",
-  },
 
   // --------------------------------------------------------------------------
   // App UI & Settings
@@ -230,21 +202,6 @@ export const ALLOWLIST: readonly DecouplingAllowlistEntry[] = [
     path: /^packages\/app\/src\/runtime\/i18n\//,
     allowed: ["opencode.ai"],
     reason: "Legacy upstream website URLs in internationalized UI strings",
-  },
-  {
-    path: "packages/app/src/runtime/platform/web.ts",
-    allowed: ["opencode.ai"],
-    reason: "Web platform documentation link",
-  },
-  {
-    path: "packages/app/src/settings/about/about.tsx",
-    allowed: ["opencode.ai", "anomalyco/opencode"],
-    reason: "About dialog upstream links and contributors graph link",
-  },
-  {
-    path: "packages/app/src/settings/about/contributors.ts",
-    allowed: ["anomalyco/opencode"],
-    reason: "Contributors fetcher URL pointing to upstream GitHub repository",
   },
   {
     path: "packages/app/src/settings/appearance/appearance.tsx",
@@ -262,11 +219,6 @@ export const ALLOWLIST: readonly DecouplingAllowlistEntry[] = [
     reason: "Skills documentation link",
   },
   {
-    path: "packages/app/src/shell/commands/desktop-menu.ts",
-    allowed: ["opencode.ai", "anomalyco/opencode"],
-    reason: "Desktop menu documentation and bug report links",
-  },
-  {
     path: "packages/app/src/providers/connect/dialog.tsx",
     allowed: ["opencode.ai"],
     reason: "Provider connect dialog documentation link",
@@ -275,21 +227,6 @@ export const ALLOWLIST: readonly DecouplingAllowlistEntry[] = [
     path: "packages/app/src/providers/credentials/dialog.tsx",
     allowed: ["opencode.ai"],
     reason: "Credentials dialog documentation link",
-  },
-  {
-    path: "packages/enterprise/src/routes/share/[shareID].tsx",
-    allowed: ["opencode.ai", "anomalyco/opencode"],
-    reason: "Legacy enterprise share page footer and GitHub links",
-  },
-  {
-    path: "packages/posts/src/layouts/Layout.astro",
-    allowed: ["opencode.ai"],
-    reason: "Posts layout logo link",
-  },
-  {
-    path: "packages/web/src/components/Lander.astro",
-    allowed: ["opencode.ai", "anomalyco/opencode"],
-    reason: "Web lander component upstream links",
   },
   {
     path: /^packages\/web\/src\/content\/docs\//,

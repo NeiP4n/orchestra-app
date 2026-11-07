@@ -1,5 +1,4 @@
 export * as OrchestraTools from "./opencode.js"
-export * as OpenCodeTools from "./opencode.js"
 
 import { SystemPart, ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"

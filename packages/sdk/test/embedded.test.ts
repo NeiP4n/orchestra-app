@@ -36,12 +36,12 @@ const location = (fixture: Fixture) =>
 
 for (const selection of ["explicit", "default"] as const) {
   it.live(`generate.text uses configured providers with ${selection} model selection`, () =>
-    withEmbedded("opencode-embedded-generate-", (fixture) =>
+    withEmbedded("orchestra-embedded-generate-", (fixture) =>
       Effect.gen(function* () {
         const llm = yield* TestLLM.Test.pipe(
           Effect.provide(TestLLM.testLayer({ fallback: TestLLM.text("ready", "answer") })),
         )
-        const opencode = yield* fixture.sdk.OpenCode.create(
+        const orchestra = yield* fixture.sdk.Orchestra.create(
           {
             config: {
               directory: fixture.directory,
@@ -65,7 +65,7 @@ for (const selection of ["explicit", "default"] as const) {
           },
         )
 
-        yield* opencode.model.list({ location: location(fixture) }).pipe(
+        yield* orchestra.model.list({ location: location(fixture) }).pipe(
           Effect.filterOrFail((page) =>
             page.data.some((model) => model.providerID === "custom" && model.id === "fictional-chat"),
           ),
@@ -73,7 +73,7 @@ for (const selection of ["explicit", "default"] as const) {
           Effect.timeout("2 seconds"),
         )
 
-        const result = yield* opencode.generate.text({
+        const result = yield* orchestra.generate.text({
           prompt: "Say ready",
           ...(selection === "explicit"
             ? {
@@ -97,49 +97,49 @@ for (const selection of ["explicit", "default"] as const) {
 it.live(
   "embedded client uses the real router and handlers",
   () =>
-    withEmbedded("opencode-embedded-", (fixture) =>
+    withEmbedded("orchestra-embedded-", (fixture) =>
       Effect.gen(function* () {
-        const opencode = yield* fixture.sdk.OpenCode.create({ events: { persist: true } })
+        const orchestra = yield* fixture.sdk.Orchestra.create({ events: { persist: true } })
         const id = sessionID(fixture)
         const model = fixture.sdk.Model.Ref.make({
           id: fixture.sdk.Model.ID.make("embedded"),
           providerID: fixture.sdk.Provider.ID.make("test"),
         })
 
-        const created = yield* opencode.sessions.create({
+        const created = yield* orchestra.sessions.create({
           id,
           agent: fixture.sdk.Agent.ID.make("build"),
           location: location(fixture),
         })
-        yield* opencode.sessions.switchModel({ sessionID: id, model })
-        const selected = yield* opencode.sessions.get({ sessionID: id })
-        const page = yield* opencode.sessions.list({ directory: fixture.sdk.AbsolutePath.make(fixture.directory) })
-        const active = yield* opencode.sessions.active()
-        const admitted = yield* opencode.sessions.prompt({
+        yield* orchestra.sessions.switchModel({ sessionID: id, model })
+        const selected = yield* orchestra.sessions.get({ sessionID: id })
+        const page = yield* orchestra.sessions.list({ directory: fixture.sdk.AbsolutePath.make(fixture.directory) })
+        const active = yield* orchestra.sessions.active()
+        const admitted = yield* orchestra.sessions.prompt({
           sessionID: id,
           text: "Do not run",
           resume: false,
         })
-        const context = yield* opencode.sessions.context({ sessionID: id })
-        const pendingAfterAdmit = yield* opencode.sessions.inbox.list({ sessionID: id })
-        yield* opencode.sessions.instructions.entry.put({ sessionID: id, key: "deploy-target", value: "production" })
-        yield* opencode.sessions.instructions.entry.put({ sessionID: id, key: "flags", value: { beta: true } })
-        const contextEntries = yield* opencode.sessions.instructions.entry.list({ sessionID: id })
-        yield* opencode.sessions.instructions.entry.remove({ sessionID: id, key: "flags" })
-        const remainingContextEntries = yield* opencode.sessions.instructions.entry.list({ sessionID: id })
-        const wake = yield* opencode.sessions.prompt({
+        const context = yield* orchestra.sessions.context({ sessionID: id })
+        const pendingAfterAdmit = yield* orchestra.sessions.inbox.list({ sessionID: id })
+        yield* orchestra.sessions.instructions.entry.put({ sessionID: id, key: "deploy-target", value: "production" })
+        yield* orchestra.sessions.instructions.entry.put({ sessionID: id, key: "flags", value: { beta: true } })
+        const contextEntries = yield* orchestra.sessions.instructions.entry.list({ sessionID: id })
+        yield* orchestra.sessions.instructions.entry.remove({ sessionID: id, key: "flags" })
+        const remainingContextEntries = yield* orchestra.sessions.instructions.entry.list({ sessionID: id })
+        const wake = yield* orchestra.sessions.prompt({
           sessionID: id,
           text: "Promote this input",
         })
-        const prompted = yield* opencode.sessions.log({ sessionID: id, follow: true }).pipe(
+        const prompted = yield* orchestra.sessions.log({ sessionID: id, follow: true }).pipe(
           Stream.filter((event) => event.type === "session.inbox.delivered" && event.data.inboxID === wake.id),
           Stream.runHead,
           Effect.timeout("10 seconds"),
           Effect.map(Option.getOrThrow),
         )
-        const wakeContext = yield* opencode.sessions.context({ sessionID: id })
-        const pendingAfterPromote = yield* opencode.sessions.inbox.list({ sessionID: id })
-        const event = yield* opencode.sessions.log({ sessionID: id }).pipe(
+        const wakeContext = yield* orchestra.sessions.context({ sessionID: id })
+        const pendingAfterPromote = yield* orchestra.sessions.inbox.list({ sessionID: id })
+        const event = yield* orchestra.sessions.log({ sessionID: id }).pipe(
           Stream.filter((item) => item.type === "session.model.selected"),
           Stream.take(1),
           Stream.runHead,
@@ -148,22 +148,22 @@ it.live(
         const modelMessage = Option.fromNullishOr(context.find((message) => message.type === "model-switched")).pipe(
           Option.getOrThrow,
         )
-        const message = yield* opencode.sessions.message.get({ sessionID: id, messageID: modelMessage.id })
-        yield* opencode.sessions.interrupt({ sessionID: id })
-        const other = yield* opencode.sessions.create({ location: location(fixture) })
+        const message = yield* orchestra.sessions.message.get({ sessionID: id, messageID: modelMessage.id })
+        yield* orchestra.sessions.interrupt({ sessionID: id })
+        const other = yield* orchestra.sessions.create({ location: location(fixture) })
         const missingSessionID = fixture.sdk.Session.ID.create()
         const missing = yield* Effect.all(
           [
-            opencode.sessions.log({ sessionID: missingSessionID }).pipe(Stream.runHead, Effect.flip),
-            opencode.sessions.interrupt({ sessionID: missingSessionID }).pipe(Effect.flip),
-            opencode.sessions.message.get({ sessionID: missingSessionID, messageID: modelMessage.id }).pipe(Effect.flip),
-            opencode.sessions.instructions.entry.list({ sessionID: missingSessionID }).pipe(Effect.flip),
-            opencode.sessions.inbox.list({ sessionID: missingSessionID }).pipe(Effect.flip),
+            orchestra.sessions.log({ sessionID: missingSessionID }).pipe(Stream.runHead, Effect.flip),
+            orchestra.sessions.interrupt({ sessionID: missingSessionID }).pipe(Effect.flip),
+            orchestra.sessions.message.get({ sessionID: missingSessionID, messageID: modelMessage.id }).pipe(Effect.flip),
+            orchestra.sessions.instructions.entry.list({ sessionID: missingSessionID }).pipe(Effect.flip),
+            orchestra.sessions.inbox.list({ sessionID: missingSessionID }).pipe(Effect.flip),
           ],
           { concurrency: "unbounded" },
         )
         const missingMessage = yield* Effect.flip(
-          opencode.sessions.message.get({
+          orchestra.sessions.message.get({
             sessionID: other.id,
             messageID: modelMessage.id,
           }),
@@ -203,11 +203,11 @@ it.live(
 )
 
 it.live("embedded client exposes plugin-backed web search", () =>
-  withEmbedded("opencode-embedded-websearch-", (fixture) =>
+  withEmbedded("orchestra-embedded-websearch-", (fixture) =>
     Effect.gen(function* () {
-      const opencode = yield* fixture.sdk.OpenCode.create()
+      const orchestra = yield* fixture.sdk.Orchestra.create()
       const providerID = fixture.sdk.WebSearch.ID.make("embedded-websearch")
-      yield* opencode.plugin({
+      yield* orchestra.plugin({
         id: `embedded-websearch-${crypto.randomUUID()}`,
         effect: (ctx) =>
           ctx.websearch.transform((editor) => {
@@ -220,15 +220,15 @@ it.live("embedded client exposes plugin-backed web search", () =>
           }),
       })
 
-      const result = yield* opencode.websearch.query({
-        query: "opencode",
+      const result = yield* orchestra.websearch.query({
+        query: "orchestra",
         providerID,
         location: location(fixture),
       })
 
       expect(result.data).toEqual({
         providerID,
-        results: [{ url: "https://example.com", content: "Found opencode", time: {} }],
+        results: [{ url: "https://example.com", content: "Found orchestra", time: {} }],
       })
     }),
   ),
@@ -237,14 +237,14 @@ it.live("embedded client exposes plugin-backed web search", () =>
 it.live(
   "Location-owned runner events reach the ready global client",
   () =>
-    withEmbedded("opencode-embedded-events-", (fixture) =>
+    withEmbedded("orchestra-embedded-events-", (fixture) =>
       Effect.gen(function* () {
-        const opencode = yield* fixture.sdk.OpenCode.create()
+        const orchestra = yield* fixture.sdk.Orchestra.create()
         const id = sessionID(fixture)
         const connected = yield* Latch.make(false)
         const prompted = yield* Deferred.make<Extract<OpenCodeEvent, { type: "session.inbox.delivered" }>>()
 
-        yield* opencode.events.subscribe().pipe(
+        yield* orchestra.events.subscribe().pipe(
           Stream.runForEach((event) =>
             event.type === "server.connected"
               ? connected.open
@@ -255,8 +255,8 @@ it.live(
           Effect.forkScoped,
         )
         yield* connected.await
-        yield* opencode.sessions.create({ id, location: location(fixture) })
-        yield* opencode.sessions.prompt({
+        yield* orchestra.sessions.create({ id, location: location(fixture) })
+        yield* orchestra.sessions.prompt({
           sessionID: id,
           text: "Observe this input",
         })
@@ -271,10 +271,10 @@ it.live(
 it.live(
   "independent embedded hosts do not share live notifications",
   () =>
-    withEmbedded("opencode-embedded-hosts-", (fixture) =>
+    withEmbedded("orchestra-embedded-hosts-", (fixture) =>
       Effect.gen(function* () {
-        const first = yield* fixture.sdk.OpenCode.create()
-        const second = yield* fixture.sdk.OpenCode.create()
+        const first = yield* fixture.sdk.Orchestra.create()
+        const second = yield* fixture.sdk.Orchestra.create()
         const id = sessionID(fixture)
         const firstReady = yield* Latch.make(false)
         const secondReady = yield* Latch.make(false)
@@ -303,18 +303,18 @@ it.live(
 )
 
 it.live("embedded client is available as a Layer service", () =>
-  withEmbedded("opencode-embedded-layer-", (fixture) => {
+  withEmbedded("orchestra-embedded-layer-", (fixture) => {
     const id = sessionID(fixture)
     return Effect.gen(function* () {
-      const opencode = yield* fixture.sdk.OpenCode.Service
-      const created = yield* opencode.sessions.create({ id, location: location(fixture) })
+      const orchestra = yield* fixture.sdk.Orchestra.Service
+      const created = yield* orchestra.sessions.create({ id, location: location(fixture) })
       expect(created.id).toBe(id)
-    }).pipe(Effect.provide(fixture.sdk.OpenCode.layer()))
+    }).pipe(Effect.provide(fixture.sdk.Orchestra.layer()))
   }),
 )
 
 it.live("configures workspace providers through the SDK facade", () =>
-  withEmbedded("opencode-embedded-workspace-", (fixture) =>
+  withEmbedded("orchestra-embedded-workspace-", (fixture) =>
     Effect.gen(function* () {
       const calls: Array<{ readonly operation: string; readonly workspaceID: string }> = []
       const driver = WorkspaceDriver.make({
@@ -332,15 +332,15 @@ it.live("configures workspace providers through the SDK facade", () =>
           return Effect.void
         },
       })
-      const opencode = yield* fixture.sdk.OpenCode.create({ workspaceProviders: { fake: driver } })
+      const orchestra = yield* fixture.sdk.Orchestra.create({ workspaceProviders: { fake: driver } })
       const requestedID = fixture.sdk.Workspace.ID.create()
-      const workspaceID = yield* opencode.workspace.create({ id: requestedID, provider: "fake" })
+      const workspaceID = yield* orchestra.workspace.create({ id: requestedID, provider: "fake" })
 
       expect(workspaceID).toBe(requestedID)
-      expect(yield* opencode.workspace.create({ id: requestedID, provider: "fake" })).toBe(requestedID)
+      expect(yield* orchestra.workspace.create({ id: requestedID, provider: "fake" })).toBe(requestedID)
       expect(calls).toEqual([])
 
-      const workspace = yield* opencode.workspace.provision({ workspaceID })
+      const workspace = yield* orchestra.workspace.provision({ workspaceID })
 
       expect(workspace.provider).toBe("fake")
       expect(workspace.binding).toEqual({ externalID: workspace.id })
@@ -350,12 +350,12 @@ it.live("configures workspace providers through the SDK facade", () =>
         directory: fixture.sdk.AbsolutePath.make("/"),
         workspaceID: workspace.id,
       })
-      const session = yield* opencode.sessions.create({ location: workspaceLocation })
+      const session = yield* orchestra.sessions.create({ location: workspaceLocation })
       expect(session.location.workspaceID).toBe(workspace.id)
 
-      expect(yield* opencode.workspace.destroy({ workspaceID: workspace.id })).toEqual({ destroyed: true })
+      expect(yield* orchestra.workspace.destroy({ workspaceID: workspace.id })).toEqual({ destroyed: true })
       expect(calls.map((call) => call.operation)).toEqual(["create", "destroy"])
-      expect(yield* opencode.workspace.destroy({ workspaceID: workspace.id })).toEqual({ destroyed: false })
+      expect(yield* orchestra.workspace.destroy({ workspaceID: workspace.id })).toEqual({ destroyed: false })
       expect(calls.map((call) => call.operation)).toEqual(["create", "destroy"])
     }),
   ),
@@ -403,7 +403,7 @@ const workspaceModelScenario = (fixture: Fixture, policy: "eager" | "lazy") =>
     })
     const configDirectory = path.join(fixture.directory, "config")
     yield* Effect.promise(() => fs.mkdir(configDirectory))
-    const opencode = yield* fixture.sdk.OpenCode.create(
+    const orchestra = yield* fixture.sdk.Orchestra.create(
       {
         config: { directory: configDirectory, project: false, content: "{}" },
         workspaceProviders: { fake: driver },
@@ -412,10 +412,10 @@ const workspaceModelScenario = (fixture: Fixture, policy: "eager" | "lazy") =>
         overrides: [llmClient.replace(client), SessionRunnerModel.node.replace(models)],
       },
     )
-    const workspaceID = yield* opencode.workspace.create({ provider: "fake" })
+    const workspaceID = yield* orchestra.workspace.create({ provider: "fake" })
     const provisioning =
       policy === "eager"
-        ? yield* opencode.workspace.provision({ workspaceID }).pipe(Effect.forkScoped({ startImmediately: true }))
+        ? yield* orchestra.workspace.provision({ workspaceID }).pipe(Effect.forkScoped({ startImmediately: true }))
         : undefined
     if (provisioning) {
       yield* Deferred.await(createStarted).pipe(
@@ -423,13 +423,13 @@ const workspaceModelScenario = (fixture: Fixture, policy: "eager" | "lazy") =>
       )
     }
 
-    const session = yield* opencode.sessions.create({
+    const session = yield* orchestra.sessions.create({
       location: fixture.sdk.Location.Ref.make({
         directory: fixture.sdk.AbsolutePath.make(fixture.directory),
         workspaceID,
       }),
     })
-    yield* opencode.sessions.prompt({ sessionID: session.id, text: "Answer without using tools" })
+    yield* orchestra.sessions.prompt({ sessionID: session.id, text: "Answer without using tools" })
     yield* Deferred.await(modelStarted).pipe(
       Effect.timeoutOrElse({ duration: "8 seconds", orElse: () => Effect.die("model stream did not start") }),
     )
@@ -447,20 +447,20 @@ const workspaceModelScenario = (fixture: Fixture, policy: "eager" | "lazy") =>
 
 it.live(
   "starts model execution while eager workspace provisioning is blocked",
-  () => withEmbedded("opencode-embedded-workspace-eager-", (fixture) => workspaceModelScenario(fixture, "eager")),
+  () => withEmbedded("orchestra-embedded-workspace-eager-", (fixture) => workspaceModelScenario(fixture, "eager")),
   15_000,
 )
 
 it.live(
   "starts model execution without provisioning a lazy workspace",
-  () => withEmbedded("opencode-embedded-workspace-lazy-", (fixture) => workspaceModelScenario(fixture, "lazy")),
+  () => withEmbedded("orchestra-embedded-workspace-lazy-", (fixture) => workspaceModelScenario(fixture, "lazy")),
   15_000,
 )
 
 it.live(
   "blocks the model-selected first tool on lazy provisioning",
   () =>
-    withEmbedded("opencode-embedded-workspace-tool-", (fixture) =>
+    withEmbedded("orchestra-embedded-workspace-tool-", (fixture) =>
       Effect.gen(function* () {
         const calls: string[] = []
         const createStarted = yield* Deferred.make<void>()
@@ -504,7 +504,7 @@ it.live(
         })
         const configDirectory = path.join(fixture.directory, "config")
         yield* Effect.promise(() => fs.mkdir(configDirectory))
-        const opencode = yield* fixture.sdk.OpenCode.create(
+        const orchestra = yield* fixture.sdk.Orchestra.create(
           {
             config: { directory: configDirectory, project: false, content: "{}" },
             workspaceProviders: { fake: driver },
@@ -516,8 +516,8 @@ it.live(
             ],
           },
         )
-        const workspaceID = yield* opencode.workspace.create({ provider: "fake" })
-        const session = yield* opencode.sessions.create({
+        const workspaceID = yield* orchestra.workspace.create({ provider: "fake" })
+        const session = yield* orchestra.sessions.create({
           location: fixture.sdk.Location.Ref.make({
             directory: fixture.sdk.AbsolutePath.make(fixture.directory),
             workspaceID,
@@ -525,7 +525,7 @@ it.live(
         })
         expect(calls).toEqual([])
 
-        yield* opencode.sessions.prompt({ sessionID: session.id, text: "Run echo" })
+        yield* orchestra.sessions.prompt({ sessionID: session.id, text: "Run echo" })
         // The model-selected shell tool is the first execution-plane demand: it alone
         // starts provisioning and blocks inside the tool call until the provider is ready.
         yield* Deferred.await(createStarted).pipe(
@@ -534,7 +534,7 @@ it.live(
         expect(calls).toEqual(["create"])
 
         yield* Deferred.succeed(createRelease, undefined)
-        yield* opencode.sessions.wait({ sessionID: session.id })
+        yield* orchestra.sessions.wait({ sessionID: session.id })
         // Provisioning settled, the workspace connected, and the turn completed. The
         // memory driver rejects the actual spawn, which surfaces to the model as an
         // ordinary tool error before the final text response.
@@ -546,10 +546,10 @@ it.live(
 )
 
 it.live("preserves unknown workspace provider errors", () =>
-  withEmbedded("opencode-embedded-workspace-provider-", (fixture) =>
+  withEmbedded("orchestra-embedded-workspace-provider-", (fixture) =>
     Effect.gen(function* () {
-      const opencode = yield* fixture.sdk.OpenCode.create()
-      const error = yield* opencode.workspace.create({ provider: "missing" }).pipe(Effect.flip)
+      const orchestra = yield* fixture.sdk.Orchestra.create()
+      const error = yield* orchestra.workspace.create({ provider: "missing" }).pipe(Effect.flip)
       expect(error).toEqual(new WorkspaceDriver.ProviderNotFound({ provider: "missing" }))
     }),
   ),

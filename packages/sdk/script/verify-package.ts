@@ -21,7 +21,7 @@ const names = [
   "server",
   "sdk",
 ]
-const temporary = await mkdtemp(join(tmpdir(), "opencode-sdk-package-"))
+const temporary = await mkdtemp(join(tmpdir(), "orchestra-sdk-package-"))
 const archives = new Map<string, string>()
 
 try {
@@ -85,18 +85,18 @@ try {
   const consumer = join(temporary, "consumer")
   await Bun.write(
     join(consumer, "package.json"),
-    JSON.stringify({ name: "opencode-sdk-consumer", private: true, type: "module" }),
+    JSON.stringify({ name: "orchestra-sdk-consumer", private: true, type: "module" }),
   )
   await Promise.all([
     Bun.write(
       join(consumer, "wrangler.jsonc"),
       JSON.stringify({
-        name: "opencode-sdk-packed-consumer",
+        name: "orchestra-sdk-packed-consumer",
         main: "worker.js",
         compatibility_date: "2026-07-15",
         compatibility_flags: ["nodejs_compat"],
-        durable_objects: { bindings: [{ name: "OPENCODE", class_name: "OpenCodeDO" }] },
-        migrations: [{ tag: "v1", new_sqlite_classes: ["OpenCodeDO"] }],
+        durable_objects: { bindings: [{ name: "ORCHESTRA", class_name: "OrchestraDO" }] },
+        migrations: [{ tag: "v1", new_sqlite_classes: ["OrchestraDO"] }],
       }),
     ),
     Bun.write(
@@ -104,10 +104,10 @@ try {
       `import { bodyDigest } from "@orchestra/core/models-dev"
 import { OpenCodeWorkerd } from "@orchestra/sdk/workerd"
 
-export class OpenCodeDO {
+export class OrchestraDO {
   constructor(state) {
     this.configurations = 0
-    this.opencode = state.blockConcurrencyWhile(() => OpenCodeWorkerd.create({
+    this.orchestra = state.blockConcurrencyWhile(() => OpenCodeWorkerd.create({
       storage: state.storage,
       app: { version: "packed-workerd" },
       models: { fetch: false },
@@ -137,12 +137,12 @@ export class OpenCodeDO {
     if (bodyDigest("packed-workerd") !== "5fc174bf63e8dd108ebb6c53d85e7bbc4525b2f4c1c43280364cdbfd9b37aaf5") {
       throw new Error("Packed workerd SHA-256 mismatch")
     }
-    const opencode = await this.opencode
-    const sessions = await Promise.all([1, 2].map(() => opencode.sessions.create({
+    const orchestra = await this.orchestra
+    const sessions = await Promise.all([1, 2].map(() => orchestra.sessions.create({
       location: { directory: "/workspace" },
       metadata: { thread: "packed-thread" },
     })))
-    const admitted = await Promise.all(sessions.map(session => opencode.sessions.prompt({
+    const admitted = await Promise.all(sessions.map(session => orchestra.sessions.prompt({
       sessionID: session.id,
       text: "Packed prompt",
       resume: false,
@@ -150,13 +150,13 @@ export class OpenCodeDO {
     if (this.configurations !== 1 || admitted.some(item => item.payload.text !== "Packed prompt:packed-thread")) {
       throw new Error("Packed instance configuration did not share or prepare prompts correctly")
     }
-    return Response.json(await opencode.server.info())
+    return Response.json(await orchestra.server.info())
   }
 }
 
 export default {
   fetch(request, env) {
-    return env.OPENCODE.get(env.OPENCODE.idFromName("packed-consumer")).fetch(request)
+    return env.ORCHESTRA.get(env.ORCHESTRA.idFromName("packed-consumer")).fetch(request)
   },
 }
 `,
@@ -171,11 +171,11 @@ const miniflare = new Miniflare({
   compatibilityFlags: ["nodejs_compat"],
   modules: true,
   scriptPath: fileURLToPath(new URL("./dist/worker.js", import.meta.url)),
-  durableObjects: { OPENCODE: { className: "OpenCodeDO", useSQLite: true } },
+  durableObjects: { ORCHESTRA: { className: "OrchestraDO", useSQLite: true } },
 })
 
 try {
-  const response = await miniflare.dispatchFetch("http://opencode.local/health")
+  const response = await miniflare.dispatchFetch("http://orchestra.local/health")
   if (response.status !== 200) throw new Error(
     "Packed workerd health returned " + response.status + ": " + await response.text(),
   )
@@ -198,7 +198,7 @@ try {
 ])
 
 for (const module of modules) {
-  const api = module.OpenCode ?? module.OpenCodeWorkerd
+  const api = module.Orchestra ?? module.OpenCodeWorkerd
   if (typeof api?.create !== "function") throw new Error("Packed SDK entrypoint is missing create()")
 }
 `,

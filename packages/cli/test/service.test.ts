@@ -703,7 +703,6 @@ function serviceEnv(root: string) {
     XDG_STATE_HOME: path.join(root, "state"),
   }
   delete env.ORCHESTRA_CONFIG_DIR
-  delete env.OPENCODE_CONFIG_DIR
   return env as Record<string, string>
 }
 

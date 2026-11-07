@@ -99,10 +99,10 @@ export function mount(input: {
             )[input.mode],
           },
         ],
-        opencodeChecks: {
+        orchestraChecks: {
           Ubuntu: {
             distro: "Ubuntu",
-            resolvedPath: "/usr/bin/opencode",
+            resolvedPath: "/usr/bin/orchestra",
             version: "old",
             expectedVersion: "current",
             matchesDesktop: false,
@@ -132,17 +132,17 @@ export function mount(input: {
       }))
 
     const wsl = {
-      // Like main: stops the distro's server, updates OpenCode, then starts the server again on a new endpoint.
-      installOpencode(value) {
+      // Like main: stops the distro's server, updates Orchestra, then starts the server again on a new endpoint.
+      installOrchestra(value) {
         const name = value.name ?? ""
         const id = store.state.servers.find((server) => server.config.distro === name)?.config.id
         setStore("calls", (calls) => [...calls, `update:${value.name}`])
         setRuntime(id, { kind: "stopped" })
         publish("wsl")
         setStore("state", (state) => ({
-          opencodeChecks: {
-            ...state.opencodeChecks,
-            [name]: { ...state.opencodeChecks[name]!, version: "current", matchesDesktop: true },
+          orchestraChecks: {
+            ...state.orchestraChecks,
+            [name]: { ...state.orchestraChecks[name]!, version: "current", matchesDesktop: true },
           },
         }))
         endpoint.url = input.restart ?? endpoint.url

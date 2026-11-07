@@ -47,7 +47,7 @@ test("re-exports canonical contracts directly from Schema", () => {
     "Integration",
     "Location",
     "Model",
-    "OpenCode",
+    "Orchestra",
     "Permission",
     "PermissionSaved",
     "Project",

@@ -72,7 +72,7 @@ const setup: MainSetup<typeof definition> = (ctx) => {
     installWsl: () => controller.installWsl(),
     installDistro: (input) => controller.installDistro(input.name),
     probeAddable: (input) => controller.probeAddable(input.distros),
-    installOpencode: (input) => controller.installOpencode(input.name),
+    installOrchestra: (input) => controller.installOrchestra(input.name),
     addServer: (input) => controller.addServer(input.distro),
     removeServer: (input) => controller.removeServer(input.id),
     startServer: (input) => controller.startServer(input.id),

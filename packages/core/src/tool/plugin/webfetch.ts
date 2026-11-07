@@ -142,8 +142,8 @@ const fetchResponse = (
       yield* Ssrf.assertPublicUrl(next)
       return yield* fetchResponse(http, next, format, userAgent, redirects + 1)
     }
-    if (isCloudflareChallenge(response) && userAgent !== "opencode")
-      return yield* fetchResponse(http, url, format, "opencode", redirects)
+    if (isCloudflareChallenge(response) && userAgent !== "orchestra")
+      return yield* fetchResponse(http, url, format, "orchestra", redirects)
     return yield* HttpClientResponse.filterStatusOk(response)
   })
 

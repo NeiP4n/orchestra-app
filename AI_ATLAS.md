@@ -813,6 +813,16 @@ no skill lookup runs for them.
   running on the display (started by hand) counts as ready. B13: snapshots,
   screenshots and the clipboard can hold private screen data — never paste
   them into public logs or shared chats (noted in the catalog `usage`).
+- Client identity is Orchestra, not OpenCode: `client.ts` sends
+  `clientInfo.name: "orchestra"` and sets `BUN_BE_BUN` when the spawned
+  command is `orchestra`; `oauth.ts` sends the same `clientInfo.name` (its
+  `CLIENT_METADATA_URL`/`client_name`/`client_uri` still point at
+  opencode.ai — undecided, audit §5.4). Shell/hub tools set
+  `AI_AGENT=orchestra` (the `OPENCODE=1` compat marker is kept); `webfetch`
+  retries Cloudflare challenges with UA `orchestra`; provider plugins
+  identify as Orchestra (`originator` in `openai.ts`, `referrer` in
+  `xai.ts`, `X-Cerebras-3rd-Party-Integration` in `cerebras.ts`). The
+  `ai.opencode/*` idempotency/session keys in `client.ts` are untouched.
 - B7 (desktop isolation): agent-desktop and playwright are `realScreen` servers.
   They are never acquired (`acquire.ts: ensure()`) nor called (`index.ts:
   MCP.callTool`, the choke point for every MCP tool call) while the real-screen
@@ -2070,6 +2080,13 @@ lives 10 minutes.
   (signal/synapse/spark/dormant from hue tokens). Themes written before the
   role existed resolve without it; `neuralPalette()` in
   `packages/tui/src/component/neural.tsx` falls back to a monochrome network.
+- TUI theme assets (`packages/tui/src/theme/assets/`, incl. `v2/`) carry no
+  `$schema`: the `https://opencode.ai/theme.json` line was removed — the
+  value was editor-only and never validated at runtime (`$schema` is only an
+  optional string in the config schema). UI theme JSONs already point
+  `$schema` at the project-owned `desktop-theme.schema.json` (see the D1
+  section below); the Orchestra project's avatar falls back to the local
+  `/favicon-v3.svg` instead of `opencode.ai/favicon.svg`.
 - **Web dark-token invariant (block D1):** non-v2 tokens in
   `packages/ui/src/styles/theme.css` must switch to dark under
   `:root[data-color-scheme="dark"]`, with the OS
@@ -2212,15 +2229,20 @@ never overrides contracts, permissions, isolation or budgets.
   `process.env` reads, injected-`env` reads (desktop isolation, limits, the
   gateway config, the TUI glyph check), and variables Orchestra itself sets
   for a child process (`ORCHESTRA_SESSION_ID`, the gateway's
-  `ORCHESTRA_GATEWAY_*`, `ORCHESTRA_PTY_HANDOFF`). One variable is kept as
+  `ORCHESTRA_GATEWAY_*`, `ORCHESTRA_PTY_HANDOFF`). Two variables are kept as
   `legacy` (documented, no live TypeScript read):
-  `ORCHESTRA_EXPERIMENTAL_FILEWATCHER`.
+  `ORCHESTRA_EXPERIMENTAL_FILEWATCHER` and `ORCHESTRA_SERVER_URL` (its only
+  reader, the OpenCode plugin connector in `packages/plugin/src/opencode.ts`,
+  was removed with that connector in stage 1 of the OpenCode removal).
 - A new `ORCHESTRA_*` read without a registry entry is a defect:
   `test/env-registry.test.ts` scans every package's `src` and fails on a
   missing entry, on a registered name nothing reads anymore, on unsorted
   keys, and on an entry without a purpose. Out of scope by design:
-  provider-SDK variables, OS/shell variables, and `OPENCODE_*` legacy
-  aliases (named in the purpose of the variable that falls back to them).
+  provider-SDK variables and OS/shell variables. The `OPENCODE_*` legacy
+  aliases were removed in stage 1 of the OpenCode removal; the only ones
+  still read are the PTY fallbacks `OPENCODE_PTY_BIN` and
+  `OPENCODE_NODE_PTY_PATH`, named in the `default` of the `ORCHESTRA_*`
+  variable that falls back to them (PTY replacement is stage 3).
 - A generated server password is never printed: the foreground server
   stores it in the 0600 service config (`ServiceConfig.password`, reused
   across restarts) and the console only names

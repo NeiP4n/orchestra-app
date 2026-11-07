@@ -3,7 +3,7 @@ import { Context, Effect, Exit, Layer, Scope, Stream } from "effect"
 import { FetchHttpClient } from "effect/unstable/http"
 import { tmpdirScoped } from "../../core/test/fixture/tmpdir"
 import { testEffect } from "../../core/test/lib/effect"
-import { AbsolutePath, Location, OpenCode, Session } from "../src/effect"
+import { AbsolutePath, Location, Orchestra, Session } from "../src/effect"
 
 const it = testEffect(Layer.empty)
 
@@ -21,7 +21,7 @@ for (const entrypoint of ["create", "layer"] as const) {
       )
       const parent = yield* Effect.scope
       const scope = yield* Scope.fork(parent)
-      const options: OpenCode.CreateOptions = {
+      const options: Orchestra.CreateOptions = {
         app: { version: "transport-test" },
         config: { directory: directory.path, project: false, content: "{}" },
         events: { persist: true },
@@ -30,8 +30,8 @@ for (const entrypoint of ["create", "layer"] as const) {
       }
       const client = yield* (
         entrypoint === "create"
-          ? OpenCode.create(options).pipe(Scope.provide(scope))
-          : Layer.buildWithScope(OpenCode.layer(options), scope).pipe(Effect.map(Context.get(OpenCode.Service)))
+          ? Orchestra.create(options).pipe(Scope.provide(scope))
+          : Layer.buildWithScope(Orchestra.layer(options), scope).pipe(Effect.map(Context.get(Orchestra.Service)))
       ).pipe(Effect.provideService(FetchHttpClient.Fetch, ambient))
 
       yield* Effect.gen(function* () {

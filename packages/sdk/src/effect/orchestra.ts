@@ -1,4 +1,4 @@
-export * as OpenCode from "./opencode"
+export * as Orchestra from "./orchestra"
 
 import { OpenCode, type OrchestraClient } from "@orchestra/client/effect"
 import type { Session } from "@orchestra/core/session"
@@ -36,7 +36,7 @@ export type Interface = Omit<OrchestraClient, "plugin" | "workspace"> & {
 export const create: <R = never>(
   options?: CreateOptions<R>,
   embed?: EmbedOptions,
-) => Effect.Effect<Interface, Config.ConfigError | Error, Scope.Scope | R> = Effect.fn("OpenCode.create")(function* <
+) => Effect.Effect<Interface, Config.ConfigError | Error, Scope.Scope | R> = Effect.fn("Orchestra.create")(function* <
   R = never,
 >(options: CreateOptions<R> = {}, embed: EmbedOptions = {}) {
   const host = yield* Effect.acquireRelease(EmbeddedHost.create(options, embed), (host) => Effect.promise(host.close))
@@ -67,7 +67,7 @@ export const create: <R = never>(
   }
 })
 
-export class Service extends Context.Service<Service, Interface>()("@orchestra/sdk/OpenCode") {}
+export class Service extends Context.Service<Service, Interface>()("@orchestra/sdk/Orchestra") {}
 
 export const layer = <R = never>(
   options: CreateOptions<R> = {},
