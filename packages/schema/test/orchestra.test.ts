@@ -89,7 +89,7 @@ describe("built-in templates", () => {
   test("team-solve is the one fixed-roster method preset: six roles, in pipeline order", () => {
     const preset = templates.find((item) => item.id === "team-solve")
     expect(preset).toBeDefined()
-    expect(preset?.roles).toEqual([
+    expect([...(preset?.roles ?? [])]).toEqual([
       "team-planner",
       "ideator-a",
       "ideator-b",
@@ -97,7 +97,7 @@ describe("built-in templates", () => {
       "team-manager",
       "repairer",
     ])
-    expect(preset?.members.map((member) => member.agent.replace(/^team-/, ""))).toEqual(preset?.roles)
+    expect(preset?.members.map((member) => member.agent.replace(/^team-/, ""))).toEqual([...(preset?.roles ?? [])])
     for (const id of preset?.roles ?? []) {
       const role = roles.find((item) => item.id === id)
       expect(role).toBeDefined()

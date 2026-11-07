@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Orchestra } from "@orchestra/schema/orchestra"
+import { Orchestra as OrchestraCore } from "../src/orchestra"
 import { OrchestraStage } from "../src/stage"
 import { TeamSolve } from "../src/team-solve"
 
@@ -35,8 +36,8 @@ describe("team-solve preset", () => {
       "repairer",
     ])
     expect(new Set(TeamSolve.TEAM_SOLVE_ROLES).size).toBe(6)
-    const staffed = Orchestra.rolesForTemplate({ ...template(), origin: "builtin" }, schemaRoles())
-    expect(staffed.map((role) => role.id)).toEqual(TeamSolve.TEAM_SOLVE_ROLES)
+    const staffed = OrchestraCore.rolesForTemplate({ ...template(), origin: "builtin" }, schemaRoles())
+    expect(staffed.map((role) => role.id)).toEqual([...TeamSolve.TEAM_SOLVE_ROLES])
   })
 
   test("the stage DAG: plan, two parallel ideators, solver after both, judge last", () => {
