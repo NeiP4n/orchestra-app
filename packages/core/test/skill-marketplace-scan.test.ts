@@ -92,7 +92,7 @@ describe("scan in the marketplace service", () => {
     const result = await run(project, path.join(tmp.path, "config"), HOSTILE, (s) => s.scan({ name: NAME }))
     expect(result._tag).toBe("Success")
     if (result._tag === "Success") expect(result.success.scan.recommendation).toBe("DO NOT INSTALL")
-    expect(await Bun.file(path.join(project, ".opencode/skills", NAME, "SKILL.md")).exists()).toBe(false)
+    expect(await Bun.file(path.join(project, ".orchestra/skills", NAME, "SKILL.md")).exists()).toBe(false)
   })
 
   test("read refuses a blocked skill and leaves no file behind", async () => {
@@ -101,7 +101,7 @@ describe("scan in the marketplace service", () => {
     const result = await run(project, path.join(tmp.path, "config"), HOSTILE, (s) => s.read({ name: NAME }))
     expect(result._tag).toBe("Failure")
     expect(JSON.stringify(result)).toContain("DO NOT INSTALL")
-    expect(await Bun.file(path.join(project, ".opencode/skills", NAME, "SKILL.md")).exists()).toBe(false)
+    expect(await Bun.file(path.join(project, ".orchestra/skills", NAME, "SKILL.md")).exists()).toBe(false)
   })
 
   test("read installs a clean skill and reports its scan", async () => {
@@ -110,6 +110,6 @@ describe("scan in the marketplace service", () => {
     const result = await run(project, path.join(tmp.path, "config"), BENIGN, (s) => s.read({ name: NAME }))
     expect(result._tag).toBe("Success")
     if (result._tag === "Success") expect(result.success.scan.recommendation).toBe("SAFE")
-    expect(await Bun.file(path.join(project, ".opencode/skills", NAME, "SKILL.md")).exists()).toBe(true)
+    expect(await Bun.file(path.join(project, ".orchestra/skills", NAME, "SKILL.md")).exists()).toBe(true)
   })
 })
