@@ -7,43 +7,55 @@ an update. This file is the checklist for forking the Cloudflare Worker in this
 directory (`services/update`, upstream OpenCode's update service) into Orchestra's own
 service, with staged rollouts and authenticated publishes.
 
-## Status (2026-11-06)
+## Status (2026-11-07)
 
-NOT deployed. Nothing in this directory is live for Orchestra: the worker name,
-routes, D1 database, event stream and OIDC checks below still point at upstream
-OpenCode. No `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID` exists on the VM, so
-the fork cannot be deployed from here — see "What is missing" at the bottom.
+Code migrated (stage 2 of the opencode removal): the worker is now
+`orchestra-update` — service name, User-Agent `^orchestra/`, publish auth
+retargeted to `NeiP4n/orchestra-app` (repo ID `1431411182`, owner ID
+`139688546`) and `.github/workflows/release.yml`, the upstream event-lake
+binding deleted, the files bucket / publish URL moved to
+`ORCHESTRA_UPDATE_FILES_BUCKET`, `ORCHESTRA_UPDATE_FILES_BASE_URL` and
+`ORCHESTRA_UPDATE_PUBLISH_URL` in `script/update-artifact.ts` (no caller
+wires them yet).
 
-## What to change in this directory
+NOT deployed. Nothing in this directory is live for Orchestra: there is no
+Orchestra domain yet, so the audience/hostname is the placeholder
+`update.orchestra.example` (in `src/index.ts`, `wrangler.jsonc` and the
+README) and `wrangler.jsonc` has no D1 `database_id` — create one with
+`wrangler d1 create orchestra-update` and fill it in. No
+`CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID` exists on the VM, so the
+fork cannot be deployed from here — see "What is missing" at the bottom.
 
-1. `wrangler.jsonc`
+## What was changed in this directory (done 2026-11-07)
+
+1. `wrangler.jsonc` — done.
    - `name`: `opencode-update` → `orchestra-update`.
-   - `routes`: `update.opencode.ai` and `opencode.ai/update*` → Orchestra's own
-     domain (e.g. `update.orchestra.example` — pick a domain the project controls).
-     Remove the `opencode.ai` zone entries entirely.
-   - `d1_databases`: `database_name` `opencode-update` → `orchestra-update`, and
-     create a NEW D1 database (`wrangler d1 create orchestra-update`) — never reuse
-     the upstream database id `2c010a96-811f-43d5-804d-7188534e5858`.
-   - `pipelines` (`EVENTS` binding): the stream `251a89241c3a461c9007f6b6f345ed8b`
-     is anomalyco's shared lake. Either point it at Orchestra's own stream or
-     delete the binding (the worker must not send Orchestra's update events to
-     upstream's lake — check `src/index.ts` for `EVENTS` uses first).
-2. `src/index.ts`
-   - OIDC audience `https://update.opencode.ai` → the new domain
-     (`https://<new-domain>`).
-   - Hostname check (`update.opencode.ai`) → the new domain.
-   - Service name in `/` (`opencode-update`) → `orchestra-update`.
+   - `routes`: the `opencode.ai` zone entries are removed; `workers_dev` is on
+     until the project owns a domain (then add a route for it, e.g.
+     `update.orchestra.example`).
+   - `d1_databases`: `database_name` `opencode-update` → `orchestra-update`;
+     `database_id` left out on purpose — create a NEW D1 database
+     (`wrangler d1 create orchestra-update`) and fill it in. The upstream
+     database id `2c010a96-811f-43d5-804d-7188534e5858` is never reused.
+   - `pipelines` (`EVENTS` binding): deleted — the stream
+     `251a89241c3a461c9007f6b6f345ed8b` was anomalyco's shared lake, and the
+     `EVENTS` send in `src/index.ts` is deleted with it.
+2. `src/index.ts` — done.
+   - OIDC audience → `https://update.orchestra.example` (placeholder — no
+     Orchestra domain exists yet; replace with the real domain when it does,
+     together with the hostname check and the publish URL).
+   - Hostname check → `update.orchestra.example`.
+   - Service name in `/` → `orchestra-update`.
    - User-Agent regex `^opencode/...` → `^orchestra/...` (the CLI and desktop
      already send `orchestra/...` since D2).
-   - Publish auth (`claims.repository !== "anomalyco/opencode"` and
-     `workflow_ref` ending in `anomalyco/opencode/.github/workflows/publish.yml`):
-     point both at `NeiP4n/orchestra-app` and the `release.yml` workflow —
-     `publish.yml` is deleted, so the worker as-is would reject every Orchestra
-     publish. The workflow that publishes must run with `id-token: write` and
-     send the token to `/api/publish` (see `script/update-artifact.ts`, which
-     still posts to `https://opencode.ai/update/api/publish` — retarget it too).
+   - Publish auth → `NeiP4n/orchestra-app` (repo ID `1431411182`, owner ID
+     `139688546`) and `.github/workflows/release.yml`. The workflow that
+     publishes must run with `id-token: write` and send the token to
+     `/api/publish` (see `script/update-artifact.ts`).
 3. `migrations/`: keep — they define the D1 schema for the new database.
-4. `README.md`: update the protocol doc's domain and repository names.
+4. `README.md` — done: protocol doc now uses `update.orchestra.example`,
+   `orchestra` User-Agent/distribution, and the NeiP4n repository; the
+   request-logging section is replaced with a note that logging is gone.
 
 ## What to change outside this directory
 
@@ -52,10 +64,14 @@ the fork cannot be deployed from here — see "What is missing" at the bottom.
   the desktop default in `packages/gui-extensions/src/updater/platform.ts`).
   The static host (variant (a)) stays as the fallback when the Worker is down:
   the updater falls back to GitHub releases when the service fetch fails.
-- `script/update-artifact.ts`: retarget the publish URL and OIDC audience to the
-  new domain, and call it from `release.yml` after `gh release create` (or keep
-  publishing to the Worker out of band — the static manifests in `update/` are
-  refreshed by `release.yml` either way).
+- `script/update-artifact.ts` — done in code, not wired: the publish URL now
+  comes from `ORCHESTRA_UPDATE_PUBLISH_URL` (required; throws when unset) and
+  the OIDC audience is that URL's origin; the files bucket/base URL come from
+  `ORCHESTRA_UPDATE_FILES_BUCKET` / `ORCHESTRA_UPDATE_FILES_BASE_URL`
+  (required for uploads). Nothing calls `publish`/`upload` yet — call them
+  from `release.yml` after `gh release create` (or keep publishing to the
+  Worker out of band — the static manifests in `update/` are refreshed by
+  `release.yml` either way).
 - Rollout: the Worker already implements channel rollouts by IP
   (SHA-256 of channel+IP, duration in hours, default 0 — see `README.md`).
   A `beta` release to the Worker rolls out gradually; the static host cannot do

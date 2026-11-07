@@ -1,14 +1,50 @@
 import { $ } from "bun"
+import { randomUUID } from "node:crypto"
 import path from "node:path"
 import { Octokit } from "@octokit/rest"
 import { graphql } from "@octokit/graphql"
 import * as core from "@actions/core"
 import * as github from "@actions/github"
 import type { Context as GitHubContext } from "@actions/github/lib/context"
-import type { IssueCommentEvent, PullRequestReviewCommentEvent } from "@octokit/webhooks-types"
-import { createOpencodeClient } from "@opencode-ai/sdk"
 import { spawn } from "node:child_process"
 import { setTimeout as sleep } from "node:timers/promises"
+
+// Minimal shapes of the two webhook payloads this action handles. (The old
+// code imported these from @octokit/webhooks-types, which only resolved
+// transitively through @opencode-ai/sdk.)
+type IssueCommentEvent = {
+  comment: { id: number; body: string }
+  issue: { number: number; title: string; pull_request?: unknown }
+}
+
+type PullRequestReviewCommentEvent = {
+  comment: {
+    id: number
+    body: string
+    path: string
+    diff_hunk: string
+    line: number | null
+    original_line: number | null
+    position: number | null
+    commit_id: string
+    original_commit_id: string
+  }
+  pull_request: { number: number }
+}
+
+// Orchestra GitHub Action.
+//
+// Talks to a local Orchestra server over plain HTTP instead of the old
+// @opencode-ai/sdk client: the server is spawned here (`orchestra serve` on
+// 127.0.0.1:4096, Basic auth with a generated ORCHESTRA_SERVER_PASSWORD) and
+// driven through the public /api routes (POST /api/session,
+// POST /api/session/:id/prompt, POST /api/experimental/session/:id/wait,
+// GET /api/session/:id/context, GET /api/agent, GET /api/event).
+//
+// There is no session-share endpoint on the local server, so the old share
+// link / social-card footer is gone; the comment footer links only to the
+// GitHub run. GitHub access uses GITHUB_TOKEN directly — the old OIDC token
+// exchange against api.opencode.ai no longer exists.
 
 type GitHubAuthor = {
   login: string
@@ -113,21 +149,146 @@ type IssueQueryResponse = {
   }
 }
 
-const { client, server } = createOpencode()
+type OrchestraSession = {
+  id: string
+  title?: string
+}
+
+type OrchestraAgent = {
+  id: string
+  name: string
+  mode: "subagent" | "primary" | "all"
+}
+
+type OrchestraMessage = {
+  type: string
+  content?: Array<{ type: string; text?: string; name?: string }>
+}
+
+type PromptFile = {
+  filename: string
+  mime: string
+  content: string
+  start: number
+  end: number
+  replacement: string
+}
+
+class OrchestraClient {
+  constructor(
+    private readonly baseUrl: string,
+    private readonly password: string,
+  ) {}
+
+  private headers() {
+    return {
+      "Content-Type": "application/json",
+      Authorization: `Basic ${Buffer.from(`orchestra:${this.password}`, "utf8").toString("base64")}`,
+    }
+  }
+
+  private async request(path: string, init: RequestInit = {}) {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      ...init,
+      headers: { ...this.headers(), ...(init.headers ?? {}) },
+    })
+    if (!response.ok) {
+      const body = await response.text().catch(() => "")
+      throw new Error(`Orchestra server ${init.method ?? "GET"} ${path} failed: ${response.status} ${body}`)
+    }
+    if (response.status === 204) return undefined
+    return response.json() as Promise<unknown>
+  }
+
+  async ready() {
+    try {
+      await this.request("/api/agent")
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  async listAgents() {
+    const result = (await this.request("/api/agent")) as { data: OrchestraAgent[] }
+    return result.data
+  }
+
+  async createSession(input: { title?: string; agent?: string; model?: { providerID: string; id: string; variant?: string } }) {
+    const result = (await this.request("/api/session", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })) as { data: OrchestraSession }
+    return result.data
+  }
+
+  async prompt(sessionID: string, input: { text: string; files?: PromptFile[] }) {
+    await this.request(`/api/session/${sessionID}/prompt`, {
+      method: "POST",
+      body: JSON.stringify({
+        text: input.text,
+        files: (input.files ?? []).map((file) => ({
+          uri: `data:${file.mime};base64,${file.content}`,
+          name: file.filename,
+          mention: { start: file.start, end: file.end, text: file.replacement },
+        })),
+      }),
+    })
+  }
+
+  async waitForIdle(sessionID: string) {
+    await this.request(`/api/experimental/session/${sessionID}/wait`, { method: "POST" })
+  }
+
+  async context(sessionID: string) {
+    const result = (await this.request(`/api/session/${sessionID}/context`)) as { data: OrchestraMessage[] }
+    return result.data
+  }
+
+  async subscribeEvents(onEvent: (event: Record<string, unknown>) => void) {
+    const response = await fetch(`${this.baseUrl}/api/event`, { headers: this.headers() })
+    if (!response.ok || !response.body) throw new Error(`Event stream failed: ${response.status}`)
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ""
+    void (async () => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split("\n")
+          buffer = lines.pop() ?? ""
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue
+            try {
+              onEvent(JSON.parse(line.slice(6).trim()) as Record<string, unknown>)
+            } catch {
+              // Ignore unparsable stream lines
+            }
+          }
+        }
+      } catch {
+        // Stream ended; the run continues from the waited-for context
+      }
+    })()
+  }
+}
+
+const { client, server } = createOrchestra()
 let accessToken: string
 let octoRest: Octokit
 let octoGraph: typeof graphql
 let commentId: number
 let gitConfig: string
-let session: { id: string; title: string; version: string }
-let shareId: string | undefined
+let session: OrchestraSession
 let exitCode = 0
 type PromptFiles = Awaited<ReturnType<typeof getUserPrompt>>["promptFiles"]
 
 try {
   assertContextEvent("issue_comment", "pull_request_review_comment")
   assertPayloadKeyword()
-  await assertOpencodeConnected()
+  await assertOrchestraConnected()
 
   accessToken = await getAccessToken()
   octoRest = new Octokit({ auth: accessToken })
@@ -142,20 +303,16 @@ try {
   const comment = await createComment()
   commentId = comment.data.id
 
-  // Setup opencode session
+  // Setup orchestra session
   const repoData = await fetchRepo()
-  session = await client.session.create<true>().then((r) => r.data)
+  const { providerID, modelID } = useEnvModel()
+  const agent = await resolveAgent()
+  session = await client.createSession({
+    agent,
+    model: { providerID, id: modelID, variant: useEnvVariant() },
+  })
   await subscribeSessionEvents()
-  shareId = await (async () => {
-    if (useEnvShare() === false) return
-    if (!useEnvShare() && repoData.data.private) return
-    await client.session.share<true>({ path: session })
-    return session.id.slice(-8)
-  })()
-  console.log("opencode session", session.id)
-  if (shareId) {
-    console.log("Share link:", `${useShareUrl()}/s/${shareId}`)
-  }
+  console.log("orchestra session", session.id)
 
   // Handle 3 cases
   // 1. Issue
@@ -172,8 +329,7 @@ try {
         const summary = await summarize(response)
         await pushToLocalBranch(summary)
       }
-      const hasShared = prData.comments.nodes.some((c) => c.body.includes(`${useShareUrl()}/s/${shareId}`))
-      await updateComment(`${response}${footer({ image: !hasShared })}`)
+      await updateComment(`${response}${footer()}`)
     }
     // Fork PR
     else {
@@ -184,8 +340,7 @@ try {
         const summary = await summarize(response)
         await pushToForkBranch(summary, prData)
       }
-      const hasShared = prData.comments.nodes.some((c) => c.body.includes(`${useShareUrl()}/s/${shareId}`))
-      await updateComment(`${response}${footer({ image: !hasShared })}`)
+      await updateComment(`${response}${footer()}`)
     }
   }
   // Issue
@@ -201,11 +356,11 @@ try {
         repoData.data.default_branch,
         branch,
         summary,
-        `${response}\n\nCloses #${useIssueId()}${footer({ image: true })}`,
+        `${response}\n\nCloses #${useIssueId()}${footer()}`,
       )
-      await updateComment(`Created PR #${pr}${footer({ image: true })}`)
+      await updateComment(`Created PR #${pr}${footer()}`)
     } else {
-      await updateComment(`${response}${footer({ image: true })}`)
+      await updateComment(`${response}${footer()}`)
     }
   }
 } catch (e: any) {
@@ -224,16 +379,19 @@ try {
 } finally {
   server.close()
   await restoreGitConfig()
-  await revokeAppToken()
 }
 process.exit(exitCode)
 
-function createOpencode() {
+function createOrchestra() {
   const host = "127.0.0.1"
   const port = 4096
   const url = `http://${host}:${port}`
-  const proc = spawn(`opencode`, [`serve`, `--hostname=${host}`, `--port=${port}`])
-  const client = createOpencodeClient({ baseUrl: url })
+  const password = randomUUID()
+  const proc = spawn(`orchestra`, [`serve`, `--hostname=${host}`, `--port=${port}`], {
+    env: { ...process.env, ORCHESTRA_SERVER_PASSWORD: password },
+    stdio: "inherit",
+  })
+  const client = new OrchestraClient(url, password)
 
   return {
     server: { url, close: () => proc.kill() },
@@ -241,11 +399,25 @@ function createOpencode() {
   }
 }
 
+function useMentions() {
+  const raw = process.env["MENTIONS"] || "/orchestra"
+  const mentions = raw
+    .split(",")
+    .map((mention) => mention.trim())
+    .filter(Boolean)
+  return mentions.length > 0 ? mentions : ["/orchestra"]
+}
+
+function mentionPattern() {
+  const escaped = useMentions().map((mention) => mention.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+  return new RegExp(`(?:^|\\s)(?:${escaped.join("|")})(?=$|\\s)`)
+}
+
 function assertPayloadKeyword() {
   const payload = useContext().payload as IssueCommentEvent | PullRequestReviewCommentEvent
   const body = payload.comment.body.trim()
-  if (!body.match(/(?:^|\s)(?:\/opencode|\/oc)(?=$|\s)/)) {
-    throw new Error("Comments must mention `/opencode` or `/oc`")
+  if (!mentionPattern().test(body)) {
+    throw new Error(`Comments must mention one of: ${useMentions().join(", ")}`)
   }
 }
 
@@ -267,26 +439,19 @@ function getReviewCommentContext() {
   }
 }
 
-async function assertOpencodeConnected() {
+async function assertOrchestraConnected() {
   let retry = 0
   let connected = false
   do {
     try {
-      await client.app.log<true>({
-        body: {
-          service: "github-workflow",
-          level: "info",
-          message: "Prepare to react to GitHub Workflow event",
-        },
-      })
-      connected = true
-      break
+      connected = await client.ready()
+      if (connected) break
     } catch {}
     await sleep(300)
-  } while (retry++ < 30)
+  } while (retry++ < 100)
 
   if (!connected) {
-    throw new Error("Failed to connect to opencode server")
+    throw new Error("Failed to connect to orchestra server")
   }
 }
 
@@ -310,6 +475,10 @@ function useEnvModel() {
   return { providerID, modelID }
 }
 
+function useEnvVariant() {
+  return process.env["VARIANT"] || undefined
+}
+
 function useEnvRunUrl() {
   const { repo } = useContext()
 
@@ -321,14 +490,6 @@ function useEnvRunUrl() {
 
 function useEnvAgent() {
   return process.env["AGENT"] || undefined
-}
-
-function useEnvShare() {
-  const value = process.env["SHARE"]
-  if (!value) return undefined
-  if (value === "true") return true
-  if (value === "false") return false
-  throw new Error(`Invalid share value: ${value}. Share must be a boolean.`)
 }
 
 function useEnvMock() {
@@ -362,42 +523,14 @@ function useIssueId() {
   return payload.issue.number
 }
 
-function useShareUrl() {
-  return isMock() ? "https://dev.opencode.ai" : "https://opencode.ai"
-}
-
 async function getAccessToken() {
-  const { repo } = useContext()
-
-  const envToken = useEnvGithubToken()
-  if (envToken) return envToken
-
-  let response
-  if (isMock()) {
-    response = await fetch("https://api.opencode.ai/exchange_github_app_token_with_pat", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${useEnvMock().mockToken}`,
-      },
-      body: JSON.stringify({ owner: repo.owner, repo: repo.repo }),
-    })
-  } else {
-    const oidcToken = await core.getIDToken("opencode-github-action")
-    response = await fetch("https://api.opencode.ai/exchange_github_app_token", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${oidcToken}`,
-      },
-    })
+  const envToken = useEnvGithubToken() || process.env["GITHUB_TOKEN"]
+  if (!envToken) {
+    throw new Error(
+      "No GitHub token: set GITHUB_TOKEN (the action passes github.token). The old OIDC exchange against api.opencode.ai no longer exists.",
+    )
   }
-
-  if (!response.ok) {
-    const responseJson = (await response.json()) as { error?: string }
-    throw new Error(`App token exchange failed: ${response.status} ${response.statusText} - ${responseJson.error}`)
-  }
-
-  const responseJson = (await response.json()) as { token: string }
-  return responseJson.token
+  return envToken
 }
 
 async function createComment() {
@@ -418,19 +551,20 @@ async function getUserPrompt() {
 
   let prompt = (() => {
     const body = payload.comment.body.trim()
-    if (body === "/opencode" || body === "/oc") {
+    const mentions = useMentions()
+    if (mentions.includes(body)) {
       if (reviewContext) {
         return `Review this code change and suggest improvements for the commented lines:\n\nFile: ${reviewContext.file}\nLines: ${reviewContext.line}\n\n${reviewContext.diffHunk}`
       }
       return "Summarize this thread"
     }
-    if (body.includes("/opencode") || body.includes("/oc")) {
+    if (mentions.some((mention) => body.includes(mention))) {
       if (reviewContext) {
         return `${body}\n\nContext: You are reviewing a comment on file "${reviewContext.file}" at line ${reviewContext.line}.\n\nDiff context:\n${reviewContext.diffHunk}`
       }
       return body
     }
-    throw new Error("Comments must mention `/opencode` or `/oc`")
+    throw new Error(`Comments must mention one of: ${mentions.join(", ")}`)
   })()
 
   // Handle images
@@ -505,80 +639,34 @@ async function subscribeSessionEvents() {
     websearch: ["Search", "\x1b[2m\x1b[1m"],
   }
 
-  const response = await fetch(`${server.url}/event`)
-  if (!response.body) throw new Error("No response body")
+  await client.subscribeEvents((evt) => {
+    if (evt["sessionID"] !== session.id) return
 
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-
-  let text = ""
-  void (async () => {
-    while (true) {
-      try {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        const chunk = decoder.decode(value, { stream: true })
-        const lines = chunk.split("\n")
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue
-
-          const jsonStr = line.slice(6).trim()
-          if (!jsonStr) continue
-
-          try {
-            const evt = JSON.parse(jsonStr)
-
-            if (evt.type === "message.part.updated") {
-              if (evt.properties.part.sessionID !== session.id) continue
-              const part = evt.properties.part
-
-              if (part.type === "tool" && part.state.status === "completed") {
-                const [tool, color] = TOOL[part.tool] ?? [part.tool, "\x1b[34m\x1b[1m"]
-                const title =
-                  part.state.title || Object.keys(part.state.input).length > 0
-                    ? JSON.stringify(part.state.input)
-                    : "Unknown"
-                console.log()
-                console.log(`${color}|`, `\x1b[0m\x1b[2m ${tool.padEnd(7, " ")}`, "", `\x1b[0m${title}`)
-              }
-
-              if (part.type === "text") {
-                text = part.text
-
-                if (part.time?.end) {
-                  console.log()
-                  console.log(text)
-                  console.log()
-                  text = ""
-                }
-              }
-            }
-
-            if (evt.type === "session.updated") {
-              if (evt.properties.info.id !== session.id) continue
-              session = evt.properties.info
-            }
-          } catch {
-            // Ignore parse errors
-          }
-        }
-      } catch (e) {
-        console.log("Subscribing to session events done", e)
-        break
-      }
+    if (evt["type"] === "session.tool.called") {
+      const name = String(evt["name"] ?? "unknown")
+      const [tool, color] = TOOL[name] ?? [name, "\x1b[34m\x1b[1m"]
+      const input = evt["input"]
+      const title = input && typeof input === "object" ? JSON.stringify(input) : "Unknown"
+      console.log()
+      console.log(`${color}|`, `\x1b[0m\x1b[2m ${tool.padEnd(7, " ")}`, "", `\x1b[0m${title}`)
     }
-  })()
+
+    if (evt["type"] === "session.text.ended") {
+      console.log()
+      console.log(String(evt["text"] ?? ""))
+      console.log()
+    }
+
+    if (evt["type"] === "session.execution.failed") {
+      console.log("Session execution failed:", JSON.stringify(evt["error"] ?? evt))
+    }
+  })
 }
 
 async function summarize(response: string) {
   try {
     return await chat(`Summarize the following in less than 40 characters:\n\n${response}`)
   } catch {
-    if (isScheduleEvent()) {
-      return "Scheduled task changes"
-    }
     const payload = useContext().payload as IssueCommentEvent
     return `Fix issue: ${payload.issue.title}`
   }
@@ -589,8 +677,8 @@ async function resolveAgent(): Promise<string | undefined> {
   if (!envAgent) return undefined
 
   // Validate the agent exists and is a primary agent
-  const agents = await client.agent.list<true>()
-  const agent = agents.data?.find((a) => a.name === envAgent)
+  const agents = await client.listAgents()
+  const agent = agents.find((a) => a.name === envAgent || a.id === envAgent)
 
   if (!agent) {
     console.warn(`agent "${envAgent}" not found. Falling back to default agent`)
@@ -606,47 +694,16 @@ async function resolveAgent(): Promise<string | undefined> {
 }
 
 async function chat(text: string, files: PromptFiles = []) {
-  console.log("Sending message to opencode...")
-  const { providerID, modelID } = useEnvModel()
-  const agent = await resolveAgent()
+  console.log("Sending message to orchestra...")
+  await client.prompt(session.id, { text, files })
+  await client.waitForIdle(session.id)
 
-  const chat = await client.session.chat<true>({
-    path: session,
-    body: {
-      providerID,
-      modelID,
-      agent,
-      parts: [
-        {
-          type: "text",
-          text,
-        },
-        ...files.flatMap((f) => [
-          {
-            type: "file" as const,
-            mime: f.mime,
-            url: `data:${f.mime};base64,${f.content}`,
-            filename: f.filename,
-            source: {
-              type: "file" as const,
-              text: {
-                value: f.replacement,
-                start: f.start,
-                end: f.end,
-              },
-              path: f.filename,
-            },
-          },
-        ]),
-      ],
-    },
-  })
-
-  // @ts-ignore
-  const match = chat.data.parts.findLast((p) => p.type === "text")
-  if (!match) throw new Error("Failed to parse the text response")
-
-  return match.text
+  const messages = await client.context(session.id)
+  const assistant = [...messages].reverse().find((m) => m.type === "assistant")
+  const textParts = (assistant?.content ?? []).filter((part) => part.type === "text")
+  const responseText = textParts.map((part) => part.text ?? "").join("\n\n")
+  if (!responseText) throw new Error("Failed to parse the text response")
+  return responseText
 }
 
 async function configureGit(appToken: string) {
@@ -716,7 +773,7 @@ function generateBranchName(type: "issue" | "pr") {
     .replace(/\.\d{3}Z/, "")
     .split("T")
     .join("")
-  return `opencode/${type}${useIssueId()}-${timestamp}`
+  return `orchestra/${type}${useIssueId()}-${timestamp}`
 }
 
 async function pushToNewBranch(summary: string, branch: string) {
@@ -768,8 +825,8 @@ async function assertPermissions() {
 
   console.log(`Asserting permissions for user ${actor}...`)
 
-  if (useEnvGithubToken()) {
-    console.log("  skipped (using github token)")
+  if (isMock()) {
+    console.log("  skipped (mock mode)")
     return
   }
 
@@ -820,20 +877,8 @@ async function createPR(base: string, branch: string, title: string, body: strin
   return pr.data.number
 }
 
-function footer(opts?: { image?: boolean }) {
-  const { providerID, modelID } = useEnvModel()
-
-  const image = (() => {
-    if (!shareId) return ""
-    if (!opts?.image) return ""
-
-    const titleAlt = encodeURIComponent(session.title.substring(0, 50))
-    const title64 = Buffer.from(session.title.substring(0, 700), "utf8").toString("base64")
-
-    return `<a href="${useShareUrl()}/s/${shareId}"><img width="200" alt="${titleAlt}" src="https://social-cards.sst.dev/opencode-share/${title64}.png?model=${providerID}/${modelID}&version=${session.version}&id=${shareId}" /></a>\n`
-  })()
-  const shareUrl = shareId ? `[opencode session](${useShareUrl()}/s/${shareId})&nbsp;&nbsp;|&nbsp;&nbsp;` : ""
-  return `\n\n${image}${shareUrl}[github run](${useEnvRunUrl()})`
+function footer() {
+  return `\n\n[github run](${useEnvRunUrl()})`
 }
 
 async function fetchRepo() {
@@ -1054,18 +1099,4 @@ function buildPromptDataForPR(pr: GitHubPullRequest) {
     ...(reviewData.length > 0 ? ["<pull_request_reviews>", ...reviewData, "</pull_request_reviews>"] : []),
     "</pull_request>",
   ].join("\n")
-}
-
-async function revokeAppToken() {
-  if (!accessToken) return
-  console.log("Revoking app token...")
-
-  await fetch("https://api.github.com/installation/token", {
-    method: "DELETE",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
-  })
 }

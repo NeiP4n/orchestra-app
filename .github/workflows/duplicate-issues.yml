@@ -23,8 +23,7 @@ jobs:
           LOGIN="${{ github.event.issue.user.login }}"
           ASSOCIATION="${{ github.event.issue.author_association }}"
 
-          if [ "$LOGIN" = "opencode-agent[bot]" ] ||
-             [ "$ASSOCIATION" = "OWNER" ] ||
+          if [ "$ASSOCIATION" = "OWNER" ] ||
              [ "$ASSOCIATION" = "MEMBER" ] ||
              grep -qxiF "$LOGIN" .github/TEAM_MEMBERS; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -36,9 +35,13 @@ jobs:
       - uses: ./.github/actions/setup-bun
         if: steps.author.outputs.skip != 'true'
 
-      - name: Install opencode
+      - name: Install orchestra
         if: steps.author.outputs.skip != 'true'
-        run: curl -fsSL https://opencode.ai/install | bash
+        run: |
+          VERSION=$(curl -sf https://api.github.com/repos/NeiP4n/orchestra-app/releases/latest | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4)
+          curl -fsSL -o "$HOME/.local/bin/orchestra" "https://github.com/NeiP4n/orchestra-app/releases/download/${VERSION:-latest}/orchestra-linux-x64"
+          chmod +x "$HOME/.local/bin/orchestra"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Check duplicates and compliance
         if: steps.author.outputs.skip != 'true'
@@ -54,7 +57,7 @@ jobs:
               "webfetch": "deny"
             }
         run: |
-          opencode run -m opencode/claude-sonnet-4-6 "A new issue has been created:
+          orchestra run -m opencode/claude-sonnet-4-6 "A new issue has been created:
 
           Issue number: ${{ github.event.issue.number }}
           Issue author association: ${{ github.event.issue.author_association }}
@@ -157,8 +160,7 @@ jobs:
           LOGIN="${{ github.event.issue.user.login }}"
           ASSOCIATION="${{ github.event.issue.author_association }}"
 
-          if [ "$LOGIN" = "opencode-agent[bot]" ] ||
-             [ "$ASSOCIATION" = "OWNER" ] ||
+          if [ "$ASSOCIATION" = "OWNER" ] ||
              [ "$ASSOCIATION" = "MEMBER" ] ||
              grep -qxiF "$LOGIN" .github/TEAM_MEMBERS; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -170,9 +172,13 @@ jobs:
       - uses: ./.github/actions/setup-bun
         if: steps.author.outputs.skip != 'true'
 
-      - name: Install opencode
+      - name: Install orchestra
         if: steps.author.outputs.skip != 'true'
-        run: curl -fsSL https://opencode.ai/install | bash
+        run: |
+          VERSION=$(curl -sf https://api.github.com/repos/NeiP4n/orchestra-app/releases/latest | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4)
+          curl -fsSL -o "$HOME/.local/bin/orchestra" "https://github.com/NeiP4n/orchestra-app/releases/download/${VERSION:-latest}/orchestra-linux-x64"
+          chmod +x "$HOME/.local/bin/orchestra"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Recheck compliance
         if: steps.author.outputs.skip != 'true'
@@ -188,7 +194,7 @@ jobs:
               "webfetch": "deny"
             }
         run: |
-          opencode run -m opencode/claude-sonnet-4-6 "Issue #${{ github.event.issue.number }} was previously flagged as non-compliant and has been edited.
+          orchestra run -m opencode/claude-sonnet-4-6 "Issue #${{ github.event.issue.number }} was previously flagged as non-compliant and has been edited.
           Issue author association: ${{ github.event.issue.author_association }}
 
           Lookup this issue with gh issue view ${{ github.event.issue.number }}.

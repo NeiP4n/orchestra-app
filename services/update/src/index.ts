@@ -1,11 +1,9 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose"
-import type { Pipeline } from "cloudflare:pipelines"
 import semver from "semver"
 import { stringify } from "yaml"
 
 interface Env {
   DB: D1Database
-  EVENTS: Pipeline
 }
 
 type ArtifactRow = {
@@ -34,37 +32,22 @@ const identifier = /^[a-zA-Z0-9._-]{1,64}$/
 const version = /^[a-zA-Z0-9.+_-]{1,128}$/
 const select =
   "SELECT channel, name, distribution, version, metadata, active, minimum, time_created, time_updated FROM artifact"
-const audience = "https://update.opencode.ai"
+const audience = "https://update.orchestra.example"
 const githubKeys = createRemoteJWKSet(new URL("https://token.actions.githubusercontent.com/.well-known/jwks"))
 
 export default {
-  async fetch(request: Request, env: Env, ctx: Pick<ExecutionContext, "waitUntil">): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
-    // The legacy hostname only exposes /admin, covered by its existing Access policy.
+    // The worker is served at its own hostname; /update is only a path prefix
+    // when it is mounted under another host (no such mount exists today).
     const prefix =
-      url.hostname !== "update.opencode.ai" && (url.pathname === "/update" || url.pathname.startsWith("/update/"))
+      url.hostname !== "update.orchestra.example" &&
+      (url.pathname === "/update" || url.pathname.startsWith("/update/"))
         ? "/update"
         : ""
     const pathname = url.pathname.slice(prefix.length) || "/"
-    ctx.waitUntil(
-      env.EVENTS.send([
-        {
-          source: "update",
-          type: "request",
-          timestamp: new Date().toISOString(),
-          payload: {
-            method: request.method,
-            path: pathname,
-            useragent: request.headers.get("user-agent"),
-            ip: request.headers.get("cf-connecting-ip"),
-            cf_country: request.cf?.country,
-            cf_colo: request.cf?.colo,
-          },
-        },
-      ]).catch(() => console.error("Failed to send update request event to the data lake")),
-    )
 
-    if (pathname === "/") return json({ service: "opencode-update" })
+    if (pathname === "/") return json({ service: "orchestra-update" })
     if (pathname === "/admin" && request.method === "GET") return admin(request, env, prefix)
     if (pathname === "/admin/activate" && request.method === "POST") return markArtifact(request, env, "active", prefix)
     if (pathname === "/admin/minimum" && request.method === "POST") return markArtifact(request, env, "minimum", prefix)
@@ -78,7 +61,7 @@ export default {
     }
 
     const resolved = resolveChannel(path[0])
-    const agent = request.headers.get("User-Agent")?.match(/^opencode\/(?:([^/]+)\/([^/]+)\/cli|(.*))$/)
+    const agent = request.headers.get("User-Agent")?.match(/^orchestra\/(?:([^/]+)\/([^/]+)\/cli|(.*))$/)
     const current = url.searchParams.get("current") ?? agent?.[2] ?? agent?.[3]
     const source = agent?.[1] ?? current?.match(/^v?0\.0\.0-(.+)-\d+(?:\.\d+)?(?:\+.*)?$/)?.[1]
     const caller = source === undefined || resolveChannel(source) === resolved ? current : undefined
@@ -284,7 +267,7 @@ async function admin(request: Request, env: Env, prefix: string) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OpenCode Update</title>
+  <title>Orchestra Update</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/basecoat.cdn.min.css">
   <style>
     body { min-height: 100vh; background: var(--background); }
@@ -509,11 +492,11 @@ type GitHubClaims = JWTPayload & {
 }
 
 export function validGitHubClaims(claims: JWTPayload): claims is GitHubClaims {
-  if (claims.repository !== "anomalyco/opencode") return false
-  if (claims.repository_id !== "975734319") return false
-  if (claims.repository_owner_id !== "66570915") return false
+  if (claims.repository !== "NeiP4n/orchestra-app") return false
+  if (claims.repository_id !== "1431411182") return false
+  if (claims.repository_owner_id !== "139688546") return false
   if (typeof claims.workflow_ref !== "string" || typeof claims.ref !== "string") return false
-  if (claims.workflow_ref !== `anomalyco/opencode/.github/workflows/publish.yml@${claims.ref}`) return false
+  if (claims.workflow_ref !== `NeiP4n/orchestra-app/.github/workflows/release.yml@${claims.ref}`) return false
   if (!channelsForRef(claims.ref).length) return false
   return [claims.sha, claims.run_id, claims.run_attempt, claims.actor].every((value) => typeof value === "string")
 }

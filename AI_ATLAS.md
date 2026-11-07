@@ -2421,12 +2421,21 @@ have no version field.
   path which needs the Worker JSON protocol — no default there); desktop User-Agent is
   `orchestra/...` since D2. electron-updater following the `/releases/latest/download`
   redirect to `latest.yml` is assumed, not yet verified on a real desktop release.
-- Update host, variant (b) Cloudflare Worker + D1: documented only, in
-  `services/update/ORCHESTRA.md` (fork checklist: rename worker/domain/D1, repoint
-  the OIDC audience + publish-auth repository/workflow-ref, retarget
-  `script/update-artifact.ts`). Not deployed: no `CLOUDFLARE_API_TOKEN` /
-  `CLOUDFLARE_ACCOUNT_ID` on the VM, no domain picked. The Worker is the only path
-  with staged IP rollouts; the static host has none.
+- Update host, variant (b) Cloudflare Worker + D1: code-migrated in the
+  opencode-removal stage 2 (`services/update/ORCHESTRA.md`): worker renamed
+  to `orchestra-update`, service name, User-Agent `^orchestra/`, publish auth
+  retargeted to `NeiP4n/orchestra-app` (repo ID `1431411182`) and
+  `.github/workflows/release.yml`, upstream event-lake binding deleted,
+  `script/update-artifact.ts` publish URL / files bucket moved to
+  `ORCHESTRA_UPDATE_PUBLISH_URL`, `ORCHESTRA_UPDATE_FILES_BUCKET`,
+  `ORCHESTRA_UPDATE_FILES_BASE_URL` (nothing calls them yet). Not deployed:
+  no `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` on the VM, no domain
+  picked — the audience/hostname is the placeholder
+  `update.orchestra.example`, and `wrangler.jsonc` has no D1 `database_id`
+  (create one with `wrangler d1 create orchestra-update`). Until the Worker
+  is deployed, the CLI checks updates against the static host (variant (a))
+  and the GitHub releases fallback. The Worker is the only path with staged
+  IP rollouts; the static host has none.
 - Canary: channels in `releases.json` + `update/` manifests (`latest` vs `beta`);
   release to `beta` first, soak, then promote by editing that entry's channel to
   `latest` (one commit) + `bun script/update-manifests.ts --channel latest`, or cut
@@ -2454,13 +2463,35 @@ have no version field.
 - Deleted in D2: `.github/workflows/publish.yml` + `.github/workflows/deploy.yml`
   (both fully dead, `anomalyco/opencode`-gated) and `script/release.ts` (dispatched
   the dead `publish.yml`). Snapshot push cannot delete remote files — the remote
-  copies must be deleted separately. Left in place, noted: `script/update-artifact.ts`
-  (posts to `opencode.ai/update`, only used by the deleted `publish.yml`),
-  `script/version.ts` (no caller left after the `publish.yml` removal),
-  `installer/install.sh` (builds a Rust binary from `crates/orchestra`, which does
-  not exist in the repo), root `install.sh` (duplicates `installer/get.sh`, Termux
-  value). `opencode.yml` / `review.yml` (live OpenCode agents in CI) are NOT D2's
-  to remove — they belong to the opencode-removal block.
+  copies must be deleted separately. Deleted in the opencode-removal stage 2:
+  `.github/workflows/opencode.yml` (comment agent `/oc` / `/opencode` on
+  `anomalyco/opencode/github`) and `.github/workflows/review.yml` (AI review bot
+  on `opencode run`) — there is NO automatic AI review of PRs after this; a
+  replacement (own bot or manual review) needs a user decision. The remaining
+  CI agent workflows (`triage.yml`, `duplicate-issues.yml`,
+  `docs-locale-sync.yml`, `docs-update.yml`, `pr-management.yml`) were retargeted
+  to the `orchestra` binary (release asset from `NeiP4n/orchestra-app`) and the
+  `orchestra run` command; `docs-update.yml` now uses the rewritten local
+  `./github` action. Left in place, noted: `script/version.ts` (no caller left
+  after the `publish.yml` removal), `installer/install.sh` (builds a Rust binary
+  from `crates/orchestra`, which does not exist in the repo), root `install.sh`
+  (duplicates `installer/get.sh`, Termux value).
+- Also in the opencode-removal stage 2: `github/` (the GitHub Action) was
+  rewritten onto a plain-HTTP client against the local server (`orchestra serve`
+  on 127.0.0.1:4096, `POST /api/session` + `/prompt` + `/wait` +
+  `/context`, `GET /api/agent` + `/api/event`); it downloads the `orchestra`
+  binary from the latest `NeiP4n/orchestra-app` release, triggers on
+  `/orchestra`, and uses `GITHUB_TOKEN` directly (the OIDC exchange against
+  `api.opencode.ai` is gone; there is no session-share link anymore).
+  `packages/enterprise/src/core/share.ts` uses local legacy v1 types instead of
+  `@opencode-ai/sdk/v2`; the desktop dev picker
+  (`@brendonovich/vite-plugin-opencode`, `packages/desktop/scripts/picker.ts`)
+  was deleted outright; the stats model catalog
+  (`packages/stats/app/src/routes/model-catalog.ts`) now reads `models.dev`
+  (verified byte-identical payloads for `catalog.json`, `api.json`, `/labs`);
+  the VS Code extension (`sdks/vscode`) is renamed to `orchestra`
+  (`orchestra.*` commands) but keeps publisher `sst-dev` — Orchestra has no
+  publisher ID of its own yet.
 - Known gaps: npm publish of `@orchestra/cli` does not exist yet (no publishConfig,
   no npm token) — the updater's npm/bun/yarn/pnpm methods install
   `<package>@<version>` from npm and will fail at install time until then; the

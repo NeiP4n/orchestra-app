@@ -103,8 +103,8 @@ jobs:
       - name: Setup git committer
         uses: ./.github/actions/setup-git-committer
         with:
-          opencode-app-id: ${{ vars.ORCHESTRA_APP_ID }}
-          opencode-app-secret: ${{ secrets.ORCHESTRA_APP_SECRET }}
+          orchestra-app-id: ${{ vars.ORCHESTRA_APP_ID }}
+          orchestra-app-secret: ${{ secrets.ORCHESTRA_APP_SECRET }}
 
       - name: Pull latest changes
         run: |

@@ -291,11 +291,10 @@ export const ALLOWLIST: readonly DecouplingAllowlistEntry[] = [
   // --------------------------------------------------------------------------
   // Upstream GitHub Workflows (.github) & Automation Scripts (script/)
   // --------------------------------------------------------------------------
-  {
-    path: /^\.github\/workflows\//,
-    allowed: ["anomalyco/opencode", "opencode.ai"],
-    reason: "Legacy CI/CD workflow references, bot emails and action triggers from upstream",
-  },
+  // NOTE: the .github/workflows allowlist entry was removed in stage 2 of the
+  // opencode removal — no workflow file references opencode.ai or
+  // anomalyco/opencode anymore (model refs like opencode/<model> are Zen
+  // provider IDs, not forbidden patterns).
   {
     path: "script/github/close-issues.ts",
     allowed: ["anomalyco/opencode"],
@@ -316,11 +315,9 @@ export const ALLOWLIST: readonly DecouplingAllowlistEntry[] = [
     allowed: ["anomalyco/opencode"],
     reason: "Upstream release statistics scraper",
   },
-  {
-    path: "script/update-artifact.ts",
-    allowed: ["opencode.ai"],
-    reason: "Upstream release artifact publisher and update service URL",
-  },
+  // NOTE: the script/update-artifact.ts allowlist entry was removed in stage 2
+  // of the opencode removal — the publisher now targets the Orchestra update
+  // service (ORCHESTRA_UPDATE_PUBLISH_URL) and no longer references opencode.ai.
 ]
 
 export interface Violation {

@@ -22,8 +22,7 @@ jobs:
           LOGIN="${{ github.event.issue.user.login }}"
           ASSOCIATION="${{ github.event.issue.author_association }}"
 
-          if [ "$LOGIN" = "opencode-agent[bot]" ] ||
-             [ "$ASSOCIATION" = "OWNER" ] ||
+          if [ "$ASSOCIATION" = "OWNER" ] ||
              [ "$ASSOCIATION" = "MEMBER" ] ||
              grep -qxiF "$LOGIN" .github/TEAM_MEMBERS; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -36,9 +35,13 @@ jobs:
         if: steps.author.outputs.skip != 'true'
         uses: ./.github/actions/setup-bun
 
-      - name: Install opencode
+      - name: Install orchestra
         if: steps.author.outputs.skip != 'true'
-        run: curl -fsSL https://opencode.ai/install | bash
+        run: |
+          VERSION=$(curl -sf https://api.github.com/repos/NeiP4n/orchestra-app/releases/latest | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4)
+          curl -fsSL -o "$HOME/.local/bin/orchestra" "https://github.com/NeiP4n/orchestra-app/releases/download/${VERSION:-latest}/orchestra-linux-x64"
+          chmod +x "$HOME/.local/bin/orchestra"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Triage issue
         if: steps.author.outputs.skip != 'true'
@@ -49,7 +52,7 @@ jobs:
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
-          opencode run --agent triage "The following issue was just opened, triage it:
+          orchestra run --agent triage "The following issue was just opened, triage it:
 
           Title: $ISSUE_TITLE
 
