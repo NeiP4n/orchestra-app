@@ -4,6 +4,7 @@ import { AutoloopCard } from "@orchestra/schema/autoloop-card"
 import type { Event } from "@orchestra/schema/event"
 import { Effect, Schema } from "effect"
 import { decide, type AutoloopLimits, type CardRow, type DecideInput } from "./kernel/decide.js"
+import type { DisputeLevel } from "./kernel/dispute.js"
 import type { AutonomyMode } from "./kernel/autonomy.js"
 import type { View } from "./kernel/evolve.js"
 import { rows } from "./kernel/evolve.js"
@@ -47,10 +48,7 @@ export interface CardChange {
 
 /** The narrow half of the bus the cards need: anything that can publish an event. */
 export interface CardPublisher {
-  publish: <D extends Event.Definition>(
-    definition: D,
-    data: Event.Data<D>,
-  ) => Effect.Effect<Event.Payload<D>>
+  publish: <D extends Event.Definition>(definition: D, data: Event.Data<D>) => Effect.Effect<Event.Payload<D>>
 }
 
 export class CardsFailure extends Schema.TaggedError<CardsFailure>()("Autoloop.CardsFailure", {
@@ -119,8 +117,7 @@ export const allCards = (view: View): Card[] => cardRows(view).map(toCard)
 /** Open cards only, oldest first — the ones a human still owes an answer to. */
 export const openCards = (view: View): Card[] => allCards(view).filter((card) => card.state === "open")
 
-export const cardById = (view: View, id: number): Card | undefined =>
-  allCards(view).find((card) => card.id === id)
+export const cardById = (view: View, id: number): Card | undefined => allCards(view).find((card) => card.id === id)
 
 const decideError = (cause: unknown): CardsFailure => {
   const code = (cause as { code?: unknown } | null)?.code
@@ -200,7 +197,11 @@ const commitDecided = (opened: OpenedView, input: DecideInput, env?: CardsEnv) =
                 return { view: reopened.view, events: [] as CardChange[], value: redecided.value }
               }
               const recommitted = yield* AutoloopStore.commit(redecided.facts, reopened.lastSeq)
-              return { view: recommitted.view, events: cardChanges(reopened.view, recommitted.view), value: redecided.value }
+              return {
+                view: recommitted.view,
+                events: cardChanges(reopened.view, recommitted.view),
+                value: redecided.value,
+              }
             })
           : Effect.fail(error),
       ),
@@ -263,8 +264,9 @@ export function answerCard(id: number, input: AnswerCardInput, env?: CardsEnv) {
     const newRunId =
       answerEvent === null
         ? null
-        : (rows(view, "run_events").find(({ data }) => data["event_id"] === answerEvent)?.data["run_id"] as number | undefined) ??
-          null
+        : ((rows(view, "run_events").find(({ data }) => data["event_id"] === answerEvent)?.data["run_id"] as
+            | number
+            | undefined) ?? null)
     return { card, changed: answered.changed, newRunId, events }
   })
 }
@@ -326,7 +328,7 @@ export function raiseDispute(input: RaiseDisputeInput, env?: CardsEnv) {
       { type: "raiseDispute", args: [input.subject, input.positionA, input.positionB, input.level] },
       env,
     )
-    return value as { dispute: number; level: string; deadline: string }
+    return value as { dispute: number; level: DisputeLevel; deadline: string }
   })
 }
 
@@ -344,7 +346,7 @@ export function escalateDispute(id: number, env?: CardsEnv) {
   return Effect.gen(function* () {
     const opened = yield* openJournal
     const { value } = yield* commitDecided(opened, { type: "escalateDispute", args: [id] }, env)
-    return value as { escalated: boolean; reason: string; level: string; state: string }
+    return value as { escalated: boolean; reason: string; level: DisputeLevel; state: string }
   })
 }
 
