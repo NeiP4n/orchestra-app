@@ -37,9 +37,14 @@ const STALE_ELEMENT_PATTERNS: readonly RegExp[] = [
   /\buid\b.{0,80}\bnot found\b/i,
   /\belement\b.{0,80}\bno longer exists\b/i,
   /\belement\b.{0,80}\bnot found\b/i,
-  // playwright / agent-desktop refs: 'Element with ref "e5" not found'.
+  // playwright / agent-desktop refs: 'Element with ref "e5" not found',
+  // agent-desktop: a changed UI returns STALE_REF (or AMBIGUOUS_TARGET
+  // when the ref now matches several elements) — the repair is the same:
+  // a fresh snapshot and a newly picked ref.
   /\bref\b.{0,40}\bnot found\b/i,
   /\bstale element\b/i,
+  /\bSTALE_REF\b/,
+  /\bAMBIGUOUS_TARGET\b/,
 ]
 
 /** True when the error says the element reference (uid/ref) died with the page. */

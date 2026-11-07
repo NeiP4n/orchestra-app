@@ -20,6 +20,8 @@ describe("isStaleElementError", () => {
     expect(isStaleElementError('Error: Element with ref "e5" not found')).toBe(true)
     expect(isStaleElementError("stale element reference: element is not attached to the page document")).toBe(true)
     expect(isStaleElementError("Element no longer exists")).toBe(true)
+    expect(isStaleElementError("STALE_REF: the element changed since the snapshot")).toBe(true)
+    expect(isStaleElementError("AMBIGUOUS_TARGET: the ref matches several elements now")).toBe(true)
   })
 
   test("does not match unrelated failures", () => {
