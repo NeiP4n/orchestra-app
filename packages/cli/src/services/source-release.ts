@@ -7,6 +7,19 @@ import { parseReleaseVersion } from "./updater-action"
 import { entryForVersion, latestEntry, parseRegistry, readRegistryFile } from "./release-registry"
 import type { ReleaseChannel, ReleaseEntry } from "./release-registry"
 
+/**
+ * Source-checkout updates run the Bun shell, Bun.spawn and Bun.semver, so they
+ * exist only where the build AND the runtime provide them. A node artifact
+ * (artifact "cli-node") reports channel "local" too, and there this module's
+ * `import { $ } from "bun"` resolves to a bundled shim that throws on call —
+ * callers must check this first and refuse honestly instead.
+ */
+export const supported = (artifact: string, hasBunRuntime: boolean) => artifact !== "cli-node" && hasBunRuntime
+
+/** Honest refusal for builds without the Bun source updater: no git/network advice. */
+export const UNSUPPORTED_MESSAGE =
+  "Source-checkout updates require the Bun source installation. This Node build cannot update a checkout; run the update from the source installation under Bun."
+
 // Releases are recorded in releases.json on main — no git tags, because tags cannot be
 // created through the snapshot-push flow that publishes this repo. A release entry points
 // at its bump commit's SHA, so resolving a version means reading the registry, not a tag.
@@ -111,9 +124,7 @@ export async function keepingEdits(root: string, move: () => Promise<void>): Pro
 
   if ((await $`git -C ${root} stash pop`.quiet().nothrow()).exitCode === 0) return { type: "restored" }
 
-  const files = (
-    await $`git -C ${root} stash show --name-only ${"stash@{0}"}`.quiet().nothrow().text()
-  )
+  const files = (await $`git -C ${root} stash show --name-only ${"stash@{0}"}`.quiet().nothrow().text())
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
@@ -143,7 +154,9 @@ export async function installBranch(root = checkout) {
   if (configured) return configured
   const result = await $`git -C ${root} ls-remote --heads origin main lan-rooms`.quiet().nothrow()
   const branches = new Set(
-    result.text().split("\n")
+    result
+      .text()
+      .split("\n")
       .map((line) => line.split("\t")[1]?.replace("refs/heads/", ""))
       .filter((name): name is string => Boolean(name)),
   )
@@ -174,7 +187,10 @@ export async function branch(root = checkout): Promise<Branch | undefined> {
     await refreshTracking(root, target)
   } else {
     target = `origin/${name}`
-    const fetched = await refreshTracking(root, target).then(() => true, () => false)
+    const fetched = await refreshTracking(root, target).then(
+      () => true,
+      () => false,
+    )
     if (!fetched) return { type: "no-upstream" }
   }
   const comparison = await $`git -C ${root} rev-list --left-right --count ${"HEAD..." + target}`.quiet().nothrow()
@@ -195,7 +211,12 @@ export async function install(root = checkout): Promise<Install> {
   const branch = await installBranch(root)
   const refspec = `+refs/heads/${branch}:refs/remotes/origin/${branch}`
   await $`git -C ${root} fetch --quiet origin ${refspec}`.quiet()
-  const [ahead, behind] = (await $`git -C ${root} rev-list --left-right --count ${"HEAD...origin/" + branch}`.quiet().text()).trim().split(/\s+/).map(Number)
+  const [ahead, behind] = (
+    await $`git -C ${root} rev-list --left-right --count ${"HEAD...origin/" + branch}`.quiet().text()
+  )
+    .trim()
+    .split(/\s+/)
+    .map(Number)
   if (ahead) return { type: "ahead" }
   if (!behind) return { type: "current" }
   return { type: "behind", branch, behind }
@@ -244,7 +265,8 @@ async function validateServer(root: string) {
   if (!existsSync(path.join(root, "packages", "server"))) return
   const result = await runBun(["--cwd", "packages/server", "run", "typecheck"], root, VALIDATION_TIMEOUT_MS)
   if (result.exitCode !== 0) {
-    const detail = result.stderr.trim() || result.stdout.trim() || `Server typecheck exited with code ${result.exitCode}`
+    const detail =
+      result.stderr.trim() || result.stdout.trim() || `Server typecheck exited with code ${result.exitCode}`
     throw new Error(`Orchestra update validation failed:\n${detail}`)
   }
 }

@@ -4,7 +4,8 @@ import { Commands } from "../commands"
 import { Runtime } from "../../framework/runtime"
 import { Updater } from "../../services/updater"
 import { handlePromptErrors } from "../../ui/prompt"
-import { ORCHESTRA_LOCAL, ORCHESTRA_VERSION } from "../../version"
+import { SourceRelease } from "../../services/source-release"
+import { ORCHESTRA_ARTIFACT, ORCHESTRA_LOCAL, ORCHESTRA_VERSION } from "../../version"
 import { stripVTControlCharacters } from "node:util"
 
 export default Runtime.handler(
@@ -19,6 +20,11 @@ export default Runtime.handler(
       // checkout unless ORCHESTRA_UPDATE_URL is set explicitly: that would offer an
       // upstream OpenCode version (for example 2.0.32) instead of the fork's update.
       if (ORCHESTRA_LOCAL && !process.env.ORCHESTRA_UPDATE_URL?.trim()) {
+        // A node artifact reports the local channel too, but source-checkout updates
+        // need the Bun source installation; refuse honestly instead of reaching the
+        // Bun-only release machinery.
+        if (!SourceRelease.supported(ORCHESTRA_ARTIFACT, typeof Bun !== "undefined"))
+          return yield* Effect.fail(new Error(SourceRelease.UNSUPPORTED_MESSAGE))
         const status = yield* updater.check()
         if (!status) {
           outro("Already up to date")

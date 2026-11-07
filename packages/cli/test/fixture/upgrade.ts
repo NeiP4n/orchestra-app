@@ -13,8 +13,18 @@ await Effect.runPromise(
   ).pipe(
     Effect.provideService(Updater.Service, {
       run: () => Effect.die("Manual upgrades must not check for automatic updates"),
-      check: () => Effect.die("Manual upgrades must not check for TUI updates"),
-      apply: () => Effect.die("Manual upgrades must not apply TUI updates"),
+      check: () =>
+        Effect.suspend(() => {
+          if (!process.env.UPGRADE_TEST_LOCAL) return Effect.die("Manual upgrades must not check for TUI updates")
+          record("check")
+          return Effect.succeed({ type: "available" as const, version: "0.0.0-beta-new" })
+        }),
+      apply: (version: string) =>
+        Effect.suspend(() => {
+          if (!process.env.UPGRADE_TEST_LOCAL) return Effect.die("Manual upgrades must not apply TUI updates")
+          record({ applied: version })
+          return Effect.void
+        }),
       removal: () => undefined,
       method: () =>
         Effect.sync(() => {

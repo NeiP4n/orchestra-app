@@ -81,38 +81,67 @@ describe("upgrade command", () => {
     expect(result.stdout).toContain("Permission denied")
     expect(result.stdout).not.toContain("Upgrade complete")
   })
+
+  test("a node artifact in the local channel refuses source-checkout updates honestly", async () => {
+    const result = await cli([], { ORCHESTRA_UPDATE_URL: "" }, "fixture/upgrade.ts", {
+      ORCHESTRA_CHANNEL: '"local"',
+      ORCHESTRA_ARTIFACT: '"cli-node"',
+    })
+    const output = result.stdout + result.stderr
+    expect(result.exitCode).not.toBe(0)
+    expect(output).toContain("Source-checkout updates require the Bun source installation")
+    expect(output).not.toContain("Already up to date")
+    expect(output).not.toContain("Update complete")
+    expect(output).not.toContain("Upgrade complete")
+    expect(result.events).toEqual([])
+  })
+
+  test("a Bun source installation still upgrades through the local channel", async () => {
+    const result = await cli([], { ORCHESTRA_UPDATE_URL: "", UPGRADE_TEST_LOCAL: "1" }, "fixture/upgrade.ts", {
+      ORCHESTRA_CHANNEL: '"local"',
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.events).toEqual(["check", { applied: "0.0.0-beta-new" }])
+    expect(result.stdout).toContain("Update complete")
+  })
+
+  test("a node artifact outside the local channel still upgrades through its package manager", async () => {
+    const result = await cli([], {}, "fixture/upgrade.ts", { ORCHESTRA_ARTIFACT: '"cli-node"' })
+    expect(result.exitCode).toBe(0)
+    expect(result.events).toEqual(["method", { latest: "npm" }, { method: "npm", version: "0.0.0-beta-new" }])
+    expect(result.stdout).toContain("Upgrade complete")
+  })
 })
 
-async function cli(args: string[], env: Record<string, string> = {}, entry = "fixture/upgrade.ts") {
+async function cli(
+  args: string[],
+  env: Record<string, string> = {},
+  entry = "fixture/upgrade.ts",
+  defines: Record<string, string> = {},
+) {
+  const defineFlags = Object.entries({
+    ORCHESTRA_VERSION: '"0.0.0-beta-old"',
+    ORCHESTRA_CHANNEL: '"latest"',
+    ...defines,
+  }).flatMap(([name, value]) => ["--define", `${name}=${value}`])
   const root = await mkdtemp(path.join(os.tmpdir(), "opencode-upgrade-"))
   try {
-    const child = Bun.spawn(
-      [
-        process.execPath,
-        "--define",
-        'ORCHESTRA_VERSION="0.0.0-beta-old"',
-        "--define",
-        'ORCHESTRA_CHANNEL="latest"',
-        path.join(import.meta.dir, entry),
-        ...args,
-      ],
-      {
-        cwd: path.join(import.meta.dir, ".."),
-        env: {
-          ...process.env,
-          ORCHESTRA_TEST_HOME: root,
-          XDG_DATA_HOME: path.join(root, "data"),
-          XDG_CONFIG_HOME: path.join(root, "config"),
-          XDG_CACHE_HOME: path.join(root, "cache"),
-          XDG_STATE_HOME: path.join(root, "state"),
-          ORCHESTRA_DISABLE_AUTOUPDATE: "1",
-          ORCHESTRA_UPDATE_URL: "https://example.invalid",
-          ...env,
-        },
-        stdout: "pipe",
-        stderr: "pipe",
+    const child = Bun.spawn([process.execPath, ...defineFlags, path.join(import.meta.dir, entry), ...args], {
+      cwd: path.join(import.meta.dir, ".."),
+      env: {
+        ...process.env,
+        ORCHESTRA_TEST_HOME: root,
+        XDG_DATA_HOME: path.join(root, "data"),
+        XDG_CONFIG_HOME: path.join(root, "config"),
+        XDG_CACHE_HOME: path.join(root, "cache"),
+        XDG_STATE_HOME: path.join(root, "state"),
+        ORCHESTRA_DISABLE_AUTOUPDATE: "1",
+        ORCHESTRA_UPDATE_URL: "https://example.invalid",
+        ...env,
       },
-    )
+      stdout: "pipe",
+      stderr: "pipe",
+    })
     const [stdout, stderr, exitCode] = await Promise.all([
       new Response(child.stdout).text(),
       new Response(child.stderr).text(),

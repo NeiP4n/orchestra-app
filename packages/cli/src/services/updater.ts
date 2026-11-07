@@ -118,10 +118,7 @@ function resultDetail(result: { code: number; stdout: string; stderr: string }) 
 }
 
 export interface Interface {
-  readonly run: (
-    onInstall?: (version: string) => void,
-    options?: RunOptions,
-  ) => Effect.Effect<RunResult | undefined>
+  readonly run: (onInstall?: (version: string) => void, options?: RunOptions) => Effect.Effect<RunResult | undefined>
   readonly check: (options?: CheckOptions) => Effect.Effect<CheckResult | undefined, Error>
   readonly apply: (version: string) => Effect.Effect<SourceRelease.Kept | undefined, Error>
   readonly method: () => Effect.Effect<Method | undefined>
@@ -158,6 +155,10 @@ const make = Effect.gen(function* () {
   const appProcess = yield* AppProcess.Service
   const flock = yield* EffectFlock.Service
   const installedVersion = yield* Ref.make(ORCHESTRA_VERSION)
+  // A node artifact reports the local channel too, but source-checkout updates need
+  // the Bun source installation; every local-channel path below refuses honestly
+  // instead of reaching the Bun-only release machinery.
+  const sourceUpdatesSupported = SourceRelease.supported(ORCHESTRA_ARTIFACT, typeof Bun !== "undefined")
   const channel = ORCHESTRA_CHANNEL.replace(/[^a-zA-Z0-9._-]/g, "-")
   const executable = yield* fs.realPath(process.execPath).pipe(Effect.orElseSucceed(() => process.execPath))
   const installedPackage = yield* Effect.gen(function* () {
@@ -204,11 +205,13 @@ const make = Effect.gen(function* () {
   })
 
   const readPolicy = Effect.fnUntraced(function* () {
-    const values = yield* Effect.forEach(["config.json", "opencode.json", "opencode.jsonc", "orchestra.json", "orchestra.jsonc"], (name) =>
-      fs.readFileString(path.join(global.config, name)).pipe(
-        Effect.map(decodePolicy),
-        Effect.orElseSucceed(() => undefined),
-      ),
+    const values = yield* Effect.forEach(
+      ["config.json", "opencode.json", "opencode.jsonc", "orchestra.json", "orchestra.jsonc"],
+      (name) =>
+        fs.readFileString(path.join(global.config, name)).pipe(
+          Effect.map(decodePolicy),
+          Effect.orElseSucceed(() => undefined),
+        ),
     )
     return values.findLast((value) => value !== undefined) ?? DEFAULT_POLICY
   })
@@ -343,19 +346,18 @@ const make = Effect.gen(function* () {
             retry: "Try again in a few minutes.",
           }),
         )
-      const data: { version?: string; metadata?: { package?: string } } =
-        yield* Effect.tryPromise({
-          try: () => response.json(),
-          catch: (cause) =>
-            new UpgradeError(
-              {
-                title: "Could not read the Orchestra update information",
-                detail: errorDetail(cause),
-                retry: "Try again in a few minutes.",
-              },
-              { cause },
-            ),
-        })
+      const data: { version?: string; metadata?: { package?: string } } = yield* Effect.tryPromise({
+        try: () => response.json(),
+        catch: (cause) =>
+          new UpgradeError(
+            {
+              title: "Could not read the Orchestra update information",
+              detail: errorDetail(cause),
+              retry: "Try again in a few minutes.",
+            },
+            { cause },
+          ),
+      })
       const version = data.version
       const packageName = data.metadata?.package
       if (!version || !packageName)
@@ -606,6 +608,10 @@ const make = Effect.gen(function* () {
       // registry first; a lan-rooms checkout then falls through to its own branch
       // tracking. An explicitly configured ORCHESTRA_UPDATE_URL overrides this and
       // sends the checkout to the update service instead.
+      if (!sourceUpdatesSupported) {
+        yield* Effect.logWarning("Orchestra update check unavailable", { message: SourceRelease.UNSUPPORTED_MESSAGE })
+        return undefined
+      }
       const release = yield* sourceRelease()
       if (release?.available) return { policy: "notify" as const, version: release.available }
 
@@ -660,7 +666,15 @@ const make = Effect.gen(function* () {
   })
 
   const apply = Effect.fn("cli.updater.apply")(function* (version: string) {
-    if (ORCHESTRA_LOCAL)
+    if (ORCHESTRA_LOCAL) {
+      if (!sourceUpdatesSupported)
+        return yield* Effect.fail(
+          new UpgradeError({
+            title: "Could not update Orchestra",
+            detail: SourceRelease.UNSUPPORTED_MESSAGE,
+            retry: "Run the update from the Bun source installation.",
+          }),
+        )
       return yield* Effect.tryPromise({
         try: async () => {
           if (parseReleaseVersion(version)) return SourceRelease.apply(version)
@@ -678,12 +692,14 @@ const make = Effect.gen(function* () {
             { cause },
           ),
       })
+    }
     if (!(yield* install(version))) return yield* Effect.fail(new Error("Installation method not found"))
     return undefined
   })
 
   const check = Effect.fn("cli.updater.check")(function* (options?: CheckOptions) {
     if (!process.env.ORCHESTRA_UPDATE_URL?.trim() && ORCHESTRA_LOCAL) {
+      if (!sourceUpdatesSupported) return { type: "unavailable" as const, message: SourceRelease.UNSUPPORTED_MESSAGE }
       const release = yield* sourceRelease()
       if (release?.available) return { type: "available" as const, version: release.available }
       return yield* developmentBranch()
@@ -706,10 +722,7 @@ const make = Effect.gen(function* () {
         return {
           type: "offline" as const,
           cachedVersion: cached?.version,
-          message:
-            fetchResult.cause instanceof Error
-              ? fetchResult.cause.message
-              : String(fetchResult.cause),
+          message: fetchResult.cause instanceof Error ? fetchResult.cause.message : String(fetchResult.cause),
         }
       }
       version = fetchResult.version
@@ -774,7 +787,8 @@ const make = Effect.gen(function* () {
 
     // Detached installs (including release-tag installs) follow the configured live source branch.
     const install = yield* sourceCheck(() => SourceRelease.install())
-    if (install.type === "behind") return { type: "available" as const, version: `${install.branch} +${install.behind}` }
+    if (install.type === "behind")
+      return { type: "available" as const, version: `${install.branch} +${install.behind}` }
     if (install.type === "current") return undefined
     return {
       type: "unavailable" as const,
