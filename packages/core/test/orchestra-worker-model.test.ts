@@ -378,7 +378,7 @@ describe("routeWorkerModelWithFavorites", () => {
       model: "polza/flash",
       variant: "minimal",
       source: "fallback",
-      reason: expect.stringContaining("no favorite is currently usable"),
+      reason: expect.stringContaining("no favorite is usable here"),
     })
   })
 
@@ -425,7 +425,7 @@ describe("routeWorkerModelWithFavorites", () => {
     ).toEqual({ model: "polza/flash", source: "favorite" })
   })
 
-  test("an unpriced favorite that can run the tier still blocks the fallback (architect reproducer)", () => {
+  test("an unpriced favorite that can run the tier wins over an incapable priced one (architect reproducer)", () => {
     // The priced favorite lacks the deep variant and the capable favorite has
     // no price, so ModelRouter skips it; the wrapper used to fall back to the
     // paid non-favorite and falsely report that no favorite offers the variant.
@@ -443,7 +443,25 @@ describe("routeWorkerModelWithFavorites", () => {
         favorites: refs("favorites/known-price-no-high", "favorites/unknown-price-high"),
         catalog: reproCatalog,
       }),
-    ).toEqual({ model: "favorites/known-price-no-high", source: "favorite" })
+    ).toEqual({ model: "favorites/unknown-price-high", variant: "high", source: "favorite" })
+  })
+
+  test("a priced favorite that can run the tier beats an unpriced capable one", () => {
+    const mixedCatalog = [
+      { providerID: "favorites", id: "unknown-price-high", variants: [{ id: "high" }] },
+      { providerID: "favorites", id: "priced-high", variants: [{ id: "high" }], cost: [{ input: 5, output: 5 }] },
+      { providerID: "other", id: "cheap-high", variants: [{ id: "high" }], cost: [{ input: 0.01, output: 0.01 }] },
+    ]
+    expect(
+      routeWorkerModelWithFavorites({
+        role: role({ id: "architect" }),
+        text: "Design architecture",
+        mode: "architecture",
+        candidates: refs("favorites/unknown-price-high", "favorites/priced-high", "other/cheap-high"),
+        favorites: refs("favorites/unknown-price-high", "favorites/priced-high"),
+        catalog: mixedCatalog,
+      }),
+    ).toEqual({ model: "favorites/priced-high", variant: "high", source: "favorite" })
   })
 
   test("a favorite on another provider beats a cheaper fallback at home", () => {
@@ -497,9 +515,9 @@ describe("routeWorkerModelWithFavorites", () => {
     })
   })
 
-  test("never routes to a catalog model outside the configured candidates", () => {
-    // flash is the cheapest model in the catalog, but it was never configured
-    // for this worker, so routing may not pick it.
+  test("routes only within the candidates it is given, not the whole catalog", () => {
+    // flash is the cheapest model in the catalog, but it is not in the pool
+    // workerModels built for this worker, so routing may not pick it.
     expect(
       routeWorkerModelWithFavorites({
         role: role({ id: "developer" }),

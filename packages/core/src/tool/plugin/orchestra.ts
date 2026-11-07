@@ -705,16 +705,17 @@ export function routeWorkerModelWithFavorites(input: {
   const favorites = input.candidates.filter((ref) => favoriteKeys.has(modelRef(ref)))
   const fallbacks = input.candidates.filter((ref) => !favoriteKeys.has(modelRef(ref)))
   if (favorites.length === 0) {
-    // Name the actual cause: workerModels drops favorites on a cooling-down provider, and the
-    // role's model list can exclude the rest.
+    // Name the cause where it is known and say so where it is not: workerModels drops favorites
+    // on a cooling-down provider, and its refusal/dead-model filters and the role's model list
+    // drop the rest without saying which.
     const down = new Set(input.downProviders ?? [])
     const cooled = input.favorites.filter((ref) => down.has(ref.providerID))
     const reason =
-      cooled.length > 0
+      cooled.length > 0 && cooled.length === input.favorites.length
         ? `favorite ${cooled.map(modelRef).join(", ")} is on a cooling-down provider`
-        : input.role.models?.length
-          ? "no favorite is in the role's model list"
-          : "no favorite is currently usable (refused or unavailable)"
+        : cooled.length > 0
+          ? `favorite ${cooled.map(modelRef).join(", ")} is on a cooling-down provider; the rest were filtered out (refused, unavailable, or outside the role's model list)`
+          : "no favorite is usable here (refused, unavailable, or outside the role's model list)"
     const routed = route(fallbacks)
     return routed === undefined ? undefined : { ...routed, source: "fallback", reason }
   }
@@ -723,20 +724,34 @@ export function routeWorkerModelWithFavorites(input: {
   // A variant on the result means the favorite can run the tier's reasoning level.
   if (favorite.variant !== undefined) return { ...favorite, source: "favorite" }
   // The routed favorite carries no tier variant, but ModelRouter skips candidates without a
-  // price, so a favorite that CAN run the tier may simply be unpriced. Check capability over
-  // every usable favorite before falling back, or the note would falsely say none offers it.
+  // price, so a favorite that CAN run the tier may simply be unpriced. Build the
+  // capability-eligible favorite pool over every usable favorite, independent of price, then
+  // rank it: the cheapest priced eligible favorite wins, and an eligible unpriced one still
+  // beats leaving the task on a favorite that cannot reason at the tier.
   const decision = ModelRouter.classify({
     task: input.text,
     role: `${input.role.id} ${input.role.category}`,
     ...(input.mode ? { mode: input.mode } : {}),
   })
   const wanted = ModelRouter.tierVariants(decision.tier)
-  const capable = favorites.some((ref) => {
-    if (ref.variant !== undefined) return wanted.includes(ref.variant)
-    const entry = input.catalog.find((item) => item.providerID === ref.providerID && item.id === ref.id)
-    return entry?.variants?.some((variant) => wanted.includes(variant.id)) ?? false
-  })
-  if (capable) return { ...favorite, source: "favorite" }
+  const entryOf = (ref: Model.Ref) =>
+    input.catalog.find((item) => item.providerID === ref.providerID && item.id === ref.id)
+  const variantOf = (ref: Model.Ref) => {
+    if (ref.variant !== undefined) return wanted.includes(ref.variant) ? ref.variant : undefined
+    const entry = entryOf(ref)
+    return entry?.variants?.find((variant) => wanted.includes(variant.id))?.id
+  }
+  const eligible = favorites.filter((ref) => variantOf(ref) !== undefined)
+  if (eligible.length > 0) {
+    const tokens = Token.estimate(input.text)
+    const priced = eligible.flatMap((ref) => {
+      const value = ModelRouter.price(entryOf(ref)?.cost, tokens)
+      return value === undefined ? [] : [{ ref, price: value }]
+    })
+    const chosen = priced.toSorted((left, right) => left.price - right.price)[0]?.ref ?? eligible[0]
+    const variant = variantOf(chosen)
+    return { model: modelRef(chosen), ...(variant ? { variant } : {}), source: "favorite" }
+  }
   const fallback = fallbacks.length > 0 ? route(fallbacks) : undefined
   if (fallback !== undefined && fallback.variant !== undefined)
     return {
@@ -812,8 +827,9 @@ export const Plugin = {
         role.models?.length ? role.models.some((item) => baseOf(item) === modelRef(ref)) : true
       // Favorites route first: workerModels ranks them ahead of the role/policy fallbacks, but
       // the router alone would let a cheaper fallback beat a healthy favorite. The fallback pool
-      // is exactly what workerModels configured — the router never sees the raw catalog as
-      // candidates, so routing cannot pick a provider the operator did not name.
+      // is what workerModels built — the role and policy models plus its society fallback,
+      // which workerModels itself resolves from the catalog; the router never scans the raw
+      // catalog beyond that pool.
       const routed = routeWorkerModelWithFavorites({
         role,
         text,

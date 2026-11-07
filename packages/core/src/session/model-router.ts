@@ -117,6 +117,11 @@ export function tierVariants(tier: Tier): ReadonlyArray<string> {
   return variants[tier]
 }
 
+/** The price the router compares on, or undefined when the entry cannot be priced. */
+export function price(cost: ReadonlyArray<CatalogCost> | undefined, tokens: number): number | undefined {
+  return priceOf(cost, tokens)
+}
+
 export function classify(input: ClassifyInput): Classification {
   const task = input.task.toLowerCase()
   const role = (input.role ?? "").toLowerCase()
