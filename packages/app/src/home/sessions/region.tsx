@@ -34,6 +34,7 @@ export function HomeSessions(props: {
           isOpenTab={props.sessions.tab.isOpen}
           onCreateSession={props.sessions.session.create}
           onOpenSession={props.sessions.session.open}
+          onPreloadSession={props.sessions.session.preload}
           onArchiveSession={props.sessions.session.archive}
           onRestoreSession={props.sessions.session.restore}
           onRenameSession={props.sessions.session.rename}
