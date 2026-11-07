@@ -83,6 +83,8 @@ jobs:
         run: bun run test:effect-simplification-rules
       - name: Check Effect simplifications
         run: bun run lint:effect-simplifications
+      - name: Check generated OpenAPI is fresh
+        run: bun run --cwd packages/protocol check:generated
 
   dependency_audit:
     name: Dependency vulnerability audit

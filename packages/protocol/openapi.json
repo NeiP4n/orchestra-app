@@ -6,6 +6,58 @@
     "description": "Experimental HttpApi surface for selected instance routes."
   },
   "paths": {
+    "/health": {
+      "get": {
+        "tags": ["server"],
+        "operationId": "server.health",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Health",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Probe the database, the event bus, and the autoloop scheduler. Returns 200 only when all three answer; otherwise 503 naming the dead component. Unauthenticated, so monitoring can poll it without credentials; the report carries no secrets.",
+        "summary": "Check server health"
+      }
+    },
     "/api/info": {
       "get": {
         "tags": ["server"],
@@ -2192,9 +2244,12 @@
                   "properties": {
                     "data": {
                       "$ref": "#/components/schemas/Session.Inbox.User"
+                    },
+                    "held": {
+                      "type": "boolean"
                     }
                   },
-                  "required": ["data"],
+                  "required": ["data", "held"],
                   "additionalProperties": false
                 }
               }
@@ -2268,7 +2323,7 @@
             }
           }
         },
-        "description": "Durably admit one session input and schedule agent-loop execution unless resume is false.",
+        "description": "Durably admit one session input and schedule agent-loop execution unless resume is false. When the session is held (paused), the input is admitted but not started, and held is true so the client can say so instead of waiting in silence.",
         "summary": "Send message",
         "requestBody": {
           "content": {
@@ -16008,6 +16063,82 @@
         "summary": "Read a room's DoD"
       }
     },
+    "/api/room/{roomID}/dod/board": {
+      "get": {
+        "tags": ["room"],
+        "operationId": "room.dod.board",
+        "parameters": [
+          {
+            "name": "roomID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^room"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Room.DodBoard",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Room.DodBoard"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "RoomNotFoundError | SessionNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RoomNotFoundErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionNotFoundErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "The shared project's Definition of Done grouped into kanban columns by state, with who holds each card and whether the viewer may take it. Cards in a foreign zone are read-only without a pass.",
+        "summary": "Read a room's DoD as a kanban board"
+      }
+    },
     "/api/room/{roomID}/dod/release": {
       "post": {
         "tags": ["room"],
@@ -17444,6 +17575,89 @@
         }
       }
     },
+    "/api/room/{roomID}/guest/dod/board": {
+      "get": {
+        "tags": ["room"],
+        "operationId": "room.guest.dod.board",
+        "parameters": [
+          {
+            "name": "roomID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^room"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Room.DodBoard",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Room.DodBoard"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "RoomNotFoundError | SessionNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RoomNotFoundErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionNotFoundErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "The host project's Definition of Done grouped into kanban columns by state, with who holds each card and whether the calling guest may take it. The guest's own cards are marked; cards in a foreign zone are read-only without a pass. The guest's group comes from the member record the host assigned (room.member.update), never from the request: a guest without a group is foreign to every zone.",
+        "summary": "Read the shared project's DoD as a kanban board"
+      }
+    },
     "/api/room/{roomID}/guest/dod/submit": {
       "post": {
         "tags": ["room"],
@@ -18717,8 +18931,8 @@
             }
           }
         },
-        "description": "Let a guest only watch, also write, or also answer the model's permission requests.",
-        "summary": "Change a member's role",
+        "description": "Let a guest only watch, also write, or also answer the model's permission requests; and assign the group whose DoD zone the guest may work in. A guest without a group is foreign to every zone.",
+        "summary": "Change a member's role and group",
         "requestBody": {
           "content": {
             "application/json": {
@@ -18728,6 +18942,16 @@
                   "role": {
                     "type": "string",
                     "enum": ["viewer", "member", "helper", "cohost", "trusted"]
+                  },
+                  "group": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": ["role"],
@@ -22729,6 +22953,802 @@
         "summary": "List linked projects"
       }
     },
+    "/api/autoloop/cards": {
+      "get": {
+        "tags": ["autoloop"],
+        "operationId": "autoloop.cards.list",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AutoloopCard.Card"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "AutoloopCardNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutoloopCardNotFoundErrorEncoded"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ConflictError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Open ask/notice cards from the native autoloop cycle, oldest first: the questions the cycle is waiting on a human for. Answered and closed cards are not listed; the journal keeps them.",
+        "summary": "List open autoloop cards"
+      }
+    },
+    "/api/autoloop/cards/{id}/answer": {
+      "post": {
+        "tags": ["autoloop"],
+        "operationId": "autoloop.cards.answer",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "AutoloopCard.AnswerResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutoloopCard.AnswerResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "AutoloopCardNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutoloopCardNotFoundErrorEncoded"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ConflictError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Answer an ask card by option index, free text, or both. The answer is a fact in the journal: it records card.answered (with the chosen option) and starts a new round when the card belongs to a rule, except answering “Отменить задачу”, which cancels the task and starts no round. Answering an already decided card changes nothing.",
+        "summary": "Answer an autoloop card",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutoloopCard.Answer"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/api/autoloop/disputes": {
+      "post": {
+        "tags": ["autoloop"],
+        "operationId": "autoloop.disputes.raise",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "AutoloopCard.RaiseDisputeResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutoloopCard.RaiseDisputeResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "AutoloopCardNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutoloopCardNotFoundErrorEncoded"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ConflictError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Raise a dispute between two positions on the timed ladder: it opens at the given level (or agent), climbs one rung when its deadline passes, and reaches the operator as a note. Nothing blocks while a dispute is open.",
+        "summary": "Raise a dispute",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutoloopCard.RaiseDispute"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/api/autoloop/disputes/{id}/resolve": {
+      "post": {
+        "tags": ["autoloop"],
+        "operationId": "autoloop.disputes.resolve",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "AutoloopCard.ResolveDisputeResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutoloopCard.ResolveDisputeResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "AutoloopCardNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutoloopCardNotFoundErrorEncoded"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ConflictError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Resolve an open dispute with a decision: it stops climbing the ladder. Resolving an already resolved dispute changes nothing.",
+        "summary": "Resolve a dispute",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutoloopCard.ResolveDispute"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/api/autoloop/disputes/{id}/escalate": {
+      "post": {
+        "tags": ["autoloop"],
+        "operationId": "autoloop.disputes.escalate",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "AutoloopCard.EscalateDisputeResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutoloopCard.EscalateDisputeResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "AutoloopCardNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutoloopCardNotFoundErrorEncoded"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ConflictError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Move an open dispute up one rung now, without waiting for its deadline. Reaching the operator records it as a note for the operator.",
+        "summary": "Escalate a dispute"
+      }
+    },
+    "/api/recovery/models": {
+      "get": {
+        "tags": ["recovery"],
+        "operationId": "recovery.models",
+        "parameters": [
+          {
+            "name": "location",
+            "in": "query",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "directory": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "required": false,
+            "style": "deepObject",
+            "explode": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "$ref": "#/components/schemas/Location.PublicRef"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "providerID": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["providerID", "id", "name"],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["location", "data"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "LocationNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationNotFoundErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Models the recovery mini-chat offers: working providers only (klinch and lix). Dead providers are never listed.",
+        "summary": "List recovery models"
+      }
+    },
+    "/api/recovery/chat": {
+      "post": {
+        "tags": ["recovery"],
+        "operationId": "recovery.chat",
+        "parameters": [
+          {
+            "name": "location",
+            "in": "query",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "directory": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "required": false,
+            "style": "deepObject",
+            "explode": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "reply": {
+                      "type": "string"
+                    },
+                    "steps": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "tool": {
+                            "type": "string"
+                          },
+                          "input": {},
+                          "output": {
+                            "type": "string"
+                          },
+                          "success": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": ["tool", "input", "output", "success"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "fixed": {
+                      "type": "string"
+                    },
+                    "root": {
+                      "type": "string"
+                    },
+                    "inputTokens": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "enum": ["Infinity", "-Infinity", "NaN"]
+                        }
+                      ]
+                    },
+                    "outputTokens": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "enum": ["Infinity", "-Infinity", "NaN"]
+                        }
+                      ]
+                    },
+                    "model": {
+                      "$ref": "#/components/schemas/Model.Ref"
+                    }
+                  },
+                  "required": ["reply", "steps", "model"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "LocationNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationNotFoundErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "One autonomous repair round with the chosen model: it reads and edits the Orchestra repo, runs shell commands and tests, and reports what it fixed. A model or provider failure is returned as a reply, not an HTTP error. One round runs at a time per server (a second concurrent request is refused with 503) and a round times out after 10 minutes.",
+        "summary": "Repair round",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "model": {
+                    "$ref": "#/components/schemas/Model.Ref"
+                  },
+                  "messages": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "role": {
+                          "type": "string",
+                          "enum": ["user", "assistant"]
+                        },
+                        "content": {
+                          "type": "string",
+                          "maxLength": 8000
+                        }
+                      },
+                      "required": ["role", "content"],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 20
+                  }
+                },
+                "required": ["model", "messages"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
     "/api/quota/check": {
       "post": {
         "tags": ["quota"],
@@ -22867,6 +23887,279 @@
           }
         },
         "required": ["_tag", "agentID", "message"],
+        "additionalProperties": false
+      },
+      "AutoloopCard.Answer": {
+        "type": "object",
+        "properties": {
+          "choice": {
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          },
+          "by": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AutoloopCard.AnswerResult": {
+        "type": "object",
+        "properties": {
+          "card": {
+            "$ref": "#/components/schemas/AutoloopCard.Card"
+          },
+          "changed": {
+            "type": "boolean"
+          },
+          "newRunId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["card", "changed", "newRunId"],
+        "additionalProperties": false
+      },
+      "AutoloopCard.Card": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "key": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AutoloopCard.Kind"
+          },
+          "title": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "recommend": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "about": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/AutoloopCard.State"
+          },
+          "choice": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "decidedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "kind",
+          "title",
+          "text",
+          "options",
+          "recommend",
+          "about",
+          "state",
+          "choice",
+          "answer",
+          "by",
+          "runId",
+          "createdAt",
+          "decidedAt",
+          "closedAt"
+        ],
+        "additionalProperties": false
+      },
+      "AutoloopCard.DisputeLevel": {
+        "type": "string",
+        "enum": ["agent", "group-leader", "council", "orchestrator", "operator"]
+      },
+      "AutoloopCard.EscalateDisputeResult": {
+        "type": "object",
+        "properties": {
+          "escalated": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "level": {
+            "$ref": "#/components/schemas/AutoloopCard.DisputeLevel"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": ["escalated", "reason", "level", "state"],
+        "additionalProperties": false
+      },
+      "AutoloopCard.Kind": {
+        "type": "string",
+        "enum": ["ask", "notice"]
+      },
+      "AutoloopCard.RaiseDispute": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string"
+          },
+          "positionA": {
+            "type": "string"
+          },
+          "positionB": {
+            "type": "string"
+          },
+          "level": {
+            "$ref": "#/components/schemas/AutoloopCard.DisputeLevel"
+          }
+        },
+        "required": ["subject", "positionA", "positionB"],
+        "additionalProperties": false
+      },
+      "AutoloopCard.RaiseDisputeResult": {
+        "type": "object",
+        "properties": {
+          "dispute": {
+            "type": "integer"
+          },
+          "level": {
+            "$ref": "#/components/schemas/AutoloopCard.DisputeLevel"
+          },
+          "deadline": {
+            "type": "string"
+          }
+        },
+        "required": ["dispute", "level", "deadline"],
+        "additionalProperties": false
+      },
+      "AutoloopCard.ResolveDispute": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string"
+          }
+        },
+        "required": ["decision"],
+        "additionalProperties": false
+      },
+      "AutoloopCard.ResolveDisputeResult": {
+        "type": "object",
+        "properties": {
+          "resolved": {
+            "type": "boolean"
+          }
+        },
+        "required": ["resolved"],
+        "additionalProperties": false
+      },
+      "AutoloopCard.State": {
+        "type": "string",
+        "enum": ["open", "closed", "decided", "done"]
+      },
+      "AutoloopCardNotFoundErrorEncoded": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["AutoloopCardNotFoundError"]
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["_tag", "id", "message"],
         "additionalProperties": false
       },
       "Command.Info": {
@@ -23493,6 +24786,76 @@
                     "additionalProperties": {
                       "$ref": "#/components/schemas/Config.Orchestra.Worker.PolicyEncoded"
                     }
+                  }
+                },
+                "additionalProperties": false
+              },
+              "autoloop": {
+                "type": "object",
+                "properties": {
+                  "maxAttempts": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "maxVerifyIterations": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "failureRepeatStop": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "toolPruneUnusedSteps": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "maxHops": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "retryBaseMinutes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "retryMaxMinutes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "runLeaseMinutes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "workerFreshMinutes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "offlineAfterMinutes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "batchWindowMs": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "maxBatchEvents": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "society": {
+                "type": "object",
+                "properties": {
+                  "baseProjects": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Config.Orchestra.Society.BaseProjectEncoded"
+                    }
+                  },
+                  "autonomy": {
+                    "type": "string",
+                    "enum": ["off", "observe", "auto"]
                   }
                 },
                 "additionalProperties": false
@@ -24140,6 +25503,28 @@
             "additionalProperties": false
           }
         ]
+      },
+      "Config.Orchestra.Society.BaseProjectEncoded": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "folder": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "brief": {
+            "type": "string"
+          }
+        },
+        "required": ["key", "folder", "name", "role", "brief"],
+        "additionalProperties": false
       },
       "Config.Orchestra.Worker.PolicyEncoded": {
         "type": "object",
@@ -25024,6 +26409,16 @@
                 "type": "null"
               }
             ]
+          },
+          "budget": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money.USD"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": ["name", "projects"],
@@ -25772,6 +27167,72 @@
           }
         },
         "required": ["data"],
+        "additionalProperties": false
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["ok"]
+          },
+          "checks": {
+            "type": "object",
+            "properties": {
+              "database": {
+                "$ref": "#/components/schemas/HealthCheck"
+              },
+              "bus": {
+                "$ref": "#/components/schemas/HealthCheck"
+              },
+              "autoloop": {
+                "$ref": "#/components/schemas/HealthCheck"
+              }
+            },
+            "required": ["database", "bus", "autoloop"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["status", "checks"],
+        "additionalProperties": false
+      },
+      "HealthCheck": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["ok", "unavailable"]
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latencyMs": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["status"],
         "additionalProperties": false
       },
       "InstructionEntry.Info": {
@@ -26578,6 +28039,9 @@
           "disabled": {
             "type": "boolean"
           },
+          "readOnly": {
+            "type": "boolean"
+          },
           "codemode": {
             "type": "boolean"
           },
@@ -26635,7 +28099,7 @@
       "Mcp.Protocol": {
         "type": "string",
         "enum": ["legacy", "auto", "2026-07-28"],
-        "description": "MCP protocol negotiation. \"legacy\" (default) opens with the initialize handshake and speaks protocol revisions up to 2025-11-25. \"auto\" probes for the 2026-07-28 revision and falls back to legacy when the server does not support it. \"2026-07-28\" requires that revision and fails otherwise."
+        "description": "MCP protocol negotiation. Absent (the default) is \"auto\": probe the server with server/discover for revision 2026-07-28 and fall back to the legacy initialize handshake when the server does not support it. \"legacy\" skips the probe and speaks protocol revisions up to 2025-11-25. \"2026-07-28\" requires that revision and fails otherwise."
       },
       "Mcp.RemoteConfigEncoded": {
         "type": "object",
@@ -29084,6 +30548,218 @@
         "required": ["items"],
         "additionalProperties": false
       },
+      "Room.DodBoard": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["ready", "disabled"]
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Room.DodBoardColumn"
+            }
+          },
+          "zones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "ownerGroup": {
+                  "type": "string"
+                },
+                "mine": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["name", "ownerGroup", "mine"],
+              "additionalProperties": false
+            }
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "done": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "inProgress": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "blocked": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "failed": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "free": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              }
+            },
+            "required": ["total", "done", "inProgress", "blocked", "failed", "free"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["columns", "zones", "counts"],
+        "additionalProperties": false
+      },
+      "Room.DodBoardCard": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "what": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "done": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "owner": {
+            "type": "string"
+          },
+          "ownerID": {
+            "type": "string"
+          },
+          "mine": {
+            "type": "boolean"
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "waits": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "verify": {
+            "type": "string"
+          },
+          "zone": {
+            "type": "string"
+          },
+          "zoneOwner": {
+            "type": "string"
+          },
+          "hasPass": {
+            "type": "boolean"
+          },
+          "canTake": {
+            "type": "boolean"
+          },
+          "takeRefusal": {
+            "type": "string"
+          },
+          "readOnly": {
+            "type": "boolean"
+          },
+          "human": {
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "what", "stage", "state", "done", "total", "mine", "hasPass", "canTake", "readOnly"],
+        "additionalProperties": false
+      },
+      "Room.DodBoardColumn": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": ["todo", "in_progress", "blocked", "failed", "done"]
+          },
+          "title": {
+            "type": "string"
+          },
+          "cards": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Room.DodBoardCard"
+            }
+          }
+        },
+        "required": ["id", "title", "cards"],
+        "additionalProperties": false
+      },
       "Room.DodItem": {
         "type": "object",
         "properties": {
@@ -29141,6 +30817,26 @@
               }
             ]
           },
+          "standby": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "standbyID": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "stale": {
             "anyOf": [
               {
@@ -29183,6 +30879,9 @@
                 "type": "null"
               }
             ]
+          },
+          "human": {
+            "type": "boolean"
           }
         },
         "required": ["id", "what", "stage", "state", "done", "total"],
@@ -29439,6 +31138,16 @@
             "type": "string",
             "enum": ["viewer", "member", "helper", "cohost", "trusted"]
           },
+          "group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "device": {
             "anyOf": [
               {
@@ -29499,6 +31208,16 @@
           "role": {
             "type": "string",
             "enum": ["viewer", "member", "helper", "cohost", "trusted"]
+          },
+          "group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "device": {
             "anyOf": [
@@ -33290,6 +35009,14 @@
     {
       "name": "orchestra",
       "description": "Operator projects and their main sessions."
+    },
+    {
+      "name": "autoloop",
+      "description": "Native autoloop cards: questions the cycle asks a human, and the answers. Card events also arrive on the event stream as autoloop.card.created / answered / updated. Disputes climb a timed ladder (agent → group-leader → council → orchestrator → operator) and never block work."
+    },
+    {
+      "name": "recovery",
+      "description": "Recovery mini-chat routes."
     },
     {
       "name": "quota"
