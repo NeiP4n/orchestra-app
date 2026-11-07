@@ -51,6 +51,25 @@ describe("MCP registry catalog", () => {
     }
   })
 
+  test("includes the agent-desktop launcher, real-screen, with the B13 privacy note and window-manager requirement", () => {
+    const agentDesktop = all.find((entry) => entry.id === "agent-desktop")
+
+    expect(agentDesktop).toMatchObject({
+      id: "agent-desktop",
+      name: "Agent Desktop",
+      runtime: "npx",
+      realScreen: true,
+      config: {
+        type: "local",
+        command: ["npx", "-y", "agent-desktop", "mcp"],
+      },
+    })
+    expect(agentDesktop?.description).toContain("accessibility tree")
+    expect(agentDesktop?.usage).toContain("real-screen opt-in")
+    expect(agentDesktop?.usage).toContain("private data")
+    expect(agentDesktop?.usage).toContain("window manager")
+  })
+
   test("names the keys a catalog server cannot start without", () => {
     const sentry = all.find((entry) => entry.id === "sentry")!.config
     const previous = process.env.SENTRY_ACCESS_TOKEN

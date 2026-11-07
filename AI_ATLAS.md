@@ -795,6 +795,18 @@ no skill lookup runs for them.
 - agent-desktop drives real apps through the OS accessibility tree; GTK3 apps
   without atk-bridge may be invisible to it — that is an app limitation, not a
   server failure.
+- agent-desktop 1.2.0 live-verified (pilot 2026-11-07, news run9 №2): the
+  catalog command `npx -y agent-desktop mcp` serves the MCP server (handshake,
+  67 `desktop_*` tools, `tools/call` works); the snapshot → type → click →
+  re-snapshot loop works on GTK3/GTK4 apps under Xvfb `:99` + openbox
+  (at-spi2-core required on Linux). The virtual display MUST run a window
+  manager: on bare Xvfb snapshots refuse with `native_window_unproven`, and
+  twm is not enough (`frames_unanswered`). Follow-up, not done here:
+  `ensureVirtualDisplay` (`desktop-isolation.ts`) starts bare Xvfb with no
+  window manager, so agent-desktop cannot work on Orchestra's own virtual
+  display until a WM (openbox) is started there too. B13: snapshots,
+  screenshots and the clipboard can hold private screen data — never paste
+  them into public logs or shared chats (noted in the catalog `usage`).
 - B7 (desktop isolation): agent-desktop and playwright are `realScreen` servers.
   They are never acquired (`acquire.ts: ensure()`) nor called (`index.ts:
   MCP.callTool`, the choke point for every MCP tool call) while the real-screen
