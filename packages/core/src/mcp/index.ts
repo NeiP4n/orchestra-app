@@ -574,7 +574,15 @@ export const layer = (options?: Options) =>
             // usable again immediately, not after its old failures age out.
             circuitBreaker.recordSuccess(name)
             watch(name, entry, result.value.connection)
-            yield* Effect.logInfo("mcp connected", { server: name, tools: entry.tools.length })
+            yield* Effect.logInfo("mcp connected", {
+              server: name,
+              tools: entry.tools.length,
+              era: result.value.connection.modern ? "modern" : "legacy",
+              protocol: result.value.connection.protocolVersion,
+              serverVersion: result.value.connection.serverVersion
+                ? `${result.value.connection.serverVersion.name}@${result.value.connection.serverVersion.version}`
+                : undefined,
+            })
             // The tool registry reads on this event; a late-connecting server has no other way to appear.
             yield* bus.publish(McpEvent.ToolsChanged, { server: name })
             yield* bus.publish(McpEvent.ResourcesChanged, { server: name })

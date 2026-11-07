@@ -22,6 +22,7 @@ import {
   type ReadResourceResult,
   type Resource,
   type ResourceTemplateType,
+  type ServerCapabilities,
   type Tool,
   type Transport,
   type VersionNegotiationOptions,
@@ -182,6 +183,30 @@ export interface ElicitationHandler {
 export interface Connection {
   /** True when the connection negotiated revision 2026-07-28 or later; false is the initialize handshake. */
   readonly modern: boolean
+  /**
+   * The negotiated protocol revision (for example "2026-07-28" or
+   * "2025-11-25"), from the `server/discover` result on a modern connection
+   * or the `initialize` result on a legacy one.
+   */
+  readonly protocolVersion: string | undefined
+  /**
+   * The server's self-reported name and version: required on the legacy
+   * `initialize` result, a SHOULD in the discover result's `_meta` on
+   * 2026-07-28, so a modern server that stays anonymous leaves this
+   * undefined. Untrusted data — a display label, never an identity proof.
+   */
+  readonly serverVersion: Implementation | undefined
+  /**
+   * True when the server advertises task support: on the 2026-07-28 era
+   * tasks live in the official `io.modelcontextprotocol/tasks` extension,
+   * advertised under `capabilities.extensions` (the modern wire codec drops
+   * the legacy `capabilities.tasks` key); on a legacy connection the same
+   * fact arrives as the 2025-11-25 `capabilities.tasks` key. Tasks have no
+   * SDK runtime in either era, so this is only the gate a future
+   * tasks-extension caller checks before speaking the extension — never a
+   * promise that tasks work.
+   */
+  readonly supportsTasks: boolean
   readonly instructions: string | undefined
   readonly tools: () => Effect.Effect<Tool[], Error>
   readonly prompts: () => Effect.Effect<Prompt[], Error>
@@ -437,6 +462,9 @@ export const connect = Effect.fnUntraced(function* (
 
     return {
       modern: client.getProtocolEra() === "modern",
+      protocolVersion: client.getNegotiatedProtocolVersion(),
+      serverVersion: client.getServerVersion(),
+      supportsTasks: supportsTasks(client.getServerCapabilities()),
       instructions: client.getInstructions()?.trim() || undefined,
       tools: () => list("list MCP tools", () => client.listTools(undefined, catalog)).pipe(Effect.map((r) => r.tools)),
       prompts: () =>
@@ -519,11 +547,27 @@ export const connect = Effect.fnUntraced(function* (
   return yield* new ConnectError({ server, message: explain(error) })
 })
 
-// Absent config is legacy: the SDK sends the plain initialize handshake with no discover probe.
+// Absent config is auto: the SDK probes with server/discover and falls back to the plain initialize
+// handshake when the server does not speak 2026-07-28. "legacy" is the explicit opt-out that skips
+// the probe entirely; a stdio probe spawns one short-lived sibling process per connect, and on HTTP
+// a probe that times out rejects (silence on a deployed server is an outage, not a legacy signal).
 function negotiation(protocol: ConfigMCP.Protocol | undefined): VersionNegotiationOptions | undefined {
-  if (protocol === undefined || protocol === "legacy") return undefined
-  if (protocol === "auto") return { mode: "auto" }
+  if (protocol === "legacy") return undefined
+  if (protocol === undefined || protocol === "auto") return { mode: "auto" }
   return { mode: { pin: protocol } }
+}
+
+/** The official extension id tasks moved to in the 2026-07-28 revision. */
+const TASKS_EXTENSION = "io.modelcontextprotocol/tasks"
+
+/**
+ * True when the server advertises task support: the modern-era extension
+ * under `capabilities.extensions`, or the 2025-11-25 `capabilities.tasks`
+ * key on a legacy connection (the modern wire codec drops that key, so a
+ * modern server can only advertise tasks through the extension).
+ */
+function supportsTasks(capabilities: ServerCapabilities | undefined): boolean {
+  return capabilities?.tasks !== undefined || capabilities?.extensions?.[TASKS_EXTENSION] !== undefined
 }
 
 function toCallToolResult(result: SdkCallToolResult): CallToolResult {
