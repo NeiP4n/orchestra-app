@@ -67,3 +67,8 @@ export const create = Effect.fn("EmbeddedHost.create")(function* <R = never>(
 })
 
 export type Interface = Effect.Success<ReturnType<typeof create>>
+
+// Temporary diagnostic: prints the full error channel of the composed routes layer.
+export const diagComposedLayerE: readonly never[] = [
+  0 as unknown as ReturnType<typeof createEmbeddedRoutes> extends Layer.Layer<infer _A, infer E, infer _R> ? E : never,
+]
