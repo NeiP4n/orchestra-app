@@ -33,13 +33,19 @@ export class StoreError extends Schema.TaggedError<StoreError>()("Autoloop.Store
   message: Schema.String,
 }) {}
 
-/** Maps an untyped database failure to a StoreError, keeping typed failures intact. */
+/** Maps an untyped database failure to a StoreError. */
 const storeError =
   (operation: string) =>
-  (cause: unknown): StoreError | StaleSeqError =>
-    cause instanceof StoreError || cause instanceof StaleSeqError
+  (cause: unknown): StoreError =>
+    cause instanceof StoreError
       ? cause
       : new StoreError({ operation, message: cause instanceof Error ? cause.message : String(cause) })
+
+/** The same, for `commit`: a stale sequence stays the separate typed failure callers retry on. */
+const commitError =
+  (operation: string) =>
+  (cause: unknown): StoreError | StaleSeqError =>
+    cause instanceof StaleSeqError ? cause : storeError(operation)(cause)
 
 export interface CommitResult {
   /** Sequences assigned to the committed facts, in commit order. */
@@ -241,7 +247,7 @@ export function commit(facts: ReadonlyArray<AutoloopFact>, expectedSeq?: number)
         return { seqs, lastSeq: newLastSeq, view: newView } satisfies CommitResult
       }),
     )
-  }).pipe(Effect.mapError(storeError("commit")))
+  }).pipe(Effect.mapError(commitError("commit")))
 }
 
 /** `commit` without an expected sequence: reads the latest sequence inside the same transaction. */
