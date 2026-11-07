@@ -336,10 +336,10 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
               metadata: ctx.payload.metadata,
               delivery: ctx.payload.delivery,
               resume: ctx.payload.resume,
-              // HTTP prompts come from a human: the value verdict may refuse
-              // them (duplicate / already done / too vague), and the reason
-              // goes back as PromptRejectedError.
-              origin: "user",
+              // HTTP prompts come from a human. The intake never refuses a
+              // prompt (see prompt-intake/policy.ts): a vague, duplicate or
+              // already-done verdict stays advisory in the model-visible
+              // intake note, so the prompt always reaches the model.
             })
             .pipe(
               Effect.catchTag("Session.NotFoundError", missingSession),

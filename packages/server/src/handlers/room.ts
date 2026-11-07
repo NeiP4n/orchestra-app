@@ -988,10 +988,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
                 sessionID: session.id,
                 id: ctx.payload.id,
                 text: ctx.payload.text,
-                // A guest's own words come from a human; a guest AI's words
-                // are a dispatch, so the value verdict may refuse only the
-                // former (see SessionPrompt.Input.origin).
-                origin: ctx.payload.ai ? "agent" : "user",
+                // The intake never refuses a prompt (see
+                // prompt-intake/policy.ts): a vague, duplicate or
+                // already-done verdict stays advisory in the model-visible
+                // intake note, whoever sent it.
                 // The server stamps the author from the token, so a guest cannot speak as someone else.
                 metadata: {
                   room: {
