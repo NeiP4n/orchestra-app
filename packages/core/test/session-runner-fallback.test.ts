@@ -268,6 +268,20 @@ describe("mainSessionFallbackChain (G2-14)", () => {
     ).toEqual([model("opencode/minimax-free")])
   })
 
+  test("a chat-verified model that left /models is still offered while its provider is in the catalog", () => {
+    // anymodel-coder left the /models listing on 2026-11-07 (run10) but
+    // still answers live chat: the chain must keep offering it while the
+    // catalog holds any Anymodel model at all (the key exists), instead of
+    // silently dropping the cheap fallback.
+    expect(
+      chain({
+        cause: asFailure(invalidRequest),
+        current: "opencode/crouton-alpha-free",
+        catalog: [info("opencode", "crouton-alpha-free"), info("anymodel", "sonnet-5")],
+      }),
+    ).toEqual([model("anymodel/sonnet-5"), model("anymodel/anymodel-coder")])
+  })
+
   test("a gateway failure (502/503/504) skips the whole current provider, like auth", () => {
     // Б14: Anymodel answered 502 on sonnet-5.5 while lix was alive, and the
     // chain still offered Anymodel's other models first — the gateway is
