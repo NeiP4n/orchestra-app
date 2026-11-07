@@ -107,6 +107,9 @@ ${code.slice(start)}`
 
 const resolve = {
   alias: [
+    // The source-install updater imports the Bun shell; the node artifact never
+    // runs it, so bundle a shim that fails loudly if it is ever called.
+    { find: /^bun$/, replacement: path.join(dir, "src/node/bun-shim.ts") },
     { find: /^solid-js\/store$/, replacement: "solid-js/store/dist/store.js" },
     { find: /^solid-js$/, replacement: "solid-js/dist/solid.js" },
     {
