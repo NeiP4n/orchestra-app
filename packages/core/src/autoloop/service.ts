@@ -429,13 +429,13 @@ const make = (options: Options = {}) =>
         const config = yield* Effect.serviceOption(Config.Service)
         if (Option.isNone(config)) return
         const entries = yield* config.value.entries().pipe(
-          Effect.catch(() => Effect.succeed([] as Entry[])),
+          Effect.orElseSucceed(() => [] as Entry[]),
         )
         const info = Config.latest(entries, "orchestra")
         const autoloop = info?.autoloop
         const opened = yield* AutoloopStore.openView().pipe(
           Effect.provideService(Database.Service, state.database),
-          Effect.catch(() => Effect.succeed(null)),
+          Effect.orElseSucceed(() => null),
         )
         const stored = opened === null ? undefined : AutoloopCards.storedRules(opened.view)
         const rules = stored === undefined ? orchestraRules() : mergeDispatchRule(stored.rules)

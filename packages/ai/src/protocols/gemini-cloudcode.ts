@@ -493,7 +493,7 @@ export const retrieveQuota = Effect.fn("GeminiCloudCode.retrieveQuota")(function
               }),
             ),
       ),
-      Effect.catch(() => Effect.succeed(undefined)),
+      Effect.orElseSucceed(() => undefined),
     )
 
   if (summaryAttempt && summaryAttempt.groups.length > 0) {
@@ -516,13 +516,12 @@ export const retrieveQuota = Effect.fn("GeminiCloudCode.retrieveQuota")(function
             }),
           ),
     ),
-    Effect.catch((error) =>
-      Effect.fail(
+    Effect.mapError(
+      (error) =>
         new AntigravityQuotaRetrievalError({
           message: "Failed to retrieve Antigravity quota from both summary and models endpoints",
           status: error instanceof AntigravityQuotaRetrievalError ? error.status : undefined,
         }),
-      ),
     ),
   )
 

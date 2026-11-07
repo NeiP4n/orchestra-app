@@ -229,7 +229,7 @@ export const Plugin = {
                 action: "desktop_open",
                 target: step.text,
               }).pipe(
-                Effect.catch(() => Effect.succeed(undefined)),
+                Effect.orElseSucceed(() => undefined),
                 Effect.flatMap((existing) =>
                   existing !== undefined
                     ? Effect.succeed({

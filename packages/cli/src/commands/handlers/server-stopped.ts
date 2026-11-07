@@ -21,7 +21,7 @@ export const assertServerStopped = (dataDir: string, force: boolean, action: str
         ),
       )
     const service = yield* Service.discover({ ...(yield* ServiceConfig.options()), version: undefined }).pipe(
-      Effect.catch(() => Effect.succeed(undefined)),
+      Effect.orElseSucceed(() => undefined),
     )
     if (service !== undefined)
       return yield* Effect.fail(

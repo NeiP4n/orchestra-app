@@ -246,7 +246,7 @@ const layer = Layer.effect(
     const readToolPruneThreshold = Effect.fn("SessionRunner.toolPruneUnusedSteps")(function* () {
       const config = yield* Effect.serviceOption(Config.Service)
       if (Option.isNone(config)) return ToolPruning.TOOL_PRUNE_UNUSED_STEPS_DEFAULT
-      const entries = yield* config.value.entries().pipe(Effect.catch(() => Effect.succeed([] as Array<Entry>)))
+      const entries = yield* config.value.entries().pipe(Effect.orElseSucceed(() => [] as Array<Entry>))
       return (
         Config.latest(entries, "orchestra")?.autoloop?.toolPruneUnusedSteps ??
         ToolPruning.TOOL_PRUNE_UNUSED_STEPS_DEFAULT

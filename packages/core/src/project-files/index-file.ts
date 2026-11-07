@@ -89,7 +89,7 @@ const countSnapshots = (directory: string): Effect.Effect<number> =>
   Effect.tryPromise({
     try: () => readdir(ProjectFilesPaths.writePath(directory, ProjectFilesPaths.SNAPSHOTS_DIR)).then((names) => names.length),
     catch: (error) => error,
-  }).pipe(Effect.catch(() => Effect.succeed(0)))
+  }).pipe(Effect.orElseSucceed(() => 0))
 
 const entryFor = (file: WalkedFile, updatedAt: string, size: number, hash: string): IndexEntry => {
   const descriptor = ProjectFilesRegistry.descriptorForPath(file.rel)

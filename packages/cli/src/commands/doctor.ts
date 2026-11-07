@@ -161,7 +161,7 @@ export async function checkConfig(customPath?: string): Promise<DoctorCheckResul
 
 export const checkServiceStatus = Effect.gen(function* () {
   const options = yield* ServiceConfig.options().pipe(
-    Effect.catch(() => Effect.succeed(undefined)),
+    Effect.orElseSucceed(() => undefined),
   )
 
   if (!options) {
@@ -174,7 +174,7 @@ export const checkServiceStatus = Effect.gen(function* () {
   }
 
   const found = yield* Service.discover({ ...options, version: undefined }).pipe(
-    Effect.catch(() => Effect.succeed(undefined)),
+    Effect.orElseSucceed(() => undefined),
   )
 
   if (found?.url) {

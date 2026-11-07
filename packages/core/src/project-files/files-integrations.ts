@@ -354,7 +354,7 @@ export const listIntegrations = (
       try: () => readdir(dir),
       catch: (error) => error,
     }).pipe(
-      Effect.catch(() => Effect.succeed([] as ReadonlyArray<string>)),
+      Effect.orElseSucceed(() => [] as ReadonlyArray<string>),
     )
     const manifests: Array<IntegrationManifest> = []
     for (const name of names
@@ -494,7 +494,7 @@ export const integrate = (
     if (manifest.kind === "catalog" && catalogEntry !== undefined) {
       yield* addMcpServer(directory, manifest.name, catalogEntry.config)
     }
-    const verified = yield* verifyInstalled(directory, manifest).pipe(Effect.catch(() => Effect.succeed(false)))
+    const verified = yield* verifyInstalled(directory, manifest).pipe(Effect.orElseSucceed(() => false))
     yield* updateIntegrateDoc(directory)
     return {
       name: manifest.name,

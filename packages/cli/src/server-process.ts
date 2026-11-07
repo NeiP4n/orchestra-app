@@ -237,13 +237,12 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
             )
             listenPort = 0
             return yield* launch().pipe(
-              Effect.catch((fallbackError) =>
-                Effect.fail(
+              Effect.mapError(
+                (fallbackError) =>
                   new Error(
                     `Managed service failed to start on configured port ${port} and on an OS-assigned port.`,
                     { cause: fallbackError },
                   ),
-                ),
               ),
             )
           })

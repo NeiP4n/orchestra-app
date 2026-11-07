@@ -105,9 +105,7 @@ const acquireFileLock = (target: string): Effect.Effect<void, Environment.Failed
           return false
         }
       }).pipe(
-        Effect.catch((cause) =>
-          Effect.fail(new Environment.Failed({ path: target, cause })),
-        ),
+        Effect.mapError((cause) => new Environment.Failed({ path: target, cause })),
       )
       if (acquired) return
       // Steal a lock whose holder died or has held it far past any single write.

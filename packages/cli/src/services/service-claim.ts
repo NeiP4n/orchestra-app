@@ -31,7 +31,7 @@ const alive = (pid: number) => {
 export const holder = (file: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const text = yield* fs.readFileString(claimFile(file)).pipe(Effect.catch(() => Effect.succeed(undefined)))
+    const text = yield* fs.readFileString(claimFile(file)).pipe(Effect.orElseSucceed(() => undefined))
     if (text === undefined) return undefined
     const pid = Number(text.trim())
     return Number.isInteger(pid) && pid > 0 ? pid : undefined
@@ -44,7 +44,7 @@ export const claim = (file: string) =>
     yield* fs.makeDirectory(path.dirname(file), { recursive: true }).pipe(Effect.ignore)
     return yield* fs.writeFileString(claimFile(file), String(process.pid), { flag: "wx" }).pipe(
       Effect.as(true),
-      Effect.catch(() => Effect.succeed(false)),
+      Effect.orElseSucceed(() => false),
     )
   })
 
@@ -103,7 +103,7 @@ export const acquire = <E, R>(
         if (options.incumbent !== undefined && (yield* options.incumbent)) return "yield" as const
         if (Date.now() >= deadline) {
           // A failed existence check counts as "registered": never steal on uncertainty.
-          const registered = yield* fs.exists(options.file).pipe(Effect.catch(() => Effect.succeed(true)))
+          const registered = yield* fs.exists(options.file).pipe(Effect.orElseSucceed(() => true))
           if (!registered) {
             yield* removeIfNames(options.file, pid)
             if (yield* claim(options.file)) return "claimed" as const

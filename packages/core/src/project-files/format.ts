@@ -23,7 +23,7 @@ const isNotFound = (error: unknown): boolean =>
 
 export const exists = (file: string): Effect.Effect<boolean> =>
   Effect.tryPromise({ try: () => stat(file).then(() => true), catch: (error) => error }).pipe(
-    Effect.catch(() => Effect.succeed(false)),
+    Effect.orElseSucceed(() => false),
   )
 
 export const readText = (file: string): Effect.Effect<string, ProjectFilesErrors.ProjectFileError> =>

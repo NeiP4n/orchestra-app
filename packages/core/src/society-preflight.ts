@@ -183,7 +183,7 @@ export const checkLive = Effect.fn("SocietyPreflight.checkLive")(function* (inpu
     ? []
     : yield* credentials.value
         .list(Integration.ID.make(ANYMODEL_PROVIDER_ID))
-        .pipe(Effect.catch(() => Effect.succeed([] as ReadonlyArray<Credential.Info>)))
+        .pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<Credential.Info>))
   // Credential listings order each integration's selected credential last,
   // so the selected key is the last key credential in the list.
   const keyEntry = [...stored].reverse().find((item) => item.value.type === "key")
@@ -204,11 +204,11 @@ export const checkLive = Effect.fn("SocietyPreflight.checkLive")(function* (inpu
     ? undefined
     : yield* providers.value
         .get(Provider.ID.make(ANYMODEL_PROVIDER_ID))
-        .pipe(Effect.catch(() => Effect.succeed(undefined as Provider.Info | undefined)))
+        .pipe(Effect.orElseSucceed(() => undefined as Provider.Info | undefined))
   const settingsKey = stringSetting(info?.settings, "apiKey")
   const defaultModel = Option.isNone(models)
     ? undefined
-    : yield* models.value.default().pipe(Effect.catch(() => Effect.succeed(undefined as Model.Info | undefined)))
+    : yield* models.value.default().pipe(Effect.orElseSucceed(() => undefined as Model.Info | undefined))
   const catalogModelIDs = Option.isNone(models)
     ? undefined
     : yield* models.value
@@ -219,7 +219,7 @@ export const checkLive = Effect.fn("SocietyPreflight.checkLive")(function* (inpu
               .filter((model) => defaultModel !== undefined && model.providerID === defaultModel.providerID)
               .map((model) => model.id),
           ),
-          Effect.catch(() => Effect.succeed([] as ReadonlyArray<string>)),
+          Effect.orElseSucceed(() => [] as ReadonlyArray<string>),
         )
   return yield* checkSocietyProvider({
     ...(credentialKey !== undefined ? { credentialKey } : {}),

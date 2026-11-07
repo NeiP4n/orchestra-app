@@ -172,7 +172,7 @@ export const listSnapshots = (directory: string): Effect.Effect<ReadonlyArray<st
   Effect.tryPromise({
     try: () => readdir(ProjectFilesPaths.writePath(directory, ProjectFilesPaths.SNAPSHOTS_DIR)).then((names) => names.sort()),
     catch: (error) => error,
-  }).pipe(Effect.catch(() => Effect.succeed([] as ReadonlyArray<string>)))
+  }).pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<string>))
 
 const readManifest = (
   directory: string,

@@ -383,7 +383,7 @@ export const Plugin = {
                   sessionID: context.sessionID,
                   action: "zen_browser navigate",
                   target: value.url,
-                }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+                }).pipe(Effect.orElseSucceed(() => undefined))
                 if (existing !== undefined)
                   return { output: `already open: ${value.url.trim()} (duplicate skipped, opened earlier)` }
                 const result = yield* run(value, context.sessionID)

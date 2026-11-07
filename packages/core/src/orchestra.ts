@@ -2018,7 +2018,7 @@ const layer: Layer.Layer<
         )
       })
       for (let done = 0; done < AutoloopOrchestrator.MAX_CONCURRENT_RUNS; done++) {
-        const view = yield* autoloop.getView().pipe(Effect.catch(() => Effect.succeed(null)))
+        const view = yield* autoloop.getView().pipe(Effect.orElseSucceed(() => null))
         if (view === null) return
         const now = Date.now()
         const rows = Object.values(view["runs"] ?? {}) as Array<RunRow>

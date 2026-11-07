@@ -284,7 +284,7 @@ export const recoveryTools = (root: string) => {
             orElse: () => Effect.succeed(undefined),
           }),
           Effect.onInterrupt(() => Effect.sync(() => child.kill())),
-          Effect.catch(() => Effect.succeed(undefined)),
+          Effect.orElseSucceed(() => undefined),
         )
         if (waited === undefined)
           return { success: false, output: "Команда не завершилась за 60 секунд и была остановлена." }

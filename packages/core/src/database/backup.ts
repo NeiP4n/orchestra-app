@@ -88,7 +88,7 @@ const liveSealedEnvelopes = (db: Handle) =>
     .all<{ value: unknown }>("SELECT value FROM credential")
     .pipe(
       Effect.map((rows) => sealedEnvelopes(rows.map((row) => row.value))),
-      Effect.catch(() => Effect.succeed([] as Array<CredentialEncryption.Envelope>)),
+      Effect.orElseSucceed(() => [] as Array<CredentialEncryption.Envelope>),
     )
 
 /** Whether `key` opens at least one of the envelopes (trial decryption, no plaintext anywhere). */

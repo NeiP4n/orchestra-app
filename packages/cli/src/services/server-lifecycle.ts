@@ -122,7 +122,7 @@ function parseState(text: string): ServerState | undefined {
 export const readPreviousRun = (dataDir: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const text = yield* fs.readFileString(stateFile(dataDir)).pipe(Effect.catch(() => Effect.succeed(undefined)))
+    const text = yield* fs.readFileString(stateFile(dataDir)).pipe(Effect.orElseSucceed(() => undefined))
     if (text === undefined) return { verdict: "first" } satisfies PreviousRun
     const state = parseState(text)
     if (state === undefined)
@@ -162,7 +162,7 @@ export class ServerAlreadyRunningError extends Error {
 function readLock(dataDir: string, port: number | null) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const text = yield* fs.readFileString(lockFile(dataDir, port)).pipe(Effect.catch(() => Effect.succeed(undefined)))
+    const text = yield* fs.readFileString(lockFile(dataDir, port)).pipe(Effect.orElseSucceed(() => undefined))
     if (text === undefined) return undefined
     try {
       const parsed: unknown = JSON.parse(text)
@@ -192,7 +192,7 @@ export const acquireLock = (dataDir: string, info: LockInfo) =>
       .writeFileString(file, JSON.stringify(info), { flag: "wx" })
       .pipe(
         Effect.as(true),
-        Effect.catch(() => Effect.succeed(false)),
+        Effect.orElseSucceed(() => false),
       )
     if (written) return info
     const holder = yield* readLock(dataDir, info.port)
@@ -208,7 +208,7 @@ export const acquireLock = (dataDir: string, info: LockInfo) =>
       .writeFileString(file, JSON.stringify(info), { flag: "wx" })
       .pipe(
         Effect.as(true),
-        Effect.catch(() => Effect.succeed(false)),
+        Effect.orElseSucceed(() => false),
       )
     if (!reclaimed)
       return yield* Effect.fail(
@@ -272,7 +272,7 @@ export const markStarted = (dataDir: string, info: LockInfo, previousRun: Previo
 export const markStopped = (dataDir: string, reason: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const text = yield* fs.readFileString(stateFile(dataDir)).pipe(Effect.catch(() => Effect.succeed(undefined)))
+    const text = yield* fs.readFileString(stateFile(dataDir)).pipe(Effect.orElseSucceed(() => undefined))
     if (text === undefined) return
     const state = parseState(text)
     if (state === undefined || state.pid !== process.pid) return
