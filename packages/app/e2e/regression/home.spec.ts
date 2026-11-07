@@ -84,6 +84,88 @@ test("Home shows loaded sessions before the location request resolves", async ({
   location.release()
 })
 
+test("the Archived toggle never overlaps a session group header", async ({ page }) => {
+  await openHome(page)
+  await expect(row(page, fixture.expected.targetTitle)).toBeVisible()
+
+  // The toggle lives in the sticky header row; the group titles stick below
+  // it. If the two share one row, the toggle paints over the title.
+  const measure = () =>
+    page.evaluate(() => {
+      const rect = (el: Element | null) => {
+        if (!el) return null
+
+        const r = el.getBoundingClientRect()
+
+        return { x: r.x, y: r.y, width: r.width, height: r.height }
+      }
+
+      const button = document.querySelector('[data-action="home-toggle-archived-sessions"]')
+
+      const headers = [...document.querySelectorAll("section div")].flatMap((el) => {
+        if (getComputedStyle(el).position !== "sticky") return []
+
+        // The older group reads "Recent sessions" when today and
+        // yesterday are empty (controller groupSessions).
+        if (!/^(Today|Yesterday|Older|Recent sessions)$/.test((el.textContent ?? "").trim())) return []
+
+        return [{ text: (el.textContent ?? "").trim(), box: rect(el) }]
+      })
+
+      return { button: rect(button), headers }
+    })
+
+  const assertNoOverlap = (measured: Awaited<ReturnType<typeof measure>>) => {
+    expect(measured.button).not.toBeNull()
+    expect(measured.headers.length).toBeGreaterThan(0)
+
+    for (const header of measured.headers) {
+      const button = measured.button!
+      const box = header.box!
+
+      const overlaps =
+        Math.min(button.x + button.width, box.x + box.width) - Math.max(button.x, box.x) > 0 &&
+        Math.min(button.y + button.height, box.y + box.height) - Math.max(button.y, box.y) > 0
+
+      expect(overlaps, `Archived toggle overlaps the "${header.text}" group header`).toBe(false)
+    }
+  }
+
+  assertNoOverlap(await measure())
+
+  // Scroll the list so a group header sticks, and check again: a stuck
+  // header must sit below the toggle row, not under it.
+  await page.evaluate(() => {
+    // SAFETY: querySelector returns Element | null and the toggle is an
+    // HTMLElement when present; the loop only reads layout properties.
+    let el = document.querySelector('[data-action="home-toggle-archived-sessions"]') as HTMLElement | null
+
+    while (el) {
+      if (el.scrollHeight > el.clientHeight + 10) {
+        el.scrollTop = el.scrollHeight
+        break
+      }
+
+      el = el.parentElement
+    }
+  })
+
+  await page.waitForFunction(() => {
+    // SAFETY: same as above: the toggle is an HTMLElement when present.
+    let el = document.querySelector('[data-action="home-toggle-archived-sessions"]') as HTMLElement | null
+
+    while (el) {
+      if (el.scrollHeight > el.clientHeight + 10) return el.scrollTop > 0
+
+      el = el.parentElement
+    }
+
+    return true
+  })
+
+  assertNoOverlap(await measure())
+})
+
 test("Home and the directory picker load without newer browser APIs", async ({ page }) => {
   await page.addInitScript(() => {
     // Safari 16.6 has none of these APIs. Remove them before the web entry runs.

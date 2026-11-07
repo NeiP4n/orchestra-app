@@ -591,6 +591,11 @@ export const dict = {
   "home.sessions.group.today": "Today",
   "home.sessions.group.yesterday": "Yesterday",
   "home.sessions.group.older": "Older",
+  "home.sessions.archived.one": "Archived ({{count}})",
+  "home.sessions.archived.other": "Archived ({{count}})",
+  "home.sessions.archivedLabel": "Archived",
+  "home.sessions.restoreSession": "Restore session",
+  "home.sessions.loadFailed": "Could not load sessions.",
   "home.providerTip": "Connect to 75+ providers to use other models, including Claude, GPT, Gemini, etc",
   "home.workspaceTip": "Start next session in a new workspace to keep changes isolated",
 

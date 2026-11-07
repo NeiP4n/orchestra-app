@@ -51,6 +51,9 @@ export type HomeSessionsViewProps = {
   groups: HomeSessionGroup[]
   archivedGroups: HomeSessionGroup[]
   loading: boolean
+  archivedLoading: boolean
+  archivedReady: boolean
+  sessionsUnavailable: boolean
   desktop: boolean
   location: (record: HomeSessionRecord) => { worktree: string; branch: string | undefined }
   onRevealLocations: (record?: HomeSessionRecord) => void
@@ -112,7 +115,7 @@ export function HomeSessionsView(props: HomeSessionsViewProps) {
       aria-label={props.language.t("sidebar.project.recentSessions")}
     >
       <div
-        class="sticky top-0 z-30 shrink-0 bg-v2-background-bg-base pb-1 pt-6 md:pb-3 lg:pt-12"
+        class="sticky top-0 z-30 shrink-0 bg-v2-background-bg-base pb-3 pt-6 lg:pt-12"
         onWheel={props.onWheel}
       >
         <HomeSessionSearch
@@ -121,41 +124,54 @@ export function HomeSessionsView(props: HomeSessionsViewProps) {
           hoveredSession={hover.sessionID}
           onHoverSession={(sessionID) => setHover("sessionID", sessionID)}
         />
-        <div class="absolute left-0 top-[68px] z-20 flex gap-1 md:top-[84px] lg:top-[108px]">
+        {/* The Archived / New session actions own this row inside the sticky
+            header: the first section header (group title or loading label)
+            starts below it, so the two can never share one row. */}
+        <div class="mt-2 flex h-7 items-center justify-between">
           <Button
             data-action="home-toggle-archived-sessions"
             variant="ghost-muted"
             size="normal"
-            icon={showArchived() ? "arrow-left" : "archive"}
+            icon={showArchived() ? "arrow-left" : props.archivedLoading ? undefined : "archive"}
             class="h-7 px-2 [font-weight:530]"
             onClick={() => setShowArchived((value) => !value)}
           >
-            {showArchived() ? "Recent sessions" : `Archived (${props.archivedGroups.reduce((count, group) => count + group.sessions.length, 0)})`}
+            {showArchived() ? (
+              props.language.t("palette.group.recentSessions")
+            ) : props.archivedReady ? (
+              props.language.plural(
+                "home.sessions.archived",
+                props.archivedGroups.reduce((count, group) => count + group.sessions.length, 0),
+              )
+            ) : (
+              <>
+                {props.archivedLoading ? <Spinner class="size-3.5" /> : undefined}
+                {props.language.t("home.sessions.archivedLabel")}
+              </>
+            )}
           </Button>
-        </div>
-        <Show when={!showArchived() && props.groups.length > 0 && props.canCreateSession}>
-          <div class="pointer-events-none absolute right-0 top-[68px] z-20 flex md:top-[84px] lg:top-[108px]">
+          <Show when={!showArchived() && props.groups.length > 0 && props.canCreateSession}>
             <Button
               data-action="home-new-session"
               variant="ghost-muted"
               size="normal"
               icon="edit"
-              class="pointer-events-auto h-7 px-2 [font-weight:530]"
+              class="h-7 px-2 [font-weight:530]"
               onClick={props.onCreateSession}
             >
               {props.language.t("command.session.new")}
             </Button>
-          </div>
-        </Show>
+          </Show>
+        </div>
       </div>
-      <div class="pointer-events-none sticky top-[68px] z-40 h-0 -mr-3 md:top-[84px] lg:top-[108px]">
+      <div class="pointer-events-none sticky top-[112px] z-40 h-0 -mr-3 md:top-[120px] lg:top-[144px]">
         <div
           ref={props.onSetThumbTrack}
           data-component="home-session-scroll-track"
-          class="relative ml-auto h-[calc(100cqh-68px)] w-3 md:h-[calc(100cqh-84px)] lg:h-[calc(100cqh-108px)]"
+          class="relative ml-auto h-[calc(100cqh-112px)] w-3 md:h-[calc(100cqh-120px)] lg:h-[calc(100cqh-144px)]"
         />
       </div>
-      <div class="-mr-3 min-h-[calc(100cqh-64px)] md:min-h-[calc(100cqh-72px)] lg:min-h-[calc(100cqh-96px)]">
+      <div class="-mr-3 min-h-[calc(100cqh-108px)] md:min-h-[calc(100cqh-108px)] lg:min-h-[calc(100cqh-132px)]">
         <Show
           when={!props.loading}
           fallback={
@@ -167,10 +183,17 @@ export function HomeSessionsView(props: HomeSessionsViewProps) {
           <Show
             when={visibleGroups().length > 0}
             fallback={
-              <HomeSessionsEmpty
-                onNewSession={props.canCreateSession ? props.onCreateSession : undefined}
-                language={props.language}
-              />
+              <Show
+                when={props.sessionsUnavailable}
+                fallback={
+                  <HomeSessionsEmpty
+                    onNewSession={props.canCreateSession ? props.onCreateSession : undefined}
+                    language={props.language}
+                  />
+                }
+              >
+                <HomeSessionsUnavailable language={props.language} />
+              </Show>
             }
           >
             <div ref={props.onSetContent} class="flex flex-col pt-1 pr-3 pb-16 md:pt-3">
@@ -496,8 +519,8 @@ function HomeSessionGroupHeader(props: {
     <div
       ref={props.onSetRef}
       class={`
-        pointer-events-none sticky top-[68px] flex h-7 min-w-0 items-center justify-between
-        bg-v2-background-bg-base ps-1.5 md:ps-3 md:top-[84px] lg:top-[108px]
+        pointer-events-none sticky top-[112px] flex h-7 min-w-0 items-center justify-between
+        bg-v2-background-bg-base ps-1.5 md:ps-3 md:top-[120px] lg:top-[144px]
       `}
       classList={{ "home-session-group-header z-[5]": !!props.elevated, "z-10": !props.elevated }}
     >
@@ -815,13 +838,13 @@ function HomeSessionRow(
             group-hover/session:opacity-100 focus-within:opacity-100
           `}
         >
-          <Tooltip class="flex shrink-0 items-center" placement="bottom" value={props.archivedMode ? "Restore session" : props.language.t("common.archive")}>
+          <Tooltip class="flex shrink-0 items-center" placement="bottom" value={props.archivedMode ? props.language.t("home.sessions.restoreSession") : props.language.t("common.archive")}>
             <IconButton
               data-action="home-session-archive"
               variant="ghost-muted"
               size="large"
               icon={<Icon name={props.archivedMode ? "rotate-ccw" : "archive"} />}
-              aria-label={props.archivedMode ? "Restore session" : props.language.t("common.archive")}
+              aria-label={props.archivedMode ? props.language.t("home.sessions.restoreSession") : props.language.t("common.archive")}
               onClick={(event) => {
                 event.preventDefault()
                 event.stopPropagation()
@@ -931,6 +954,21 @@ function HomeSessionsEmpty(props: { onNewSession?: () => void; language: ReturnT
           </Button>
         )}
       </Show>
+    </div>
+  )
+}
+
+function HomeSessionsUnavailable(props: { language: ReturnType<typeof useLanguage> }) {
+  return (
+    <div class="flex min-h-full flex-col items-center gap-4 px-6 pt-[52px] text-center">
+      <div
+        class={`
+          shrink-0 text-[13px] leading-text-compact tracking-[-0.04px]
+          text-v2-text-text-base [font-weight:530]
+        `}
+      >
+        {props.language.t("home.sessions.loadFailed")}
+      </div>
     </div>
   )
 }
