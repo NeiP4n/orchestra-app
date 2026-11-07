@@ -92,8 +92,10 @@ describe("B7 virtual display (live Xvfb)", () => {
       expect(agent.display).toBe(AGENT_DISPLAY)
       expect(DesktopIsolation.isVirtualDisplayAlive(AGENT_DISPLAY)).toBe(true)
       // ensureVirtualDisplay starts a window manager on the agent display:
-      // without it agent-desktop cannot snapshot the display.
-      expect(typeof agent.windowManagerPid).toBe("number")
+      // without it agent-desktop cannot snapshot the display. On a rerun
+      // against a display that already has one (leftover :99), the manager
+      // is foreign: no pid of ours, but the display is still ready.
+      expect(typeof agent.windowManagerPid === "number" || agent.windowManagerForeign === true).toBe(true)
       // The host display stays bare Xvfb on purpose: it stands in for the
       // operator's real screen, not an agent display — no window manager there.
       const host = spawn("Xvfb", [HOST_DISPLAY, "-screen", "0", "1280x800x24", "-nolisten", "tcp"], {
@@ -141,6 +143,9 @@ describe("B7 virtual display (live Xvfb)", () => {
           child.kill()
         } catch {}
       }
+      // The agent display was started by ensureVirtualDisplay above: stop
+      // it, or the next run finds a leftover :99 with a foreign manager.
+      DesktopIsolation.stopVirtualDisplay(AGENT_DISPLAY)
       if (prevCapture !== undefined) process.env.ORCHESTRA_DESKTOP_CAPTURE = prevCapture
       else delete process.env.ORCHESTRA_DESKTOP_CAPTURE
       if (prevDisplay !== undefined) process.env.DISPLAY = prevDisplay
@@ -189,6 +194,8 @@ describe("B7 virtual display (live Xvfb)", () => {
       expect(JSON.stringify(third)).toContain("already open")
       expect(JSON.stringify(reentered)).toContain("already open")
     } finally {
+      // Same leftover-display cleanup as the test above.
+      DesktopIsolation.stopVirtualDisplay(AGENT_DISPLAY)
       if (prevCapture !== undefined) process.env.ORCHESTRA_DESKTOP_CAPTURE = prevCapture
       else delete process.env.ORCHESTRA_DESKTOP_CAPTURE
       if (prevVirtual !== undefined) process.env.ORCHESTRA_VIRTUAL_DISPLAY = prevVirtual

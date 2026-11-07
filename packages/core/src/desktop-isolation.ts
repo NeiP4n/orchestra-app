@@ -231,7 +231,8 @@ export function windowManagerCommand(display: string): {
 
 export interface VirtualDisplaySpawnOptions {
   readonly env?: NodeJS.ProcessEnv
-  readonly captureStderr?: boolean
+  /** Pipe stdout and stderr so the caller can read what the child printed. */
+  readonly captureOutput?: boolean
 }
 
 export type VirtualDisplaySpawnFn = (
@@ -243,7 +244,7 @@ export type VirtualDisplaySpawnFn = (
 const defaultSpawn: VirtualDisplaySpawnFn = (command, args, options) =>
   spawn(command, [...args], {
     detached: true,
-    stdio: options?.captureStderr ? ["ignore", "ignore", "pipe"] : "ignore",
+    stdio: options?.captureOutput ? ["ignore", "pipe", "pipe"] : "ignore",
     env: options?.env ? { ...process.env, ...options.env } : process.env,
   })
 
@@ -257,6 +258,9 @@ export interface VirtualDisplayStatus {
   readonly pid?: number
   /** The window manager this call started, if it started one. */
   readonly windowManagerPid?: number
+  /** True when a window manager was already running on the display (not
+   * started by us): the display is ready, but there is no pid of ours. */
+  readonly windowManagerForeign?: boolean
 }
 
 /**
@@ -277,8 +281,7 @@ export async function ensureVirtualDisplay(
   const liveManager = startedWindowManagers.get(display)
   if (isVirtualDisplayAlive(display) && liveManager && liveManager.exitCode === null)
     return { display, started: false, pid: startedDisplays.get(display)?.pid, windowManagerPid: liveManager.pid }
-  let started = false
-  if (!isVirtualDisplayAlive(display)) {
+  const startXvfb = async (): Promise<void> => {
     const { command, args } = xvfbCommand(display)
     let child: ChildProcess
     try {
@@ -293,7 +296,7 @@ export async function ensureVirtualDisplay(
     startedDisplays.set(display, child)
     const deadline = Date.now() + waitMs
     while (Date.now() < deadline) {
-      if (isVirtualDisplayAlive(display)) break
+      if (isVirtualDisplayAlive(display)) return
       if (child.exitCode !== null)
         throw new Error(
           `Virtual display ${display} did not come up: Xvfb exited with code ${child.exitCode}. The real screen stays closed.`,
@@ -302,15 +305,39 @@ export async function ensureVirtualDisplay(
     }
     if (!isVirtualDisplayAlive(display))
       throw new Error(`Virtual display ${display} did not come up within ${waitMs} ms. The real screen stays closed.`)
+  }
+  let started = false
+  if (!isVirtualDisplayAlive(display)) {
+    await startXvfb()
     started = true
   }
-  const manager = await startWindowManager(display, spawnFn)
+  let manager: WindowManagerStart
+  try {
+    manager = await startWindowManager(display, spawnFn)
+  } catch (error) {
+    // openbox could not connect to the display: the socket exists but no X
+    // server answers — a stale socket left by a stop or a crash (the dying
+    // server has not removed it yet). Restart Xvfb once and retry, instead
+    // of reporting a dead display. Only when we trusted a pre-existing
+    // socket: if we just started Xvfb ourselves, the failure is real.
+    if (!started && error instanceof Error && /(failed to open|cannot open) the display/i.test(error.message)) {
+      const goneBy = Date.now() + 2_000
+      while (isVirtualDisplayAlive(display) && Date.now() < goneBy)
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      if (!isVirtualDisplayAlive(display)) {
+        await startXvfb()
+        started = true
+        manager = await startWindowManager(display, spawnFn)
+      } else throw error
+    } else throw error
+  }
   if (manager !== "foreign") startedWindowManagers.set(display, manager)
   return {
     display,
     started,
     pid: startedDisplays.get(display)?.pid,
     windowManagerPid: manager === "foreign" ? undefined : manager.pid,
+    windowManagerForeign: manager === "foreign" ? true : undefined,
   }
 }
 
@@ -327,7 +354,7 @@ async function startWindowManager(display: string, spawnFn: VirtualDisplaySpawnF
   const { command, args, env } = windowManagerCommand(display)
   let child: ChildProcess
   try {
-    child = spawnFn(command, args, { env, captureStderr: true })
+    child = spawnFn(command, args, { env, captureOutput: true })
   } catch (error) {
     throw new Error(windowManagerMissingMessage(display, error))
   }
@@ -338,9 +365,15 @@ async function startWindowManager(display: string, spawnFn: VirtualDisplaySpawnF
     spawnError = error
   })
   child.unref?.()
-  let stderr = ""
+  // openbox reports "already running" on STDOUT, not stderr (verified live
+  // 2026-11-07: a second openbox on :99 prints the message to stdout and
+  // exits 0) — so both streams are collected and matched together.
+  let output = ""
+  child.stdout?.on("data", (chunk) => {
+    output += String(chunk)
+  })
   child.stderr?.on("data", (chunk) => {
-    stderr += String(chunk)
+    output += String(chunk)
   })
   const deadline = Date.now() + WINDOW_MANAGER_SETTLE_MS
   while (Date.now() < deadline) {
@@ -349,11 +382,18 @@ async function startWindowManager(display: string, spawnFn: VirtualDisplaySpawnF
   }
   if (spawnError !== undefined) throw new Error(windowManagerMissingMessage(display, spawnError))
   if (child.exitCode !== null) {
+    // The exit may be observed before the last output chunk arrives: wait
+    // for the streams to close (bounded) so the "already running" message
+    // is not missed on a fast exit.
+    await Promise.race([
+      new Promise<void>((resolve) => child.on("close", () => resolve())),
+      new Promise<void>((resolve) => setTimeout(resolve, 500)),
+    ])
     // openbox refuses a display that already has a window manager. That is
     // not a failure: the display is ready, the manager just is not ours.
-    if (/already running|another window manager/i.test(stderr)) return "foreign"
+    if (/already running|another window manager/i.test(output)) return "foreign"
     throw new Error(
-      `Window manager ${command} on display ${display} exited with code ${child.exitCode}${stderr.trim() ? `: ${stderr.trim()}` : ""}. ` +
+      `Window manager ${command} on display ${display} exited with code ${child.exitCode}${output.trim() ? `: ${output.trim()}` : ""}. ` +
         "Install openbox and make sure the virtual display is up; the real screen stays closed.",
     )
   }
