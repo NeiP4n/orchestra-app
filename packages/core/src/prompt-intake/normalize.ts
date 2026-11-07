@@ -100,6 +100,57 @@ const CONTINUATIONS = new Set([
   "continue", "go on", "yes", "ok", "okay", "yep", "yeah",
 ])
 
+// Words a prompt can consist of entirely when it carries no task:
+// greetings, thanks, and short acknowledgements. The trivial check
+// requires EVERY word to be one of these, so a real task ("исправь
+// тесты", "тесты падают") can never match — it always has at least one
+// content word. Multi-word acknowledgements ("спасибо за помощь",
+// "так, давай") match because each word is in the set.
+const TRIVIAL_WORDS = new Set([
+  // Russian greetings.
+  "привет", "здравствуй", "здравствуйте", "прив", "хай", "салют", "здорово",
+  "добрый", "день", "вечер", "утро",
+  // Russian thanks (and their usual completions).
+  "спасибо", "благодарю", "большое", "огромное", "за", "помощь", "помощью", "работу", "тебе", "вам", "всем",
+  // Russian acknowledgements and confirmations.
+  "отлично", "хорошо", "супер", "класс", "классно", "прекрасно", "замечательно", "чудесно",
+  "великолепно", "круто", "норм", "нормально", "молодец",
+  "понял", "поняла", "понятно", "ясно", "ладно", "договорились",
+  "да", "да-да", "ага", "угу", "ок", "окей",
+  // Continuation words, so "так, давай" and "давай, отлично" match too.
+  "давай", "давайте", "продолжай", "продолжи", "продолжайте", "дальше", "ещё", "еще",
+  // Russian fillers that only appear inside acknowledgements.
+  "всё", "все", "это", "так", "очень", "же", "ну", "вот", "пожалуйста",
+  // English greetings.
+  "hello", "hi", "hey", "good", "morning", "afternoon", "evening",
+  // English thanks.
+  "thanks", "thank", "you", "thx",
+  // English acknowledgements and confirmations.
+  "great", "excellent", "perfect", "nice", "awesome", "cool", "super", "fine",
+  "job", "work",
+  "got", "it", "understood", "ok", "okay", "yes", "yep", "yeah", "sure", "well", "done",
+  // English continuations.
+  "continue", "go", "on",
+])
+
+/**
+ * True when the prompt carries no task at all: a greeting, a thank-you,
+ * or a short acknowledgement ("отлично", "привет", "спасибо"). Continuations
+ * are trivial too. Purely lexical (no model call): the prompt must be
+ * short (at most 6 words) and every word must be a known acknowledgement
+ * word. A real task always has a content word, so it can never match.
+ * An empty prompt is not trivial — it still needs the value check's
+ * "clarify" verdict.
+ */
+export function isTrivial(text: string): boolean {
+  const normalized = normalize(text)
+  if (normalized.length === 0) return false
+  if (isContinuation(text)) return true
+  const words = normalized.split(" ").filter((word) => word.length > 0)
+  if (words.length === 0 || words.length > 6) return false
+  return words.every((word) => TRIVIAL_WORDS.has(word))
+}
+
 export function isContinuation(text: string): boolean {
   return CONTINUATIONS.has(normalize(text))
 }

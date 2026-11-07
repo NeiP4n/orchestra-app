@@ -58,7 +58,10 @@ export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
     const input = event.prompt
     // Deep-process the prompt before the agent sees it: value check, structured
     // task, recommended skills. Best-effort — a failure here never blocks
-    // admission, the raw prompt goes through untouched.
+    // admission, the raw prompt goes through untouched. The stored message
+    // text is always the original prompt: the analysis reaches the model
+    // only as a short internal note built from metadata.intake, never as
+    // message text (see to-llm-message.ts).
     const intake = yield* runPromptIntake({ session: request.session, text: input.text })
     const files = input.files
       ? yield* Effect.forEach(input.files, materializeAttachment, { concurrency: 8 })
@@ -88,7 +91,7 @@ export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
       type: "user",
       payload: SessionInbox.UserPayload.make({
         ...Prompt.make({
-          text: intake?.enrichedPrompt ?? input.text,
+          text: input.text,
           agents: input.agents,
           files,
           skills: selected?.length ? selected : undefined,
@@ -103,6 +106,7 @@ export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
                 questions: intake.value.questions,
                 skills: intake.skills.map((skill) => skill.id),
                 modelUsed: intake.modelUsed,
+                trivial: intake.trivial,
               },
             }
           : event.metadata,
@@ -134,9 +138,13 @@ const runPromptIntake = Effect.fn("SessionPrompt.intake")(function* (input: {
     let dodAvailable = false
     if (Option.isSome(location)) {
       const status = yield* Dod.status(location.value.project.directory).pipe(Effect.option)
-      if (status && status.type === "ready") {
+      // Effect.option wraps the result in an Option: read it through
+      // Option.isSome / .value, never as the raw value. (The raw-value
+      // reads used to silently drop DoD items and, for the message
+      // history below, throw — failing the whole intake.)
+      if (Option.isSome(status) && status.value.type === "ready") {
         dodAvailable = true
-        dodItems = status.items.map((item) => ({ id: item.id, title: item.what, state: item.state }))
+        dodItems = status.value.items.map((item) => ({ id: item.id, title: item.what, state: item.state }))
       }
     }
 
@@ -146,9 +154,9 @@ const runPromptIntake = Effect.fn("SessionPrompt.intake")(function* (input: {
       const messages = yield* store.value
         .messages({ sessionID: input.session.id, limit: 10, order: "desc", type: "user" })
         .pipe(Effect.option)
-      if (messages) {
+      if (Option.isSome(messages)) {
         historyAvailable = true
-        recentPrompts = messages
+        recentPrompts = messages.value
           .filter((message) => message.type === "user")
           .map((message) => ({ text: message.text }))
       }
@@ -158,9 +166,9 @@ const runPromptIntake = Effect.fn("SessionPrompt.intake")(function* (input: {
     let journalAvailable = false
     if (Option.isSome(autoloop)) {
       const view = yield* autoloop.value.getView().pipe(Effect.option)
-      if (view) {
+      if (Option.isSome(view)) {
         journalAvailable = true
-        journalTitles = journalTitlesFromView(view)
+        journalTitles = journalTitlesFromView(view.value)
       }
     }
 

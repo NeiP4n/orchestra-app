@@ -103,8 +103,15 @@ export type IntakeResult = {
   readonly valueVerdict: import("../skill-marketplace/types.js").ValueVerdict
   readonly task: StructuredTask
   readonly skills: ReadonlyArray<SkillRecommendation>
-  /** Original prompt verbatim, followed by the structured interpretation the agent receives. */
-  readonly enrichedPrompt: string
+  /**
+   * True when the prompt carries no task at all (a greeting, a thank-you,
+   * or a short acknowledgement). Trivial prompts skip structured analysis
+   * entirely: no value check, no model call, no skill recommendations.
+   * The stored message text is always the original prompt; the analysis
+   * reaches the model only as a short internal note built from this
+   * result (see `to-llm-message.ts`), never as message text.
+   */
+  readonly trivial: boolean
   readonly modelUsed: boolean
 }
 

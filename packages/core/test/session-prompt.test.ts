@@ -244,6 +244,12 @@ describe("Session.prompt", () => {
       })
 
       expect(message.payload.text).toBe("Fix the failing tests")
+      // The intake analysis is metadata, not message text: no structured
+      // block is stored in the visible message.
+      expect(message.payload.text).not.toContain("[PromptIntake")
+      const intake = message.payload.metadata?.intake as { trivial?: unknown } | undefined
+      expect(intake).toBeDefined()
+      expect(intake?.trivial).toBe(false)
       expect(yield* session.messages({ sessionID })).toEqual([])
       expect(yield* admitted(message.id)).toMatchObject({
         id: message.id,
@@ -252,6 +258,27 @@ describe("Session.prompt", () => {
         payload: { text: "Fix the failing tests", resumeOnStart: false },
         delivery: "steer",
       })
+    }),
+  )
+
+  it.effect("admits a trivial prompt as-is, marked trivial in the intake metadata", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* Session.Service
+
+      const message = yield* session.prompt({
+        sessionID,
+        text: "отлично",
+        resume: false,
+      })
+
+      // The user sees exactly what they typed: no structured block, and
+      // no analysis was run (no model call, no skills, no DoD).
+      expect(message.payload.text).toBe("отлично")
+      expect(message.payload.text).not.toContain("[PromptIntake")
+      const intake = message.payload.metadata?.intake as { trivial?: unknown; verdict?: unknown } | undefined
+      expect(intake?.trivial).toBe(true)
+      expect(intake?.verdict).toBe("execute")
     }),
   )
 
@@ -1010,7 +1037,12 @@ describe("Session.prompt", () => {
 
       expect(retried).toEqual(first)
       expect(differing).toEqual(first)
-      expect(first.payload.metadata).toEqual({ source: "api" })
+      // Intake metadata is added by prepare (not by the caller), so the
+      // stored metadata is the caller's metadata plus the intake analysis.
+      expect(first.payload.metadata).toMatchObject({ source: "api" })
+      expect(first.payload.metadata).toHaveProperty("intake")
+      const intake = first.payload.metadata?.intake as { trivial?: unknown } | undefined
+      expect(intake?.trivial).toBe(false)
       expect(yield* admittedCount).toBe(1)
     }),
   )

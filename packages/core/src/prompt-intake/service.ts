@@ -6,12 +6,11 @@ import type { SessionSchema } from "../session/schema.js"
 import { Skill } from "../skill.js"
 import type { Disambiguator } from "./model.js"
 import { recommendSkills, valueVerdictForMarketplace, type SkillRef } from "./skills.js"
-import { isContinuation } from "./normalize.js"
+import { isTrivial, keywords } from "./normalize.js"
 import type {
   Disambiguation,
   IntakeContext,
   IntakeResult,
-  SkillRecommendation,
   StructuredTask,
   ValueAssessment,
 } from "./types.js"
@@ -36,13 +35,6 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@orchestra/PromptIntake") {}
 
-const VERDICT_RU: Record<ValueAssessment["verdict"], string> = {
-  execute: "выполнять",
-  clarify: "уточнить у пользователя",
-  merge: "слить с существующей задачей",
-  skip: "пропустить",
-}
-
 function applyDisambiguation(task: StructuredTask, disambiguation: Disambiguation): StructuredTask {
   return {
     ...task,
@@ -54,40 +46,40 @@ function applyDisambiguation(task: StructuredTask, disambiguation: Disambiguatio
   }
 }
 
-function buildEnrichedPrompt(
-  original: string,
-  value: ValueAssessment,
-  task: StructuredTask,
-  skills: ReadonlyArray<SkillRecommendation>,
-): string {
-  const sections: Array<string> = [original.trim(), "", "---", "[PromptIntake — структурированная задача]"]
-  sections.push(`Цель: ${task.goal}`)
-  if (task.context.length > 0) {
-    sections.push("Контекст:")
-    for (const line of task.context) sections.push(`- ${line}`)
+/**
+ * The result for a trivial prompt (a greeting, a thank-you, or a short
+ * acknowledgement). No value check, no structured task, no model call, no
+ * skill recommendations: there is nothing to structure, and the prompt
+ * passes through untouched. The stored message text is the original
+ * prompt; the model gets no intake note for it.
+ */
+function trivialResult(text: string): IntakeResult {
+  const value: ValueAssessment = {
+    verdict: "execute",
+    confidence: 0.95,
+    reasons: ["Тривиальный промпт — приветствие, благодарность или подтверждение; структурировать нечего."],
+    evidence: [],
+    questions: [],
+    sources: { dod: false, history: false, journal: false },
   }
-  if (task.constraints.length > 0) {
-    sections.push("Ограничения:")
-    for (const line of task.constraints) sections.push(`- ${line}`)
+  return {
+    original: text,
+    value,
+    valueVerdict: valueVerdictForMarketplace(value),
+    task: {
+      goal: text.trim(),
+      context: [],
+      constraints: [],
+      dod: [],
+      ambiguities: [],
+      plan: [],
+      keywords: keywords(text),
+      needsModel: false,
+    },
+    skills: [],
+    trivial: true,
+    modelUsed: false,
   }
-  sections.push("Готово, когда:")
-  for (const line of task.dod) sections.push(`- ${line}`)
-  sections.push("План:")
-  task.plan.forEach((step, index) => sections.push(`${index + 1}. ${step}`))
-  if (task.ambiguities.length > 0) {
-    sections.push("Вопросы к пользователю (если не ответит — действуй по допущениям):")
-    for (const ambiguity of task.ambiguities) {
-      sections.push(`- ${ambiguity.question} (допущение: ${ambiguity.assumption})`)
-    }
-  }
-  if (skills.length > 0) {
-    sections.push(`Рекомендуемые скиллы: ${skills.map((skill) => `${skill.name} (${skill.reason})`).join("; ")}`)
-  }
-  sections.push(`Ценность: ${VERDICT_RU[value.verdict]} — ${value.reasons.join(" ")}`)
-  for (const evidence of value.evidence) {
-    sections.push(`Ссылка: ${evidence.title} (${evidence.kind}, совпадение ${Math.round(evidence.score * 100)}%)`)
-  }
-  return sections.join("\n")
 }
 
 /**
@@ -100,17 +92,8 @@ export function processPure(input: {
   context: IntakeContext
   skills?: ReadonlyArray<SkillRef>
 }): IntakeResult {
-  if (isContinuation(input.text)) {
-    const value = checkValue(input.text, input.context)
-    return {
-      original: input.text,
-      value,
-      valueVerdict: valueVerdictForMarketplace(value),
-      task: understand(input.text, input.context),
-      skills: [],
-      enrichedPrompt: input.text,
-      modelUsed: false,
-    }
+  if (isTrivial(input.text)) {
+    return trivialResult(input.text)
   }
   const value = checkValue(input.text, input.context)
   const task = understand(input.text, input.context)
@@ -121,7 +104,7 @@ export function processPure(input: {
     valueVerdict: valueVerdictForMarketplace(value),
     task,
     skills: recommended,
-    enrichedPrompt: buildEnrichedPrompt(input.text, value, task, recommended),
+    trivial: false,
     modelUsed: false,
   }
 }
@@ -132,17 +115,8 @@ export const process = Effect.fn("PromptIntake.process")(function* (input: {
   context: IntakeContext
   disambiguate?: Disambiguator
 }): Effect.Effect<IntakeResult, never> {
-  if (isContinuation(input.text)) {
-    const value = checkValue(input.text, input.context)
-    return {
-      original: input.text,
-      value,
-      valueVerdict: valueVerdictForMarketplace(value),
-      task: understand(input.text, input.context),
-      skills: [],
-      enrichedPrompt: input.text,
-      modelUsed: false,
-    }
+  if (isTrivial(input.text)) {
+    return trivialResult(input.text)
   }
   const value = checkValue(input.text, input.context)
   let task = understand(input.text, input.context)
@@ -165,7 +139,7 @@ export const process = Effect.fn("PromptIntake.process")(function* (input: {
     valueVerdict: valueVerdictForMarketplace(value),
     task,
     skills: recommended,
-    enrichedPrompt: buildEnrichedPrompt(input.text, value, task, recommended),
+    trivial: false,
     modelUsed,
   }
 })

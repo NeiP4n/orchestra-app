@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { isContinuation, keywordStems, keywords, sentences, stem } from "@orchestra/core/prompt-intake/normalize"
+import { isContinuation, isTrivial, keywordStems, keywords, sentences, stem } from "@orchestra/core/prompt-intake/normalize"
 
 describe("prompt-intake normalize", () => {
   test("stem unifies Russian verb forms", () => {
@@ -44,5 +44,19 @@ describe("prompt-intake normalize", () => {
     expect(isContinuation("продолжай")).toBe(true)
     expect(isContinuation("да")).toBe(true)
     expect(isContinuation("исправь ошибку")).toBe(false)
+  })
+
+  test("trivial prompts are greetings, thanks, and short acknowledgements", () => {
+    for (const text of ["отлично", "привет", "спасибо", "ок", "да", "так, давай", "понял, спасибо", "good job"]) {
+      expect(isTrivial(text)).toBe(true)
+    }
+  })
+
+  test("trivial detection never matches a real task", () => {
+    for (const text of ["исправь тесты", "тесты падают", "что это?", "отлично, теперь исправь тесты", "привет, сделай кнопку"]) {
+      expect(isTrivial(text)).toBe(false)
+    }
+    expect(isTrivial("")).toBe(false)
+    expect(isTrivial("   ")).toBe(false)
   })
 })
