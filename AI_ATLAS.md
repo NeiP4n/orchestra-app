@@ -144,6 +144,16 @@ guidance block. It never widens a role's permissions.
   project opens only the Orchestrator, which composes the actual team. Removed
   built-ins survive as `legacyTemplates` for compatibility. A template test pins
   the kept-template roster — update it when adding a template.
+- The one fixed-roster exception is `team-solve` (Memdoor team-solve / GVS5H,
+  Lee 2026): six roles (`team-planner`, `ideator-a`, `ideator-b`, `team-solver`,
+  `team-manager`, `repairer`), each in a fresh session, talking only through
+  the ledger (`.orchestra/team-notes.md`) and the DoD board — no shared chat.
+  The preset lives in `packages/core/src/team-solve.ts` (roster, 8-step DAG
+  plan → two parallel ideators → solve → test → review → one repair → verify,
+  `TEAM_SOLVE_MAX_REPAIR_ROUNDS = 1`); the judge is `verdictFromTestRun`,
+  which takes only the verification command's exit code — no worker claim or
+  vote can pass a task, matching `dod verify` as the only path to DONE.
+  Staffing goes through `rolesForTemplate`, one worker per role.
 - Custom roles and teams are created at runtime by the forges (below); a custom
   role spec derives its toolkit and MCP profile the same way built-ins do.
 
