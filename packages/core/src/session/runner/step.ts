@@ -62,11 +62,54 @@ interface Input {
   readonly recoverOverflow: Effect.Effect<boolean>
   /** Moves the session to its next model when the provider refuses this one outright. */
   readonly fallback: (cause: AIError, error: SessionError.Error) => Effect.Effect<boolean>
+  /**
+   * Best-effort L3 capture (Б17): called once per settled tool call with its
+   * input and output text. The session memory module records it as an
+   * observation; a failure here must never fail the step.
+   */
+  readonly onToolSettled?: (event: {
+    readonly id: string
+    readonly name: string
+    readonly inputText: string
+    readonly outputText: string
+    readonly error?: string
+  }) => Effect.Effect<void>
 }
 
 const TOOLS_INTERRUPTED = { type: "aborted", message: "Tool execution interrupted" } as const
 const STEP_INTERRUPTED = { type: "aborted", message: "Step interrupted" } as const
 const RESULT_MISSING = { type: "tool.result-missing", message: "Provider did not return a tool result" } as const
+
+const stringifyToolInput = (input: unknown): string => {
+  if (typeof input === "string") return input
+  try {
+    return JSON.stringify(input) ?? String(input)
+  } catch {
+    return String(input)
+  }
+}
+
+const toolContentText = (content: ReadonlyArray<Tool.Content>): string =>
+  content
+    .flatMap((item) => (item.type === "text" ? [item.text] : [`[file: ${item.name ?? item.mime}]`]))
+    .join("\n")
+
+/** Best-effort L3 notification: a missing callback or a failing one is a no-op for the step. */
+const notifyToolSettled = (
+  notify: Input["onToolSettled"],
+  event: {
+    readonly id: string
+    readonly name: string
+    readonly inputText: string
+    readonly outputText: string
+    readonly error?: string
+  },
+) =>
+  notify === undefined
+    ? Effect.void
+    : notify(event).pipe(
+        Effect.catchCause((cause) => (Cause.hasInterruptsOnly(cause) ? Effect.interrupt : Effect.void)),
+      )
 
 /** Captures Location-scoped dependencies without introducing another service or execution loop. */
 export const make = Effect.gen(function* () {
@@ -126,9 +169,31 @@ export const make = Effect.gen(function* () {
             fiber: yield* Effect.uninterruptibleMask((restore) =>
               restore(executeTool(event)).pipe(
                 Effect.flatMap(toolOutput.truncate),
-                Effect.flatMap((outcome) => publisher.toolExecution(event.id, event.name, outcome)),
+                Effect.flatMap((outcome) =>
+                  publisher.toolExecution(event.id, event.name, outcome).pipe(
+                    Effect.andThen(
+                      notifyToolSettled(input.onToolSettled, {
+                        id: event.id,
+                        name: event.name,
+                        inputText: stringifyToolInput(event.input),
+                        outputText: toolContentText(outcome.content),
+                      }),
+                    ),
+                  ),
+                ),
                 Effect.catchTag("Tool.Error", (error) =>
-                  publisher.failTool(event.id, toSessionError(error), error.metadata).pipe(Effect.asVoid),
+                  publisher.failTool(event.id, toSessionError(error), error.metadata).pipe(
+                    Effect.andThen(
+                      notifyToolSettled(input.onToolSettled, {
+                        id: event.id,
+                        name: event.name,
+                        inputText: stringifyToolInput(event.input),
+                        outputText: "",
+                        error: error.message,
+                      }),
+                    ),
+                    Effect.asVoid,
+                  ),
                 ),
               ),
             ).pipe(Effect.forkScoped),

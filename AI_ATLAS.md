@@ -389,9 +389,11 @@ process memory. One source of truth, in the existing `orchestra-local.db`.
     `text`, `error`, `fingerprint`, `attempts`): attempts only grow, so
     `attempts === 2` fires once per run. The journal is the durable shared
     memory the society reads through `getView` — the three-level memory of
-    Б17 does not exist yet and the kernel is pure, so the lesson cannot go
-    to the Memory service from here. The lesson names the error, not a
-    verdict about its cause.
+    Б17 exists for L2 (project) and L1 (society) as files
+    (`packages/core/src/memory/levels.ts`); the L3 session capture and the
+    secret scrubber are separate slices, and the kernel is pure, so the
+    lesson cannot go to the Memory service from here. The lesson names the
+    error, not a verdict about its cause.
   - `kernel/decide.ts` receipts carry `verification` (idea #14), entries
     `{ kind, detail }` with kind one of `VERIFICATION_KINDS` (`test`,
     `command`, `manual`, `review`, `transcript`). A done receipt that
@@ -1300,6 +1302,39 @@ too far behind, so it resyncs instead of missing events.
   (A3-03; `--force` only when the server is certainly stopped).
   `restoreDatabase` still needs the server stopped: an open connection would
   keep writing to the replaced inode.
+- **Memory database (Б17 slice 1, Б18 №36–№41 minimum)**:
+  `packages/core/src/memory/db.ts` — `memory.db` lives at
+  `<project>/.orchestra/memory.db`
+  (`resolveDefaultMemoryDbPath(projectDir)`); the memory tool opens it from
+  `Location.project.directory` (`getMemoryEngineForProject`, one cached
+  handle per project), so two projects never share one database and a
+  moved working directory does not move the memory. A bare
+  `MemoryEngine.open()` with no project still falls back to the process
+  working directory. `PRAGMA synchronous = FULL` (was `NORMAL`), WAL,
+  mmap capped at 64 MB (was 256 MB). The schema is versioned:
+  `memory_migrations` table, `CURRENT_MEMORY_SCHEMA_VERSION = 1`,
+  `applyMemoryMigrations` — a database created before migrations existed
+  upgrades by a no-op DDL pass and then records version 1.
+  `backupMemoryDatabase(dbPath, destination)` snapshots via `VACUUM INTO`
+  and verifies with `PRAGMA quick_check`; it is NOT wired into the
+  server's automatic backup cycle above, which snapshots only the single
+  `orchestra-local.db` — per-project wiring is still open. The database
+  itself is still `bun:sqlite` outside the Effect/Drizzle infrastructure
+  (B18 №36): moving it onto that infrastructure is a separate, larger
+  change, not done here.
+- **Secret scrubber (Б17 §7 risk 2)**: `packages/core/src/memory/scrub.ts`
+  — `scrubText`/`scrubValue` redact private-key blocks, JWT, Bearer,
+  `sk-`, GitHub/Slack/AWS tokens, `anymodel-`/`lix-` prefixed keys and
+  labelled values (`api_key=`, `password:`, `token:`, …) before any write:
+  `MemoryEngine.remember`/`link`, `Memory` blocks/archive (`save` /
+  `remember` / `writeArchive`), `Journal.recordError` /
+  `recordDisplayEvent` (message + detail). A `<private>` tag is not a
+  protection — the scrubber runs on the text itself. The exact Anymodel/lix
+  key formats are not published anywhere in the repo, so those keys are
+  caught by prefix + label, not by an exact vendor pattern.
+  Tests: `packages/core/test/memory-foundation.test.ts` (12: scrubber
+  shapes + benign prose, FULL/WAL/version, legacy upgrade, backup copy,
+  per-project engines, engine/file/journal gates).
 - **Atomic file writes**: `packages/core/src/file-mutation.ts` writes via a
   temp file + rename under a cross-process lock file
   (`<target>.orchestra-lock`, stolen when the owner pid is dead or the lock
@@ -1542,7 +1577,48 @@ inside settlement: an interruption stays an interruption, anything else is a
 warning. Both writers run under one cross-process lock per file and write
 atomically (temp + rename, arch3 A3-16): the stub's read-then-write used to
 race the agent's write and could clobber a real handoff. The layout follows the three-level memory design (L3, session level);
-`memory.md` in the same folder is not this module's job.
+`memory.md` in the same folder is `SessionMemory`'s job (see "Session memory (L3)" below).
+
+## Session memory (L3) — `packages/core/src/memory/session.ts`, `session/memory-summary.ts`
+
+The session level of the three-level memory design (Б17). One folder per
+session, `.orchestra/sessions/<id>/`: `memory.md` (the session's own summary,
+≤ 8 KiB, decisions and lessons first, overflow in `scratch.md`), the mandatory
+`handoff.md` (see "Session handoffs"), `journal.jsonl` (raw tool-use records —
+facts; memory is conclusions, the journal/memory boundary is not to be
+erased), `state.json` (idempotency + checkpoint bookkeeping). Capture:
+`SessionStep` calls `onToolSettled` once per settled tool call
+(`session/runner/step.ts`, wired in `session/runner/llm.ts`); `captureToolUse`
+classifies the call (`decision/bugfix/feature/refactor/discovery/change`),
+drops noise with the `code--chill` filter (tiny reads go, failures/writes/big
+outputs stay), truncates raw I/O at 64 KiB with a `…[truncated: N bytes]`
+marker, and is idempotent on (session + tool call) via `state.json` — a retry
+records nothing twice. The single write point for `MemoryEngine.remember` is
+inside `captureToolUse`. Secrets: the live call site in
+`session/runner/llm.ts` passes the foundation scrubber (`memory/scrub.ts`,
+`scrubText`) through the `scrub` option on `captureToolUse`; raw tool I/O
+never reaches the journal unscrubbed.
+Stop: `SessionExecution` settlement calls `finalizeSession` on every terminal
+outcome (succeeded, interrupted, failed), best-effort, never failing the
+settlement. Empty sessions are skipped (no summary, no model call) but still
+get their handoff. The summary wired at settle is extractive (from the
+journal): the execution layer has no LLMClient/Model/SessionContext services,
+so the cheap-model summary is NOT wired there — `SessionMemorySummary.summarize`
+(picks the cheapest model the B10 router offers for tier `trivial`) exists and
+is injectable through `finalizeSession`'s `summarize` option, with an
+extractive fallback on any failure; wiring it live needs those services added
+to the execution node or a hook at the runner drain end where they are in
+scope. Compaction: `SessionCompaction.compact`
+snapshots `memory.md` + `handoff.md` into `checkpoint/` BEFORE rewriting the
+context, and re-injects the checkpointed summary into the checkpoint message
+that opens later requests; thresholds from `compaction-policy.ts` are
+unchanged. Start: `SessionContext.select` loads the session's previous
+`memory.md` + `handoff.md` as an instruction source within a 12 000-character
+budget (memory first, markers counted); empty memory costs 0 tokens.
+Tests: `packages/core/test/session-memory.test.ts` (15: truncation,
+classification, chill filter, idempotency, 8 KiB, 12 000 chars, checkpoint
+surviving an interruption, handoff mandatory, router pick, instruction
+source).
 
 ## Sprint cold start — `packages/core/src/sprint.ts`
 
@@ -1855,6 +1931,85 @@ the claim path would refuse. Columns come from `task_state`:
   not reachable, unhealthy = probe fails). Verify: `bun test
   test/integrate.test.ts test/live-smoke.test.ts` in `packages/cli`.
 
+## Block Б17 — three-level memory, L2 (project) + L1 (society) — `packages/core/src/memory/levels.ts`
+
+- Idea: memory is conclusions and context, not the journal (Б2: the
+  journal is facts). Three levels, promotion only up and only curated:
+  a session proposes into the project daily, promotion moves at most 5
+  facts per session into the project `MEMORY.md`; only decisions,
+  lessons and rules cross from a project into the society, and only a
+  human or the council moves them. Nothing leaks on its own — without
+  an explicit promotion call, nothing from a lower level appears above.
+- L2 — project, `<project>/.orchestra/memory/` (registered in the Б16
+  registry, `project-files/descriptors-state.ts`: `memory/` dir,
+  `index.json`, `MEMORY.md`, `daily/`, `actors/`; all `git: false` —
+  memory is local, like notes):
+  - `index.json` is the store of promoted facts (`{version: 1, facts:
+    [{id, text, type, tags, painful, sourceSession, created,
+    promotedAt}]}`); `MEMORY.md` is its render (one bullet per fact,
+    ≤ 12 KiB, rewritten on promotion — hand edits are overwritten).
+  - `daily/YYYY-MM-DD.md` holds candidates, one structured line each
+    (`- [ ] <id> | <type> | painful|routine | session:<id> |
+    tags:<a,b> | <text>`); `[x]` = promoted, `[-]` = rejected.
+    Unparseable lines are free-form notes, ignored by promotion.
+  - `actors/<name>.md` — one dated line per note, name a lowercase slug.
+  - `promoteSessionFacts(root, sessionId)` — the only way into
+    `MEMORY.md`. The cap is 5 per session in total (facts the session
+    already promoted count, so a second call cannot smuggle a 6th
+    through). A fact qualifies only if it would hurt to restore:
+    `painful: true`, or type `decision`/`bugfix`/`discovery`. Over the
+    12 KiB budget a fact is refused with reason `budget` — the file is
+    never silently truncated. Skipped facts stay candidates and are
+    reported (`not-painful`/`over-limit`/`budget`/`duplicate`).
+  - Search is progressive disclosure over the file store, on the
+    existing offline BM25 rank (`memory/rank.ts`) — no vector DB, no
+    Chroma, no Python: `searchProjectMemory` returns a compact index
+    (id, kind, title ≤ 160 chars, score, `approxTokens` ≤ ~100);
+    `timelineProjectMemory` returns chronological context (±2 around
+    given IDs, else the most recent); `getProjectMemoryFacts` returns
+    full details only for the IDs already filtered. The query is plain
+    text for the ranker, never interpolated into SQL/FTS/regex, so
+    injection strings match nothing and never throw.
+- L1 — society, `<society>/.orchestra/memory/` (a different root from
+  any project; a project call can never write into it): `MEMORY.md`,
+  `charter.md`, `rules.md` (`## hard` / `## soft`, bullets
+  `- [applies] text`), `decisions/<fact-id>.md`,
+  `lessons/<fact-id>.md`, `agents/<name>.md`, `blocks/<id>.md`,
+  `daily/YYYY-MM-DD.md`, `archive/`, `members.md`, `acl.yaml`.
+  - Minimal ACL (`SOCIETY_ACL` in `levels.ts`): human writes
+    everything; the council writes `decisions/`, `lessons/`,
+    `rules.md`; the orchestrator and agents write nothing directly —
+    `writeSocietyFile` refuses them with `denied` and points at
+    `proposeToSociety`, which appends a proposal line to the society
+    daily. `acl.yaml` is a generated human-readable mirror of the
+    table; enforcement reads the table, not the file.
+  - `promoteProjectToSociety(projectRoot, societyRoot, {by, kind,
+    factIds})` — `kind` is `decision`/`lesson`/`rule`; `by` must be
+    `human` or `council`, anyone else gets `denied`. A promoted rule
+    is appended to the `## soft` section of `rules.md` as
+    `- [project:<name>] <text> (факт <id>)`; decisions/lessons become
+    one file each, recording their source project and fact id.
+  - Rule precedence (`resolveRules`): hard society rules first, then
+    hard project rules, then soft rules most-specific-first
+    (specificity = count of non-wildcard segments in `applies`; a
+    society soft rule wins a tie).
+- Secrets: the foundation scrubber (`memory/scrub.ts`, `scrubText`) is
+  wired as the default for every write (`WriteOptions.scrub` overrides it
+  per call); no text reaches the files unscrubbed. Do not grow a second
+  scrubber here.
+- What is NOT covered (other slices): the full ACL model beyond the
+  minimal table above. The existing Letta-style memory
+  (`memory/index.ts`: blocks + `archive.jsonl` in the same
+  `.orchestra/memory/` directory) is untouched — the L2 files coexist
+  with it, and `index.json` here is a different file from the Б16
+  `index.yaml` at `.orchestra/index.yaml`.
+- Tests: `packages/core/test/memory-levels.test.ts` (20: promotion,
+  no-leak, 5-per-session cap, painful-only, 12 KiB fail-closed,
+  idempotence, cross-root isolation, actors, compact search,
+  timeline, get-by-id, injection strings, L1 ACL, proposals,
+  L2→L1 promotion, rule precedence, `acl.yaml`, init idempotence,
+  scrub hook). Verify: `bun test test/memory-levels.test.ts` in
+  `packages/core` (20 pass); `bun typecheck` in `packages/core`.
 
 ## Model collections & custom endpoints
 

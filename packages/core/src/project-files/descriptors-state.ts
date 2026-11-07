@@ -36,6 +36,14 @@ import type { FileDescriptor } from "./registry.js"
  *   file. File-owned: no project-lifecycle store exists in the database
  *   (session/location lifecycles are different things). Not in git: it
  *   is runtime state that changes with every phase move, like health.
+ * - `memory/` (Б17, L2) — project memory: `index.json` is the store of
+ *   promoted facts (source file), `MEMORY.md` is its render (derived,
+ *   ≤ 12 KiB, rewritten on promotion), `daily/` holds the candidates,
+ *   `actors/` per-actor notes. Not in git: memory is local, like notes
+ *   (the registry comment says so too — "memory and notes are not [in
+ *   git]"). The society memory (L1) lives under the society's own
+ *   `.orchestra/memory/` and is not a project file, so it has no
+ *   descriptor here.
  * (project.json and team-notes.md are already registered in the core.)
  */
 export const DESCRIPTORS: ReadonlyArray<FileDescriptor> = [
@@ -127,6 +135,51 @@ export const DESCRIPTORS: ReadonlyArray<FileDescriptor> = [
     dir: false,
     kind: "lifecycle",
     purpose: "Lifecycle state: phase, timestamps, milestones. File-owned — no project-lifecycle store exists in the database; not in git — runtime state",
+    git: false,
+    source: "file",
+  },
+  {
+    rel: "memory/",
+    base: "orchestra",
+    dir: true,
+    kind: "memory",
+    purpose: "Project memory (L2, Б17): MEMORY.md, daily/, actors/, index.json. The directory IS the store for promoted facts; MEMORY.md is its render. Not in git — memory is local, like notes",
+    git: false,
+    source: "file",
+  },
+  {
+    rel: "memory/index.json",
+    base: "orchestra",
+    dir: false,
+    kind: "memory",
+    purpose: "Project memory index: every promoted fact (id, text, type, source session). The store; MEMORY.md is rendered from it on promotion",
+    git: false,
+    source: "file",
+  },
+  {
+    rel: "memory/MEMORY.md",
+    base: "orchestra",
+    dir: false,
+    kind: "memory",
+    purpose: "Project memory: curated facts, one bullet each, at most 12 KiB. Derived render of index.json — hand edits are overwritten on the next promotion",
+    git: false,
+    source: "derived",
+  },
+  {
+    rel: "memory/daily/",
+    base: "orchestra",
+    dir: true,
+    kind: "memory",
+    purpose: "Daily memory candidates: one file per day, one proposed fact per line. Promotion moves at most 5 per session into MEMORY.md",
+    git: false,
+    source: "file",
+  },
+  {
+    rel: "memory/actors/",
+    base: "orchestra",
+    dir: true,
+    kind: "memory",
+    purpose: "Per-actor memory notes: one file per actor, one dated line per note",
     git: false,
     source: "file",
   },

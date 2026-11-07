@@ -17,6 +17,7 @@ import { Location } from "../location.js"
 import { McpInstructions } from "../mcp/instructions.js"
 import { Memory } from "../memory/index.js"
 import { MemoryInstructions } from "../memory/instructions.js"
+import { SessionMemory } from "../memory/session.js"
 import { NoteInstructions } from "../note-instructions.js"
 import { McpTool } from "../tool/mcp.js"
 import { ReferenceInstructions } from "../reference/instructions.js"
@@ -156,6 +157,11 @@ const layer = Layer.effect(
         },
       })
       const toolsSnapshot = yield* registry.snapshot(permissions)
+      // L3 session memory (Б17): the previous memory.md + handoff.md of this
+      // session, within the 12 000-character start budget; empty memory costs
+      // 0 tokens. Session memory is the least shared, so it follows the
+      // long-term blocks.
+      const sessionMemory = SessionMemory.instructions(location.project.directory, sessionID)
       // Names reachable this request, not just the advertised schemas: on-demand tools and every
       // Code Mode tool (MCP servers, browser, docs) count as available. Guidance filtered against
       // the advertised list alone would drop exactly the routes it exists to teach.
@@ -192,6 +198,7 @@ const layer = Layer.effect(
           loaded.skills,
           loaded.discovery,
           memory,
+          sessionMemory,
           loaded.builtins,
           loaded.entries,
           loaded.canvas,

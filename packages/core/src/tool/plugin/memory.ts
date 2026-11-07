@@ -6,7 +6,8 @@ import { optional } from "@orchestra/schema/schema"
 import type { Tool } from "@orchestra/schema/tool"
 import { Effect, Schema } from "effect"
 import { Memory } from "../../memory/index.js"
-import { getMemoryEngine } from "../../memory/engine.js"
+import { getMemoryEngineForProject } from "../../memory/engine.js"
+import { Location } from "../../location.js"
 import { Permission } from "../../permission.js"
 
 export const name = "memory"
@@ -83,6 +84,7 @@ export const Plugin = {
   effect: Effect.fn("MemoryTool.Plugin")(function* (ctx: Context) {
     const memory = yield* Memory.Service
     const permission = yield* Permission.Service
+    const location = yield* Location.Service
 
     // Memory writes are permanent and feed every later request, so they
     // are not free: read actions (search, recall, read, list, stats) run
@@ -117,7 +119,10 @@ export const Plugin = {
           .pipe(Effect.mapError((error) => new ToolFailure({ message: `Memory ${input.action} denied`, error })))
       }
 
-      const engine = getMemoryEngine()
+      // B18 №38: the engine opens the database of THIS project
+      // (`<project>/.orchestra/memory.db`), never the process working
+      // directory — a session whose CWD moved must not move its memory.
+      const engine = getMemoryEngineForProject(location.project.directory)
 
       switch (input.action) {
         case "remember": {

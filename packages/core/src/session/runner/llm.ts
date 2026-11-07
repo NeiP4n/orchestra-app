@@ -44,6 +44,8 @@ import { MAX_STEPS_PROMPT } from "./max-steps.js"
 import { Limits } from "../../limits.js"
 import { Dod } from "../../dod.js"
 import { Location } from "../../location.js"
+import { SessionMemory } from "../../memory/session.js"
+import { scrubText } from "../../memory/scrub.js"
 import { SessionCompletionGate } from "../completion-gate.js"
 
 const CONTINUE_AFTER_INCOMPLETE_STREAM =
@@ -358,6 +360,24 @@ const layer = Layer.effect(
           agent: loaded.agent.id,
           model: loaded.model,
           prepared,
+          // L3 session memory (Б17): one observation per settled tool call.
+          // The engine opens lazily on the first tool use (process-wide
+          // cache in SessionMemory), so a step that never touches a tool
+          // never creates the session memory database.
+          onToolSettled: (event) =>
+            SessionMemory.captureToolUse({
+              directory: location.project.directory,
+              sessionID,
+              toolUseID: event.id,
+              tool: event.name,
+              inputText: event.inputText,
+              outputText: event.outputText,
+              ...(event.error !== undefined ? { error: event.error } : {}),
+              // Б17: raw tool I/O is scrubbed before it reaches the journal
+              // (foundation slice `memory/scrub.ts`), never stored as-is.
+              scrub: scrubText,
+              engine: SessionMemory.openSessionEngine(location.project.directory),
+            }),
           retry: (cause, error, proposed) =>
             retry.decide({
               cause,

@@ -5,6 +5,7 @@ import { Cause, Effect, Option, Schema } from "effect"
 import { AutoloopStore } from "./autoloop/kernel/store.js"
 import type { AutoloopFact } from "./autoloop/kernel/schema.js"
 import { Database } from "./database/database.js"
+import { scrubText, scrubValue } from "./memory/scrub.js"
 
 /**
  * The error journal (block B8) is a thin writer/reader over the autoloop
@@ -63,6 +64,10 @@ export const recordDisplayEvent = (input: DisplayEvent): Effect.Effect<void, nev
       })
       return
     }
+    // Scrubber gate (Б17 §7 risk 2): the detail bag is free-form, so it is
+    // scrubbed before it becomes a durable journal fact.
+    const detail =
+      input.detail === undefined ? undefined : (scrubValue(input.detail) as Record<string, unknown>)
     const fact: AutoloopFact = {
       id: `desktop:${input.display}:${input.state}:${randomUUID()}`,
       type: DISPLAY_EVENT_TYPE,
@@ -71,7 +76,7 @@ export const recordDisplayEvent = (input: DisplayEvent): Effect.Effect<void, nev
         display: input.display,
         state: input.state,
         ...(input.sessionID ? { sessionID: input.sessionID } : {}),
-        ...(input.detail ? { detail: input.detail } : {}),
+        ...(detail ? { detail } : {}),
       },
     }
     yield* AutoloopStore.commitLatest([fact]).pipe(
@@ -145,6 +150,13 @@ const decodeErrorData = Schema.decodeUnknownOption(ErrorData)
 
 export const recordError = (input: ErrorRecord): Effect.Effect<void, never, never> =>
   Effect.gen(function* () {
+    // Scrubber gate (Б17 §7 risk 2): error messages and details routinely
+    // carry the failing request or response — keys and tokens included — so
+    // they are scrubbed once, up front, and every path below (the fact, the
+    // drop warning, the failure warning) uses the scrubbed copies.
+    const message = scrubText(input.message)
+    const detail =
+      input.detail === undefined ? undefined : (scrubValue(input.detail) as Record<string, unknown>)
     const db = Option.getOrUndefined(yield* Effect.serviceOption(Database.Service))
     if (db === undefined) {
       // arch3 №24: the old code returned silently — the error it was asked
@@ -153,7 +165,7 @@ export const recordError = (input: ErrorRecord): Effect.Effect<void, never, neve
       yield* Effect.logWarning("error journal unavailable; dropping a recorded error", {
         source: input.source,
         kind: input.kind,
-        message: input.message,
+        message,
       })
       return
     }
@@ -164,9 +176,9 @@ export const recordError = (input: ErrorRecord): Effect.Effect<void, never, neve
       data: {
         source: input.source,
         kind: input.kind,
-        message: input.message,
+        message,
         ...(input.sessionID ? { sessionID: input.sessionID } : {}),
-        ...(input.detail ? { detail: input.detail } : {}),
+        ...(detail ? { detail } : {}),
       },
     }
     yield* AutoloopStore.commitLatest([fact]).pipe(
@@ -175,7 +187,7 @@ export const recordError = (input: ErrorRecord): Effect.Effect<void, never, neve
         Effect.logWarning("error journal write failed; dropping a recorded error", {
           source: input.source,
           kind: input.kind,
-          message: input.message,
+          message,
           cause: Cause.pretty(cause),
         }),
       ),

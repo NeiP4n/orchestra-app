@@ -16,10 +16,12 @@
  * delivers each change as a chronological update, so the cached request prefix survives.
  */
 export * as Memory from "./index.js"
-export { MemoryEngine, getMemoryEngine } from "./engine.js"
-export { openMemoryDatabase } from "./db.js"
+export { MemoryEngine, getMemoryEngine, getMemoryEngineForProject } from "./engine.js"
+export { openMemoryDatabase, backupMemoryDatabase, resolveDefaultMemoryDbPath } from "./db.js"
+export { scrubText, scrubSecrets, scrubValue, countSecrets, REDACTED } from "./scrub.js"
 export { hashEmbed, cosineSimilarity } from "./embed.js"
 export { hybridSearch } from "./search.js"
+export * as MemoryLevels from "./levels.js"
 export * as MemoryCodeSearch from "./code-search.js"
 export { stem, stemRU, stemEN, extractTerms, trigrams, trigramSimilarity } from "./text.js"
 
@@ -37,6 +39,7 @@ import { SessionMessageTable, SessionTable } from "../session/sql.js"
 import { MemoryRank } from "./rank.js"
 import { ProjectDirs } from "../project-dirs.js"
 import { ProjectFilesRegistry } from "../project-files/registry.js"
+import { scrubText } from "./scrub.js"
 
 export const Scope = Schema.Literals(["user", "project"])
 export type Scope = typeof Scope.Type
@@ -275,14 +278,22 @@ const layer = Layer.effect(
     })
 
     const save = Effect.fn("Memory.save")(function* (block: Block) {
-      if (block.value.length > block.limit)
+      // Scrubber gate (Б17 §7 risk 2): blocks are markdown files on disk,
+      // so the value and description are scrubbed before the length check
+      // and the write — a secret pasted into a block never reaches the file.
+      const clean: Block = {
+        ...block,
+        description: scrubText(block.description),
+        value: scrubText(block.value),
+      }
+      if (clean.value.length > clean.limit)
         return yield* fail(
-          `Block "${block.label}" would hold ${block.value.length} of its ${block.limit} characters. ` +
+          `Block "${clean.label}" would hold ${clean.value.length} of its ${clean.limit} characters. ` +
             "Condense it with rewrite, or move details to the archive with remember and keep only the essentials here.",
         )
-      yield* writeFile(blockFile(block.scope, block.label), serializeBlock(block))
+      yield* writeFile(blockFile(clean.scope, clean.label), serializeBlock(clean))
       cached = undefined
-      return block
+      return clean
     })
 
     const existing = Effect.fn("Memory.existing")(function* (label: string, scope?: Scope) {
@@ -388,7 +399,10 @@ const layer = Layer.effect(
     const writeArchive = (scope: Scope, entries: ReadonlyArray<Entry>) =>
       writeFile(
         archiveFile(scope),
-        entries.map((entry) => JSON.stringify({ ...entry, scope: undefined })).join("\n") + "\n",
+        // Second scrubber gate: the archive is a JSONL file on disk, and
+        // the serialized form is scrubbed as a whole, so no future caller
+        // of writeArchive can smuggle a secret past the entry point.
+        scrubText(entries.map((entry) => JSON.stringify({ ...entry, scope: undefined })).join("\n") + "\n"),
       )
 
     const remember: Interface["remember"] = (input) => {
@@ -396,9 +410,11 @@ const layer = Layer.effect(
       return locked(
         scope,
         Effect.gen(function* () {
-          const text = input.text.trim()
+          // Scrubber gate at the entry point: the twin check, the stored
+          // entry and the returned entry all see the scrubbed text.
+          const text = scrubText(input.text).trim()
           if (text === "") return yield* fail("Nothing to remember: text is empty.")
-          const tags = [...new Set((input.tags ?? []).map((tag) => tag.trim().toLowerCase()).filter(Boolean))]
+          const tags = [...new Set((input.tags ?? []).map((tag) => scrubText(tag).trim().toLowerCase()).filter(Boolean))]
           const entries = yield* readArchive(scope)
           const now = Date.now()
           const twin = entries
