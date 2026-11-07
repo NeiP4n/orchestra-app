@@ -163,6 +163,74 @@ describe("toLLMMessages", () => {
     expect(message.text).toBe(text)
   })
 
+  test("carries the structured task's DoD, plan, constraints and ambiguities in the intake note", () => {
+    const text = "Исправь ошибку. Сервер падает при пустом промпте. Только без регрессий."
+    const message = SessionMessage.User.make({
+      id: id("intake-task"),
+      type: "user",
+      text,
+      metadata: {
+        intake: {
+          verdict: "execute",
+          goal: "Исправь ошибку в сервере при пустом промпте",
+          questions: [],
+          skills: [],
+          modelUsed: false,
+          trivial: false,
+          dod: ["Исправь ошибку в сервере при пустом промпте — выполнено", "Результат проверен: связанные проверки пройдены"],
+          plan: ["Воспроизвести проблему", "Найти причину", "Исправить", "Проверить исправление"],
+          constraints: ["Только без регрессий."],
+          ambiguities: [
+            { question: "В каком файле или модуле работать?", assumption: "Найду место работы сам." },
+          ],
+        },
+      },
+      time: { created },
+    })
+
+    const lowered = JSON.stringify(toLLMMessages([message], model))
+    expect(lowered).toContain("Goal: Исправь ошибку в сервере при пустом промпте")
+    expect(lowered).toContain("Done when: Результат проверен: связанные проверки пройдены")
+    expect(lowered).toContain("Plan: 1. Воспроизвести проблему; 2. Найти причину; 3. Исправить; 4. Проверить исправление")
+    expect(lowered).toContain("Constraints: Только без регрессий.")
+    expect(lowered).toContain(
+      "Ambiguity: В каком файле или модуле работать? (if unanswered, assume: Найду место работы сам.)",
+    )
+    // The DoD line that merely restates the goal is dropped from the note
+    // text itself (it still rides in the metadata, which the model never sees as text).
+    const [loweredMessage] = toLLMMessages([message], model)
+    expect(JSON.stringify(loweredMessage?.content)).not.toContain("— выполнено")
+    expect(message.text).toBe(text)
+  })
+
+  test("skips the intake note when the DoD and plan only restate the goal", () => {
+    const text = "Исправь баг в авторизации"
+    const message = SessionMessage.User.make({
+      id: id("intake-restatement"),
+      type: "user",
+      text,
+      metadata: {
+        intake: {
+          verdict: "execute",
+          goal: "Исправь баг в авторизации",
+          questions: [],
+          skills: [],
+          modelUsed: false,
+          trivial: false,
+          dod: ["Исправь баг в авторизации — выполнено"],
+          plan: ["Продолжить текущую работу"],
+          constraints: [],
+          ambiguities: [],
+        },
+      },
+      time: { created },
+    })
+
+    const [lowered] = toLLMMessages([message], model)
+    expect(JSON.stringify(lowered)).not.toContain("[PromptIntake")
+    expect(lowered?.content).toEqual([Message.text(text)])
+  })
+
   test("adds a brief-reply note for a trivial greeting, not the stored text", () => {
     const message = SessionMessage.User.make({
       id: id("intake-trivial"),

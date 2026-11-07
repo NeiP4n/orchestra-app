@@ -245,6 +245,16 @@ export const all: readonly Entry[] = [
     config: local(["npx", "-y", "@playwright/mcp@latest", ...(windows ? ["--browser", "msedge"] : [])]),
   },
   {
+    id: "chrome-devtools",
+    name: "Chrome DevTools",
+    description:
+      "Drive Google Chrome via DevTools: inspect the page, act on elements by snapshot uid, run JS, read console and network, run Lighthouse audits.",
+    usage:
+      "In Chrome: take_snapshot first, then click/fill by the uid from the LATEST snapshot — uids go stale whenever the page changes, so never reuse a uid from an older snapshot (a stale uid fails, and the wrapper answers with a fresh snapshot: retry with the new uid). evaluate runs without timers (no setTimeout/setInterval inside it): wait with wait_for instead. This launches its own Chrome instance; it does not attach to the operator's running browser — do not add a --browserUrl pointing at it outside the real-screen opt-in.",
+    runtime: "npx",
+    config: local(["npx", "-y", "chrome-devtools-mcp@latest"]),
+  },
+  {
     id: "agent-desktop",
     name: "Agent Desktop",
     description:

@@ -51,6 +51,28 @@ describe("MCP registry catalog", () => {
     }
   })
 
+  test("includes the chrome-devtools launcher, with the stale-uid and no-timer rules in its usage", () => {
+    const devtools = all.find((entry) => entry.id === "chrome-devtools")
+
+    expect(devtools).toMatchObject({
+      id: "chrome-devtools",
+      name: "Chrome DevTools",
+      runtime: "npx",
+      config: {
+        type: "local",
+        command: ["npx", "-y", "chrome-devtools-mcp@latest"],
+      },
+    })
+    expect(devtools?.description).toContain("snapshot uid")
+    expect(devtools?.usage).toContain("LATEST snapshot")
+    expect(devtools?.usage).toContain("wait_for")
+    expect(devtools?.usage).toContain("no setTimeout/setInterval")
+    // The default launch spawns its own Chrome, so it is not a real-screen
+    // server: it must not need the real-screen opt-in to be acquired.
+    expect(devtools?.realScreen).toBeUndefined()
+    expect(forPlatform("linux").some((entry) => entry.id === "chrome-devtools")).toBe(true)
+  })
+
   test("includes the agent-desktop launcher, real-screen, with the B13 privacy note and window-manager requirement", () => {
     const agentDesktop = all.find((entry) => entry.id === "agent-desktop")
 

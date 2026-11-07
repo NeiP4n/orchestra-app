@@ -38,6 +38,7 @@ test("truthfulness contract includes mandatory freshness and 2026 cutoff", () =>
 
 const CAPABILITY_HEADER = "# Capability awareness — compose what Orchestra can do"
 const TRUTHFULNESS_HEADER = "# Truthfulness — no simulation"
+const PLAN_FIRST_HEADER = "# Plan before acting — understand, then act"
 
 const occurrences = (text: string, needle: string) => text.split(needle).length - 1
 
@@ -62,11 +63,23 @@ function transcriptSystem(agent: Agent.Info) {
   return transcript.system.map((s) => s.text).join("\n")
 }
 
+test("every chat carries the plan-first contract exactly once", () => {
+  for (const tools of [[], ["read"], ["read", "edit", "shell", "browser"]]) {
+    const prompt = SessionSystemPrompt.make(tools)
+    expect(occurrences(prompt, PLAN_FIRST_HEADER)).toBe(1)
+    expect(prompt).toContain("state the goal in one line and the criteria that prove it done")
+    expect(prompt).toContain("ask one clarifying question instead of guessing")
+    expect(prompt).toContain("Never probe a live page or app at random")
+  }
+  expect(SessionSystemPrompt.PLAN_FIRST.length).toBeLessThan(1500)
+})
+
 test("every chat carries the capability-awareness contract exactly once", () => {
   for (const tools of [[], ["read"], ["read", "edit", "shell", "browser"]]) {
     const prompt = SessionSystemPrompt.make(tools)
     expect(occurrences(prompt, CAPABILITY_HEADER)).toBe(1)
     expect(occurrences(prompt, TRUTHFULNESS_HEADER)).toBe(1)
+    expect(occurrences(prompt, PLAN_FIRST_HEADER)).toBe(1)
     expect(prompt).toContain("never invent tool names, integrations or connections")
   }
 })
@@ -76,6 +89,7 @@ test("render appends both global contracts to a custom template exactly once", (
   expect(prompt).toContain("A custom template.")
   expect(occurrences(prompt, CAPABILITY_HEADER)).toBe(1)
   expect(occurrences(prompt, TRUTHFULNESS_HEADER)).toBe(1)
+  expect(occurrences(prompt, PLAN_FIRST_HEADER)).toBe(1)
 })
 
 test("the capability contract classifies relationships and refuses fabricated integrations", () => {
@@ -94,6 +108,7 @@ test("baseTranscript gives the default agent both contracts exactly once", () =>
   const system = transcriptSystem(Agent.Info.default(Agent.ID.make("build")))
   expect(occurrences(system, CAPABILITY_HEADER)).toBe(1)
   expect(occurrences(system, TRUTHFULNESS_HEADER)).toBe(1)
+  expect(occurrences(system, PLAN_FIRST_HEADER)).toBe(1)
 })
 
 test("baseTranscript appends both contracts to a custom agent prompt that carries neither", () => {
@@ -104,6 +119,7 @@ test("baseTranscript appends both contracts to a custom agent prompt that carrie
   expect(system).toContain("You are a custom specialized assistant.")
   expect(occurrences(system, CAPABILITY_HEADER)).toBe(1)
   expect(occurrences(system, TRUTHFULNESS_HEADER)).toBe(1)
+  expect(occurrences(system, PLAN_FIRST_HEADER)).toBe(1)
 })
 
 test("baseTranscript never duplicates a contract a custom prompt already embeds", () => {
@@ -111,6 +127,7 @@ test("baseTranscript never duplicates a contract a custom prompt already embeds"
     "You are a custom specialized assistant.",
     SessionSystemPrompt.TRUTHFULNESS,
     SessionSystemPrompt.CAPABILITY_AWARENESS,
+    SessionSystemPrompt.PLAN_FIRST,
   ].join("\n\n")
   const system = transcriptSystem({ ...Agent.Info.default(Agent.ID.make("custom")), system: embedded })
   // Both contracts already present: the prompt is used verbatim.
@@ -122,6 +139,7 @@ test("baseTranscript appends only the missing contract when a custom prompt embe
   const system = transcriptSystem({ ...Agent.Info.default(Agent.ID.make("custom")), system: embedded })
   expect(occurrences(system, TRUTHFULNESS_HEADER)).toBe(1)
   expect(occurrences(system, CAPABILITY_HEADER)).toBe(1)
+  expect(occurrences(system, PLAN_FIRST_HEADER)).toBe(1)
 })
 
 test("baseTranscript carries the capability contract to subagent sessions", () => {
@@ -134,6 +152,7 @@ test("baseTranscript carries the capability contract to subagent sessions", () =
   })
   expect(occurrences(system, CAPABILITY_HEADER)).toBe(1)
   expect(occurrences(system, TRUTHFULNESS_HEADER)).toBe(1)
+  expect(occurrences(system, PLAN_FIRST_HEADER)).toBe(1)
 })
 
 test("baseTranscript includes truthfulness contract even when agent.system is custom", () => {

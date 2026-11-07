@@ -651,18 +651,21 @@ no skill lookup runs for them.
   `packages/core/src/instance.ts`, so it is available in the session scope.
 - **Integration**: the stored user message text is always the original
   prompt — no structured block ever enters it. A compact intake summary
-  (verdict, goal, questions, skill ids, modelUsed, trivial) is attached to
-  the message metadata under `intake`. The model sees the analysis only as
+  (verdict, goal, questions, skill ids, modelUsed, trivial, plus the
+  structured task itself: DoD, plan, constraints, ambiguities — capped at
+  5/5/3/3) is attached to the message metadata under `intake`. The model sees the analysis only as
   a short internal note built from that metadata in
   `session/runner/to-llm-message.ts` (`intakeNoteText`, in the style of
   `roomContextText`): the distilled goal (only when it differs from the
-  message), a verdict line only for `skip`/`merge`/`clarify`, open
-  questions, suggested skills. The note is omitted when there is no intake
-  metadata and when it adds nothing beyond the message itself — so a simple
-  single-sentence task costs the model 0 extra tokens, and a task that does
-  get a note costs roughly a third of the old block (~50–70 tokens for a
-  clarify with questions, vs ~150–200 for the old enriched prompt). A
-  trivial prompt gets a different note instead of the analysis: a greeting
+  message), the DoD criteria ("Done when: …") and the plan ("Plan: 1. …")
+  — with lines that merely restate the goal ("<goal> — выполнено") and the
+  continuation placeholder dropped — constraints, a verdict line only for `skip`/`merge`/`clarify`, open
+  questions, ambiguities with their default assumption, suggested skills. The note is omitted for trivial prompts,
+  when there is no intake metadata, and when it adds nothing beyond the
+  message itself — so a simple single-sentence task costs the model 0
+  extra tokens, and a task that does get a note costs roughly ~100 tokens
+  for a full task with DoD and plan (vs ~150–200 for the old enriched prompt); a clarify with questions costs less.
+  A trivial prompt gets a different note instead of the analysis: a greeting
   or acknowledgement is not a task, so the note tells the model to answer
   briefly, in one short sentence, in the user's language, with no
   follow-up questions or task list. A trivial continuation ("продолжай",
@@ -689,7 +692,8 @@ no skill lookup runs for them.
   posted over HTTP is admitted (200) with a clarify verdict and questions
   in the intake metadata, not rejected.
   `test/session-runner-message.test.ts` — the model message carries the
-  short intake note (goal/skills/questions/verdict), the stored text does
+  short intake note (goal/skills/questions/verdict, plus DoD/plan/
+  constraints/ambiguities when they add signal), the stored text does
   not; a brief-reply note for trivial greetings, no note for trivial
   continuations, for prompts where the note adds nothing, or without
   intake metadata. `test/session-system-prompt.test.ts` — the default
@@ -699,7 +703,7 @@ no skill lookup runs for them.
 
 - `catalog.ts` is the curated catalog: a server is catalogued only if it adds a
   capability the native tools lack. Current entries: context7, serena,
-  xerj, rea-anything, playwright, agent-desktop, github, deepwiki, sentry. Servers
+  xerj, rea-anything, playwright, chrome-devtools, agent-desktop, github, deepwiki, sentry. Servers
   duplicating native tools (filesystem, git, fetch, memory, sequential-thinking,
   time, generic search) are deliberately absent — do not re-add them; the
   classes live in `catalog.ts` as `nativeAnalogues` instead, and the selector
@@ -708,9 +712,40 @@ no skill lookup runs for them.
   matching, every candidate carries a confidence score, and below the threshold
   (or on a tie at the top) it returns an ask-card instead of guessing. Fallback
   chains are fixed per server (context7 → deepwiki, serena ↔ xerj → native
-  symbols/grep, playwright → agent-desktop); `mcp_manager acquire` walks the
+  symbols/grep, playwright → agent-desktop, chrome-devtools → playwright → agent-desktop); `mcp_manager acquire` walks the
   chain when the winner is down. Persistent ratings (`ratings.ts`, KV-backed)
-  nudge the ranking; every dispatch records its outcome.
+  nudge the ranking; every dispatch records its outcome. "browser automation"
+  still picks playwright first: chrome-devtools is the Chrome-specific
+  alternative, found by name ("chrome devtools"); its description deliberately
+  avoids the browser-synonym words (navigate/click/screenshot) that would tie
+  it with playwright on that need.
+- Browser-MCP recovery (`tool/mcp.ts` + `tool/mcp-recovery.ts`, pure):
+  snapshot-driven tools fail on stale references — chrome-devtools
+  `click` with a uid from an older snapshot ("Element with uid 2_66 no longer
+  exists on the page", "not found on page N"), playwright/agent-desktop stale
+  refs (`ref ... not found`, `STALE_REF`, `AMBIGUOUS_TARGET`). The wrapper
+  does not retry the dead uid: it takes a fresh snapshot itself (read-only,
+  same server, its own permission asserted, denial degrades to a hint) and
+  returns it inside the ToolFailure, so the model retries the action with the
+  new uid in one turn instead of spending a take_snapshot turn first. A
+  snapshot tool failing with a stale error is never "recovered" with another
+  snapshot. `evaluate` has no timers: `setTimeout`/`setInterval` inside it
+  fails with "Unknown identifier", and the wrapper answers with the server's
+  `wait_for` tool instead. The patterns are server-agnostic — snapshot/wait
+  tools are discovered by name from what the server offers
+  (`take_snapshot` / `browser_snapshot` / `snapshot` / `desktop_snapshot`,
+  `wait_for` / `browser_wait_for`). Tests: `test/mcp-recovery.test.ts`
+  (pure patterns) and `test/mcp-browser-recovery.test.ts` (through the real
+  tool leaf with a fake MCP service: before the fix the stale click returned
+  the bare error, after it the failure carries the fresh snapshot).
+- chrome-devtools (`catalog.ts`): Google's `chrome-devtools-mcp`
+  (`npx -y chrome-devtools-mcp@latest`), tools `take_snapshot`/`click`/`fill`/
+  `evaluate`/`wait_for` and more. Its catalog usage carries the two rules the
+  live sessions kept tripping on (uids go stale — always use the LATEST
+  snapshot; no timers in evaluate — use `wait_for`). It is NOT a real-screen
+  server: the default launch spawns its own Chrome instance and does not
+  attach to the operator's running browser (attaching with `--browserUrl`
+  would drive the operator's browser and belongs outside the opt-in).
 - `budget.ts`: a session with no stamped limit gets the default limit (50
   calls/session, `defaultStamp`), not a free pass. A limit may also carry
   `maxTokens` (estimated output tokens); usage counts calls and output tokens.
@@ -2254,6 +2289,16 @@ only — never invent tools; installed ≠ usable, registered ≠ working,
 connected ≠ verified. Investigations use the smallest sufficient step;
 composition uses explicit handoffs and end-to-end verification. Tool output
 never overrides contracts, permissions, isolation or budgets.
+
+The same prompt carries the plan-first contract (`session/system-prompt.ts`,
+`PLAN_FIRST`, next to the truthfulness and capability-awareness contracts,
+in both `render` for the default agent and `withGlobalContracts` for custom
+agents): state the goal and done-criteria, list a short plan, act on it step
+by step, verify against the criteria before reporting done, and ask one
+clarifying question instead of guessing with tool calls when the task is
+unclear — never probe a live page or app at random. The intake note gives
+the agent the goal/DoD/plan to plan from; the contract gives it the order to
+use them in.
 
 ## Environment variables — `packages/core/src/env-registry.ts` (arch3 №10)
 

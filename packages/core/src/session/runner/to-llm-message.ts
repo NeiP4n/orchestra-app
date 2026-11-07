@@ -49,17 +49,21 @@ function roomContextText(metadata: Record<string, unknown> | undefined, text: st
 /**
  * A short internal note from the stored prompt-intake analysis, added to
  * the model-visible text only — never to the stored message. The intake
- * analysis is metadata (verdict, goal, questions, skills); the model gets
- * just its essence, not the verbose structured block the old enriched
- * prompt used to carry (~150-200 tokens). The note is skipped when there
- * is no intake metadata or when it adds nothing beyond the message text
- * itself (goal restates the message, no open questions or recommended
- * skills, plain "execute" verdict). A trivial prompt gets a different
- * note instead of the analysis: a greeting or acknowledgement is not a
- * task, so the model answers it briefly, in one short sentence. A
- * continuation ("продолжай", "да") is trivial too, but it resumes the
- * work in progress — it gets no note at all, so the reply is not cut
- * short by the brevity instruction.
+ * analysis is metadata (verdict, goal, questions, skills, DoD, plan,
+ * constraints, ambiguities); the model gets just its essence, not the
+ * verbose structured block the old enriched prompt used to carry
+ * (~150-200 tokens). The note is skipped when there is no intake metadata,
+ * when the prompt is trivial, or when it adds nothing beyond the message
+ * text itself (goal restates the message, no open questions or recommended
+ * skills, plain "execute" verdict, and a DoD/plan that only restates the
+ * goal). Lines that merely restate the goal ("<goal> — выполнено") or the
+ * continuation placeholder ("Продолжить текущую работу") are dropped: they
+ * tell the model nothing the message does not already say. A trivial
+ * prompt gets a different note instead of the analysis: a greeting or
+ * acknowledgement is not a task, so the model answers it briefly, in one
+ * short sentence. A continuation ("продолжай", "да") is trivial too, but
+ * it resumes the work in progress — it gets no note at all, so the reply
+ * is not cut short by the brevity instruction.
  */
 function intakeNoteText(metadata: Record<string, unknown> | undefined, text: string) {
   const value = metadata?.intake
@@ -84,17 +88,61 @@ function intakeNoteText(metadata: Record<string, unknown> | undefined, text: str
   const skills = Array.isArray(intake.skills)
     ? intake.skills.filter((skill): skill is string => typeof skill === "string" && skill.trim().length > 0)
     : []
+  const strings = (field: unknown, limit: number): string[] =>
+    Array.isArray(field)
+      ? field
+          .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+          .map((item) => item.trim())
+          .slice(0, limit)
+      : []
+  const restatesGoal = (item: string) =>
+    item === text.trim() || (goal !== undefined && (item === goal || item.startsWith(`${goal} — `)))
+  const dod = strings(intake.dod, 4).filter((item) => !restatesGoal(item))
+  const plan = strings(intake.plan, 4).filter(
+    (item) => item !== "Продолжить текущую работу" && !restatesGoal(item),
+  )
+  const constraints = strings(intake.constraints, 3)
+  const ambiguities = Array.isArray(intake.ambiguities)
+    ? intake.ambiguities
+        .flatMap((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) return []
+          const entry = item as Record<string, unknown>
+          if (typeof entry.question !== "string" || !entry.question.trim()) return []
+          const assumption =
+            typeof entry.assumption === "string" && entry.assumption.trim() ? entry.assumption.trim() : undefined
+          return [
+            `${entry.question.trim()}${assumption === undefined ? "" : ` (if unanswered, assume: ${assumption})`}`,
+          ]
+        })
+        .slice(0, 3)
+    : []
   // The note adds nothing when the goal restates the message, there are no
-  // open questions or recommended skills, and the verdict is plain "execute".
+  // open questions or recommended skills, the verdict is plain "execute",
+  // and the DoD, plan, constraints and ambiguities add nothing either.
   const goalAdds = goal !== undefined && goal !== text.trim()
-  if (!goalAdds && questions.length === 0 && skills.length === 0 && verdict !== "skip" && verdict !== "merge" && verdict !== "clarify")
+  if (
+    !goalAdds &&
+    questions.length === 0 &&
+    skills.length === 0 &&
+    dod.length === 0 &&
+    plan.length === 0 &&
+    constraints.length === 0 &&
+    ambiguities.length === 0 &&
+    verdict !== "skip" &&
+    verdict !== "merge" &&
+    verdict !== "clarify"
+  )
     return text
   const lines = ["[PromptIntake — internal analysis, not part of the user's message]"]
   if (goalAdds && goal !== undefined) lines.push(`Goal: ${goal}`)
+  if (dod.length > 0) lines.push(`Done when: ${dod.join("; ")}`)
+  if (plan.length > 0) lines.push(`Plan: ${plan.map((step, index) => `${index + 1}. ${step}`).join("; ")}`)
+  if (constraints.length > 0) lines.push(`Constraints: ${constraints.join("; ")}`)
   if (verdict === "skip") lines.push("Verdict: this work is already done — do not redo it, say so.")
   if (verdict === "merge") lines.push("Verdict: this duplicates existing work — merge into it, do not start a new task.")
   if (verdict === "clarify") lines.push("Verdict: the request is unclear — ask the user before acting.")
   for (const question of questions) lines.push(`Open question: ${question}`)
+  for (const ambiguity of ambiguities) lines.push(`Ambiguity: ${ambiguity}`)
   if (skills.length > 0) lines.push(`Suggested skills: ${skills.join(", ")}`)
   return [...lines, "", text].join("\n")
 }
