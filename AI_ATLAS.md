@@ -938,6 +938,25 @@ their arguments, like their results. Measured on a planner-like transcript
 of 8 dispatches with 4k briefs: 18_647 → 6_033 estimated tokens (−68%;
 the results-only governor reached 11_824).
 
+The densifier (`packages/core/src/session/context-densify.ts`, wired in
+`SessionModelRequest.prepare` for primary requests, pilot flag
+`ORCHESTRA_CONTEXT_DENSIFY=1`, off by default) is the lossless complement:
+where the governor stubs old output away, the densifier keeps every value
+and only stops repeating it — repeated JSON arrays in tool results become
+keys-once plus rows, repeated string values are factored into a dictionary,
+and consecutive identical rows collapse into a run count. The compacted form
+expands back to canonically identical JSON; anything that fails the
+round-trip check is returned unchanged. It is pure TypeScript, deterministic
+per input (so the prompt-cache prefix stays stable), with no network, no
+model and no telemetry. It comes from the Headroom pilot (news run 7): the
+upstream Python library was measured on offline copies of real tool output
+and rejected as a dependency — its log/search paths saved 0% on realistic
+timestamped logs or hit a 20 s internal timeout and failed open, at seconds
+of latency per call — while its JSON-array path saved 87% losslessly, which
+the native port matches at 83% in ~0.2 s. The densifier therefore ports
+only the JSON-array shape; logs, code search and prose are left untouched
+(they measured 0% for the lossless path upstream too).
+
 A new Society starts with six default rules (`Rules.DEFAULT_SOCIETY_RULES`,
 seeded by `createSociety` into an empty society scope only): ask three questions
 before coding, write an ADR for big decisions, write a handoff before any stop,

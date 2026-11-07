@@ -36,6 +36,7 @@ import { Tool } from "../tool.js"
 import { ToolRouter } from "../tool/router.js"
 import { SessionAffinity } from "./affinity.js"
 import { SessionModelTransport } from "./model-transport.js"
+import { SessionContextDensify } from "./context-densify.js"
 import { SessionContextGovernor } from "./context-governor.js"
 import { SessionPlan } from "./plan.js"
 import { SessionPrefixPin } from "./prefix-pin.js"
@@ -359,6 +360,15 @@ export const layer = Layer.effect(
               policy: governed,
             })
           : prefix.messages
+      // Pilot (ORCHESTRA_CONTEXT_DENSIFY=1, Headroom run 7): repeated JSON
+      // arrays in tool results are densified losslessly (keys once, repeated
+      // values factored, consecutive identical rows counted) before the model
+      // sees them. Deterministic per input, so the prompt-cache prefix stays
+      // stable; the durable history keeps the original text untouched.
+      const densified =
+        kind === "primary" && SessionContextDensify.enabled()
+          ? SessionContextDensify.densifyMessages(history).messages
+          : history
       // The planner may switch prompt caching off for a chat whose prefix is never reused.
       const cache = SessionPlan.cachePolicy(session.metadata)
       const base = LLM.request({
@@ -380,7 +390,7 @@ export const layer = Layer.effect(
         // TODO: Persist cache lineage so nested forks reuse the root session's cache key.
         promptCacheKey: /^ses_[0-9a-f]{64}$/.test(affinity) ? affinity.slice(4) : affinity,
         system: [...prefix.system],
-        messages: boundImages(unsupportedParts([...history], model.capabilities, model.model.provider)),
+        messages: boundImages(unsupportedParts([...densified], model.capabilities, model.model.provider)),
         tools: Array.from(hooked, ([name, t]) => ({ ...t, name })),
         toolChoice: input.toolChoice,
         generation: Object.keys(generation).length === 0 ? undefined : generation,
