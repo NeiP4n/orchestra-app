@@ -1,8 +1,9 @@
 import { Database } from "bun:sqlite"
-import { openMemoryDatabase, type MemoryDatabaseOptions } from "./db"
+import { openMemoryDatabase, resolveDefaultMemoryDbPath, type MemoryDatabaseOptions } from "./db"
 import { hashEmbed } from "./embed"
 import { hybridSearch, type SearchOptions, type SearchResult } from "./search"
 import { extractTerms, tokenize } from "./text"
+import { scrubText, scrubValue } from "./scrub"
 
 export interface RememberInput {
   text: string
@@ -56,11 +57,17 @@ function generateId(prefix: string): string {
 }
 
 export class MemoryEngine {
-  constructor(public readonly db: Database) {}
+  constructor(
+    public readonly db: Database,
+    /** File path of the database behind this engine (`:memory:` for transient ones). */
+    public readonly dbPath?: string,
+  ) {}
 
   static open(options?: MemoryDatabaseOptions | string): MemoryEngine {
+    const dbPath =
+      typeof options === "string" ? options : (options?.path ?? resolveDefaultMemoryDbPath(options?.projectDir))
     const db = openMemoryDatabase(options)
-    return new MemoryEngine(db)
+    return new MemoryEngine(db, dbPath)
   }
 
   private resolveOrCreateEntity(
@@ -90,22 +97,26 @@ export class MemoryEngine {
   }
 
   remember(input: RememberInput): RememberResult {
-    const text = input.text.trim()
+    // Scrubber gate (Б17 §7 risk 2): no secret ever reaches the database —
+    // not in the observation, not in the entity, not in the metadata. The
+    // FTS index, terms and vectors are all derived from the scrubbed text.
+    const text = scrubText(input.text).trim()
     if (!text) {
       throw new Error("MemoryEngine.remember: text cannot be empty")
     }
 
     const scope = input.scope ?? "project"
-    const entityName = input.entity?.name ?? (scope === "user" ? "human" : "project")
+    const entityName = scrubText(input.entity?.name ?? (scope === "user" ? "human" : "project"))
     const entityKind = input.entity?.kind ?? (scope === "user" ? "person" : "concept")
+    const entitySummary = input.entity?.summary === undefined ? undefined : scrubText(input.entity.summary)
+    const entityMetadata =
+      input.entity?.metadata === undefined
+        ? undefined
+        : (scrubValue(input.entity.metadata) as Record<string, unknown>)
+    const source = input.source === undefined ? undefined : scrubText(input.source)
 
     const insertTransaction = this.db.transaction(() => {
-      const entityID = this.resolveOrCreateEntity(
-        entityName,
-        entityKind,
-        input.entity?.summary,
-        input.entity?.metadata,
-      )
+      const entityID = this.resolveOrCreateEntity(entityName, entityKind, entitySummary, entityMetadata)
 
       const obsID = generateId("obs")
       const now = Date.now()
@@ -114,7 +125,7 @@ export class MemoryEngine {
       this.db.run(
         `INSERT INTO observations (id, entity_id, content, scope, source, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [obsID, entityID, text, scope, input.source ?? null, now, now],
+        [obsID, entityID, text, scope, source ?? null, now, now],
       )
 
       // 2. Docs
@@ -159,23 +170,22 @@ export class MemoryEngine {
   }
 
   link(input: LinkInput): LinkResult {
-    const sourceID = this.resolveOrCreateEntity(input.source)
-    const targetID = this.resolveOrCreateEntity(input.target)
+    // Same scrubber gate as remember(): relation names, types and metadata
+    // are all persisted, so all of them are scrubbed before the write.
+    const source = scrubText(input.source)
+    const target = scrubText(input.target)
+    const type = scrubText(input.type)
+    const metadata =
+      input.metadata === undefined ? undefined : (scrubValue(input.metadata) as Record<string, unknown>)
+    const sourceID = this.resolveOrCreateEntity(source)
+    const targetID = this.resolveOrCreateEntity(target)
     const relID = generateId("rel")
     const now = Date.now()
 
     this.db.run(
       `INSERT INTO relations (id, source_id, target_id, type, weight, metadata, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        relID,
-        sourceID,
-        targetID,
-        input.type.trim(),
-        input.weight ?? 1.0,
-        input.metadata ? JSON.stringify(input.metadata) : null,
-        now,
-      ],
+      [relID, sourceID, targetID, type.trim(), input.weight ?? 1.0, metadata ? JSON.stringify(metadata) : null, now],
     )
 
     return {
@@ -284,4 +294,23 @@ export function getMemoryEngine(dbPath?: string): MemoryEngine {
     defaultEngineInstance = MemoryEngine.open()
   }
   return defaultEngineInstance
+}
+
+/**
+ * The engine for one project, cached by database path (B18 №38): the
+ * memory tool resolves the project folder from `Location` and opens the
+ * engine there, so two projects never share one `memory.db` — and a
+ * process that merely changed its working directory does not move the
+ * memory with it. One open handle per project, like the old singleton
+ * kept one handle for the whole process.
+ */
+const projectEngines = new Map<string, MemoryEngine>()
+
+export function getMemoryEngineForProject(projectDir: string): MemoryEngine {
+  const dbPath = resolveDefaultMemoryDbPath(projectDir)
+  const cached = projectEngines.get(dbPath)
+  if (cached) return cached
+  const engine = MemoryEngine.open({ projectDir })
+  projectEngines.set(dbPath, engine)
+  return engine
 }
