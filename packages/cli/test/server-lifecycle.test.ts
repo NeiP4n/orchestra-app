@@ -56,7 +56,13 @@ test("a stale lock from a dead pid is reclaimed", async () => {
   try {
     await fs.writeFile(
       ServerLifecycle.lockFile(directory, 17892),
-      JSON.stringify({ pid: await deadPid(), hostname: "127.0.0.1", port: 17892, mode: "default", startedAt: "2026-11-06T00:00:00.000Z" }),
+      JSON.stringify({
+        pid: await deadPid(),
+        hostname: "127.0.0.1",
+        port: 17892,
+        mode: "default",
+        startedAt: "2026-11-06T00:00:00.000Z",
+      }),
     )
     expect(await run(ServerLifecycle.acquireLock(directory, lock))).toEqual(lock)
     const holder = JSON.parse(await fs.readFile(ServerLifecycle.lockFile(directory, 17892), "utf8")) as { pid: number }
@@ -72,7 +78,13 @@ test("release only removes the owner's lock", async () => {
   try {
     await fs.writeFile(
       ServerLifecycle.lockFile(directory, 17893),
-      JSON.stringify({ pid: await deadPid(), hostname: "127.0.0.1", port: 17893, mode: "default", startedAt: "2026-11-06T00:00:00.000Z" }),
+      JSON.stringify({
+        pid: await deadPid(),
+        hostname: "127.0.0.1",
+        port: 17893,
+        mode: "default",
+        startedAt: "2026-11-06T00:00:00.000Z",
+      }),
     )
     // A lock naming another (dead) pid is not ours: release leaves it alone.
     await run(ServerLifecycle.releaseLock(directory, 17893))
@@ -179,7 +191,11 @@ test("server-state.json is created with owner-only permissions", async () => {
   try {
     const previous = await run(ServerLifecycle.readPreviousRun(directory))
     await run(ServerLifecycle.markStarted(directory, info(17897), previous))
-    expect((await fs.stat(ServerLifecycle.stateFile(directory))).mode & 0o777).toBe(0o600)
+    // Windows has no unix modes: files map to 0666 and owner-only protection comes
+    // from the user-profile ACL; assert the mode only where the OS can enforce it.
+    expect((await fs.stat(ServerLifecycle.stateFile(directory))).mode & 0o777).toBe(
+      process.platform === "win32" ? 0o666 : 0o600,
+    )
   } finally {
     await fs.rm(directory, { recursive: true, force: true })
   }

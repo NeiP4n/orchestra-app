@@ -39,7 +39,9 @@ test("generated server password is stored 0600 and retrievable (arch3 №8)", as
     expect(await run(ServiceConfig.password())).toBe(first)
     expect(await run(ServiceConfig.get("password"))).toBe(first)
     const file = path.join(root, "config", ServiceConfig.filename())
-    expect((await fs.stat(file)).mode & 0o777).toBe(0o600)
+    // Windows has no unix modes: files map to 0666 and owner-only protection comes
+    // from the user-profile ACL; assert the mode only where the OS can enforce it.
+    expect((await fs.stat(file)).mode & 0o777).toBe(process.platform === "win32" ? 0o666 : 0o600)
     expect((await Bun.file(file).json()) as { password?: string }).toEqual({ password: first })
   } finally {
     await fs.rm(root, { recursive: true, force: true })
@@ -227,17 +229,21 @@ it.effect("replacing a managed service registration stops its owner and preserve
 )
 
 // Real process: a server whose boot failed must still be watching its registration.
-test("deleting a failed service registration stops its owner", async () => {
-  const service = await startManagedService("opencode-service-failed-delete-", true)
-  try {
-    await waitForFailed(service.info)
-    await fs.rm(service.registration)
-    expect(await waitForExit(service.owner)).toBe(true)
-    await expectPortAvailable(service.port)
-  } finally {
-    await stopManagedService(service)
-  }
-}, 30_000)
+processTest(
+  "deleting a failed service registration stops its owner",
+  async () => {
+    const service = await startManagedService("opencode-service-failed-delete-", true)
+    try {
+      await waitForFailed(service.info)
+      await fs.rm(service.registration)
+      expect(await waitForExit(service.owner)).toBe(true)
+      await expectPortAvailable(service.port)
+    } finally {
+      await stopManagedService(service)
+    }
+  },
+  30_000,
+)
 
 test("clean managed service shutdown removes its registration", async () => {
   const service = await startManagedService("opencode-service-clean-")

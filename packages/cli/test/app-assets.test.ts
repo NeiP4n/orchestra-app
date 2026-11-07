@@ -12,6 +12,10 @@ import {
   WEB_UI_NOT_BUILT_MESSAGE,
 } from "../src/app-assets"
 
+// These two suites write files whose NAMES contain a literal backslash to
+// simulate a Windows-style readdir listing - only POSIX allows that.
+const posixTest = process.platform === "win32" ? test.skip : test
+
 describe("web UI assets", () => {
   test("normalizeAssetKey turns Windows separators into URL slashes", () => {
     expect(normalizeAssetKey("_assets\\index-abc.js")).toBe("_assets/index-abc.js")
@@ -55,7 +59,7 @@ describe("web UI assets", () => {
     expect(findMissingAssets({ ...files, "_assets/missing.css": "x" }, index)).toEqual([])
   })
 
-  test("sourceAssets resolves nested files when the listing uses Windows backslash separators", async () => {
+  posixTest("sourceAssets resolves nested files when the listing uses Windows backslash separators", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "opencode-web-ui-assets-"))
     try {
       // On Linux a backslash is a legal filename character, so a file
@@ -76,7 +80,7 @@ describe("web UI assets", () => {
     }
   })
 
-  test("sourceAssets skips sourcemaps and fails clearly when the dist is missing", async () => {
+  posixTest("sourceAssets skips sourcemaps and fails clearly when the dist is missing", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "opencode-web-ui-assets-"))
     try {
       await writeFile(path.join(root, "index.html"), "<html></html>")
