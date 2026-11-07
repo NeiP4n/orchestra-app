@@ -159,18 +159,19 @@ function useCanvasLoop(draw: (ctx: CanvasRenderingContext2D, width: number, heig
   }
 
   onMount(() => {
-    if (!canvas) return
-    fitCanvas(canvas)
+    const el = canvas
+    if (!el) return
+    fitCanvas(el)
     const resize = new ResizeObserver(() => {
-      fitCanvas(canvas)
+      fitCanvas(el)
       if (!motion()) drawStatic()
     })
-    resize.observe(canvas)
+    resize.observe(el)
     const io = new IntersectionObserver(([entry]) => {
       visible = entry.isIntersecting
       if (visible) last = performance.now()
     })
-    io.observe(canvas)
+    io.observe(el)
     onCleanup(() => {
       resize.disconnect()
       io.disconnect()
