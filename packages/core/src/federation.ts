@@ -413,18 +413,19 @@ export function societyProjectDirectory(society: string, project: string, root?:
 // The minimum every Society has, as four separate projects (not sessions of one): each has its own
 // Orchestrator, folder and brief. The Society adds whatever else the goal needs. The planner is the
 // Society's first project, created together with it; the others are created on the first generate.
-// The seven allocations a Society's planner settles before any project starts working. They are
+// The eight allocations a Society's planner settles before any project starts working. They are
 // repeated wherever the planner is briefed, so a planner created later plans the same way.
 export const plannerPlan = [
-  "Plan the Society in your first messages, before any project starts working. Decide these seven things and write them down:",
+  "Plan the Society in your first messages, before any project starts working. Decide these eight things and write them down:",
   "1. Roles: which roles the goal needs, matched to the models the account has, their context limits and what it can spend.",
   "2. Models: which model runs each chat. Honour every model the operator named; place the strong models where a mistake costs the most and the cheap ones on scanning, drafting and checks.",
   "3. Budget: what each chat is worth spending on. Give the chats that carry the work most of the budget and keep the exploratory ones cheap.",
   "4. Caching: prompt caching on for every chat that keeps a long shared prefix, off where a chat's prefix is never reused and would only pay for writes.",
   '5. Context: a context threshold for every chat, so no chat silently overflows its window. Say it as a share of the window ("60%") when you do not know which model will run the chat.',
   "Create the projects the goal needs with society_forge generate; read the chats with society_plan status and apply models, context and caching with society_plan apply. Do this once, up front, instead of sending the same task to each project in separate turns.",
-  "6. Workers: one worker per project is the floor, not the Society. Create extra workers with the sessions tool (action=create, newInstance=true) until the Society counts 30 living agents (at least 21). Models by role: strong opus-5.5 for planning and architecture, reasoning grok-4.7 where a mistake costs the most, mid sonnet-5.5 for building, cheap anymodel-coder for testing, review and checks (gemini-3.8-flash is the cheap flash alternative); fallback sonnet-5. Never use anymodel-reasoner, anymodel-v4.1-flash, fable-5.1, gpt-6-astra, gpt-6-sol or gpt-6.1-sol — they are dead.",
+  "6. Workers: one worker per project is the floor, not the Society. Create extra workers with the sessions tool (action=create, newInstance=true) until the Society counts 30 living agents (at least 21) — but only where the work is parallelizable (see 8). On a sequential chain, do not grow the team: one agent does the chain, and extra agents only multiply errors. Models by role: strong opus-5.5 for planning and architecture, reasoning grok-4.7 where a mistake costs the most, mid sonnet-5.5 for building, cheap anymodel-coder for testing, review and checks (gemini-3.8-flash is the cheap flash alternative); fallback sonnet-5. Never use anymodel-reasoner, anymodel-v4.1-flash, fable-5.1, gpt-6-astra, gpt-6-sol or gpt-6.1-sol — they are dead.",
   "7. MCP: assign the MCP servers once, for the whole Society, with society_plan apply — one assignment the projects share, not a fresh assignment per task per project.",
+  "8. Parallelism: parallelize only what is parallelizable. Before splitting a task across agents, answer these four questions and write the answers in the plan, next to the tasks on the DoD board: (1) Dependencies — can subtask B start before A is finished? No means a sequential chain: one agent, do not split. Read it off the depends_on graph: a chain is a sequence. (2) Shared state — do the subtasks write to the same file, zone or state? Yes means do not parallelize without zones and handover, or serialize the work: one zone, one writer. (3) Tools — does the task need 16 or more tools? Yes means do not grow the team: tool definitions multiply per agent. (4) Integration — is the hard part ASSEMBLING partial results into one coherent answer, not gathering them? Yes means one agent, or a centralized synthesis with a fixed merge step: do not add agents. Default: one agent. Add agents only with a recorded reason for parallelizability (\"independent subtasks A, B, C, no shared state\").",
 ].join("\n")
 
 export const baseProjects = [
@@ -434,7 +435,7 @@ export const baseProjects = [
     name: "Планировщик",
     role: "strategic-planner",
     brief:
-      "You are the Society's planner. Turn the goal into a plan: milestones, concrete tasks with an owner each (the Architects, Coders and Testers projects and the Society's other projects) and acceptance checks for every task. Keep the plan in your DoD board and keep it true as the work moves. Hand tasks to the other projects through federation, track their answers, remove blockers and re-plan when something changes. You write no product code yourself.",
+      "You are the Society's planner. Turn the goal into a plan: milestones, concrete tasks with an owner each (the Architects, Coders and Testers projects and the Society's other projects) and acceptance checks for every task. Keep the plan in your DoD board and keep it true as the work moves. Hand tasks to the other projects through federation, track their answers, remove blockers and re-plan when something changes. Parallelize only what is parallelizable: before splitting a task across agents, answer four questions and write the answers in the plan, next to the tasks on the DoD board — (1) Dependencies: can subtask B start before A is finished? No means a sequential chain: one agent, do not split. (2) Shared state: do the subtasks write to the same file, zone or state? Yes means do not parallelize without zones and handover, or serialize the work. (3) Tools: does the task need 16 or more tools? Yes means do not grow the team. (4) Integration: is the hard part assembling partial results into one coherent answer, not gathering them? Yes means one agent, or a centralized synthesis with a fixed merge step. Default: one agent; add agents only with a recorded reason for parallelizability. You write no product code yourself.",
   },
   {
     key: "architects",
@@ -450,7 +451,7 @@ export const baseProjects = [
     name: "Кодеры",
     role: "developer",
     brief:
-      "You are the Society's coders. Build what the plan and the architects' contracts describe, in small steps that you run and check yourself. Take tasks from the planner, ask the architects when a contract is unclear and tell the testers what is ready to verify. Add more developers to your team when the work can be split.",
+      "You are the Society's coders. Build what the plan and the architects' contracts describe, in small steps that you run and check yourself. Take tasks from the planner, ask the architects when a contract is unclear and tell the testers what is ready to verify. Add more developers to your team only when the work is truly parallelizable: independent subtasks that can start before each other finishes, with no shared file, zone or state to write to, and where assembling the parts is not the hard part. On a sequential chain, or when the task needs 16 or more tools, do not grow the team: one agent does the work.",
   },
   {
     key: "testers",
@@ -531,7 +532,7 @@ const bootstrapText = (input: {
       ? "You are not a project session: you belong to the group. You do not edit files or run commands yourself, and you do not build the Society: its planner does. The planner project turns the goal into the plan and creates the other projects."
       : "You are not a project session: you belong to the group, not to a project's team, and you create no sessions.",
     input.mode === "council"
-      ? "The Society's planner already has the goal and is planning it: its first task is the seven allocations (roles, models, budget, caching, context, workers, MCP), and it creates the base projects (planner, architects, coders, testers) and whatever else the goal needs through society_forge, then sets every chat up with society_plan. Do not create projects yourself, do not ask the operator for names, folders or teams, and do not repeat the plan here. For a question that needs the projects' perspectives, call federation action=consult_all with a short subject and the full task, wait for all proposals, then give one synthesis."
+      ? "The Society's planner already has the goal and is planning it: its first task is the eight allocations (roles, models, budget, caching, context, workers, MCP, parallelism), and it creates the base projects (planner, architects, coders, testers) and whatever else the goal needs through society_forge, then sets every chat up with society_plan. Do not create projects yourself, do not ask the operator for names, folders or teams, and do not repeat the plan here. For a question that needs the projects' perspectives, call federation action=consult_all with a short subject and the full task, wait for all proposals, then give one synthesis."
       : "Use federation action=group_status only when the operator asks for the group's status or a coordination recommendation. Summarize the sanitized status here; do not send tickets, messages, or work to any project.",
     ...(input.mode === "council"
       ? [
