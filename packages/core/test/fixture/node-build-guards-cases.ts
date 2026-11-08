@@ -92,7 +92,7 @@ const withTempDir = async (prefix: string, body: (directory: string) => Promise<
 
 const registerPlugin = async (
   specifier: string,
-  provide: (effect: Effect.Effect<void, never, never>) => Effect.Effect<void, unknown, unknown> = (effect) => effect,
+  provide: (effect: Effect.Effect<void, never, never>) => Effect.Effect<void, unknown, never> = (effect) => effect,
 ) => {
   const { Plugin } = (await import(specifier)) as {
     Plugin: { effect: unknown }

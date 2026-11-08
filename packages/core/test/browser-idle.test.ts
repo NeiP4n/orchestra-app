@@ -61,7 +61,7 @@ it.live(
         plugins: Context.get(context, Plugin.Service)
           .list()
           .pipe(Effect.runSync)
-          .filter((info) => info.id.includes("browser")),
+          .filter((info) => (info.id ?? "").includes("browser")),
       })
       const sessions = yield* Session.Service
       const session = yield* sessions.create({ location: ref })
@@ -99,7 +99,7 @@ it.live(
         plugins: Context.get(replacement, Plugin.Service)
           .list()
           .pipe(Effect.runSync)
-          .filter((info) => info.id.includes("browser")),
+          .filter((info) => (info.id ?? "").includes("browser")),
       })
       const fresh = Context.get(replacement, Rpc.Service).client(Browser.Definition)
       const resumed = yield* fresh.attach({ ...attachment, version: 4 }).pipe(Effect.forkScoped)
