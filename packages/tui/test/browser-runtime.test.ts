@@ -15,6 +15,13 @@ describe("browser view", () => {
     expect(read("component/browser-pane.tsx")).toContain("Open Chrome")
   })
 
+  test("the page is streamed into the pane with the terminal's own image protocol", () => {
+    const pane = read("component/browser-pane.tsx")
+    expect(pane).toContain("ImageRenderable")
+    expect(pane).toContain("BrowserRuntime.watch(")
+    expect(pane).toContain("BrowserRuntime.unwatch(")
+  })
+
   test("the chat is shown beside the page only in a wide window", () => {
     const frame = read("component/session-frame.tsx")
     expect(frame).toContain('centerView() === "browser" && dimensions().width >= 110')

@@ -2,4 +2,4 @@
 // acts in the very same Chrome (one per browser session, on its own profile, never the operator's own).
 import { BrowserRuntime } from "@orchestra/core/browser/runtime"
 
-export const { open, isOpen, go, read, close, closeAll, publishSelection } = BrowserRuntime
+export const { open, isOpen, go, read, close, closeAll, publishSelection, watch, unwatch } = BrowserRuntime

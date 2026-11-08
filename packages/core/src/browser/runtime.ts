@@ -88,7 +88,30 @@ export async function read(sessionID: string) {
   return { ...info, text }
 }
 
+const screens = new Map<string, () => void>()
+
+/**
+ * Streams the session's page as frames sized for a pane of `width` x `height` pixels. The page is laid out
+ * at exactly that size, so call it again with the new size when the pane changes. One stream per session.
+ */
+export async function watch(
+  sessionID: string,
+  size: { width: number; height: number },
+  onFrame: (frame: Cdp.Frame) => void,
+) {
+  const client = await open(sessionID)
+  unwatch(sessionID)
+  await Cdp.setViewport(client, size.width, size.height)
+  screens.set(sessionID, await Cdp.startScreencast(client, size, onFrame))
+}
+
+export function unwatch(sessionID: string) {
+  screens.get(sessionID)?.()
+  screens.delete(sessionID)
+}
+
 export function close(sessionID: string) {
+  unwatch(sessionID)
   const item = live.get(sessionID)
   if (!item) return
   live.delete(sessionID)

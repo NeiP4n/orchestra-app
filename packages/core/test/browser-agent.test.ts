@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { BrowserBridge } from "../src/browser/bridge"
 import { BrowserPage } from "../src/browser/page"
+import { Cdp } from "../src/browser/cdp"
 import { Chrome } from "../src/browser/chrome"
 import { acts } from "../src/tool/plugin/browser"
 
@@ -57,5 +58,48 @@ describe("tool rules", () => {
     expect(await Chrome.livePort(file("9333\n/devtools/browser/x"), up, "/p")).toBe(9333)
     expect(await Chrome.livePort(file("9333\n/devtools/browser/x"), down, "/p")).toBeUndefined()
     expect(await Chrome.livePort(file(undefined), up, "/p")).toBeUndefined()
+  })
+})
+
+describe("screencast", () => {
+  const fake = () => {
+    const sent: string[] = []
+    const socket: Cdp.Socket = {
+      send: (data) => {
+        const message = JSON.parse(data) as { id: number; method: string }
+        sent.push(message.method)
+        queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify({ id: message.id, result: {} }) }))
+      },
+      close: () => {},
+      onmessage: null,
+      onclose: null,
+      onerror: null,
+      onopen: null,
+    }
+    return { sent, socket }
+  }
+
+  test("frames reach the listener, each is acknowledged, and stopping ends the stream", async () => {
+    const { sent, socket } = fake()
+    const pending = Cdp.connect(() => socket, "ws://x")
+    socket.onopen?.()
+    const client = await pending
+    const frames: Cdp.Frame[] = []
+    const stop = await Cdp.startScreencast(client, { width: 640, height: 400 }, (frame) => frames.push(frame))
+    socket.onmessage?.({
+      data: JSON.stringify({
+        method: "Page.screencastFrame",
+        params: { data: "AAAA", sessionId: 7, metadata: { deviceWidth: 640, deviceHeight: 400 } },
+      }),
+    })
+    await Promise.resolve()
+    expect(frames).toEqual([{ data: "AAAA", width: 640, height: 400 }])
+    expect(sent).toContain("Page.startScreencast")
+    expect(sent).toContain("Page.screencastFrameAck")
+    stop()
+    socket.onmessage?.({
+      data: JSON.stringify({ method: "Page.screencastFrame", params: { data: "BBBB", sessionId: 8 } }),
+    })
+    expect(frames.length).toBe(1)
   })
 })
