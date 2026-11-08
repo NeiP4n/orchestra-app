@@ -1,24 +1,26 @@
 # Known limits
 
-Current, verified limits of the builds we ship. Each line stays only while it
-is true; when a limit is fixed and the fix is proven by a test, the line is
-replaced.
+Current limits of the builds we ship, each line kept only while it is true;
+when a limit is fixed and the fix is proven by a test, the line is replaced.
 
-Pinned to a5631b8f. Evidence levels: SOURCE (read in the tree at the pinned
-commit), CI-CONFIG (what the workflow is configured to do), CI-RUN (what a
-recorded run reported), UNKNOWN (not established).
+Pinned to 7eb3f976. Evidence levels: SOURCE (verified in the source tree at
+the pinned commit, including tests that run under Bun against the source -
+NOT verified in the compiled Node artifact), CI-CONFIG (what the workflow is
+configured to do), CI-RUN (what a recorded run reported), UNKNOWN (not
+established).
 
 ## Node artifact (cli-node)
 
 The Node artifact currently lacks the Bun-backed project memory database and
 codegraph index, and cannot send Windows media keys through Bun FFI. Basic
-session storage uses a separate Node SQLite adapter. Session memory degrades
-to the scrubbed file journal when the Bun sqlite engine is unavailable
-(SOURCE, tested under Bun with a simulated engine failure); settlement and
-journal durability in the compiled Node artifact are not yet verified, and
---version/--help smoke tests do not establish working-session readiness. Use
-the Bun build for these features until the Node adapters and session tests
-pass.
+session storage uses a separate Node SQLite adapter. Session memory falls back
+to the scrubbed file journal when the Bun sqlite engine cannot open (SOURCE,
+verified under Bun by test/session-settle-capture.test.ts, an integrated
+fixture that drives a real SessionStep through an injected engine-open
+failure); settlement and journal durability in the compiled Node artifact
+are not yet verified, and --version/--help smoke tests do not establish
+working-session readiness. Use the Bun build for these features until the
+Node adapters and session tests pass.
 
 ### What the artifact is
 
@@ -54,30 +56,45 @@ pass.
   a5631b8f, by an upgrade.test.ts case that drives the real Updater service
   (test/fixture/updater-service.ts) under Bun with node-artifact defines.
   UNKNOWN: the refusal inside the compiled artifact.
-- Memory tool: SOURCE tool/plugin/memory.ts (064aaf53) wraps the engine open
-  and refuses with an explicit capability error instead of leaking a stack or
-  returning nothing. UNKNOWN: behavior in the compiled artifact.
-- Codegraph: SOURCE codegraph/db.ts `supported()` and the gate in
-  tool/plugin/codegraph.ts (76b92ca5) refuse every action with an explicit
-  unavailable message before any mkdir or write; status no longer says
-  "build the index" on a build without the Bun sqlite engine. UNKNOWN:
-  behavior in the compiled artifact.
-- Desktop media keys: SOURCE tool/plugin/desktop-action.ts gates only the
-  media action with an explicit Bun-FFI message (f759cc07); the PowerShell
-  actions are unaffected. FFIType references are lazy inside openUser32()
-  (227-230), mediaLibraryReady has no call site, and pressMedia is wrapped in
-  Effect.try (609-617). UNKNOWN: Windows behavior in the compiled artifact.
+- Memory tool: SOURCE tool/plugin/memory.ts refuses before any mkdir,
+  database open or write when the Bun runtime is absent (c70b69ce), naming
+  the Bun-backed requirement. An operational open failure under Bun reports
+  the real cause instead; "unavailable in this build" is reserved for the
+  missing-runtime case and never describes a caught operational error.
+  UNKNOWN: behavior in the compiled artifact.
+- Codegraph: SOURCE tool/plugin/codegraph.ts (76b92ca5, seam rewired in
+  c70b69ce) answers every action with an explicit unavailable message as a
+  normal tool-text result (not an error-channel failure) before any mkdir or
+  write; status no longer says "build the index" on a build without the Bun
+  sqlite engine. Only the tool's answer path is gated - other indexer or
+  database callers are not covered by this refusal. UNKNOWN: behavior in the
+  compiled artifact.
+- Desktop media keys: SOURCE tool/plugin/desktop-action.ts rejects win32
+  media keys before the FFI call with an explicit Bun-FFI message (f759cc07,
+  seam rewired in c70b69ce); non-media PowerShell dispatch is unaffected and
+  the real-screen permission denial stays first, ahead of the media guard.
+  FFIType references are lazy inside openUser32() (227-230),
+  mediaLibraryReady has no call site, and pressMedia is wrapped in
+  Effect.try (609-617). Covered by test/node-build-guards.test.ts under Bun
+  with the runtime seam and desktop host mocked. UNKNOWN: Windows behavior
+  in the compiled artifact.
 
 ### Session memory and journals
 
 - The synchronous openSessionEngine acquisition that escaped
   notifyToolSettled's catch (llm.ts argument evaluation, before the Effect
-  existed) was a verified source defect. FIXED at ba682091: the capture is
-  suspended, the engine opens through the never-throwing
-  tryOpenSessionEngine, the step settles, the scrubbed file journal stays
-  the record, and one warning is logged per project directory. Regression
-  tests in test/session-memory.test.ts simulate the shim's failure mode
-  under Bun.
+  existed) was a verified source defect. FIXED at ba682091 and reworked at
+  b31aad26: the capture is suspended and lives in the exported
+  toolSettledCapture seam, the engine opens through the never-throwing
+  tryOpenSessionEngine, the step settles, and the scrubbed file journal
+  stays the record. Failure handling now splits two cases: a missing Bun
+  runtime is a capability absence, cached with one warning per project
+  directory; any other engine-open failure is operational, warns once per
+  failure streak, and the next attempt retries - no directory is poisoned
+  for the process lifetime. Verified under Bun by
+  test/session-settle-capture.test.ts (integrated fixture: real SessionStep,
+  injected engine-open throw, result publishes, scrubbed journal appended,
+  warning exactly once, retry-then-recovery) and test/session-memory.test.ts.
 - SOURCE: the journal append (.orchestra/sessions/<id>/journal.jsonl) and the
   engine write path are unchanged; the engine lives at .orchestra/memory.db.
 - Finalize: SOURCE session/execution.ts:187-209 — the extractive finalize is
@@ -109,6 +126,10 @@ pass.
   Linux; the Windows run was cancelled. Job logs returned 403.
 - CI-RUN at 4d1ef63e: both OS "Verify Node build" steps reported success by
   API (run 42423856383); output/artifact correspondence not verified.
+- The 6c dispatch run (workflow_dispatch, full unit suite plus e2e) passed
+  its earlier jobs but was cancelled mid-run by a newer push; a fresh
+  same-SHA dispatch on the reworked code is pending. A passing smoke is a
+  Node build smoke result, not a feature certification.
 - Omissions: no step exercises the updater refusal, memory/codegraph gates,
   media keys or an ordinary tool settle in the compiled artifact; the unit
   suite runs under Bun, not the compiled artifact.
