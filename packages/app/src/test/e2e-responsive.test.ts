@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test"
-import "../happydom"
+import "../../happydom"
 
 /**
  * W3C ARIA Accessibility tree node specification.

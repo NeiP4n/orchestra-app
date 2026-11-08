@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test"
-import "../happydom"
+import "../../happydom"
 
 /**
  * Accessibility tree node shape aligned with Playwright's Page.accessibility.snapshot() specification.
