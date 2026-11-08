@@ -167,34 +167,25 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       },
     ]
   }
-  // A group/project refresh must patch rows in place, not remount the whole tree:
-  // a remount mid-press destroys the pressed row and swallows the release. Sections
-  // keep their previous object while their content is unchanged, so the For below
-  // only re-renders the sections that actually changed.
-  let sectionCache = new Map<string, ReturnType<typeof computeSections>[number]>()
-  const sameSection = (a: ReturnType<typeof computeSections>[number], b: ReturnType<typeof computeSections>[number]) =>
-    a.name === b.name &&
-    a.supervisor === b.supervisor &&
-    a.chat === b.chat &&
-    a.orchestrators.length === b.orchestrators.length &&
-    a.orchestrators.every((project, i) => project === b.orchestrators[i]) &&
-    a.projects.length === b.projects.length &&
-    a.projects.every((project, i) => project === b.projects[i])
   const sections = createMemo(() => {
-    const next = new Map<string, ReturnType<typeof computeSections>[number]>()
-    const list = computeSections().map((section) => {
-      const key = section.name ?? ""
-      const prev = sectionCache.get(key)
-      const stable = prev !== undefined && sameSection(prev, section) ? prev : section
-      next.set(key, stable)
-      return stable
-    })
-    sectionCache = next
+    const list = computeSections()
     // Drop cache entries for projects no longer listed so the map cannot grow past the tree.
     const live = new Set(list.flatMap((section) => [...section.orchestrators, ...section.projects].map((project) => project.id)))
     for (const id of projectCache.keys()) if (!live.has(id)) projectCache.delete(id)
     return list
   })
+  // The tree keys sections by name, not object identity: a refresh that changes one
+  // project replaces only that project's row, never the section around it, so a
+  // press held on a sibling row survives the update.
+  const sectionKeys = createMemo(() => sections().map((section) => section.name ?? ""))
+  const emptySection: ReturnType<typeof computeSections>[number] = {
+    name: undefined,
+    supervisor: undefined,
+    chat: undefined,
+    orchestrators: [],
+    projects: [],
+  }
+  const sectionByKey = (key: string) => sections().find((section) => (section.name ?? "") === key) ?? emptySection
   const isSociety = (section: { name?: string; supervisor?: string; chat?: string }) =>
     section.name !== undefined && section.supervisor !== undefined && section.chat === t("Society")
   // A Society is a crew of several projects and stays folded until opened, so two of them do not bury the
@@ -619,79 +610,81 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
               <text fg={theme.text.feedback.error.base}>{t("Couldn't load groups")}</text>
             </box>
           </Show>
-          <For each={sections()}>
-            {(section) => (
+          <For each={sectionKeys()}>
+            {(key) => {
+              const section = () => sectionByKey(key)
+              return (
               <>
-                <Show when={section.name}>
+                <Show when={section().name}>
                   <Row
-                    id={`group:${section.name}`}
+                    id={`group:${section().name}`}
                     hover={hover}
                     setHover={setHover}
-                    onClick={() => setGroupClosed(section.name!, !closed(section))}
+                    onClick={() => setGroupClosed(section().name!, !closed(section()))}
                   >
                     <text flexShrink={0} fg={theme.text.muted}>
-                      {closed(section) ? "▸ " : "▾ "}
+                      {closed(section()) ? "▸ " : "▾ "}
                     </text>
                     <box flexGrow={1} minWidth={0}>
                       <text fg={theme.text.muted} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
-                        {section.name}
+                        {section().name}
                         <Show when={projectList.loaded()}>
-                          <span style={{ fg: theme.text.muted }}>{` · ${section.projects.length}`}</span>
+                          <span style={{ fg: theme.text.muted }}>{` · ${section().projects.length}`}</span>
                         </Show>
                       </text>
                     </box>
                     {/* The switch that keeps a Society's AIs from working: held, none of its sessions starts. */}
-                    <Show when={isSociety(section)}>
+                    <Show when={isSociety(section())}>
                       <HoverAction
-                        id={`group-hold:${section.name}`}
-                        onMouseEnter={() => setHover(`group:${section.name}`)}
-                        onMouseLeave={() => setHover(`group:${section.name}`)}
-                        onClick={() => toggleHold(section.name!)}
+                        id={`group-hold:${section().name}`}
+                        onMouseEnter={() => setHover(`group:${section().name}`)}
+                        onMouseLeave={() => setHover(`group:${section().name}`)}
+                        onClick={() => toggleHold(section().name!)}
                       >
                         <text
-                          fg={held(section.name!) ? theme.text.feedback.warning.base : theme.text.muted}
-                          attributes={held(section.name!) ? TextAttributes.BOLD : undefined}
+                          fg={held(section().name!) ? theme.text.feedback.warning.base : theme.text.muted}
+                          attributes={held(section().name!) ? TextAttributes.BOLD : undefined}
                         >
-                          {held(section.name!) ? ` ⏸ ${t("held")} ` : " ⏸ "}
+                          {held(section().name!) ? ` ⏸ ${t("held")} ` : " ⏸ "}
                         </text>
                       </HoverAction>
                     </Show>
                     <HoverAction
-                      id={`group-edit:${section.name}`}
-                      onMouseEnter={() => setHover(`group:${section.name}`)}
-                      onMouseLeave={() => setHover(`group:${section.name}`)}
+                      id={`group-edit:${section().name}`}
+                      onMouseEnter={() => setHover(`group:${section().name}`)}
+                      onMouseLeave={() => setHover(`group:${section().name}`)}
                       onClick={openGroups}
                     >
                       <text fg={theme.text.action.primary.base}>
-                        {hover() === `group:${section.name}` ? " ✱" : "  "}
+                        {hover() === `group:${section().name}` ? " ✱" : "  "}
                       </text>
                     </HoverAction>
                   </Row>
                 </Show>
-                <Show when={!section.name || !closed(section)}>
+                <Show when={!section().name || !closed(section())}>
                   {/* The group's own chat lives outside every project, so the group is the only
                       place the left panel can show it. */}
-                  <Show when={section.supervisor}>
+                  <Show when={section().supervisor}>
                     <box paddingLeft={2}>
                       <Row
-                        id={`group-chat:${section.name}`}
+                        id={`group-chat:${section().name}`}
                         hover={hover}
                         setHover={setHover}
-                        selected={section.supervisor === current()?.id}
-                        onClick={() => openGroupChat(section.name!)}
+                        selected={section().supervisor === current()?.id}
+                        onClick={() => openGroupChat(section().name!)}
                       >
-                        <Branch lit={section.supervisor === current()?.id} />
+                        <Branch lit={section().supervisor === current()?.id} />
                         <text flexShrink={0} fg={palette().spark}>
                           {"★ "}
                         </text>
                         <text fg={theme.text.base} wrapMode="none" truncate>
-                          {`${section.chat} · ${section.orchestrators.length}`}
+                          {`${section().chat} · ${section().orchestrators.length}`}
                         </text>
                       </Row>
-                      <For each={section.orchestrators}>
+                      <For each={section().orchestrators}>
                         {(project) => (
                           <Row
-                            id={`group-orchestrator:${section.name}:${project.id}`}
+                            id={`group-orchestrator:${section().name}:${project.id}`}
                             hover={hover}
                             setHover={setHover}
                             selected={project.main !== undefined && project.main === current()?.id}
@@ -710,9 +703,9 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                       </For>
                     </box>
                   </Show>
-                  <For each={section.projects}>
+                  <For each={section().projects}>
                     {(project) => (
-                      <box paddingLeft={section.name ? 2 : 0}>
+                      <box paddingLeft={section().name ? 2 : 0}>
                 <Row id={project.id} hover={hover} setHover={setHover} onClick={() => toggle(project.id)}>
                   {/* A project is a neuron: lit while any of its sessions works, open when expanded. */}
                   <text
@@ -927,7 +920,8 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                   </For>
                 </Show>
               </>
-            )}
+              )
+            }}
           </For>
           </Section>
           <Section title={t("Multiplayer")} icon="⇄" gap>
