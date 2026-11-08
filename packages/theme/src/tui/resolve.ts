@@ -493,7 +493,14 @@ function createResolver(source: Record<string, unknown>) {
 
   function resolve(value: unknown, path: string, stack: string[] = []): unknown {
     if (value instanceof RGBA) return value
-    if (typeof value === "string") return resolveColor(value, path, stack)
+    if (typeof value === "string") {
+      const key = path.startsWith("theme.") ? path.slice(6) : path
+      const hit = cache.get(key)
+      if (hit) return hit
+      const result = resolveColor(value, path, stack)
+      cache.set(key, result)
+      return result
+    }
     if (typeof value === "number") return value
     if (!isRecord(value)) throw new Error(`Invalid theme value at "${path}"`)
     return Object.fromEntries(
