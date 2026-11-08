@@ -2,6 +2,7 @@ import { HoverAction } from "./hover-action"
 import {
   ImageRenderable,
   NativeImage,
+  TextAttributes,
   type BoxRenderable,
   type KeyEvent,
   type MouseEvent,
@@ -121,11 +122,23 @@ export function BrowserPane(props: {
     counts[kind]++
     setDebug(`control: ${text} · got down ${counts.down} up ${counts.up} move ${counts.move} key ${counts.key}`)
   }
+  // The pointer over the page while control is on: the terminal's pointer turns into a crosshair where it supports
+  // that, and a marker is drawn at the spot as a fallback.
+  const [marker, setMarker] = createSignal<{ x: number; y: number }>()
+  createEffect(() => {
+    if (!control()) return
+    renderer.setMousePointer("crosshair")
+    onCleanup(() => {
+      renderer.setMousePointer("default")
+      setMarker(undefined)
+    })
+  })
   const forward = (kind: "down" | "up" | "move", event: MouseEvent) => {
     if (!control()) return
     const at = toPage(event)
     if (!at) return note(kind, `${kind} ignored, pane has no size`)
     event.stopPropagation()
+    if (screenBox) setMarker({ x: Math.max(0, event.x - screenBox.x), y: Math.max(0, event.y - screenBox.y) })
     note(kind, `${kind} page ${Math.round(at.x)},${Math.round(at.y)}`)
     send(
       BrowserRuntime.mouse(
@@ -152,7 +165,12 @@ export function BrowserPane(props: {
     if (state() === "idle" || view() !== "screen" || windowed()) setControl(false)
   })
 
-  const open = () => run(async () => void (await BrowserRuntime.open(props.sessionID)))
+  // On Windows the real Chrome (its own tabs and address bar) is shown in the pane by default; if that cannot
+  // start, the windowless stream stays and the reason is shown.
+  const open = async () => {
+    await run(async () => void (await BrowserRuntime.open(props.sessionID)))
+    if (process.platform === "win32" && state() === "ready" && mode() === "headless") switchMode("capture")
+  }
 
   // Chrome runs either windowless (streamed into this pane) or as a normal visible window with real Chrome tabs
   // and address bar. Switching restarts it on the same profile and reopens the tabs.
@@ -272,33 +290,55 @@ export function BrowserPane(props: {
               flexGrow={1}
               minHeight={0}
               minWidth={0}
-              ref={(value: BoxRenderable) => (screenBox = value)}
-              onSizeChange={function () {
-                setSize({ cols: this.width, rows: this.height })
-              }}
-              onMouseDown={(event: MouseEvent) => forward("down", event)}
-              onMouseUp={(event: MouseEvent) => forward("up", event)}
-              onMouseMove={(event: MouseEvent) => forward("move", event)}
-              onMouseScroll={(event: MouseEvent) => {
-                const at = control() ? toPage(event) : undefined
-                if (!at || !event.scroll) return
-                event.stopPropagation()
-                send(
-                  BrowserRuntime.mouse(props.sessionID, {
-                    kind: "wheel",
-                    ...at,
-                    deltaX: event.scroll.direction === "left" ? -120 : event.scroll.direction === "right" ? 120 : 0,
-                    deltaY: event.scroll.direction === "up" ? -120 : event.scroll.direction === "down" ? 120 : 0,
-                  }),
-                )
-              }}
+              border
+              borderStyle="rounded"
+              borderColor={control() ? theme.text.feedback.success.base : theme.border.base}
             >
-              <browserImage
-                ref={(value: ImageRenderable) => (picture = value)}
-                width={size()?.cols ?? 1}
-                height={size()?.rows ?? 1}
-                fit="fill"
-              />
+              <box
+                flexGrow={1}
+                minHeight={0}
+                minWidth={0}
+                ref={(value: BoxRenderable) => (screenBox = value)}
+                onSizeChange={function () {
+                  setSize({ cols: this.width, rows: this.height })
+                }}
+                onMouseDown={(event: MouseEvent) => forward("down", event)}
+                onMouseUp={(event: MouseEvent) => forward("up", event)}
+                onMouseMove={(event: MouseEvent) => forward("move", event)}
+                onMouseDrag={(event: MouseEvent) => forward("move", event)}
+                onMouseScroll={(event: MouseEvent) => {
+                  const at = control() ? toPage(event) : undefined
+                  if (!at || !event.scroll) return
+                  event.stopPropagation()
+                  send(
+                    BrowserRuntime.mouse(props.sessionID, {
+                      kind: "wheel",
+                      ...at,
+                      deltaX: event.scroll.direction === "left" ? -120 : event.scroll.direction === "right" ? 120 : 0,
+                      deltaY: event.scroll.direction === "up" ? -120 : event.scroll.direction === "down" ? 120 : 0,
+                    }),
+                  )
+                }}
+              >
+                <browserImage
+                  ref={(value: ImageRenderable) => (picture = value)}
+                  width={size()?.cols ?? 1}
+                  height={size()?.rows ?? 1}
+                  fit="fill"
+                />
+                <Show when={control() && marker()}>
+                  <text
+                    position="absolute"
+                    left={marker()!.x}
+                    top={marker()!.y}
+                    fg={theme.text.feedback.success.base}
+                    attributes={TextAttributes.BOLD}
+                    selectable={false}
+                  >
+                    ✛
+                  </text>
+                </Show>
+              </box>
             </box>
             <text fg={theme.text.muted} flexShrink={0} wrapMode="none" truncate>
               {control() ? debug() || "control: on, waiting for mouse or keys" : stats()}
