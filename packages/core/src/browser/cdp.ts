@@ -14,6 +14,8 @@ export interface Socket {
 export interface Client {
   readonly send: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>
   readonly close: () => void
+  /** Listens to a protocol event such as Page.screencastFrame; returns the way to stop listening. */
+  readonly on: (method: string, listener: (params: any) => void) => () => void
 }
 
 export function connect(
@@ -26,6 +28,7 @@ export function connect(
     const socket = open(url)
     let next = 0
     let closed = false
+    const listeners = new Map<string, Set<(params: any) => void>>()
     const pending = new Map<
       number,
       { resolve: (value: any) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }
@@ -44,13 +47,16 @@ export function connect(
     }
     socket.onclose = () => failAll("The browser connection closed.")
     socket.onmessage = (event) => {
-      let message: { id?: number; result?: unknown; error?: { message?: string } }
+      let message: { id?: number; method?: string; params?: unknown; result?: unknown; error?: { message?: string } }
       try {
         message = JSON.parse(String(event.data))
       } catch {
         return
       }
-      if (message.id === undefined) return
+      if (message.id === undefined) {
+        if (message.method) for (const listener of listeners.get(message.method) ?? []) listener(message.params)
+        return
+      }
       const entry = pending.get(message.id)
       if (!entry) return
       pending.delete(message.id)
@@ -71,6 +77,12 @@ export function connect(
             pending.set(id, { resolve: done, reject: fail, timer })
             socket.send(JSON.stringify({ id, method, params }))
           }),
+        on: (method, listener) => {
+          const set = listeners.get(method) ?? new Set()
+          set.add(listener)
+          listeners.set(method, set)
+          return () => void set.delete(listener)
+        },
         close: () => {
           failAll("The browser connection closed.")
           socket.close()
@@ -108,4 +120,53 @@ export async function pageInfo(client: Client) {
 export async function screenshot(client: Client) {
   const result = await client.send<{ data: string }>("Page.captureScreenshot", { format: "png" })
   return result.data
+}
+
+/** Makes the page lay out for a pane of this size in pixels (no scale, so frames match the pane). */
+export const setViewport = (client: Client, width: number, height: number) =>
+  client.send("Emulation.setDeviceMetricsOverride", {
+    width: Math.max(200, Math.round(width)),
+    height: Math.max(120, Math.round(height)),
+    deviceScaleFactor: 1,
+    mobile: false,
+  })
+
+export interface Frame {
+  /** JPEG bytes as base64. */
+  readonly data: string
+  readonly width: number
+  readonly height: number
+}
+
+/**
+ * Streams the page as JPEG frames. Chrome sends a frame only when the page changes and waits for each one
+ * to be acknowledged, so a slow terminal naturally lowers the rate. Returns a function that stops it.
+ */
+export async function startScreencast(
+  client: Client,
+  options: { width: number; height: number; quality?: number; everyNthFrame?: number },
+  onFrame: (frame: Frame) => void,
+) {
+  const off = client.on(
+    "Page.screencastFrame",
+    (params: { data: string; sessionId: number; metadata?: { deviceWidth?: number; deviceHeight?: number } }) => {
+      void client.send("Page.screencastFrameAck", { sessionId: params.sessionId }).catch(() => undefined)
+      onFrame({
+        data: params.data,
+        width: params.metadata?.deviceWidth ?? options.width,
+        height: params.metadata?.deviceHeight ?? options.height,
+      })
+    },
+  )
+  await client.send("Page.startScreencast", {
+    format: "jpeg",
+    quality: options.quality ?? 60,
+    maxWidth: Math.round(options.width),
+    maxHeight: Math.round(options.height),
+    everyNthFrame: options.everyNthFrame ?? 1,
+  })
+  return () => {
+    off()
+    void client.send("Page.stopScreencast").catch(() => undefined)
+  }
 }

@@ -47,6 +47,20 @@ describe("Chrome discovery and launch", () => {
     expect(Chrome.launchArgs({ profileDir: "/p" })).not.toContain("--headless=new")
   })
 
+  test("a headless session is low-memory, windowless and sized for its pane", () => {
+    const args = Chrome.launchArgs({ profileDir: "/p", headless: true, width: 900, height: 420 })
+    for (const flag of [
+      "--headless=new",
+      "--disable-gpu",
+      "--disable-extensions",
+      "--renderer-process-limit=1",
+      "--window-size=900,420",
+    ])
+      expect(args).toContain(flag)
+    expect(args.some((arg) => arg.startsWith("--js-flags=--max-old-space-size="))).toBe(true)
+    expect(Chrome.launchArgs({ profileDir: "/p" })).not.toContain("--disable-gpu")
+  })
+
   test("the active port file is parsed and bad content is ignored", () => {
     expect(Chrome.parseActivePort("9222\n/devtools/browser/abc\n")).toEqual({
       port: 9222,

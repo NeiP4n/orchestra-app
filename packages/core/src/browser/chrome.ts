@@ -52,13 +52,47 @@ export function profileDir(root: string, sessionID: string, join: (...parts: str
   return join(root, "browser-profiles", sessionID)
 }
 
-export function launchArgs(input: { profileDir: string; headless?: boolean; url?: string }) {
+/**
+ * Flags that keep a session's Chrome small and out of the way. It has no window (new headless mode), no GPU,
+ * extensions, sync, updates or background services, one renderer process, a capped JavaScript heap and a
+ * small disk cache. Only the page the operator opened costs memory.
+ */
+export const LOW_MEMORY_FLAGS = [
+  "--disable-gpu",
+  "--disable-extensions",
+  "--disable-sync",
+  "--disable-default-apps",
+  "--disable-component-update",
+  "--disable-background-networking",
+  "--disable-background-timer-throttling",
+  "--disable-breakpad",
+  "--disable-translate",
+  "--disable-hang-monitor",
+  "--disable-features=Translate,OptimizationHints,MediaRouter,AutofillServerCommunication,CalculateNativeWinOcclusion,InterestFeedContentSuggestions",
+  "--metrics-recording-only",
+  "--mute-audio",
+  "--hide-scrollbars",
+  "--force-device-scale-factor=1",
+  "--renderer-process-limit=1",
+  "--disk-cache-size=33554432",
+  "--js-flags=--max-old-space-size=384",
+]
+
+export function launchArgs(input: {
+  profileDir: string
+  headless?: boolean
+  url?: string
+  width?: number
+  height?: number
+}) {
   return [
     "--remote-debugging-port=0",
     `--user-data-dir=${input.profileDir}`,
     "--no-first-run",
     "--no-default-browser-check",
-    ...(input.headless ? ["--headless=new"] : []),
+    ...(input.headless
+      ? ["--headless=new", ...LOW_MEMORY_FLAGS, `--window-size=${input.width ?? 800},${input.height ?? 600}`]
+      : []),
     input.url ?? "about:blank",
   ]
 }
