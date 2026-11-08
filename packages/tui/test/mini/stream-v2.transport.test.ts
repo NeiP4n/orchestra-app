@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test"
+import { Cause, Exit, Schema } from "effect"
+import { SessionInbox } from "@orchestra/schema/session-inbox"
 import fs from "fs/promises"
 import path from "path"
 import { pathToFileURL } from "node:url"
@@ -79,21 +81,79 @@ function durable(sessionID: string, seq = 0, version: 1 | 2 = 1) {
   return { aggregateID: sessionID, seq, version }
 }
 
-function promptAdmission(input: Parameters<OrchestraClient["session"]["prompt"]>[0], sessionID = "ses_1") {
-  return {
+// The real server materializes request files before storing the inbox payload
+// (SessionPrompt.prepare -> materializeAttachment), and SessionInbox.UserPayload
+// requires data/mime/source per file. This fixture cannot touch disk or network,
+// so bytes are a deterministic stub derived from the uri (never real content) and
+// source keeps the original uri so consumers round-trip it unchanged. The mime is
+// NOT guessed: callers pass the known fixture metadata per file name; anything
+// undeclared is honestly "application/octet-stream".
+function promptAdmission(
+  input: Parameters<OrchestraClient["session"]["prompt"]>[0],
+  sessionID = "ses_1",
+  fileMimes: Record<string, string> = {},
+) {
+  const admission = {
     id: input.id ?? "msg_prompt",
     sessionID,
     type: "user" as const,
     payload: {
       text: input.text,
-      files: input.files,
-      agents: input.agents,
-      metadata: input.metadata,
+      ...(input.files?.length
+        ? {
+            files: input.files.map((file) => ({
+              data: Buffer.from(file.uri, "utf8").toString("base64"),
+              mime: fileMimes[file.name ?? file.uri] ?? "application/octet-stream",
+              source: { type: "uri" as const, uri: file.uri },
+              // Effect Schema optional keys must be absent, not explicit undefined.
+              ...(file.name !== undefined ? { name: file.name } : {}),
+              ...(file.description !== undefined ? { description: file.description } : {}),
+              ...(file.mention !== undefined ? { mention: file.mention } : {}),
+            })),
+          }
+        : {}),
+      ...(input.agents?.length ? { agents: input.agents } : {}),
+      ...(input.metadata ? { metadata: input.metadata } : {}),
     },
     delivery: input.delivery ?? ("steer" as const),
     time: { created: 2 },
   }
+  // Schema guard: a contract-invalid admission must fail here, at the seam.
+  const exit = Schema.decodeExit(SessionInbox.UserPayload)(admission.payload)
+  if (!Exit.isSuccess(exit)) {
+    throw new Error(`promptAdmission produced a contract-invalid payload: ${Cause.pretty(exit.cause)}`)
+  }
+  return admission
 }
+
+test("promptAdmission returns a schema-valid SessionInbox.UserPayload", () => {
+  const admission = promptAdmission(
+    {
+      sessionID: "ses_1",
+      id: "msg_guard",
+      text: "Review @a.png",
+      files: [
+        {
+          uri: "file:///tmp/a.png",
+          name: "a.png",
+          description: "shot",
+          mention: { start: 7, end: 12, text: "@a.png" },
+        },
+      ],
+    } as unknown as Parameters<OrchestraClient["session"]["prompt"]>[0],
+    "ses_1",
+    { "a.png": "image/png" },
+  )
+  const file = admission.payload.files?.[0]
+  expect(file?.mime).toBe("image/png")
+  expect(file?.source).toEqual({ type: "uri", uri: "file:///tmp/a.png" })
+  expect(file?.name).toBe("a.png")
+  expect(file?.description).toBe("shot")
+  expect(file?.mention).toEqual({ start: 7, end: 12, text: "@a.png" })
+  expect(typeof file?.data).toBe("string")
+  expect(file?.data.length).toBeGreaterThan(0)
+  expect(Exit.isSuccess(Schema.decodeExit(SessionInbox.UserPayload)(admission.payload))).toBe(true)
+})
 
 function footer() {
   return createFooterApiFixture()
@@ -1374,7 +1434,13 @@ describe("V2 mini transport", () => {
           data: { sessionID: "ses_1" },
         })
       })
-      return ok({ data: promptAdmission(input) }) as never
+      return ok({
+        data: promptAdmission(input, "ses_1", {
+          "note.ts": "text/plain",
+          docs: "application/x-directory",
+          "image.png": "image/png",
+        }),
+      }) as never
     })
 
     await transport.runPromptTurn({
@@ -1463,7 +1529,7 @@ describe("V2 mini transport", () => {
           data: { sessionID: "ses_1" },
         })
       })
-      return ok({ data: promptAdmission(input) })
+      return ok({ data: promptAdmission(input, "ses_1", { "note.ts": "text/plain", docs: "application/x-directory" }) })
     })
 
     await transport.runPromptTurn({
@@ -1551,7 +1617,7 @@ describe("V2 mini transport", () => {
           data: { sessionID: "ses_1" },
         })
       })
-      return ok({ data: promptAdmission(input) })
+      return ok({ data: promptAdmission(input, "ses_1", { "diagram.png": "image/png" }) })
     })
 
     await transport.runPromptTurn({
