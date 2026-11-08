@@ -1,5 +1,5 @@
 import { expect } from "bun:test"
-import { Context, Effect, Fiber, RcMap, Schedule } from "effect"
+import { Cause, Context, Effect, Fiber, RcMap, Schedule } from "effect"
 import { Browser } from "@orchestra/plugin-browser/rpc"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
 import { LayerNode } from "@orchestra/util/effect/layer-node"
@@ -38,6 +38,12 @@ const it = testEffect(
   ),
 )
 
+// TEMP-DIAG (Windows CI: "RPC is unavailable: experimental.browser"): phase timestamps,
+// RcMap residency, plugin activation states and the raw cause of the failing call.
+// Remove this block once the Windows failure is diagnosed.
+const diagPhase = (phase: string, extra?: Record<string, unknown>) =>
+  Effect.sync(() => console.log(`[browser-idle-diag] ${phase} at ${Date.now()} ${JSON.stringify(extra ?? {})}`))
+
 it.live(
   "idle eviction ends the browser attachment and permits a fresh attachment",
   () =>
@@ -46,7 +52,17 @@ it.live(
       const ref = Location.Ref.make({ directory: AbsolutePath.make(dir.path) })
       const locations = yield* LocationServiceMap.Service
       const context = yield* locations.contextEffect(ref).pipe(Effect.scoped)
+      yield* diagPhase("context-acquired", {
+        rcHas: yield* RcMap.has(locations.rcMap, LocationServiceMap.canonical(ref)),
+      })
       yield* Plugin.awaitActivation.pipe(Effect.provideContext(context))
+      yield* diagPhase("activation-settled", {
+        rcHas: yield* RcMap.has(locations.rcMap, LocationServiceMap.canonical(ref)),
+        plugins: Context.get(context, Plugin.Service)
+          .list()
+          .pipe(Effect.runSync)
+          .filter((info) => info.id.includes("browser")),
+      })
       const sessions = yield* Session.Service
       const session = yield* sessions.create({ location: ref })
       const rpc = Context.get(context, Rpc.Service).client(Browser.Definition)
@@ -55,12 +71,21 @@ it.live(
       const pending = yield* rpc
         .attach({ ...attachment, version: 4 })
         .pipe(Effect.provide(locations.get(ref)), Effect.flip, Effect.forkScoped)
+      yield* diagPhase("pre-first-state", {
+        rcHas: yield* RcMap.has(locations.rcMap, LocationServiceMap.canonical(ref)),
+      })
       yield* rpc.state(state).pipe(
         Effect.retry({
           while: (error) => "type" in error && error.type === "unavailable",
           schedule: Schedule.spaced("10 millis"),
         }),
         Effect.timeout("5 seconds"),
+        Effect.catchCause((cause) =>
+          diagPhase("first-state-failed", {
+            rcHas: Effect.runSync(RcMap.has(locations.rcMap, LocationServiceMap.canonical(ref))),
+            cause: Cause.pretty(cause),
+          }).pipe(Effect.andThen(Effect.failCause(cause))),
+        ),
       )
 
       // Real idle cleanup must end the long-lived request, not leave a second registry behind it.
@@ -70,6 +95,12 @@ it.live(
 
       const replacement = yield* locations.contextEffect(ref)
       yield* Plugin.awaitActivation.pipe(Effect.provideContext(replacement))
+      yield* diagPhase("replacement-activation-settled", {
+        plugins: Context.get(replacement, Plugin.Service)
+          .list()
+          .pipe(Effect.runSync)
+          .filter((info) => info.id.includes("browser")),
+      })
       const fresh = Context.get(replacement, Rpc.Service).client(Browser.Definition)
       const resumed = yield* fresh.attach({ ...attachment, version: 4 }).pipe(Effect.forkScoped)
       yield* fresh.state(state).pipe(
@@ -78,6 +109,11 @@ it.live(
           schedule: Schedule.spaced("10 millis"),
         }),
         Effect.timeout("5 seconds"),
+        Effect.catchCause((cause) =>
+          diagPhase("replacement-state-failed", { cause: Cause.pretty(cause) }).pipe(
+            Effect.andThen(Effect.failCause(cause)),
+          ),
+        ),
       )
       expect(resumed.pollUnsafe()).toBeUndefined()
       yield* Fiber.interrupt(resumed)
