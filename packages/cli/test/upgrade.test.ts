@@ -111,6 +111,31 @@ describe("upgrade command", () => {
     expect(result.events).toEqual(["method", { latest: "npm" }, { method: "npm", version: "0.0.0-beta-new" }])
     expect(result.stdout).toContain("Upgrade complete")
   })
+
+  test("the update alias stays registered on the guarded upgrade command", async () => {
+    const help = await cli(["update", "--help"], {}, "../src/index.ts")
+    expect(help.exitCode).toBe(0)
+    expect(help.stdout).toContain("[<target>]")
+    expect(help.stdout).toContain("--method")
+  })
+
+  test("the real updater service refuses local-channel source updates in a node artifact", async () => {
+    const result = await cli([], { ORCHESTRA_UPDATE_URL: "" }, "fixture/updater-service.ts", {
+      ORCHESTRA_CHANNEL: '"local"',
+      ORCHESTRA_ARTIFACT: '"cli-node"',
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.events).toEqual([
+      {
+        check: {
+          type: "unavailable",
+          message: expect.stringContaining("Source-checkout updates require the Bun source installation"),
+        },
+      },
+      { apply: { failed: expect.stringContaining("Source-checkout updates require the Bun source installation") } },
+      { run: null },
+    ])
+  })
 })
 
 async function cli(
