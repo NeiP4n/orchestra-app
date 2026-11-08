@@ -33,6 +33,7 @@ import { PluginHooks } from "../plugin/hooks.js"
 import { zenRequiredToolNames } from "../provider-request-compatibility.js"
 import { QuestionTool } from "../tool/plugin/question.js"
 import { Tool } from "../tool.js"
+import { BrowserInstructions } from "../browser/instructions.js"
 import { ToolRouter } from "../tool/router.js"
 import { SessionAffinity } from "./affinity.js"
 import { SessionModelTransport } from "./model-transport.js"
@@ -271,6 +272,9 @@ export const layer = Layer.effect(
       const picked = new Set([
         ...ToolRouter.selected(input.messages, tools.lazy ?? new Map()),
         ...Mode.toolsOf(session.metadata, input.agent),
+        // A project with browser sessions in the Browser tab has the browser tool at hand without being asked
+        // for it by name: a model that has to guess it exists answers that it cannot see a browser.
+        ...(BrowserInstructions.hasSessions(session.location.directory) ? ["browser"] : []),
       ])
       const loaded = (tools.lazyDefinitions ?? []).filter((tool) => picked.has(tool.name))
       // Zen's upstream rejects more than 128 tools. Mirrored CodeMode schemas are only a validator

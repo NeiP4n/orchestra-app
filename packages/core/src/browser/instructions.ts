@@ -19,6 +19,15 @@ const Entry = Schema.Struct({
 })
 type Entry = typeof Entry.Type
 
+/** Whether the project has any browser session in the Browser tab. */
+export function hasSessions(directory: string) {
+  try {
+    return BrowserBridge.projectOf(BrowserRuntime.sessions(), directory) !== undefined
+  } catch {
+    return false
+  }
+}
+
 export function make(directory: string): Instructions.List {
   return Instructions.make({
     key: Instructions.Key.make("core/browser-sessions"),
