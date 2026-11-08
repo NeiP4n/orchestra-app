@@ -4,6 +4,7 @@ import type { Context } from "@orchestra/plugin/effect/plugin"
 import { ToolFailure } from "@orchestra/ai"
 import { optional } from "@orchestra/schema/schema"
 import { Effect, Schema } from "effect"
+import { supported as graphSupported } from "../../codegraph/db.js"
 import { indexProject } from "../../codegraph/indexer.js"
 import { ensureIndexed, explore, impact, search as find, status } from "../../codegraph/query.js"
 import { renderExplore, renderImpact, renderIndex, renderSearch, renderStatus } from "../../codegraph/render.js"
@@ -76,6 +77,10 @@ export const Plugin = {
 }
 
 function answer(root: string, input: Input) {
+  // The graph lives in bun:sqlite; a build without the Bun sqlite engine must
+  // say so outright (never "build the index first") before any mkdir or write.
+  if (!graphSupported())
+    return `codegraph ${input.action} is unavailable in this build: the code graph needs the Bun sqlite engine. Use the Bun build for the code graph.`
   if (input.action === "status") return renderStatus(status(root))
   if (input.action === "index") return renderIndex(indexProject(root, { force: input.force }))
   if (!ensureIndexed(root))

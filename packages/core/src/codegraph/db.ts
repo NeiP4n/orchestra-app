@@ -78,6 +78,13 @@ CREATE INDEX IF NOT EXISTS edges_path ON edges (path);
 CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5 (name, path, tokenize = 'trigram');
 `
 
+/**
+ * The graph lives in bun:sqlite, so only a Bun runtime can open it; the node
+ * artifact bundles a shim whose Database throws on construction. Callers must
+ * check this first and refuse honestly, before any mkdir or write.
+ */
+export const supported = (): boolean => typeof Bun !== "undefined"
+
 export function open(root: string): Graph {
   const file = databasePath(root)
   fs.mkdirSync(path.dirname(file), { recursive: true })
