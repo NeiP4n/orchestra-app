@@ -554,10 +554,6 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Override path to Zed's database file.",
     default: "The standard macOS/Linux Zed database locations.",
   },
-  ORCHESTRA_ZEN_BROWSER_ALLOW_LOCAL_URLS: {
-    purpose: "Lift the zen_browser SSRF gate for local URLs (\"1\"/\"true\"/\"on\"), for local testing only.",
-    default: "Off — localhost and LAN URLs are refused.",
-  },
   ORCHESTRA_ZEN_MIRROR: {
     purpose: "Mirror Zen provider requests (\"all\" mirrors everything).",
     default: "Off.",

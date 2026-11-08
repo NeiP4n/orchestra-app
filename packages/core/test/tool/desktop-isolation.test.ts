@@ -8,7 +8,6 @@ import { McpCatalog } from "@orchestra/core/mcp/catalog"
 import { McpAcquire } from "@orchestra/core/mcp/acquire"
 import { McpSelect } from "@orchestra/core/mcp/select"
 import { ShellTool } from "@orchestra/core/tool/plugin/shell"
-import { ZenBrowserTool } from "@orchestra/core/tool/plugin/zen-browser"
 import type { KV } from "@orchestra/core/kv"
 import { check, dedup } from "@orchestra/core/tool/idempotency"
 
@@ -402,17 +401,6 @@ describe("G2-9 desktop platform gate", () => {
   test("a valid real-screen opt-in lets macOS/Windows through (operator's explicit choice)", () => {
     expect(DesktopIsolation.desktopPlatformDenial(optInEnv(), "darwin")).toBeUndefined()
     expect(DesktopIsolation.desktopPlatformDenial(optInEnv(), "win32")).toBeUndefined()
-  })
-})
-
-describe("B7 zen_browser gate", () => {
-  test("status is always allowed; every other action needs the opt-in", () => {
-    const env = envWith({ ORCHESTRA_DESKTOP_CAPTURE: "on" })
-    expect(ZenBrowserTool.deniedByRealScreenGate({ action: "status" }, env)).toBeUndefined()
-    expect(ZenBrowserTool.deniedByRealScreenGate({ action: "tabs" }, env)).toContain("blocked")
-    expect(ZenBrowserTool.deniedByRealScreenGate({ action: "navigate", url: "https://example.com" }, env)).toContain("blocked")
-    expect(ZenBrowserTool.deniedByRealScreenGate({ action: "tabs" }, optInEnv())).toBeUndefined()
-    expect(ZenBrowserTool.deniedByRealScreenGate({ action: "tabs" }, optInEnv("firefox"))).toContain("not in ORCHESTRA_DESKTOP_REAL_SCREEN_ALLOWLIST")
   })
 })
 

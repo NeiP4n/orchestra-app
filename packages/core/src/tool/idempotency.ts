@@ -29,7 +29,7 @@ const PRUNE_MARKER = `${PREFIX}__pruned_at`
 export interface Input {
   /** The session that performs the action. */
   readonly sessionID: string
-  /** The action, e.g. `desktop_open`, `zen_browser navigate`, `browser.tabs.open`. */
+  /** The action, e.g. `desktop_open`, `desktop_open`, `browser.tabs.open`. */
   readonly action: string
   /** What the action acts on: the URL, app, file, or text. */
   readonly target: string

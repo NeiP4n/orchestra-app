@@ -20,7 +20,7 @@ import { existsSync } from "node:fs"
  *   snapshotted by agent-desktop (`native_window_unproven`), so a display
  *   without one is never reported ready.
  * - Rollback is a deny: remove the opt-in and every real-screen path
- *   (desktop_action/inspect, playtest real input, zen_browser, MCP
+ *   (desktop_action/inspect, playtest real input, MCP
  *   agent-desktop/playwright, shell screen escapes) refuses.
  *
  * This module depends only on Node built-ins, so every surface (tools, MCP,
