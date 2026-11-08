@@ -26,7 +26,7 @@ extend({ browserImage: ImageRenderable })
 
 // The commit this TUI runs from (when it runs from a git checkout), so a report can say which build it saw.
 // The route and frame-size lines are a diagnostic: shown only with ORCHESTRA_BROWSER_DEBUG=1.
-const PIXEL_MOUSE = process.env.ORCHESTRA_BROWSER_PIXEL_MOUSE === "1"
+const PIXEL_MOUSE = process.env.ORCHESTRA_BROWSER_PIXEL_MOUSE !== "0"
 const DEBUG = process.env.ORCHESTRA_BROWSER_DEBUG === "1"
 const BUILD = (() => {
   try {
@@ -218,7 +218,7 @@ export function BrowserPane(props: {
         }),
     )
   }
-  // Experimental (ORCHESTRA_BROWSER_PIXEL_MOUSE=1): terminals report the pointer in cells, about 10x20 pixels each,
+  // On by default while control is on (ORCHESTRA_BROWSER_PIXEL_MOUSE=0 turns it off): terminals report the pointer in cells, about 10x20 pixels each,
   // too coarse for a tab's close button. Where the terminal can report pixels (DECSET 1016), the exact position
   // is read from the raw input while control is on. Everything seen is logged.
   createEffect(() => {
