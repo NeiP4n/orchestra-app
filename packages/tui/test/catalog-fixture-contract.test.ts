@@ -9,7 +9,7 @@ test("new-session catalog fixture matches current Model.Info wire schema", () =>
   expect(Schema.decodeUnknownSync(Model.Info)(freeModel("model", "demo", "Demo Model")).enabled).toBe(true)
 })
 test("provider fixture matches current Provider.Info wire schema", () => {
-  expect(Schema.decodeUnknownSync(Provider.Info)(provider("demo", "Demo")).id).toBe("demo")
+  expect(Schema.decodeUnknownSync(Provider.Info)(provider("demo", "Demo")).id).toBe(Provider.ID.make("demo"))
 })
 
 test("stale new-session model is rejected rather than silently normalized", () => {
