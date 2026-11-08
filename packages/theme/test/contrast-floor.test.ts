@@ -46,7 +46,7 @@ const scale = (
   document: ReturnType<typeof parseThemeDocument>,
   theme: ReturnType<typeof resolveThemeDocument>,
   mode: (typeof modeNames)[number],
-  name: "orange" | "cyan" | "accent" | "interactive",
+  name: "orange" | "cyan" | "red" | "accent" | "interactive",
 ) => {
   if (name === "accent" || name === "interactive")
     return steps.map((step) => (theme.hue[name] as unknown as Record<number, RGBA>)[step]!)
@@ -75,7 +75,7 @@ describe.each(cases)("$name $mode", ({ document, mode }) => {
     expect(contrast(theme.hue.neutral[400], theme.background.base)).toBeGreaterThanOrEqual(3)
   })
 
-  test.each(["orange", "cyan", "accent", "interactive"] as const)(
+  test.each(["orange", "cyan", "red", "accent", "interactive"] as const)(
     "the %s scale changes monotonically in lightness",
     (name) => {
       const lightness = scale(document, theme, mode, name).map(luminance)
@@ -96,5 +96,22 @@ describe.each(cases)("$name $mode", ({ document, mode }) => {
   test("the lightest cyan step keeps the hue of the family", () => {
     const [lightest, base] = scale(document, theme, mode, "cyan")
     expect(Math.abs(hue(lightest!) - hue(base!))).toBeLessThanOrEqual(15)
+  })
+
+  test("the red scale is a real red, not an alias of orange", () => {
+    for (const color of scale(document, theme, mode, "red")) {
+      const angle = hue(color)
+      expect(angle < 12 || angle > 348).toBe(true)
+    }
+    expect(scale(document, theme, mode, "red")[1]).not.toEqual(scale(document, theme, mode, "orange")[1])
+  })
+
+  test("error text is at least 4.5:1 on the background", () => {
+    expect(contrast(theme.text.feedback.error.base, theme.background.base)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  test("error and warning differ in hue by at least 20 degrees", () => {
+    const gap = Math.abs(hue(theme.text.feedback.error.base) - hue(theme.text.feedback.warning.base))
+    expect(Math.min(gap, 360 - gap)).toBeGreaterThanOrEqual(20)
   })
 })
