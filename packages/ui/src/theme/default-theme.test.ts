@@ -11,8 +11,8 @@ describe("default theme", () => {
   })
 
   test("a missing or unknown stored theme resolves to the default, not oc-2", () => {
-    expect(context).toMatch(/return DEFAULT_THEME_ID\n/)
-    expect(context).not.toMatch(/knownThemes\(\)\.has\(id\)[^\n]*\)\) return id\n\n  return "oc-2"/)
+    expect(context).toMatch(/return DEFAULT_THEME_ID\r?\n/)
+    expect(context).not.toMatch(/knownThemes\(\)\.has\(id\)[^\n]*\)\) return id\r?\n\r?\n  return "oc-2"/)
   })
 
   test("Reset to default returns to the platform default, and sculk when none is given", () => {
