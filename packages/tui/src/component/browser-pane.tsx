@@ -193,7 +193,6 @@ export function BrowserPane(props: {
         when={state() !== "idle"}
         fallback={
           <box flexGrow={1} alignItems="center" justifyContent="center" flexDirection="column" gap={1}>
-            <text fg={theme.text.base} attributes={TextAttributes.BOLD}>{`${t("Browser")} · ${props.name}`}</text>
             <text fg={theme.text.muted}>{t("This session runs its own Google Chrome with a separate profile.")}</text>
             <Action label={`▶ ${t("Open Chrome")}`} onClick={() => void open()} />
             <Show when={props.canShowChat}>
@@ -206,17 +205,7 @@ export function BrowserPane(props: {
         }
       >
         <box flexDirection="row" flexShrink={0} gap={0}>
-          <text
-            fg={theme.text.base}
-            attributes={TextAttributes.BOLD}
-            flexGrow={1}
-            flexShrink={1}
-            minWidth={0}
-            wrapMode="none"
-            truncate
-          >
-            {`${t("Browser")} · ${props.name}`}
-          </text>
+          <box flexGrow={1} />
           <Show when={props.canShowChat}>
             <Action label={props.chatHidden ? t("Show chat") : t("Hide chat")} onClick={props.onToggleChat} />
           </Show>
@@ -252,10 +241,6 @@ export function BrowserPane(props: {
           <Show when={mode() === "capture"}>
             <Action label={t("Fast view")} onClick={() => switchMode("headless")} />
           </Show>
-          <Action
-            label={windowed() ? t("Back to pane") : narrow() ? t("Window") : t("Open in Chrome window")}
-            onClick={() => switchMode(windowed() ? "headless" : "window")}
-          />
           <Action label={narrow() ? t("Close") : t("Close browser")} onClick={stop} />
         </box>
         <Show when={failure()}>
