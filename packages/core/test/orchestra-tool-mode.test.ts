@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { Schema } from "effect"
 import { Mode } from "@orchestra/schema/mode"
+import { Model } from "../src/model.js"
 import { OrchestraTool } from "../src/tool/plugin/orchestra.js"
 
 const decode = Schema.decodeUnknownSync(OrchestraTool.Input)
@@ -29,5 +30,24 @@ describe("sessions mode interface", () => {
     expect(OrchestraTool.MODE_IDS).toContain("self-improvement")
     expect(OrchestraTool.MODE_IDS).toContain("architecture")
     expect(OrchestraTool.MODE_IDS).toContain("test")
+  })
+})
+
+describe("worker models come from the Feature list", () => {
+  const ref = (value: string) => Model.Ref.parse(value)
+
+  test("a model is accepted only when it is one of the Feature favorites, whatever its variant", () => {
+    const favorites = [ref("opencode/kimi-k2.5-free"), ref("opencode/grok-code")]
+    expect(OrchestraTool.inFavorites(favorites, ref("opencode/grok-code"))).toBe(true)
+    expect(OrchestraTool.inFavorites(favorites, ref("opencode/grok-code#high"))).toBe(true)
+    expect(OrchestraTool.inFavorites(favorites, ref("anthropic/claude-opus"))).toBe(false)
+    expect(OrchestraTool.inFavorites([], ref("opencode/grok-code"))).toBe(false)
+  })
+
+  test("the free tiers are only suggestions and name nothing but free opencode models", () => {
+    for (const tier of OrchestraTool.FREE_MODEL_TIERS)
+      for (const model of tier.models) expect(model).toMatch(/^opencode\/.*(free|grok-code)$/)
+    expect(OrchestraTool.guide).toContain("Feature list")
+    expect(OrchestraTool.guide).toContain("Suggest, never assume")
   })
 })
