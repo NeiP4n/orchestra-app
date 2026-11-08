@@ -76,6 +76,7 @@ function submitInput(
   commands: () => readonly { name: string }[] | undefined = () => [],
   history: string[] = [],
   clientCommand?: (text: string) => (() => void | Promise<void>) | undefined,
+  sleep?: (ms: number) => Promise<void>,
 ) {
   return createComposerSubmit({
     adapter,
@@ -93,6 +94,7 @@ function submitInput(
     closePopover() {},
     notify,
     comments: { capture: () => [], clear() {}, restore() {} },
+    sleep,
   })
 }
 
@@ -239,15 +241,22 @@ describe("Composer submission", () => {
     const calls: string[] = []
     const attempts: (string | undefined)[] = []
     let failures = 0
+    // Sending is intentionally detached from submit(); witness the terminal attempt
+    // instead of asserting before the retry ladder settles.
+    const settled = Promise.withResolvers<void>()
     const target = session({
       calls,
       prompt: async (value) => {
         attempts.push(value.id ?? undefined)
         if (failures++ < 2) throw new Error("network down")
+        settled.resolve()
       },
     })
 
-    await submitInput(active(state, target)).submit(new Event("submit"))
+    await submitInput(active(state, target), undefined, "normal", undefined, undefined, undefined, () =>
+      Promise.resolve(),
+    ).submit(new Event("submit"))
+    await settled.promise
 
     expect(calls).toEqual(["switch-agent", "switch-model", "prompt", "prompt", "prompt"])
     expect(new Set(attempts).size).toBe(1)
@@ -259,16 +268,21 @@ describe("Composer submission", () => {
     const calls: string[] = []
     const target = session({ calls, held: true })
     let paused = 0
+    // Sending is intentionally detached from submit(); the pause notification is
+    // the terminal witness for the held admission.
+    const witnessed = Promise.withResolvers<void>()
     const notify = {
       missingSelection() {},
       unqueueable() {},
       sessionPaused() {
         paused++
+        witnessed.resolve()
       },
       failed() {},
     }
 
     await submitInput(active(state, target), notify).submit(new Event("submit"))
+    await witnessed.promise
 
     expect(calls).toEqual(["switch-agent", "switch-model", "prompt"])
     expect(paused).toBe(1)
@@ -407,18 +421,28 @@ describe("Composer submission", () => {
       missingSelection() {},
       unqueueable() {},
       sessionPaused() {},
-      failed: () => (attempts.length === 2 ? first.resolve() : second.resolve()),
+      // The retry ladder makes 3 attempts per submission, so the final failure
+      // notification lands at 3 and 6 attempts.
+      failed: () => (attempts.length === 3 ? first.resolve() : second.resolve()),
     }
 
     const history: string[] = []
-    const submission = submitInput(active(state, target), notify, "normal", () => [], history)
+    const submission = submitInput(
+      active(state, target),
+      notify,
+      "normal",
+      () => [],
+      history,
+      undefined,
+      () => Promise.resolve(),
+    )
 
     await submission.submit(new Event("submit"))
     await first.promise
     await submission.submit(new Event("submit"))
     await second.promise
 
-    expect(attempts).toHaveLength(4)
+    expect(attempts).toHaveLength(6)
     expect(new Set(attempts).size).toBe(1)
     expect(statuses).toEqual(["running", "idle", "running", "idle"])
     expect(state.current()).toEqual(prompt)
@@ -484,11 +508,15 @@ describe("Composer submission", () => {
       },
     })
 
-    await submitInput(active(state, target)).submit(new Event("submit"))
+    await submitInput(active(state, target), undefined, "normal", undefined, undefined, undefined, () =>
+      Promise.resolve(),
+    ).submit(new Event("submit"))
     await checked.promise
 
     expect(state.current()).toEqual([{ type: "text", content: "", start: 0, end: 0 }])
-    expect(attempts).toHaveLength(2)
+    // The retry ladder makes 3 attempts before the failure handler consults the
+    // durable inbox and declines to restore the admitted prompt.
+    expect(attempts).toHaveLength(3)
     expect(new Set(attempts).size).toBe(1)
   })
 

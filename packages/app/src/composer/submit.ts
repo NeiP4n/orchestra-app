@@ -52,6 +52,8 @@ type ComposerSubmitInput = {
     clear: () => void
     restore: (comments: PromptHistoryComment[]) => void
   }
+  /** Backoff timer between send retries; injectable for deterministic tests. Defaults to a real setTimeout. */
+  sleep?: (ms: number) => Promise<void>
 }
 
 export function createComposerSubmit(input: ComposerSubmitInput) {
@@ -153,10 +155,17 @@ export function createComposerSubmit(input: ComposerSubmitInput) {
         if (optimisticBusy && input.adapter.kind === "new-session")
           session.data.session.setStatus(session.id, "running")
 
-        const sending = sendPrompt(session, value, input.adapter.controls().model.selection.trackSessionCommit, () => {
-          if (optimisticBusy && input.adapter.kind === "active-session")
-            session.data.session.setStatus(session.id, "running")
-        }, input.notify).then(
+        const sending = sendPrompt(
+          session,
+          value,
+          input.adapter.controls().model.selection.trackSessionCommit,
+          () => {
+            if (optimisticBusy && input.adapter.kind === "active-session")
+              session.data.session.setStatus(session.id, "running")
+          },
+          input.notify,
+          input.sleep,
+        ).then(
           () => ({ ok: true as const }),
           (error) => ({ ok: false as const, error }),
         )
@@ -482,12 +491,15 @@ async function applySelection(
   }
 }
 
+const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
 async function sendPrompt(
   session: ComposerSession,
   value: ComposerSubmission,
   track: ModelSelection["trackSessionCommit"] | undefined,
   onAdmit: () => void,
   notify: ComposerSubmitInput["notify"],
+  sleep: (ms: number) => Promise<void> = defaultSleep,
 ) {
   const request = await buildSubmissionRequest(session, value)
 
@@ -534,7 +546,7 @@ async function sendPrompt(
   const sendWithRetry = async () => {
     let lastError: unknown
     for (const delay of [0, 500, 1500]) {
-      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+      if (delay > 0) await sleep(delay)
       try {
         return await session.data.session.prompt(admission)
       } catch (error) {
