@@ -31,6 +31,7 @@ export function hasSessions(directory: string) {
 let lastSeen = ""
 
 export function make(directory: string): Instructions.List {
+  BrowserRuntime.trace(`context source built for ${directory}`)
   return Instructions.make({
     key: Instructions.Key.make("core/browser-sessions"),
     codec: Schema.toCodecJson(Schema.Array(Entry)),

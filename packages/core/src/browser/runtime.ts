@@ -575,6 +575,8 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
         },
         run.pid,
         size,
+        undefined,
+        (text) => trace(`helper: ${text}`),
       )
     } catch (error) {
       // Capture did not work here: leave the operator with the streamed, windowless Chrome rather than nothing.

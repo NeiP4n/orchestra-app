@@ -106,6 +106,7 @@ public static class Cap {
   [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
   [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
   [StructLayout(LayoutKind.Sequential)] struct GUITHREADINFO { public int cbSize, flags; public IntPtr active, focus, capture, menuOwner, moveSize, caret; public RECT rcCaret; }
+  [DllImport("user32.dll")] static extern IntPtr ChildWindowFromPointEx(IntPtr h, POINT p, uint flags);
   [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint thread, ref GUITHREADINFO info);
   [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc p, IntPtr l);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
@@ -163,6 +164,11 @@ public static class Cap {
     RECT r; GetWindowRect(hwnd, out r);
     POINT origin = new POINT(); ClientToScreen(hwnd, ref origin);
     int x = int.Parse(a[2]) - (origin.X - r.L), y = int.Parse(a[3]) - (origin.Y - r.T);
+    if (a[1] == "ldown" || a[1] == "lup") {
+      POINT at = new POINT(); at.X = x; at.Y = y;
+      IntPtr child = ChildWindowFromPointEx(hwnd, at, 0);
+      Say("D click " + a[1] + " frame " + a[2] + "," + a[3] + " -> client " + x + "," + y + " window " + (r.R - r.L) + "x" + (r.B - r.T) + " client origin +" + (origin.X - r.L) + ",+" + (origin.Y - r.T) + " top=" + hwnd + " child at point=" + child);
+    }
     switch (a[1]) {
       case "move": PostMessage(hwnd, 0x200, IntPtr.Zero, Pack(x, y)); break;
       case "ldown":
@@ -268,7 +274,13 @@ export interface Process {
  * Starts the helper for Chrome's process `pid` and waits until it reports that it found and moved the window.
  * Rejects with the helper's own reason when it cannot (no window, PowerShell blocked, helper exited).
  */
-export function start(spawn: () => Process, pid: number, size: Size, timeoutMs = 20_000): Promise<Controller> {
+export function start(
+  spawn: () => Process,
+  pid: number,
+  size: Size,
+  timeoutMs = 20_000,
+  note?: (text: string) => void,
+): Promise<Controller> {
   const process = spawn()
   let listener: ((frame: { data: string; width: number; height: number }) => void) | undefined
   return new Promise((resolve, reject) => {
@@ -285,6 +297,7 @@ export function start(spawn: () => Process, pid: number, size: Size, timeoutMs =
     process.onLine((raw) => {
       const line = parseLine(raw)
       if (line.type === "frame") return listener?.({ data: line.data, width: line.width, height: line.height })
+      if (line.type === "other" && line.text.startsWith("D ")) return note?.(line.text.slice(2))
       if (line.type !== "status") return
       if (!ready && line.ok) {
         ready = true
