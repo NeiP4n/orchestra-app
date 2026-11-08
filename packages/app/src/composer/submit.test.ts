@@ -242,7 +242,9 @@ describe("Composer submission", () => {
     const attempts: (string | undefined)[] = []
     let failures = 0
     // Sending is intentionally detached from submit(); witness the terminal attempt
-    // instead of asserting before the retry ladder settles.
+    // instead of asserting before the retry ladder settles. The witness also
+    // settles on the failure paths, so a regressed ladder fails fast with a
+    // clear message instead of surfacing as a timeout.
     const settled = Promise.withResolvers<void>()
     const target = session({
       calls,
@@ -253,8 +255,23 @@ describe("Composer submission", () => {
       },
     })
 
-    await submitInput(active(state, target), undefined, "normal", undefined, undefined, undefined, () =>
-      Promise.resolve(),
+    await submitInput(
+      active(state, target),
+      {
+        missingSelection() {},
+        unqueueable() {},
+        sessionPaused() {
+          settled.reject(new Error("submission paused instead of retrying to success"))
+        },
+        failed() {
+          settled.reject(new Error(`submission failed after ${attempts.length} attempts instead of retrying to success`))
+        },
+      },
+      "normal",
+      undefined,
+      undefined,
+      undefined,
+      () => Promise.resolve(),
     ).submit(new Event("submit"))
     await settled.promise
 
@@ -278,7 +295,9 @@ describe("Composer submission", () => {
         paused++
         witnessed.resolve()
       },
-      failed() {},
+      failed() {
+        witnessed.reject(new Error("held admission failed instead of pausing"))
+      },
     }
 
     await submitInput(active(state, target), notify).submit(new Event("submit"))
@@ -422,8 +441,17 @@ describe("Composer submission", () => {
       unqueueable() {},
       sessionPaused() {},
       // The retry ladder makes 3 attempts per submission, so the final failure
-      // notification lands at 3 and 6 attempts.
-      failed: () => (attempts.length === 3 ? first.resolve() : second.resolve()),
+      // notification lands at 3 and 6 attempts; any other count means the ladder
+      // regressed, which fails fast instead of surfacing as a timeout.
+      failed: () => {
+        if (attempts.length === 3) return first.resolve()
+        if (attempts.length === 6) return second.resolve()
+        const regressed = new Error(`failure notification landed at ${attempts.length} attempts, expected 3 or 6`)
+        first.promise.catch(() => {})
+        second.promise.catch(() => {})
+        first.reject(regressed)
+        second.reject(regressed)
+      },
     }
 
     const history: string[] = []

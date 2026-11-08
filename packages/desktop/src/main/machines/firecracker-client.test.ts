@@ -1,5 +1,7 @@
 import { createServer } from "node:http"
-import { rm } from "node:fs/promises"
+import { mkdtemp, rm } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 import { describe, expect, test } from "bun:test"
 import { createUnixSocketRequester, startFirecrackerVM, type FirecrackerRequester } from "./firecracker-client"
 import { firecrackerSocketPath } from "./firecracker"
@@ -46,9 +48,11 @@ describe("firecracker client", () => {
   // on other OSes. The socket path derivation is covered by
   // firecracker.test.ts on every OS.
   test.skipIf(process.platform !== "linux")("delivers configuration over the real unix socket transport", async () => {
-    // A unique machine id keeps the derived socket path collision-free
-    // between concurrent test runs; firecrackerSocketPath sanitizes it.
-    const unique = { ...machine, id: `fc-test-${process.pid}-${Date.now()}` }
+    // A mkdtemp-derived machine id keeps the derived socket path
+    // collision-free between concurrent test runs; firecrackerSocketPath
+    // sanitizes it.
+    const dir = await mkdtemp(path.join(os.tmpdir(), "orchestra-fc-client-"))
+    const unique = { ...machine, id: path.basename(dir) }
     const socketPath = firecrackerSocketPath(unique.id)
     const seen: string[] = []
     const server = createServer((req, res) => {
@@ -59,15 +63,15 @@ describe("firecracker client", () => {
     const failed = Promise.withResolvers<never>()
     server.on("error", (error: Error) => failed.reject(error))
 
-    await Promise.race([new Promise<void>((resolve) => server.listen(socketPath, resolve)), failed.promise])
-
     try {
+      await Promise.race([new Promise<void>((resolve) => server.listen(socketPath, resolve)), failed.promise])
       await startFirecrackerVM(createUnixSocketRequester(), unique, assets)
 
       expect(seen).toEqual(expectedOrder)
     } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()))
+      if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()))
       await rm(socketPath, { force: true })
+      await rm(dir, { recursive: true, force: true })
     }
   })
 
