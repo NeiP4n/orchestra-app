@@ -1,0 +1,22 @@
+import { describe, expect, test } from "bun:test"
+import fs from "node:fs"
+import path from "node:path"
+
+// The Browser view's wiring is checked on the source: Chrome never starts on its own, every session
+// uses its own profile directory, and the chat stays beside the page in a wide window.
+const read = (file: string) => fs.readFileSync(path.join(import.meta.dir, "..", "src", file), "utf8")
+
+describe("browser view", () => {
+  test("Chrome starts only on request, on a per-session profile, and closes with the TUI", () => {
+    const runtime = read("util/browser-runtime.ts")
+    expect(runtime).toContain("Chrome.profileDir(Global.Path.data, sessionID)")
+    expect(runtime).toContain('process.on("exit", closeAll)')
+    expect(read("component/browser-pane.tsx")).toContain("Open Chrome")
+  })
+
+  test("the chat is shown beside the page only in a wide window", () => {
+    const frame = read("component/session-frame.tsx")
+    expect(frame).toContain('centerView() === "browser" && dimensions().width >= 110')
+    expect(frame).toContain('chatBeside() ? "row-reverse" : "row"')
+  })
+})
