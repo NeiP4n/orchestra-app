@@ -59,7 +59,18 @@ describe("orchestrator prompt size", () => {
   test("only the light modes drop the mandates; every other mode gets the full set", () => {
     expect([...ORCHESTRATOR_SLIM_MODES]).toEqual(["fast", "research"])
     for (const id of ["fast", "research"]) expect(orchestratorMandatesFor(id)).toBeUndefined()
-    for (const id of [undefined, "auto", "coding", "planning", "test", "architecture", "review", "debug", "design", "ops"])
+    for (const id of [
+      undefined,
+      "auto",
+      "coding",
+      "planning",
+      "test",
+      "architecture",
+      "review",
+      "debug",
+      "design",
+      "ops",
+    ])
       expect(orchestratorMandatesFor(id)).toBe(ORCHESTRATOR_MANDATES)
   })
 
