@@ -113,6 +113,31 @@ it.live("remove loads canonical strategies and enforces project ownership", () =
         api.worktree.remove({ projectID: foreign.projectID, directory: linked, force: true }),
       ).rejects.toMatchObject({ _tag: "WorktreeError", name: "WorktreeError" })
       expect(await fs.stat(linked).then((stat) => stat.isDirectory())).toBe(true)
+      // session.create binds the linked checkout by writing .orchestra/project.json,
+      // so an otherwise clean worktree reports dirty until that file is committed.
+      const status = async () =>
+        (await $`git status --porcelain=v1 --untracked-files=all`.cwd(linked).quiet().text()).trim()
+      expect(await status()).toBe("?? .orchestra/project.json")
+      const remove = new URL("/api/worktree", server.base)
+      const refusal = await fetch(remove, {
+        method: "DELETE",
+        headers: { ...server.headers, "content-type": "application/json" },
+        body: JSON.stringify({ projectID: session.projectID, directory: linked, force: false }),
+      })
+      expect(refusal.status).toBe(400)
+      expect(await refusal.json()).toMatchObject({
+        _tag: "WorktreeError",
+        name: "WorktreeError",
+        data: { forceRequired: true },
+      })
+      expect(await fs.stat(path.join(linked, ".orchestra", "project.json")).then((stat) => stat.isFile())).toBe(
+        true,
+      )
+      expect(await fs.stat(linked).then((stat) => stat.isDirectory())).toBe(true)
+      // Commit exactly the synthetic binding file to reach a clean baseline.
+      await $`git add .orchestra/project.json`.cwd(linked).quiet()
+      await $`git commit -m ${"bind linked worktree"}`.cwd(linked).quiet()
+      expect(await status()).toBe("")
       await api.worktree.remove({ projectID: session.projectID, directory: linked, force: false })
       expect(await api.debug.location.list()).toContainEqual({ directory })
       expect(await api.worktree.list({ projectID: session.projectID })).toEqual([{ directory }])
