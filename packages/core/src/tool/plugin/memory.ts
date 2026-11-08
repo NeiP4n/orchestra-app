@@ -122,7 +122,17 @@ export const Plugin = {
       // B18 №38: the engine opens the database of THIS project
       // (`<project>/.orchestra/memory.db`), never the process working
       // directory — a session whose CWD moved must not move its memory.
-      const engine = getMemoryEngineForProject(location.project.directory)
+      // A build without the Bun sqlite engine cannot construct it; refuse
+      // the action honestly instead of leaking a stack or returning nothing.
+      const engine = yield* Effect.try({
+        try: () => getMemoryEngineForProject(location.project.directory),
+        catch: (cause) =>
+          new ToolFailure({
+            message:
+              "The memory tool needs the Bun-backed project memory database, which this build does not have. Use the Bun build for project memory.",
+            error: cause,
+          }),
+      })
 
       switch (input.action) {
         case "remember": {
