@@ -6,6 +6,7 @@ import {
   groupBrowserSession,
   MAX_BROWSER_SESSIONS,
   removeBrowserSession,
+  renameBrowserSession,
   selectBrowserSession,
 } from "../src/util/browser-sessions"
 
@@ -47,7 +48,8 @@ test("selecting an unknown session is ignored", () => {
 
 test("a project holds at most the limit", () => {
   const state = emptyBrowserSessions()
-  for (let i = 0; i < MAX_BROWSER_SESSIONS; i++) expect(addBrowserSession(state, "p", { id: `s${i}`, now: 0 })).toBeDefined()
+  for (let i = 0; i < MAX_BROWSER_SESSIONS; i++)
+    expect(addBrowserSession(state, "p", { id: `s${i}`, now: 0 })).toBeDefined()
   expect(addBrowserSession(state, "p", { id: "over", now: 0 })).toBeUndefined()
 })
 
@@ -64,4 +66,14 @@ test("sessions group by name, ungrouped first", () => {
   groupBrowserSession(state, "p", "b")
   expect(browserSessionGroups(state.projects.p!).length).toBe(2)
   expect(state.projects.p![1]!.group).toBeUndefined()
+})
+
+test("renaming changes only the label: the id that keys the Chrome profile stays", () => {
+  const state = emptyBrowserSessions()
+  addBrowserSession(state, "p", { id: "brw_x1", now: 1 })
+  expect(renameBrowserSession(state, "p", "brw_x1", "  Work account  ")).toBe(true)
+  expect(state.projects.p?.[0]).toEqual({ id: "brw_x1", name: "Work account", created: 1 })
+  expect(renameBrowserSession(state, "p", "brw_x1", "   ")).toBe(false)
+  expect(renameBrowserSession(state, "p", "missing", "x")).toBe(false)
+  expect(state.projects.p?.[0]?.name).toBe("Work account")
 })

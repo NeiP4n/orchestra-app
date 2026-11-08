@@ -44,6 +44,15 @@ export function removeBrowserSession(state: BrowserSessionsState, projectID: str
   if (state.selected[projectID] === id) state.selected[projectID] = list[Math.max(0, index - 1)]?.id
 }
 
+/** Changes only the label. The id, which keys the Chrome profile folder, is never touched, so logins stay. */
+export function renameBrowserSession(state: BrowserSessionsState, projectID: string, id: string, name: string) {
+  const item = state.projects[projectID]?.find((entry) => entry.id === id)
+  const next = name.trim().slice(0, 60)
+  if (!item || !next) return false
+  item.name = next
+  return true
+}
+
 export function selectBrowserSession(state: BrowserSessionsState, projectID: string, id: string) {
   if (state.projects[projectID]?.some((item) => item.id === id)) state.selected[projectID] = id
 }

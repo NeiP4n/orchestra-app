@@ -793,6 +793,25 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                             </text>
                           </box>
                           <HoverAction
+                            id={`browser-rename:${item.id}`}
+                            onClick={() =>
+                              dialog.replace(() => (
+                                <DialogPrompt
+                                  title={t("Rename browser session")}
+                                  placeholder={t("Name (logins and cookies stay)")}
+                                  value={item.name}
+                                  onCancel={() => dialog.clear()}
+                                  onConfirm={(value) => {
+                                    dialog.clear()
+                                    notes.renameBrowserSession(project.id, item.id, value)
+                                  }}
+                                />
+                              ))
+                            }
+                          >
+                            <text fg={theme.text.action.primary.base}>{" ✎"}</text>
+                          </HoverAction>
+                          <HoverAction
                             id={`browser-remove:${item.id}`}
                             onMouseEnter={() => setRemoveHovered(true)}
                             onMouseLeave={() => setRemoveHovered(false)}
