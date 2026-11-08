@@ -245,18 +245,64 @@ export async function history(sessionID: string, step: -1 | 1) {
 }
 
 /** Mouse and keys from the operator, forwarded into the active tab. */
-export async function mouse(sessionID: string, input: Cdp.MouseInput) {
-  await open(sessionID)
+// Real Chrome in the pane: the picture is the whole window, so a point is either on Chrome's own UI (tab strip,
+// address bar), which only takes window messages, or on the page, which takes reliable DevTools input.
+interface Inset {
+  readonly left: number
+  readonly top: number
+  readonly scale: number
+  readonly at: number
+}
+const insets = new Map<string, Inset>()
+// Where the last press landed: keys go to the address bar (window messages) or to the page (DevTools).
+const uiFocus = new Map<string, boolean>()
+
+async function inset(sessionID: string, client: Cdp.Client): Promise<Inset> {
+  const known = insets.get(sessionID)
+  if (known && Date.now() - known.at < 1500) return known
+  const result = (await client.send("Runtime.evaluate", {
+    expression: "[outerWidth, outerHeight, innerWidth, innerHeight, devicePixelRatio]",
+    returnByValue: true,
+  })) as { result?: { value?: number[] } }
+  const [ow = 0, oh = 0, iw = 0, ih = 0, scale = 1] = result.result?.value ?? []
+  const next = {
+    left: Math.max(0, ((ow - iw) / 2) * scale),
+    top: Math.max(0, (oh - ih) * scale),
+    scale: scale || 1,
+    at: Date.now(),
+  }
+  insets.set(sessionID, next)
+  return next
+}
+
+/** Forwards the operator's mouse. Returns a short note on where it went, for the pane's debug line. */
+export async function mouse(sessionID: string, input: Cdp.MouseInput): Promise<string> {
+  const client = await open(sessionID)
   const capture = live.get(sessionID)?.capture
-  if (capture) return capture.mouse(input)
-  await Cdp.mouse(await open(sessionID), input)
+  if (!capture) {
+    await Cdp.mouse(client, input)
+    return "page"
+  }
+  const frame = await inset(sessionID, client).catch(() => undefined)
+  if (frame && input.y >= frame.top && input.x >= frame.left) {
+    if (input.kind === "down") uiFocus.set(sessionID, false)
+    await Cdp.mouse(client, {
+      ...input,
+      x: (input.x - frame.left) / frame.scale,
+      y: (input.y - frame.top) / frame.scale,
+    })
+    return `page ${Math.round((input.x - frame.left) / frame.scale)},${Math.round((input.y - frame.top) / frame.scale)} (ui ${Math.round(frame.left)},${Math.round(frame.top)} x${frame.scale})`
+  }
+  if (input.kind === "down") uiFocus.set(sessionID, true)
+  capture.mouse(input)
+  return `chrome-ui window ${Math.round(input.x)},${Math.round(input.y)}`
 }
 
 export async function key(sessionID: string, input: Parameters<typeof Cdp.key>[1]) {
-  await open(sessionID)
+  const client = await open(sessionID)
   const capture = live.get(sessionID)?.capture
-  if (capture) return capture.key(input)
-  await Cdp.key(await open(sessionID), input)
+  if (capture && uiFocus.get(sessionID)) return capture.key(input)
+  await Cdp.key(client, input)
 }
 
 export async function reload(sessionID: string) {
