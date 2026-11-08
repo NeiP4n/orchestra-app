@@ -184,9 +184,22 @@ export function BrowserPane(props: {
     renderer.keyInput.on("keypress", onKey)
     onCleanup(() => void renderer.keyInput.off("keypress", onKey))
   })
-  // Leaving the screen view or closing the browser always gives the keyboard back.
+  // Leaving the screen view, closing the browser, restarting Chrome or showing/hiding the chat always gives
+  // the keyboard back.
   createEffect(() => {
-    if (state() === "idle" || view() !== "screen" || windowed()) setControl(false)
+    void props.chatHidden
+    if (state() !== "ready" || view() !== "screen" || windowed()) setControl(false)
+  })
+  // Safety: a press anywhere outside the page (the composer, a dialog, a panel) ends control at once, so a
+  // forgotten control mode can never leave the app without a keyboard. Presses inside the page stop at the
+  // page box and never get here.
+  createEffect(() => {
+    if (!control()) return
+    const root = renderer.root
+    root.onMouse = (event: MouseEvent) => {
+      if (event.type === "down") setControl(false)
+    }
+    onCleanup(() => void (root.onMouse = undefined))
   })
 
   // On Windows the real Chrome (its own tabs and address bar) is shown in the pane by default; if that cannot
