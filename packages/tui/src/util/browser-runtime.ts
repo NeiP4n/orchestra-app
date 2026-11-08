@@ -19,5 +19,6 @@ export const {
   history,
   relaunch,
   isWindowed,
+  modeOf,
   reload,
 } = BrowserRuntime

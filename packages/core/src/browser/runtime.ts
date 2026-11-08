@@ -8,6 +8,7 @@ import { BrowserBridge } from "./bridge.js"
 import { Cdp } from "./cdp.js"
 import { BrowserTabs } from "./tabs.js"
 import { Chrome } from "./chrome.js"
+import { WindowCapture } from "./window-capture.js"
 
 // One Chrome per browser session, shared by the Browser tab and the chat agent. A Chrome that already runs
 // on the session's profile is joined, never started twice. Chrome starts only when somebody asks, and the
@@ -18,10 +19,15 @@ interface Live {
   tabID: string
   /** A visible Chrome window the operator uses directly; it outlives this app and is never killed on exit. */
   windowed: boolean
+  /** Set when the pane shows a real, off-screen Chrome window copied by the Windows helper. */
+  capture?: WindowCapture.Controller
   client: Cdp.Client
   /** Closes the process only when this process started it. */
   stop: () => void
 }
+
+/** A new session opens here instead of a blank page, so the stream visibly shows something. */
+export const START_PAGE = "https://www.google.com/"
 
 const live = new Map<string, Live>()
 const starting = new Map<string, Promise<Live>>()
@@ -82,7 +88,7 @@ async function start(sessionID: string): Promise<Live> {
   if (port !== undefined) return join(port, () => {})
   const exe = Chrome.find(existsSync)
   if (!exe) throw new Error("Google Chrome or Microsoft Edge was not found. Install one, or set ORCHESTRA_CHROME_PATH.")
-  const run = await Chrome.launch(deps, { exe, profileDir: dir, headless: true })
+  const run = await Chrome.launch(deps, { exe, profileDir: dir, headless: true, url: START_PAGE })
   try {
     return await join(run.port, run.close)
   } catch (error) {
@@ -137,6 +143,8 @@ export async function watch(
 ) {
   const client = await open(sessionID)
   unwatch(sessionID)
+  const capture = live.get(sessionID)?.capture
+  if (capture) return capture.watch(size, onFrame)
   watchers.set(sessionID, { size, onFrame })
   await stream(sessionID, client)
 }
@@ -149,6 +157,7 @@ async function stream(sessionID: string, client: Cdp.Client) {
 }
 
 export function unwatch(sessionID: string) {
+  live.get(sessionID)?.capture?.unwatch()
   screens.get(sessionID)?.()
   screens.delete(sessionID)
   watchers.delete(sessionID)
@@ -237,10 +246,16 @@ export async function history(sessionID: string, step: -1 | 1) {
 
 /** Mouse and keys from the operator, forwarded into the active tab. */
 export async function mouse(sessionID: string, input: Cdp.MouseInput) {
+  await open(sessionID)
+  const capture = live.get(sessionID)?.capture
+  if (capture) return capture.mouse(input)
   await Cdp.mouse(await open(sessionID), input)
 }
 
 export async function key(sessionID: string, input: Parameters<typeof Cdp.key>[1]) {
+  await open(sessionID)
+  const capture = live.get(sessionID)?.capture
+  if (capture) return capture.key(input)
   await Cdp.key(await open(sessionID), input)
 }
 
@@ -255,6 +270,7 @@ export function close(sessionID: string) {
   if (!item) return
   live.delete(sessionID)
   item.client.close()
+  item.capture?.stop()
   if (item.windowed) void quit(item.port).catch(() => undefined)
   else item.stop()
 }
@@ -266,51 +282,97 @@ export function closeAll() {
 
 export const isWindowed = (sessionID: string) => live.get(sessionID)?.windowed === true
 
+export type Mode = "headless" | "window" | "capture"
+
+export const modeOf = (sessionID: string): Mode => {
+  const item = live.get(sessionID)
+  return item?.capture ? "capture" : item?.windowed ? "window" : "headless"
+}
+
+/** Where the helper script lives: written once, outside the repo, run with PowerShell. */
+function helperFile() {
+  const file = path.join(Global.Path.data, "browser-profiles", "window-capture.ps1")
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, WindowCapture.SCRIPT)
+  return file
+}
+
 /**
- * Restarts the session's Chrome on the same profile, as a normal visible window (real Chrome tabs, address
- * bar and menus) or back as the windowless one the pane streams. The open tabs' addresses are reopened;
- * logins and cookies stay in the profile, but unsaved page state does not survive the restart.
+ * Restarts the session's Chrome on the same profile in another mode. "headless" is the windowless Chrome the
+ * pane streams through the protocol, "window" is a normal visible Chrome window, "capture" (Windows only) is a
+ * real Chrome window kept off-screen and out of the taskbar whose pixels the pane shows. The open tabs'
+ * addresses are reopened; logins stay in the profile, unsaved page state does not survive.
  */
-export async function relaunch(sessionID: string, windowed: boolean) {
+export async function relaunch(sessionID: string, mode: Mode | boolean, size = { width: 1000, height: 640 }) {
+  const target: Mode = mode === true ? "window" : mode === false ? "headless" : mode
+  if (target === "capture" && process.platform !== "win32")
+    throw new Error("Showing the real Chrome window in the pane works on Windows only.")
   await open(sessionID)
   const item = live.get(sessionID)!
-  if (item.windowed === windowed) return
+  if (modeOf(sessionID) === target) return
   const urls = (await BrowserTabs.list(item.port)).map((tab) => tab.url).filter((url) => /^https?:\/\//i.test(url))
   unwatch(sessionID)
   orders.delete(sessionID)
   live.delete(sessionID)
   item.client.close()
+  item.capture?.stop()
   await quit(item.port)
   const exe = Chrome.find(existsSync)
   if (!exe) throw new Error("Google Chrome or Microsoft Edge was not found.")
-  const run = await Chrome.launch(windowed ? windowDeps : deps, {
+  const headed = target !== "headless"
+  const run = await Chrome.launch(headed ? windowDeps : deps, {
     exe,
     profileDir: Chrome.profileDir(Global.Path.data, sessionID),
-    headless: !windowed,
+    headless: !headed,
+    url: START_PAGE,
     urls,
+    extraArgs:
+      target === "capture"
+        ? [
+            ...WindowCapture.KEEP_PAINTING_FLAGS,
+            `--window-position=${WindowCapture.OFFSCREEN.x},${WindowCapture.OFFSCREEN.y}`,
+            `--window-size=${size.width},${size.height}`,
+          ]
+        : [],
   })
-  live.set(sessionID, await join(run.port, windowed ? () => {} : run.close, windowed))
-}
-
-const bridgeFile = () => BrowserBridge.file(Global.Path.data)
-
-/** Records the selected browser session of a project for the chat agent's tool. */
-export function publishSelection(directory: string, sessionID: string | undefined) {
-  const file = bridgeFile()
-  const next = BrowserBridge.withSelection(
-    BrowserBridge.parse(existsSync(file) ? readFileSync(file, "utf8") : undefined),
-    directory,
-    sessionID,
-  )
-  mkdirSync(path.dirname(file), { recursive: true })
-  writeFileSync(file, JSON.stringify(next, null, 2))
-}
-
-/** The browser session selected for the project that owns `directory`. */
-export function selectedSession(directory: string) {
-  const file = bridgeFile()
-  return BrowserBridge.selectedFor(
-    BrowserBridge.parse(existsSync(file) ? readFileSync(file, "utf8") : undefined),
-    directory,
-  )
+  const next = await join(run.port, target === "window" ? () => {} : run.close, target === "window")
+  if (target === "capture") {
+    if (run.pid === undefined) throw new Error("Chrome did not report a process id.")
+    const script = helperFile()
+    try {
+      next.capture = await WindowCapture.start(
+        () => {
+          const child = spawn(
+            "powershell.exe",
+            ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script],
+            { stdio: ["pipe", "pipe", "ignore"], windowsHide: true },
+          )
+          return {
+            write: (line) => void child.stdin.write(line + "\n"),
+            kill: () => child.kill(),
+            onLine: (listener) => {
+              let buffer = ""
+              child.stdout.on("data", (chunk: Buffer) => {
+                buffer += chunk.toString("utf8")
+                const lines = buffer.split("\n")
+                buffer = lines.pop() ?? ""
+                lines.forEach(listener)
+              })
+            },
+            onExit: (listener) => void child.once("exit", listener),
+          }
+        },
+        run.pid,
+        size,
+      )
+    } catch (error) {
+      // Capture did not work here: leave the operator with the streamed, windowless Chrome rather than nothing.
+      next.client.close()
+      run.close()
+      await quit(run.port).catch(() => undefined)
+      await relaunch(sessionID, "headless").catch(() => undefined)
+      throw error
+    }
+  }
+  live.set(sessionID, next)
 }
