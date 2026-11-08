@@ -171,8 +171,21 @@ export async function openSettings(page: Page, input: WorkspaceInput) {
   const workspace = await mockWorkspace(page, { sessions: [], ...input })
   await page.goto("/")
 
-  if ((page.viewportSize()?.width ?? 1280) < 800) await page.getByRole("button", { name: "Tabs", exact: true }).click()
-  await page.getByRole("button", { name: "Settings", exact: true }).click()
+  if ((page.viewportSize()?.width ?? 1280) < 800) {
+    await page.getByRole("button", { name: "Tabs", exact: true }).click()
+    // The drawer's own Settings button; a page-wide name locator also matches the
+    // titlebar button, so scope to the drawer and require exactly one match.
+    const drawer = page.locator('[data-action="mobile-tabs-settings"]')
+    await expect(drawer).toHaveCount(1)
+    await drawer.click()
+  } else {
+    // The titlebar has its own Settings button (covered by its own test); click the
+    // one in the Projects-labelled region and require it to be unique there.
+    const region = page.getByRole("complementary", { name: "Projects", exact: true })
+    const button = region.getByRole("button", { name: "Settings", exact: true })
+    await expect(button).toHaveCount(1)
+    await button.click()
+  }
   const settings = page.getByTestId("settings-screen")
   await expect(settings).toBeFocused({ timeout: APP_READY_TIMEOUT })
 
