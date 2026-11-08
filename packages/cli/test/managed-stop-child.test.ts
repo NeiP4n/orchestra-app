@@ -166,7 +166,7 @@ for (const phase of ["early", "post-boot"] as const)
                   ? "SchemaError"
                   : "PermissionDenied"
             expect(stdout + error).toContain(expectedCause)
-            expect(stdout + error).toContain(probe.file)
+            expect(stdout + error).toContain(JSON.stringify(probe.file).slice(1, -1))
             expect(stdout + error).not.toContain("DUMMY_REGISTRATION_PASSWORD_MUST_NOT_LOG")
             if (action === "missing")
               expect(

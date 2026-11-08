@@ -74,7 +74,7 @@ for (const action of ["owner", "missing", "schema-invalid"] as const)
       if (action !== "owner") {
         expect(stdout + stderr).toContain(action === "missing" ? "NotFound" : "SchemaError")
         expect(stdout + stderr).toContain("read-registration")
-        expect(stdout + stderr).toContain(file)
+        expect(stdout + stderr).toContain(JSON.stringify(file).slice(1, -1))
       }
       expect(stdout + stderr).not.toContain("DUMMY_NORMAL_ENTRY_MUST_NOT_LOG")
       expect(stdout + stderr).not.toContain("PROBE ")
