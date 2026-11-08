@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import { createAppFixture } from "./fixture/app"
 import { json } from "./fixture/tui-client"
+import { freeModel } from "./fixture/catalog"
 
 type SessionInput = { id?: string; location?: { directory: string } }
 
@@ -20,12 +21,13 @@ function sessionInfo(record: SessionInput) {
   }
 }
 
-async function launch(options: { failCreates?: number } = {}) {
+async function launch(options: { failCreates?: number; width?: number } = {}) {
   const attempts: (string | undefined)[] = []
   const created: SessionInput[] = []
   const prompts: string[] = []
   let failures = options.failCreates ?? 0
   const setup = await createAppFixture({
+    width: options.width,
     args: { newSessionID: "ses_chosen" },
     config: { animations: false, keybinds: { "session.new": "f6" } },
     fetch: async (url, request) => {
@@ -33,7 +35,7 @@ async function launch(options: { failCreates?: number } = {}) {
         return json({ location, data: [{ id: "build", mode: "primary", hidden: false, permissions: [] }] })
       if (url.pathname === "/api/provider") return json({ location, data: [{ id: "demo", name: "Demo" }] })
       if (url.pathname === "/api/model")
-        return json({ location, data: [{ id: "model", providerID: "demo", name: "Demo Model", variants: [] }] })
+        return json({ location, data: [freeModel("model", "demo", "Demo Model")] })
       if (url.pathname === "/api/session" && request.method === "POST") {
         const record: SessionInput = await request.json()
         attempts.push(record.id)
@@ -63,7 +65,8 @@ async function launch(options: { failCreates?: number } = {}) {
 }
 
 test("the first new session uses the launch session ID and later ones mint their own", async () => {
-  const run = await launch()
+  // This scenario checks launch-session IDs, not responsive composer truncation.
+  const run = await launch({ width: 160 })
   await using setup = run.setup
 
   await setup.ready

@@ -53,8 +53,8 @@ async function render(
 test("Host lists reachable addresses and hands out a join code", async () => {
   await using state = await tmpdir()
   await using setup = await render(state.path)
-  const bar = await setup.waitForFrame((frame) => frame.includes("+ Host") && frame.includes("+ Connect"))
-  const entry = cell(bar, "+ Host")
+  const bar = await setup.waitForFrame((frame) => frame.includes("◈ Host") && frame.includes("⇢ Connect"))
+  const entry = cell(bar, "◈ Host")
   await setup.mockMouse.click(entry.x, entry.y)
   const frame = await setup.waitForFrame((frame) => frame.includes("Get join code"))
   // only addresses other devices can reach, not loopback or container bridges
@@ -163,9 +163,9 @@ test("hosting a session issues a join code at once and shows the indicator", asy
   await using state = await tmpdir()
   const rooms: unknown[] = []
   await using setup = await renderSession(state.path, { rooms: () => rooms, onCreate: () => rooms.push(room) })
-  const bar = await setup.waitForFrame((frame) => frame.includes("+ Host") && frame.includes("+ Connect"))
+  const bar = await setup.waitForFrame((frame) => frame.includes("◈ Host") && frame.includes("⇢ Connect"))
   expect(bar).not.toContain("Multiplayer · Lab")
-  const entry = cell(bar, "+ Host")
+  const entry = cell(bar, "◈ Host")
   await setup.mockMouse.click(entry.x, entry.y)
   // the address loads after the window opens and moves the button down
   const dialog = await setup.waitForFrame(
@@ -186,10 +186,10 @@ test("the Language bar item switches the bar and room windows to Russian and bac
   const bar = await setup.waitForFrame((frame) => frame.includes("Language EN"))
   const entry = cell(bar, "Language EN")
   await setup.mockMouse.click(entry.x, entry.y)
-  const translated = await setup.waitForFrame((frame) => frame.includes("+ Подключиться") && frame.includes("Язык RU"))
+  const translated = await setup.waitForFrame((frame) => frame.includes("⇢ Подключиться") && frame.includes("Язык RU"))
   expect(translated).toContain("Спроси что угодно…")
   expect(translated).toContain("команды")
-  const connect = cell(translated, "+ Подключиться")
+  const connect = cell(translated, "⇢ Подключиться")
   await setup.mockMouse.click(connect.x, connect.y)
   const dialog = await setup.waitForFrame((frame) => frame.includes("Вход по адресу"))
   expect(dialog).toContain("Комнаты в этой сети")
@@ -275,8 +275,8 @@ test("a joined room opens in the main area like a session and stays in the left 
   })
   try {
     await using setup = await render(state.path)
-    const bar = await setup.waitForFrame((frame) => frame.includes("+ Connect"))
-    const entry = cell(bar, "+ Connect")
+    const bar = await setup.waitForFrame((frame) => frame.includes("⇢ Connect"))
+    const entry = cell(bar, "⇢ Connect")
     await setup.mockMouse.click(entry.x, entry.y)
     const dialog = await setup.waitForFrame((frame) => frame.includes("Join by address"))
     const address = cell(dialog, "e.g. 192.168.1.5")
@@ -336,7 +336,7 @@ test("the classic Windows console gets drawable stand-ins for the panel's symbol
   try {
     await using state = await tmpdir()
     await using setup = await render(state.path)
-    const frame = await setup.waitForFrame((frame) => frame.includes("+ Connect"))
+    const frame = await setup.waitForFrame((frame) => frame.includes("→ Connect"))
     expect(frame).toContain("↔ Multiplayer")
     expect(frame).not.toContain("⇄")
     expect(frame).toContain("√ Server")
@@ -348,8 +348,8 @@ test("the classic Windows console gets drawable stand-ins for the panel's symbol
 test("Host says how to open the server to the network when it only listens on this computer", async () => {
   await using state = await tmpdir()
   await using setup = await render(state.path, ["http://127.0.0.1:4096"])
-  const bar = await setup.waitForFrame((frame) => frame.includes("+ Host"))
-  const entry = cell(bar, "+ Host")
+  const bar = await setup.waitForFrame((frame) => frame.includes("◈ Host"))
+  const entry = cell(bar, "◈ Host")
   await setup.mockMouse.click(entry.x + 2, entry.y)
   const frame = await setup.waitForFrame((frame) => frame.includes("only listens on this machine"))
   expect(frame).toContain("service set hostname 0.0.0.0")
@@ -359,8 +359,8 @@ test("Host says how to open the server to the network when it only listens on th
 test("Host still shows virtual adapter addresses when nothing else listens, with a warning", async () => {
   await using state = await tmpdir()
   await using setup = await render(state.path, ["http://127.0.0.1:4096", "http://172.20.3.4:4096"])
-  const bar = await setup.waitForFrame((frame) => frame.includes("+ Host"))
-  const entry = cell(bar, "+ Host")
+  const bar = await setup.waitForFrame((frame) => frame.includes("◈ Host"))
+  const entry = cell(bar, "◈ Host")
   await setup.mockMouse.click(entry.x + 2, entry.y)
   const frame = await setup.waitForFrame((frame) => frame.includes("172.20.3.4:4096"))
   expect(frame).toContain("Only virtual adapters")
@@ -378,8 +378,8 @@ test("Host opens a loopback-only service to the network with one click", async (
       urls.push("http://192.168.1.5:4096")
     },
   }))
-  const bar = await setup.waitForFrame((frame) => frame.includes("+ Host"))
-  const entry = cell(bar, "+ Host")
+  const bar = await setup.waitForFrame((frame) => frame.includes("◈ Host"))
+  const entry = cell(bar, "◈ Host")
   await setup.mockMouse.click(entry.x + 2, entry.y)
   const frame = await setup.waitForFrame((frame) => frame.includes("Open to the network"))
   expect(frame).not.toContain("service set hostname")
@@ -415,8 +415,8 @@ test("room management separates participants from safety rules and exposes guest
       if (url.pathname.startsWith(`/api/room/${room.id}/`)) return new Response(null, { status: 204 })
     },
   })
-  const bar = await setup.waitForFrame((frame) => frame.includes("+ Host"))
-  const host = cell(bar, "+ Host")
+  const bar = await setup.waitForFrame((frame) => frame.includes("◈ Host"))
+  const host = cell(bar, "◈ Host")
   await setup.mockMouse.click(host.x, host.y)
   const overview = await setup.waitForFrame((frame) => frame.includes("Safety rules") && frame.includes("Participants"))
   expect(overview).toContain("Room management")
@@ -523,8 +523,8 @@ test("a joined room its host closed shows why and can be left without a crash", 
   })
   try {
     await using setup = await render(state.path)
-    const bar = await setup.waitForFrame((frame) => frame.includes("+ Connect"))
-    const entry = cell(bar, "+ Connect")
+    const bar = await setup.waitForFrame((frame) => frame.includes("⇢ Connect"))
+    const entry = cell(bar, "⇢ Connect")
     await setup.mockMouse.click(entry.x, entry.y)
     const dialog = await setup.waitForFrame((frame) => frame.includes("Join by address"))
     const address = cell(dialog, "e.g. 192.168.1.5")
