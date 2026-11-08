@@ -240,6 +240,11 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
   const [removed, setRemoved] = createStore<Record<string, boolean>>({})
 
   const current = () => (route.data.type === "session" ? data.session.get(route.data.sessionID) : undefined)
+  // The Console and Browser views are per project: the tree lists only projects there, and picking one
+  // opens its main session, whose directory decides the shell (or the browser sessions) shown.
+  const projectOnly = () => notes.tab() === "console" || notes.tab() === "browser"
+  const inProject = (project: OrchestraProject) =>
+    current()?.location.directory !== undefined && Orchestra.contains(project.directory, current()!.location.directory)
   const palette = () => neuralPalette(theme)
   const energy = useNeuralEnergy()
   const empty = useEmptyRoom()
@@ -712,7 +717,17 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                   <For each={section().projects}>
                     {(project) => (
                       <box paddingLeft={section().name ? 2 : 0}>
-                <Row id={project.id} hover={hover} setHover={setHover} onClick={() => toggle(project.id)}>
+                <Row
+                  id={project.id}
+                  hover={hover}
+                  setHover={setHover}
+                  selected={projectOnly() && inProject(project)}
+                  onClick={() => {
+                    if (!projectOnly()) return toggle(project.id)
+                    notes.setProject(project.id)
+                    void openMain(project)
+                  }}
+                >
                   {/* A project is a neuron: lit while any of its sessions works, open when expanded. */}
                   <text
                     flexShrink={0}
@@ -724,7 +739,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                           : theme.text.muted
                     }
                   >
-                    {expanded[project.id] ? "◉ " : "○ "}
+                    {projectOnly() ? (inProject(project) ? "◉ " : "○ ") : expanded[project.id] ? "◉ " : "○ "}
                   </text>
                   <box flexGrow={1} minWidth={0}>
                     <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
@@ -747,7 +762,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                     <text fg={theme.text.action.primary.base}>{hover() === project.id ? " ✱" : "  "}</text>
                   </HoverAction>
                 </Row>
-                <Show when={expanded[project.id]}>
+                <Show when={expanded[project.id] && !projectOnly()}>
                   <Row
                     id={`${project.id}:main`}
                     hover={hover}

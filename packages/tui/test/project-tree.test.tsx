@@ -769,3 +769,21 @@ test("an expanded project folds sessions past the cap behind a more row", async 
   )
   expect(unfolded).not.toContain("+ 4 more")
 })
+
+test("in the Console view the left panel lists only projects, and a project opens its main session", async () => {
+  await using state = await tmpdir()
+  const calls: Call[] = []
+  await using setup = await render(state.path, calls, [project])
+
+  await setup.waitForFrame((frame) => frame.includes("Demo") && frame.includes("Worker task"))
+  const tab = cell(setup.captureCharFrame(), "Console")
+  await setup.mockMouse.click(tab.x + 1, tab.y)
+  // sessions and the orchestrator row are gone; the project stays
+  const frame = await setup.waitForFrame((frame) => frame.includes("Demo") && !frame.includes("Worker task"))
+  expect(frame).not.toContain("[write]")
+
+  // a click on the project (not on a session) picks it: its main session opens
+  const row = cell(frame, "Demo")
+  await setup.mockMouse.click(row.x + 1, row.y)
+  await setup.waitFor(() => calls.some((call) => call.path === `/api/orchestra/project/${project.id}/main`))
+})
