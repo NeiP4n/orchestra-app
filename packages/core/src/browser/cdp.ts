@@ -187,12 +187,20 @@ export function mouse(client: Client, input: MouseInput) {
       deltaX: input.deltaX ?? 0,
       deltaY: input.deltaY,
     })
-  return client.send("Input.dispatchMouseEvent", {
-    type: input.kind === "down" ? "mousePressed" : "mouseReleased",
-    ...base,
-    button: input.button ?? "left",
-    clickCount: 1,
-  })
+  const button = input.button ?? "left"
+  const pressed = input.kind === "down"
+  const press = () =>
+    client.send("Input.dispatchMouseEvent", {
+      type: pressed ? "mousePressed" : "mouseReleased",
+      ...base,
+      button,
+      // The buttons bitmask is what pages read for pointer events; a press without it can be ignored.
+      buttons: pressed ? (button === "right" ? 2 : button === "middle" ? 4 : 1) : 0,
+      clickCount: 1,
+    })
+  // A person's pointer is on the spot before it clicks: pages (consent dialogs, hover menus) expect that move.
+  if (!pressed) return press()
+  return client.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...base }).then(press)
 }
 
 // Keys that are not text. [key, code, Windows virtual key code]

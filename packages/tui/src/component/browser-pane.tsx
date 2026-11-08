@@ -115,10 +115,19 @@ export function BrowserPane(props: {
     }
   }
   const send = (work: Promise<unknown>) => void work.catch((error) => !disposed && setFailure(errorMessage(error)))
+  // While control is on, shows what the pane received and sent, so a lost event is visible.
+  const [debug, setDebug] = createSignal("")
+  const counts = { down: 0, up: 0, move: 0, key: 0 }
+  const note = (kind: keyof typeof counts, text: string) => {
+    counts[kind]++
+    setDebug(`control: ${text} · got down ${counts.down} up ${counts.up} move ${counts.move} key ${counts.key}`)
+  }
   const forward = (kind: "down" | "up" | "move", event: MouseEvent) => {
-    const at = control() ? toPage(event) : undefined
-    if (!at) return
+    if (!control()) return
+    const at = toPage(event)
+    if (!at) return note(kind, `${kind} ignored, pane has no size`)
     event.stopPropagation()
+    note(kind, `${kind} page ${Math.round(at.x)},${Math.round(at.y)}`)
     send(
       BrowserRuntime.mouse(
         props.sessionID,
@@ -133,6 +142,7 @@ export function BrowserPane(props: {
       key.preventDefault()
       key.stopPropagation()
       if (key.eventType === "release") return
+      note("key", `key ${key.name ?? key.sequence}`)
       send(BrowserRuntime.key(props.sessionID, key))
     }
     renderer.keyInput.on("keypress", onKey)
@@ -167,9 +177,13 @@ export function BrowserPane(props: {
     setState("idle")
   }
 
+  // Short labels when the pane is narrow, so the header stays on one line.
+  const narrow = () => (size()?.cols ?? 0) < 130
   const Action = (action: { label: string; onClick: () => void }) => (
     <HoverAction paddingLeft={1} paddingRight={1} onClick={action.onClick}>
-      <text fg={theme.text.action.primary.base}>{action.label}</text>
+      <text fg={theme.text.action.primary.base} wrapMode="none">
+        {action.label}
+      </text>
     </HoverAction>
   )
 
@@ -192,7 +206,15 @@ export function BrowserPane(props: {
         }
       >
         <box flexDirection="row" flexShrink={0} gap={0}>
-          <text fg={theme.text.base} attributes={TextAttributes.BOLD} flexGrow={1} wrapMode="none" truncate>
+          <text
+            fg={theme.text.base}
+            attributes={TextAttributes.BOLD}
+            flexGrow={1}
+            flexShrink={1}
+            minWidth={0}
+            wrapMode="none"
+            truncate
+          >
             {`${t("Browser")} · ${props.name}`}
           </text>
           <Show when={props.canShowChat}>
@@ -200,7 +222,15 @@ export function BrowserPane(props: {
           </Show>
           <Show when={view() === "screen" && !windowed()}>
             <Action
-              label={control() ? t("Release (Ctrl+G)") : t("Take control")}
+              label={
+                control()
+                  ? narrow()
+                    ? t("Release ^G")
+                    : t("Release (Ctrl+G)")
+                  : narrow()
+                    ? t("Control")
+                    : t("Take control")
+              }
               onClick={() => setControl(!control())}
             />
           </Show>
@@ -214,16 +244,19 @@ export function BrowserPane(props: {
             />
           </Show>
           <Show when={mode() === "headless" && process.platform === "win32"}>
-            <Action label={t("Real Chrome in pane")} onClick={() => switchMode("capture")} />
+            <Action
+              label={narrow() ? t("Real Chrome") : t("Real Chrome in pane")}
+              onClick={() => switchMode("capture")}
+            />
           </Show>
           <Show when={mode() === "capture"}>
             <Action label={t("Fast view")} onClick={() => switchMode("headless")} />
           </Show>
           <Action
-            label={windowed() ? t("Back to pane") : t("Open in Chrome window")}
+            label={windowed() ? t("Back to pane") : narrow() ? t("Window") : t("Open in Chrome window")}
             onClick={() => switchMode(windowed() ? "headless" : "window")}
           />
-          <Action label={t("Close browser")} onClick={stop} />
+          <Action label={narrow() ? t("Close") : t("Close browser")} onClick={stop} />
         </box>
         <Show when={failure()}>
           <text fg={theme.text.feedback.error.base} flexShrink={0}>
@@ -284,7 +317,7 @@ export function BrowserPane(props: {
               />
             </box>
             <text fg={theme.text.muted} flexShrink={0} wrapMode="none" truncate>
-              {stats()}
+              {control() ? debug() || "control: on, waiting for mouse or keys" : stats()}
             </text>
           </Show>
         </Show>
