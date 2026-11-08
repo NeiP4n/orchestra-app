@@ -72,6 +72,21 @@ describe("Chrome discovery and launch", () => {
     expect(Chrome.launchArgs({ profileDir: "/p", urls: ["file:///x"] }).at(-1)).toBe("about:blank")
   })
 
+  test("a profile left by an unclean stop is marked clean, and Chrome is told not to offer a restore", () => {
+    const args = Chrome.launchArgs({ profileDir: "/p" })
+    expect(args).toContain("--disable-session-crashed-bubble")
+    expect(args).toContain("--hide-crash-restore-bubble")
+    const fixed = JSON.parse(
+      Chrome.cleanExitPreferences('{"profile":{"exit_type":"Crashed","exited_cleanly":false,"name":"x"},"a":1}')!,
+    )
+    expect(fixed).toEqual({ profile: { exit_type: "Normal", exited_cleanly: true, name: "x" }, a: 1 })
+    expect(JSON.parse(Chrome.cleanExitPreferences("{}")!)).toEqual({
+      profile: { exit_type: "Normal", exited_cleanly: true },
+    })
+    expect(Chrome.cleanExitPreferences('{"profile":{"exit_type":"Normal","exited_cleanly":true}}')).toBeUndefined()
+    expect(Chrome.cleanExitPreferences("not json")).toBeUndefined()
+  })
+
   test("the active port file is parsed and bad content is ignored", () => {
     expect(Chrome.parseActivePort("9222\n/devtools/browser/abc\n")).toEqual({
       port: 9222,

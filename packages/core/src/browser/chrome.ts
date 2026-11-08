@@ -95,12 +95,32 @@ export function launchArgs(input: {
     `--user-data-dir=${input.profileDir}`,
     "--no-first-run",
     "--no-default-browser-check",
+    // A Chrome that was stopped without a clean exit must not greet the operator with "Restore pages?".
+    "--disable-session-crashed-bubble",
+    "--hide-crash-restore-bubble",
     ...(input.headless
       ? ["--headless=new", ...LOW_MEMORY_FLAGS, `--window-size=${input.width ?? 1600},${input.height ?? 1000}`]
       : []),
     ...(input.extraArgs ?? []),
     ...(urls.length > 0 ? urls : [input.url ?? "about:blank"]),
   ]
+}
+
+/**
+ * Marks the last exit in a profile's Preferences as clean, so Chrome does not offer to restore pages after a
+ * stop it did not get to finish. Returns the new text, or undefined when there is nothing to change.
+ */
+export function cleanExitPreferences(text: string): string | undefined {
+  let data: { profile?: { exit_type?: unknown; exited_cleanly?: unknown } }
+  try {
+    data = JSON.parse(text)
+  } catch {
+    return undefined
+  }
+  if (!data || typeof data !== "object") return undefined
+  if (data.profile?.exit_type === "Normal" && data.profile?.exited_cleanly === true) return undefined
+  data.profile = { ...(data.profile ?? {}), exit_type: "Normal", exited_cleanly: true }
+  return JSON.stringify(data)
 }
 
 /** DevToolsActivePort holds the port on the first line and the browser websocket path on the second. */

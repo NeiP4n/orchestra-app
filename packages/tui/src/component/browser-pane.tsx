@@ -297,6 +297,11 @@ export function BrowserPane(props: {
           </Show>
           <Action label={narrow() ? t("Close") : t("Close browser")} onClick={stop} />
         </box>
+        <Show when={control()}>
+          <text fg={theme.text.feedback.success.base} flexShrink={0} wrapMode="word">
+            {`${debug() || "control: on, waiting for mouse or keys"}${route() ? ` · ${route()}` : " · (no press forwarded yet)"} · build ${BUILD}`}
+          </text>
+        </Show>
         <Show when={failure()}>
           <text fg={theme.text.feedback.error.base} flexShrink={0}>
             {failure()}
@@ -378,13 +383,8 @@ export function BrowserPane(props: {
               </box>
             </box>
             <text fg={theme.text.muted} flexShrink={0} wrapMode="none" truncate>
-              {control() ? debug() || "control: on, waiting for mouse or keys" : `${stats()} · build ${BUILD}`}
+              {`${stats()} · build ${BUILD}`}
             </text>
-            <Show when={control() && route()}>
-              <text fg={theme.text.muted} flexShrink={0} wrapMode="word">
-                {`${route()} · build ${BUILD}`}
-              </text>
-            </Show>
           </Show>
         </Show>
       </Show>
