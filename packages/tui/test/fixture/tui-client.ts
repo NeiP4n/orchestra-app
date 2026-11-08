@@ -175,6 +175,21 @@ export function createFetch(override?: FetchHandler, events?: ReturnType<typeof 
     if (url.pathname === "/api/room/link/remove") return new Response(null, { status: 204 })
     // The shared project's DoD under each room; these projects have none.
     if (/^\/api\/room\/[^/]+\/(guest\/)?dod$/.test(url.pathname)) return json({ items: [], status: "disabled" })
+    // The DoD kanban board of a project whose file is missing: the host answers
+    // status "disabled" with the five empty columns, not an error.
+    if (/^\/api\/room\/[^/]+\/(guest\/)?dod\/board$/.test(url.pathname))
+      return json({
+        status: "disabled",
+        columns: [
+          { id: "todo", title: "To do", cards: [] },
+          { id: "in_progress", title: "In progress", cards: [] },
+          { id: "blocked", title: "Blocked", cards: [] },
+          { id: "failed", title: "Failed", cards: [] },
+          { id: "done", title: "Done", cards: [] },
+        ],
+        zones: [],
+        counts: { total: 0, done: 0, inProgress: 0, blocked: 0, failed: 0, free: 0 },
+      })
     // An idle room returns an empty feed instead of an unhandled test request.
     if (/^\/api\/room\/[^/]+\/feed$/.test(url.pathname)) return json({ events: [] })
     if (url.pathname === "/api/note" && request.method === "GET")

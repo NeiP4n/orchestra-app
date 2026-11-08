@@ -606,6 +606,43 @@ test("a hosted room shows its project's DoD with who took each item, and the hos
       if (url.pathname === `/api/room/${room.id}/member`) return json({ data: [] })
       if (url.pathname === `/api/room/${room.id}/ban`) return json({ data: [] })
       if (url.pathname === `/api/room/${room.id}/dod`) return json({ items: items() })
+      // The kanban view of the same items; the real host builds it from the same
+      // file, so a present list never answers a disabled board.
+      if (url.pathname === `/api/room/${room.id}/dod/board`) {
+        const host = (item: ReturnType<typeof items>[number]) => ({
+          ...item,
+          mine: false,
+          hasPass: false,
+          canTake: false,
+          takeRefusal: "Only guests take items; the host frees them",
+          readOnly: false,
+        })
+        const cards = items().map(host)
+        const column = (id: string, title: string, states: string[]) => ({
+          id,
+          title,
+          cards: cards.filter((card) => states.includes(card.state)),
+        })
+        return json({
+          status: "ready",
+          columns: [
+            column("todo", "To do", ["NOT_STARTED"]),
+            column("in_progress", "In progress", ["IN_PROGRESS"]),
+            column("blocked", "Blocked", ["BLOCKED"]),
+            column("failed", "Failed", ["FAILED"]),
+            column("done", "Done", ["DONE", "OUT_OF_SCOPE"]),
+          ],
+          zones: [],
+          counts: {
+            total: cards.length,
+            done: cards.filter((card) => card.state === "DONE" || card.state === "OUT_OF_SCOPE").length,
+            inProgress: cards.filter((card) => card.state === "IN_PROGRESS").length,
+            blocked: 0,
+            failed: 0,
+            free: cards.filter((card) => card.state !== "DONE" && card.state !== "OUT_OF_SCOPE").length,
+          },
+        })
+      }
       if (url.pathname === `/api/room/${room.id}/dod/release` && request.method === "POST") {
         freed.push(await request.json())
         return json({ items: items() })
