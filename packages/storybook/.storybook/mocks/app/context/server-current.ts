@@ -7,6 +7,13 @@ const data = {
       list: () => undefined,
       sync: async () => {},
     },
+    // Unsynced skill catalog, same semantics as integration above: the real
+    // client always builds this child store (packages/client/src/solid/data.ts),
+    // so the mock must too - ComposerMiniSkills reads it on every composer story.
+    skill: {
+      list: () => undefined,
+      sync: async () => {},
+    },
   },
 }
 

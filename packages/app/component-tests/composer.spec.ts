@@ -1,5 +1,25 @@
 import { expect, story } from "../../storybook/playwright/story"
 
+// Regression: the story server-current mock must expose every location child
+// store a rendered composer component reads - a missing skill store used to
+// crash the render and leave #storybook-root empty for every composer story.
+story("mounts an ordinary composer story with controls and the mini-skills bar", async ({ mount, page }) => {
+  // Reset persisted MiniSkills settings (composer.mini-skills.v2) so saved
+  // chips or hidden state from an earlier story can't pollute the empty-catalog
+  // exactly-3-buttons assertion.
+  await page.addInitScript(() => window.localStorage.clear())
+  const component = await mount("opencode-composer-flow--empty-draft")
+  await expect(component.locator('[data-slot="composer-controls"]')).toBeVisible()
+  await expect(component.locator('[data-action="composer-submit"]')).toBeVisible()
+  // Unsynced (empty) skill catalog: the bar renders its title and only its
+  // three own buttons (manage, add, hide) - no chips, no crash.
+  const minis = component.locator('[data-component="composer-mini-skills"]')
+  await expect(minis).toBeVisible()
+  await expect(minis).toContainText("Mini skills")
+  await expect(minis.getByRole("button", { name: "Add mini skill" })).toBeVisible()
+  await expect(minis.getByRole("button")).toHaveCount(3)
+})
+
 for (const direction of ["ltr", "rtl"]) {
   for (const alternate of ["none", "queue", "steer"]) {
     story(`scrolls overflowing controls beside fixed ${alternate} actions in ${direction}`, async ({ mount, page }) => {
