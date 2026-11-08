@@ -116,6 +116,22 @@ export function normalizeUrl(input: string): string {
   return url.toString()
 }
 
+/**
+ * What the address bar does with typed text, like Chrome's omnibox: an address opens, anything else is a
+ * search. Only http and https ever open.
+ */
+export function omnibox(input: string): string {
+  const text = input.trim()
+  if (!text) throw new Error("Type an address or something to search for.")
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) return normalizeUrl(text)
+  if (/^(localhost|\d{1,3}(\.\d{1,3}){3})(:\d+)?([/?#]|$)/i.test(text)) return normalizeUrl(`http://${text}`)
+  if (!/\s/.test(text) && /^[^\s/:]+\.[a-z]{2,}(:\d+)?([/?#]|$)/i.test(text)) return normalizeUrl(`https://${text}`)
+  // javascript:, file:, about: and the like are never searched for or opened.
+  if (!/\s/.test(text) && /^(javascript|file|data|about|chrome|view-source|blob):/i.test(text))
+    return normalizeUrl(text)
+  return `https://www.google.com/search?q=${encodeURIComponent(text)}`
+}
+
 export interface Running {
   readonly port: number
   readonly pid: number | undefined
