@@ -22,6 +22,18 @@ describe("browser view", () => {
     expect(pane).toContain("BrowserRuntime.unwatch(")
   })
 
+  test("the pane has Chrome's tab strip and address bar", () => {
+    const pane = read("component/browser-pane.tsx")
+    for (const call of [
+      "BrowserRuntime.newTab(",
+      "BrowserRuntime.closeTab(",
+      "BrowserRuntime.selectTab(",
+      "BrowserRuntime.history(",
+      "BrowserRuntime.reload(",
+    ])
+      expect(pane).toContain(call)
+  })
+
   test("the chat is shown beside the page only in a wide window", () => {
     const frame = read("component/session-frame.tsx")
     expect(frame).toContain('centerView() === "browser" && dimensions().width >= 110')

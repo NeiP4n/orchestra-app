@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { BrowserBridge } from "../src/browser/bridge"
 import { BrowserPage } from "../src/browser/page"
 import { Cdp } from "../src/browser/cdp"
+import { BrowserTabs } from "../src/browser/tabs"
 import { Chrome } from "../src/browser/chrome"
 import { acts } from "../src/tool/plugin/browser"
 
@@ -101,5 +102,48 @@ describe("screencast", () => {
       data: JSON.stringify({ method: "Page.screencastFrame", params: { data: "BBBB", sessionId: 8 } }),
     })
     expect(frames.length).toBe(1)
+  })
+})
+
+describe("tabs and the address bar", () => {
+  const tab = (id: string) => ({ id, title: id, url: `https://${id}.test/`, wsUrl: `ws://x/${id}` })
+
+  test("only real pages are tabs", () => {
+    const list = BrowserTabs.parse([
+      { id: "a", type: "page", url: "https://a.test/", title: "A", webSocketDebuggerUrl: "ws://x/a" },
+      { id: "w", type: "service_worker", url: "https://a.test/sw.js", webSocketDebuggerUrl: "ws://x/w" },
+      { id: "d", type: "page", url: "devtools://devtools/x", webSocketDebuggerUrl: "ws://x/d" },
+      { id: "n", type: "page", url: "https://n.test/" },
+    ])
+    expect(list.map((item) => item.id)).toEqual(["a"])
+  })
+
+  test("closing a tab shows its right neighbour, else the left one", () => {
+    const tabs = [tab("a"), tab("b"), tab("c")]
+    expect(BrowserTabs.neighbour(tabs, "b")?.id).toBe("c")
+    expect(BrowserTabs.neighbour(tabs, "c")?.id).toBe("b")
+    expect(BrowserTabs.neighbour([tab("a")], "a")).toBeUndefined()
+  })
+
+  test("tab actions call Chrome's own endpoints", async () => {
+    const calls: string[] = []
+    const f = (async (url: string, init?: { method?: string }) => {
+      calls.push(`${init?.method ?? "GET"} ${url.replace("http://127.0.0.1:9222", "")}`)
+      return { json: async () => ({ id: "n", type: "page", url: "https://n.test/", webSocketDebuggerUrl: "ws://x/n" }) }
+    }) as never
+    expect((await BrowserTabs.create(9222, "https://n.test/", f)).id).toBe("n")
+    await BrowserTabs.activate(9222, "n", f)
+    await BrowserTabs.close(9222, "n", f)
+    expect(calls).toEqual(["PUT /json/new?https%3A%2F%2Fn.test%2F", "GET /json/activate/n", "GET /json/close/n"])
+  })
+
+  test("the address bar opens addresses, searches the rest, and refuses other schemes", () => {
+    expect(Chrome.omnibox("example.com")).toBe("https://example.com/")
+    expect(Chrome.omnibox("localhost:3000/x")).toBe("http://localhost:3000/x")
+    expect(Chrome.omnibox("muse ai")).toBe("https://www.google.com/search?q=muse%20ai")
+    expect(Chrome.omnibox("cats")).toBe("https://www.google.com/search?q=cats")
+    expect(() => Chrome.omnibox("javascript:alert(1)")).toThrow()
+    expect(() => Chrome.omnibox("file:///etc/passwd")).toThrow()
+    expect(() => Chrome.omnibox("  ")).toThrow()
   })
 })
