@@ -191,11 +191,13 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     if (id) return { id }
   }
   let consoleRequested: string | undefined
+  const [consoleError, setConsoleError] = createSignal<string>()
   // The shell of a project may live under a sibling session, so list the terminals of all of them.
   createEffect(() => {
     if (centerView() !== "console" || !sessions.available()) return
     for (const id of consoleSiblings(props.sessionID, consoleSessions())) {
-      if (id !== props.sessionID) void sessions.refresh(id).catch(() => undefined)
+      // refresh reads and writes the terminal store, so it must not become a dependency of this effect.
+      if (id !== props.sessionID) untrack(() => void sessions.refresh(id).catch(() => undefined))
     }
   })
   createEffect(() => {
@@ -204,7 +206,14 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     if (consoleTerminal() || consoleRequested === props.sessionID) return
     if (!untrack(() => sessions.terminalsLoaded(props.sessionID))) return
     consoleRequested = props.sessionID
-    void sessions.newTerminal(props.sessionID).catch(terminalError)
+    void untrack(() => sessions.newTerminal(props.sessionID)).catch((error: unknown) => {
+      setConsoleError(error instanceof Error ? error.message : String(error))
+      terminalError()
+    })
+  })
+  // Opening the Console takes the keyboard from the chat prompt, whose box is hidden behind it.
+  createEffect(() => {
+    if (centerView() === "console") renderer.currentFocusedRenderable?.blur()
   })
   const selectedTerminal = () => {
     if (!sessions.available()) return
@@ -590,12 +599,26 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
                 </box>
               }
             >
-              <Show keyed when={consoleTerminal()?.id}>
+              <Show
+                keyed
+                when={consoleTerminal()?.id}
+                fallback={
+                  // Say why the pane is empty instead of leaving a blank panel.
+                  <box flexGrow={1} alignItems="center" justifyContent="center">
+                    <text fg={theme.text.muted}>
+                      {!sessions.available()
+                        ? t("Terminals are not available on this server.")
+                        : consoleError()
+                          ? `${t("Unable to load terminal")}: ${consoleError()}`
+                          : t("Starting the project shell...")}
+                    </text>
+                  </box>
+                }
+              >
                 {(ptyID) => (
                   <TerminalPane
                     ptyID={ptyID}
-                    autoFocus={sessions.shouldFocus(ptyID)}
-                    onAutoFocus={() => sessions.clearFocus(ptyID)}
+                    autoFocus
                     onFocusRequest={(value) => (focusTerminal = value)}
                   />
                 )}

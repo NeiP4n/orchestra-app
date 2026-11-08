@@ -224,6 +224,8 @@ const ru: Record<string, string> = {
   Projects: "Проекты",
   Notes: "Заметки",
   Console: "Консоль",
+  "Terminals are not available on this server.": "На этом сервере терминалы недоступны.",
+  "Starting the project shell...": "Запускаю оболочку проекта...",
   "The agent's browser view is not built yet.": "Окно браузера агента ещё не готово.",
   "+ New": "+ Новый",
   "+ New session": "+ Новая сессия",
