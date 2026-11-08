@@ -19,4 +19,11 @@ describe("browser view", () => {
     expect(frame).toContain('centerView() === "browser" && dimensions().width >= 110')
     expect(frame).toContain('chatBeside() ? "row-reverse" : "row"')
   })
+
+  test("the chat column can be hidden and the choice is saved in the layout", () => {
+    const frame = read("component/session-frame.tsx")
+    expect(frame).toContain("draft.browserChatHidden = hidden")
+    expect(frame).toContain("&& !browserChatHidden()")
+    expect(read("component/browser-pane.tsx")).toContain("Hide chat")
+  })
 })

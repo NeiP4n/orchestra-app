@@ -7,7 +7,13 @@ import * as BrowserRuntime from "../util/browser-runtime"
 
 // The text view of one browser session: its page address, title and the page's visible text. It reads
 // the page; pixels and clicking come later. Chrome starts only when the operator opens the page.
-export function BrowserPane(props: { sessionID: string; name: string }) {
+export function BrowserPane(props: {
+  sessionID: string
+  name: string
+  chatHidden: boolean
+  canShowChat: boolean
+  onToggleChat: () => void
+}) {
   const theme = useTheme()
   const t = useT()
   const [state, setState] = createSignal<"idle" | "busy" | "ready">(
@@ -58,6 +64,9 @@ export function BrowserPane(props: { sessionID: string; name: string }) {
       <box flexDirection="row" flexShrink={0} gap={1}>
         <text fg={theme.text.base} attributes={TextAttributes.BOLD}>{`${t("Browser")} · ${props.name}`}</text>
         <box flexGrow={1} />
+        <Show when={props.canShowChat}>
+          <Action label={props.chatHidden ? t("Show chat") : t("Hide chat")} onClick={props.onToggleChat} />
+        </Show>
         <Show when={state() !== "idle"}>
           <Action label={t("Reload")} onClick={() => void reload()} />
           <Action label={t("Close browser")} onClick={stop} />

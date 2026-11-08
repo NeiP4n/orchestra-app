@@ -92,7 +92,12 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   // In the Browser view the chat stays beside the page when the window is wide enough; the Console takes the
   // whole center, and a narrow window shows the browser alone.
   const CHAT_BESIDE_WIDTH = 46
-  const chatBeside = () => centerView() === "browser" && dimensions().width >= 110
+  const browserChatHidden = () => layout.browserChatHidden === true
+  const setBrowserChatHidden = (hidden: boolean) => {
+    if (browserChatHidden() === hidden) return
+    void updateLayout((draft) => void (draft.browserChatHidden = hidden)).catch(() => undefined)
+  }
+  const chatBeside = () => centerView() === "browser" && dimensions().width >= 110 && !browserChatHidden()
   const hidesChat = () => centerView() === "console" || (centerView() === "browser" && !chatBeside())
   const centerView = () =>
     fullscreen() ? undefined : notes.tab() === "console" || notes.tab() === "browser" ? notes.tab() : undefined
@@ -108,6 +113,8 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     noteChatShare?: number
     // The operator hid the right pane; it stays hidden across sessions and projects until shown again.
     rightPaneHidden?: boolean
+    // The operator hid the chat column beside the Browser view; the page then takes the full width.
+    browserChatHidden?: boolean
   }>("layout", {
     initial: {},
   })
@@ -639,7 +646,15 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
                     </box>
                   }
                 >
-                  {(item) => <BrowserPane sessionID={item.id} name={item.name} />}
+                  {(item) => (
+                      <BrowserPane
+                        sessionID={item.id}
+                        name={item.name}
+                        chatHidden={browserChatHidden() || dimensions().width < 110}
+                        canShowChat={dimensions().width >= 110}
+                        onToggleChat={() => setBrowserChatHidden(!browserChatHidden())}
+                      />
+                    )}
                 </Show>
               }
             >

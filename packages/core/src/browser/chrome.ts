@@ -14,8 +14,14 @@ export function candidates(platform: NodeJS.Platform, env: Record<string, string
   if (platform === "win32") {
     for (const base of [env.PROGRAMFILES, env["PROGRAMFILES(X86)"], env.LOCALAPPDATA])
       if (base) list.push(path.win32.join(base, "Google", "Chrome", "Application", "chrome.exe"))
+    // Edge is Chromium with the same DevTools protocol; it is only the fallback when Chrome is missing.
+    for (const base of [env["PROGRAMFILES(X86)"], env.PROGRAMFILES])
+      if (base) list.push(path.win32.join(base, "Microsoft", "Edge", "Application", "msedge.exe"))
   } else if (platform === "darwin") {
-    list.push("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+    list.push(
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    )
   } else {
     list.push(
       "/usr/bin/google-chrome",
@@ -23,6 +29,8 @@ export function candidates(platform: NodeJS.Platform, env: Record<string, string
       "/opt/google/chrome/chrome",
       "/usr/bin/chromium",
       "/usr/bin/chromium-browser",
+      "/usr/bin/microsoft-edge",
+      "/usr/bin/microsoft-edge-stable",
     )
   }
   return list
