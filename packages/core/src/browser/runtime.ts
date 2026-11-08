@@ -82,12 +82,30 @@ async function quit(port: number) {
   throw new Error("Chrome did not close in time.")
 }
 
+/** Before Chrome starts on a profile: record the last exit as clean (see Chrome.cleanExitPreferences). */
+function calm(dir: string) {
+  const file = path.join(dir, "Default", "Preferences")
+  try {
+    const next = Chrome.cleanExitPreferences(readFileSync(file, "utf8"))
+    if (next !== undefined) writeFileSync(file, next)
+  } catch {
+    // No profile yet, or unreadable: Chrome makes its own.
+  }
+}
+
+/** Lets a window that Chrome treats as unfocused or hidden still take clicks and keys from DevTools. */
+async function awake(client: Cdp.Client) {
+  await client.send("Emulation.setFocusEmulationEnabled", { enabled: true }).catch(() => undefined)
+  await client.send("Page.bringToFront").catch(() => undefined)
+}
+
 async function start(sessionID: string): Promise<Live> {
   const dir = Chrome.profileDir(Global.Path.data, sessionID)
   const port = await Chrome.livePort(deps.readFile, alive, dir)
   if (port !== undefined) return join(port, () => {})
   const exe = Chrome.find(existsSync)
   if (!exe) throw new Error("Google Chrome or Microsoft Edge was not found. Install one, or set ORCHESTRA_CHROME_PATH.")
+  calm(dir)
   const run = await Chrome.launch(deps, { exe, profileDir: dir, headless: true, url: START_PAGE })
   try {
     return await join(run.port, run.close)
@@ -283,12 +301,16 @@ export async function mouse(sessionID: string, input: Cdp.MouseInput): Promise<s
   const client = await open(sessionID)
   const capture = live.get(sessionID)?.capture
   if (!capture) {
+    if (input.kind === "down") await awake(client)
     await Cdp.mouse(client, input)
     return "page"
   }
   const frame = await inset(sessionID, client).catch(() => undefined)
   if (frame && input.y >= frame.top && input.x >= frame.left) {
-    if (input.kind === "down") uiFocus.set(sessionID, false)
+    if (input.kind === "down") {
+      uiFocus.set(sessionID, false)
+      await awake(client)
+    }
     await Cdp.mouse(client, {
       ...input,
       x: (input.x - frame.left) / frame.scale,
@@ -320,13 +342,22 @@ export function close(sessionID: string) {
   live.delete(sessionID)
   item.client.close()
   item.capture?.stop()
-  if (item.windowed) void quit(item.port).catch(() => undefined)
-  else item.stop()
+  // Ask Chrome to quit so it saves its session cleanly; only if that fails is the process stopped.
+  void quit(item.port).catch(() => item.stop())
 }
 
 /** At exit only the windowless Chromes close; a window the operator is using stays open. */
 export function closeAll() {
-  for (const [id, item] of [...live]) if (!item.windowed) close(id)
+  // The process is ending, so nothing can be awaited here: stop them outright. The next start marks the profile's
+  // last exit as clean, so Chrome does not ask to restore pages.
+  for (const [id, item] of [...live]) {
+    if (item.windowed) continue
+    unwatch(id)
+    live.delete(id)
+    item.client.close()
+    item.capture?.stop()
+    item.stop()
+  }
 }
 
 export const isWindowed = (sessionID: string) => live.get(sessionID)?.windowed === true
@@ -369,6 +400,7 @@ export async function relaunch(sessionID: string, mode: Mode | boolean, size = {
   const exe = Chrome.find(existsSync)
   if (!exe) throw new Error("Google Chrome or Microsoft Edge was not found.")
   const headed = target !== "headless"
+  calm(Chrome.profileDir(Global.Path.data, sessionID))
   const run = await Chrome.launch(headed ? windowDeps : deps, {
     exe,
     profileDir: Chrome.profileDir(Global.Path.data, sessionID),
@@ -385,6 +417,7 @@ export async function relaunch(sessionID: string, mode: Mode | boolean, size = {
         : [],
   })
   const next = await join(run.port, target === "window" ? () => {} : run.close, target === "window")
+  if (target !== "window") await awake(next.client)
   if (target === "capture") {
     if (run.pid === undefined) throw new Error("Chrome did not report a process id.")
     const script = helperFile()
