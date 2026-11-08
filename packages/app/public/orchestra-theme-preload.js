@@ -2,9 +2,13 @@
   var key = "opencode-theme-id"
   // Desktop runs under Electron (window.electron is exposed by the
   // Electron preload before page scripts), web does not. Only desktop
-  // defaults to sculk; a stored theme always wins on both.
+  // defaults to sculk; a stored theme always wins on both. The served web UI
+  // opts in to the same default with <meta name="orchestra-default-theme">
+  // in index.html; a page without that tag keeps the legacy oc-2 default.
   var isDesktop = typeof window !== "undefined" && typeof window.electron !== "undefined"
-  var themeId = localStorage.getItem(key) || (isDesktop ? "sculk" : "oc-2")
+  var metaDefault = document.querySelector('meta[name="orchestra-default-theme"]')
+  var webDefault = (metaDefault && metaDefault.getAttribute("content")) || "oc-2"
+  var themeId = localStorage.getItem(key) || (isDesktop ? "sculk" : webDefault)
 
   var scheme = localStorage.getItem("opencode-color-scheme") || "system"
   var isDark = scheme === "dark" || (scheme === "system" && matchMedia("(prefers-color-scheme: dark)").matches)
