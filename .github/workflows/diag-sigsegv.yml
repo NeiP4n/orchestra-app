@@ -1,0 +1,327 @@
+# Diagnostic only (architect's plan for the linux unit crash): investigates why
+# the linux unit run ends with exit 139 (the shell convention for termination
+# by signal 11) right after a package's test failure lets the next task start.
+# SUSPECTED cancellation-boundary crash: which process took the signal and why
+# is not established, and memory pressure can precede a segfault, so this
+# workflow only records evidence - it asserts no root cause. Manual dispatch
+# only; changes no gate, keeps nonzero exits, uploads small text diagnostics
+# (never core files: they can hold fixtures/secrets). These are experiments,
+# not a green-gate substitute.
+name: diag-sigsegv
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: >-
+          Which experiment to run. Default cli-alone (cheapest). Run the full
+          jobs only when the cheaper experiment says they are needed (runner
+          quota). all-sequential runs all four in order: cli-alone, then
+          concurrency 1, then concurrency 3 with
+          --continue=dependencies-successful (never --continue=always), then
+          launcher-node-concurrency-3 - a separate launcher experiment
+          (node-shebang turbo binary instead of bun dispatch) at the original
+          concurrency 3 and default continue, so a launcher difference stays
+          attributable and never confounds the concurrency/continue
+          experiments.
+        type: choice
+        default: cli-alone
+        options:
+          - cli-alone
+          - full-concurrency-1
+          - full-concurrency-3-continue-deps
+          - launcher-node-concurrency-3
+          - all-sequential
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Panic-only: helps if the crash is a Rust panic, useless for a plain segfault.
+  RUST_BACKTRACE: "1"
+  # Same value main's linux unit sets (test.yml).
+  ORCHESTRA_EXPERIMENTAL_DISABLE_FILEWATCHER: "false"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # Experiment 1: the cli package's own test script without turbo, same SHA,
+  # same Bun, same prerequisites as main's unit job (git identity, FREE catalog
+  # prestep, dependency builds for @orchestra/cli#test's dependsOn ^build, and
+  # GITHUB_ACTIONS=false). Only the test workload loses turbo; prerequisites
+  # are reproduced once with the pinned local turbo binary.
+  cli-alone:
+    name: cli tests without turbo
+    if: github.event.inputs.scenario == 'cli-alone' || github.event.inputs.scenario == 'all-sequential'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "orchestra-bot@users.noreply.github.com"
+          git config --global user.name "orchestra-bot"
+
+      - name: Cache Turbo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: node_modules/.cache/turbo
+          key: turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json') }}-
+            turbo-${{ runner.os }}-
+
+      - name: Test anonymous FREE model catalog
+        run: bun test packages/core/test/models-dev-free-models.test.ts
+
+      - name: Evidence (before)
+        run: ./.github/diag/evidence.sh
+
+      - name: Build cli prerequisites (@orchestra/cli#test dependsOn ^build)
+        run: ./.github/diag/run.sh cli-prereq-build -- ./node_modules/.bin/turbo build --filter=@orchestra/cli^...
+
+      - name: Run cli tests without turbo
+        run: ./.github/diag/run.sh cli-alone -- bash -c 'cd packages/cli && GITHUB_ACTIONS=false bun run test'
+
+      - name: Record which package tasks executed
+        if: always()
+        # Index of turbo's task-prefixed lines only (cache hits appear as hits;
+        # the cli-alone workload has no turbo prefix by design, and this list is
+        # no coverage claim). diag/ is recreated here so a prereq/setup failure
+        # is not masked by a missing-directory secondary error.
+        run: |
+          mkdir -p diag
+          { grep -hE ':(test|build):' diag/*.log || true; } | sort -u > diag/tasks-executed.txt
+          wc -l diag/tasks-executed.txt
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: diag-sigsegv-cli-alone
+          path: diag/
+          retention-days: 7
+          if-no-files-found: warn
+
+  # Experiment 2: the full unit workload with concurrency 1, everything else
+  # identical to main's unit job. turbo's default --continue=never stops after
+  # the first failing package, so which packages actually ran is recorded in
+  # diag/tasks-executed.txt; this is not a full-coverage claim.
+  full-concurrency-1:
+    name: unit workload, concurrency 1
+    needs: cli-alone
+    if: ${{ !cancelled() && (github.event.inputs.scenario == 'full-concurrency-1' || github.event.inputs.scenario == 'all-sequential') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "orchestra-bot@users.noreply.github.com"
+          git config --global user.name "orchestra-bot"
+
+      - name: Cache Turbo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: node_modules/.cache/turbo
+          key: turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json') }}-
+            turbo-${{ runner.os }}-
+
+      - name: Test anonymous FREE model catalog
+        run: bun test packages/core/test/models-dev-free-models.test.ts
+
+      - name: Evidence (before)
+        run: ./.github/diag/evidence.sh
+
+      - name: Run unit workload, concurrency 1
+        run: ./.github/diag/run.sh full-concurrency-1 -- bash -c 'GITHUB_ACTIONS=false bun turbo test --concurrency=1'
+
+      - name: Record which package tasks executed
+        if: always()
+        # Index of turbo's task-prefixed lines only (cache hits appear as hits;
+        # the cli-alone workload has no turbo prefix by design, and this list is
+        # no coverage claim). diag/ is recreated here so a prereq/setup failure
+        # is not masked by a missing-directory secondary error.
+        run: |
+          mkdir -p diag
+          { grep -hE ':(test|build):' diag/*.log || true; } | sort -u > diag/tasks-executed.txt
+          wc -l diag/tasks-executed.txt
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: diag-sigsegv-full-concurrency-1
+          path: diag/
+          retention-days: 7
+          if-no-files-found: warn
+
+  # Experiment 3: the failing shape (concurrency 3) but cancellation scoped to
+  # the dependency chain, so one package's test failure no longer cancels
+  # sibling packages. Nonzero status on any failure is preserved; this is
+  # --continue=dependencies-successful, never --continue=always.
+  full-concurrency-3-continue-deps:
+    name: unit workload, concurrency 3, continue=dependencies-successful
+    needs: full-concurrency-1
+    if: ${{ !cancelled() && (github.event.inputs.scenario == 'full-concurrency-3-continue-deps' || github.event.inputs.scenario == 'all-sequential') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "orchestra-bot@users.noreply.github.com"
+          git config --global user.name "orchestra-bot"
+
+      - name: Cache Turbo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: node_modules/.cache/turbo
+          key: turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json') }}-
+            turbo-${{ runner.os }}-
+
+      - name: Test anonymous FREE model catalog
+        run: bun test packages/core/test/models-dev-free-models.test.ts
+
+      - name: Evidence (before)
+        run: ./.github/diag/evidence.sh
+
+      - name: Run unit workload, concurrency 3, --continue=dependencies-successful
+        run: ./.github/diag/run.sh full-concurrency-3-continue-deps -- bash -c 'GITHUB_ACTIONS=false bun turbo test --concurrency=3 --continue=dependencies-successful'
+
+      - name: Record which package tasks executed
+        if: always()
+        # Index of turbo's task-prefixed lines only (cache hits appear as hits;
+        # the cli-alone workload has no turbo prefix by design, and this list is
+        # no coverage claim). diag/ is recreated here so a prereq/setup failure
+        # is not masked by a missing-directory secondary error.
+        run: |
+          mkdir -p diag
+          { grep -hE ':(test|build):' diag/*.log || true; } | sort -u > diag/tasks-executed.txt
+          wc -l diag/tasks-executed.txt
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: diag-sigsegv-full-concurrency-3-continue-deps
+          path: diag/
+          retention-days: 7
+          if-no-files-found: warn
+  # Experiment 4 (separate name, run only on explicit selection): SAME shape as
+  # main's failing run (concurrency 3, default continue) but launched through
+  # the node-shebang turbo binary instead of `bun turbo`. If this crashes while
+  # the bun-dispatched original does not (or vice versa), the launcher is the
+  # attributable variable; nothing here feeds the green gate.
+  launcher-node-concurrency-3:
+    name: launcher experiment, node-shebang turbo, concurrency 3
+    needs: full-concurrency-3-continue-deps
+    if: ${{ !cancelled() && (github.event.inputs.scenario == 'launcher-node-concurrency-3' || github.event.inputs.scenario == 'all-sequential') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "orchestra-bot@users.noreply.github.com"
+          git config --global user.name "orchestra-bot"
+
+      - name: Cache Turbo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: node_modules/.cache/turbo
+          key: turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json') }}-
+            turbo-${{ runner.os }}-
+
+      - name: Test anonymous FREE model catalog
+        run: bun test packages/core/test/models-dev-free-models.test.ts
+
+      - name: Evidence (before)
+        run: ./.github/diag/evidence.sh
+
+      - name: Run unit workload via node-shebang turbo, concurrency 3
+        run: ./.github/diag/run.sh launcher-node-concurrency-3 -- bash -c 'GITHUB_ACTIONS=false ./node_modules/.bin/turbo test --concurrency=3'
+
+      - name: Record which package tasks executed
+        if: always()
+        # Index of turbo's task-prefixed lines only (cache hits appear as hits;
+        # no coverage claim). diag/ is recreated so a prereq/setup failure is
+        # not masked by a missing-directory secondary error.
+        run: |
+          mkdir -p diag
+          { grep -hE ':(test|build):' diag/*.log || true; } | sort -u > diag/tasks-executed.txt
+          wc -l diag/tasks-executed.txt
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: diag-sigsegv-launcher-node-concurrency-3
+          path: diag/
+          retention-days: 7
+          if-no-files-found: warn
