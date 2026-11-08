@@ -79,3 +79,5 @@ export {
   vesperTheme,
   zenburnTheme,
 } from "./default-themes"
+
+export { DEFAULT_THEME_ID } from "./default-theme"
