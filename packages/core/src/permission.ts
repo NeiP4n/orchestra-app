@@ -206,10 +206,16 @@ const layer = Layer.effect(
       )
     })
 
+    // TEST-ONLY witness for the guest-run fail-closed race (see confirm's diag).
+    const diagAgentResolve = (found: boolean) => {
+      if (typeof process !== "undefined" && process.env.ORCHESTRA_TEST_PERMISSION_DIAG)
+        console.info(`[perm-diag] agent-resolve=${found ? "found" : "missing"}`)
+    }
     const configured = Effect.fnUntraced(function* (sessionID: SessionSchema.ID, agentID?: Agent.ID) {
       const session = yield* sessions.get(sessionID)
       if (!session) return yield* new SessionErrors.NotFoundError({ sessionID })
       const agent = yield* agents.resolve(agentID ?? session.agent)
+      diagAgentResolve(agent !== undefined)
       return merge(agent?.permissions ?? missingAgentPermissions, session.permissions ?? [])
     })
 
@@ -761,7 +767,18 @@ const layer = Layer.effect(
         readonly scoped?: boolean
         readonly onAlways?: () => Effect.Effect<void>
       }) {
-        if (closed) return yield* new DeclinedError()
+        // TEST-ONLY branch witness: which confirm() path decided, gated on
+        // ORCHESTRA_TEST_PERMISSION_DIAG (set by room.test.ts only). Logs the branch
+        // name and action, never resources, metadata or rules content. Remove once
+        // the guest-run fail-closed race is fixed.
+        const diag = (branch: string) => {
+          if (typeof process !== "undefined" && process.env.ORCHESTRA_TEST_PERMISSION_DIAG)
+            console.info(`[perm-diag] branch=${branch} action=${input.action}`)
+        }
+        if (closed) {
+          diag("service-closed")
+          return yield* new DeclinedError()
+        }
         // A saved "always allow" never wins against a newer ban: the agent's and the
         // session's deny rules, and the room's deny, are checked before the saved grant
         // is even looked at. Without this, an outside-model request (a room guest's
@@ -769,10 +786,15 @@ const layer = Layer.effect(
         const configuredRules = yield* configured(input.sessionID, input.agent).pipe(
           Effect.catchTag("Session.NotFoundError", () => Effect.succeed([] as Permission.Ruleset)),
         )
-        if (denied(input, configuredRules)) return yield* new DeclinedError()
+        if (denied(input, configuredRules)) {
+          diag("configured-rules-deny")
+          return yield* new DeclinedError()
+        }
         const activeRoomRules = yield* roomRulesForSession(input.sessionID).pipe(
           Effect.catchCause((cause) =>
-            Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause) : Effect.fail(new DeclinedError()),
+            Cause.hasInterruptsOnly(cause)
+              ? Effect.failCause(cause)
+              : Effect.zipRight(Effect.sync(() => diag("room-rules-lookup-failure")), Effect.fail(new DeclinedError())),
           ),
         )
         if (
@@ -781,15 +803,34 @@ const layer = Layer.effect(
             resources: input.resources,
             metadata: input.metadata,
           })?.effect === "deny"
-        )
+        ) {
+          diag("room-policy-deny")
           return yield* new DeclinedError()
+        }
         const saved = yield* savedRules()
-        if (!input.force && input.resources.every((resource) => evaluate(input.action, resource, saved).effect === "allow")) return
+        if (!input.force && input.resources.every((resource) => evaluate(input.action, resource, saved).effect === "allow")) {
+          diag("saved-allow")
+          return
+        }
         const item = yield* create(request(input), input.agent, {
           saveGlobally: !input.scoped,
           onAlways: input.onAlways,
         })
-        return yield* Deferred.await(item.deferred)
+        diag("pending-created")
+        return yield* Deferred.await(item.deferred).pipe(
+          Effect.tapCause((cause) =>
+            Effect.sync(() => {
+              const failure = Cause.findErrorOption(cause)
+              const tag =
+                failure._tag === "Some"
+                  ? ((failure.value as { _tag?: string })._tag ?? "unknown")
+                  : Cause.hasInterruptsOnly(cause)
+                    ? "interrupt"
+                    : "defect"
+              diag(`await-rejected:${tag}`)
+            }),
+          ),
+        )
       },
     )
 

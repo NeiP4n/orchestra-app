@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { mkdir } from "node:fs/promises"
 import { SessionExecution } from "@orchestra/core/session/execution"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
-import { Effect, Fiber, Layer, Schedule } from "effect"
+import { Cause, Effect, Fiber, Layer, Schedule } from "effect"
 import { tmpdir } from "../../core/test/fixture/tmpdir"
 import { it } from "../../core/test/lib/effect"
 import { ServerFetch } from "../src/fetch"
@@ -1131,10 +1131,79 @@ it.live("a guest who leaves drops out of the host's members and its token stops 
 it.live("a guest reads the host's passport, and a cohost runs a command once the host allows it", () =>
   Effect.gen(function* () {
     yield* Effect.acquireRelease(
-      Effect.sync(() => (process.env.ROOM_TEST_API_KEY = "host-only")),
-      () => Effect.sync(() => delete process.env.ROOM_TEST_API_KEY),
+      Effect.sync(() => {
+        const prior = { apiKey: process.env.ROOM_TEST_API_KEY, permDiag: process.env.ORCHESTRA_TEST_PERMISSION_DIAG }
+        process.env.ROOM_TEST_API_KEY = "host-only"
+        // Enables the test-only deny-branch witness in Permission.confirm (core).
+        process.env.ORCHESTRA_TEST_PERMISSION_DIAG = "1"
+        return prior
+      }),
+      (prior) =>
+        Effect.sync(() => {
+          if (prior.apiKey === undefined) delete process.env.ROOM_TEST_API_KEY
+          else process.env.ROOM_TEST_API_KEY = prior.apiKey
+          if (prior.permDiag === undefined) delete process.env.ORCHESTRA_TEST_PERMISSION_DIAG
+          else process.env.ORCHESTRA_TEST_PERMISSION_DIAG = prior.permDiag
+        }),
     )
     const { call, directory } = yield* setup
+    // TEMP diagnostics: this test intermittently times out (5s) while polling for
+    // the room.program permission request. Phase labels + racing the poll against
+    // the pending guest run surface whether the run died before its request ever
+    // appeared, instead of the poll's TimeoutError hiding the original cause.
+    const startedAt = performance.now()
+    const diag = (phase: string, data?: Record<string, unknown>) =>
+      console.info(`[room-diag] passport:${phase} +${Math.round(performance.now() - startedAt)}ms${data ? " " + JSON.stringify(data) : ""}`)
+    const eventLoopDelay = Effect.promise(
+      () =>
+        new Promise<number>((resolve) => {
+          const t = performance.now()
+          setImmediate(() => resolve(performance.now() - t))
+        }),
+    )
+    const awaitRoomRequest = <A>(
+      label: string,
+      pending: Fiber.RuntimeFiber<{ status: number; body: unknown }, unknown>,
+      poll: Effect.Effect<A, unknown>,
+    ): Effect.Effect<A, unknown> =>
+      poll.pipe(
+        Effect.raceFirst(
+          Fiber.join(pending).pipe(
+            Effect.flatMap((early) =>
+              Effect.die(
+                new Error(
+                  `[room-diag] ${label}: guest run completed before its permission request appeared (status=${early.status} tag=${(early.body as { _tag?: string } | undefined)?._tag ?? "n/a"} message=${(early.body as { message?: string } | undefined)?.message ?? "n/a"})`,
+                ),
+              ),
+            ),
+          ),
+        ),
+        // tapCause (not tapError): the early-completion branch above dies, and defects
+        // must still get the inventory/event-loop capture. The original error rethrows.
+        Effect.tapCause((cause) =>
+          Effect.gen(function* () {
+            const delayMs = yield* eventLoopDelay.pipe(Effect.catchAll(() => Effect.succeed(-1)))
+            const failure = Cause.findErrorOption(cause)
+            const errorTag =
+              failure._tag === "Some"
+                ? ((failure.value as { _tag?: string })._tag ?? (failure.value instanceof Error ? failure.value.name : "unknown"))
+                : Cause.hasInterruptsOnly(cause)
+                  ? "interrupt"
+                  : "defect"
+            const inventory = yield* call(`/api/session/${session.id}/permission`, { headers: host }).pipe(
+              Effect.map((response) =>
+                (response.body.data as { action?: string; metadata?: Record<string, unknown> }[]).map((item) => ({
+                  action: item.action,
+                  guest: item.metadata?.guest,
+                })),
+              ),
+              Effect.catchAll((listError) => Effect.succeed(`inventory unavailable: ${String(listError)}`)),
+            )
+            diag(`${label} poll failed`, { errorTag, eventLoopDelayMs: Math.round(delayMs), requests: inventory })
+          }),
+        ),
+      )
+    diag("setup")
     // a session with an agent, as people use them, so its permission rules ask the host
     const session = (yield* call("/api/session", {
       method: "POST",
@@ -1172,21 +1241,27 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
     expect((yield* run("env")).status).toBe(403)
 
     // Nothing runs until the host approves use of the program. "Always" is saved to this guest only.
+    diag("role cohost granted, forking guest run")
     const pending = yield* run().pipe(Effect.forkScoped)
-    const request = yield* call(`/api/session/${session.id}/permission`, { headers: host }).pipe(
-      Effect.map((response) => response.body.data as {
-        id: string
-        action: string
-        resources: string[]
-        metadata?: Record<string, unknown>
-      }[]),
-      Effect.filterOrFail((requests) =>
-        requests.some((item) => item.action === "room.program" && item.metadata?.guest === "Phone"),
+    const request = yield* awaitRoomRequest(
+      "phone-approval",
+      pending,
+      call(`/api/session/${session.id}/permission`, { headers: host }).pipe(
+        Effect.map((response) => response.body.data as {
+          id: string
+          action: string
+          resources: string[]
+          metadata?: Record<string, unknown>
+        }[]),
+        Effect.filterOrFail((requests) =>
+          requests.some((item) => item.action === "room.program" && item.metadata?.guest === "Phone"),
+        ),
+        Effect.retry(Schedule.spaced("20 millis")),
+        Effect.timeout("5 seconds"),
+        Effect.map((requests) => requests.find((item) => item.action === "room.program" && item.metadata?.guest === "Phone")!),
       ),
-      Effect.retry(Schedule.spaced("20 millis")),
-      Effect.timeout("5 seconds"),
-      Effect.map((requests) => requests.find((item) => item.action === "room.program" && item.metadata?.guest === "Phone")!),
     )
+    diag("phone-approval request appeared")
     expect(request.action).toBe("room.program")
     expect(request.resources).toEqual(["echo"])
     expect(request.metadata?.guest).toBe("Phone")
@@ -1220,24 +1295,30 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
       headers: host,
       body: { role: "cohost" },
     })
+    diag("second guest cohost, forking guest run")
     const otherPending = yield* call(`/api/room/${room.id}/guest/run`, {
       method: "POST",
       headers: otherGuest,
       body: { command: "echo other-member" },
     }).pipe(Effect.forkScoped)
-    const otherRequest = yield* call(`/api/session/${session.id}/permission`, { headers: host }).pipe(
-      Effect.map((response) => response.body.data as {
-        id: string
-        action: string
-        metadata?: Record<string, unknown>
-      }[]),
-      Effect.filterOrFail((requests) =>
-        requests.some((item) => item.action === "room.program" && item.metadata?.guest === "Other Phone"),
+    const otherRequest = yield* awaitRoomRequest(
+      "other-approval",
+      otherPending,
+      call(`/api/session/${session.id}/permission`, { headers: host }).pipe(
+        Effect.map((response) => response.body.data as {
+          id: string
+          action: string
+          metadata?: Record<string, unknown>
+        }[]),
+        Effect.filterOrFail((requests) =>
+          requests.some((item) => item.action === "room.program" && item.metadata?.guest === "Other Phone"),
+        ),
+        Effect.retry(Schedule.spaced("20 millis")),
+        Effect.timeout("5 seconds"),
+        Effect.map((requests) => requests.find((item) => item.action === "room.program" && item.metadata?.guest === "Other Phone")!),
       ),
-      Effect.retry(Schedule.spaced("20 millis")),
-      Effect.timeout("5 seconds"),
-      Effect.map((requests) => requests.find((item) => item.action === "room.program" && item.metadata?.guest === "Other Phone")!),
     )
+    diag("other-approval request appeared")
     yield* call(`/api/session/${session.id}/permission/${otherRequest.id}/reply`, {
       method: "POST",
       headers: host,
@@ -1255,6 +1336,7 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
     expect(unattended.status).toBe(200)
     expect(unattended.body.exitCode).toBe(0)
     expect(unattended.body.output).toContain("trusted-auto-run")
+    diag("done")
   }).pipe(Effect.scoped),
 )
 
