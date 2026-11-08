@@ -128,9 +128,12 @@ function canonicalizePath(normalized: string, isRelative: boolean): string {
 // names correctly on every runtime). Symlink targets expand INTO the queue,
 // so every segment resolves in filesystem order under a single hop budget and
 // a ".." only ever applies to an already-resolved prefix. The result is
-// best-effort, not an authorization boundary: only ENOENT keeps a lexical
-// tail under the resolved prefix, while other errors and hop exhaustion
-// return the input unresolved.
+// best-effort, not an authorization boundary. Missing-tail contract: only
+// ENOENT keeps a lexical tail under the resolved prefix, and a ".." that
+// climbs out of the missing suffix makes the whole input stay unresolved;
+// other errors and hop exhaustion return the input unresolved as well.
+// TOCTOU: the result is a string identity at walk time, not an access
+// handle; a later filesystem change is not reflected.
 function canonicalizePosixLiteral(normalized: string): string {
   if (typeof lstatSync !== "function" || typeof readlinkSync !== "function") return normalized
   const queue = normalized.split("/")

@@ -244,6 +244,91 @@ describe("util/path: comparablePath and containsDirectory", () => {
     }
   })
 
+  test("dangling POSIX symlink targets under literal-backslash links stay lexical", () => {
+    if (process.platform === "win32") return
+
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "orchestra-test-backslash-dangling-"))
+    const inside = path.join(tempRoot, "inside")
+    fs.mkdirSync(inside)
+    const absolute = path.join(inside, "abs\\link")
+    fs.symlinkSync(path.join(tempRoot, "no-such-target"), absolute)
+    const relative = path.join(inside, "rel\\link")
+    fs.symlinkSync("../gone", relative)
+
+    try {
+      expect(comparablePath(absolute)).toBe(`${comparablePath(tempRoot)}/no-such-target`)
+      expect(comparablePath(relative)).toBe(`${comparablePath(tempRoot)}/gone`)
+      expect(containsDirectory(inside, absolute)).toBe(false)
+      expect(containsDirectory(inside, relative)).toBe(false)
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test("an existing file used with a trailing slash is kept literal, not validated as a directory", () => {
+    if (process.platform === "win32") return
+
+    // Characterization: comparablePath is a string identity helper, not a
+    // filesystem validator; it does not check that a file-as-directory shape
+    // really is a directory.
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "orchestra-test-backslash-file-"))
+    const file = path.join(tempRoot, "fi\\le.txt")
+    fs.writeFileSync(file, "x")
+
+    try {
+      expect(comparablePath(file)).toBe(`${comparablePath(tempRoot)}/fi\\le.txt`)
+      expect(comparablePath(`${file}/`)).toBe(`${comparablePath(tempRoot)}/fi\\le.txt`)
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test("the symlink hop budget resolves a 40-link acyclic chain and stops at 41", () => {
+    if (process.platform === "win32") return
+
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "orchestra-test-backslash-hops-"))
+    const target = path.join(tempRoot, "target")
+    fs.mkdirSync(target)
+    // chain\0 -> s1 -> ... -> s39 -> target is exactly 40 symlinks.
+    let next = target
+    for (let i = 39; i >= 1; i--) {
+      const link = path.join(tempRoot, `s${i}`)
+      fs.symlinkSync(next, link)
+      next = link
+    }
+    const forty = path.join(tempRoot, "chain\\0")
+    fs.symlinkSync(next, forty)
+    // One more link on the same chain takes the walk past the 40-hop budget.
+    const fortyOne = path.join(tempRoot, "chain\\1")
+    fs.symlinkSync(forty, fortyOne)
+
+    try {
+      expect(comparablePath(forty)).toBe(comparablePath(target))
+      expect(comparablePath(fortyOne)).toBe(fortyOne)
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test("a trailing slash after a literal-backslash symlink keeps the target directory identity", () => {
+    if (process.platform === "win32") return
+
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "orchestra-test-backslash-slash-"))
+    const inside = path.join(tempRoot, "inside")
+    const outside = path.join(tempRoot, "outside")
+    fs.mkdirSync(inside)
+    fs.mkdirSync(outside)
+    const link = path.join(inside, "link\\name")
+    fs.symlinkSync(outside, link)
+
+    try {
+      expect(comparablePath(`${link}/`)).toBe(comparablePath(outside))
+      expect(sameDirectory(`${link}/`, outside)).toBe(true)
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true })
+    }
+  })
+
   test("a POSIX symlink cycle falls back to the literal spelling instead of hanging", () => {
     if (process.platform === "win32") return
 
