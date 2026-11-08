@@ -98,6 +98,7 @@ test("settings dialog lists only the choices a person makes themselves", () => {
     "theme.name",
     "session.permissions",
     "session.verbosity",
+    "prompt.image_preview",
     "attention.notifications",
     "developer",
   ])
@@ -192,6 +193,9 @@ test("preserves migrated v1 keybind defaults", () => {
     expect(CommandMap[name]).toBe(command)
     expect(TuiKeybind.Definitions[command].default).toEqual(Definitions[name].default)
   })
+
+  // The rebrand renamed this canonical id without a v1 default entry; old configs keep their binding.
+  expect(CommandMap["opencode.settings"]).toBe("orchestra.settings")
 })
 
 test("accepts every v2-only named command ID", () => {
@@ -214,7 +218,7 @@ test("accepts every v2-only named command ID", () => {
     "diff.first",
     "diff.last",
     "diff.mark_reviewed",
-    "opencode.settings",
+    "orchestra.settings",
     "service.restart",
     "session.cd",
     "app.scrap",
