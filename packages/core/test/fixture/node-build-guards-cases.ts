@@ -2,7 +2,7 @@
 // its own short-lived process so the module mocks, the win32 platform
 // override and the desktop env flags die with the child and can never leak
 // into the suites that share the parent's process.
-//   bun test test/fixture/node-build-guards-child.ts -t <case>
+//   bun test ./test/fixture/node-build-guards-cases.ts -t <case>
 // It is a bun-test file because mock.module only intercepts inside the test
 // runner; each case is one test, selected by name from the parent.
 import { mock, test } from "bun:test"

@@ -3,7 +3,7 @@ import path from "node:path"
 
 // Direct refusal tests for the node-build capability guards (Node follow-ups
 // 2-4 plus the session-engine acquisition classification). Every case runs
-// in a short-lived child process (fixture/node-build-guards-child.test.ts): the
+// in a short-lived child process (fixture/node-build-guards-cases.ts): the
 // module mocks of the runtime predicate and the PowerShell host, the win32
 // platform override and the desktop env flags all die with the child, so
 // this file leaves the shared test process untouched — later suites in the
