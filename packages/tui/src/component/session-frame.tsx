@@ -7,8 +7,9 @@ import {
   type ScrollBoxRenderable,
 } from "@opentui/core"
 import { useRenderer, useTerminalDimensions } from "@opentui/solid"
-import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, Show } from "solid-js"
+import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, Show, untrack } from "solid-js"
 import { useConfig } from "../config"
+import { useT } from "../util/i18n"
 import { useData } from "../context/data"
 import { Keymap } from "../context/keymap"
 import { InteractivityProvider } from "../context/interactivity"
@@ -45,6 +46,7 @@ import { NoteCanvas } from "./note-canvas"
 
 export function SessionFrame(props: { sessionID: string; verticalTabsWidth: number }) {
   const sessions = useSessionTerminals()
+  const t = useT()
   const prompt = usePromptRef()
   const config = useConfig()
   const data = useData()
@@ -73,6 +75,8 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   const fullscreen = () => activePanel() !== undefined && panels.presentation() === "fullscreen"
   // A session bound to a note in Notes mode shows the note as its document, with the chat beside it.
   const canvas = createMemo(() => (fullscreen() ? undefined : notes.canvas(props.sessionID)))
+  // The Console and Browser tabs of the left panel replace the center chat; Projects brings it back.
+  const centerView = () => (fullscreen() ? undefined : notes.tab() === "console" || notes.tab() === "browser" ? notes.tab() : undefined)
   // Keep a bound note in the center with its chat on the right on narrow terminals;
   // only stack them when there is not enough room for two usable columns.
   const stacked = () => sessionPanesStacked(availableWidth(), canvas() !== undefined)
@@ -172,6 +176,20 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     (sessionID) => sessions.refresh(sessionID).catch(() => undefined),
   )
   const session = () => sessions.get(props.sessionID)
+  const consoleTerminal = () => {
+    if (!sessions.available()) return
+    const value = session()
+    return value.terminals.find((terminal) => terminal.id === value.selectedTerminalID) ?? value.terminals.at(-1)
+  }
+  let consoleRequested: string | undefined
+  createEffect(() => {
+    // Opening the Console tab on a session without a terminal starts one, once.
+    if (centerView() !== "console" || !sessions.available()) return
+    if (consoleTerminal() || consoleRequested === props.sessionID) return
+    if (!sessions.get(props.sessionID).terminals.length && !untrack(() => sessions.terminalsLoaded(props.sessionID))) return
+    consoleRequested = props.sessionID
+    void sessions.newTerminal(props.sessionID).catch(terminalError)
+  })
   const selectedTerminal = () => {
     if (!sessions.available()) return
     const value = session()
@@ -203,7 +221,8 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   const rightPane = createMemo(() => {
     if (activePanel()) return "panel"
     if (sidebarOpen() && sidebarVisible()) return "sidebar"
-    if (selectedTerminal()) return "terminal"
+    // The Console tab shows its terminal in the center, so the side pane does not repeat it.
+    if (selectedTerminal() && centerView() !== "console") return "terminal"
     if (sidebarVisible()) return "sidebar"
   })
 
@@ -490,13 +509,13 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
         <box
           id="session-pane"
           ref={(value: BoxRenderable) => (sessionNode = value)}
-          flexGrow={canvas() && !stacked() ? 0 : 1}
-          flexBasis={canvas() && !stacked() ? undefined : canvas() ? STACKED_CHAT_BASIS : 0}
+          flexGrow={centerView() || (canvas() && !stacked()) ? 0 : 1}
+          flexBasis={centerView() ? 0 : canvas() && !stacked() ? undefined : canvas() ? STACKED_CHAT_BASIS : 0}
           minWidth={0}
           minHeight={0}
           position={fullscreen() ? "absolute" : "relative"}
-          visible={!fullscreen()}
-          width={sessionPaneBoxWidth({
+          visible={!fullscreen() && !centerView()}
+          width={centerView() ? 0 : sessionPaneBoxWidth({
             fullscreen: fullscreen(),
             fullscreenWidth: panels.width() - paneResize.size(),
             hasCanvas: canvas() !== undefined,
@@ -543,6 +562,31 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
             />
           </Show>
         </box>
+        <Show when={centerView()}>
+          <box id="center-view" flexGrow={1} flexBasis={0} minWidth={0} minHeight={0} flexDirection="column">
+            <Show
+              when={centerView() === "console"}
+              fallback={
+                // STUB: the Browser view is a placeholder until its plan is approved.
+                <box flexGrow={1} alignItems="center" justifyContent="center" flexDirection="column">
+                  <text fg={theme.text.base}>{t("Browser")}</text>
+                  <text fg={theme.text.muted}>{t("The agent's browser view is not built yet.")}</text>
+                </box>
+              }
+            >
+              <Show keyed when={consoleTerminal()?.id}>
+                {(ptyID) => (
+                  <TerminalPane
+                    ptyID={ptyID}
+                    autoFocus={sessions.shouldFocus(ptyID)}
+                    onAutoFocus={() => sessions.clearFocus(ptyID)}
+                    onFocusRequest={(value) => (focusTerminal = value)}
+                  />
+                )}
+              </Show>
+            </Show>
+          </box>
+        </Show>
       </box>
       <Show when={!rightPaneHidden() && (rightPane() === "terminal" || rightPane() === "panel" || (rightPane() === "sidebar" && wide()))}>
         <box

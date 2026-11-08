@@ -26,9 +26,11 @@ export const { use: useSessionTerminals, provider: SessionTerminalsProvider } = 
       initial: {},
     })
 
+    const loading = new Set<string>()
     const refresh = async (sessionID: string) => {
       if (!terminals[sessionID]) updateTerminals((draft) => (draft[sessionID] = []))
-      const result = await client.api.experimental.persistentPty.list({ sessionID })
+      loading.add(sessionID)
+      const result = await client.api.experimental.persistentPty.list({ sessionID }).finally(() => loading.delete(sessionID))
       updateTerminals((draft) => (draft[sessionID] = result))
       const selected = store.sessions[sessionID]
       if (!selected || result.some((terminal) => terminal.id === selected)) return
@@ -86,6 +88,8 @@ export const { use: useSessionTerminals, provider: SessionTerminalsProvider } = 
           selectedTerminalID: store.sessions[sessionID] ?? null,
         }
       },
+      // True once the terminals of a session were listed, even when the list is empty.
+      terminalsLoaded: (sessionID: string) => terminals[sessionID] !== undefined && !loading.has(sessionID),
       refresh,
       selectTerminal,
       async newTerminal(sessionID: string): Promise<PersistentPtyInfo> {

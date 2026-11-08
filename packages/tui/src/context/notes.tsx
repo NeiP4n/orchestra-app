@@ -15,7 +15,7 @@ import { createSimpleContext } from "./helper"
 import { useRoute } from "./route"
 import { useStorage } from "./storage"
 
-export type NotesTab = "projects" | "notes"
+export type NotesTab = "projects" | "notes" | "console" | "browser"
 
 type Listing = { notes: NoteInfo[]; error?: string }
 
