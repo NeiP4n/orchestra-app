@@ -100,6 +100,22 @@ export interface Deps {
   readonly remove: (file: string) => void
 }
 
+/**
+ * The debugging port of a Chrome that already runs on this profile directory, or undefined. The port file
+ * alone is not proof (it stays behind when Chrome dies), so the port must also answer. This lets the Browser
+ * tab and the chat agent share one Chrome per browser session instead of fighting over the profile.
+ */
+export async function livePort(
+  readFile: (file: string) => string | undefined,
+  alive: (port: number) => Promise<boolean>,
+  dir: string,
+): Promise<number | undefined> {
+  const text = readFile(path.join(dir, "DevToolsActivePort"))
+  const active = text === undefined ? undefined : parseActivePort(text)
+  if (!active) return undefined
+  return (await alive(active.port).catch(() => false)) ? active.port : undefined
+}
+
 /** Starts Chrome on the profile directory and waits for its debugging port. Rejects if Chrome exits or never answers. */
 export async function launch(
   deps: Deps,
