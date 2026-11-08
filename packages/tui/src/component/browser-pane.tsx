@@ -43,7 +43,8 @@ export function BrowserPane(props: {
   )
   const [page, setPage] = createSignal({ url: "", title: "", text: "" })
   const [failure, setFailure] = createSignal<string>()
-  const [windowed, setWindowed] = createSignal(BrowserRuntime.isWindowed(props.sessionID))
+  const [mode, setMode] = createSignal<"headless" | "window" | "capture">(BrowserRuntime.modeOf(props.sessionID))
+  const windowed = () => mode() === "window"
   // The screen is the page streamed as pictures (kitty or sixel graphics when the terminal has them,
   // colored half-blocks otherwise); the text view stays as the plain fallback.
   const [view, setView] = createSignal<"screen" | "text">("screen")
@@ -53,6 +54,8 @@ export function BrowserPane(props: {
   let screenBox: BoxRenderable | undefined
   // The page size Chrome is laid out at, so a click in the pane lands on the same spot of the page.
   let viewport = { width: 0, height: 0 }
+  // What the last frame and the pane measured, shown under the page so a size mismatch is visible at once.
+  const [stats, setStats] = createSignal("")
   let lastFrame = 0
   let disposed = false
   onCleanup(() => (disposed = true))
@@ -88,6 +91,10 @@ export function BrowserPane(props: {
         lastFrame = now
         try {
           picture.source = NativeImage.decode(Buffer.from(frame.data, "base64"))
+          const area = size()
+          setStats(
+            `frame ${frame.width}x${frame.height}px · asked ${viewport.width}x${viewport.height}px · pane ${area?.cols}x${area?.rows} cells`,
+          )
         } catch {
           // A frame that does not decode is skipped; the next one replaces it.
         }
@@ -139,21 +146,23 @@ export function BrowserPane(props: {
 
   // Chrome runs either windowless (streamed into this pane) or as a normal visible window with real Chrome tabs
   // and address bar. Switching restarts it on the same profile and reopens the tabs.
-  const switchMode = (toWindow: boolean) => {
+  const switchMode = (next: "headless" | "window" | "capture") => {
     setFailure(undefined)
     setState("busy")
-    void BrowserRuntime.relaunch(props.sessionID, toWindow)
-      .then(() => !disposed && (setWindowed(toWindow), setState("ready")))
-      .catch((error) => {
+    void BrowserRuntime.relaunch(props.sessionID, next, viewport.width > 0 ? viewport : undefined)
+      .then(() => !disposed && setMode(BrowserRuntime.modeOf(props.sessionID)))
+      .catch((error) => !disposed && setFailure(errorMessage(error)))
+      // A failed capture falls back to the windowless Chrome, so read the mode that is really running.
+      .finally(() => {
         if (disposed) return
-        setFailure(errorMessage(error))
+        setMode(BrowserRuntime.modeOf(props.sessionID))
         setState("ready")
       })
   }
   const stop = () => {
     BrowserRuntime.close(props.sessionID)
     setPage({ url: "", title: "", text: "" })
-    setWindowed(false)
+    setMode("headless")
     setState("idle")
   }
 
@@ -203,9 +212,15 @@ export function BrowserPane(props: {
               }}
             />
           </Show>
+          <Show when={mode() === "headless" && process.platform === "win32"}>
+            <Action label={t("Real Chrome in pane")} onClick={() => switchMode("capture")} />
+          </Show>
+          <Show when={mode() === "capture"}>
+            <Action label={t("Fast view")} onClick={() => switchMode("headless")} />
+          </Show>
           <Action
             label={windowed() ? t("Back to pane") : t("Open in Chrome window")}
-            onClick={() => switchMode(!windowed())}
+            onClick={() => switchMode(windowed() ? "headless" : "window")}
           />
           <Action label={t("Close browser")} onClick={stop} />
         </box>
@@ -260,8 +275,16 @@ export function BrowserPane(props: {
                 )
               }}
             >
-              <browserImage ref={(value: ImageRenderable) => (picture = value)} flexGrow={1} fit="fill" />
+              <browserImage
+                ref={(value: ImageRenderable) => (picture = value)}
+                width={size()?.cols ?? 1}
+                height={size()?.rows ?? 1}
+                fit="fill"
+              />
             </box>
+            <text fg={theme.text.muted} flexShrink={0} wrapMode="none" truncate>
+              {stats()}
+            </text>
           </Show>
         </Show>
       </Show>

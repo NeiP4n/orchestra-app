@@ -86,6 +86,8 @@ export function launchArgs(input: {
   height?: number
   /** Addresses to open at start (only http and https are kept). */
   urls?: string[]
+  /** Extra flags, placed before the addresses. */
+  extraArgs?: string[]
 }) {
   const urls = (input.urls ?? []).filter((item) => /^https?:\/\//i.test(item))
   return [
@@ -94,8 +96,9 @@ export function launchArgs(input: {
     "--no-first-run",
     "--no-default-browser-check",
     ...(input.headless
-      ? ["--headless=new", ...LOW_MEMORY_FLAGS, `--window-size=${input.width ?? 800},${input.height ?? 600}`]
+      ? ["--headless=new", ...LOW_MEMORY_FLAGS, `--window-size=${input.width ?? 1600},${input.height ?? 1000}`]
       : []),
+    ...(input.extraArgs ?? []),
     ...(urls.length > 0 ? urls : [input.url ?? "about:blank"]),
   ]
 }
@@ -172,7 +175,15 @@ export async function livePort(
 /** Starts Chrome on the profile directory and waits for its debugging port. Rejects if Chrome exits or never answers. */
 export async function launch(
   deps: Deps,
-  input: { exe: string; profileDir: string; headless?: boolean; url?: string; urls?: string[]; timeoutMs?: number },
+  input: {
+    exe: string
+    profileDir: string
+    headless?: boolean
+    url?: string
+    urls?: string[]
+    extraArgs?: string[]
+    timeoutMs?: number
+  },
 ): Promise<Running> {
   deps.mkdir(input.profileDir)
   const portFile = path.join(input.profileDir, "DevToolsActivePort")

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { BrowserBridge } from "../src/browser/bridge"
 import { BrowserPage } from "../src/browser/page"
 import { Cdp } from "../src/browser/cdp"
+import { WindowCapture } from "../src/browser/window-capture"
 import { BrowserTabs } from "../src/browser/tabs"
 import { Chrome } from "../src/browser/chrome"
 import { acts } from "../src/tool/plugin/browser"
@@ -158,5 +159,61 @@ describe("taking control of the page", () => {
     expect(enter[0]?.params.windowsVirtualKeyCode).toBe(13)
     expect(Cdp.keySteps({ name: "c", sequence: "\x03", ctrl: true })).toEqual([])
     expect(Cdp.keySteps({ name: "f5", sequence: "\x1b[15~" })).toEqual([])
+  })
+})
+
+describe("window capture (Windows helper protocol)", () => {
+  test("helper lines are parsed into frames and status", () => {
+    expect(WindowCapture.parseLine("F 640 400 QUJD")).toEqual({ type: "frame", width: 640, height: 400, data: "QUJD" })
+    expect(WindowCapture.parseLine("S ok attached")).toEqual({ type: "status", ok: true, text: "attached" })
+    expect(WindowCapture.parseLine("S err no Chrome window")).toEqual({
+      type: "status",
+      ok: false,
+      text: "no Chrome window",
+    })
+    expect(WindowCapture.parseLine("noise").type).toBe("other")
+  })
+
+  test("commands carry the pane's pixels, text and named keys", () => {
+    expect(WindowCapture.attachCommand(42, { width: 1000.4, height: 640 })).toBe("attach 42 -32000 -32000 1000 640")
+    expect(WindowCapture.mouseCommand({ kind: "down", x: 10.2, y: 20.7, button: "right" })).toBe("mouse rdown 10 21")
+    expect(WindowCapture.mouseCommand({ kind: "wheel", x: 1, y: 2, deltaY: -120 })).toBe("mouse wheelup 1 2")
+    expect(WindowCapture.keyCommands({ name: "return", sequence: "\r" })).toEqual(["key 13 down", "key 13 up"])
+    expect(WindowCapture.keyCommands({ name: "a", sequence: "a" })).toEqual(["char 97"])
+    expect(WindowCapture.keyCommands({ name: "п", sequence: "п" })).toEqual(["char 1087"])
+    expect(WindowCapture.keyCommands({ name: "c", sequence: "\x03", ctrl: true })).toEqual([])
+  })
+
+  test("the helper script is plain ASCII (Windows PowerShell reads it as ANSI) and uses the window APIs", () => {
+    expect(/^[\x00-\x7f]*$/.test(WindowCapture.SCRIPT)).toBe(true)
+    for (const part of ["PrintWindow", "Chrome_WidgetWin_1", "0x80", "[Cap]::Run()"])
+      expect(WindowCapture.SCRIPT).toContain(part)
+  })
+
+  test("start resolves when the helper attaches, forwards commands, and rejects with its reason otherwise", async () => {
+    const written: string[] = []
+    let line: (value: string) => void = () => {}
+    let exit: () => void = () => {}
+    const make = () => ({
+      write: (value: string) => void written.push(value),
+      kill: () => {},
+      onLine: (listener: (value: string) => void) => void (line = listener),
+      onExit: (listener: () => void) => void (exit = listener),
+    })
+    const pending = WindowCapture.start(make, 7, { width: 800, height: 500 })
+    expect(written[0]).toBe("attach 7 -32000 -32000 800 500")
+    line("S ok attached")
+    const controller = await pending
+    const frames: unknown[] = []
+    controller.watch({ width: 900, height: 600 }, (frame) => frames.push(frame))
+    line("F 900 600 QUJD")
+    controller.mouse({ kind: "move", x: 5, y: 6 })
+    expect(written.slice(1)).toEqual(["size 900 600", "mouse move 5 6"])
+    expect(frames).toEqual([{ data: "QUJD", width: 900, height: 600 }])
+
+    const failing = WindowCapture.start(make, 8, { width: 800, height: 500 })
+    line("S err no Chrome window for that process")
+    await expect(failing).rejects.toThrow("no Chrome window")
+    void exit
   })
 })
