@@ -147,3 +147,16 @@ describe("tabs and the address bar", () => {
     expect(() => Chrome.omnibox("  ")).toThrow()
   })
 })
+
+describe("taking control of the page", () => {
+  test("text is inserted, named keys are key events, terminal combinations are not forwarded", () => {
+    expect(Cdp.keySteps({ name: "a", sequence: "a" })).toEqual([{ method: "Input.insertText", params: { text: "a" } }])
+    expect(Cdp.keySteps({ name: "п", sequence: "п" })[0]?.params).toEqual({ text: "п" })
+    expect(Cdp.keySteps({ name: "space", sequence: " " })[0]?.params).toEqual({ text: " " })
+    const enter = Cdp.keySteps({ name: "return", sequence: "\r" })
+    expect(enter.map((step) => step.params.type)).toEqual(["keyDown", "keyUp"])
+    expect(enter[0]?.params.windowsVirtualKeyCode).toBe(13)
+    expect(Cdp.keySteps({ name: "c", sequence: "\x03", ctrl: true })).toEqual([])
+    expect(Cdp.keySteps({ name: "f5", sequence: "\x1b[15~" })).toEqual([])
+  })
+})
