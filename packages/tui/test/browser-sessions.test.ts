@@ -1,0 +1,67 @@
+import { expect, test } from "bun:test"
+import {
+  addBrowserSession,
+  browserSessionGroups,
+  emptyBrowserSessions,
+  groupBrowserSession,
+  MAX_BROWSER_SESSIONS,
+  removeBrowserSession,
+  selectBrowserSession,
+} from "../src/util/browser-sessions"
+
+test("sessions are added per project, named in order, and the newest is selected", () => {
+  const state = emptyBrowserSessions()
+  addBrowserSession(state, "p1", { id: "a", now: 1 })
+  addBrowserSession(state, "p1", { id: "b", now: 2 })
+  addBrowserSession(state, "p2", { id: "c", now: 3 })
+  expect(state.projects.p1?.map((item) => item.name)).toEqual(["Browser 1", "Browser 2"])
+  expect(state.projects.p2?.map((item) => item.name)).toEqual(["Browser 1"])
+  expect(state.selected).toEqual({ p1: "b", p2: "c" })
+})
+
+test("removing a middle session never makes two share a name", () => {
+  const state = emptyBrowserSessions()
+  for (const id of ["a", "b", "c"]) addBrowserSession(state, "p", { id, now: 0 })
+  removeBrowserSession(state, "p", "a")
+  addBrowserSession(state, "p", { id: "d", now: 0 })
+  const names = state.projects.p!.map((item) => item.name)
+  expect(new Set(names).size).toBe(names.length)
+})
+
+test("removing the selected session selects its neighbour, and the last one leaves none", () => {
+  const state = emptyBrowserSessions()
+  for (const id of ["a", "b", "c"]) addBrowserSession(state, "p", { id, now: 0 })
+  removeBrowserSession(state, "p", "c")
+  expect(state.selected.p).toBe("b")
+  removeBrowserSession(state, "p", "b")
+  removeBrowserSession(state, "p", "a")
+  expect(state.selected.p).toBeUndefined()
+})
+
+test("selecting an unknown session is ignored", () => {
+  const state = emptyBrowserSessions()
+  addBrowserSession(state, "p", { id: "a", now: 0 })
+  selectBrowserSession(state, "p", "missing")
+  expect(state.selected.p).toBe("a")
+})
+
+test("a project holds at most the limit", () => {
+  const state = emptyBrowserSessions()
+  for (let i = 0; i < MAX_BROWSER_SESSIONS; i++) expect(addBrowserSession(state, "p", { id: `s${i}`, now: 0 })).toBeDefined()
+  expect(addBrowserSession(state, "p", { id: "over", now: 0 })).toBeUndefined()
+})
+
+test("sessions group by name, ungrouped first", () => {
+  const state = emptyBrowserSessions()
+  for (const id of ["a", "b", "c"]) addBrowserSession(state, "p", { id, now: 0 })
+  groupBrowserSession(state, "p", "b", "Docs")
+  groupBrowserSession(state, "p", "c", "Docs")
+  const groups = browserSessionGroups(state.projects.p!)
+  expect(groups.map((group) => [group.name, group.sessions.map((item) => item.id)])).toEqual([
+    [undefined, ["a"]],
+    ["Docs", ["b", "c"]],
+  ])
+  groupBrowserSession(state, "p", "b")
+  expect(browserSessionGroups(state.projects.p!).length).toBe(2)
+  expect(state.projects.p![1]!.group).toBeUndefined()
+})

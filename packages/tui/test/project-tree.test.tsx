@@ -787,3 +787,23 @@ test("in the Console view the left panel lists only projects, and a project open
   await setup.mockMouse.click(row.x + 1, row.y)
   await setup.waitFor(() => calls.some((call) => call.path === `/api/orchestra/project/${project.id}/main`))
 })
+
+test("in the Browser view a project lists its browser sessions and can add more", async () => {
+  await using state = await tmpdir()
+  const calls: Call[] = []
+  await using setup = await render(state.path, calls, [project])
+
+  await setup.waitForFrame((frame) => frame.includes("Demo") && frame.includes("Worker task"))
+  const tab = cell(setup.captureCharFrame(), "Browser")
+  await setup.mockMouse.click(tab.x + 1, tab.y)
+  const empty = await setup.waitForFrame((frame) => frame.includes("New browser session") && !frame.includes("Worker task"))
+  expect(empty).not.toContain("Browser 1")
+
+  const add = cell(empty, "New browser session")
+  await setup.mockMouse.click(add.x + 2, add.y)
+  const one = await setup.waitForFrame((frame) => frame.includes("Browser 1"))
+  expect(one).toContain("New browser session")
+  const again = cell(one, "New browser session")
+  await setup.mockMouse.click(again.x + 2, again.y)
+  await setup.waitForFrame((frame) => frame.includes("Browser 2"))
+})

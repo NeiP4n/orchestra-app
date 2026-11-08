@@ -12,6 +12,8 @@ import { useConfig } from "../config"
 import { useT } from "../util/i18n"
 import { consoleSiblings, consoleTerminalID } from "../util/console-terminal"
 import { useData } from "../context/data"
+import { useProjects } from "../context/projects"
+import { Orchestra } from "@orchestra/schema/orchestra"
 import { Keymap } from "../context/keymap"
 import { InteractivityProvider } from "../context/interactivity"
 import { useSessionTerminals } from "../context/session-terminals"
@@ -78,6 +80,14 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   // A session bound to a note in Notes mode shows the note as its document, with the chat beside it.
   const canvas = createMemo(() => (fullscreen() ? undefined : notes.canvas(props.sessionID)))
   // The Console and Browser tabs of the left panel replace the center chat; Projects brings it back.
+  // The browser session picked for the open session's project (the page view comes with the Chrome backend).
+  const projectList = useProjects()
+  const browserSession = () => {
+    const directory = data.session.get(props.sessionID)?.location.directory
+    if (!directory) return
+    const project = projectList.list().find((item) => Orchestra.contains(item.directory, directory))
+    return project ? notes.browserSelected(project.id) : undefined
+  }
   const centerView = () =>
     fullscreen() ? undefined : notes.tab() === "console" || notes.tab() === "browser" ? notes.tab() : undefined
   // Keep a bound note in the center with its chat on the right on narrow terminals;
@@ -611,8 +621,12 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
               fallback={
                 // STUB: the Browser view is a placeholder until its plan is approved.
                 <box flexGrow={1} alignItems="center" justifyContent="center" flexDirection="column">
-                  <text fg={theme.text.base}>{t("Browser")}</text>
-                  <text fg={theme.text.muted}>{t("The agent's browser view is not built yet.")}</text>
+                  <text fg={theme.text.base}>{browserSession() ? `${t("Browser")} · ${browserSession()!.name}` : t("Browser")}</text>
+                  <text fg={theme.text.muted}>
+                    {browserSession()
+                      ? t("This browser session is saved. The page view is not built yet.")
+                      : t("Add a browser session to this project in the left panel.")}
+                  </text>
                 </box>
               }
             >
