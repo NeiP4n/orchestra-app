@@ -90,6 +90,8 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     compactPaneShare?: number
     sidebarShare?: number
     noteChatShare?: number
+    // The operator hid the right pane; it stays hidden across sessions and projects until shown again.
+    rightPaneHidden?: boolean
   }>("layout", {
     initial: {},
   })
@@ -165,7 +167,11 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   }
   const [sidebarOpen, setSidebarOpen] = createSignal(false)
   const [activePane, setActivePane] = createSignal<"session" | "right">("session")
-  const [rightPaneHidden, setRightPaneHidden] = createSignal(false)
+  const rightPaneHidden = () => layout.rightPaneHidden === true
+  const setRightPaneHidden = (hidden: boolean) => {
+    if (rightPaneHidden() === hidden) return
+    void updateLayout((draft) => void (draft.rightPaneHidden = hidden)).catch(() => undefined)
+  }
   const [restoreTerminalFocus, setRestoreTerminalFocus] = createSignal(false)
   let focusTerminal: (() => void) | undefined
   let showTerminals: (() => void) | undefined
@@ -224,13 +230,14 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   createEffect(
     on([activePanel, () => selectedTerminal()?.id], ([panel, terminal], previous) => {
       if (panel && panel !== previous?.[0]) {
-        setRightPaneHidden(false)
+        // Only a panel that opens now reveals the pane; one already open when the session mounts must not.
+        if (previous) setRightPaneHidden(false)
         setSidebarOpen(false)
         if (terminal) void sessions.selectTerminal(props.sessionID, null).catch(toast.error)
         return
       }
       if (terminal && terminal !== previous?.[1]) {
-        setRightPaneHidden(false)
+        if (previous) setRightPaneHidden(false)
         setSidebarOpen(false)
         if (panel) panels.close()
       }
@@ -554,6 +561,9 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
           }
           height="100%"
         >
+          {/* The chat is unmounted while Console or Browser takes the center, so its prompt cannot keep the
+              keyboard or draw over the terminal. */}
+          <Show when={!centerView()}>
           <InteractivityProvider enabled={activePane() === "session" && !fullscreen()}>
             <Session
               scrollRef={(value) => (sessionScroll = value)}
@@ -567,6 +577,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
               width={transcriptWidth()}
             />
           </InteractivityProvider>
+          </Show>
           <Show when={activePane() === "right"}>
             <box
               position="absolute"
