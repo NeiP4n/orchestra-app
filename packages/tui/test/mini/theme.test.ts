@@ -172,10 +172,15 @@ test.each(["light", "dark"] as const)("uses shared %s defaults and named built-i
 })
 
 test.each(["light", "dark"] as const)("shares the %s system scheme while retaining terminal intent", async (mode) => {
+  // A good palette: every entry is a gray that reads on the mode's background, so the
+  // nearest indexed candidate for muted text passes the 3.5 contrast guard.
+  const gray = mode === "light" ? "#4b5563" : "#9ca3af"
   const colors = terminalColors({
+    palette: Array.from({ length: 256 }, () => gray),
     defaultBackground: mode === "light" ? "#fbf1c7" : "#0f172a",
     defaultForeground: mode === "light" ? "#3c3836" : "#e2e8f0",
   })
+  const surface = RGBA.fromHex(colors.defaultBackground!)
   const theme = await resolveRunTheme(renderer({ colors }), { name: "system", mode })
   try {
     expectFooter(theme, resolveThemeDocument(parseTheme(generateSystem(colors, mode)), mode))
@@ -185,7 +190,31 @@ test.each(["light", "dark"] as const)("shares the %s system scheme while retaini
     expect(theme.block.syntax?.getStyle("default")?.fg?.intent).toBe("default")
     expect(rgba(theme.footer.surface).intent).toBe("rgb")
     expect(rgba(theme.entry.reasoning.body).intent).toBe("indexed")
-    Object.values(theme.splash).forEach((color) => expect(rgba(color).intent).toBe("indexed"))
+    expect(contrastRatio(rgba(theme.entry.reasoning.body), surface)).toBeGreaterThanOrEqual(3.5)
+    expect(rgba(theme.splash.left).intent).toBe("indexed")
+    expect(contrastRatio(rgba(theme.splash.left), surface)).toBeGreaterThanOrEqual(3.5)
+    expect(rgba(theme.splash.right).intent).toBe("default")
+    expect(contrastRatio(rgba(theme.splash.right), surface)).toBeGreaterThanOrEqual(4.5)
+    expect(rgba(theme.splash.leftShadow).intent).toBe("indexed")
+  } finally {
+    theme.block.syntax?.destroy()
+  }
+})
+
+test("falls back to exact RGB when the cycling palette has no readable indexed muted candidate", async () => {
+  // The shared 8-color cycling palette: against #fbf1c7 its nearest indexed match for the
+  // generated muted fails the 3.5 guard, so muted text keeps the exact theme color instead.
+  const colors = terminalColors({ defaultBackground: "#fbf1c7", defaultForeground: "#3c3836" }, "light")
+  const surface = RGBA.fromHex("#fbf1c7")
+  const theme = await resolveRunTheme(renderer({ colors }), { name: "system", mode: "light" })
+  try {
+    expect(rgba(theme.entry.reasoning.body).intent).toBe("rgb")
+    expect(contrastRatio(rgba(theme.entry.reasoning.body), surface)).toBeGreaterThanOrEqual(3.5)
+    expect(rgba(theme.splash.left).intent).toBe("rgb")
+    expect(contrastRatio(rgba(theme.splash.left), surface)).toBeGreaterThanOrEqual(3.5)
+    expect(rgba(theme.splash.right).intent).toBe("default")
+    expect(contrastRatio(rgba(theme.splash.right), surface)).toBeGreaterThanOrEqual(4.5)
+    expect(rgba(theme.splash.leftShadow).intent).toBe("indexed")
   } finally {
     theme.block.syntax?.destroy()
   }
@@ -229,9 +258,14 @@ test("does not quantize readable mini text into a black ANSI palette", async () 
   try {
     expect(rgba(theme.entry.user.body).intent).toBe("default")
     expect(contrastRatio(rgba(theme.entry.user.body), surface)).toBeGreaterThanOrEqual(4.5)
+    // No black ANSI entry can carry muted text: exact RGB with its own contrast instead.
+    expect(rgba(theme.entry.reasoning.body).intent).toBe("rgb")
     expect(contrastRatio(rgba(theme.entry.reasoning.body), surface)).toBeGreaterThanOrEqual(3.5)
+    expect(rgba(theme.splash.left).intent).toBe("rgb")
     expect(contrastRatio(rgba(theme.splash.left), surface)).toBeGreaterThanOrEqual(3.5)
+    expect(rgba(theme.splash.right).intent).toBe("default")
     expect(contrastRatio(rgba(theme.splash.right), surface)).toBeGreaterThanOrEqual(4.5)
+    expect(rgba(theme.splash.leftShadow).intent).toBe("indexed")
   } finally {
     theme.block.syntax?.destroy()
   }
