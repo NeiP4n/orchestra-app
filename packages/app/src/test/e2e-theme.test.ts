@@ -1,5 +1,4 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test"
-import "../../happydom"
 
 /**
  * Standard W3C WCAG 2.1 relative luminance calculation.
