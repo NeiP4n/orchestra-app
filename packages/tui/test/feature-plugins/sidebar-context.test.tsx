@@ -1,13 +1,24 @@
 /** @jsxImportSource @opentui/solid */
-import { expect, test } from "bun:test"
+import { afterAll, beforeAll, expect, test } from "bun:test"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { RGBA } from "@opentui/core"
 import { testRender } from "@opentui/solid"
 import type { Context } from "@orchestra/plugin/tui/context"
+import { ConfigProvider } from "../../src/config"
 import { SidebarContext } from "../../src/feature-plugins/sidebar/context"
+import { ThemeProvider } from "../../src/context/theme"
+import { setActiveLanguage } from "../../src/util/i18n"
+import { configureExchangeRate, exchangeRate } from "../../src/util/money"
+import { emptyThemeSource } from "../fixture/fixture"
 import { TestTuiContexts } from "../fixture/tui-environment"
+import { createTuiResolvedConfig } from "../fixture/tui-runtime"
+
+// These expectations are English; pin the suite language explicitly (the default is "en",
+// but other files in the same process may switch it and not restore).
+beforeAll(() => setActiveLanguage("en"))
+afterAll(() => setActiveLanguage("en"))
 
 function context(options?: {
   cost?: number
@@ -68,29 +79,58 @@ function context(options?: {
   } as unknown as Context
 }
 
-test("sidebar omits context before usage is available", async () => {
-  const app = await testRender(() => <TestTuiContexts><SidebarContext context={context()} sessionID="session" /></TestTuiContexts>, {
-    width: 42,
-    height: 8,
-  })
+test("keeps Context scopes available before usage, without invented usage values", async () => {
+  const app = await testRender(
+    () => (
+      <TestTuiContexts>
+        <ConfigProvider config={createTuiResolvedConfig()}>
+          <ThemeProvider mode="dark" source={emptyThemeSource}>
+            <SidebarContext context={context()} sessionID="session" />
+          </ThemeProvider>
+        </ConfigProvider>
+      </TestTuiContexts>
+    ),
+    { width: 42, height: 8 },
+  )
 
   try {
     await app.renderOnce()
-    expect(app.captureCharFrame()).not.toContain("Context")
-    expect(app.captureCharFrame()).not.toContain("Not measured")
+    await app.waitForFrame((frame) => frame.trim() !== "")
+    const frame = app.captureCharFrame()
+    // The section always renders since 69d512cc: heading and scope controls stay available.
+    expect(frame).toContain("Context")
+    expect(frame).toContain("Session")
+    expect(frame).toContain("Project")
+    expect(frame).toContain("Group")
+    // Zero-data fixture: no usage values may be invented.
+    expect(frame).not.toContain("%")
+    expect(frame).not.toContain("tokens")
+    expect(frame).not.toContain("spent")
+    expect(frame).not.toContain("█")
+    expect(frame).not.toContain("░")
+    expect(frame).not.toContain("Not measured")
   } finally {
     app.renderer.destroy()
   }
 })
 
 test("sidebar shows available context usage", async () => {
-  const app = await testRender(() => <TestTuiContexts><SidebarContext context={context({ tokens: 1234 })} sessionID="session" /></TestTuiContexts>, {
-    width: 42,
-    height: 8,
-  })
+  const app = await testRender(
+    () => (
+      <TestTuiContexts>
+        <ConfigProvider config={createTuiResolvedConfig()}>
+          <ThemeProvider mode="dark" source={emptyThemeSource}>
+            <SidebarContext context={context({ tokens: 1234 })} sessionID="session" />
+          </ThemeProvider>
+        </ConfigProvider>
+      </TestTuiContexts>
+    ),
+    { width: 42, height: 8 },
+  )
 
   try {
     await app.renderOnce()
+    await app.waitForFrame((frame) => frame.trim() !== "")
     expect(app.captureCharFrame()).toContain("Context")
     expect(app.captureCharFrame()).toContain("1.2K tokens")
   } finally {
@@ -99,20 +139,35 @@ test("sidebar shows available context usage", async () => {
 })
 
 test("sidebar shows usage against the model context limit", async () => {
-  const app = await testRender(
-    () => <TestTuiContexts><SidebarContext context={context({ tokens: 150000, limit: 200000, cost: 1.5 })} sessionID="session" /></TestTuiContexts>,
-    { width: 42, height: 8 },
-  )
-
+  // Pin the exchange rate so the money literal below is deterministic.
+  const previousRate = exchangeRate()
+  configureExchangeRate(80)
+  let app: Awaited<ReturnType<typeof testRender>> | undefined
   try {
+    app = await testRender(
+      () => (
+        <TestTuiContexts>
+          <ConfigProvider config={createTuiResolvedConfig()}>
+            <ThemeProvider mode="dark" source={emptyThemeSource}>
+              <SidebarContext context={context({ tokens: 150000, limit: 200000, cost: 1.5 })} sessionID="session" />
+            </ThemeProvider>
+          </ConfigProvider>
+        </TestTuiContexts>
+      ),
+      { width: 42, height: 8 },
+    )
+
     await app.renderOnce()
+    await app.waitForFrame((frame) => frame.trim() !== "")
     const frame = app.captureCharFrame()
     expect(frame).toContain("75% used")
     expect(frame).toContain("█")
     expect(frame).toContain("150.0K / 200.0K tokens")
-    expect(frame).toContain("$1.50 spent")
+    // formatMoney(1.5 USD) at the pinned 80 RUB/USD rate, ru-RU currency with a real NBSP.
+    expect(frame).toContain("120,00\u00A0₽ spent")
   } finally {
-    app.renderer.destroy()
+    configureExchangeRate(previousRate)
+    app?.renderer.destroy()
   }
 })
 
@@ -121,16 +176,20 @@ test("only the explicit Open button launches the existing DoD task panel and kee
   const app = await testRender(
     () => (
       <TestTuiContexts>
-        <SidebarContext
-          context={context({
-            actionColor: false,
-            openPanel: (name) => {
-              opened.push(name)
-              return true
-            },
-          })}
-          sessionID="session"
-        />
+        <ConfigProvider config={createTuiResolvedConfig()}>
+          <ThemeProvider mode="dark" source={emptyThemeSource}>
+            <SidebarContext
+              context={context({
+                actionColor: false,
+                openPanel: (name) => {
+                  opened.push(name)
+                  return true
+                },
+              })}
+              sessionID="session"
+            />
+          </ThemeProvider>
+        </ConfigProvider>
       </TestTuiContexts>
     ),
     { width: 72, height: 12 },
@@ -138,6 +197,7 @@ test("only the explicit Open button launches the existing DoD task panel and kee
 
   try {
     await app.renderOnce()
+    await app.waitForFrame((frame) => frame.trim() !== "")
     let frame = app.captureCharFrame()
     expect(frame).toContain("DoD")
     let lines = frame.split("\n")
@@ -167,7 +227,7 @@ test("only the explicit Open button launches the existing DoD task panel and kee
     expect(openX).toBeGreaterThanOrEqual(0)
     await app.mockMouse.click(openX, y)
     await app.renderOnce()
-    expect(opened).toEqual(["opencode.sidebar.dod"])
+    expect(opened).toEqual(["orchestra.sidebar.dod"])
   } finally {
     app.renderer.destroy()
   }
@@ -196,11 +256,21 @@ test("sidebar DoD progress bar reflects completed project tasks", async () => {
     "utf8",
   )
   const app = await testRender(
-    () => <TestTuiContexts><SidebarContext context={context({ directory })} sessionID="session" /></TestTuiContexts>,
+    () => (
+      <TestTuiContexts>
+        <ConfigProvider config={createTuiResolvedConfig()}>
+          <ThemeProvider mode="dark" source={emptyThemeSource}>
+            <SidebarContext context={context({ directory })} sessionID="session" />
+          </ThemeProvider>
+        </ConfigProvider>
+      </TestTuiContexts>
+    ),
     { width: 72, height: 16 },
   )
 
   try {
+    await app.renderOnce()
+    await app.waitForFrame((frame) => frame.trim() !== "")
     const started = Date.now()
     let frame = ""
     while (Date.now() - started < 3_000) {
