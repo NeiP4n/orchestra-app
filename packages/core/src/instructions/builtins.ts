@@ -41,24 +41,6 @@ const layer = Layer.effect(
               },
             }),
             Instructions.make({
-              key: Instructions.Key.make("core/freshness"),
-              codec: Schema.toCodecJson(Schema.String),
-              read: Effect.succeed(
-                [
-                  "<freshness-mandate>",
-                  "Current Year: 2026. Pre-training knowledge cutoff is in the past.",
-                  "Mandatory Freshness & Knowledge Retrieval Mandate:",
-                  "- Never write code, library API calls, or configuration from memory relying on outdated training data.",
-                  "- Always look up current documentation via context7, deepwiki, websearch, or research before implementing code using external libraries or tools.",
-                  "</freshness-mandate>",
-                ].join("\n"),
-              ),
-              render: {
-                initial: (text) => text,
-                changed: (_previous, text) => text,
-              },
-            }),
-            Instructions.make({
               key: Instructions.Key.make("core/trust-boundary"),
               codec: Schema.toCodecJson(Schema.String),
               read: Effect.succeed(
