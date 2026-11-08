@@ -105,7 +105,7 @@ const GUIDE = [
   "You can see and operate the agent's own virtual desktop, not the operator's computer:",
   "- desktop_screenshot captures the virtual display, or a specific window by title or HWND (window parameter). It captures background and covered windows directly without moving cursor or raising/focusing windows — do NOT call focus before screenshot.",
   "- desktop_windows lists windows with their process name, title, and HWND.",
-  "- desktop_type for text (long text is pasted, fast), desktop_keys for shortcuts (ctrl+s, alt+tab, win+r, enter).",
+  "- desktop_type for text (long text is pasted on macOS/Linux; on Windows it is always typed key by key and never touches the clipboard), desktop_keys for shortcuts (ctrl+s, alt+tab, win+r, enter).",
   "- desktop_focus brings a window forward, desktop_open starts an app, file or URL, desktop_clipboard reads or sets the clipboard. Opening the same URL twice in one session returns the first open instead of opening it again.",
   "- desktop runs several of these steps in one call (focus, type, enter, wait, screenshot); prefer it for multi-step interactions, it is the fastest.",
   "- Commands: the shell tool with background: true returns at once and you are notified when the command ends; independent tool calls in one step run in parallel. Never poll a background command.",
@@ -293,7 +293,7 @@ export const Plugin = {
         editor.add({
           name: "desktop_type",
           options,
-          description: "Type text into the focused window. Long text is pasted through the clipboard (fast); paste: false types key by key.",
+          description: "Type text into the focused window. On macOS/Linux long text is pasted through the clipboard (fast); paste: false types key by key. On Windows text is always typed key by key.",
           input: TypeInput,
           output: Output,
           execute: (input, context) => perform([{ action: "type", ...input }], context),
@@ -309,7 +309,7 @@ export const Plugin = {
         editor.add({
           name: "desktop_click",
           options,
-          description: "Click at x/y of the latest screenshot, or where the pointer is when x/y are omitted. Take a screenshot first to know where things are.",
+          description: "Click at x/y of the latest screenshot, or where the pointer is when x/y are omitted. Take a screenshot first to know where things are. On Windows this is refused (the agent never moves the real pointer): use desktop_action click/invoke on a named control.",
           input: ClickInput,
           output: Output,
           execute: (input, context) => perform([{ action: "click", ...input }], context),
@@ -317,7 +317,7 @@ export const Plugin = {
         editor.add({
           name: "desktop_scroll",
           options,
-          description: "Scroll the mouse wheel, over x/y when given. A positive amount scrolls down, a negative one up.",
+          description: "Scroll the mouse wheel, over x/y when given. A positive amount scrolls down, a negative one up. On Windows this is refused: use desktop_action scroll or page keys.",
           input: ScrollInput,
           output: Output,
           execute: (input, context) => perform([{ action: "scroll", ...input }], context),
@@ -412,19 +412,23 @@ export async function run(host: Host, step: StepInput, scale: { x: number; y: nu
     }
     case "type": {
       if (!step.text) throw new Error("Pass text")
-      const paste = step.paste ?? step.text.length > 40
+      // Windows never pastes: a paste overwrites the operator's clipboard and needs the window in front.
+      const paste = process.platform !== "win32" && (step.paste ?? step.text.length > 40)
       return host.call(paste ? platformScript.paste(step.text) : platformScript.type(step.text))
     }
     case "keys":
       if (!step.keys) throw new Error("Pass keys, e.g. ctrl+s")
       return host.call(platformScript.keys(step.keys))
     case "click": {
+      if (process.platform === "win32") throw new Error(pointerRefusal("click"))
       const target = step.x === undefined ? undefined : point()
       return host.call(platformScript.click(target, step.button ?? "left", step.double === true))
     }
     case "move":
+      if (process.platform === "win32") throw new Error(pointerRefusal("hover"))
       return host.call(platformScript.move(point()))
     case "scroll":
+      if (process.platform === "win32") throw new Error(pointerRefusal("scroll"))
       return host.call(platformScript.scroll(step.x === undefined ? undefined : point(), step.amount ?? 3))
     case "windows":
       return host.call(platformScript.windows())
@@ -558,8 +562,6 @@ public struct WINDOWPLACEMENT {
 }
 public static class OcDesk {
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
-  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-  [DllImport("user32.dll")] public static extern void mouse_event(uint f, int x, int y, int d, IntPtr e);
   [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint f, IntPtr e);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
@@ -714,7 +716,22 @@ function windowsKeys(combo: string) {
   return `[OcDesk]::keybd_event(0x5B,0,0,[IntPtr]::Zero); ${send}; [OcDesk]::keybd_event(0x5B,0,2,[IntPtr]::Zero)`
 }
 
-const MOUSE = { left: [0x02, 0x04], right: [0x08, 0x10], middle: [0x20, 0x40] } as const
+const MOUSE = { left: "left", right: "right", middle: "middle" } as const
+
+/**
+ * ADR-4: on Windows the agent never moves or presses the operator's real pointer
+ * (no pointer-position call, no mouse-event call, no mouse SendInput). Click, hover and scroll
+ * are refused with this message instead of silently using the pointer.
+ */
+export function pointerRefusal(kind: "click" | "hover" | "scroll") {
+  const alternative =
+    kind === "scroll"
+      ? 'desktop_action with action "scroll" (UI Automation scroll pattern), or desktop_keys (pagedown, up, down)'
+      : kind === "hover"
+        ? "nothing: hover has no pointer-free equivalent on a desktop app; use the browser tools for web pages"
+        : 'desktop_action with action "click" or "invoke" on a named control (read names with desktop_inspect), desktop_keys, or the browser tools for web pages'
+  return `Refused: ${kind} would move or press the operator's real mouse pointer, which the agent never does on Windows. Use ${alternative}. If the control cannot be reached that way, ask the operator to do it.`
+}
 
 const platformScript = {
   screenshot(file: string, width: number, window?: string | number) {
@@ -790,30 +807,24 @@ $g.Dispose(); $bmp.Dispose(); $small.Dispose()
   },
   paste(text: string) {
     if (process.platform !== "win32") return `type\t${text}`
-    return `[System.Windows.Forms.Clipboard]::SetText(${psString(text)}); [System.Windows.Forms.SendKeys]::SendWait('^v')`
+    // ADR-4 slice: no clipboard paste on Windows; long text is typed key by key.
+    return platformScript.type(text)
   },
   keys(combo: string) {
     if (process.platform !== "win32") return `keys\t${combo}`
     return windowsKeys(combo)
   },
   click(point: { x: number; y: number } | undefined, button: keyof typeof MOUSE, double: boolean) {
-    if (process.platform !== "win32") return `click\t${point?.x ?? ""}\t${point?.y ?? ""}\t${button}\t${double}`
-    const [down, up] = MOUSE[button]
-    const once = `[OcDesk]::mouse_event(${down},0,0,0,[IntPtr]::Zero); [OcDesk]::mouse_event(${up},0,0,0,[IntPtr]::Zero)`
-    return [point ? `[void][OcDesk]::SetCursorPos(${point.x}, ${point.y})` : "", once, double ? once : ""].filter(Boolean).join("; ")
+    if (process.platform !== "win32") return `click	${point?.x ?? ""}	${point?.y ?? ""}	${button}	${double}`
+    return `throw ${psString(pointerRefusal("click"))}`
   },
   move(point: { x: number; y: number }) {
-    if (process.platform !== "win32") return `move\t${point.x}\t${point.y}`
-    return `[void][OcDesk]::SetCursorPos(${point.x}, ${point.y})`
+    if (process.platform !== "win32") return `move	${point.x}	${point.y}`
+    return `throw ${psString(pointerRefusal("hover"))}`
   },
   scroll(point: { x: number; y: number } | undefined, amount: number) {
-    if (process.platform !== "win32") return `scroll\t${point?.x ?? ""}\t${point?.y ?? ""}\t${amount}`
-    return [
-      point ? `[void][OcDesk]::SetCursorPos(${point.x}, ${point.y})` : "",
-      `[OcDesk]::mouse_event(0x0800,0,0,${Math.round(-amount * 120)},[IntPtr]::Zero)`,
-    ]
-      .filter(Boolean)
-      .join("; ")
+    if (process.platform !== "win32") return `scroll	${point?.x ?? ""}	${point?.y ?? ""}	${amount}`
+    return `throw ${psString(pointerRefusal("scroll"))}`
   },
   windows() {
     if (process.platform !== "win32") return "windows"
