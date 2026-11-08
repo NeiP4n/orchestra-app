@@ -95,8 +95,19 @@ function calm(dir: string) {
 
 /** Lets a window that Chrome treats as unfocused or hidden still take clicks and keys from DevTools. */
 async function awake(client: Cdp.Client) {
-  await client.send("Emulation.setFocusEmulationEnabled", { enabled: true }).catch(() => undefined)
-  await client.send("Page.bringToFront").catch(() => undefined)
+  await within(client.send("Emulation.setFocusEmulationEnabled", { enabled: true }), 800).catch(() => undefined)
+  await within(client.send("Page.bringToFront"), 800).catch(() => undefined)
+}
+
+/** A DevTools call that never answers must not freeze the operator's input: give up after `ms`. */
+function within<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`no answer from Chrome in ${ms} ms`)), ms)
+    work.then(
+      (value) => (clearTimeout(timer), resolve(value)),
+      (error) => (clearTimeout(timer), reject(error)),
+    )
+  })
 }
 
 async function start(sessionID: string): Promise<Live> {
@@ -280,10 +291,13 @@ const uiFocus = new Map<string, boolean>()
 async function inset(sessionID: string, client: Cdp.Client): Promise<Inset> {
   const known = insets.get(sessionID)
   if (known && Date.now() - known.at < 1500) return known
-  const result = (await client.send("Runtime.evaluate", {
-    expression: "[outerWidth, outerHeight, innerWidth, innerHeight, devicePixelRatio]",
-    returnByValue: true,
-  })) as { result?: { value?: number[] } }
+  const result = (await within(
+    client.send("Runtime.evaluate", {
+      expression: "[outerWidth, outerHeight, innerWidth, innerHeight, devicePixelRatio]",
+      returnByValue: true,
+    }),
+    1200,
+  )) as { result?: { value?: number[] } }
   const [ow = 0, oh = 0, iw = 0, ih = 0, scale = 1] = result.result?.value ?? []
   const next = {
     left: Math.max(0, ((ow - iw) / 2) * scale),
@@ -302,25 +316,32 @@ export async function mouse(sessionID: string, input: Cdp.MouseInput): Promise<s
   const capture = live.get(sessionID)?.capture
   if (!capture) {
     if (input.kind === "down") await awake(client)
-    await Cdp.mouse(client, input)
+    await within(Cdp.mouse(client, input), 2000)
     return "page"
   }
-  const frame = await inset(sessionID, client).catch(() => undefined)
+  let why = ""
+  const frame = await inset(sessionID, client).catch((error: unknown) => {
+    why = error instanceof Error ? error.message : String(error)
+    return undefined
+  })
   if (frame && input.y >= frame.top && input.x >= frame.left) {
     if (input.kind === "down") {
       uiFocus.set(sessionID, false)
       await awake(client)
     }
-    await Cdp.mouse(client, {
-      ...input,
-      x: (input.x - frame.left) / frame.scale,
-      y: (input.y - frame.top) / frame.scale,
-    })
+    await within(
+      Cdp.mouse(client, {
+        ...input,
+        x: (input.x - frame.left) / frame.scale,
+        y: (input.y - frame.top) / frame.scale,
+      }),
+      2000,
+    )
     return `PAGE at ${Math.round((input.x - frame.left) / frame.scale)},${Math.round((input.y - frame.top) / frame.scale)} from window ${Math.round(input.x)},${Math.round(input.y)} (${frame.raw}, top inset ${Math.round(frame.top)}px)`
   }
   if (input.kind === "down") uiFocus.set(sessionID, true)
   capture.mouse(input)
-  return `CHROME-UI window ${Math.round(input.x)},${Math.round(input.y)}${frame ? ` (${frame.raw}, top inset ${Math.round(frame.top)}px)` : " (no inset)"}`
+  return `CHROME-UI window ${Math.round(input.x)},${Math.round(input.y)}${frame ? ` (${frame.raw}, top inset ${Math.round(frame.top)}px)` : ` (no inset: ${why || "unknown"})`}`
 }
 
 export async function key(sessionID: string, input: Parameters<typeof Cdp.key>[1]) {
