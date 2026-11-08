@@ -201,7 +201,7 @@ test.each(["light", "dark"] as const)("shares the %s system scheme while retaini
   }
 })
 
-test("falls back to exact RGB when the cycling palette has no readable indexed muted candidate", async () => {
+test("falls back to exact RGB when the nearest indexed muted candidate is unreadable", async () => {
   // The shared 8-color cycling palette: against #fbf1c7 its nearest indexed match for the
   // generated muted fails the 3.5 guard, so muted text keeps the exact theme color instead.
   const colors = terminalColors({ defaultBackground: "#fbf1c7", defaultForeground: "#3c3836" }, "light")
