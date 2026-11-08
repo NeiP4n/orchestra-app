@@ -18,6 +18,7 @@ import { McpInstructions } from "../mcp/instructions.js"
 import { Memory } from "../memory/index.js"
 import { MemoryInstructions } from "../memory/instructions.js"
 import { SessionMemory } from "../memory/session.js"
+import { BrowserInstructions } from "../browser/instructions.js"
 import { NoteInstructions } from "../note-instructions.js"
 import { McpTool } from "../tool/mcp.js"
 import { ReferenceInstructions } from "../reference/instructions.js"
@@ -142,9 +143,7 @@ const layer = Layer.effect(
       // Session permissions narrow discovery the same way they narrow the tool snapshot.
       const permissions = Permission.merge(agent.info.permissions, session.permissions ?? [])
       // Without readable history every section stays whole: a missed rule costs more than tokens.
-      const history = InstructionRouter.enabled()
-        ? yield* store.context(sessionID).pipe(Effect.option)
-        : Option.none()
+      const history = InstructionRouter.enabled() ? yield* store.context(sessionID).pipe(Effect.option) : Option.none()
       const route = Option.match(history, {
         onNone: () => undefined,
         onSome: (messages) => {
@@ -202,6 +201,7 @@ const layer = Layer.effect(
           loaded.builtins,
           loaded.entries,
           loaded.canvas,
+          BrowserInstructions.make(session.location.directory),
         ]),
         tools: loaded.tools,
       }

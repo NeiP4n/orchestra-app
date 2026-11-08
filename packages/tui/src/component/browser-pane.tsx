@@ -154,6 +154,24 @@ export function BrowserPane(props: {
     })
   })
   const [route, setRoute] = createSignal("")
+  // While the operator has control, the agent's browser tool is refused for this session; letting go frees it
+  // again (an assignment to an agent is never cleared by this).
+  createEffect(() => {
+    if (!control()) return
+    const before = BrowserRuntime.leases()[props.sessionID]
+    try {
+      BrowserRuntime.setLease(props.sessionID, "operator")
+    } catch {
+      // Without the file the agent is simply not held back.
+    }
+    onCleanup(() => {
+      try {
+        BrowserRuntime.setLease(props.sessionID, before && before.agent !== "operator" ? before.agent : undefined)
+      } catch {
+        // See above.
+      }
+    })
+  })
   let moving = false
   let latestMove: { x: number; y: number } | undefined
   const forward = (kind: "down" | "up" | "move", event: MouseEvent) => {

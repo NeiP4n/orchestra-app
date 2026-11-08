@@ -4,6 +4,7 @@ import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { optional } from "@orchestra/schema/schema"
 import { Effect, Schema } from "effect"
+import { BrowserBridge } from "../../browser/bridge.js"
 import { BrowserPage } from "../../browser/page.js"
 import { BrowserRuntime } from "../../browser/runtime.js"
 import { Cdp } from "../../browser/cdp.js"
@@ -22,8 +23,12 @@ export const description = [
   "  text — the visible text of the current page.",
   "  info — the current address and title only.",
   "  screenshot — a picture of the page (shown as an image when the model supports images, with the address and title as text otherwise).",
+  "  sessions — list every browser session (id, name, project, running or not, page, controller), so you know what exists.",
+  "  assign — give a session to another agent (`agent`: its name) so only it may act there; tell that agent the session id. release — take the assignment away.",
   "  click — click the element matching a CSS selector, or the clickable element whose text contains `text`.",
   "  type — put `text` into the field matching `selector`; submit: true presses Enter afterwards.",
+  "",
+  "Address a session other than the selected one with `session` (its id or name). A session held by another agent, or by the operator in Take control, refuses you.",
   "",
   "Read the page text first and pick targets from it. open, click and type ask the operator for permission. Stop and tell the operator before entering payment details, passwords, or anything that publishes or spends.",
 ].join("\n")
@@ -35,7 +40,13 @@ export const triggers = [
 ]
 
 export const Input = Schema.Struct({
-  action: Schema.Literals(["open", "text", "info", "screenshot", "click", "type"]),
+  action: Schema.Literals(["open", "text", "info", "screenshot", "click", "type", "sessions", "assign", "release"]),
+  session: optional(
+    Schema.String.annotate({
+      description: "Browser session id or name; default is the one selected in the Browser tab",
+    }),
+  ),
+  agent: optional(Schema.String.annotate({ description: "Agent name to give the session to, for assign" })),
   url: optional(Schema.String.annotate({ description: "http or https address, for open" })),
   selector: optional(Schema.String.annotate({ description: "CSS selector, for click and type" })),
   text: optional(Schema.String.annotate({ description: "Text to type, or text of the element to click" })),
@@ -48,6 +59,9 @@ export type Output = typeof Output.Type
 
 /** Actions that change the page or act with the operator's logged-in accounts ask first. */
 export const acts = (action: Input["action"]) => action === "open" || action === "click" || action === "type"
+
+/** Actions that only manage which agent holds a session; they never touch the page. */
+export const manages = (action: Input["action"]) => action === "sessions" || action === "assign" || action === "release"
 
 const TEXT_LIMIT = 12_000
 
@@ -108,6 +122,10 @@ export async function perform(sessionID: string, input: Input) {
       }
       return { text: `Typed into ${result.tag}${input.submit ? " and pressed Enter" : ""}.` }
     }
+    case "sessions":
+    case "assign":
+    case "release":
+      throw new Error(`${input.action} is handled before the page is touched.`)
   }
 }
 
@@ -125,14 +143,22 @@ export const Plugin = {
   effect: Effect.fn("BrowserTool.Plugin")(function* (ctx: Context) {
     const permission = yield* Permission.Service
 
-    // The project's selected browser session, found from the directory this chat works in.
+    // The browser session to act in: the one named by `session` (id or name), else the project's selected one,
+    // found from the directory this chat works in.
     const sessionFor = Effect.fn("BrowserTool.sessionFor")(function* (
       sessionID: Parameters<typeof ctx.session.get>[0]["sessionID"],
+      ref: string | undefined,
     ) {
       const session = yield* ctx.session.get({ sessionID })
+      if (ref !== undefined && ref.trim() !== "") {
+        const found = BrowserBridge.resolve(BrowserRuntime.sessions(), ref, session.location.directory)
+        return "error" in found ? yield* Effect.fail(new ToolFailure({ message: found.error })) : found.session.id
+      }
       const chosen = BrowserRuntime.selectedSession(session.location.directory)
       return chosen === undefined ? yield* Effect.fail(new ToolFailure({ message: NO_SESSION })) : chosen
     })
+
+    const fail = (message: string) => Effect.fail(new ToolFailure({ message }))
 
     yield* ctx.tool
       .transform((editor) =>
@@ -148,7 +174,41 @@ export const Plugin = {
           output: Output,
           execute: (input, context) =>
             Effect.gen(function* () {
-              const browserSession = yield* sessionFor(context.sessionID)
+              const caller = String(context.agent)
+              if (input.action === "sessions") {
+                const list = BrowserRuntime.sessions()
+                const held = BrowserRuntime.leases()
+                const pages = new Map<string, { running: boolean; title?: string; url?: string }>()
+                for (const item of list) pages.set(item.id, yield* Effect.promise(() => BrowserRuntime.peek(item.id)))
+                const text = BrowserBridge.describe(list, held, (id) => pages.get(id) ?? { running: false })
+                return { output: { output: text }, content: [{ type: "text" as const, text }] }
+              }
+              const browserSession = yield* sessionFor(context.sessionID, input.session)
+              // Handing a session over or taking it back is the orchestrator's call: only the operator's
+              // Take control stops it. Acting in the page is for the assigned agent alone.
+              const holder = BrowserRuntime.leases()[browserSession]?.agent
+              const managing = input.action === "assign" || input.action === "release"
+              const blocked = BrowserBridge.refusal(
+                BrowserRuntime.leases(),
+                browserSession,
+                managing && holder ? holder : caller,
+                acts(input.action) || managing,
+              )
+              if (blocked) return yield* fail(blocked)
+              if (input.action === "assign" || input.action === "release") {
+                const name =
+                  BrowserRuntime.sessions().find((item) => item.id === browserSession)?.name ?? browserSession
+                if (input.action === "assign") {
+                  const to = input.agent?.trim()
+                  if (!to) return yield* fail("assign needs `agent`: the name of the agent that gets the session.")
+                  BrowserRuntime.setLease(browserSession, to)
+                  const text = `Browser session "${name}" is now assigned to ${to}. Tell ${to} to use the browser tool with session "${browserSession}". Only ${to} (or the operator in Take control) can act in it until you release it.`
+                  return { output: { output: text }, content: [{ type: "text" as const, text }] }
+                }
+                BrowserRuntime.setLease(browserSession, undefined)
+                const text = `Browser session "${name}" is free again: any agent may use it.`
+                return { output: { output: text }, content: [{ type: "text" as const, text }] }
+              }
               if (acts(input.action))
                 yield* permission.assert({
                   action: name,

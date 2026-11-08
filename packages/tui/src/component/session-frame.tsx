@@ -14,7 +14,7 @@ import { consoleSiblings, consoleTerminalID } from "../util/console-terminal"
 import { useData } from "../context/data"
 import { useProjects } from "../context/projects"
 import { owningProject } from "../util/project-owner"
-import { publishSelection } from "../util/browser-runtime"
+import { publishSelection, publishSessions } from "../util/browser-runtime"
 import { Keymap } from "../context/keymap"
 import { InteractivityProvider } from "../context/interactivity"
 import { useSessionTerminals } from "../context/session-terminals"
@@ -99,6 +99,23 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
       } catch {
         // The file is a convenience for the agent; the tab works without it.
       }
+    }
+  })
+  // The same for the list itself, so the agent can name every session, see which run and hand one to another agent.
+  createEffect(() => {
+    try {
+      publishSessions(
+        projectList.list().flatMap((project) =>
+          notes.browserSessions(project.id).map((item) => ({
+            id: item.id,
+            name: item.name,
+            project: project.directory,
+            ...(item.group ? { group: item.group } : {}),
+          })),
+        ),
+      )
+    } catch {
+      // Same as above: the tab works without it.
     }
   })
   // In the Browser view the chat stays beside the page when the window is wide enough; the Console takes the

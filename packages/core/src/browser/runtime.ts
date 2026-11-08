@@ -541,3 +541,40 @@ export function selectedSession(directory: string) {
     directory,
   )
 }
+/** The Browser tab publishes every session (name, project) so the agents can list and address them. */
+export function publishSessions(list: readonly BrowserBridge.SessionInfo[]) {
+  const file = BrowserBridge.sessionsFile(Global.Path.data)
+  const text = JSON.stringify(list, null, 2)
+  if (existsSync(file) && readFileSync(file, "utf8") === text) return
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, text)
+}
+
+export function sessions() {
+  const file = BrowserBridge.sessionsFile(Global.Path.data)
+  return BrowserBridge.parseSessions(existsSync(file) ? readFileSync(file, "utf8") : undefined)
+}
+
+export function leases() {
+  const file = BrowserBridge.leasesFile(Global.Path.data)
+  return BrowserBridge.parseLeases(existsSync(file) ? readFileSync(file, "utf8") : undefined)
+}
+
+/** Gives a session to an agent (or the operator), or frees it when `agent` is undefined. */
+export function setLease(sessionID: string, agent: string | undefined) {
+  const file = BrowserBridge.leasesFile(Global.Path.data)
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, JSON.stringify(BrowserBridge.withLease(leases(), sessionID, agent, Date.now()), null, 2))
+}
+
+/** What a session shows right now, without starting it. */
+export async function peek(sessionID: string): Promise<{ running: boolean; title?: string; url?: string }> {
+  const item = live.get(sessionID)
+  if (!item) return { running: false }
+  try {
+    const info = await Cdp.pageInfo(item.client)
+    return { running: true, title: info.title, url: info.url }
+  } catch {
+    return { running: true }
+  }
+}

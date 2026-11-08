@@ -239,3 +239,41 @@ describe("window capture (Windows helper protocol)", () => {
     void exit
   })
 })
+
+describe("browser sessions and leases", () => {
+  const list = [
+    { id: "brw_a", name: "Browser 1", project: "/w/Work" },
+    { id: "brw_b", name: "Browser 1", project: "/w/Other" },
+    { id: "brw_c", name: "Shop", project: "/w/Work" },
+  ]
+
+  test("a session is found by id, or by name in the caller's project first", () => {
+    expect(BrowserBridge.resolve(list, "brw_c", "/w/Other")).toEqual({ session: list[2]! })
+    expect(BrowserBridge.resolve(list, "browser 1", "/w/Work/src")).toEqual({ session: list[0]! })
+    expect(BrowserBridge.resolve(list, "Browser 1", "/w/Else")).toHaveProperty("error")
+    expect(BrowserBridge.resolve(list, "nope", "/w/Work")).toHaveProperty("error")
+  })
+
+  test("parsing drops malformed entries", () => {
+    expect(BrowserBridge.parseSessions('[{"id":"a","name":"n","project":"/p"},{"id":1}]')).toEqual([
+      { id: "a", name: "n", project: "/p" },
+    ])
+    expect(BrowserBridge.parseSessions("not json")).toEqual([])
+    expect(BrowserBridge.parseLeases('{"a":{"agent":"x","since":1},"b":{}}')).toEqual({ a: { agent: "x", since: 1 } })
+  })
+
+  test("only the assigned agent acts; the operator holds everyone back from acting but not from reading", () => {
+    const leases = { a: { agent: "worker", since: 1 }, b: { agent: BrowserBridge.OPERATOR, since: 2 } }
+    expect(BrowserBridge.refusal(leases, "a", "worker", true)).toBeUndefined()
+    expect(BrowserBridge.refusal(leases, "a", "orchestrator", true)).toContain("worker")
+    expect(BrowserBridge.refusal(leases, "free", "anyone", true)).toBeUndefined()
+    expect(BrowserBridge.refusal(leases, "b", "worker", true)).toContain("operator")
+    expect(BrowserBridge.refusal(leases, "b", "worker", false)).toBeUndefined()
+  })
+
+  test("assign and release change the lease map without touching the others", () => {
+    const one = BrowserBridge.withLease({}, "a", "worker", 5)
+    expect(one).toEqual({ a: { agent: "worker", since: 5 } })
+    expect(BrowserBridge.withLease(one, "a", undefined, 6)).toEqual({})
+  })
+})

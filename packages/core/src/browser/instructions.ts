@@ -1,0 +1,65 @@
+/**
+ * What the agent knows about the Browser tab: which browser sessions the project has, which ones run, which one
+ * the operator has selected and who controls each. It appears with the first session and updates when they
+ * change, so the agent never answers that no browser exists while one is open in the pane.
+ */
+export * as BrowserInstructions from "./instructions.js"
+
+import { Effect, Schema } from "effect"
+import { Instructions } from "../instructions/index.js"
+import { BrowserBridge } from "./bridge.js"
+import { BrowserRuntime } from "./runtime.js"
+
+const Entry = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  running: Schema.Boolean,
+  selected: Schema.Boolean,
+  controller: Schema.String,
+})
+type Entry = typeof Entry.Type
+
+export function make(directory: string): Instructions.List {
+  return Instructions.make({
+    key: Instructions.Key.make("core/browser-sessions"),
+    codec: Schema.toCodecJson(Schema.Array(Entry)),
+    read: Effect.sync(() => {
+      const all = BrowserRuntime.sessions()
+      const project = BrowserBridge.projectOf(all, directory)
+      if (project === undefined) return Instructions.removed
+      const mine = all.filter((item) => item.project === project)
+      if (mine.length === 0) return Instructions.removed
+      const held = BrowserRuntime.leases()
+      const selected = BrowserRuntime.selectedSession(directory)
+      return mine.map(
+        (item): Entry => ({
+          id: item.id,
+          name: item.name,
+          running: BrowserRuntime.isOpen(item.id),
+          selected: item.id === selected,
+          controller: held[item.id]?.agent ?? "none",
+        }),
+      )
+    }).pipe(Effect.orElseSucceed(() => Instructions.removed)),
+    render: {
+      initial: render,
+      changed: (_, current) => render(current),
+      removed: () =>
+        "The Browser tab has no browser sessions for this project any more. The browser tool's `sessions` action shows the current state.",
+    },
+  })
+}
+
+function render(entries: readonly Entry[]) {
+  const running = entries.filter((item) => item.running).length
+  return [
+    "<browser-sessions>",
+    `  The user's Browser tab has ${entries.length} browser session${entries.length === 1 ? "" : "s"} for this project, ${running} running. A session is a real Chrome the user watches in the pane; use the browser tool for it (not desktop_inspect, and never say that no browser exists while one is listed here).`,
+    ...entries.map(
+      (item) =>
+        `  - ${item.name} [${item.id}]${item.selected ? " (selected)" : ""}: ${item.running ? "running" : "not started"}, controller ${item.controller}`,
+    ),
+    "  The browser tool's `sessions` action shows pages and urls; `assign` hands a session to another agent (name it and pass it the session id), `release` frees it. The operator's Take control always wins.",
+    "</browser-sessions>",
+  ].join("\n")
+}
