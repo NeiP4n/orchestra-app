@@ -1,4 +1,12 @@
-import { ImageRenderable, NativeImage, TextAttributes, type InputRenderable } from "@opentui/core"
+import {
+  ImageRenderable,
+  NativeImage,
+  TextAttributes,
+  type BoxRenderable,
+  type InputRenderable,
+  type KeyEvent,
+  type MouseEvent,
+} from "@opentui/core"
 import { extend, useRenderer } from "@opentui/solid"
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js"
 import { useTheme } from "../context/theme"
@@ -42,6 +50,9 @@ export function BrowserPane(props: {
   const renderer = useRenderer()
   const [size, setSize] = createSignal<{ cols: number; rows: number }>()
   let picture: ImageRenderable | undefined
+  let screenBox: BoxRenderable | undefined
+  // The page size Chrome is laid out at, so a click in the pane lands on the same spot of the page.
+  let viewport = { width: 0, height: 0 }
   let lastFrame = 0
   let address: InputRenderable | undefined
   let disposed = false
@@ -71,6 +82,7 @@ export function BrowserPane(props: {
     const width = Math.min(MAX_WIDTH, Math.max(200, Math.round(area.cols * cellWidth)))
     const height = Math.min(MAX_HEIGHT, Math.max(120, Math.round(area.rows * cellHeight)))
     const timer = setTimeout(() => {
+      viewport = { width, height }
       void BrowserRuntime.watch(props.sessionID, { width, height }, (frame) => {
         const now = Date.now()
         if (disposed || !picture || picture.isDestroyed || now - lastFrame < FRAME_GAP_MS) return
@@ -85,6 +97,44 @@ export function BrowserPane(props: {
     onCleanup(() => clearTimeout(timer))
   })
   onCleanup(() => BrowserRuntime.unwatch(props.sessionID))
+
+  // Control: the operator's mouse and keys go into the page instead of the app. Ctrl+G gives them back.
+  const [control, setControl] = createSignal(false)
+  const toPage = (event: { x: number; y: number }) => {
+    if (!screenBox || screenBox.width <= 0 || screenBox.height <= 0) return undefined
+    return {
+      x: ((event.x - screenBox.x + 0.5) / screenBox.width) * viewport.width,
+      y: ((event.y - screenBox.y + 0.5) / screenBox.height) * viewport.height,
+    }
+  }
+  const send = (work: Promise<unknown>) => void work.catch((error) => !disposed && setFailure(errorMessage(error)))
+  const forward = (kind: "down" | "up" | "move", event: MouseEvent) => {
+    const at = control() ? toPage(event) : undefined
+    if (!at) return
+    event.stopPropagation()
+    send(
+      BrowserRuntime.mouse(
+        props.sessionID,
+        kind === "move" ? { kind, ...at } : { kind, ...at, button: event.button === 2 ? "right" : "left" },
+      ),
+    )
+  }
+  createEffect(() => {
+    if (!control()) return
+    const onKey = (key: KeyEvent) => {
+      if (key.ctrl && key.name === "g") return (setControl(false), key.preventDefault(), key.stopPropagation())
+      key.preventDefault()
+      key.stopPropagation()
+      if (key.eventType === "release") return
+      send(BrowserRuntime.key(props.sessionID, key))
+    }
+    renderer.keyInput.on("keypress", onKey)
+    onCleanup(() => void renderer.keyInput.off("keypress", onKey))
+  })
+  // Leaving the screen view or closing the browser always gives the keyboard back.
+  createEffect(() => {
+    if (state() === "idle" || view() !== "screen") setControl(false)
+  })
 
   const open = () => run(async () => void (await BrowserRuntime.open(props.sessionID)))
 
@@ -197,6 +247,12 @@ export function BrowserPane(props: {
           <Show when={props.canShowChat}>
             <Action label={props.chatHidden ? t("Show chat") : t("Hide chat")} onClick={props.onToggleChat} />
           </Show>
+          <Show when={view() === "screen"}>
+            <Action
+              label={control() ? t("Release (Ctrl+G)") : t("Take control")}
+              onClick={() => setControl(!control())}
+            />
+          </Show>
           <Action
             label={view() === "screen" ? t("Text") : t("Screen")}
             onClick={() => {
@@ -240,8 +296,25 @@ export function BrowserPane(props: {
             flexGrow={1}
             minHeight={0}
             minWidth={0}
+            ref={(value: BoxRenderable) => (screenBox = value)}
             onSizeChange={function () {
               setSize({ cols: this.width, rows: this.height })
+            }}
+            onMouseDown={(event: MouseEvent) => forward("down", event)}
+            onMouseUp={(event: MouseEvent) => forward("up", event)}
+            onMouseMove={(event: MouseEvent) => forward("move", event)}
+            onMouseScroll={(event: MouseEvent) => {
+              const at = control() ? toPage(event) : undefined
+              if (!at || !event.scroll) return
+              event.stopPropagation()
+              send(
+                BrowserRuntime.mouse(props.sessionID, {
+                  kind: "wheel",
+                  ...at,
+                  deltaX: event.scroll.direction === "left" ? -120 : event.scroll.direction === "right" ? 120 : 0,
+                  deltaY: event.scroll.direction === "up" ? -120 : event.scroll.direction === "down" ? 120 : 0,
+                }),
+              )
             }}
           >
             <browserImage ref={(value: ImageRenderable) => (picture = value)} flexGrow={1} fit="fill" />

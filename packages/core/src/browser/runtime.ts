@@ -203,6 +203,15 @@ export async function history(sessionID: string, step: -1 | 1) {
   return true
 }
 
+/** Mouse and keys from the operator, forwarded into the active tab. */
+export async function mouse(sessionID: string, input: Cdp.MouseInput) {
+  await Cdp.mouse(await open(sessionID), input)
+}
+
+export async function key(sessionID: string, input: Parameters<typeof Cdp.key>[1]) {
+  await Cdp.key(await open(sessionID), input)
+}
+
 export async function reload(sessionID: string) {
   await (await open(sessionID)).send("Page.reload")
 }

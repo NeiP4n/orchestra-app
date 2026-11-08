@@ -34,6 +34,13 @@ describe("browser view", () => {
       expect(pane).toContain(call)
   })
 
+  test("the operator can take control and always give it back", () => {
+    const pane = read("component/browser-pane.tsx")
+    expect(pane).toContain("BrowserRuntime.mouse(")
+    expect(pane).toContain("BrowserRuntime.key(")
+    expect(pane).toContain('key.ctrl && key.name === "g"')
+  })
+
   test("the chat is shown beside the page only in a wide window", () => {
     const frame = read("component/session-frame.tsx")
     expect(frame).toContain('centerView() === "browser" && dimensions().width >= 110')

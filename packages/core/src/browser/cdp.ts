@@ -170,3 +170,84 @@ export async function startScreencast(
     void client.send("Page.stopScreencast").catch(() => undefined)
   }
 }
+
+export type MouseInput =
+  | { kind: "down" | "up"; x: number; y: number; button?: "left" | "middle" | "right" }
+  | { kind: "move"; x: number; y: number }
+  | { kind: "wheel"; x: number; y: number; deltaY: number; deltaX?: number }
+
+/** Forwards a mouse action to the page, like a person using it. Coordinates are in page pixels. */
+export function mouse(client: Client, input: MouseInput) {
+  const base = { x: Math.round(input.x), y: Math.round(input.y) }
+  if (input.kind === "move") return client.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...base })
+  if (input.kind === "wheel")
+    return client.send("Input.dispatchMouseEvent", {
+      type: "mouseWheel",
+      ...base,
+      deltaX: input.deltaX ?? 0,
+      deltaY: input.deltaY,
+    })
+  return client.send("Input.dispatchMouseEvent", {
+    type: input.kind === "down" ? "mousePressed" : "mouseReleased",
+    ...base,
+    button: input.button ?? "left",
+    clickCount: 1,
+  })
+}
+
+// Keys that are not text. [key, code, Windows virtual key code]
+const SPECIAL: Record<string, readonly [string, string, number]> = {
+  return: ["Enter", "Enter", 13],
+  enter: ["Enter", "Enter", 13],
+  backspace: ["Backspace", "Backspace", 8],
+  tab: ["Tab", "Tab", 9],
+  escape: ["Escape", "Escape", 27],
+  delete: ["Delete", "Delete", 46],
+  up: ["ArrowUp", "ArrowUp", 38],
+  down: ["ArrowDown", "ArrowDown", 40],
+  left: ["ArrowLeft", "ArrowLeft", 37],
+  right: ["ArrowRight", "ArrowRight", 39],
+  home: ["Home", "Home", 36],
+  end: ["End", "End", 35],
+  pageup: ["PageUp", "PageUp", 33],
+  pagedown: ["PageDown", "PageDown", 34],
+}
+
+export type KeyStep =
+  | { method: "Input.insertText"; params: { text: string } }
+  | { method: "Input.dispatchKeyEvent"; params: Record<string, unknown> }
+
+/**
+ * The protocol calls for one key press. Printable text is inserted as text (so any language types), named
+ * keys go as real key events. Combinations with ctrl or alt are not forwarded: they are the terminal's.
+ */
+export function keySteps(key: {
+  name: string
+  sequence: string
+  ctrl?: boolean
+  meta?: boolean
+  option?: boolean
+}): KeyStep[] {
+  if (key.ctrl || key.meta || key.option) return []
+  const special = SPECIAL[key.name]
+  if (special) {
+    const [name, code, vk] = special
+    const text = name === "Enter" ? "\r" : undefined
+    const common = { key: name, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk }
+    return [
+      {
+        method: "Input.dispatchKeyEvent",
+        params: { type: text ? "keyDown" : "rawKeyDown", ...common, ...(text ? { text } : {}) },
+      },
+      { method: "Input.dispatchKeyEvent", params: { type: "keyUp", ...common } },
+    ]
+  }
+  if (key.name === "space" || key.sequence === " ") return [{ method: "Input.insertText", params: { text: " " } }]
+  if (key.sequence.length > 0 && !/^[\x00-\x1f\x7f]/.test(key.sequence) && !key.sequence.startsWith("\x1b"))
+    return [{ method: "Input.insertText", params: { text: key.sequence } }]
+  return []
+}
+
+export async function key(client: Client, input: Parameters<typeof keySteps>[0]) {
+  for (const step of keySteps(input)) await client.send(step.method, step.params)
+}
