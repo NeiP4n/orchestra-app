@@ -13,7 +13,7 @@ import { useT } from "../util/i18n"
 import { consoleSiblings, consoleTerminalID } from "../util/console-terminal"
 import { useData } from "../context/data"
 import { useProjects } from "../context/projects"
-import { Orchestra } from "@orchestra/schema/orchestra"
+import { owningProject } from "../util/project-owner"
 import { Keymap } from "../context/keymap"
 import { InteractivityProvider } from "../context/interactivity"
 import { useSessionTerminals } from "../context/session-terminals"
@@ -86,7 +86,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   const browserSession = () => {
     const directory = data.session.get(props.sessionID)?.location.directory
     if (!directory) return
-    const project = projectList.list().find((item) => Orchestra.contains(item.directory, directory))
+    const project = owningProject(projectList.list(), directory)
     return project ? notes.browserSelected(project.id) : undefined
   }
   // In the Browser view the chat stays beside the page when the window is wide enough; the Console takes the

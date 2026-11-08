@@ -12,6 +12,7 @@ import type {
 } from "@orchestra/client/promise"
 import { Federation } from "@orchestra/schema/federation"
 import { Orchestra } from "@orchestra/schema/orchestra"
+import { owningProject } from "../util/project-owner"
 import { Mode } from "@orchestra/schema/mode"
 import { useClient } from "../context/client"
 import { useData } from "../context/data"
@@ -245,7 +246,8 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
   // opens its main session, whose directory decides the shell (or the browser sessions) shown.
   const projectOnly = () => notes.tab() === "console" || notes.tab() === "browser"
   const inProject = (project: OrchestraProject) =>
-    current()?.location.directory !== undefined && Orchestra.contains(project.directory, current()!.location.directory)
+    current()?.location.directory !== undefined &&
+    owningProject(projects(), current()!.location.directory)?.id === project.id
   const palette = () => neuralPalette(theme)
   const energy = useNeuralEnergy()
   const empty = useEmptyRoom()
