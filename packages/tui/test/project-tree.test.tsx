@@ -367,12 +367,16 @@ test("a group poll returning the same data keeps a held gear press clickable", a
   await using setup = await render(state.path, calls, [project])
 
   const gear = await hoverGear(setup)
-  // The tree polls groups every 3s; hold the press across a COMPLETED poll
-  // (witnessed in the mock server's call log), then release: the click must land.
+  // The tree polls groups every 3s. The poll's request is witnessed in the mock
+  // server's call log; after the response has render cycles to apply, the pressed
+  // gear must still be the SAME renderable (no remount), and the click must land.
   await setup.mockMouse.pressDown(gear.x, gear.y)
+  const instance = setup.renderer.root.findDescendantById(`project-edit:${project.id}`)
   const before = groupPolls(calls)
   await setup.waitFor(() => groupPolls(calls) > before, { maxPasses: 200 })
   await setup.renderOnce()
+  await setup.renderOnce()
+  expect(setup.renderer.root.findDescendantById(`project-edit:${project.id}`)).toBe(instance)
   await setup.mockMouse.release(gear.x, gear.y)
 
   await setup.waitForFrame((f) => f.includes("Edit project") && f.includes("Path"))
@@ -384,12 +388,17 @@ test("a project refetch returning the same data keeps a held gear press clickabl
   await using setup = await render(state.path, calls, [project])
 
   const gear = await hoverGear(setup)
-  // A reconnect refetches the project list; the server answers with the same data.
+  // A reconnect refetches the project list and the server answers with the same
+  // data. The request is witnessed in the call log; after the response has render
+  // cycles to apply, the pressed gear must still be the SAME renderable.
   await setup.mockMouse.pressDown(gear.x, gear.y)
+  const instance = setup.renderer.root.findDescendantById(`project-edit:${project.id}`)
   const before = projectFetches(calls)
   reconnect(setup)
   await setup.waitFor(() => projectFetches(calls) > before, { maxPasses: 200 })
   await setup.renderOnce()
+  await setup.renderOnce()
+  expect(setup.renderer.root.findDescendantById(`project-edit:${project.id}`)).toBe(instance)
   await setup.mockMouse.release(gear.x, gear.y)
 
   await setup.waitForFrame((f) => f.includes("Edit project") && f.includes("Path"))

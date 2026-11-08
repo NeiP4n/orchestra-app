@@ -175,8 +175,11 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
     return list
   })
   // The tree keys sections by name, not object identity: a refresh that changes one
-  // project replaces only that project's row, never the section around it, so a
-  // press held on a sibling row survives the update.
+  // project replaces only that project's row; an unchanged row in the same section is
+  // preserved, and a press held on it survives. Group names are unique and non-empty
+  // (the server stores groups keyed by name and rejects an empty one), so the unnamed
+  // section's "" key can never shadow a group. Renaming a group or moving a project
+  // between groups legitimately remounts the rows involved.
   const sectionKeys = createMemo(() => sections().map((section) => section.name ?? ""))
   const emptySection: ReturnType<typeof computeSections>[number] = {
     name: undefined,
