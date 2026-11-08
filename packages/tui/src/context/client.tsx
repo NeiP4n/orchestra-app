@@ -1,5 +1,5 @@
 import type { OrchestraClient, OrchestraEvent } from "@orchestra/client"
-import { createClientConnection, createPersistentPtyClient } from "@orchestra/client/solid"
+import { createClientConnection, createPersistentPtyClient, createPtyClient } from "@orchestra/client/solid"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { onCleanup } from "solid-js"
 import { createSimpleContext } from "./helper"
@@ -22,6 +22,7 @@ export const { use: useClient, provider: ClientProvider } = createSimpleContext(
     let api = props.api
     let url = props.url
     let persistentPty = url ? createPersistentPtyClient(api, { url }) : undefined
+    let pty = url ? createPtyClient(api, { url }) : undefined
 
     const connection = createClientConnection(api, {
       reconnect: service
@@ -30,6 +31,7 @@ export const { use: useClient, provider: ClientProvider } = createSimpleContext(
             api = next.api
             if (next.url) url = next.url
             if (url) persistentPty = createPersistentPtyClient(api, { url })
+            if (url) pty = createPtyClient(api, { url })
             return api
           }
         : undefined,
@@ -50,6 +52,11 @@ export const { use: useClient, provider: ClientProvider } = createSimpleContext(
       get persistentPty() {
         if (!persistentPty) throw new Error("Persistent terminal server endpoint is unavailable")
         return persistentPty
+      },
+      // The plain (non-persistent) terminal endpoint, which works where the persistent daemon does not.
+      get pty() {
+        if (!pty) throw new Error("Terminal server endpoint is unavailable")
+        return pty
       },
       event: {
         on: events.on,
