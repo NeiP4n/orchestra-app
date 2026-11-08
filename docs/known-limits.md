@@ -14,10 +14,11 @@ established).
 The Node artifact currently lacks the Bun-backed project memory database and
 codegraph index, and cannot send Windows media keys through Bun FFI. Basic
 session storage uses a separate Node SQLite adapter. Session memory falls back
-to the scrubbed file journal when the Bun sqlite engine cannot open (SOURCE,
-verified under Bun by test/session-settle-capture.test.ts, an integrated
-fixture that drives a real SessionStep through an injected engine-open
-failure); settlement and journal durability in the compiled Node artifact
+to the scrubbed file journal when the Bun sqlite engine cannot open (SOURCE: an
+integrated-settlement pass under Bun with a synthetic provider -
+test/session-settle-capture.test.ts drives a real SessionStep through an
+injected engine-open failure; this is not compiled-Node readiness);
+settlement and journal durability in the compiled Node artifact
 are not yet verified, and --version/--help smoke tests do not establish
 working-session readiness. Use the Bun build for these features until the
 Node adapters and session tests pass.
@@ -86,15 +87,20 @@ Node adapters and session tests pass.
   existed) was a verified source defect. FIXED at ba682091 and reworked at
   b31aad26: the capture is suspended and lives in the exported
   toolSettledCapture seam, the engine opens through the never-throwing
-  tryOpenSessionEngine, the step settles, and the scrubbed file journal
-  stays the record. Failure handling now splits two cases: a missing Bun
+  tryOpenSessionEngine, and the scrubbed file journal stays the record. The
+  step catches capture failures: a direct captureToolUse call can still fail
+  on journal I/O, and the outer notifyToolSettled catch keeps the step alive
+  when it does. The journal append is best-effort - no fsync or crash
+  durability is claimed. Failure handling splits two cases: a missing Bun
   runtime is a capability absence, cached with one warning per project
   directory; any other engine-open failure is operational, warns once per
   failure streak, and the next attempt retries - no directory is poisoned
-  for the process lifetime. Verified under Bun by
-  test/session-settle-capture.test.ts (integrated fixture: real SessionStep,
-  injected engine-open throw, result publishes, scrubbed journal appended,
-  warning exactly once, retry-then-recovery) and test/session-memory.test.ts.
+  for the process lifetime. Verified as a source
+  integrated-settlement pass under Bun with a synthetic provider by
+  test/session-settle-capture.test.ts (real SessionStep, injected
+  engine-open throw, result publishes, scrubbed journal appended, warning
+  exactly once, retry-then-recovery) and test/session-memory.test.ts; not a
+  compiled-Node readiness claim.
 - SOURCE: the journal append (.orchestra/sessions/<id>/journal.jsonl) and the
   engine write path are unchanged; the engine lives at .orchestra/memory.db.
 - Finalize: SOURCE session/execution.ts:187-209 — the extractive finalize is
@@ -126,10 +132,11 @@ Node adapters and session tests pass.
   Linux; the Windows run was cancelled. Job logs returned 403.
 - CI-RUN at 4d1ef63e: both OS "Verify Node build" steps reported success by
   API (run 42423856383); output/artifact correspondence not verified.
-- The 6c dispatch run (workflow_dispatch, full unit suite plus e2e) passed
-  its earlier jobs but was cancelled mid-run by a newer push; a fresh
-  same-SHA dispatch on the reworked code is pending. A passing smoke is a
-  Node build smoke result, not a feature certification.
+- The 6c dispatch run (workflow_dispatch): the affected-setup job succeeded,
+  and all four substantive full jobs were then cancelled by a newer push, so
+  it implies no test results; a fresh same-SHA dispatch on the reworked code
+  is pending. A passing smoke is a Node build smoke result, not a feature
+  certification.
 - Omissions: no step exercises the updater refusal, memory/codegraph gates,
   media keys or an ordinary tool settle in the compiled artifact; the unit
   suite runs under Bun, not the compiled artifact.
