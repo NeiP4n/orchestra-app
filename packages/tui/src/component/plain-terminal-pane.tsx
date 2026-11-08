@@ -18,6 +18,8 @@ extend({ embeddedTerminal: EmbeddedTerminalRenderable })
 // A terminal for servers without the persistent PTY daemon (Windows): the plain PTY of a directory.
 // The shell lives as long as the server and is found again by its title, so every session of one project
 // directory reaches the same shell. There is no multi-client control handoff here.
+const SCROLLBACK_LINES = 10_000
+
 export const PLAIN_CONSOLE_TITLE = "Console"
 
 export function PlainTerminalPane(props: { directory: string; autoFocus?: boolean }) {
@@ -109,6 +111,8 @@ export function PlainTerminalPane(props: { directory: string; autoFocus?: boolea
             value.height = size.rows
             if (props.autoFocus) value.focus()
           }}
+          // The wheel scrolls this history when the program does not ask for mouse input.
+          maxScrollback={SCROLLBACK_LINES}
           position="absolute"
           left={1}
           top={0}

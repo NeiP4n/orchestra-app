@@ -15,6 +15,8 @@ declare module "@opentui/solid" {
 
 extend({ embeddedTerminal: EmbeddedTerminalRenderable })
 
+export const SCROLLBACK_LINES = 10_000
+
 type TerminalSize = { cols: number; rows: number }
 type StreamItem =
   | { type: "output"; data: Uint8Array }
@@ -308,6 +310,8 @@ export function TerminalPane(props: {
               }
               applyTerminalTheme()
             }}
+            // The wheel scrolls this history when the program does not ask for mouse input.
+            maxScrollback={SCROLLBACK_LINES}
             position="absolute"
             left={1}
             top={0}
