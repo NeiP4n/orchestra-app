@@ -7,6 +7,7 @@ import type { Tool } from "@orchestra/schema/tool"
 import { Effect, Schema } from "effect"
 import { Memory } from "../../memory/index.js"
 import { getMemoryEngineForProject } from "../../memory/engine.js"
+import { bunRuntime } from "../../runtime.js"
 import { Location } from "../../location.js"
 import { Permission } from "../../permission.js"
 
@@ -122,14 +123,19 @@ export const Plugin = {
       // B18 №38: the engine opens the database of THIS project
       // (`<project>/.orchestra/memory.db`), never the process working
       // directory — a session whose CWD moved must not move its memory.
-      // A build without the Bun sqlite engine cannot construct it; refuse
-      // the action honestly instead of leaking a stack or returning nothing.
+      // A build without the Bun sqlite engine can never construct it: refuse
+      // BEFORE any mkdir or write, instead of leaking a stack or returning
+      // nothing. An operational open failure under Bun reports the real cause.
+      if (!bunRuntime())
+        return yield* new ToolFailure({
+          message:
+            "The memory tool needs the Bun-backed project memory database, which this build does not have. Use the Bun build for project memory.",
+        })
       const engine = yield* Effect.try({
         try: () => getMemoryEngineForProject(location.project.directory),
         catch: (cause) =>
           new ToolFailure({
-            message:
-              "The memory tool needs the Bun-backed project memory database, which this build does not have. Use the Bun build for project memory.",
+            message: `The project memory database could not be opened: ${cause instanceof Error ? cause.message : String(cause)}`,
             error: cause,
           }),
       })

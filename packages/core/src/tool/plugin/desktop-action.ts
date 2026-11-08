@@ -7,6 +7,7 @@ import { optional } from "@orchestra/schema/schema"
 import { Effect, Schema } from "effect"
 import { DesktopIsolation } from "../../desktop-isolation.js"
 import { isDesktopCaptureEnabled, makeHost } from "./desktop.js"
+import { bunRuntime } from "../../runtime.js"
 
 export const name = "desktop_action"
 
@@ -610,7 +611,7 @@ export const Plugin = {
         const command = input.command!
         // Media keys go through Bun FFI (user32 keybd_event); a build without
         // Bun FFI cannot send them. The PowerShell actions below are unaffected.
-        if (typeof Bun === "undefined")
+        if (!bunRuntime())
           return yield* new ToolFailure({
             message:
               'desktop_action with action "media" sends Windows media keys through Bun FFI, which this build does not have. Use the Bun build for media keys.',

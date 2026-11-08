@@ -5,6 +5,7 @@
 // they are still current), which symbols each file declares, and which calls and imports leave it.
 // `symbols_fts` is a trigram index over names and paths, so substring search costs an index seek.
 
+import { bunRuntime } from "../runtime.js"
 import { Database } from "bun:sqlite"
 import fs from "node:fs"
 import path from "node:path"
@@ -83,7 +84,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5 (name, path, tokenize 
  * artifact bundles a shim whose Database throws on construction. Callers must
  * check this first and refuse honestly, before any mkdir or write.
  */
-export const supported = (): boolean => typeof Bun !== "undefined"
+export const supported = (): boolean => bunRuntime()
 
 export function open(root: string): Graph {
   const file = databasePath(root)
