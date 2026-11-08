@@ -41,6 +41,7 @@ import { createPaneResize } from "../ui/pane-resize"
 import { PaneResizeHandle } from "../ui/pane-resize-handle"
 import { useToast } from "../ui/toast"
 import { TerminalPane } from "./terminal-pane"
+import { PlainTerminalPane } from "./plain-terminal-pane"
 import { PanelHost } from "./panel-host"
 import { HoverAction } from "./hover-action"
 import { NoteCanvas } from "./note-canvas"
@@ -77,7 +78,8 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   // A session bound to a note in Notes mode shows the note as its document, with the chat beside it.
   const canvas = createMemo(() => (fullscreen() ? undefined : notes.canvas(props.sessionID)))
   // The Console and Browser tabs of the left panel replace the center chat; Projects brings it back.
-  const centerView = () => (fullscreen() ? undefined : notes.tab() === "console" || notes.tab() === "browser" ? notes.tab() : undefined)
+  const centerView = () =>
+    fullscreen() ? undefined : notes.tab() === "console" || notes.tab() === "browser" ? notes.tab() : undefined
   // Keep a bound note in the center with its chat on the right on narrow terminals;
   // only stack them when there is not enough room for two usable columns.
   const stacked = () => sessionPanesStacked(availableWidth(), canvas() !== undefined)
@@ -129,8 +131,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
       }).catch((error) => console.error("Failed to persist sidebar width", error))
     },
   })
-  const defaultNoteChatWidth = () =>
-    defaultSessionPaneWidth(canvasHostWidth(), compactLayout.compact())
+  const defaultNoteChatWidth = () => defaultSessionPaneWidth(canvasHostWidth(), compactLayout.compact())
   const noteChatResize = createPaneResize({
     value: () => panelWidthFromShare(layout.noteChatShare, canvasHostWidth()) ?? defaultNoteChatWidth(),
     defaultValue: defaultNoteChatWidth,
@@ -540,13 +541,17 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
           minHeight={0}
           position={fullscreen() ? "absolute" : "relative"}
           visible={!fullscreen() && !centerView()}
-          width={centerView() ? 0 : sessionPaneBoxWidth({
-            fullscreen: fullscreen(),
-            fullscreenWidth: panels.width() - paneResize.size(),
-            hasCanvas: canvas() !== undefined,
-            stacked: stacked(),
-            noteChatWidth: noteChatResize.size(),
-          })}
+          width={
+            centerView()
+              ? 0
+              : sessionPaneBoxWidth({
+                  fullscreen: fullscreen(),
+                  fullscreenWidth: panels.width() - paneResize.size(),
+                  hasCanvas: canvas() !== undefined,
+                  stacked: stacked(),
+                  noteChatWidth: noteChatResize.size(),
+                })
+          }
           height="100%"
         >
           <InteractivityProvider enabled={activePane() === "session" && !fullscreen()}>
@@ -581,7 +586,8 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
               }}
               // Consume the release before revealing permission buttons underneath.
               onMouseUp={() => {
-                if (paneResize.resizing() || sidebarResize.resizing() || noteChatResize.resizing() || resizeRelease) return
+                if (paneResize.resizing() || sidebarResize.resizing() || noteChatResize.resizing() || resizeRelease)
+                  return
                 focusSession()
               }}
             />
@@ -601,33 +607,46 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
             >
               <Show
                 keyed
-                when={consoleTerminal()?.id}
+                when={sessions.available()}
                 fallback={
-                  // Say why the pane is empty instead of leaving a blank panel.
-                  <box flexGrow={1} alignItems="center" justifyContent="center">
-                    <text fg={theme.text.muted}>
-                      {!sessions.available()
-                        ? t("Terminals are not available on this server.")
-                        : consoleError()
-                          ? `${t("Unable to load terminal")}: ${consoleError()}`
-                          : t("Starting the project shell...")}
-                    </text>
-                  </box>
+                  // No persistent PTY on this server (Windows): the plain PTY of the project directory.
+                  <Show
+                    keyed
+                    when={sessions.checked() ? data.session.get(props.sessionID)?.location.directory : undefined}
+                  >
+                    {(directory) => <PlainTerminalPane directory={directory} autoFocus />}
+                  </Show>
                 }
               >
-                {(ptyID) => (
-                  <TerminalPane
-                    ptyID={ptyID}
-                    autoFocus
-                    onFocusRequest={(value) => (focusTerminal = value)}
-                  />
-                )}
+                <Show
+                  keyed
+                  when={consoleTerminal()?.id}
+                  fallback={
+                    // Say why the pane is empty instead of leaving a blank panel.
+                    <box flexGrow={1} alignItems="center" justifyContent="center">
+                      <text fg={theme.text.muted}>
+                        {consoleError()
+                          ? `${t("Unable to load terminal")}: ${consoleError()}`
+                          : t("Starting the project shell...")}
+                      </text>
+                    </box>
+                  }
+                >
+                  {(ptyID) => (
+                    <TerminalPane ptyID={ptyID} autoFocus onFocusRequest={(value) => (focusTerminal = value)} />
+                  )}
+                </Show>
               </Show>
             </Show>
           </box>
         </Show>
       </box>
-      <Show when={!rightPaneHidden() && (rightPane() === "terminal" || rightPane() === "panel" || (rightPane() === "sidebar" && wide()))}>
+      <Show
+        when={
+          !rightPaneHidden() &&
+          (rightPane() === "terminal" || rightPane() === "panel" || (rightPane() === "sidebar" && wide()))
+        }
+      >
         <box
           ref={(value: BoxRenderable) => (rightNode = value)}
           flexShrink={0}
@@ -652,7 +671,9 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
                 paddingLeft={1}
                 paddingRight={1}
               >
-                <text fg={hideRightPaneHovered() ? theme.text.action.primary.hovered : theme.text.action.primary.base}>›</text>
+                <text fg={hideRightPaneHovered() ? theme.text.action.primary.hovered : theme.text.action.primary.base}>
+                  ›
+                </text>
               </HoverAction>
             </box>
           </Show>
@@ -732,7 +753,9 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
             paddingLeft={1}
             paddingRight={1}
           >
-            <text fg={showRightPaneHovered() ? theme.text.action.primary.hovered : theme.text.action.primary.base}>‹</text>
+            <text fg={showRightPaneHovered() ? theme.text.action.primary.hovered : theme.text.action.primary.base}>
+              ‹
+            </text>
           </HoverAction>
         </box>
       </Show>
@@ -747,9 +770,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
         when={
           !fullscreen() &&
           !rightPaneHidden() &&
-          (rightPane() === "terminal" ||
-            rightPane() === "panel" ||
-            (rightPane() === "sidebar" && wide())) &&
+          (rightPane() === "terminal" || rightPane() === "panel" || (rightPane() === "sidebar" && wide())) &&
           availableWidth() >= 3
         }
       >
