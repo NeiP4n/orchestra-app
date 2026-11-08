@@ -1,6 +1,8 @@
 import { createServer } from "node:http"
+import { rm } from "node:fs/promises"
 import { describe, expect, test } from "bun:test"
 import { createUnixSocketRequester, startFirecrackerVM, type FirecrackerRequester } from "./firecracker-client"
+import { firecrackerSocketPath } from "./firecracker"
 import type { Machine } from "./store"
 
 const machine: Machine = {
@@ -20,45 +22,51 @@ const assets = {
   rootfsPath: "/var/lib/orchestra/rootfs.ext4",
 }
 
-describe("firecracker client", () => {
-  test("sends configuration in order to a fake unix socket server", async () => {
-    const seen: string[] = []
-    const socketPath = "/tmp/orchestra-test-fc.socket"
+const expectedOrder = ["PUT /machine-config", "PUT /boot-source", "PUT /drives/rootfs", "PUT /actions"]
 
+describe("firecracker client", () => {
+  // Portable: the injected requester records the same order the real client
+  // would send, no socket needed.
+  test("sends configuration in order", async () => {
+    const ordered: string[] = []
+
+    const recording: FirecrackerRequester = async (_socket, method, path) => {
+      ordered.push(`${method} ${path}`)
+
+      return { status: 204, body: "" }
+    }
+
+    await startFirecrackerVM(recording, machine, assets)
+
+    expect(ordered).toEqual(expectedOrder)
+  })
+
+  // The real transport speaks HTTP over a unix socket, which only Linux
+  // supports for Firecracker; the socket path derivation itself is covered
+  // by firecracker.test.ts on every OS.
+  test.skipIf(process.platform !== "linux")("delivers configuration over the real unix socket transport", async () => {
+    // A unique machine id keeps the derived socket path collision-free
+    // between concurrent test runs; firecrackerSocketPath sanitizes it.
+    const unique = { ...machine, id: `fc-test-${process.pid}-${Date.now()}` }
+    const socketPath = firecrackerSocketPath(unique.id)
+    const seen: string[] = []
     const server = createServer((req, res) => {
       seen.push(`${req.method} ${req.url}`)
       res.writeHead(204)
       res.end()
     })
+    const failed = Promise.withResolvers<never>()
+    server.on("error", (error: Error) => failed.reject(error))
 
-    await new Promise<void>((resolve) => server.listen(socketPath, resolve))
+    await Promise.race([new Promise<void>((resolve) => server.listen(socketPath, resolve)), failed.promise])
 
     try {
-      const requester: FirecrackerRequester = async (_path, method, path, body) => {
-        // Reuse the real requester against the fake server by rewriting the
-        // socket path: the client under test builds its own path, so this
-        // test drives the requester directly with the fake socket.
-        void _path
+      await startFirecrackerVM(createUnixSocketRequester(), unique, assets)
 
-        return createUnixSocketRequester()(socketPath, method, path, body)
-      }
-
-      // Drive the client logic with a requester that records the same order
-      // the real client would send, then verify the fake server saw it.
-      const ordered: string[] = []
-
-      const recording: FirecrackerRequester = async (_socket, method, path, body) => {
-        ordered.push(`${method} ${path}`)
-
-        return requester(socketPath, method, path, body)
-      }
-
-      await startFirecrackerVM(recording, machine, assets)
-
-      expect(ordered).toEqual(["PUT /machine-config", "PUT /boot-source", "PUT /drives/rootfs", "PUT /actions"])
-      expect(seen).toEqual(ordered)
+      expect(seen).toEqual(expectedOrder)
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()))
+      await rm(socketPath, { force: true })
     }
   })
 
