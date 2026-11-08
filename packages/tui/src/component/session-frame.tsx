@@ -206,6 +206,11 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     consoleRequested = props.sessionID
     void sessions.newTerminal(props.sessionID).catch(terminalError)
   })
+  const selectedTerminal = () => {
+    if (!sessions.available()) return
+    const value = session()
+    return value.terminals.find((terminal) => terminal.id === value.selectedTerminalID)
+  }
   createEffect(
     on([activePanel, () => selectedTerminal()?.id], ([panel, terminal], previous) => {
       if (panel && panel !== previous?.[0]) {
