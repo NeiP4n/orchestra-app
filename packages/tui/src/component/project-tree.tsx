@@ -551,7 +551,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
     >
       <box width={props.width} height="100%" flexShrink={0} backgroundColor={theme.background.raised.base} paddingTop={1}>
         {/* The panel's head: a segmented switch between the tree and the notes, the main action, and collapse. */}
-        <box flexDirection="row" flexWrap="wrap" paddingLeft={1} paddingRight={1} gap={1} flexShrink={0}>
+        <box flexDirection="row" flexWrap="wrap" paddingLeft={1} paddingRight={1} columnGap={1} rowGap={0} flexShrink={0}>
           {/* Tabs wrap to a second row when the panel is narrow, so none is clipped. */}
           <box flexDirection="row" flexWrap="wrap" flexShrink={1}>
             <Tab tab="projects" icon="◉" label={iconOnly() ? "" : t("Projects")} hover={hover} setHover={setHover} />
