@@ -160,7 +160,11 @@ public static class Cap {
     int x = int.Parse(a[2]) - (origin.X - r.L), y = int.Parse(a[3]) - (origin.Y - r.T);
     switch (a[1]) {
       case "move": PostMessage(hwnd, 0x200, IntPtr.Zero, Pack(x, y)); break;
-      case "ldown": PostMessage(hwnd, 0x201, (IntPtr)1, Pack(x, y)); break;
+      case "ldown":
+        // Chrome takes clicks as a person's: the window active and focused, the pointer on the spot first.
+        PostMessage(hwnd, 0x86, (IntPtr)1, IntPtr.Zero); PostMessage(hwnd, 0x6, (IntPtr)1, IntPtr.Zero); PostMessage(hwnd, 0x7, IntPtr.Zero, IntPtr.Zero);
+        PostMessage(hwnd, 0x200, IntPtr.Zero, Pack(x, y));
+        PostMessage(hwnd, 0x201, (IntPtr)1, Pack(x, y)); break;
       case "lup": PostMessage(hwnd, 0x202, IntPtr.Zero, Pack(x, y)); break;
       case "rdown": PostMessage(hwnd, 0x204, (IntPtr)2, Pack(x, y)); break;
       case "rup": PostMessage(hwnd, 0x205, IntPtr.Zero, Pack(x, y)); break;

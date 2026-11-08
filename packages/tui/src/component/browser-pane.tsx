@@ -133,6 +133,7 @@ export function BrowserPane(props: {
       setMarker(undefined)
     })
   })
+  const [route, setRoute] = createSignal("")
   const forward = (kind: "down" | "up" | "move", event: MouseEvent) => {
     if (!control()) return
     const at = toPage(event)
@@ -144,7 +145,9 @@ export function BrowserPane(props: {
       BrowserRuntime.mouse(
         props.sessionID,
         kind === "move" ? { kind, ...at } : { kind, ...at, button: event.button === 2 ? "right" : "left" },
-      ),
+      ).then((where) => {
+        if (kind !== "move") setRoute(`${kind} -> ${where}`)
+      }),
     )
   }
   createEffect(() => {
@@ -341,7 +344,9 @@ export function BrowserPane(props: {
               </box>
             </box>
             <text fg={theme.text.muted} flexShrink={0} wrapMode="none" truncate>
-              {control() ? debug() || "control: on, waiting for mouse or keys" : stats()}
+              {control()
+                ? `${debug() || "control: on, waiting for mouse or keys"}${route() ? ` · ${route()}` : ""}`
+                : stats()}
             </text>
           </Show>
         </Show>
