@@ -217,6 +217,7 @@
       "gray"
     ],
     "text": {
+      "muted": "$hue.neutral.300",
       "action": {
         "primary": {
           "$focused": "$hue.neutral.900"
