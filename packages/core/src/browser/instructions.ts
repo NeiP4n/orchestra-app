@@ -54,7 +54,7 @@ function render(entries: readonly Entry[]) {
   const running = entries.filter((item) => item.running).length
   return [
     "<browser-sessions>",
-    `  The user's Browser tab has ${entries.length} browser session${entries.length === 1 ? "" : "s"} for this project, ${running} running. A session is a real Chrome the user watches in the pane; use the browser tool for it (not desktop_inspect, and never say that no browser exists while one is listed here).`,
+    `  The user's Browser tab has ${entries.length} browser session${entries.length === 1 ? "" : "s"} for this project, ${running} running. A session is a real Chrome the user watches in the pane; load the browser tool with the tools loader if it is not loaded yet and use it for the page (screenshot to look, text to read; not desktop_inspect, and never say that no browser exists while one is listed here).`,
     ...entries.map(
       (item) =>
         `  - ${item.name} [${item.id}]${item.selected ? " (selected)" : ""}: ${item.running ? "running" : "not started"}, controller ${item.controller}`,
