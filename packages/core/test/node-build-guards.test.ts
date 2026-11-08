@@ -240,6 +240,23 @@ describe("desktop_action media keys without Bun FFI", () => {
     Object.defineProperty(process, "platform", { value: "win32", configurable: true })
   }
 
+  // The desktop env flags are captured and restored, not deleted: a value
+  // the environment already had before the suite must survive it.
+  const DESKTOP_ENV = [
+    "ORCHESTRA_DESKTOP_CAPTURE",
+    "ORCHESTRA_DESKTOP_REAL_SCREEN",
+    "ORCHESTRA_DESKTOP_REAL_SCREEN_ALLOWLIST",
+    "ORCHESTRA_DESKTOP_REAL_SCREEN_UNTIL",
+  ] as const
+  const savedEnv = new Map(DESKTOP_ENV.map((name) => [name, process.env[name]]))
+  afterAll(() => {
+    for (const name of DESKTOP_ENV) {
+      const before = savedEnv.get(name)
+      if (before === undefined) delete process.env[name]
+      else process.env[name] = before
+    }
+  })
+
   afterEach(() => {
     if (realPlatform) Object.defineProperty(process, "platform", realPlatform)
     delete process.env.ORCHESTRA_DESKTOP_CAPTURE
