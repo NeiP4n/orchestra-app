@@ -253,12 +253,12 @@ const toolCall = (tool: SessionMessage.AssistantTool, providerMetadata: Provider
     providerMetadata,
   })
 
-const MAX_LIVE_TOOL_RESULT_CHARS = 100_000
+const MAX_LIVE_TOOL_RESULT_CHARS = 40_000
 
 function truncateLiveToolText(text: string): string {
   if (text.length <= MAX_LIVE_TOOL_RESULT_CHARS) return text
-  const headChars = 60_000
-  const tailChars = 20_000
+  const headChars = 24_000
+  const tailChars = 8_000
   const omitted = text.length - headChars - tailChars
   return `${text.slice(0, headChars)}\n\n[... truncated: ${omitted} characters omitted to preserve model context ...]\n\n${text.slice(-tailChars)}`
 }
