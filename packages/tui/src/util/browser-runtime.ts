@@ -18,6 +18,8 @@ export const {
   closeTab,
   history,
   relaunch,
+  mouse,
+  key,
   isWindowed,
   modeOf,
   reload,
