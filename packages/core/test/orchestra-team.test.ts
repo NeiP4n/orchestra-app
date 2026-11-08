@@ -990,8 +990,13 @@ describe("Orchestra team", () => {
             ],
           },
         })
-      // A session without an outstanding task is the operator's own conversation.
-      yield* ask(tester.id)
+      // A session outside every project is the operator's own conversation: it keeps asking the human.
+      const outside = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-outside-")))
+      const stray = yield* sessions.create({
+        location: { directory: AbsolutePath.make(outside.path) },
+        title: "Own conversation",
+      })
+      yield* ask(stray.id)
       yield* ask(developer.id)
       const questions = (sessionID: Session.ID) =>
         sessions
@@ -1014,6 +1019,15 @@ describe("Orchestra team", () => {
       expect(question).toContain("- Postgres: Production")
       expect(question).toContain("- SQLite")
       expect(yield* questions(project.main!)).toHaveLength(1)
+      // A member session between tasks (no outstanding task) is still the orchestrator's to decide for.
+      yield* ask(tester.id)
+      const both = yield* questions(project.main!).pipe(
+        Effect.filterOrFail((found) => found.length > 1),
+        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.timeout("2 seconds"),
+      )
+      expect(both.some((text) => text.includes(`session="${tester.id}"`) && text.includes('task="legacy"'))).toBe(true)
+      expect(both.some((text) => text.includes(`session="${stray.id}"`))).toBe(false)
       const qItem = (yield* sessions.inbox(project.main!)).find(
         (item) => item.type === "synthetic" && item.payload.text.startsWith("<team-question"),
       )

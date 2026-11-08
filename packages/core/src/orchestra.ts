@@ -1725,16 +1725,31 @@ const layer: Layer.Layer<
           const workerID = Option.getOrUndefined(decodeSessionID(form.sessionID))
           if (!workerID) return
           const task = Option.getOrUndefined(decodeTask(yield* kv.get(TASK + workerID)))
-          if (!task) return
-          const main = (yield* projectForTask(task))?.main ?? task.main
           const worker = yield* sessions.get(workerID).pipe(Effect.orElseSucceed(() => undefined))
+          // A member session of a project belongs to its orchestrator even between tasks (a follow-up
+          // sent to it, a task already reported): the society decides, not the human. Only a session
+          // that is no project's member is the operator's own conversation and keeps asking the human.
+          const main = task
+            ? ((yield* projectForTask(task))?.main ?? task.main)
+            : yield* Effect.gen(function* () {
+                if (!worker || worker.agent === Orchestra.agent) return undefined
+                const allProjects = yield* projects()
+                const claims = yield* owners()
+                const claimed = claims[worker.id] ?? Orchestra.sessionOwner(worker.metadata)
+                const project = claimed
+                  ? allProjects.find((item) => item.id === claimed)
+                  : Orchestra.ownerOf(allProjects, worker.location.directory)
+                if (!project || project.main === worker.id) return undefined
+                return project.main
+              }).pipe(Effect.orElseSucceed(() => undefined))
+          if (!main) return
           const title = worker?.title ?? workerID
           yield* sessions
             .synthetic({
               sessionID: main,
               description: `${title}: question`,
               text: [
-                `<team-question session="${workerID}" task="${task.messageID ?? "legacy"}" form="${form.id}" title="${title}" role="${worker?.agent ?? "unknown"}">`,
+                `<team-question session="${workerID}" task="${task?.messageID ?? "legacy"}" form="${form.id}" title="${title}" role="${worker?.agent ?? "unknown"}">`,
                 ...form.fields.map((field, index) =>
                   [
                     `${index + 1}. ${field.title ? `[${field.title}] ` : ""}${field.description ?? ""}${field.type === "multiselect" ? " (several may be chosen)" : ""}`,
@@ -1749,7 +1764,7 @@ const layer: Layer.Layer<
                 source: "team",
                 sessionID: workerID,
                 form: form.id,
-                ...(task.messageID ? { taskID: task.messageID } : {}),
+                ...(task?.messageID ? { taskID: task.messageID } : {}),
               },
             })
             .pipe(Effect.ignore)
