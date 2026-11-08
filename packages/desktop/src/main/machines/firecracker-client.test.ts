@@ -41,9 +41,10 @@ describe("firecracker client", () => {
     expect(ordered).toEqual(expectedOrder)
   })
 
-  // The real transport speaks HTTP over a unix socket, which only Linux
-  // supports for Firecracker; the socket path derivation itself is covered
-  // by firecracker.test.ts on every OS.
+  // The Firecracker backend is Linux-only, so the real transport (HTTP over
+  // a unix socket) is exercised on Linux alone; unix sockets themselves work
+  // on other OSes. The socket path derivation is covered by
+  // firecracker.test.ts on every OS.
   test.skipIf(process.platform !== "linux")("delivers configuration over the real unix socket transport", async () => {
     // A unique machine id keeps the derived socket path collision-free
     // between concurrent test runs; firecrackerSocketPath sanitizes it.

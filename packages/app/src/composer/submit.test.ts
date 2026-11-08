@@ -427,6 +427,7 @@ describe("Composer submission", () => {
     }
 
     const history: string[] = []
+    const sleeps: number[] = []
     const submission = submitInput(
       active(state, target),
       notify,
@@ -434,7 +435,9 @@ describe("Composer submission", () => {
       () => [],
       history,
       undefined,
-      () => Promise.resolve(),
+      async (ms) => {
+        sleeps.push(ms)
+      },
     )
 
     await submission.submit(new Event("submit"))
@@ -442,6 +445,9 @@ describe("Composer submission", () => {
     await submission.submit(new Event("submit"))
     await second.promise
 
+    // The backoff contract is 500ms then 1500ms between the 3 attempts of each
+    // submission; the first attempt of each ladder goes out without a delay.
+    expect(sleeps).toEqual([500, 1500, 500, 1500])
     expect(attempts).toHaveLength(6)
     expect(new Set(attempts).size).toBe(1)
     expect(statuses).toEqual(["running", "idle", "running", "idle"])
@@ -508,10 +514,12 @@ describe("Composer submission", () => {
       },
     })
 
-    await submitInput(active(state, target), undefined, "normal", undefined, undefined, undefined, () =>
-      Promise.resolve(),
-    ).submit(new Event("submit"))
+    const sleeps: number[] = []
+    await submitInput(active(state, target), undefined, "normal", undefined, undefined, undefined, async (ms) => {
+      sleeps.push(ms)
+    }).submit(new Event("submit"))
     await checked.promise
+    expect(sleeps).toEqual([500, 1500])
 
     expect(state.current()).toEqual([{ type: "text", content: "", start: 0, end: 0 }])
     // The retry ladder makes 3 attempts before the failure handler consults the
