@@ -371,18 +371,29 @@ const layer = Layer.effect(
           // cache in SessionMemory), so a step that never touches a tool
           // never creates the session memory database.
           onToolSettled: (event) =>
-            SessionMemory.captureToolUse({
-              directory: location.project.directory,
-              sessionID,
-              toolUseID: event.id,
-              tool: event.name,
-              inputText: event.inputText,
-              outputText: event.outputText,
-              ...(event.error !== undefined ? { error: event.error } : {}),
-              // Б17: raw tool I/O is scrubbed before it reaches the journal
-              // (foundation slice `memory/scrub.ts`), never stored as-is.
-              scrub: scrubText,
-              engine: SessionMemory.openSessionEngine(location.project.directory),
+            // The engine opens eagerly, so constructing it can throw (a build
+            // without the Bun sqlite engine). Suspend + degrade: the step must
+            // settle normally and the file journal stays the record.
+            Effect.suspend(() => {
+              const opened = SessionMemory.tryOpenSessionEngine(location.project.directory)
+              const capture = SessionMemory.captureToolUse({
+                directory: location.project.directory,
+                sessionID,
+                toolUseID: event.id,
+                tool: event.name,
+                inputText: event.inputText,
+                outputText: event.outputText,
+                ...(event.error !== undefined ? { error: event.error } : {}),
+                // Б17: raw tool I/O is scrubbed before it reaches the journal
+                // (foundation slice `memory/scrub.ts`), never stored as-is.
+                scrub: scrubText,
+                ...(opened.engine !== undefined ? { engine: opened.engine } : {}),
+              })
+              if (!opened.becameDegraded) return capture
+              return Effect.logWarning(
+                "Session memory engine unavailable in this build; keeping the file journal only",
+                { sessionID, directory: location.project.directory },
+              ).pipe(Effect.andThen(capture))
             }),
           retry: (cause, error, proposed) =>
             retry.decide({

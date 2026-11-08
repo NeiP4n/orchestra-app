@@ -443,6 +443,27 @@ export function openSessionEngine(directory: string): MemoryEngine {
   return engine
 }
 
+
+// Directories whose engine failed to open (a build without the Bun sqlite
+// engine): the session keeps recording to the file journal only.
+const degradedEngineDirs = new Set<string>()
+
+/**
+ * Like openSessionEngine, but never throws: the engine opens eagerly and a
+ * build without the Bun sqlite engine cannot construct it. Returns no engine
+ * then, so the caller records to the file journal only; becameDegraded is
+ * true exactly once per directory, so the caller warns once.
+ */
+export function tryOpenSessionEngine(directory: string): { engine?: MemoryEngine; becameDegraded: boolean } {
+  if (degradedEngineDirs.has(directory)) return { becameDegraded: false }
+  try {
+    return { engine: openSessionEngine(directory), becameDegraded: false }
+  } catch {
+    degradedEngineDirs.add(directory)
+    return { becameDegraded: true }
+  }
+}
+
 export interface CaptureInput {
   readonly directory: string
   readonly sessionID: string

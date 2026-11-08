@@ -308,3 +308,36 @@ describe("session memory (L3)", () => {
     expect((value as string).length).toBeLessThanOrEqual(SessionMemory.START_BUDGET_CHARS)
   })
 })
+
+describe("session memory without the Bun sqlite engine (node build degraded mode)", () => {
+  test("tool settlement completes, the journal keeps the record, and the degradation is reported once", async () => {
+    const directory = await project()
+    // A file where the engine's database directory must go makes the eager
+    // open fail the same way the node artifact's throwing bun:sqlite shim does.
+    const blocker = path.join(directory, "not-a-directory")
+    await writeFile(blocker, "x", "utf8")
+
+    const opened = SessionMemory.tryOpenSessionEngine(blocker)
+    expect(opened.engine).toBeUndefined()
+    expect(opened.becameDegraded).toBe(true)
+    // Once per directory: the caller warns on the transition, not on every call.
+    expect(SessionMemory.tryOpenSessionEngine(blocker).becameDegraded).toBe(false)
+
+    const result = await capture(directory, "ses_degraded", "call_1", "edit", "edit a.ts", "done")
+    expect(result.status).toBe("recorded")
+    const journal = await readFile(SessionMemory.pathsFor(directory, "ses_degraded").journal, "utf8")
+    expect(journal).toContain("edit a.ts")
+
+    await rm(directory, { recursive: true, force: true })
+  })
+
+  test("a working directory still opens the engine and records through it", async () => {
+    const directory = await project()
+    const opened = SessionMemory.tryOpenSessionEngine(directory)
+    expect(opened.engine).toBeDefined()
+    expect(opened.becameDegraded).toBe(false)
+    const result = await capture(directory, "ses_engine", "call_1", "edit", "edit b.ts", "done", opened.engine)
+    expect(result.status).toBe("recorded")
+    await rm(directory, { recursive: true, force: true })
+  })
+})
