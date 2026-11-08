@@ -26,6 +26,7 @@ extend({ browserImage: ImageRenderable })
 
 // The commit this TUI runs from (when it runs from a git checkout), so a report can say which build it saw.
 // The route and frame-size lines are a diagnostic: shown only with ORCHESTRA_BROWSER_DEBUG=1.
+const PIXEL_MOUSE = process.env.ORCHESTRA_BROWSER_PIXEL_MOUSE === "1"
 const DEBUG = process.env.ORCHESTRA_BROWSER_DEBUG === "1"
 const BUILD = (() => {
   try {
@@ -174,14 +175,20 @@ export function BrowserPane(props: {
       }
     })
   })
+  let pixelsSeen = false
   let moving = false
   let latestMove: { x: number; y: number } | undefined
   const forward = (kind: "down" | "up" | "move", event: MouseEvent) => {
     if (!control()) return
+    // With pixel reports on, the exact position arrives separately; the cell event only repeats it roughly.
+    if (pixelsSeen) return void event.stopPropagation()
     const at = toPage(event)
     if (!at) return note(kind, `${kind} ignored, pane has no size`)
     event.stopPropagation()
     if (screenBox) setMarker({ x: Math.max(0, event.x - screenBox.x), y: Math.max(0, event.y - screenBox.y) })
+    deliver(kind, at, event.button === 2 ? "right" : "left")
+  }
+  const deliver = (kind: "down" | "up" | "move", at: { x: number; y: number }, button: "left" | "right") => {
     note(kind, `${kind} page ${Math.round(at.x)},${Math.round(at.y)}`)
     const step = (text: string) => setRoute(`${kind}: ${text}`)
     // Moves are coalesced: while one is on its way only the newest position waits, so the pointer never lags
@@ -192,11 +199,7 @@ export function BrowserPane(props: {
     }
     step("pane sent")
     const run = (point: { x: number; y: number }) =>
-      BrowserRuntime.mouse(
-        props.sessionID,
-        kind === "move" ? { kind, ...point } : { kind, ...point, button: event.button === 2 ? "right" : "left" },
-        step,
-      )
+      BrowserRuntime.mouse(props.sessionID, kind === "move" ? { kind, ...point } : { kind, ...point, button }, step)
     send(
       run(at)
         .then(
@@ -215,6 +218,56 @@ export function BrowserPane(props: {
         }),
     )
   }
+  // Experimental (ORCHESTRA_BROWSER_PIXEL_MOUSE=1): terminals report the pointer in cells, about 10x20 pixels each,
+  // too coarse for a tab's close button. Where the terminal can report pixels (DECSET 1016), the exact position
+  // is read from the raw input while control is on. Everything seen is logged.
+  createEffect(() => {
+    if (!control() || !PIXEL_MOUSE) return
+    const resolution = renderer.resolution
+    BrowserRuntime.trace(
+      `pixel mouse on: terminal ${renderer.width}x${renderer.height} cells, resolution ${resolution ? `${resolution.width}x${resolution.height}` : "unknown"}, box ${screenBox ? `${screenBox.x},${screenBox.y} ${screenBox.width}x${screenBox.height}` : "none"}`,
+    )
+    process.stdout.write("\x1b[?1016h")
+    let logged = 0
+    const onData = (chunk: Buffer | string) => {
+      const text = typeof chunk === "string" ? chunk : chunk.toString("latin1")
+      for (const match of text.matchAll(/\x1b\[<(\d+);(\d+);(\d+)([Mm])/g)) {
+        const code = Number(match[1])
+        const px = Number(match[2])
+        const py = Number(match[3])
+        if (logged < 12) {
+          logged++
+          BrowserRuntime.trace(`raw mouse ${JSON.stringify(match[0])}`)
+        }
+        // Cell reports never exceed the terminal size; larger numbers can only be pixels.
+        if (px > renderer.width || py > renderer.height) pixelsSeen = true
+        if (!pixelsSeen || !screenBox || !resolution) continue
+        const cw = resolution.width / renderer.width
+        const ch = resolution.height / renderer.height
+        const left = screenBox.x * cw
+        const top = screenBox.y * ch
+        const at = {
+          x: ((px - 1 - left) / (screenBox.width * cw)) * viewport.width,
+          y: ((py - 1 - top) / (screenBox.height * ch)) * viewport.height,
+        }
+        if (at.x < 0 || at.y < 0 || at.x > viewport.width || at.y > viewport.height) continue
+        setMarker({
+          x: Math.max(0, Math.floor((px - 1) / cw) - screenBox.x),
+          y: Math.max(0, Math.floor((py - 1) / ch) - screenBox.y),
+        })
+        const motion = (code & 32) === 32
+        const button = (code & 3) === 2 ? "right" : "left"
+        if ((code & 64) === 64) continue
+        deliver(motion || (code & 3) === 3 ? "move" : match[4] === "M" ? "down" : "up", at, button)
+      }
+    }
+    process.stdin.on("data", onData)
+    onCleanup(() => {
+      process.stdin.off("data", onData)
+      process.stdout.write("\x1b[?1016l")
+      pixelsSeen = false
+    })
+  })
   createEffect(() => {
     if (!control()) return
     const onPaste = (event: { bytes: Uint8Array }) => {
