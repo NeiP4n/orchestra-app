@@ -145,7 +145,7 @@ function createFixture(
           leader: false,
           writable: false,
         })
-      if (url.pathname === "/api/rpc/opencode.freebuff/status")
+      if (url.pathname === "/api/rpc/orchestra.freebuff/status")
         return json({
           output: {
             loggedIn: true,
@@ -163,10 +163,11 @@ function createFixture(
   })
 }
 
-/** The option rows of the model picker: between its title and its action hints. */
+/** The option rows of the model picker: between its category header and its action hints. */
 function pickerRows(frame: string) {
   const lines = frame.split("\n")
-  const start = lines.findIndex((line) => line.includes("Select model"))
+  // With connected providers the picker header is the category view, not a title.
+  const start = lines.findIndex((line) => line.includes("\u00b7 tab category"))
   if (start === -1) throw new Error(`Frame has no model picker:\n${frame}`)
   const end = lines.findIndex((line, index) => index > start && line.includes("ctrl+a"))
   if (end === -1) throw new Error(`Frame has no model picker actions:\n${frame}`)
@@ -185,7 +186,7 @@ test("the model picker shows a Freebuff price in freebucks, the balance left and
   await setup.ready
   await setup.waitForFrame((frame) => frame.includes("DeepSeek V4.1 Flash 10/17"))
   setup.mockInput.pressKey("F8")
-  await setup.waitForFrame((frame) => frame.includes("Select model"))
+  await setup.waitForFrame((frame) => frame.includes("\u00b7 tab category"))
   const frame = await setup.waitForFrame((frame) => frame.includes("15 freebucks"))
   const rows = pickerRows(frame)
 
@@ -216,7 +217,7 @@ test("the model picker keeps the provider and the price while searching", async 
   await setup.ready
   await setup.waitForFrame((frame) => frame.includes("DeepSeek V4.1 Flash 10/17"))
   setup.mockInput.pressKey("F8")
-  await setup.waitForFrame((frame) => frame.includes("Select model"))
+  await setup.waitForFrame((frame) => frame.includes("\u00b7 tab category"))
   await setup.waitForFrame((frame) => frame.includes("15 freebucks"))
   await setup.mockInput.typeText("freebuff")
   const frame = await setup.waitForFrame((frame) => frame.includes("Freebuff ·"))

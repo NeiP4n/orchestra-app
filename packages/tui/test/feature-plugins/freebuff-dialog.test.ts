@@ -148,7 +148,7 @@ function createFixture(input: { width?: number; height?: number; language?: "en"
           leader: false,
           writable: false,
         })
-      if (url.pathname === "/api/rpc/opencode.freebuff/status")
+      if (url.pathname === "/api/rpc/orchestra.freebuff/status")
         return json({
           output: {
             loggedIn: true,
