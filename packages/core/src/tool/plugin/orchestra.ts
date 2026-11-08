@@ -49,6 +49,43 @@ export const description = [
  * text reaches the session once — as the answer to its first call of this tool —
  * instead of riding in the advertised schema on every step of the main session.
  */
+/**
+ * Free OpenCode Zen models by kind of work (price 0 in the models.dev catalog), best first. This is a
+ * suggestion for what the operator pins to the Feature list of the model picker (model_favorites); it is
+ * never applied by itself. The Orchestrator chooses worker models only from that Feature list.
+ */
+export const FREE_MODEL_TIERS = [
+  {
+    tier: "strong",
+    for: "planning, architecture, review, security and counterexample work",
+    models: ["opencode/kimi-k2.5-free", "opencode/glm-5-free"],
+  },
+  {
+    tier: "code",
+    for: "implementation, debugging, devops, data, integration, performance and testing",
+    models: ["opencode/grok-code", "opencode/kimi-k2.5-free"],
+  },
+  {
+    tier: "research",
+    for: "research, long-context reading and idea generation",
+    models: ["opencode/longcat-2.5-preview-free", "opencode/nemotron-3-ultra-free"],
+  },
+  {
+    tier: "cheap",
+    for: "writing, design, marketing, support, accessibility and other light or routine work",
+    models: ["opencode/deepseek-v4-flash-free", "opencode/mimo-v2.6-flash-free", "opencode/ling-3.1-flash-free"],
+  },
+] as const
+
+/** True when a model is one of the operator's Feature favorites (provider and id; a variant is not part of the pick). */
+export const inFavorites = (favorites: ReadonlyArray<Model.Ref>, model: Model.Ref) =>
+  favorites.some((item) => item.providerID === model.providerID && item.id === model.id)
+
+export const freeModelGuide = [
+  "Worker models come from the operator's Feature list (the favorites of the model picker) and nothing outside it. Leave model out and your Feature favorites are routed for each task automatically; pass model only to pick one specific Feature favorite for a task, and match the work: the strongest favorite for planning, review and hard debugging, a cheaper one for routine work. A model outside the Feature list is refused, and with an empty list workers use the default.",
+  `The operator's spend limit is 0, so the Feature list should hold free models. A good set to suggest to them: ${FREE_MODEL_TIERS.map((item) => `${item.tier} (${item.for}): ${item.models.join(", ")}`).join("; ")}. Suggest, never assume: you can only use what is in their Feature list.`,
+].join("\n")
+
 export const guide = [
   "Run this project's AI team: the other sessions of the project, each a separate chat with its own role.",
   "Only the project's main session (the orchestrator) has this tool.",
@@ -66,6 +103,7 @@ export const guide = [
   "The 6-message rule binds you: after 6 of your own messages in a row without handing a task to a worker, your other tool calls are refused until you delegate with send or create. Building the Society (society_forge found/generate, society_plan apply) is never refused by this rule and resets the count like a delegation, so creating the Society never forces a premature dispatch. The MCP survey (mcp_manager inspect) is never refused either — a dispatch needs a fresh survey, so survey first if you have not, then dispatch with an explicit mcp assignment. The roster in your context shows how many of the 6 you have used.",
   "MCP assignment is mandatory, and it is enforced, not advised: every send or create to a team session must pass mcp — the servers the worker may call for that task, maxCalls in total, perServer caps — and a dispatch without it is refused and sends nothing. When a task needs no MCP, say so explicitly: mcp with servers [] and maxCalls 0. You may only tighten the role's own MCP ceiling, never widen it; a refused limit says what the role allows. The limit is stamped on the worker session and stated at the top of its task brief.",
   "The assignment must come from a survey, and that is enforced too: before the first dispatch in a session, call mcp_manager with action=inspect once — it lists the configured servers (status, discovered tools, leases) and the installable catalog. A dispatch before the survey is refused and sends nothing. Judge the assignment from what the survey shows: no catalog server fitting the task is a finding, and an explicit empty assignment after the survey is the right answer for native-tool work.",
+  freeModelGuide,
   "Worker models are a cost decision, so make it deliberately: pass model on create or send — the strongest model for design, hard debugging and review, a mid-tier or small model for mechanical implementation and routine checks. With no explicit model the role's own model or the worker policy applies, and failing those the worker inherits YOUR model, which is the expensive default, not a decision. The dispatch result names the model the worker will run and where it came from.",
   "MCP acquisition: action acquire_mcp makes a catalog MCP server actually usable. Pass server (an exact catalog id) or need (a capability in words, e.g. \"browser automation\") and it selects, installs, connects and verifies the server, reporting its real state and the tools actually discovered — a server counts as ready only when both hold. Pass role to check first that the server sits inside that role's MCP ceiling; outside it, acquisition is refused, not worked around. A needs_auth result names the credential variables the operator must provide; never invent a value. Installing is global and shared by the project, but it grants no role access by itself: role profiles and the per-task mcp limits still decide who may call the server, and removing one role's access never disconnects it for the others.",
   "Workflow stages: for anything beyond a trivial task, record the plan with action plan (stages: each with a name, work categories, role ids, dependsOn stage ids, acceptance criteria and the MCP servers it needs). You decide how many stages the task needs: one for a small fix, many for a system audit. Categories describe kinds of work (Research, Security, Implementation); stages are execution units and one stage may span several categories. Action stages lists the current plan; action stage updates one stage (status, and result as the evidence). Replan by calling plan again when a discovery changes the work: completed stages are preserved exactly as recorded, and a stage may start only when every stage it depends on is completed. Mark a stage completed only with evidence in result — a report, a test run, a commit — never on a worker's claim alone. The overall task is complete only when every stage is completed or explicitly cancelled. Action verify scores a task's own acceptance criteria against real evidence (a pass without evidence does not count, a missing criterion is a gap) — use it as the completion gate instead of trusting a worker's claim.",
@@ -800,6 +838,12 @@ export const Plugin = {
         try: () => Model.Ref.parse(model),
         catch: () => new ToolFailure({ message: `Invalid model "${model}". Use provider/model or provider/model#variant.` }),
       })
+      // The operator's Feature list is the pool the Orchestrator chooses from; a role's own model list is separate.
+      const feature = yield* Orchestra.workerFavorites
+      if (!role.models?.length && feature.length > 0 && !inFavorites(feature, ref))
+        return yield* new ToolFailure({
+          message: `${model} is not in the operator's Feature list. Choose one of: ${feature.map(modelRef).join(", ")}, or omit model to have the Feature list routed for the task.`,
+        })
       const withRoleVariant =
         ref.variant === undefined && role.variant !== undefined
           ? Model.Ref.make({ ...ref, variant: Model.VariantID.make(role.variant) })
