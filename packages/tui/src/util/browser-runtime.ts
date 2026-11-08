@@ -17,5 +17,7 @@ export const {
   newTab,
   closeTab,
   history,
+  relaunch,
+  isWindowed,
   reload,
 } = BrowserRuntime

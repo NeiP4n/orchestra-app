@@ -16,6 +16,8 @@ import { Chrome } from "./chrome.js"
 interface Live {
   port: number
   tabID: string
+  /** A visible Chrome window the operator uses directly; it outlives this app and is never killed on exit. */
+  windowed: boolean
   client: Cdp.Client
   /** Closes the process only when this process started it. */
   stop: () => void
@@ -39,9 +41,39 @@ const connectTab = (tab: BrowserTabs.Tab) =>
   Cdp.connect((address) => new WebSocket(address) as unknown as Cdp.Socket, tab.wsUrl)
 
 /** Joins the first tab of a running Chrome, or opens one when it has none. */
-async function join(port: number, stop: () => void): Promise<Live> {
+async function join(port: number, stop: () => void, windowed = false): Promise<Live> {
   const tab = (await BrowserTabs.list(port))[0] ?? (await BrowserTabs.create(port))
-  return { port, tabID: tab.id, client: await connectTab(tab), stop }
+  return { port, tabID: tab.id, windowed, client: await connectTab(tab), stop }
+}
+
+// A visible window must not be hidden, unlike the windowless session Chrome.
+const windowDeps: Chrome.Deps = {
+  ...deps,
+  spawn: (exe, args) => spawn(exe, args, { stdio: "ignore", windowsHide: false }),
+}
+
+/** Asks Chrome itself to quit (works for a Chrome this process did not start) and waits until its port is gone. */
+async function quit(port: number) {
+  try {
+    const version = (await (await fetch(`http://127.0.0.1:${port}/json/version`)).json()) as {
+      webSocketDebuggerUrl?: string
+    }
+    if (version.webSocketDebuggerUrl) {
+      const browser = await Cdp.connect(
+        (address) => new WebSocket(address) as unknown as Cdp.Socket,
+        version.webSocketDebuggerUrl,
+      )
+      await browser.send("Browser.close").catch(() => undefined)
+      browser.close()
+    }
+  } catch {
+    // Already gone.
+  }
+  for (let i = 0; i < 60; i++) {
+    if (!(await alive(port).catch(() => false))) return
+    await deps.sleep(150)
+  }
+  throw new Error("Chrome did not close in time.")
 }
 
 async function start(sessionID: string): Promise<Live> {
@@ -223,11 +255,41 @@ export function close(sessionID: string) {
   if (!item) return
   live.delete(sessionID)
   item.client.close()
-  item.stop()
+  if (item.windowed) void quit(item.port).catch(() => undefined)
+  else item.stop()
 }
 
+/** At exit only the windowless Chromes close; a window the operator is using stays open. */
 export function closeAll() {
-  for (const id of [...live.keys()]) close(id)
+  for (const [id, item] of [...live]) if (!item.windowed) close(id)
+}
+
+export const isWindowed = (sessionID: string) => live.get(sessionID)?.windowed === true
+
+/**
+ * Restarts the session's Chrome on the same profile, as a normal visible window (real Chrome tabs, address
+ * bar and menus) or back as the windowless one the pane streams. The open tabs' addresses are reopened;
+ * logins and cookies stay in the profile, but unsaved page state does not survive the restart.
+ */
+export async function relaunch(sessionID: string, windowed: boolean) {
+  await open(sessionID)
+  const item = live.get(sessionID)!
+  if (item.windowed === windowed) return
+  const urls = (await BrowserTabs.list(item.port)).map((tab) => tab.url).filter((url) => /^https?:\/\//i.test(url))
+  unwatch(sessionID)
+  orders.delete(sessionID)
+  live.delete(sessionID)
+  item.client.close()
+  await quit(item.port)
+  const exe = Chrome.find(existsSync)
+  if (!exe) throw new Error("Google Chrome or Microsoft Edge was not found.")
+  const run = await Chrome.launch(windowed ? windowDeps : deps, {
+    exe,
+    profileDir: Chrome.profileDir(Global.Path.data, sessionID),
+    headless: !windowed,
+    urls,
+  })
+  live.set(sessionID, await join(run.port, windowed ? () => {} : run.close, windowed))
 }
 
 const bridgeFile = () => BrowserBridge.file(Global.Path.data)
