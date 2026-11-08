@@ -34,8 +34,26 @@ const hue = (color: RGBA) => {
   return (angle * 60 + 360) % 360
 }
 const steps = [100, 200, 300, 400, 500, 600, 700, 800, 900]
-const scale = (theme: ReturnType<typeof resolveThemeDocument>, name: "orange" | "cyan" | "accent" | "interactive") =>
-  steps.map((step) => (theme.hue[name] as unknown as Record<number, RGBA>)[step]!)
+// accent and interactive resolve through the theme; orange and cyan are named hues defined by the document itself.
+const hex = (value: string): RGBA =>
+  ({
+    r: parseInt(value.slice(1, 3), 16) / 255,
+    g: parseInt(value.slice(3, 5), 16) / 255,
+    b: parseInt(value.slice(5, 7), 16) / 255,
+    a: 1,
+  }) as unknown as RGBA
+const scale = (
+  document: ReturnType<typeof parseThemeDocument>,
+  theme: ReturnType<typeof resolveThemeDocument>,
+  mode: (typeof modeNames)[number],
+  name: "orange" | "cyan" | "accent" | "interactive",
+) => {
+  if (name === "accent" || name === "interactive")
+    return steps.map((step) => (theme.hue[name] as unknown as Record<number, RGBA>)[step]!)
+  const raw = (document as unknown as Record<string, { hue: Record<string, Record<string, string>> }>)[mode]!.hue[name]!
+  return steps.map((step) => hex(raw[String(step)]!))
+}
+const modeNames = ["dark", "light"] as const
 
 test("at least the orchestra and sculk themes are bundled", () => {
   expect(names).toContain("orchestra")
@@ -60,7 +78,7 @@ describe.each(cases)("$name $mode", ({ document, mode }) => {
   test.each(["orange", "cyan", "accent", "interactive"] as const)(
     "the %s scale changes monotonically in lightness",
     (name) => {
-      const lightness = scale(theme, name).map(luminance)
+      const lightness = scale(document, theme, mode, name).map(luminance)
       const falling = lightness.every((value, index) => index === 0 || value <= lightness[index - 1]! + 1e-9)
       const rising = lightness.every((value, index) => index === 0 || value >= lightness[index - 1]! - 1e-9)
       expect(falling || rising).toBe(true)
@@ -68,7 +86,7 @@ describe.each(cases)("$name $mode", ({ document, mode }) => {
   )
 
   test("the orange scale stays in the orange and amber family", () => {
-    for (const color of scale(theme, "orange")) {
+    for (const color of scale(document, theme, mode, "orange")) {
       const angle = hue(color)
       expect(angle).toBeGreaterThanOrEqual(25)
       expect(angle).toBeLessThanOrEqual(65)
@@ -76,7 +94,7 @@ describe.each(cases)("$name $mode", ({ document, mode }) => {
   })
 
   test("the lightest cyan step keeps the hue of the family", () => {
-    const [lightest, base] = scale(theme, "cyan")
+    const [lightest, base] = scale(document, theme, mode, "cyan")
     expect(Math.abs(hue(lightest!) - hue(base!))).toBeLessThanOrEqual(15)
   })
 })
