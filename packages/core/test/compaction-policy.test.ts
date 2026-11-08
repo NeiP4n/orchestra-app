@@ -71,11 +71,21 @@ describe("CompactionPolicy", () => {
     // ship as a role at all, so they are checked against roleThreshold directly below.
     expect(ids).toEqual(expect.arrayContaining([...deep.filter((id) => id !== "analyst"), ...lean]))
     expect(ids).toEqual(expect.arrayContaining(standard.filter((id) => id !== "fallback")))
-    // Coverage is derived from the actual shipped roster, not a count: every
-    // shipped role appears in exactly one tier list (named or unnamed).
-    const named = new Set([...deep, ...lean, ...standard, ...unnamedStandard])
-    for (const id of ids) expect(named.has(id), `role ${id} has no pinned tier`).toBe(true)
-    for (const id of unnamedStandard) expect(ids, `pinned role ${id} is not shipped`).toContain(id)
+    // Coverage is derived from the actual shipped roster, not a count. The
+    // "analyst" and "fallback" names are policy aliases, not shipped roles.
+    const expected = [
+      ...deep.filter((id) => id !== "analyst"),
+      ...lean,
+      ...standard.filter((id) => id !== "fallback"),
+      ...unnamedStandard,
+    ]
+    // No id may sit in two tier lists at once: a duplicate would leave the
+    // tier of that role to whichever list is consulted first.
+    expect(new Set(expected).size, "a role id is pinned in two tier lists").toBe(expected.length)
+    // Exact two-way inventory: the shipped roster is precisely the pinned
+    // ids, so every shipped role appears in exactly one list and every
+    // pinned id is shipped.
+    expect([...ids].sort()).toEqual([...expected].sort())
   })
 
   test("every shipped role lands on its tier", () => {
