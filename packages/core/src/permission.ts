@@ -794,7 +794,7 @@ const layer = Layer.effect(
           Effect.catchCause((cause) =>
             Cause.hasInterruptsOnly(cause)
               ? Effect.failCause(cause)
-              : Effect.zipRight(Effect.sync(() => diag("room-rules-lookup-failure")), Effect.fail(new DeclinedError())),
+              : Effect.andThen(Effect.sync(() => diag("room-rules-lookup-failure")), Effect.fail(new DeclinedError())),
           ),
         )
         if (
