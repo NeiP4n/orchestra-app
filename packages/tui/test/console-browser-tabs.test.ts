@@ -24,3 +24,10 @@ test("Console and Browser are translated", () => {
   expect(base).toMatch(/Console: "Консоль"/)
   expect(base).toMatch(/Browser: "Браузер"/)
 })
+
+test("the session frame defines every terminal helper it reads", () => {
+  const frame = read("component/session-frame.tsx")
+  for (const name of ["selectedTerminal", "consoleTerminal", "consoleSessions", "centerView", "session"]) {
+    expect(frame).toMatch(new RegExp(`const ${name} = `))
+  }
+})
