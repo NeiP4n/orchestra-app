@@ -29,7 +29,7 @@ export class RegistrationCheckError extends Data.TaggedError("ManagedRegistratio
   readonly path: string
   readonly operation: "read-registration"
 }> {
-  get message() {
+  override get message() {
     return JSON.stringify({ kind: this.kind, serviceId: this.serviceId, operation: this.operation, path: this.path })
   }
 }
@@ -62,7 +62,9 @@ export const makeManagedStop = Effect.gen(function* () {
   const request: RequestManagedStop = (value) => Deferred.succeed(reason, value)
   const awaitStop = Deferred.await(reason).pipe(
     Effect.flatMap((value) =>
-      value._tag === "OwnershipLost" ? Effect.fail(new OwnershipLost()) : Effect.fail(registrationCheckError(value)),
+      Effect.fail<OwnershipLost | RegistrationCheckError>(
+        value._tag === "OwnershipLost" ? new OwnershipLost() : registrationCheckError(value),
+      ),
     ),
   )
   return { request, awaitStop }
