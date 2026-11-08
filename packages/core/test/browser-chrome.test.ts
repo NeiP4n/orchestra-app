@@ -61,6 +61,17 @@ describe("Chrome discovery and launch", () => {
     expect(Chrome.launchArgs({ profileDir: "/p" })).not.toContain("--disable-gpu")
   })
 
+  test("a visible window has no low-memory flags, and tabs are reopened from their addresses", () => {
+    const args = Chrome.launchArgs({
+      profileDir: "/p",
+      urls: ["https://a.test/", "javascript:alert(1)", "http://b.test/", "file:///x"],
+    })
+    expect(args).not.toContain("--headless=new")
+    expect(args).not.toContain("--disable-gpu")
+    expect(args.slice(-2)).toEqual(["https://a.test/", "http://b.test/"])
+    expect(Chrome.launchArgs({ profileDir: "/p", urls: ["file:///x"] }).at(-1)).toBe("about:blank")
+  })
+
   test("the active port file is parsed and bad content is ignored", () => {
     expect(Chrome.parseActivePort("9222\n/devtools/browser/abc\n")).toEqual({
       port: 9222,

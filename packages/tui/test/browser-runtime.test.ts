@@ -22,16 +22,11 @@ describe("browser view", () => {
     expect(pane).toContain("BrowserRuntime.unwatch(")
   })
 
-  test("the pane has Chrome's tab strip and address bar", () => {
+  test("the pane draws no browser UI of its own; real Chrome UI is a real Chrome window", () => {
     const pane = read("component/browser-pane.tsx")
-    for (const call of [
-      "BrowserRuntime.newTab(",
-      "BrowserRuntime.closeTab(",
-      "BrowserRuntime.selectTab(",
-      "BrowserRuntime.history(",
-      "BrowserRuntime.reload(",
-    ])
-      expect(pane).toContain(call)
+    for (const drawn of ["<input", "BrowserRuntime.newTab(", "BrowserRuntime.selectTab(", "BrowserRuntime.history("])
+      expect(pane).not.toContain(drawn)
+    expect(pane).toContain("BrowserRuntime.relaunch(")
   })
 
   test("the operator can take control and always give it back", () => {

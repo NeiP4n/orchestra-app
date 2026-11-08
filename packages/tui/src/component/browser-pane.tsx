@@ -3,12 +3,11 @@ import {
   NativeImage,
   TextAttributes,
   type BoxRenderable,
-  type InputRenderable,
   type KeyEvent,
   type MouseEvent,
 } from "@opentui/core"
 import { extend, useRenderer } from "@opentui/solid"
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js"
+import { createEffect, createSignal, onCleanup, Show } from "solid-js"
 import { useTheme } from "../context/theme"
 import { errorMessage } from "../util/error"
 import { useT } from "../util/i18n"
@@ -44,6 +43,7 @@ export function BrowserPane(props: {
   )
   const [page, setPage] = createSignal({ url: "", title: "", text: "" })
   const [failure, setFailure] = createSignal<string>()
+  const [windowed, setWindowed] = createSignal(BrowserRuntime.isWindowed(props.sessionID))
   // The screen is the page streamed as pictures (kitty or sixel graphics when the terminal has them,
   // colored half-blocks otherwise); the text view stays as the plain fallback.
   const [view, setView] = createSignal<"screen" | "text">("screen")
@@ -54,7 +54,6 @@ export function BrowserPane(props: {
   // The page size Chrome is laid out at, so a click in the pane lands on the same spot of the page.
   let viewport = { width: 0, height: 0 }
   let lastFrame = 0
-  let address: InputRenderable | undefined
   let disposed = false
   onCleanup(() => (disposed = true))
 
@@ -75,7 +74,7 @@ export function BrowserPane(props: {
   // Lay the page out for the pane, and again whenever the pane changes (window resize, chat hidden).
   createEffect(() => {
     const area = size()
-    if (state() !== "ready" || view() !== "screen" || !area) return
+    if (state() !== "ready" || view() !== "screen" || windowed() || !area) return
     const resolution = renderer.resolution
     const cellWidth = resolution ? resolution.width / renderer.width : 8
     const cellHeight = resolution ? resolution.height / renderer.height : 16
@@ -133,91 +132,34 @@ export function BrowserPane(props: {
   })
   // Leaving the screen view or closing the browser always gives the keyboard back.
   createEffect(() => {
-    if (state() === "idle" || view() !== "screen") setControl(false)
+    if (state() === "idle" || view() !== "screen" || windowed()) setControl(false)
   })
 
   const open = () => run(async () => void (await BrowserRuntime.open(props.sessionID)))
 
-  // The tab strip and address bar mirror Chrome's own tabs: titles and addresses are read from Chrome.
-  const [tabs, setTabs] = createSignal<Array<{ id: string; title: string; url: string; active: boolean }>>([])
-  const active = () => tabs().find((tab) => tab.active)
-  const refresh = async () => {
-    try {
-      const list = await BrowserRuntime.tabs(props.sessionID)
-      if (disposed) return
-      setTabs(list)
-      if (view() === "text") setPage(await BrowserRuntime.read(props.sessionID))
-    } catch {
-      // A poll that fails (Chrome closing, a tab switching) is retried on the next tick.
-    }
-  }
-  createEffect(() => {
-    if (state() === "idle") return
-    void refresh()
-    const timer = setInterval(() => void refresh(), 1500)
-    onCleanup(() => clearInterval(timer))
-  })
-  // The address bar shows the active tab's address unless the operator is typing in it.
-  createEffect(() => {
-    const url = active()?.url ?? ""
-    if (address && !address.isDestroyed && !address.focused && address.value !== url) address.value = url
-  })
-
-  const act = (work: () => Promise<unknown>) => {
+  // Chrome runs either windowless (streamed into this pane) or as a normal visible window with real Chrome tabs
+  // and address bar. Switching restarts it on the same profile and reopens the tabs.
+  const switchMode = (toWindow: boolean) => {
     setFailure(undefined)
-    void work()
-      .then(() => new Promise((done) => setTimeout(done, 300)))
-      .then(refresh)
-      .catch((error) => !disposed && setFailure(errorMessage(error)))
+    setState("busy")
+    void BrowserRuntime.relaunch(props.sessionID, toWindow)
+      .then(() => !disposed && (setWindowed(toWindow), setState("ready")))
+      .catch((error) => {
+        if (disposed) return
+        setFailure(errorMessage(error))
+        setState("ready")
+      })
   }
-  const go = (value: string) => act(() => BrowserRuntime.go(props.sessionID, value))
   const stop = () => {
     BrowserRuntime.close(props.sessionID)
     setPage({ url: "", title: "", text: "" })
-    setTabs([])
+    setWindowed(false)
     setState("idle")
   }
 
   const Action = (action: { label: string; onClick: () => void }) => (
     <box paddingLeft={1} paddingRight={1} onMouseUp={action.onClick}>
       <text fg={theme.text.action.primary.base}>{action.label}</text>
-    </box>
-  )
-
-  // One tab, drawn like Chrome's: the active one is raised, each has its title and a close mark.
-  const TabButton = (tab: { id: string; title: string; url: string; active: boolean }) => (
-    <box
-      flexDirection="row"
-      flexShrink={1}
-      minWidth={8}
-      maxWidth={24}
-      paddingLeft={1}
-      paddingRight={1}
-      gap={1}
-      backgroundColor={tab.active ? theme.background.raised.high : theme.background.base}
-      onMouseUp={() => act(() => BrowserRuntime.selectTab(props.sessionID, tab.id))}
-    >
-      <text
-        flexGrow={1}
-        flexShrink={1}
-        minWidth={0}
-        wrapMode="none"
-        truncate
-        fg={tab.active ? theme.text.base : theme.text.muted}
-        attributes={tab.active ? TextAttributes.BOLD : undefined}
-      >
-        {tab.title || tab.url.replace(/^https?:\/\//, "") || t("New tab")}
-      </text>
-      <text
-        flexShrink={0}
-        fg={theme.text.muted}
-        onMouseUp={(event: { stopPropagation: () => void }) => {
-          event.stopPropagation()
-          act(() => BrowserRuntime.closeTab(props.sessionID, tab.id))
-        }}
-      >
-        {"×"}
-      </text>
     </box>
   )
 
@@ -240,42 +182,32 @@ export function BrowserPane(props: {
         }
       >
         <box flexDirection="row" flexShrink={0} gap={0}>
-          <box flexDirection="row" flexGrow={1} flexShrink={1} minWidth={0}>
-            <For each={tabs()}>{(tab) => <TabButton {...tab} />}</For>
-            <Action label="+" onClick={() => act(() => BrowserRuntime.newTab(props.sessionID))} />
-          </box>
+          <text fg={theme.text.base} attributes={TextAttributes.BOLD} flexGrow={1} wrapMode="none" truncate>
+            {`${t("Browser")} · ${props.name}`}
+          </text>
           <Show when={props.canShowChat}>
             <Action label={props.chatHidden ? t("Show chat") : t("Hide chat")} onClick={props.onToggleChat} />
           </Show>
-          <Show when={view() === "screen"}>
+          <Show when={view() === "screen" && !windowed()}>
             <Action
               label={control() ? t("Release (Ctrl+G)") : t("Take control")}
               onClick={() => setControl(!control())}
             />
           </Show>
+          <Show when={!windowed()}>
+            <Action
+              label={view() === "screen" ? t("Text") : t("Screen")}
+              onClick={() => {
+                if (view() === "screen") BrowserRuntime.unwatch(props.sessionID)
+                setView(view() === "screen" ? "text" : "screen")
+              }}
+            />
+          </Show>
           <Action
-            label={view() === "screen" ? t("Text") : t("Screen")}
-            onClick={() => {
-              if (view() === "screen") BrowserRuntime.unwatch(props.sessionID)
-              setView(view() === "screen" ? "text" : "screen")
-            }}
+            label={windowed() ? t("Back to pane") : t("Open in Chrome window")}
+            onClick={() => switchMode(!windowed())}
           />
           <Action label={t("Close browser")} onClick={stop} />
-        </box>
-        <box flexDirection="row" flexShrink={0} gap={1} backgroundColor={theme.background.raised.high}>
-          <Action label="◀" onClick={() => act(() => BrowserRuntime.history(props.sessionID, -1))} />
-          <Action label="▶" onClick={() => act(() => BrowserRuntime.history(props.sessionID, 1))} />
-          <Action label="⟳" onClick={() => act(() => BrowserRuntime.reload(props.sessionID))} />
-          <input
-            flexGrow={1}
-            minWidth={0}
-            placeholder={t("Search or type a web address")}
-            placeholderColor={theme.text.muted}
-            focusedBackgroundColor={theme.background.formfield.focused}
-            cursorColor={theme.text.formfield.focused}
-            ref={(value: InputRenderable) => (address = value)}
-            onSubmit={() => go(address?.value ?? "")}
-          />
         </box>
         <Show when={failure()}>
           <text fg={theme.text.feedback.error.base} flexShrink={0}>
@@ -283,42 +215,54 @@ export function BrowserPane(props: {
           </text>
         </Show>
         <Show
-          when={view() === "screen"}
+          when={!windowed()}
           fallback={
-            <scrollbox flexGrow={1} minHeight={0} horizontalScrollbarOptions={{ visible: false }}>
-              <text fg={theme.text.base} wrapMode="word">
-                {page().text}
+            <box flexGrow={1} alignItems="center" justifyContent="center" flexDirection="column" gap={1}>
+              <text fg={theme.text.base}>{t("Chrome is open in its own window.")}</text>
+              <text fg={theme.text.muted}>
+                {t("Its tabs, address bar and menus are Chrome's own. Same profile and logins.")}
               </text>
-            </scrollbox>
+            </box>
           }
         >
-          <box
-            flexGrow={1}
-            minHeight={0}
-            minWidth={0}
-            ref={(value: BoxRenderable) => (screenBox = value)}
-            onSizeChange={function () {
-              setSize({ cols: this.width, rows: this.height })
-            }}
-            onMouseDown={(event: MouseEvent) => forward("down", event)}
-            onMouseUp={(event: MouseEvent) => forward("up", event)}
-            onMouseMove={(event: MouseEvent) => forward("move", event)}
-            onMouseScroll={(event: MouseEvent) => {
-              const at = control() ? toPage(event) : undefined
-              if (!at || !event.scroll) return
-              event.stopPropagation()
-              send(
-                BrowserRuntime.mouse(props.sessionID, {
-                  kind: "wheel",
-                  ...at,
-                  deltaX: event.scroll.direction === "left" ? -120 : event.scroll.direction === "right" ? 120 : 0,
-                  deltaY: event.scroll.direction === "up" ? -120 : event.scroll.direction === "down" ? 120 : 0,
-                }),
-              )
-            }}
+          <Show
+            when={view() === "screen"}
+            fallback={
+              <scrollbox flexGrow={1} minHeight={0} horizontalScrollbarOptions={{ visible: false }}>
+                <text fg={theme.text.base} wrapMode="word">
+                  {page().text}
+                </text>
+              </scrollbox>
+            }
           >
-            <browserImage ref={(value: ImageRenderable) => (picture = value)} flexGrow={1} fit="fill" />
-          </box>
+            <box
+              flexGrow={1}
+              minHeight={0}
+              minWidth={0}
+              ref={(value: BoxRenderable) => (screenBox = value)}
+              onSizeChange={function () {
+                setSize({ cols: this.width, rows: this.height })
+              }}
+              onMouseDown={(event: MouseEvent) => forward("down", event)}
+              onMouseUp={(event: MouseEvent) => forward("up", event)}
+              onMouseMove={(event: MouseEvent) => forward("move", event)}
+              onMouseScroll={(event: MouseEvent) => {
+                const at = control() ? toPage(event) : undefined
+                if (!at || !event.scroll) return
+                event.stopPropagation()
+                send(
+                  BrowserRuntime.mouse(props.sessionID, {
+                    kind: "wheel",
+                    ...at,
+                    deltaX: event.scroll.direction === "left" ? -120 : event.scroll.direction === "right" ? 120 : 0,
+                    deltaY: event.scroll.direction === "up" ? -120 : event.scroll.direction === "down" ? 120 : 0,
+                  }),
+                )
+              }}
+            >
+              <browserImage ref={(value: ImageRenderable) => (picture = value)} flexGrow={1} fit="fill" />
+            </box>
+          </Show>
         </Show>
       </Show>
     </box>
