@@ -554,16 +554,31 @@ export const layer = Layer.effect(
                     message: `${call.call.name} was not loaded for this step. It is loaded now: call it again.`,
                   }),
                 )
-              : guide !== undefined
-                ? Effect.succeed<Tool.NormalizedResult>({
-                    content: [
-                      {
-                        type: "text" as const,
-                        text: `${guide}\n\nThis is how ${call.call.name} works; the call did not run. Call it again with what you need.`,
-                      },
-                    ],
-                  })
-                : tools.execute({ ...call, definitions: hooked })
+              : guide !== undefined && tools.guidedWithResult?.has(call.call.name)
+                ? tools.execute({ ...call, definitions: hooked }).pipe(
+                    Effect.map(
+                      (result): Tool.NormalizedResult => ({
+                        ...result,
+                        content: [
+                          ...result.content,
+                          {
+                            type: "text" as const,
+                            text: `${guide}\n\nThis is how ${call.call.name} works, shown once with your first call. The call above ran.`,
+                          },
+                        ],
+                      }),
+                    ),
+                  )
+                : guide !== undefined
+                  ? Effect.succeed<Tool.NormalizedResult>({
+                      content: [
+                        {
+                          type: "text" as const,
+                          text: `${guide}\n\nThis is how ${call.call.name} works; the call did not run. Call it again with what you need.`,
+                        },
+                      ],
+                    })
+                  : tools.execute({ ...call, definitions: hooked })
           ).pipe(
             Effect.catchCauseFilter(
               (cause) => {

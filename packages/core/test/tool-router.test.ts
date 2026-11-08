@@ -178,6 +178,40 @@ describe("ToolRouter", () => {
     }),
   )
 
+  it.effect("runs a guideWithResult tool's first call and sends the guide with its result", () =>
+    Effect.gen(function* () {
+      const registry = yield* Tool.Service
+      yield* registry.transform((editor) =>
+        editor.add(
+          tool("crew", {
+            codemode: false,
+            core: true,
+            guide: "Crew guide: reuse before you create.",
+            guideWithResult: true,
+          }),
+        ),
+      )
+      const call = { type: "tool-call" as const, id: "call_6", name: "crew", input: { text: "go" } }
+      const execute = (prepared: SessionModelRequest.Prepared) =>
+        prepared.executeTool({
+          sessionID: session.id,
+          agent: Agent.ID.make("build"),
+          messageID: SessionMessage.ID.make("msg_router"),
+          call,
+        })
+      const first = yield* execute(yield* prepare([Message.user("hello")]))
+      expect(first.content).toEqual([
+        { type: "text", text: "crew:go" },
+        {
+          type: "text",
+          text: "Crew guide: reuse before you create.\n\nThis is how crew works, shown once with your first call. The call above ran.",
+        },
+      ])
+      const later = yield* execute(yield* prepare([Message.user("hello"), Message.assistant([call])]))
+      expect(later.content).toEqual([{ type: "text", text: "crew:go" }])
+    }),
+  )
+
   it.effect("reports what a tools call loaded", () =>
     Effect.gen(function* () {
       const prepared = yield* prepare([Message.user("hello")])

@@ -69,6 +69,8 @@ export interface Snapshot {
   readonly lazyDefinitions?: ReadonlyArray<ToolDefinition>
   /** Direct tools' `guide` text by name, delivered on a session's first call of each. */
   readonly guides?: ReadonlyMap<string, string>
+  /** Names in `guides` whose first call runs and carries the guide with its result. */
+  readonly guidedWithResult?: ReadonlySet<string>
   readonly execute: (input: {
     readonly sessionID: SessionSchema.ID
     readonly agent: Agent.ID
@@ -297,6 +299,11 @@ const layer = Layer.effect(
             lazy,
             guides: new Map(
               Array.from(direct).flatMap(([key, tool]) => (tool.options?.guide ? [[key, tool.options.guide] as const] : [])),
+            ),
+            guidedWithResult: new Set(
+              Array.from(direct).flatMap(([key, tool]) =>
+                tool.options?.guide && tool.options.guideWithResult ? [key] : [],
+              ),
             ),
             lazyDefinitions: Array.from(lazy)
               .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
