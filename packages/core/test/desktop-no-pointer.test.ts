@@ -48,7 +48,7 @@ describe("no pointer on Windows: source", () => {
 
   test("Activate-Window runs only for the focus action", () => {
     expect(actionSource).toContain("if ($Action -eq 'focus') { Activate-Window $window }")
-    expect(actionSource.match(/Activate-Window \$window/g)?.length).toBe(2)
+    expect(actionSource.match(/Activate-Window \$window/g)?.length).toBe(1)
   })
 })
 
