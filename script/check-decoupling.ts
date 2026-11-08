@@ -296,16 +296,6 @@ export const ALLOWLIST: readonly DecouplingAllowlistEntry[] = [
   // anomalyco/opencode anymore (model refs like opencode/<model> are Zen
   // provider IDs, not forbidden patterns).
   {
-    path: "script/github/close-issues.ts",
-    allowed: ["anomalyco/opencode"],
-    reason: "Upstream GitHub issue triage maintenance script",
-  },
-  {
-    path: "script/github/close-prs.ts",
-    allowed: ["anomalyco/opencode"],
-    reason: "Upstream GitHub pull request maintenance script",
-  },
-  {
     path: "script/raw-changelog.ts",
     allowed: ["anomalyco/opencode"],
     reason: "Upstream changelog generator default repository",
