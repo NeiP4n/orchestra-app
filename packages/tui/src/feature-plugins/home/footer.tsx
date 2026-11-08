@@ -1,3 +1,4 @@
+import { HoverAction } from "../../component/hover-action"
 import { Plugin } from "@orchestra/plugin/tui"
 import { createMemo, Match, Show, Switch } from "solid-js"
 import { useTerminalDimensions } from "@opentui/solid"
@@ -21,7 +22,7 @@ function Mcp(props: { context: Plugin.Context }) {
 
   return (
     <Show when={list().length}>
-      <box gap={1} flexDirection="row" flexShrink={0} onMouseUp={() => props.context.keymap.dispatch("mcp.list")}>
+      <HoverAction gap={1} flexDirection="row" onClick={() => props.context.keymap.dispatch("mcp.list")}>
         <text fg={props.context.theme.text.base}>
           <Switch>
             <Match when={failed()}>
@@ -44,7 +45,7 @@ function Mcp(props: { context: Plugin.Context }) {
         <Show when={visibility().mcpCommand}>
           <text fg={props.context.theme.text.muted}>/mcps</text>
         </Show>
-      </box>
+      </HoverAction>
     </Show>
   )
 }
@@ -61,7 +62,7 @@ function Plugins(props: { context: Plugin.Context }) {
 
   return (
     <Show when={failed()}>
-      <box gap={1} flexDirection="row" flexShrink={0} onMouseUp={() => props.context.keymap.dispatch("plugins.list")}>
+      <HoverAction gap={1} flexDirection="row" onClick={() => props.context.keymap.dispatch("plugins.list")}>
         <text fg={props.context.theme.text.base}>
           <span style={{ fg: props.context.theme.text.feedback.error.base }}>⊙ </span>
           {failed()} plugin{failed() === 1 ? "" : "s"} failed
@@ -69,7 +70,7 @@ function Plugins(props: { context: Plugin.Context }) {
         <Show when={visibility().pluginCommand}>
           <text fg={props.context.theme.text.muted}>/plugins</text>
         </Show>
-      </box>
+      </HoverAction>
     </Show>
   )
 }

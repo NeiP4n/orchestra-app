@@ -1,3 +1,4 @@
+import { HoverAction } from "./hover-action"
 import { TextAttributes, type InputRenderable } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, For, Match, on, Show, Switch } from "solid-js"
@@ -192,18 +193,18 @@ function QuickWindow(props: { mode: QuickMode }) {
           {title()}
         </text>
         <Show when={props.mode !== "chat" && !loading()}>
-          <text fg={theme.text.action.primary.base} onMouseUp={run}>
-            {t("refresh")}
-          </text>
+          <HoverAction paddingLeft={1} paddingRight={1} onClick={run}>
+            <text fg={theme.text.action.primary.base}>{t("refresh")}</text>
+          </HoverAction>
         </Show>
         <Show when={props.mode === "chat" && chat().length > 0 && !loading()}>
-          <text fg={theme.text.action.primary.base} onMouseUp={() => setChat([])}>
-            {t("clear")}
-          </text>
+          <HoverAction paddingLeft={1} paddingRight={1} onClick={() => setChat([])}>
+            <text fg={theme.text.action.primary.base}>{t("clear")}</text>
+          </HoverAction>
         </Show>
-        <text fg={theme.text.muted} onMouseUp={() => setMode()}>
-          {t("hide")}
-        </text>
+        <HoverAction paddingLeft={1} paddingRight={1} onClick={() => setMode()}>
+          <text fg={theme.text.muted}>{t("hide")}</text>
+        </HoverAction>
       </box>
       <scrollbox
         paddingLeft={2}

@@ -1,3 +1,4 @@
+import { HoverAction } from "../component/hover-action"
 import { TextAttributes } from "@opentui/core"
 import { Keymap } from "../context/keymap"
 import { useTheme } from "../context/theme"
@@ -61,9 +62,9 @@ export function DialogConfirm(props: DialogConfirmProps) {
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
           {props.title}
         </text>
-        <text fg={theme.text.muted} onMouseUp={() => dialog.clear()}>
-          esc
-        </text>
+        <HoverAction paddingLeft={1} paddingRight={1} onClick={() => dialog.clear()}>
+          <text fg={theme.text.muted}>esc</text>
+        </HoverAction>
       </box>
       <box paddingBottom={1}>
         <text fg={theme.text.muted}>{props.message}</text>
@@ -71,11 +72,11 @@ export function DialogConfirm(props: DialogConfirmProps) {
       <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
         <For each={["cancel", "confirm"] as const}>
           {(key) => (
-            <box
+            <HoverAction
               paddingLeft={1}
               paddingRight={1}
-              backgroundColor={key === store.active ? theme.background.action.primary.focused : undefined}
-              onMouseUp={() => {
+              background={key === store.active ? theme.background.action.primary.focused : undefined}
+              onClick={() => {
                 if (key === "confirm") props.onConfirm?.()
                 if (key === "cancel") props.onCancel?.()
                 dialog.clear()
@@ -84,7 +85,7 @@ export function DialogConfirm(props: DialogConfirmProps) {
               <text fg={key === store.active ? theme.text.action.primary.focused : theme.text.muted}>
                 {Locale.titlecase(props.label?.[key] ?? key)}
               </text>
-            </box>
+            </HoverAction>
           )}
         </For>
       </box>

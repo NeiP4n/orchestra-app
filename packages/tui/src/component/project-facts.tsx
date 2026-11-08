@@ -1,3 +1,4 @@
+import { HoverAction } from "./hover-action"
 import { TextAttributes } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, Match, Show, Switch } from "solid-js"
@@ -235,20 +236,21 @@ function FactsWindow() {
           {t("Project facts")}
         </text>
         <Show when={directory() !== undefined && !loading()}>
-          <text fg={theme.text.action.primary.base} onMouseUp={collect}>
-            {t("refresh")}
-          </text>
+          <HoverAction paddingLeft={1} paddingRight={1} onClick={collect}>
+            <text fg={theme.text.action.primary.base}>{t("refresh")}</text>
+          </HoverAction>
         </Show>
-        <text
-          fg={theme.text.muted}
-          onMouseUp={() =>
+        <HoverAction
+          paddingLeft={1}
+          paddingRight={1}
+          onClick={() =>
             update((draft) => {
               draft.open = false
             })
           }
         >
-          {t("hide")}
-        </text>
+          <text fg={theme.text.muted}>{t("hide")}</text>
+        </HoverAction>
       </box>
       <scrollbox
         paddingLeft={2}
