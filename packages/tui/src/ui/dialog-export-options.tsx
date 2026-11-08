@@ -1,3 +1,4 @@
+import { HoverAction } from "../component/hover-action"
 import { TextAttributes } from "@opentui/core"
 import { Keymap } from "../context/keymap"
 import { useTheme } from "../context/theme"
@@ -88,9 +89,9 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
           Export session
         </text>
-        <text fg={theme.text.muted} onMouseUp={() => dialog.clear()}>
-          esc
-        </text>
+        <HoverAction paddingLeft={1} paddingRight={1} onClick={() => dialog.clear()}>
+          <text fg={theme.text.muted}>esc</text>
+        </HoverAction>
       </box>
       <box flexDirection="row" gap={1}>
         <text fg={theme.text.base}>Export as:</text>

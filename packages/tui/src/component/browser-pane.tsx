@@ -1,3 +1,4 @@
+import { HoverAction } from "./hover-action"
 import {
   ImageRenderable,
   NativeImage,
@@ -167,9 +168,9 @@ export function BrowserPane(props: {
   }
 
   const Action = (action: { label: string; onClick: () => void }) => (
-    <box paddingLeft={1} paddingRight={1} onMouseUp={action.onClick}>
+    <HoverAction paddingLeft={1} paddingRight={1} onClick={action.onClick}>
       <text fg={theme.text.action.primary.base}>{action.label}</text>
-    </box>
+    </HoverAction>
   )
 
   return (

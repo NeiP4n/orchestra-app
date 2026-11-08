@@ -1,3 +1,4 @@
+import { HoverAction } from "../component/hover-action"
 import { TextAttributes } from "@opentui/core"
 import { Keymap } from "../context/keymap"
 import { useTheme } from "../context/theme"
@@ -22,9 +23,9 @@ export function DialogHelp() {
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
           Help
         </text>
-        <text fg={theme.text.muted} onMouseUp={() => dialog.clear()}>
-          esc/enter
-        </text>
+        <HoverAction paddingLeft={1} paddingRight={1} onClick={() => dialog.clear()}>
+          <text fg={theme.text.muted}>esc/enter</text>
+        </HoverAction>
       </box>
       <box paddingBottom={1}>
         <text fg={theme.text.muted}>
@@ -32,14 +33,14 @@ export function DialogHelp() {
         </text>
       </box>
       <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
-        <box
+        <HoverAction
           paddingLeft={3}
           paddingRight={3}
-          backgroundColor={theme.background.action.primary.focused}
-          onMouseUp={() => dialog.clear()}
+          background={theme.background.action.primary.focused}
+          onClick={() => dialog.clear()}
         >
           <text fg={theme.text.action.primary.focused}>ok</text>
-        </box>
+        </HoverAction>
       </box>
     </box>
   )
