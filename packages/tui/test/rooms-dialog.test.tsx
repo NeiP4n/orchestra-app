@@ -74,8 +74,8 @@ test("Host lists reachable addresses and hands out a join code", async () => {
 test("Connect searches the network in its own window and offers manual entry", async () => {
   await using state = await tmpdir()
   await using setup = await render(state.path)
-  const bar = await setup.waitForFrame((frame) => frame.includes("+ Connect"))
-  const entry = cell(bar, "+ Connect")
+  const bar = await setup.waitForFrame((frame) => frame.includes("⇢ Connect"))
+  const entry = cell(bar, "⇢ Connect")
   await setup.mockMouse.click(entry.x, entry.y)
   const frame = await setup.waitForFrame((frame) => frame.includes("Join by address"))
   expect(frame).toContain("Rooms on this network")
