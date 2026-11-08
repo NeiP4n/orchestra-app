@@ -44,6 +44,7 @@ import { PaneResizeHandle } from "../ui/pane-resize-handle"
 import { useToast } from "../ui/toast"
 import { TerminalPane } from "./terminal-pane"
 import { PlainTerminalPane } from "./plain-terminal-pane"
+import { BrowserPane } from "./browser-pane"
 import { PanelHost } from "./panel-host"
 import { HoverAction } from "./hover-action"
 import { NoteCanvas } from "./note-canvas"
@@ -88,6 +89,11 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     const project = projectList.list().find((item) => Orchestra.contains(item.directory, directory))
     return project ? notes.browserSelected(project.id) : undefined
   }
+  // In the Browser view the chat stays beside the page when the window is wide enough; the Console takes the
+  // whole center, and a narrow window shows the browser alone.
+  const CHAT_BESIDE_WIDTH = 46
+  const chatBeside = () => centerView() === "browser" && dimensions().width >= 110
+  const hidesChat = () => centerView() === "console" || (centerView() === "browser" && !chatBeside())
   const centerView = () =>
     fullscreen() ? undefined : notes.tab() === "console" || notes.tab() === "browser" ? notes.tab() : undefined
   // Keep a bound note in the center with its chat on the right on narrow terminals;
@@ -514,7 +520,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
         flexBasis={0}
         minWidth={0}
         minHeight={0}
-        flexDirection={stacked() ? "column" : "row"}
+        flexDirection={stacked() ? "column" : chatBeside() ? "row-reverse" : "row"}
         position="relative"
         onSizeChange={function () {
           setCanvasHostWidth(this.width)
@@ -553,13 +559,17 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
           id="session-pane"
           ref={(value: BoxRenderable) => (sessionNode = value)}
           flexGrow={centerView() || (canvas() && !stacked()) ? 0 : 1}
-          flexBasis={centerView() ? 0 : canvas() && !stacked() ? undefined : canvas() ? STACKED_CHAT_BASIS : 0}
+          flexBasis={
+            chatBeside() ? undefined : centerView() ? 0 : canvas() && !stacked() ? undefined : canvas() ? STACKED_CHAT_BASIS : 0
+          }
           minWidth={0}
           minHeight={0}
           position={fullscreen() ? "absolute" : "relative"}
-          visible={!fullscreen() && !centerView()}
+          visible={!fullscreen() && !hidesChat()}
           width={
-            centerView()
+            chatBeside()
+              ? CHAT_BESIDE_WIDTH
+              : centerView()
               ? 0
               : sessionPaneBoxWidth({
                   fullscreen: fullscreen(),
@@ -573,7 +583,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
         >
           {/* The chat is unmounted while Console or Browser takes the center, so its prompt cannot keep the
               keyboard or draw over the terminal. */}
-          <Show when={!centerView()}>
+          <Show when={!hidesChat()}>
           <InteractivityProvider enabled={activePane() === "session" && !fullscreen()}>
             <Session
               scrollRef={(value) => (sessionScroll = value)}
@@ -619,15 +629,18 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
             <Show
               when={centerView() === "console"}
               fallback={
-                // STUB: the Browser view is a placeholder until its plan is approved.
-                <box flexGrow={1} alignItems="center" justifyContent="center" flexDirection="column">
-                  <text fg={theme.text.base}>{browserSession() ? `${t("Browser")} · ${browserSession()!.name}` : t("Browser")}</text>
-                  <text fg={theme.text.muted}>
-                    {browserSession()
-                      ? t("This browser session is saved. The page view is not built yet.")
-                      : t("Add a browser session to this project in the left panel.")}
-                  </text>
-                </box>
+                <Show
+                  keyed
+                  when={browserSession()}
+                  fallback={
+                    <box flexGrow={1} alignItems="center" justifyContent="center" flexDirection="column">
+                      <text fg={theme.text.base}>{t("Browser")}</text>
+                      <text fg={theme.text.muted}>{t("Add a browser session to this project in the left panel.")}</text>
+                    </box>
+                  }
+                >
+                  {(item) => <BrowserPane sessionID={item.id} name={item.name} />}
+                </Show>
               }
             >
               <Show
