@@ -1383,6 +1383,24 @@ roles from specs at runtime. All worker creation goes through
 `Orchestra.workerModels` **with** `{ favorites, catalog }` (see the AI standard
 section). A forge that creates a worker without them is defective.
 
+## Self index — `packages/core/src/self/`, `packages/core/src/tool/plugin/self.ts`
+
+The self index is how the agent knows Orchestra itself: CLI commands (parsed
+from the Spec tree in `packages/cli/src/commands/commands.ts`), config keys
+(from `Config.Info` annotations in `packages/schema/src/config.ts`), every
+`ORCHESTRA_*` variable (from `env-registry.ts`), built-in tools, extension
+points, and this atlas's sections, plus operator files from the
+`self_index.paths` config key. Storage is one SQLite database at
+`<data>/self/index.db` (trigram FTS + the local hash embedding from
+`memory/embed.ts`); symbol-level questions about Orchestra's own code go
+through the code graph of the source checkout (`self` tool, `code` action).
+Freshness is a fingerprint over the version define and every harvested file's
+size and mtime: the boot of each location rebuilds in the background when it
+moved (`SelfTool.Plugin` fork), so an update reindexes on the next start.
+Invariants: collectors derive from the shipped sources, never a
+copy; no source tree (node artifact) or no Bun sqlite means an honest
+"unavailable", never a silent empty index.
+
 ## Rules as code — `packages/core/src/rules.ts`
 
 Standing rules are data in KV (`rules/<scope>/<id>`), not prompt text, and they
