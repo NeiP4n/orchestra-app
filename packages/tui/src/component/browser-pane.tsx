@@ -229,7 +229,15 @@ export function BrowserPane(props: {
       key.preventDefault()
       key.stopPropagation()
       if (key.eventType === "release") return
-      send(BrowserRuntime.key(props.sessionID, key))
+      send(
+        BrowserRuntime.key(props.sessionID, key).then(
+          (where) => setRoute(`key ${key.name ?? key.sequence} -> ${where}`),
+          (error) => {
+            setRoute(`key ${key.name ?? key.sequence} FAILED: ${errorMessage(error)}`)
+            throw error
+          },
+        ),
+      )
     }
     renderer.keyInput.on("keypress", onKey)
     renderer.keyInput.on("paste", onPaste)

@@ -179,6 +179,28 @@ describe("taking control of the page", () => {
     const enter = Cdp.keySteps({ name: "return", sequence: "\r" })
     expect(enter.map((step) => (step.params as Record<string, unknown>).type)).toEqual(["keyDown", "keyUp"])
     expect((enter[0]?.params as Record<string, unknown>).windowsVirtualKeyCode).toBe(13)
+    for (const [name, vk] of [
+      ["return", 13],
+      ["enter", 13],
+      ["backspace", 8],
+      ["delete", 46],
+      ["tab", 9],
+      ["escape", 27],
+      ["up", 38],
+      ["down", 40],
+      ["left", 37],
+      ["right", 39],
+      ["home", 36],
+      ["end", 35],
+    ] as const) {
+      const steps = Cdp.keySteps({ name, sequence: name === "return" ? "\r" : "\x7f" })
+      expect(steps.map((step) => (step.params as Record<string, unknown>).type)).toHaveLength(2)
+      expect((steps[0]?.params as Record<string, unknown>).windowsVirtualKeyCode).toBe(vk)
+    }
+    expect((Cdp.keySteps({ name: "return", sequence: "\r" })[0]?.params as Record<string, unknown>).text).toBe("\r")
+    expect(
+      (Cdp.keySteps({ name: "backspace", sequence: "\x7f" })[0]?.params as Record<string, unknown>).commands,
+    ).toEqual(["deleteBackward"])
     // Editing shortcuts (was: ignored) now go through Chrome's editor commands; other ctrl keys are still ignored.
     const copy = Cdp.keySteps({ name: "c", sequence: "\x03", ctrl: true })
     expect((copy[0]?.params as Record<string, unknown>).commands).toEqual(["copy"])
@@ -204,7 +226,18 @@ describe("window capture (Windows helper protocol)", () => {
     expect(WindowCapture.attachCommand(42, { width: 1000.4, height: 640 })).toBe("attach 42 -32000 -32000 1000 640")
     expect(WindowCapture.mouseCommand({ kind: "down", x: 10.2, y: 20.7, button: "right" })).toBe("mouse rdown 10 21")
     expect(WindowCapture.mouseCommand({ kind: "wheel", x: 1, y: 2, deltaY: -120 })).toBe("mouse wheelup 1 2")
-    expect(WindowCapture.keyCommands({ name: "return", sequence: "\r" })).toEqual(["key 13 down", "key 13 up"])
+    // Enter and Backspace now also send their character message (was: key down and up only).
+    expect(WindowCapture.keyCommands({ name: "return", sequence: "\r" })).toEqual([
+      "key 13 down",
+      "char 13",
+      "key 13 up",
+    ])
+    expect(WindowCapture.keyCommands({ name: "backspace", sequence: "\x7f" })).toEqual([
+      "key 8 down",
+      "char 8",
+      "key 8 up",
+    ])
+    expect(WindowCapture.keyCommands({ name: "tab", sequence: "\t" })).toEqual(["key 9 down", "key 9 up"])
     expect(WindowCapture.keyCommands({ name: "a", sequence: "a" })).toEqual(["char 97"])
     expect(WindowCapture.keyCommands({ name: "п", sequence: "п" })).toEqual(["char 1087"])
     expect(WindowCapture.keyCommands({ name: "c", sequence: "\x03", ctrl: true })).toEqual([])

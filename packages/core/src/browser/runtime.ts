@@ -358,11 +358,15 @@ export async function mouse(
   return `CHROME-UI window ${Math.round(input.x)},${Math.round(input.y)}${frame ? ` (${frame.raw}, top inset ${Math.round(frame.top)}px)` : ` (no inset: ${why || "unknown"})`}`
 }
 
-export async function key(sessionID: string, input: Parameters<typeof Cdp.key>[1]) {
-  const client = await open(sessionID)
+export async function key(sessionID: string, input: Parameters<typeof Cdp.key>[1]): Promise<string> {
+  const client = await within(open(sessionID), 3000)
   const capture = live.get(sessionID)?.capture
-  if (capture && uiFocus.get(sessionID)) return capture.key(input)
-  await Cdp.key(client, input)
+  if (capture && uiFocus.get(sessionID)) {
+    capture.key(input)
+    return "Chrome window"
+  }
+  await within(Cdp.key(client, input), 2000)
+  return "page"
 }
 
 export async function reload(sessionID: string) {

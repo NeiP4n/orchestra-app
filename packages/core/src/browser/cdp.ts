@@ -221,6 +221,11 @@ const SPECIAL: Record<string, readonly [string, string, number]> = {
   pagedown: ["PageDown", "PageDown", 34],
 }
 
+const EDIT_KEYS: Record<string, string[]> = {
+  Backspace: ["deleteBackward"],
+  Delete: ["deleteForward"],
+}
+
 const EDITING: Record<string, string> = {
   a: "selectAll",
   c: "copy",
@@ -268,10 +273,17 @@ export function keySteps(key: {
     const [name, code, vk] = special
     const text = name === "Enter" ? "\r" : undefined
     const common = { key: name, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk }
+    // Chrome's own editing commands make deleting work in every kind of field.
+    const commands = EDIT_KEYS[name]
     return [
       {
         method: "Input.dispatchKeyEvent",
-        params: { type: text ? "keyDown" : "rawKeyDown", ...common, ...(text ? { text } : {}) },
+        params: {
+          type: text ? "keyDown" : "rawKeyDown",
+          ...common,
+          ...(text ? { text, unmodifiedText: text } : {}),
+          ...(commands ? { commands } : {}),
+        },
       },
       { method: "Input.dispatchKeyEvent", params: { type: "keyUp", ...common } },
     ]

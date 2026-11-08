@@ -77,6 +77,8 @@ export const VIRTUAL_KEYS: Record<string, number> = {
 export function keyCommands(key: { name: string; sequence: string; ctrl?: boolean; meta?: boolean; option?: boolean }) {
   if (key.ctrl || key.meta || key.option) return []
   const vk = VIRTUAL_KEYS[key.name]
+  // Enter and Backspace also send their character message, as the keyboard does: the address bar acts on that.
+  if (vk === 13 || vk === 8) return [`key ${vk} down`, `char ${vk}`, `key ${vk} up`]
   if (vk !== undefined) return [`key ${vk} down`, `key ${vk} up`]
   const text = key.name === "space" ? " " : key.sequence
   if (!text || /^[\x00-\x1f\x7f]/.test(text) || text.startsWith("\x1b")) return []
@@ -103,6 +105,8 @@ public static class Cap {
   [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
   [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
   [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
+  [StructLayout(LayoutKind.Sequential)] struct GUITHREADINFO { public int cbSize, flags; public IntPtr active, focus, capture, menuOwner, moveSize, caret; public RECT rcCaret; }
+  [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint thread, ref GUITHREADINFO info);
   [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc p, IntPtr l);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
@@ -177,11 +181,22 @@ public static class Cap {
     }
   }
 
+  // The window that has the keyboard focus inside Chrome (the address bar's or the page's own child window),
+  // else the top window.
+  static IntPtr Target() {
+    uint pid; uint thread = GetWindowThreadProcessId(hwnd, out pid);
+    GUITHREADINFO info = new GUITHREADINFO();
+    info.cbSize = Marshal.SizeOf(typeof(GUITHREADINFO));
+    if (GetGUIThreadInfo(thread, ref info) && info.focus != IntPtr.Zero) return info.focus;
+    return hwnd;
+  }
+
   static void Key(string[] a) {
     if (hwnd == IntPtr.Zero) return;
     int vk = int.Parse(a[1]);
-    if (a[2] == "down") PostMessage(hwnd, 0x100, (IntPtr)vk, (IntPtr)1);
-    else PostMessage(hwnd, 0x101, (IntPtr)vk, unchecked((IntPtr)(int)0xC0000001));
+    IntPtr to = Target();
+    if (a[2] == "down") PostMessage(to, 0x100, (IntPtr)vk, (IntPtr)1);
+    else PostMessage(to, 0x101, (IntPtr)vk, unchecked((IntPtr)(int)0xC0000001));
   }
 
   static void Frame() {
@@ -220,7 +235,7 @@ public static class Cap {
           else if (a[0] == "size" && hwnd != IntPtr.Zero) SetWindowPos(hwnd, IntPtr.Zero, posX, posY, int.Parse(a[1]), int.Parse(a[2]), 0x14);
           else if (a[0] == "mouse") Mouse(a);
           else if (a[0] == "key") Key(a);
-          else if (a[0] == "char" && hwnd != IntPtr.Zero) PostMessage(hwnd, 0x102, (IntPtr)int.Parse(a[1]), (IntPtr)1);
+          else if (a[0] == "char" && hwnd != IntPtr.Zero) PostMessage(Target(), 0x102, (IntPtr)int.Parse(a[1]), (IntPtr)1);
         } catch (Exception e) { Say("S err " + e.Message.Replace('\n', ' ')); }
       }
       if (DateTime.UtcNow >= next) { try { Frame(); } catch (Exception e) { Say("S err " + e.Message.Replace('\n', ' ')); } next = DateTime.UtcNow.AddMilliseconds(120); }
