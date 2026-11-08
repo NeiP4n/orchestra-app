@@ -61,6 +61,7 @@ function render(
 ) {
   let projectCreated = false
   let groupData = options.groups ?? []
+  let projectData = projects
   return createAppFixture({
     width: options.width ?? 120,
     state,
@@ -90,7 +91,10 @@ function render(
           writable: false,
         })
       if (url.pathname === "/api/orchestra/group") {
-        if (request.method === "GET") return json(groupData)
+        if (request.method === "GET") {
+          calls.push({ method: "GET", path: url.pathname })
+          return json(groupData)
+        }
         if (request.method === "PUT") {
           const body = (await request.json()) as (typeof groupData)[number]
           calls.push({ method: request.method, path: url.pathname, body })
@@ -126,7 +130,7 @@ function render(
         return json(createdProject)
       }
       if (url.pathname === "/api/orchestra/owner") return json({})
-      if (url.pathname === "/api/orchestra/project") return json(projectCreated ? [...projects, createdProject] : projects)
+      if (url.pathname === "/api/orchestra/project") return json(projectCreated ? [...projectData, createdProject] : projectData)
       if (url.pathname === "/api/orchestra/template") return json([team])
       if (url.pathname === `/api/orchestra/project/${project.id}/session`)
         return json({
@@ -170,8 +174,43 @@ function render(
       if (url.pathname === "/api/model")
         return json({ location, data: [{ id: "model", providerID: "provider", name: "Model", variants: [] }] })
     },
-  })
+  }).then((setup) =>
+    Object.assign(setup, {
+      // Server-side mutations mid-test: the next poll or refetch picks them up.
+      setProjects: (next: (typeof project)[]) => {
+        projectData = next
+      },
+      setGroups: (next: typeof groupData) => {
+        groupData = next
+      },
+    }),
+  )
 }
+
+// The gear's true hit area is the HoverAction renderable itself: click its
+// center instead of guessing a cell from the captured frame's string index.
+function gearBox(setup: { renderer: { root: { findDescendantById(id: string): { x: number; y: number; width: number } | undefined } } }, id = project.id) {
+  const box = setup.renderer.root.findDescendantById(`project-edit:${id}`)
+  if (!box) throw new Error("no gear on screen")
+  return { x: box.x + Math.floor(box.width / 2), y: box.y }
+}
+
+// A reconnect event, so tests can fire the projects refetch on demand.
+const reconnect = (setup: { events: { emit(event: unknown): void } }) =>
+  setup.events.emit({ id: "evt_reconnect", type: "server.connected", data: {} })
+
+// Hovers the demo project row until its gear shows, then returns the gear's box.
+async function hoverGear(setup: Awaited<ReturnType<typeof render>>) {
+  const frame = await setup.waitForFrame((frame) => frame.includes("Demo") && frame.includes("Orchestrator"))
+  const name = cell(frame, "Demo")
+  await setup.mockMouse.moveTo(name.x + 1, name.y)
+  await setup.waitForFrame((f) => f.includes("Demo") && f.includes("✱"))
+  return gearBox(setup)
+}
+
+const groupPolls = (calls: Call[]) => calls.filter((call) => call.method === "GET" && call.path === "/api/orchestra/group").length
+const projectFetches = (calls: Call[]) =>
+  calls.filter((call) => call.method === "GET" && call.path === "/api/orchestra/project").length
 
 function cell(frame: string, needle: string) {
   const lines = frame.split("\n")
@@ -264,13 +303,7 @@ test("opening project settings from the gear stays open after the mouse is relea
   const calls: Call[] = []
   await using setup = await render(state.path, calls, [project])
 
-  const frame = await setup.waitForFrame((frame) => frame.includes("Projects") && frame.includes("Demo"))
-  const name = cell(frame, "Demo")
-  await setup.mockMouse.moveTo(name.x + 1, name.y)
-  await setup.renderOnce()
-
-  const hovered = await setup.waitForFrame((frame) => frame.includes("Demo") && frame.includes("✱"))
-  const gear = cell(hovered, "✱")
+  const gear = await hoverGear(setup)
   await setup.mockMouse.click(gear.x, gear.y)
 
   await setup.waitForFrame((frame) => frame.includes("Edit project") && frame.includes("Path"))
@@ -283,15 +316,8 @@ test("a click on the gear does not toggle the project row underneath", async () 
   const calls: Call[] = []
   await using setup = await render(state.path, calls, [project])
 
-  const frame = await setup.waitForFrame((frame) => frame.includes("Demo") && frame.includes("Orchestrator"))
-  const name = cell(frame, "Demo")
-  await setup.mockMouse.moveTo(name.x + 1, name.y)
-  await setup.renderOnce()
-
-  const hovered = await setup.waitForFrame((f) => f.includes("Demo") && f.includes("✱"))
-  const gear = cell(hovered, "✱")
-  // captureCharFrame emits the wide ○ marker as one char while it occupies two cells.
-  await setup.mockMouse.click(gear.x - 1, gear.y)
+  const gear = await hoverGear(setup)
+  await setup.mockMouse.click(gear.x, gear.y)
 
   await setup.waitForFrame((f) => f.includes("Edit project"))
   // The row's own action is expand/collapse; a gear click must not reach it and fold the project.
@@ -306,11 +332,9 @@ test("a press released away from the gear does not open project settings", async
   const frame = await setup.waitForFrame((frame) => frame.includes("Demo") && frame.includes("Orchestrator"))
   const name = cell(frame, "Demo")
   await setup.mockMouse.moveTo(name.x + 1, name.y)
-  await setup.renderOnce()
-
-  const hovered = await setup.waitForFrame((f) => f.includes("Demo") && f.includes("✱"))
-  const gear = cell(hovered, "✱")
-  await setup.mockMouse.pressDown(gear.x - 1, gear.y)
+  await setup.waitForFrame((f) => f.includes("Demo") && f.includes("✱"))
+  const gear = gearBox(setup)
+  await setup.mockMouse.pressDown(gear.x, gear.y)
   await setup.mockMouse.moveTo(name.x + 1, name.y)
   await setup.mockMouse.release(name.x + 1, name.y)
   await setup.renderOnce()
@@ -326,14 +350,12 @@ test("a drag released on the gear does not open project settings", async () => {
   const frame = await setup.waitForFrame((frame) => frame.includes("Demo") && frame.includes("Orchestrator"))
   const name = cell(frame, "Demo")
   await setup.mockMouse.moveTo(name.x + 1, name.y)
-  await setup.renderOnce()
-
-  const hovered = await setup.waitForFrame((f) => f.includes("Demo") && f.includes("✱"))
-  const gear = cell(hovered, "✱")
+  await setup.waitForFrame((f) => f.includes("Demo") && f.includes("✱"))
+  const gear = gearBox(setup)
   // The press began on the project name; releasing it over the gear is not a gear click.
   await setup.mockMouse.pressDown(name.x + 1, name.y)
-  await setup.mockMouse.moveTo(gear.x - 1, gear.y)
-  await setup.mockMouse.release(gear.x - 1, gear.y)
+  await setup.mockMouse.moveTo(gear.x, gear.y)
+  await setup.mockMouse.release(gear.x, gear.y)
   await setup.renderOnce()
 
   expect(setup.captureCharFrame()).not.toContain("Edit project")
@@ -344,21 +366,105 @@ test("a group poll returning the same data keeps a held gear press clickable", a
   const calls: Call[] = []
   await using setup = await render(state.path, calls, [project])
 
-  const frame = await setup.waitForFrame((frame) => frame.includes("Demo") && frame.includes("Orchestrator"))
-  const name = cell(frame, "Demo")
-  await setup.mockMouse.moveTo(name.x + 1, name.y)
+  const gear = await hoverGear(setup)
+  // The tree polls groups every 3s; hold the press across a COMPLETED poll
+  // (witnessed in the mock server's call log), then release: the click must land.
+  await setup.mockMouse.pressDown(gear.x, gear.y)
+  const before = groupPolls(calls)
+  await setup.waitFor(() => groupPolls(calls) > before, { maxPasses: 200 })
   await setup.renderOnce()
-
-  const hovered = await setup.waitForFrame((f) => f.includes("Demo") && f.includes("✱"))
-  const gear = cell(hovered, "✱")
-  // The tree polls groups every 3s; a press held across an unchanged poll must still land.
-  await setup.mockMouse.pressDown(gear.x - 1, gear.y)
-  await new Promise((resolve) => setTimeout(resolve, 3400))
-  await setup.renderOnce()
-  await setup.mockMouse.release(gear.x - 1, gear.y)
+  await setup.mockMouse.release(gear.x, gear.y)
 
   await setup.waitForFrame((f) => f.includes("Edit project") && f.includes("Path"))
 }, 15_000)
+
+test("a project refetch returning the same data keeps a held gear press clickable", async () => {
+  await using state = await tmpdir()
+  const calls: Call[] = []
+  await using setup = await render(state.path, calls, [project])
+
+  const gear = await hoverGear(setup)
+  // A reconnect refetches the project list; the server answers with the same data.
+  await setup.mockMouse.pressDown(gear.x, gear.y)
+  const before = projectFetches(calls)
+  reconnect(setup)
+  await setup.waitFor(() => projectFetches(calls) > before, { maxPasses: 200 })
+  await setup.renderOnce()
+  await setup.mockMouse.release(gear.x, gear.y)
+
+  await setup.waitForFrame((f) => f.includes("Edit project") && f.includes("Path"))
+})
+
+test("a sibling project update during a held gear press does not swallow the release", async () => {
+  await using state = await tmpdir()
+  const calls: Call[] = []
+  const sibling = { id: "prj_other", name: "Other", directory, created: 0 }
+  await using setup = await render(state.path, calls, [project, sibling])
+
+  const gear = await hoverGear(setup)
+  // The sibling really changes (a new object with a new name), so its row must be
+  // replaced; the held row is unchanged and its press must survive.
+  await setup.mockMouse.pressDown(gear.x, gear.y)
+  setup.setProjects([project, { ...sibling, name: "Renamed" }])
+  reconnect(setup)
+  await setup.waitForFrame((f) => f.includes("Renamed"))
+  await setup.renderOnce()
+  await setup.mockMouse.release(gearBox(setup).x, gearBox(setup).y)
+
+  await setup.waitForFrame((f) => f.includes("Edit project") && f.includes("Path"))
+})
+
+test("a project update refreshes the row and the settings dialog", async () => {
+  await using state = await tmpdir()
+  const calls: Call[] = []
+  await using setup = await render(state.path, calls, [project])
+
+  await setup.waitForFrame((frame) => frame.includes("Demo"))
+  setup.setProjects([{ ...project, name: "Renamed" }])
+  reconnect(setup)
+  const frame = await setup.waitForFrame((f) => f.includes("Renamed"))
+  const name = cell(frame, "Renamed")
+  await setup.mockMouse.moveTo(name.x + 1, name.y)
+  await setup.waitForFrame((f) => f.includes("Renamed") && f.includes("✱"))
+
+  const gear = gearBox(setup)
+  await setup.mockMouse.click(gear.x, gear.y)
+  // The dialog opens on the fresh object, with the new name already in place.
+  await setup.waitForFrame((f) => f.includes("Edit project") && f.includes("Renamed"))
+})
+
+test("group edits picked up by a poll update the tree in place", async () => {
+  await using state = await tmpdir()
+  const calls: Call[] = []
+  await using setup = await render(state.path, calls, [project], worker, "full", {
+    width: 140,
+    groups: [{ name: "Games", projects: [project.id], mode: "lead" }],
+  })
+
+  await setup.waitForFrame((frame) => frame.includes("Games"))
+  // Membership: the group count follows the polled data.
+  setup.setGroups([{ name: "Games", projects: [], mode: "lead" }])
+  await setup.waitFor(() => setup.captureCharFrame().includes("· 0"), { maxPasses: 200 })
+  // Lead to council: the group's chat row switches to the Society label.
+  setup.setGroups([{ name: "Games", projects: [project.id], mode: "council", supervisor: "ses_society" }])
+  await setup.waitFor(() => setup.captureCharFrame().includes("Society"), { maxPasses: 200 })
+  // Remove: the section leaves the tree; re-add: it returns.
+  setup.setGroups([])
+  await setup.waitFor(() => !setup.captureCharFrame().includes("Games"), { maxPasses: 200 })
+  setup.setGroups([{ name: "Games", projects: [project.id], mode: "lead" }])
+  await setup.waitFor(() => setup.captureCharFrame().includes("Games"), { maxPasses: 200 })
+  // Order follows the polled list, not the mount order.
+  setup.setGroups([
+    { name: "Work", projects: [], mode: "lead" },
+    { name: "Games", projects: [project.id], mode: "lead" },
+  ])
+  await setup.waitFor(() => {
+    const frame = setup.captureCharFrame()
+    const work = frame.indexOf("Work")
+    const games = frame.indexOf("Games")
+    return work >= 0 && games >= 0 && work < games
+  }, { maxPasses: 200 })
+}, 60_000)
 
 test("the orchestrator council mode button saves the group mode when clicked", async () => {
   await using state = await tmpdir()

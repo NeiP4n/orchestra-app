@@ -142,3 +142,90 @@ test("HoverAction supports destructive hover surfaces and reports pointer state"
     app.renderer.destroy()
   }
 })
+
+test("HoverAction keeps a press that moves between its own children", async () => {
+  let clicks = 0
+
+  const app = await testRender(
+    () => (
+      <TestTuiContexts>
+        <ConfigProvider config={createTuiResolvedConfig()}>
+          <ThemeProvider mode="dark" source={emptyThemeSource}>
+            <HoverAction
+              id="multi-child"
+              gap={1}
+              onClick={() => {
+                clicks += 1
+              }}
+            >
+              <text>Alpha</text>
+              <text>Beta</text>
+            </HoverAction>
+          </ThemeProvider>
+        </ConfigProvider>
+      </TestTuiContexts>
+    ),
+    { width: 40, height: 10, kittyKeyboard: true },
+  )
+
+  try {
+    app.renderer.start()
+    await app.waitForFrame((frame) => frame.includes("Alpha") && frame.includes("Beta"))
+    const lines = app.captureCharFrame().split("\n")
+    const y = lines.findIndex((line) => line.includes("Alpha"))
+    const alpha = lines[y]!.indexOf("Alpha") + 2
+    const beta = lines[y]!.indexOf("Beta") + 2
+
+    // The press began on the first child and ends on the second: still one press
+    // of the same action, so it must click.
+    await app.mockMouse.pressDown(alpha, y)
+    await app.mockMouse.moveTo(beta, y)
+    await app.mockMouse.release(beta, y)
+    await app.renderOnce()
+
+    expect(clicks).toBe(1)
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("HoverAction fires on every complete click, not only the first", async () => {
+  let clicks = 0
+
+  const app = await testRender(
+    () => (
+      <TestTuiContexts>
+        <ConfigProvider config={createTuiResolvedConfig()}>
+          <ThemeProvider mode="dark" source={emptyThemeSource}>
+            <HoverAction
+              id="twice"
+              onClick={() => {
+                clicks += 1
+              }}
+            >
+              <text>Push</text>
+            </HoverAction>
+          </ThemeProvider>
+        </ConfigProvider>
+      </TestTuiContexts>
+    ),
+    { width: 40, height: 10, kittyKeyboard: true },
+  )
+
+  try {
+    app.renderer.start()
+    await app.waitForFrame((frame) => frame.includes("Push"))
+    const lines = app.captureCharFrame().split("\n")
+    const y = lines.findIndex((line) => line.includes("Push"))
+    const x = lines[y]!.indexOf("Push") + 2
+
+    await app.mockMouse.click(x, y)
+    await app.renderOnce()
+    await app.mockMouse.click(x, y)
+    await app.renderOnce()
+
+    expect(clicks).toBe(2)
+  } finally {
+    app.renderer.destroy()
+  }
+})
