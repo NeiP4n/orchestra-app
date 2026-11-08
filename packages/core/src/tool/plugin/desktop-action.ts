@@ -9,6 +9,8 @@ import { DesktopIsolation } from "../../desktop-isolation.js"
 import { isDesktopCaptureEnabled, makeHost } from "./desktop.js"
 import { bunRuntime } from "../../runtime.js"
 
+const BROWSER_HINT = " To see or drive the page the user has open in the Browser tab, load and use the `browser` tool (info, text, screenshot, click, type): it works without real-screen access."
+
 export const name = "desktop_action"
 
 export const description = [
@@ -588,7 +590,7 @@ export const Plugin = {
       // B7: UI Automation drives the operator's real screen, so this tool
       // needs the real-screen opt-in for the app it would touch.
       const denial = DesktopIsolation.realScreenDenial(process.env, input.app)
-      if (denial) return yield* new ToolFailure({ message: `desktop_action is blocked: ${denial}` })
+      if (denial) return yield* new ToolFailure({ message: `desktop_action is blocked: ${denial}${BROWSER_HINT}` })
       if (process.platform !== "win32") return { output: UNSUPPORTED }
       const invalid = validate(input)
       if (invalid !== undefined) return yield* new ToolFailure({ message: invalid })

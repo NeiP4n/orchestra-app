@@ -5,7 +5,7 @@ import { Cdp } from "../src/browser/cdp"
 import { WindowCapture } from "../src/browser/window-capture"
 import { BrowserTabs } from "../src/browser/tabs"
 import { Chrome } from "../src/browser/chrome"
-import { acts } from "../src/tool/plugin/browser"
+import { acts, BrowserTool } from "../src/tool/plugin/browser"
 
 describe("browser selection bridge", () => {
   test("the most specific project directory decides the session", () => {
@@ -44,6 +44,28 @@ describe("page scripts", () => {
 
   test("click needs a target", () => {
     expect(() => BrowserPage.clickExpression({})).toThrow()
+  })
+})
+
+describe("finding the browser tool", () => {
+  const loads = (text: string) => BrowserTool.triggers.some((source) => new RegExp(source, "iu").test(text))
+
+  test("it loads when the user asks whether the page can be seen, not only on the word browser", () => {
+    for (const text of [
+      "ты видишь?",
+      "что на странице",
+      "посмотри что открыто",
+      "can you see my page",
+      "открой сайт x",
+    ])
+      expect(loads(text)).toBe(true)
+    expect(loads("run the unit tests")).toBe(false)
+  })
+
+  test("its index line says to use it instead of desktop_inspect and fits the index", () => {
+    const first = BrowserTool.description.split(/\n|(?<=\.)\s/, 1)[0] ?? ""
+    expect(first).toContain("desktop_inspect")
+    expect(first.length).toBeLessThanOrEqual(110)
   })
 })
 
