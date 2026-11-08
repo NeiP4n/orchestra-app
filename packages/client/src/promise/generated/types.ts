@@ -2839,6 +2839,7 @@ export type ConfigEntry =
         experimental?: {
           portable_shell_scanner?: boolean
           context_governor?: boolean
+          neural_functional_effects?: boolean
           subagent_depth?: number
           policies?: Array<{
             action: "provider.use" | "tool.use" | "integration.use"

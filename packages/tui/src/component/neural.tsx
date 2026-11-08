@@ -9,6 +9,7 @@ import { useTheme } from "../context/theme"
 import { tint } from "../theme/color"
 import { hoverBackground } from "../ui/hover"
 import { useNeuralActivity, type NeuralActivity, type NeuralSignal } from "./neural-activity"
+import { expireWaiting, functionalEffectsEnabled, waitGlyph, waitSignal, type Waiting } from "./neural-wait"
 
 // The neuron network that makes the interface feel alive. One native renderable paints four
 // shapes straight into the frame buffer, so a moving impulse never re-runs Solid:
@@ -96,6 +97,8 @@ type NeuralCanvasOptions = BoxOptions & {
   activity?: NeuralActivity
   // The Sessions whose actions this canvas follows; omitted, it follows every Session.
   session?: string | readonly string[]
+  // Experimental functional effects (the approval wait ◐). Off by default.
+  functionalEffects?: boolean
   // Short names drawn beside Session hubs, so each worker's neuron says whose it is.
   names?: Readonly<Record<string, string>>
 }
@@ -130,6 +133,8 @@ export class NeuralCanvasRenderable extends BoxRenderable {
   private _activity: NeuralActivity | undefined
   private _scope: readonly string[] | undefined
   private _names: Readonly<Record<string, string>> = {}
+  private _functional = false
+  private waiting: Waiting = new Map()
   // `time` is the network's own clock, slowed or sped by the tempo; `clock` is wall time for
   // fades that must read the same at any tempo, such as a tool's label.
   private time = 0
@@ -227,6 +232,10 @@ export class NeuralCanvasRenderable extends BoxRenderable {
   }
   set names(value: Readonly<Record<string, string>> | undefined) {
     this._names = value ?? {}
+  }
+  set functionalEffects(value: boolean | undefined) {
+    this._functional = value === true
+    if (!this._functional) this.waiting.clear()
   }
   set session(value: string | readonly string[] | undefined) {
     this._scope = scope(value)
@@ -559,6 +568,7 @@ export class NeuralCanvasRenderable extends BoxRenderable {
       node.flash = 1
       return
     }
+    if (this._functional) waitSignal(this.waiting, signal.kind, signal.sessionID, this.clock)
     if (signal.kind === "ask") {
       // A decision waits for the user: the hub flares and every link out of it carries an impulse.
       node.flash = 1
@@ -818,6 +828,18 @@ export class NeuralCanvasRenderable extends BoxRenderable {
       const glyph = hubs.has(index) ? "◈" : node.flash > 0.45 ? "◉" : node.edges.length > 3 ? "●" : "•"
       this.cell(buffer, node.x, node.y, glyph, fg)
     })
+    // The approval wait: a ◐/◑ ring flips around a hub whose decision is still open.
+    if (this._functional) {
+      expireWaiting(this.waiting, this.clock)
+      this.waiting.forEach((wait, id) => {
+        const index = this.hubs.get(id)
+        if (index === undefined) return
+        const node = this.nodes[index]!
+        const glyph = waitGlyph(this.clock - wait.since)
+        this.cell(buffer, node.x - 1, node.y, glyph, palette.spark)
+        this.cell(buffer, node.x + 1, node.y, glyph, palette.spark)
+      })
+    }
     this.hubs.forEach((index, id) => {
       const name = this._names[id]
       if (!name) return
@@ -926,10 +948,12 @@ export function NeuronField(
   const motion = useMotion()
   const activity = useNeuralActivity()
   const [own, layout] = splitProps(props, ["energy", "seed", "backdrop", "stimulus", "session", "names"])
+  const config = useConfig().data
   return (
     <neural_canvas
       {...layout}
       kind="field"
+      functionalEffects={functionalEffectsEnabled(config.experimental)}
       activity={activity}
       session={own.session}
       names={own.names}
