@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, spyOn, test } from "bun:test"
+import { afterAll, afterEach, describe, expect, mock, spyOn, test } from "bun:test"
 import { mkdtemp, mkdir, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -18,6 +18,12 @@ import { location as fixtureLocation } from "./fixture/location"
 let bunAvailable = true
 const hostCalls: string[] = []
 
+// Module mocks are process-wide in bun test, so the real modules are
+// captured first and restored in afterAll: later suites in the same process
+// must see the unmocked runtime predicate and desktop host.
+const realRuntime = await import("../src/runtime.js")
+const realDesktop = await import("../src/tool/plugin/desktop.js")
+
 mock.module("../src/runtime.js", () => ({ bunRuntime: () => bunAvailable }))
 mock.module("../src/tool/plugin/desktop.js", () => ({
   isDesktopCaptureEnabled: () => true,
@@ -29,6 +35,11 @@ mock.module("../src/tool/plugin/desktop.js", () => ({
     close: () => {},
   }),
 }))
+
+afterAll(() => {
+  mock.module("../src/runtime.js", () => realRuntime)
+  mock.module("../src/tool/plugin/desktop.js", () => realDesktop)
+})
 
 const restore = () => {
   bunAvailable = true
