@@ -221,6 +221,15 @@ const SPECIAL: Record<string, readonly [string, string, number]> = {
   pagedown: ["PageDown", "PageDown", 34],
 }
 
+const EDITING: Record<string, string> = {
+  a: "selectAll",
+  c: "copy",
+  x: "cut",
+  v: "paste",
+  z: "undo",
+  y: "redo",
+}
+
 export type KeyStep =
   | { method: "Input.insertText"; params: { text: string } }
   | { method: "Input.dispatchKeyEvent"; params: Record<string, unknown> }
@@ -236,6 +245,23 @@ export function keySteps(key: {
   meta?: boolean
   option?: boolean
 }): KeyStep[] {
+  if (key.ctrl && !key.meta && !key.option && /^[a-z]$/.test(key.name)) {
+    // Editing shortcuts act through Chrome's own editor commands, so select all, copy, cut, paste and undo work.
+    const command = EDITING[key.name]
+    if (!command) return []
+    const upper = key.name.toUpperCase()
+    const common = {
+      key: key.name,
+      code: `Key${upper}`,
+      windowsVirtualKeyCode: upper.charCodeAt(0),
+      nativeVirtualKeyCode: upper.charCodeAt(0),
+      modifiers: 2,
+    }
+    return [
+      { method: "Input.dispatchKeyEvent", params: { type: "rawKeyDown", ...common, commands: [command] } },
+      { method: "Input.dispatchKeyEvent", params: { type: "keyUp", ...common } },
+    ]
+  }
   if (key.ctrl || key.meta || key.option) return []
   const special = SPECIAL[key.name]
   if (special) {

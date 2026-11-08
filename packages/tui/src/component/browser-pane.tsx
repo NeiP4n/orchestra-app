@@ -217,16 +217,26 @@ export function BrowserPane(props: {
   }
   createEffect(() => {
     if (!control()) return
+    const onPaste = (event: { bytes: Uint8Array }) => {
+      const text = new TextDecoder().decode(event.bytes)
+      if (!text) return
+      note("key", `paste ${text.length} chars`)
+      send(BrowserRuntime.key(props.sessionID, { name: "paste", sequence: text }))
+    }
     const onKey = (key: KeyEvent) => {
+      note("key", `key ${key.name ?? key.sequence} ${key.eventType}`)
       if (key.ctrl && key.name === "g") return (setControl(false), key.preventDefault(), key.stopPropagation())
       key.preventDefault()
       key.stopPropagation()
       if (key.eventType === "release") return
-      note("key", `key ${key.name ?? key.sequence}`)
       send(BrowserRuntime.key(props.sessionID, key))
     }
     renderer.keyInput.on("keypress", onKey)
-    onCleanup(() => void renderer.keyInput.off("keypress", onKey))
+    renderer.keyInput.on("paste", onPaste)
+    onCleanup(() => {
+      renderer.keyInput.off("keypress", onKey)
+      renderer.keyInput.off("paste", onPaste)
+    })
   })
   // Leaving the screen view, closing the browser, restarting Chrome or showing/hiding the chat always gives
   // the keyboard back.

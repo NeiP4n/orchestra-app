@@ -179,7 +179,11 @@ describe("taking control of the page", () => {
     const enter = Cdp.keySteps({ name: "return", sequence: "\r" })
     expect(enter.map((step) => (step.params as Record<string, unknown>).type)).toEqual(["keyDown", "keyUp"])
     expect((enter[0]?.params as Record<string, unknown>).windowsVirtualKeyCode).toBe(13)
-    expect(Cdp.keySteps({ name: "c", sequence: "\x03", ctrl: true })).toEqual([])
+    // Editing shortcuts (was: ignored) now go through Chrome's editor commands; other ctrl keys are still ignored.
+    const copy = Cdp.keySteps({ name: "c", sequence: "\x03", ctrl: true })
+    expect((copy[0]?.params as Record<string, unknown>).commands).toEqual(["copy"])
+    expect((copy[0]?.params as Record<string, unknown>).modifiers).toBe(2)
+    expect(Cdp.keySteps({ name: "q", sequence: "\x11", ctrl: true })).toEqual([])
     expect(Cdp.keySteps({ name: "f5", sequence: "\x1b[15~" })).toEqual([])
   })
 })
