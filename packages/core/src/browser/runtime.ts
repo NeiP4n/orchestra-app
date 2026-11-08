@@ -468,6 +468,9 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
       target === "capture"
         ? [
             ...WindowCapture.KEEP_PAINTING_FLAGS,
+            // The pane shows the window pixel for pixel: no display scaling, so Chrome's tabs and page keep their
+            // normal size instead of being 1.5x larger than the pane the window was sized for.
+            "--force-device-scale-factor=1",
             `--window-position=${WindowCapture.OFFSCREEN.x},${WindowCapture.OFFSCREEN.y}`,
             `--window-size=${size.width},${size.height}`,
           ]

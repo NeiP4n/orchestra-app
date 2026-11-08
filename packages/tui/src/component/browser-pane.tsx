@@ -109,6 +109,9 @@ export function BrowserPane(props: {
         lastFrame = now
         try {
           picture.source = NativeImage.decode(Buffer.from(frame.data, "base64"))
+          // A captured window may be a little off the size asked for: the clicks map onto what is really shown.
+          if (mode() === "capture" && frame.width > 0 && frame.height > 0)
+            viewport = { width: frame.width, height: frame.height }
           const area = size()
           setStats(
             `frame ${frame.width}x${frame.height}px · asked ${viewport.width}x${viewport.height}px · pane ${area?.cols}x${area?.rows} cells`,
@@ -151,6 +154,8 @@ export function BrowserPane(props: {
     })
   })
   const [route, setRoute] = createSignal("")
+  let moving = false
+  let latestMove: { x: number; y: number } | undefined
   const forward = (kind: "down" | "up" | "move", event: MouseEvent) => {
     if (!control()) return
     const at = toPage(event)
@@ -159,19 +164,35 @@ export function BrowserPane(props: {
     if (screenBox) setMarker({ x: Math.max(0, event.x - screenBox.x), y: Math.max(0, event.y - screenBox.y) })
     note(kind, `${kind} page ${Math.round(at.x)},${Math.round(at.y)}`)
     const step = (text: string) => setRoute(`${kind}: ${text}`)
+    // Moves are coalesced: while one is on its way only the newest position waits, so the pointer never lags
+    // behind a queue of stale positions. Presses and releases always go, in order, after the pending move.
+    if (kind === "move") {
+      if (moving) return void (latestMove = at)
+      moving = true
+    }
     step("pane sent")
-    send(
+    const run = (point: { x: number; y: number }) =>
       BrowserRuntime.mouse(
         props.sessionID,
-        kind === "move" ? { kind, ...at } : { kind, ...at, button: event.button === 2 ? "right" : "left" },
+        kind === "move" ? { kind, ...point } : { kind, ...point, button: event.button === 2 ? "right" : "left" },
         step,
-      ).then(
-        (where) => setRoute(`${kind} -> ${where}`),
-        (error) => {
-          setRoute(`${kind} FAILED: ${errorMessage(error)}`)
-          throw error
-        },
-      ),
+      )
+    send(
+      run(at)
+        .then(
+          (where) => setRoute(`${kind} -> ${where}`),
+          (error) => {
+            setRoute(`${kind} FAILED: ${errorMessage(error)}`)
+            throw error
+          },
+        )
+        .finally(() => {
+          if (kind !== "move") return
+          moving = false
+          const next = latestMove
+          latestMove = undefined
+          if (next && control()) send(BrowserRuntime.mouse(props.sessionID, { kind: "move", ...next }))
+        }),
     )
   }
   createEffect(() => {
