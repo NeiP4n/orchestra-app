@@ -42,23 +42,52 @@ const thresholdFor = (id: string) =>
       ? CompactionPolicy.leanThreshold
       : CompactionPolicy.standardThreshold
 
+// Shipped roster roles the plan's table does not name. They keep the
+// standard middle by rule, and each one is listed here explicitly so a new
+// role can never drift into an unpinned tier: extending the roster requires
+// assigning the new role to a tier in this test.
+const unnamedStandard = [
+  "accessibility-auditor",
+  "dependency-auditor",
+  "reliability-engineer",
+  "integration-engineer",
+  "api-contract-engineer",
+  "game-designer",
+  "marketer",
+  "system-administrator",
+  "support-engineer",
+  "team-planner",
+  "ideator-a",
+  "ideator-b",
+  "team-solver",
+  "team-manager",
+  "repairer",
+]
+
 describe("CompactionPolicy", () => {
   test("the roster covers the policy table", () => {
     const ids = Orchestra.roles.map((role) => role.id)
-    expect(ids.length).toBe(29)
     // "analyst" and "fallback" are policy names for work the roster spells differently or does not
     // ship as a role at all, so they are checked against roleThreshold directly below.
     expect(ids).toEqual(expect.arrayContaining([...deep.filter((id) => id !== "analyst"), ...lean]))
     expect(ids).toEqual(expect.arrayContaining(standard.filter((id) => id !== "fallback")))
+    // Coverage is derived from the actual shipped roster, not a count: every
+    // shipped role appears in exactly one tier list (named or unnamed).
+    const named = new Set([...deep, ...lean, ...standard, ...unnamedStandard])
+    for (const id of ids) expect(named.has(id), `role ${id} has no pinned tier`).toBe(true)
+    for (const id of unnamedStandard) expect(ids, `pinned role ${id} is not shipped`).toContain(id)
   })
 
   test("every shipped role lands on its tier", () => {
-    for (const role of Orchestra.roles) expect(CompactionPolicy.roleThreshold(role)).toEqual(thresholdFor(role.id))
-    expect(Orchestra.roles.filter((role) => deep.includes(role.id)).length).toBe(10)
-    expect(Orchestra.roles.filter((role) => lean.includes(role.id)).length).toBe(3)
-    // accessibility-auditor, dependency-auditor, reliability-engineer, integration-engineer and
-    // api-contract-engineer are roster roles the plan did not name, so they keep the standard middle.
-    expect(Orchestra.roles.filter((role) => !deep.includes(role.id) && !lean.includes(role.id)).length).toBe(16)
+    for (const role of Orchestra.roles) {
+      const expected = unnamedStandard.includes(role.id) ? CompactionPolicy.standardThreshold : thresholdFor(role.id)
+      expect(CompactionPolicy.roleThreshold(role), `role ${role.id}`).toEqual(expected)
+    }
+    // The unnamed middle is asserted role by role, so each of these roles is
+    // pinned to the standard tier by an explicit decision here.
+    for (const id of unnamedStandard) {
+      expect(CompactionPolicy.roleThreshold({ id }), `role ${id}`).toEqual(CompactionPolicy.standardThreshold)
+    }
   })
 
   test("reads a role by its roster id and a member by the agent it runs", () => {
