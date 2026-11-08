@@ -17,6 +17,7 @@ import { Orchestra } from "../orchestra.js"
 import { RoleToolkits } from "../roles/toolkits.js"
 import { Rules } from "../rules.js"
 import { Session } from "../session.js"
+import { orchestratorMandatesFor } from "./agent.js"
 
 const Federation = {
   ...FederationDomain,
@@ -298,6 +299,12 @@ export const Plugin = define({
             return
           }
 
+          // The specialist mandates (UI, binaries, adversarial tests, ADRs, dependency audits, MCP forging)
+          // follow the base prompt in every mode except the light ones. A group Society returned above and never gets them.
+          const mandates = orchestratorMandatesFor(
+            Option.isSome(current) ? String(Mode.fromMetadata(current.value.metadata)?.id ?? "auto") : undefined,
+          )
+          if (mandates) event.system.push({ type: "text", text: mandates })
           const main = yield* orchestra.mainOf(event.sessionID)
           if (main) event.system.push({ type: "text", text: WORKSPACE_GUIDANCE })
           const linked = main ? yield* federation.linked(main.id) : []
