@@ -94,6 +94,9 @@ it.live("the server cycle takes the dispatch rule and operator limits from the o
         info: new Info({
           orchestra: new ConfigOrchestra.Info({
             autoloop: new ConfigOrchestra.Autoloop({ maxAttempts: 1 }),
+            // The default autonomy is observe, which records the event and routes nothing; this
+            // test is about a dispatch that runs, so the operator config asks for auto.
+            society: new ConfigOrchestra.Society({ autonomy: "auto" }),
           }),
         }),
       }),
