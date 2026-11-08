@@ -104,14 +104,16 @@ story("labels skill tools from IDs and result metadata", async ({ mount }) => {
   await group.getByRole("button").click()
   const loaded = group.locator('[data-component="tool-loaded-item"]')
   await expect(loaded).toHaveCount(1)
-  await expect(loaded).toHaveAttribute("aria-label", "Loaded frontend-design, OpenCode skills")
+  // The story's second skill carries metadata.name "Orchestra" over id "opencode",
+  // and skillToolName prefers metadata.name.
+  await expect(loaded).toHaveAttribute("aria-label", "Loaded frontend-design, Orchestra skills")
   await expect(loaded).toHaveCSS("line-height", "16px")
   await expect(loaded.locator('[data-slot="tool-loaded-label"]')).toHaveText("Loaded")
   await expect(loaded.locator('[data-slot="tool-loaded-kind"]')).toHaveText("skills")
   const names = loaded.locator('[data-component="text-shimmer"]')
   await expect(names).toHaveCount(2)
   await expect(names.nth(0)).toHaveAttribute("aria-label", "frontend-design")
-  await expect(names.nth(1)).toHaveAttribute("aria-label", "OpenCode")
+  await expect(names.nth(1)).toHaveAttribute("aria-label", "Orchestra")
 })
 
 // Moved from packages/app/e2e/regression/session-timeline-reducer-projection.spec.ts
