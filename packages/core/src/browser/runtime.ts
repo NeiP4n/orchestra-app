@@ -96,15 +96,22 @@ function calm(dir: string) {
 /** Lets a window that Chrome treats as unfocused or hidden still take clicks and keys from DevTools. */
 /** One line into browser-debug.log (in the app's data folder), so what happened is on disk and not only on screen. */
 export function trace(line: string) {
-  try {
-    const file = path.join(Global.Path.data, "browser-debug.log")
-    mkdirSync(path.dirname(file), { recursive: true })
-    if (existsSync(file) && readFileSync(file).length > 400_000) writeFileSync(file, "")
-    appendFileSync(file, `${new Date().toISOString()} ${line}\n`)
-  } catch {
-    // A log that cannot be written must never get in the way.
+  // Two copies: the app's data folder, and one in the home folder where it is easy to find.
+  for (const file of logFiles()) {
+    try {
+      mkdirSync(path.dirname(file), { recursive: true })
+      if (existsSync(file) && readFileSync(file).length > 400_000) writeFileSync(file, "")
+      appendFileSync(file, `${new Date().toISOString()} ${line}\n`)
+    } catch {
+      // A log that cannot be written must never get in the way.
+    }
   }
 }
+
+export const logFiles = () => [
+  path.join(Global.Path.data, "browser-debug.log"),
+  path.join(Global.Path.home, "orchestra-browser-debug.log"),
+]
 
 /** What the page is at a point and whether Chrome treats it as visible and focused: the facts a dead click needs. */
 async function probe(client: Cdp.Client, x: number, y: number) {
@@ -643,3 +650,4 @@ export async function peek(sessionID: string): Promise<{ running: boolean; title
     return { running: true }
   }
 }
+trace(`started, pid ${process.pid}, ${process.platform}, logs: ${logFiles().join(" and ")}`)
