@@ -12,8 +12,10 @@ import { Permission } from "../../permission.js"
 
 export const name = "browser"
 
+// The first sentence is the line in the on-demand tools index, so it says when to reach for this tool.
 export const description = [
-  "Drive the browser session the operator has selected for this project in the Browser tab. It is the same Chrome the operator sees there, on its own profile, so logins made in it are real and your clicks act with those accounts. You never launch a browser of your own: this one starts if it is not running.",
+  "See and drive the page in the user's Browser tab (use this, not desktop_inspect, to see what they see in it).",
+  "It is the browser session the operator has selected for this project in the Browser tab: the same Chrome the operator sees there, on its own profile, so logins made in it are real and your clicks act with those accounts. You never launch a browser of your own: this one starts if it is not running.",
   "",
   "Actions:",
   "  open — go to an http or https address (url), then return the page title, address and text.",
@@ -25,6 +27,12 @@ export const description = [
   "",
   "Read the page text first and pick targets from it. open, click and type ask the operator for permission. Stop and tell the operator before entering payment details, passwords, or anything that publishes or spends.",
 ].join("\n")
+
+/** Words that load this tool: the browser itself, and the ways a person asks whether you can see their page. */
+export const triggers = [
+  "браузер|browser|сайт|страниц[уаы]|web ?page|website",
+  "ты видишь|видишь (это|меня|страницу|экран)|что (я )?(вижу|открыт)|что на (экране|странице|сайте)|посмотри|открой (сайт|страниц|ссылк)|can you see|do you see|what('s| is) on (my|the) (screen|page)|look at (my|the) (page|browser|tab)",
+]
 
 export const Input = Schema.Struct({
   action: Schema.Literals(["open", "text", "info", "screenshot", "click", "type"]),
@@ -133,7 +141,7 @@ export const Plugin = {
           options: {
             codemode: false,
             permission: name,
-            triggers: ["браузер|browser|сайт|страниц[уаы]|web ?page|website"],
+            triggers,
           },
           description,
           input: Input,
