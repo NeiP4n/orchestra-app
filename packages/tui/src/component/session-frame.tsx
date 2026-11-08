@@ -10,6 +10,7 @@ import { useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, Show, untrack } from "solid-js"
 import { useConfig } from "../config"
 import { useT } from "../util/i18n"
+import { consoleSiblings, consoleTerminalID } from "../util/console-terminal"
 import { useData } from "../context/data"
 import { Keymap } from "../context/keymap"
 import { InteractivityProvider } from "../context/interactivity"
@@ -176,25 +177,35 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     (sessionID) => sessions.refresh(sessionID).catch(() => undefined),
   )
   const session = () => sessions.get(props.sessionID)
+  const consoleSessions = createMemo(() =>
+    data.session.list().map((item) => ({ id: item.id, directory: item.location.directory })),
+  )
   const consoleTerminal = () => {
     if (!sessions.available()) return
-    const value = session()
-    return value.terminals.find((terminal) => terminal.id === value.selectedTerminalID) ?? value.terminals.at(-1)
+    const id = consoleTerminalID({
+      sessionID: props.sessionID,
+      sessions: consoleSessions(),
+      terminals: (sessionID) => sessions.get(sessionID).terminals,
+      selected: (sessionID) => sessions.get(sessionID).selectedTerminalID,
+    })
+    if (id) return { id }
   }
   let consoleRequested: string | undefined
+  // The shell of a project may live under a sibling session, so list the terminals of all of them.
   createEffect(() => {
-    // Opening the Console tab on a session without a terminal starts one, once.
+    if (centerView() !== "console" || !sessions.available()) return
+    for (const id of consoleSiblings(props.sessionID, consoleSessions())) {
+      if (id !== props.sessionID) void sessions.refresh(id).catch(() => undefined)
+    }
+  })
+  createEffect(() => {
+    // Opening the Console tab on a project without a shell starts one, once.
     if (centerView() !== "console" || !sessions.available()) return
     if (consoleTerminal() || consoleRequested === props.sessionID) return
-    if (!sessions.get(props.sessionID).terminals.length && !untrack(() => sessions.terminalsLoaded(props.sessionID))) return
+    if (!untrack(() => sessions.terminalsLoaded(props.sessionID))) return
     consoleRequested = props.sessionID
     void sessions.newTerminal(props.sessionID).catch(terminalError)
   })
-  const selectedTerminal = () => {
-    if (!sessions.available()) return
-    const value = session()
-    return value.terminals.find((terminal) => terminal.id === value.selectedTerminalID)
-  }
   createEffect(
     on([activePanel, () => selectedTerminal()?.id], ([panel, terminal], previous) => {
       if (panel && panel !== previous?.[0]) {
