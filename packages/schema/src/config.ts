@@ -20,6 +20,7 @@ import { ConfigPlugin } from "./config/plugin.js"
 import { ConfigProvider } from "./config/provider.js"
 import { ConfigProxy } from "./config/proxy.js"
 import { ConfigReference } from "./config/reference.js"
+import { ConfigSelfIndex } from "./config/self-index.js"
 import { ConfigWebSearch } from "./config/websearch.js"
 import { ConfigToolOutput } from "./config/tool-output.js"
 import { ConfigWatcher } from "./config/watcher.js"
@@ -108,6 +109,9 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   }),
   references: ConfigReference.Info.pipe(optional).annotate({
     description: "Named local directories or Git repositories available as external context",
+  }),
+  self_index: ConfigSelfIndex.Info.pipe(optional).annotate({
+    description: "The agent's index of Orchestra itself: extra operator documents and toggles",
   }),
   websearch: ConfigWebSearch.Selection.pipe(optional).annotate({
     description: "Web search provider selection",

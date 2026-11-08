@@ -93,6 +93,7 @@ import { PeerTool } from "../tool/plugin/peer.js"
 import { BudgetTool } from "../tool/plugin/budget.js"
 import { MuseChatTool } from "../tool/plugin/muse-chat.js"
 import { CodegraphTool } from "../tool/plugin/codegraph.js"
+import { SelfTool } from "../tool/plugin/self.js"
 import { CheckpointTool } from "../tool/plugin/checkpoint.js"
 import { DesktopInspectTool } from "../tool/plugin/desktop-inspect.js"
 import { DesktopActionTool } from "../tool/plugin/desktop-action.js"
@@ -333,6 +334,7 @@ const pre = [
   BudgetTool.Plugin,
   MuseChatTool.Plugin,
   CodegraphTool.Plugin,
+  SelfTool.Plugin,
   CheckpointTool.Plugin,
   DesktopInspectTool.Plugin,
   DesktopActionTool.Plugin,
