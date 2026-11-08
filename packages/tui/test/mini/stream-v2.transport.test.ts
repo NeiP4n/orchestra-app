@@ -1071,7 +1071,7 @@ describe("V2 mini transport", () => {
     let admitted = false
     spyOn(client.session, "prompt").mockImplementation((request) => {
       admitted = true
-      return ok(promptAdmission(request)) as never
+      return ok({ data: promptAdmission(request), held: false }) as never
     })
 
     const turn = transport.runPromptTurn({
