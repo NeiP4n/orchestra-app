@@ -1165,7 +1165,7 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
     )
     const awaitRoomRequest = <A>(
       label: string,
-      pending: Fiber.RuntimeFiber<{ status: number; body: unknown }, unknown>,
+      pending: Fiber.Fiber<{ status: number; body: unknown }, unknown>,
       poll: Effect.Effect<A, unknown>,
     ): Effect.Effect<A, unknown> =>
       poll.pipe(
@@ -1184,7 +1184,7 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
         // must still get the inventory/event-loop capture. The original error rethrows.
         Effect.tapCause((cause) =>
           Effect.gen(function* () {
-            const delayMs = yield* eventLoopDelay.pipe(Effect.catch(() => Effect.succeed(-1)))
+            const delayMs = yield* eventLoopDelay.pipe(Effect.orElseSucceed(() => -1))
             const failure = Cause.findErrorOption(cause)
             const errorTag =
               failure._tag === "Some"
@@ -1448,7 +1448,7 @@ const coldRoom = (options: { agent?: string; rules?: Record<string, unknown> } =
       )
     // Polls until this guest's request exists; dies with the run's early response when the
     // run finishes first - that early finish is the fail-closed regression being tested.
-    const awaitRequest = (pending: Fiber.RuntimeFiber<{ status: number; body: unknown }, unknown>, action: string) =>
+    const awaitRequest = (pending: Fiber.Fiber<{ status: number; body: unknown }, unknown>, action: string) =>
       requests().pipe(
         Effect.filterOrFail((list) => list.some((item) => item.action === action && item.metadata?.guest === "Cold")),
         Effect.retry(Schedule.spaced("20 millis")),
