@@ -79,8 +79,9 @@ describe("recovery history budget", () => {
 
 describe("recovery tool confinement", () => {
   test("paths inside the root resolve, paths outside do not", () => {
-    // "/tmp/..." is not absolute on Windows (no drive letter), where
-    // resolveInRoot refuses the root outright; build a host-absolute root.
+    // A root-relative "/tmp/..." passes path.win32.isAbsolute but is not
+    // drive-qualified, so it is not the canonical absolute root this
+    // contract requires; build a fully drive-qualified root on every host.
     const root = path.resolve(path.join(tmpdir(), "orchestra-test"))
     expect(resolveInRoot(root, "packages/core/src/x.ts")).toBe(path.join(root, "packages/core/src/x.ts"))
     expect(resolveInRoot(root, "../escape.txt")).toBeUndefined()

@@ -69,8 +69,9 @@ describe("Database backup and restore", () => {
 
   test("backup names are timestamped and sortable", () => {
     const first = DatabaseBackup.timestampedBackupPath("/backups", "orchestra-local.db")
-    // Separators (and drive anchoring on Windows) come from the host path
-    // API, not a hardcoded POSIX prefix.
+    // timestampedBackupPath joins (not resolves), so the host's separator
+    // comes from path.join and no drive is anchored; compare against the
+    // host's own joined prefix, not a hardcoded POSIX one.
     expect(first.startsWith(path.join("/backups", "orchestra-local-"))).toBe(true)
     expect(first.endsWith(".db")).toBe(true)
     expect(first).not.toContain(":")
