@@ -2,10 +2,12 @@ import { expect, test } from "bun:test"
 import { mkdir } from "node:fs/promises"
 import { SessionExecution } from "@orchestra/core/session/execution"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
-import { Cause, Effect, Fiber, Layer, Schedule } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Layer, Schedule, Scope } from "effect"
 import { tmpdir } from "../../core/test/fixture/tmpdir"
 import { it } from "../../core/test/lib/effect"
 import { ServerFetch } from "../src/fetch"
+import { Bus } from "@orchestra/core/bus"
+import { SdkPlugins } from "@orchestra/core/plugin/sdk"
 import { hiddenRoomEvent } from "../src/handlers/room"
 import { ServerRoomDiscovery } from "../src/room-discovery"
 import { PORT, QUERY, decodeReply } from "@orchestra/protocol/room-discovery"
@@ -1182,7 +1184,7 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
         // must still get the inventory/event-loop capture. The original error rethrows.
         Effect.tapCause((cause) =>
           Effect.gen(function* () {
-            const delayMs = yield* eventLoopDelay.pipe(Effect.catchAll(() => Effect.succeed(-1)))
+            const delayMs = yield* eventLoopDelay.pipe(Effect.catch(() => Effect.succeed(-1)))
             const failure = Cause.findErrorOption(cause)
             const errorTag =
               failure._tag === "Some"
@@ -1197,7 +1199,7 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
                   guest: item.metadata?.guest,
                 })),
               ),
-              Effect.catchAll((listError) => Effect.succeed(`inventory unavailable: ${String(listError)}`)),
+              Effect.catch((listError) => Effect.succeed(`inventory unavailable: ${String(listError)}`)),
             )
             diag(`${label} poll failed`, { errorTag, eventLoopDelayMs: Math.round(delayMs), requests: inventory })
           }),
@@ -1338,6 +1340,314 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
     expect(unattended.body.output).toContain("trusted-auto-run")
     diag("done")
   }).pipe(Effect.scoped),
+)
+
+// Cold-activation barrier fixture: an SDK plugin whose setup blocks on `gate` keeps the
+// location's readiness latch closed, exactly like a slow first-boot activation. `entered`
+// proves activation actually reached the barrier plugin before a test observes anything;
+// the finalizer always opens the gate so a failed assertion cannot leave teardown waiting
+// on the plugin load timeout. The run writes a marker file: an absent marker proves no
+// early execution, which a still-pending response alone cannot.
+const coldRoom = (options: { agent?: string; rules?: Record<string, unknown> } = {}) =>
+  Effect.gen(function* () {
+    const gate = yield* Deferred.make<void>()
+    const entered = yield* Deferred.make<void>()
+    const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-room-cold-")))
+    const handler = yield* ServerFetch.make(
+      {
+        app: { version: "test" },
+        database: { path: ":memory:" },
+        fs: { filewatcher: false },
+        models: { fetch: false },
+        config: { directory: tmp.path, project: false, content: "{}" },
+        password: "secret",
+      },
+      {
+        overrides: [
+          SessionExecution.node.replace(makeGlobalNode({ service: SessionExecution.Service, layer: idle, deps: [] })),
+          SdkPlugins.node.replace(
+            makeGlobalNode({
+              service: SdkPlugins.Service,
+              layer: Layer.effect(
+                SdkPlugins.Service,
+                Effect.gen(function* () {
+                  const sdk = yield* SdkPlugins.Service
+                  yield* sdk.register({
+                    id: "test-activation-barrier",
+                    // Deliberately uninterruptible so the teardown control discriminates:
+                    // an interruptible wait lets scope close cancel the setup and the
+                    // finalizer ordering never matters; here only opening the gate lets
+                    // teardown finish (the production loader additionally bounds setups
+                    // with a load timeout, which the control asserts teardown never waits
+                    // out). This tests cleanup ordering, not an identical production hang.
+                    effect: () =>
+                      Effect.andThen(Deferred.complete(entered, Effect.void), Deferred.await(gate)).pipe(
+                        Effect.uninterruptible,
+                      ),
+                  })
+                  return sdk
+                }),
+              ).pipe(Layer.provide(SdkPlugins.layer)),
+              deps: [Bus.node],
+            }),
+          ),
+        ],
+      },
+    )
+    // Registered after the server, so LIFO finalization opens the gate BEFORE server and
+    // plugin teardown: a failing assertion while activation is held cannot leave shutdown
+    // waiting out the plugin load timeout. Registered immediately after handler creation
+    // so every later setup step is covered as well.
+    yield* Effect.addFinalizer(() => Deferred.complete(gate, Effect.void).pipe(Effect.asVoid))
+    const call = (path: string, init: { method?: string; headers?: Record<string, string>; body?: unknown } = {}) =>
+      Effect.promise(async () => {
+        const response = await handler(
+          new Request(`http://opencode.local${path}`, {
+            method: init.method ?? "GET",
+            headers: { "content-type": "application/json", ...init.headers },
+            body: init.body === undefined ? undefined : JSON.stringify(init.body),
+          }),
+        )
+        const text = await response.text()
+        return { status: response.status, body: text ? JSON.parse(text) : undefined }
+      })
+    const session = (yield* call("/api/session", {
+      method: "POST",
+      headers: host,
+      body: { title: "Cold", location: { directory: tmp.path }, agent: options.agent ?? "build" },
+    })).body.data
+    const room = (yield* call("/api/room", {
+      method: "POST",
+      headers: host,
+      body: { sessionID: session.id, rules: options.rules ?? { noOutbound: false, blockCommands: ["echo*"] } },
+    })).body.data
+    const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
+    const joined = (yield* call("/api/room/join", { method: "POST", body: { code, name: "Cold" } })).body
+    const guest = { authorization: `Bearer ${joined.token}` }
+    const promoted = yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { role: "cohost" },
+    })
+    expect(promoted.status).toBe(200)
+    const marker = path.join(tmp.path, "cold-gate.txt")
+    const markerExists = () => Effect.promise(() => Bun.file(marker).exists())
+    const run = () =>
+      call(`/api/room/${room.id}/guest/run`, {
+        method: "POST",
+        headers: guest,
+        body: { sessionID: session.id, command: "echo cold-gate > cold-gate.txt" },
+      })
+    const requests = () =>
+      call(`/api/session/${session.id}/permission`, { headers: host }).pipe(
+        Effect.map((response) => response.body.data as {
+          id: string
+          action: string
+          metadata?: Record<string, unknown>
+        }[]),
+      )
+    // Polls until this guest's request exists; dies with the run's early response when the
+    // run finishes first - that early finish is the fail-closed regression being tested.
+    const awaitRequest = (pending: Fiber.RuntimeFiber<{ status: number; body: unknown }, unknown>, action: string) =>
+      requests().pipe(
+        Effect.filterOrFail((list) => list.some((item) => item.action === action && item.metadata?.guest === "Cold")),
+        Effect.retry(Schedule.spaced("20 millis")),
+        Effect.map((list) => list.find((item) => item.action === action && item.metadata?.guest === "Cold")!),
+        Effect.raceFirst(
+          Fiber.join(pending).pipe(
+            Effect.flatMap((early) =>
+              Effect.die(
+                new Error(
+                  `[cold-gate] guest run completed before its permission request appeared (status=${early.status} body=${JSON.stringify(early.body)})`,
+                ),
+              ),
+            ),
+          ),
+        ),
+        Effect.timeout("25 seconds"),
+      )
+    const awaitEntered = () => Deferred.await(entered).pipe(Effect.timeout("15 seconds"))
+    return { call, session, room, joined, gate, run, markerExists, requests, awaitRequest, awaitEntered }
+  })
+
+it.live("a guest run during cold plugin activation waits for readiness instead of failing closed", () =>
+  Effect.gen(function* () {
+    const { call, session, gate, run, markerExists, requests, awaitRequest, awaitEntered } = yield* coldRoom()
+    const pending = yield* run().pipe(Effect.forkScoped)
+    // Observe only once activation is provably underway behind the barrier.
+    yield* awaitEntered()
+    const raced = yield* Effect.raceFirst(
+      Fiber.join(pending).pipe(Effect.map((response) => ({ response }) as const)),
+      Effect.sleep("400 millis").pipe(Effect.as("pending" as const)),
+    )
+    expect(raced).toBe("pending")
+    expect((yield* requests()).some((item) => item.action === "room.program")).toBe(false)
+    expect(yield* markerExists()).toBe(false)
+
+    yield* Deferred.complete(gate, Effect.void)
+    const request = yield* awaitRequest(pending, "room.program")
+    // The request is up, but nothing may execute before the host answers.
+    expect(yield* markerExists()).toBe(false)
+    yield* call(`/api/session/${session.id}/permission/${request.id}/reply`, {
+      method: "POST",
+      headers: host,
+      body: { decision: "once" },
+    })
+    const result = yield* Fiber.join(pending)
+    expect(result.status).toBe(200)
+    expect(result.body.exitCode).toBe(0)
+    expect(yield* markerExists()).toBe(true)
+  }).pipe(Effect.scoped),
+  // Provisional budget for a cold location boot on a loaded CI box; replace with measured
+  // CI timing before treating it as permanent.
+  60_000,
+)
+
+it.live("a guest run for an agent still missing after activation denies instead of waiting forever", () =>
+  Effect.gen(function* () {
+    // "ghost" is never registered, so this is a genuine missing agent, not a slow one:
+    // the readiness wait must end in the deny-all default, not in a hang or an approval.
+    const { gate, run, markerExists, requests, awaitEntered } = yield* coldRoom({ agent: "ghost" })
+    const pending = yield* run().pipe(Effect.forkScoped)
+    yield* awaitEntered()
+    yield* Deferred.complete(gate, Effect.void)
+    const result = yield* Fiber.join(pending)
+    expect(result.status).toBe(403)
+    expect((yield* requests()).some((item) => item.action === "room.program")).toBe(false)
+    expect(yield* markerExists()).toBe(false)
+  }).pipe(Effect.scoped),
+  60_000,
+)
+
+it.live("a permission deny installed during the activation wait still denies the guest run", () =>
+  Effect.gen(function* () {
+    const { call, session, gate, run, markerExists, requests, awaitEntered } = yield* coldRoom()
+    const pending = yield* run().pipe(Effect.forkScoped)
+    yield* awaitEntered()
+    // The deny lands while the run is parked in the activation wait; the wait must
+    // neither snapshot the pre-deny state nor bypass the configured rules.
+    const denied = yield* call(`/api/session/${session.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { permissions: [{ action: "room.program", resource: "*", effect: "deny" }] },
+    })
+    expect(denied.status).toBe(204)
+    yield* Deferred.complete(gate, Effect.void)
+    const result = yield* Fiber.join(pending)
+    expect(result.status).toBe(403)
+    expect((yield* requests()).some((item) => item.action === "room.program")).toBe(false)
+    expect(yield* markerExists()).toBe(false)
+  }).pipe(Effect.scoped),
+  60_000,
+)
+
+it.live("a host reject after cold activation denies the guest run without executing it", () =>
+  Effect.gen(function* () {
+    const { call, session, gate, run, markerExists, awaitRequest, awaitEntered } = yield* coldRoom()
+    const pending = yield* run().pipe(Effect.forkScoped)
+    yield* awaitEntered()
+    yield* Deferred.complete(gate, Effect.void)
+    const request = yield* awaitRequest(pending, "room.program")
+    expect(yield* markerExists()).toBe(false)
+    yield* call(`/api/session/${session.id}/permission/${request.id}/reply`, {
+      method: "POST",
+      headers: host,
+      body: { decision: "reject" },
+    })
+    const result = yield* Fiber.join(pending)
+    expect(result.status).toBe(403)
+    expect(yield* markerExists()).toBe(false)
+  }).pipe(Effect.scoped),
+  60_000,
+)
+
+for (const tightening of ["demote", "denyGuestCommands"] as const) {
+  it.live(`a guest ${tightening === "demote" ? "demoted" : "cut off by room rules"} during the activation wait is denied after release`, () =>
+    Effect.gen(function* () {
+      const { call, session, room, joined, gate, run, markerExists, awaitRequest, awaitEntered } = yield* coldRoom()
+      const pending = yield* run().pipe(Effect.forkScoped)
+      yield* awaitEntered()
+      if (tightening === "demote") {
+        const demoted = yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
+          method: "PATCH",
+          headers: host,
+          body: { role: "member" },
+        })
+        expect(demoted.status).toBe(200)
+      } else {
+        const tightenedRoom = yield* call(`/api/room/${room.id}`, {
+          method: "PATCH",
+          headers: host,
+          body: { rules: { noOutbound: false, blockCommands: ["echo*"], denyGuestCommands: true } },
+        })
+        expect(tightenedRoom.status).toBe(200)
+      }
+      yield* Deferred.complete(gate, Effect.void)
+      // The role/rules gate was checked before the wait, so confirm still raises the
+      // request; the host resolves it and the post-wait revalidation owns the denial.
+      const request = yield* awaitRequest(pending, "room.program")
+      yield* call(`/api/session/${session.id}/permission/${request.id}/reply`, {
+        method: "POST",
+        headers: host,
+        body: { decision: "once" },
+      })
+      const result = yield* Fiber.join(pending)
+      expect(result.status).toBe(403)
+      expect(yield* markerExists()).toBe(false)
+    }).pipe(Effect.scoped),
+    60_000,
+  )
+}
+
+it.live("a guest run outside blockCommands waits out cold activation on the room.run branch", () =>
+  Effect.gen(function* () {
+    const { call, session, gate, run, markerExists, requests, awaitRequest, awaitEntered } = yield* coldRoom({
+      rules: { noOutbound: false },
+    })
+    const pending = yield* run().pipe(Effect.forkScoped)
+    yield* awaitEntered()
+    const raced = yield* Effect.raceFirst(
+      Fiber.join(pending).pipe(Effect.map((response) => ({ response }) as const)),
+      Effect.sleep("400 millis").pipe(Effect.as("pending" as const)),
+    )
+    expect(raced).toBe("pending")
+    expect((yield* requests()).some((item) => item.action === "room.run")).toBe(false)
+    expect(yield* markerExists()).toBe(false)
+    yield* Deferred.complete(gate, Effect.void)
+    const request = yield* awaitRequest(pending, "room.run")
+    expect(yield* markerExists()).toBe(false)
+    yield* call(`/api/session/${session.id}/permission/${request.id}/reply`, {
+      method: "POST",
+      headers: host,
+      body: { decision: "once" },
+    })
+    const result = yield* Fiber.join(pending)
+    expect(result.status).toBe(200)
+    expect(result.body.exitCode).toBe(0)
+    expect(yield* markerExists()).toBe(true)
+  }).pipe(Effect.scoped),
+  60_000,
+)
+
+it.live("cold-barrier teardown opens the gate before closing the server scope", () =>
+  Effect.gen(function* () {
+    // Tied to the outer test lifetime: if fixture setup or awaitEntered fails before the
+    // timed close below, this release still closes the scope (idempotently) so the held
+    // uninterruptible barrier cannot leak past the test.
+    const scope = yield* Effect.acquireRelease(Scope.make(), (scope, exit) => Scope.close(scope, exit))
+    const { run, awaitEntered } = yield* coldRoom().pipe(Effect.provideService(Scope.Scope, scope))
+    // The location boots on the first session request, so the run also has to start
+    // before activation can reach the barrier.
+    yield* run().pipe(Effect.forkScoped, Effect.provideService(Scope.Scope, scope))
+    yield* awaitEntered()
+    // Activation is still held on the closed gate and teardown runs under a failure exit:
+    // the fixture finalizer must open the gate BEFORE server/plugin shutdown, not leave
+    // teardown waiting out the plugin load timeout.
+    const started = Date.now()
+    yield* Scope.close(scope, Exit.fail(new Error("deliberate control failure")))
+    expect(Date.now() - started).toBeLessThan(15_000)
+  }),
+  45_000,
 )
 
 it.live("demotion during program approval prevents a guest command from starting", () =>

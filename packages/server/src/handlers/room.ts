@@ -2,6 +2,7 @@ import { Instance } from "@orchestra/core/instance/service"
 import { Bus } from "@orchestra/core/bus"
 import { NoteStore } from "@orchestra/core/note"
 import { Permission } from "@orchestra/core/permission"
+import { Plugin } from "@orchestra/core/plugin/service"
 import { Room } from "@orchestra/core/room"
 import { Peer } from "@orchestra/core/peer"
 import { Plot } from "@orchestra/core/plot"
@@ -473,33 +474,41 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
       if (programs.length) {
         for (const program of programs) {
           if (approved.has(program)) continue
-          yield* Permission.Service.use((permission) =>
-            permission.confirm({
-              action: "room.program",
-              resources: [program],
-              save: [program],
-              force: true,
-              scoped: true,
-              metadata: {
-                ...input.metadata,
-                scope: "room-member-program",
-                roomID: input.room.id,
-                memberID: input.member.id,
-                guest: input.guestName,
-                program,
-                command: input.command,
-              },
-              sessionID: input.session.id,
-              onAlways: () =>
-                Effect.gen(function* () {
-                  const latest = yield* rooms.member(input.room.id, input.member.id)
-                  if (!latest) return
-                  yield* rooms.saveMember(input.room.id, {
-                    ...latest,
-                    approvedPrograms: [...new Set([...(latest.approvedPrograms ?? []), program])],
-                  })
-                }),
-            }),
+          // Wait for plugin activation before asking Permission: a cold location registers
+          // its agents during activation, so an early confirm resolves the session's agent as
+          // missing and the missingAgentPermissions default denies everything — a readiness
+          // race the guest only saw as a generic 403. Membership, role and room rules are
+          // re-read by the caller after this wait returns.
+          yield* Effect.andThen(
+            Plugin.awaitActivation,
+            Permission.Service.use((permission) =>
+              permission.confirm({
+                action: "room.program",
+                resources: [program],
+                save: [program],
+                force: true,
+                scoped: true,
+                metadata: {
+                  ...input.metadata,
+                  scope: "room-member-program",
+                  roomID: input.room.id,
+                  memberID: input.member.id,
+                  guest: input.guestName,
+                  program,
+                  command: input.command,
+                },
+                sessionID: input.session.id,
+                onAlways: () =>
+                  Effect.gen(function* () {
+                    const latest = yield* rooms.member(input.room.id, input.member.id)
+                    if (!latest) return
+                    yield* rooms.saveMember(input.room.id, {
+                      ...latest,
+                      approvedPrograms: [...new Set([...(latest.approvedPrograms ?? []), program])],
+                    })
+                  }),
+              }),
+            ),
           ).pipe(
             instances.provide(input.session),
             locationErrors,
@@ -513,16 +522,20 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
 
       // Commands outside blockCommands retain per-command confirmation, but DoD verification
       // checks remember "always allow" so automated or handover verification does not stall.
-      yield* Permission.Service.use((permission) =>
-        permission.confirm({
-          action: input.fallbackAction,
-          resources: [input.command],
-          metadata: { ...input.metadata, guest: input.guestName, command: input.command },
-          sessionID: input.session.id,
-          save: input.fallbackAction === "room.check" ? [input.command] : undefined,
-          force: input.fallbackAction !== "room.check",
-          scoped: input.fallbackAction !== "room.check",
-        }),
+      // Same readiness wait as the room.program branch above.
+      yield* Effect.andThen(
+        Plugin.awaitActivation,
+        Permission.Service.use((permission) =>
+          permission.confirm({
+            action: input.fallbackAction,
+            resources: [input.command],
+            metadata: { ...input.metadata, guest: input.guestName, command: input.command },
+            sessionID: input.session.id,
+            save: input.fallbackAction === "room.check" ? [input.command] : undefined,
+            force: input.fallbackAction !== "room.check",
+            scoped: input.fallbackAction !== "room.check",
+          }),
+        ),
       ).pipe(
         instances.provide(input.session),
         locationErrors,
