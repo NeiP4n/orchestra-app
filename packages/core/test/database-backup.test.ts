@@ -69,7 +69,9 @@ describe("Database backup and restore", () => {
 
   test("backup names are timestamped and sortable", () => {
     const first = DatabaseBackup.timestampedBackupPath("/backups", "orchestra-local.db")
-    expect(first.startsWith("/backups/orchestra-local-")).toBe(true)
+    // Separators (and drive anchoring on Windows) come from the host path
+    // API, not a hardcoded POSIX prefix.
+    expect(first.startsWith(path.join("/backups", "orchestra-local-"))).toBe(true)
     expect(first.endsWith(".db")).toBe(true)
     expect(first).not.toContain(":")
   })
@@ -278,7 +280,13 @@ describe("Database backup and restore", () => {
     expect(cycle.backup.keyPath).toBe(`${cycle.backup.path}.key`)
     expect(existsSync(cycle.backup.keyPath!)).toBe(true)
     expect(readFileSync(cycle.backup.keyPath!).equals(key)).toBe(true)
-    expect(statSync(cycle.backup.keyPath!).mode & 0o777).toBe(0o600)
+    // The credential key must be owner-only. POSIX mode bits say that
+    // directly; on Windows they are not real ACLs (the file reports 0o666),
+    // and the intended ACL story is an open product decision, so the POSIX
+    // assertion stays POSIX-only rather than blessing everyone-readable.
+    if (process.platform !== "win32") {
+      expect(statSync(cycle.backup.keyPath!).mode & 0o777).toBe(0o600)
+    }
 
     // Lose the data directory the way a dead disk would: garbage database, no key.
     writeFileSync(file, "not a database anymore")

@@ -79,7 +79,9 @@ describe("recovery history budget", () => {
 
 describe("recovery tool confinement", () => {
   test("paths inside the root resolve, paths outside do not", () => {
-    const root = "/tmp/orchestra-test"
+    // "/tmp/..." is not absolute on Windows (no drive letter), where
+    // resolveInRoot refuses the root outright; build a host-absolute root.
+    const root = path.resolve(path.join(tmpdir(), "orchestra-test"))
     expect(resolveInRoot(root, "packages/core/src/x.ts")).toBe(path.join(root, "packages/core/src/x.ts"))
     expect(resolveInRoot(root, "../escape.txt")).toBeUndefined()
     expect(resolveInRoot(root, "/etc/passwd")).toBeUndefined()

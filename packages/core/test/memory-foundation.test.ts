@@ -102,10 +102,15 @@ describe("secret scrubber", () => {
 
 describe("memory.db foundation (B18 №36–№41, minimum)", () => {
   test("resolves under the project dir, not the process working directory", () => {
-    expect(resolveDefaultMemoryDbPath("/tmp/some-project")).toBe(
-      path.join("/tmp/some-project", ".orchestra", "memory.db"),
+    // A POSIX-rooted literal like "/tmp/..." is drive-qualified by
+    // path.resolve on Windows, so the fixture root is built through the
+    // host's own path API instead of a hardcoded POSIX path.
+    const projectDir = path.resolve("orchestra-foundation-probe")
+    expect(resolveDefaultMemoryDbPath(projectDir)).toBe(
+      path.join(projectDir, ".orchestra", "memory.db"),
     )
     expect(resolveDefaultMemoryDbPath()).toBe(path.join(process.cwd(), ".orchestra", "memory.db"))
+    expect(resolveDefaultMemoryDbPath(projectDir)).not.toBe(resolveDefaultMemoryDbPath())
   })
 
   test("opens with synchronous FULL, WAL and a recorded schema version", async () => {

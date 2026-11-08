@@ -305,7 +305,9 @@ describe("ProjectFiles sync and restore frameworks", () => {
   )
 
   test("every git-tracked file has a negation in the repo root .gitignore", async () => {
-    const gitignore = await readFile(path.join(import.meta.dir, "..", "..", "..", ".gitignore"), "utf8")
+    // Line endings follow the checkout (CRLF on Windows), so the file is
+    // normalized before the per-line membership check.
+    const gitignore = (await readFile(path.join(import.meta.dir, "..", "..", "..", ".gitignore"), "utf8")).replaceAll("\r\n", "\n")
     for (const line of ProjectFiles.ProjectFilesRegistry.gitignoreLines()) {
       expect(gitignore).toContain(`${line}\n`)
     }
