@@ -43,6 +43,12 @@ interface BaseOptions {
    * the description to what the tool is for and the rules that must hold before any call.
    */
   readonly guide?: string
+  /**
+   * Run the session's first call of this tool and send the guide with its result, instead of
+   * answering that call with the guide alone. Use it where a model could read a guide-only answer
+   * as the outcome of the call.
+   */
+  readonly guideWithResult?: boolean
 }
 
 export type Options = BaseOptions &

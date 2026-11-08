@@ -39,6 +39,19 @@ export const MODE_IDS = Mode.builtins
 export const description = [
   "Run this project's AI team: the other sessions of the project, each a separate chat with its own role.",
   "Only the project's main session (the orchestrator) has this tool.",
+  "Actions: list shows the team by category; send queues a task for a worker without interrupting it; create starts or reuses a worker session; read shows a session's latest messages; answer replies to a worker's question; set_mode changes how a session works; stop interrupts it; acquire_mcp installs and verifies a catalog MCP server; plan, stages, stage and verify manage workflow stages.",
+  "Before creating a worker, inspect the roster and reuse an existing writable session with the needed role. Do not call HTTP endpoints directly or invent /api/orchestra routes for team management. Use this tool.",
+  "The full operating rules (delegation gate, MCP assignment and survey, worker model choice, stage evidence) arrive with this session's first call of this tool.",
+].join("\n")
+
+/**
+ * The full operating rules of the sessions tool. Carried as the tool's guide, so the
+ * text reaches the session once — as the answer to its first call of this tool —
+ * instead of riding in the advertised schema on every step of the main session.
+ */
+export const guide = [
+  "Run this project's AI team: the other sessions of the project, each a separate chat with its own role.",
+  "Only the project's main session (the orchestrator) has this tool.",
   "Before creating a worker, inspect the roster and reuse an existing writable session with the needed role. Action create reuses an existing session of that role by default; set newInstance=true only when an additional parallel worker is deliberately needed.",
   "Do not call HTTP endpoints directly or invent /api/orchestra routes for team management. Use this tool. If a team action returns an endpoint or API error, report the actual error instead of creating a replacement session.",
   "Actions: list shows the team by category with each session's role, status, access and whether a task is outstanding;",
@@ -998,7 +1011,7 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false, core: true },
+          options: { codemode: false, core: true, guide, guideWithResult: true },
           description,
           input: Input,
           output: Output,
