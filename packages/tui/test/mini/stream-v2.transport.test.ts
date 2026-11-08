@@ -1237,7 +1237,7 @@ describe("V2 mini transport", () => {
       expect.objectContaining({ kind: "user", messageID: "msg_queued", image: "data:image/png;base64,cG5n" }),
     ])
     const prompt = spyOn(client.session, "prompt").mockImplementation(
-      (request) => ok(promptAdmission(request)) as never,
+      (request) => ok({ data: promptAdmission(request), held: false }) as never,
     )
     await transport.admitPromptTurn(
       {
