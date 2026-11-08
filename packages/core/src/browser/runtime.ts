@@ -404,6 +404,21 @@ export async function key(sessionID: string, input: Parameters<typeof Cdp.key>[1
     capture.key(input)
     return "Chrome window"
   }
+  // In the real-Chrome window the named editing keys are done inside the page: routed key events were not
+  // acting there while typed text was.
+  const script = capture && !input.ctrl && !input.meta && !input.option ? Cdp.editKeyScript(input.name) : undefined
+  if (script) {
+    const result = await within(
+      client.send("Runtime.evaluate", { expression: script, returnByValue: true }),
+      2000,
+    ).catch((error: unknown) => {
+      trace(`key ${input.name} FAILED in page: ${error instanceof Error ? error.message : String(error)}`)
+      throw error
+    })
+    const where = result as { result?: { value?: string }; exceptionDetails?: { text?: string } }
+    trace(`key ${input.name} -> in the page: ${where.result?.value ?? where.exceptionDetails?.text ?? "no value"}`)
+    return "page (script)"
+  }
   trace(`key ${input.name} -> page (${Cdp.keySteps(input).length} steps)`)
   await within(Cdp.key(client, input), 2000).catch((error: unknown) => {
     trace(`key ${input.name} FAILED ${error instanceof Error ? error.message : String(error)}`)

@@ -201,6 +201,10 @@ describe("taking control of the page", () => {
     expect(
       (Cdp.keySteps({ name: "backspace", sequence: "\x7f" })[0]?.params as Record<string, unknown>).commands,
     ).toEqual(["deleteBackward"])
+    expect(Cdp.editKeyScript("return")).toContain("requestSubmit")
+    expect(Cdp.editKeyScript("backspace")).toContain("execCommand('delete')")
+    expect(Cdp.editKeyScript("delete")).toContain("forwardDelete")
+    expect(Cdp.editKeyScript("a")).toBeUndefined()
     // Editing shortcuts (was: ignored) now go through Chrome's editor commands; other ctrl keys are still ignored.
     const copy = Cdp.keySteps({ name: "c", sequence: "\x03", ctrl: true })
     expect((copy[0]?.params as Record<string, unknown>).commands).toEqual(["copy"])

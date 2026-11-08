@@ -294,6 +294,41 @@ export function keySteps(key: {
   return []
 }
 
+/**
+ * Enter, Backspace and Delete done inside the page, for a Chrome window that drops routed key events (typed text
+ * still arrives because inserting text does not go through the input router). The page sees the usual key events
+ * (so its own handlers, like a search box's Enter, run); when it does not cancel them the editing itself follows.
+ */
+export function editKeyScript(name: string) {
+  const spec =
+    name === "return" || name === "enter"
+      ? ["Enter", 13]
+      : name === "backspace"
+        ? ["Backspace", 8]
+        : name === "delete"
+          ? ["Delete", 46]
+          : undefined
+  if (!spec) return undefined
+  return `(() => {
+  let e = document.activeElement || document.body
+  while (e && e.shadowRoot && e.shadowRoot.activeElement) e = e.shadowRoot.activeElement
+  const o = { key: ${JSON.stringify(spec[0])}, code: ${JSON.stringify(spec[0])}, keyCode: ${spec[1]}, which: ${spec[1]}, bubbles: true, cancelable: true, composed: true }
+  const down = e.dispatchEvent(new KeyboardEvent('keydown', o))
+  const press = ${spec[1] === 13 ? "down && e.dispatchEvent(new KeyboardEvent('keypress', o))" : "false"}
+  e.dispatchEvent(new KeyboardEvent('keyup', o))
+  if (down) {
+    if (${spec[1]} === 8) document.execCommand('delete')
+    else if (${spec[1]} === 46) document.execCommand('forwardDelete')
+    else if (press) {
+      if (e.isContentEditable || e.tagName === 'TEXTAREA') document.execCommand('insertLineBreak')
+      else if (e.form && e.tagName === 'INPUT') { if (e.form.requestSubmit) e.form.requestSubmit(); else e.form.submit() }
+      else if (e.tagName === 'BUTTON' || e.tagName === 'A' || e.tagName === 'SUMMARY') e.click()
+    }
+  }
+  return e.tagName + (e.id ? '#' + e.id : '') + (down ? '' : ' (page handled it)')
+})()`
+}
+
 export async function key(client: Client, input: Parameters<typeof keySteps>[0]) {
   for (const step of keySteps(input)) await client.send(step.method, step.params)
 }
