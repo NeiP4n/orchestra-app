@@ -1061,7 +1061,7 @@ test/mcp-role-profiles.test.ts` in `packages/core` (31 pass).
   gate: `desktopPlatformDenial`, Linux always passes), `desktop_action`/
   `desktop_inspect` (Windows UI Automation has no virtual display), playtest
   `input: real` / `mode: visible` (in any session, not just silent ones),
-  `zen_browser` (all actions except `status`), MCP `agent-desktop`/
+  MCP `agent-desktop`/
   `playwright` (acquire + callTool), and shell escapes (`xdotool`/`ydotool`/
   `wtype`/`screencapture`/`grim`/`scrot`/`xwd`/`import -window`/bare `import`/
   `gnome-screenshot`/`flameshot`/`spectacle`/`xclip`/`xsel`/`wl-copy`/
@@ -1076,15 +1076,8 @@ test/mcp-role-profiles.test.ts` in `packages/core` (31 pass).
 - Virtual-display state is a journal fact (`journal.ts`: `recordDisplayEvent`,
   type `desktop.display`, states `started`/`alive`/`died`): which display, whose
   session, and a death is an event, never silence.
-- Opens are deduplicated (block Б4, `tool/idempotency.ts`): `desktop_open` and
-  `zen_browser navigate` open a URL once per session, even across re-entry.
-- `zen_browser navigate` also passes the URL through the shared SSRF gate
-  (arch3 №5): localhost and LAN addresses are refused unless
-  `ORCHESTRA_ZEN_BROWSER_ALLOW_LOCAL_URLS=1` (local testing only, never set by
-  default). `zen_browser eval` runs JavaScript only in a tab this session
-  opened with `navigate` (in-memory per-session set, fail-closed after a
-  restart); eval in a tab the operator opened is refused, so agent code never
-  spends the operator's logged-in sessions.
+- Opens are deduplicated (block Б4, `tool/idempotency.ts`): `desktop_open`
+  opens a URL once per session, even across re-entry.
 - `playtest launch` (arch3 №6) can only start the game under test: the path
   must stay inside the project, a bare program name must be a known launcher
   (`powershell`/`pwsh`/`electron`/`chrome`/`chromium`/`msedge`/`brave`/`nw`/
@@ -1093,12 +1086,11 @@ test/mcp-role-profiles.test.ts` in `packages/core` (31 pass).
   The Chromium DevTools port binds `127.0.0.1` and allows origins from
   loopback only — the old `--remote-allow-origins=*` is gone.
 - Regression tests that must run on every commit touching `desktop*` /
-  `zen-browser` / `shell` / `playtest`: `test/tool/desktop-virtual-display.test.ts`
+  `shell` / `playtest`: `test/tool/desktop-virtual-display.test.ts`
   (a secret window on the host display is invisible on the agent screenshot;
   a link opens once across three calls and not again after re-entry),
   `test/tool/desktop-isolation.test.ts` (gate decisions, shell escapes, MCP
-  acquire refusal), `test/tool-zen-browser.test.ts` (loopback navigate refused,
-  eval only in agent-opened tabs) and `test/tool-playtest.test.ts` (launch
+  acquire refusal) and `test/tool-playtest.test.ts` (launch
   paths inside the project, batch files refused, DevTools loopback-only). A new screen-access path (new tool, new MCP server) must
   pass the gate — checklist item in review.
 

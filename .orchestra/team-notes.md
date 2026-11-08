@@ -109,12 +109,6 @@ Durable facts about working in this fork. Keep short and factual.
 - `auditUiDiff` reads only `+` lines, skips `---`/`+++`/`diff`/`index`, and numbers them by the `@@ ... +newStart` hunk so a finding matches the new file. A tag split across context and added lines is not judged.
 - Baseline on the real tree: 367 `.tsx` files under `packages/app` + `packages/tui` produce exactly 2 findings, both true positives — the two `rgba(0,0,0,0.72)` mask gradients in `app/src/composer/dropzone.tsx:68,70`.
 
-## Zen Browser bridge and tool (`zen_browser`)
-
-- `packages/core/src/zen/bridge-server.ts` (`ZenBridgeServer`, singleton `zenBridgeServer` on `127.0.0.1:4097`): Bun.serve WebSocket server with HTTP fallback, lazy-started on first query/tool call; stores the active WebSocket connection from Zen Browser (`packages/zen-extension/src/rpc-client.ts`). Accepts `/status`, `/health`, `POST /heartbeat` (client/version tracking with 5s TTL), `GET /poll` (HTTP long-polling with 3s hold, 204 fallback), and `POST /result` (completes pending sendRpc). RPC pattern: sends `{ id, action, params }` over WS if open, else queues to long-poll; tracks pending requests with timeouts (10s default), cleans up and rejects on disconnection or stop. Handshake `{ type: "hello", client, version }` captures client info.
-- `packages/core/src/tool/plugin/zen-browser.ts` (`zen_browser` core tool, registered in `internal.ts`): provides direct AI access to Zen Browser (actions `status`, `tabs`, `read`, `eval`, `click`, `type`, `navigate`, `activate`, `close`, `media`). If bridge is disconnected, returns graceful informative message (`Zen Browser bridge is running on port 4097, but no Zen Browser extension is currently connected...`). Output is formatted: structured list for `tabs`, metadata + text for `read`, eval value/JSON for `eval`, readable JSON for actions. Works transparently over both WebSocket and HTTP Long-Polling fallback.
-- In tests, `ZenBridgeServer({ port: 0 })` can bind to an ephemeral port and be injected via `setZenBridgeServer(testServer)`, preventing port 4097 collisions.
-
 ## Self-healing loop (diagnostics)
 
 - `packages/core/src/session/self-healing.ts` is a pure module: `parseDiagnostics` reads tsgo/tsc output (both `file(line,col): error TSxxxx` and `file:line:col - error TSxxxx`), bun failures (`error: expect(...)` + `Expected:`/`Received:` + `(fail) name` + stack), vitest (`FAIL file > name`, `AssertionError: expected X to be Y`), and runtime/syntax `error:` lines. TS1xxx codes classify as `syntax`, everything else as `typescript`.
@@ -161,13 +155,6 @@ Durable facts about working in this fork. Keep short and factual.
 
 - `errorMessage(error: unknown)` lives in `@orchestra/util/error` (and the new `@orchestra/util/index` barrel). It reads a string as is, an `Error.message` (falling back to its `name`), `message` on an Effect failure object, `data.message` when the failure nests it, then `String(value)` and finally the JSON of a plain object; `null`/`undefined` render as `"null"`/`"undefined"` and an unserializable object as `"unknown error"`. Prefer it over a new local copy in a package.
 - `packages/util/test/global.test.ts` › "building a layer with default tmp creates and canonicalizes it" fails with `ENOENT ...\opencode-global-layer-*\tmp` at HEAD, with no working-tree changes — judge util test runs by the other files.
-
-## Zen Browser Extension (`packages/zen-extension`)
-
-- Extension bundle builds both entry points via `bun run build`: `src/background.ts -> background.js` and `src/sidebar.ts -> sidebar.js`. Do not leave raw TypeScript imports in root `.js` files.
-- `ZenRpcClient` runs inside `background.js` and sends immediate HTTP heartbeat on `start()`, falling back between `127.0.0.1` and `localhost` with a 2000ms period (server TTL is 5000ms).
-- `sidebar.js` sends direct heartbeat (`POST /heartbeat`) and checks `/status` every 2000ms to immediately establish and maintain `AI Bridge: Connected` state while the sidebar panel is open.
-- Manifest permissions include `"alarms"` to keep the background event page alive in Gecko via 15-second alarm ticks.
 
 ## Commit boundaries (society-hold-mcp)
 

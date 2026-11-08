@@ -1103,14 +1103,6 @@
         "typescript": "catalog:",
       },
     },
-    "packages/zen-extension": {
-      "name": "@orchestra/zen-extension",
-      "version": "1.0.0",
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
     "services/files": {
       "name": "@orchestra/files",
       "devDependencies": {
@@ -2373,8 +2365,6 @@
     "@orchestra/web": ["@orchestra/web@workspace:packages/web"],
 
     "@orchestra/www": ["@orchestra/www@workspace:services/www"],
-
-    "@orchestra/zen-extension": ["@orchestra/zen-extension@workspace:packages/zen-extension"],
 
     "@oslojs/asn1": ["@oslojs/asn1@1.0.0", "", { "dependencies": { "@oslojs/binary": "1.0.0" } }, "sha512-zw/wn0sj0j0QKbIXfIlnEcTviaCzYOY3V5rAyjR6YtOByFtJiT574+8p9Wlach0lZH9fddD4yb9laEAIl4vXQA=="],
 
