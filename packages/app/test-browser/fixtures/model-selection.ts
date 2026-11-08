@@ -6,7 +6,7 @@ import type { Agent } from "@/runtime/server/types"
 import type { ModelKey } from "@/providers/models/selection"
 import { ServerScope } from "@/runtime/server/scope"
 
-// Bun does not compile Solid JSX. Compile the real context provider with the
+// Bun does not compile Solid JSX. Compile the real context providers with the
 // same presets as Vite instead of replacing LocalProvider's implementation.
 const require = createRequire(import.meta.url)
 
@@ -17,7 +17,7 @@ const { transformSync } = solid("@babel/core")
 Bun.plugin({
   name: "selection-solid-context",
   setup(build) {
-    build.onLoad({ filter: /[\\/]ui[\\/]src[\\/]context[\\/]helper\.tsx$/ }, async (args) => ({
+    build.onLoad({ filter: /[\\/]packages[\\/](app|ui)[\\/]src[\\/].*\.tsx$/ }, async (args) => ({
       contents: transformSync(await Bun.file(args.path).text(), {
         filename: args.path,
         presets: [solid.resolve("babel-preset-solid"), solid.resolve("@babel/preset-typescript")],
@@ -77,6 +77,8 @@ mock.module("@/runtime/platform/platform", () => ({
     notify: async () => {},
   }),
 }))
+
+const { LanguageProvider } = await import("@/runtime/i18n/language")
 
 const { LocalProvider, useLocal } = await import("@/providers/models/selection")
 
@@ -160,6 +162,12 @@ function fixture(input: { session?: Commit; agents?: Agent[]; config?: ConfigMod
     sdk: {
       scope: ServerScope.local,
       connection: { status: () => state.connection },
+      api: {
+        session: {
+          switchAgent: async () => {},
+          switchModel: async () => {},
+        },
+      },
       event: {
         on(type: string, handler: (event: Event) => void) {
           const handlers = events.get(type) ?? new Set()
@@ -180,16 +188,23 @@ function fixture(input: { session?: Commit; agents?: Agent[]; config?: ConfigMod
       let composer: ReturnType<typeof createComposerModelSelection> | undefined
 
       const dispose = createRoot((dispose) => {
-        createComponent(ModelsProvider, {
-          directory,
+        // The mounted tree reads the language context (composer/model.ts), so
+        // the fixture provides it like the real app root does.
+        createComponent(LanguageProvider, {
+          locale: "en",
           get children() {
-            return createComponent(LocalProvider, {
+            return createComponent(ModelsProvider, {
+              directory,
               get children() {
-                local = useLocal()
+                return createComponent(LocalProvider, {
+                  get children() {
+                    local = useLocal()
 
-                if (draft) composer = createComposerModelSelection({ agent: local.agent.current })
+                    if (draft) composer = createComposerModelSelection({ agent: local.agent.current })
 
-                return null
+                    return null
+                  },
+                })
               },
             })
           },
