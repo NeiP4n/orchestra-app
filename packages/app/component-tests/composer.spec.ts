@@ -25,9 +25,11 @@ story("mounts an ordinary composer story with controls and the mini-skills bar",
   const minis = component.locator('[data-component="composer-mini-skills"]')
   await expect(minis).toBeVisible()
   const chips = ["Analyze", "Plan", "Debug", "Review", "Test", "Explain"]
+
   for (const label of chips) {
     await expect(minis.getByRole("button", { name: label, exact: true })).toBeVisible()
   }
+
   await expect(minis.getByRole("button", { name: "Customize mini skills" })).toBeVisible()
   await expect(minis.getByRole("button", { name: "Add mini skill" })).toBeVisible()
   const hide = minis.getByRole("button", { name: "Hide mini skills", exact: true })
@@ -43,9 +45,11 @@ story("mounts an ordinary composer story with controls and the mini-skills bar",
   await expect(show).toHaveAttribute("title", "Show mini skills")
 
   await show.click()
+
   for (const label of chips) {
     await expect(minis.getByRole("button", { name: label, exact: true })).toBeVisible()
   }
+
   const restored = minis.getByRole("button", { name: "Hide mini skills", exact: true })
   await expect(restored).toBeVisible()
   await expect(restored).toHaveAttribute("aria-expanded", "true")
@@ -81,9 +85,11 @@ story("falls back to the English mini-skills control names in a locale without t
   await expect(show).toHaveAttribute("title", "Show mini skills")
 
   await show.click()
+
   for (const label of ["Analyze", "Plan", "Debug", "Review", "Test", "Explain"]) {
     await expect(minis.getByRole("button", { name: label, exact: true })).toBeVisible()
   }
+
   const restored = minis.getByRole("button", { name: "Hide mini skills", exact: true })
   await expect(restored).toBeVisible()
   await expect(restored).toHaveAttribute("aria-expanded", "true")
