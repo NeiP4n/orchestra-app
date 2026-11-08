@@ -218,7 +218,7 @@ export function BrowserPane(props: {
             focusedBackgroundColor={theme.background.formfield.focused}
             cursorColor={theme.text.formfield.focused}
             ref={(value: InputRenderable) => (address = value)}
-            onSubmit={(value: string) => go(value)}
+            onSubmit={() => go(address?.value ?? "")}
           />
         </box>
         <Show when={failure()}>
