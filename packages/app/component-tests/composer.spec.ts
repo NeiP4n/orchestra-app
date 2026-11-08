@@ -5,19 +5,27 @@ import { expect, story } from "../../storybook/playwright/story"
 // crash the render and leave #storybook-root empty for every composer story.
 story("mounts an ordinary composer story with controls and the mini-skills bar", async ({ mount, page }) => {
   // Reset persisted MiniSkills settings (composer.mini-skills.v2) so saved
-  // chips or hidden state from an earlier story can't pollute the empty-catalog
-  // exactly-3-buttons assertion.
+  // chips or hidden state from an earlier story can't pollute the default-set
+  // witnesses below.
   await page.addInitScript(() => window.localStorage.clear())
   const component = await mount("opencode-composer-flow--empty-draft")
   await expect(component.locator('[data-slot="composer-controls"]')).toBeVisible()
   await expect(component.locator('[data-action="composer-submit"]')).toBeVisible()
-  // Unsynced (empty) skill catalog: the bar renders its title and only its
-  // three own buttons (manage, add, hide) - no chips, no crash.
+  // Under reset persisted state the bar shows the DEFAULT mini skills
+  // (INITIAL_MINI_SKILLS_SETTINGS), not an empty catalog: six named chips,
+  // plus the manage, add and hide controls. Icon-only controls carry no text,
+  // so witness them by accessible name where one exists; the hide control's
+  // aria-label key (composer.miniSkills.hide) is missing from en.ts, so it is
+  // witnessed by its unique aria-expanded="true" until that gap is fixed.
+  // No total button count: the source also renders icon-only buttons.
   const minis = component.locator('[data-component="composer-mini-skills"]')
   await expect(minis).toBeVisible()
-  await expect(minis).toContainText("Mini skills")
+  for (const label of ["Analyze", "Plan", "Debug", "Review", "Test", "Explain"]) {
+    await expect(minis.getByRole("button", { name: label })).toBeVisible()
+  }
+  await expect(minis.getByRole("button", { name: "Customize mini skills" })).toBeVisible()
   await expect(minis.getByRole("button", { name: "Add mini skill" })).toBeVisible()
-  await expect(minis.getByRole("button")).toHaveCount(3)
+  await expect(minis.locator('button[aria-expanded="true"]')).toBeVisible()
 })
 
 for (const direction of ["ltr", "rtl"]) {
