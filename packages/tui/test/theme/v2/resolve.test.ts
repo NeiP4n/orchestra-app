@@ -310,6 +310,21 @@ test("surface overrides rewire references and reset action states from their bas
         action: { primary: { base: "$text.base", $pressed: "#222222" } },
       },
       "@dialog": {
+        // Keep the authored dark foregrounds readable on every action state.
+        background: {
+          base: "#ffffff",
+          raised: { base: "#ffffff", high: "#ffffff", max: "#ffffff" },
+          action: {
+            primary: {
+              base: "#ffffff",
+              $hovered: "transparent",
+              $pressed: "transparent",
+              $focused: "#ffffff",
+              $selected: "transparent",
+              $disabled: "transparent",
+            },
+          },
+        },
         text: {
           base: "#333333",
           action: { primary: { base: "#444444", $focused: "#555555" } },
