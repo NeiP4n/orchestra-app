@@ -29,6 +29,9 @@ type Props = ParentProps<{
 export function HoverAction(props: Props) {
   const theme = useTheme()
   const [hovered, setHovered] = createSignal(false)
+  // A release fires the action only when the press began here and the pointer never
+  // left: an abandoned drag across the row must not open anything.
+  const [pressed, setPressed] = createSignal(false)
 
   return (
     <box
@@ -52,14 +55,18 @@ export function HoverAction(props: Props) {
       }}
       onMouseOut={() => {
         setHovered(false)
+        setPressed(false)
         props.onHoverChange?.(false)
         props.onMouseLeave?.()
       }}
       onMouseDown={(event: { stopPropagation(): void }) => {
+        setPressed(true)
         event.stopPropagation()
       }}
       onMouseUp={(event: { stopPropagation(): void }) => {
         event.stopPropagation()
+        if (!pressed()) return
+        setPressed(false)
         if (!props.disabled) props.onClick?.()
       }}
     >

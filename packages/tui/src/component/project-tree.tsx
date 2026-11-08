@@ -122,11 +122,24 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
   // Groups first, each with the projects it holds; a project in several groups appears in the first only.
   // Projects in no group follow without a heading.
-  const sections = createMemo(() => {
+  // A refetch parses fresh objects for unchanged data, and a new reference alone
+  // remounts the row mid-press. Keep the previous object while the server's data
+  // is unchanged so the tree patches in place instead.
+  let projectCache = new Map<string, OrchestraProject>()
+  const stableProject = (project: OrchestraProject) => {
+    const prev = projectCache.get(project.id)
+    if (prev !== undefined && JSON.stringify(prev) === JSON.stringify(project)) return prev
+    projectCache.set(project.id, project)
+    return project
+  }
+  const computeSections = () => {
     const seen = new Set<string>()
     const named = (groups.latest ?? []).map((group) => {
       const council = (group.mode ?? "lead") === "council"
-      const members = group.projects.flatMap((id) => projects().find((item) => item.id === id) ?? [])
+      const members = group.projects.flatMap((id) => {
+        const project = projects().find((item) => item.id === id)
+        return project ? [stableProject(project)] : []
+      })
       return {
         name: group.name as string | undefined,
         supervisor: group.supervisor as string | undefined,
@@ -137,7 +150,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           const project = projects().find((item) => item.id === id)
           if (!project || seen.has(id)) return []
           seen.add(id)
-          return [project]
+          return [stableProject(project)]
         }),
       }
     })
@@ -148,9 +161,39 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
         supervisor: undefined as string | undefined,
         chat: undefined as string | undefined,
         orchestrators: [] as OrchestraProject[],
-        projects: projects().filter((item) => !seen.has(item.id)),
+        projects: projects()
+          .filter((item) => !seen.has(item.id))
+          .map(stableProject),
       },
     ]
+  }
+  // A group/project refresh must patch rows in place, not remount the whole tree:
+  // a remount mid-press destroys the pressed row and swallows the release. Sections
+  // keep their previous object while their content is unchanged, so the For below
+  // only re-renders the sections that actually changed.
+  let sectionCache = new Map<string, ReturnType<typeof computeSections>[number]>()
+  const sameSection = (a: ReturnType<typeof computeSections>[number], b: ReturnType<typeof computeSections>[number]) =>
+    a.name === b.name &&
+    a.supervisor === b.supervisor &&
+    a.chat === b.chat &&
+    a.orchestrators.length === b.orchestrators.length &&
+    a.orchestrators.every((project, i) => project === b.orchestrators[i]) &&
+    a.projects.length === b.projects.length &&
+    a.projects.every((project, i) => project === b.projects[i])
+  const sections = createMemo(() => {
+    const next = new Map<string, ReturnType<typeof computeSections>[number]>()
+    const list = computeSections().map((section) => {
+      const key = section.name ?? ""
+      const prev = sectionCache.get(key)
+      const stable = prev !== undefined && sameSection(prev, section) ? prev : section
+      next.set(key, stable)
+      return stable
+    })
+    sectionCache = next
+    // Drop cache entries for projects no longer listed so the map cannot grow past the tree.
+    const live = new Set(list.flatMap((section) => [...section.orchestrators, ...section.projects].map((project) => project.id)))
+    for (const id of projectCache.keys()) if (!live.has(id)) projectCache.delete(id)
+    return list
   })
   const isSociety = (section: { name?: string; supervisor?: string; chat?: string }) =>
     section.name !== undefined && section.supervisor !== undefined && section.chat === t("Society")
