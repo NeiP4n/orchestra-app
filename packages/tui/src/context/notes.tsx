@@ -14,6 +14,15 @@ import { useData } from "./data"
 import { createSimpleContext } from "./helper"
 import { useRoute } from "./route"
 import { useStorage } from "./storage"
+import {
+  addBrowserSession,
+  emptyBrowserSessions,
+  groupBrowserSession,
+  removeBrowserSession,
+  selectBrowserSession,
+  type BrowserSession,
+  type BrowserSessionsState,
+} from "../util/browser-sessions"
 
 export type NotesTab = "projects" | "notes" | "console" | "browser"
 
@@ -32,6 +41,16 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
     const [panel, updatePanel] = useStorage().store<{ tab?: NotesTab; project?: string }>("notes-panel", {
       initial: {},
     })
+    // The browser sessions of each project (the Browser view), kept across restarts.
+    const [browser, updateBrowser] = useStorage().store<BrowserSessionsState>("browser-sessions", {
+      initial: emptyBrowserSessions(),
+    })
+    const changeBrowser = (mutation: (draft: BrowserSessionsState) => void) =>
+      void updateBrowser((draft) => {
+        draft.projects ??= {}
+        draft.selected ??= {}
+        mutation(draft)
+      }).catch(() => undefined)
     // Sessions whose bound note the user put aside to read the full chat.
     const [chat, setChat] = createStore<Record<string, boolean>>({})
     const [listings, setListings] = createStore<Record<string, Listing>>({})
@@ -220,6 +239,24 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
     return {
       tab,
       setTab,
+      browserSessions: (projectID: string): readonly BrowserSession[] => browser.projects?.[projectID] ?? [],
+      browserSelected: (projectID: string) => {
+        const id = browser.selected?.[projectID]
+        return browser.projects?.[projectID]?.find((item) => item.id === id)
+      },
+      addBrowserSession: (projectID: string) =>
+        changeBrowser((draft) =>
+          addBrowserSession(draft, projectID, {
+            id: `brw_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+            now: Date.now(),
+          }),
+        ),
+      removeBrowserSession: (projectID: string, id: string) =>
+        changeBrowser((draft) => removeBrowserSession(draft, projectID, id)),
+      selectBrowserSession: (projectID: string, id: string) =>
+        changeBrowser((draft) => selectBrowserSession(draft, projectID, id)),
+      groupBrowserSession: (projectID: string, id: string, group?: string) =>
+        changeBrowser((draft) => groupBrowserSession(draft, projectID, id, group)),
       creating,
       setCreating,
       open,

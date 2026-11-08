@@ -26,6 +26,7 @@ import { roomClient, tellHostLeft, unlinkRoom } from "../util/room-guest"
 import { DialogGroups } from "./dialog-groups"
 import { openProjectDialog } from "./dialog-project"
 import { useProjects } from "../context/projects"
+import { browserSessionGroups } from "../util/browser-sessions"
 import { DialogPrompt } from "../ui/dialog-prompt"
 import { DialogConfirm } from "../ui/dialog-confirm"
 import { ClearSessionsAction } from "./clear-sessions"
@@ -762,6 +763,61 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                     <text fg={theme.text.action.primary.base}>{hover() === project.id ? " ✱" : "  "}</text>
                   </HoverAction>
                 </Row>
+                {/* Browser view: the project's browser sessions, any number, each its own profile. */}
+                <Show when={notes.tab() === "browser"}>
+                  <For each={browserSessionGroups(notes.browserSessions(project.id)).flatMap((group) => group.sessions)}>
+                    {(item) => {
+                      const [removeHovered, setRemoveHovered] = createSignal(false)
+                      const chosen = () => notes.browserSelected(project.id)?.id === item.id
+                      return (
+                        <Row
+                          id={`browser:${item.id}`}
+                          hover={hover}
+                          setHover={setHover}
+                          selected={chosen() && inProject(project)}
+                          onClick={() => {
+                            notes.selectBrowserSession(project.id, item.id)
+                            notes.setProject(project.id)
+                            if (!inProject(project)) void openMain(project)
+                          }}
+                        >
+                          <Branch lit={chosen() && inProject(project)} />
+                          <text flexShrink={0} fg={chosen() ? palette().synapse : theme.text.muted}>
+                            {"◎ "}
+                          </text>
+                          <box flexGrow={1} minWidth={0}>
+                            <text fg={theme.text.base} wrapMode="none" truncate>
+                              {item.group ? `${item.group} · ${item.name}` : item.name}
+                            </text>
+                          </box>
+                          <HoverAction
+                            id={`browser-remove:${item.id}`}
+                            onMouseEnter={() => setRemoveHovered(true)}
+                            onMouseLeave={() => setRemoveHovered(false)}
+                            onClick={() => notes.removeBrowserSession(project.id, item.id)}
+                          >
+                            <text fg={removeHovered() ? theme.text.feedback.error.base : theme.text.muted}>{" ×"}</text>
+                          </HoverAction>
+                        </Row>
+                      )
+                    }}
+                  </For>
+                  <Row
+                    id={`browser-new:${project.id}`}
+                    hover={hover}
+                    setHover={setHover}
+                    onClick={() => {
+                      notes.addBrowserSession(project.id)
+                      notes.setProject(project.id)
+                      if (!inProject(project)) void openMain(project)
+                    }}
+                  >
+                    <Branch last />
+                    <text fg={theme.text.action.primary.base} wrapMode="none" truncate>
+                      {`+ ${t("New browser session")}`}
+                    </text>
+                  </Row>
+                </Show>
                 <Show when={expanded[project.id] && !projectOnly()}>
                   <Row
                     id={`${project.id}:main`}
