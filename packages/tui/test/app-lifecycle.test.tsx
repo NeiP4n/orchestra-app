@@ -1287,14 +1287,14 @@ test("keeps the prompt display stable while a new location catalog loads", async
 
 test("configured app binding opens settings", async () => {
   await using setup = await createAppFixture({
-    config: { animations: false, keybinds: { "opencode.settings": "f6" } },
+    config: { animations: false, keybinds: { "orchestra.settings": "f6" } },
   })
   await setup.ready
   await setup.waitForFrame((frame) => frame.includes("commands"))
 
   setup.mockInput.pressKey("F6")
   const settings = await setup.waitForFrame((frame) => frame.includes("Settings"))
-  expect(settings).toContain("Color mode")
+  expect(settings).toContain("Theme")
   expect(settings).toContain("Permissions")
 })
 
