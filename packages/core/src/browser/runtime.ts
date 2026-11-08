@@ -29,6 +29,10 @@ interface Live {
 /** A new session opens here instead of a blank page, so the stream visibly shows something. */
 export const START_PAGE = "https://www.google.com/"
 
+// ORCHESTRA_BROWSER_SCALE=2 draws Chrome's own tabs and buttons twice as large in the pane, so a terminal's coarse
+// pointer can hit them. Default 1 (unchanged behaviour); the page gets that many times fewer CSS pixels.
+const CAPTURE_SCALE = Math.min(3, Math.max(1, Number(process.env.ORCHESTRA_BROWSER_SCALE) || 1))
+
 const live = new Map<string, Live>()
 const starting = new Map<string, Promise<Live>>()
 let hooked = false
@@ -539,9 +543,10 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
             ...WindowCapture.KEEP_PAINTING_FLAGS,
             // The pane shows the window pixel for pixel: no display scaling, so Chrome's tabs and page keep their
             // normal size instead of being 1.5x larger than the pane the window was sized for.
-            "--force-device-scale-factor=1",
+            `--force-device-scale-factor=${CAPTURE_SCALE}`,
             `--window-position=${WindowCapture.OFFSCREEN.x},${WindowCapture.OFFSCREEN.y}`,
-            `--window-size=${size.width},${size.height}`,
+            // The window size is in scaled units, so the pixels on screen still match the pane.
+            `--window-size=${Math.round(size.width / CAPTURE_SCALE)},${Math.round(size.height / CAPTURE_SCALE)}`,
           ]
         : [],
   })
