@@ -62,7 +62,9 @@ const note = (): Note => ({
 
 function render(state: string, notes: Note[], language: "en" | "ru") {
   return createAppFixture({
-    width: 150,
+    // Wide enough that the left panel's tab strip keeps its text labels (icon-only < 36 cells):
+    // these tests click and read the labels, so they pin a labeled width.
+    width: 200,
     height: 40,
     state,
     args: { sessionID: session.id },
