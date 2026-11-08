@@ -138,7 +138,7 @@ for (const phase of ["early", "post-boot"] as const)
           else if (action === "EACCES") await fs.chmod(probe.file, 0)
           else child.kill(action)
           const exit = await clock.wait(child.exited, "child exit")
-          if (exit === "timeout") throw new Error("child exit timeout")
+          // clock.wait rejects on timeout; a successful result is the numeric exit code.
           await clock.wait(reading, "stdout collection")
           const error = await clock.wait(stderr, "stderr collection")
           const closed = await refused(info.url)

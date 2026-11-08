@@ -30,7 +30,7 @@ async function noLifecycle() {
   let base = ""
   await Effect.runPromise(
     Effect.gen(function* () {
-      const server = yield* ServerProcess.start({
+      const server = yield* ServerProcess.start<never, never>({
         hostname: "127.0.0.1",
         port: 0,
         password: "dummy",

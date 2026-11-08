@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { NodeFileSystem } from "@effect/platform-node"
-import { Cause, Deferred, Effect, FileSystem } from "effect"
+import { Cause, Deferred, Effect, FileSystem, PlatformError } from "effect"
 import { ServiceRegistration } from "../src/services/service-registration"
 import fs from "node:fs/promises"
 import path from "node:path"
@@ -85,7 +85,14 @@ test("watcher scope cancellation is not a registration-check failure", async () 
 test("mixed read fault plus interrupt preserves the fault through the callback", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "orchestra-mixed-check-"))
   const file = path.join(root, "registration.json")
-  const fault = new Error("dummy mixed read fault")
+  const fault = new PlatformError.PlatformError(
+    new PlatformError.SystemError({
+      _tag: "Unknown",
+      module: "FileSystem",
+      method: "readFileString",
+      description: "dummy mixed read fault",
+    }),
+  )
   const original = Cause.fromReasons([...Cause.fail(fault).reasons, ...Cause.interrupt(123).reasons])
   let received: Cause.Cause<unknown> | undefined
   try {

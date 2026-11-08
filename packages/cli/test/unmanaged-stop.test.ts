@@ -36,7 +36,7 @@ test("no-lifecycle and legacy compatibility in an isolated subprocess", async ()
   const stderr = new Response(child.stderr).text()
   try {
     const code = await clock.wait(child.exited, "unmanaged compatibility exit")
-    if (code === "timeout") throw new Error("unmanaged compatibility child timeout")
+    // clock.wait rejects on timeout; a successful result is the numeric exit code.
     const output = await clock.wait(stdout, "stdout")
     const error = await clock.wait(stderr, "stderr")
     console.log(JSON.stringify({ code, stdout: output, stderr: error }))
