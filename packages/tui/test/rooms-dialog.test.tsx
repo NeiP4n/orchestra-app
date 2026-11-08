@@ -142,10 +142,14 @@ async function renderSession(state: string, input: { rooms: () => unknown[]; onC
 test("a hosted session names guest authors and shows a multiplayer indicator that opens Host", async () => {
   await using state = await tmpdir()
   await using setup = await renderSession(state.path, { rooms: () => [room] })
-  const frame = await setup.waitForFrame((frame) => frame.includes("Multiplayer · Lab"))
+  const frame = await setup.waitForFrame(
+    (frame) => frame.includes("Multiplayer · Lab") && /─+ Sam ─╮/.test(frame),
+  )
   expect(frame).toContain("Multiplayer · Lab · 2 guests")
-  expect(frame).toContain("Alex · via room")
-  expect(frame).toContain("Sam · via room")
+  // A guest's words sit in a bubble titled with the guest's name; the host's own words are "You".
+  expect(frame).toMatch(/─+ Alex ─╮/)
+  expect(frame).toMatch(/─+ Sam ─╮/)
+  expect(frame).toMatch(/─+ You ─╮/)
 
   const indicator = cell(frame, "Multiplayer · Lab")
   await setup.mockMouse.click(indicator.x + 2, indicator.y)
