@@ -106,8 +106,7 @@ interface SpecEntry {
 function collectSpecs(text: string, prefix?: string): SpecEntry[] {
   const entries: SpecEntry[] = []
   const marker = /Spec\.make\s*\(/g
-  let match: RegExpExecArray | null
-  while ((match = marker.exec(text)) !== null) {
+  while (marker.exec(text) !== null) {
     const open = marker.lastIndex - 1
     const close = matchingParen(text, open)
     if (close === -1) break

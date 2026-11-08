@@ -72,7 +72,7 @@ export const Plugin = {
       Effect.tap((result) =>
         result.rebuilt ? Effect.logInfo("self index rebuilt on boot", { documents: result.documents }) : Effect.void,
       ),
-      Effect.catchAll((error) => Effect.logWarning(error.message)),
+      Effect.catch((error) => Effect.logWarning(error.message)),
       Effect.forkScoped({ startImmediately: true }),
     )
 
