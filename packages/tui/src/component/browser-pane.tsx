@@ -158,10 +158,13 @@ export function BrowserPane(props: {
     event.stopPropagation()
     if (screenBox) setMarker({ x: Math.max(0, event.x - screenBox.x), y: Math.max(0, event.y - screenBox.y) })
     note(kind, `${kind} page ${Math.round(at.x)},${Math.round(at.y)}`)
+    const step = (text: string) => setRoute(`${kind}: ${text}`)
+    step("pane sent")
     send(
       BrowserRuntime.mouse(
         props.sessionID,
         kind === "move" ? { kind, ...at } : { kind, ...at, button: event.button === 2 ? "right" : "left" },
+        step,
       ).then(
         (where) => setRoute(`${kind} -> ${where}`),
         (error) => {

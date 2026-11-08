@@ -102,6 +102,7 @@ public static class Cap {
   [StructLayout(LayoutKind.Sequential)] struct RECT { public int L, T, R, B; }
   [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
   [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+  [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
   [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc p, IntPtr l);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
@@ -201,7 +202,8 @@ public static class Cap {
   }
 
   public static void Run() {
-    SetProcessDPIAware();
+    // Per-monitor aware (v2) like Chrome, so window sizes and the pointer use the same physical pixels on a scaled display.
+    try { if (!SetProcessDpiAwarenessContext((IntPtr)(-4))) SetProcessDPIAware(); } catch { SetProcessDPIAware(); }
     foreach (ImageCodecInfo c in ImageCodecInfo.GetImageEncoders()) if (c.MimeType == "image/jpeg") jpeg = c;
     quality = new EncoderParameters(1);
     quality.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 60L);

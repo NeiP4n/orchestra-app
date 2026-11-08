@@ -128,6 +128,9 @@ async function start(sessionID: string): Promise<Live> {
 
 /** The running browser of a session, started (or joined) on first use. */
 export async function open(sessionID: string): Promise<Cdp.Client> {
+  // A restart in progress owns the session: starting another Chrome beside it is what left input hanging.
+  const restarting = relaunching.get(sessionID)
+  if (restarting && !inside.has(sessionID)) await restarting.catch(() => undefined)
   const existing = live.get(sessionID)
   if (existing) return existing.client
   const pending = starting.get(sessionID)
@@ -311,8 +314,16 @@ async function inset(sessionID: string, client: Cdp.Client): Promise<Inset> {
 }
 
 /** Forwards the operator's mouse. Returns a short note on where it went, for the pane's debug line. */
-export async function mouse(sessionID: string, input: Cdp.MouseInput): Promise<string> {
-  const client = await open(sessionID)
+export async function mouse(
+  sessionID: string,
+  input: Cdp.MouseInput,
+  step: (text: string) => void = () => undefined,
+): Promise<string> {
+  step("runtime called")
+  const client = await within(open(sessionID), 3000).catch((error: unknown) => {
+    throw new Error(`browser not ready (${error instanceof Error ? error.message : String(error)})`)
+  })
+  step("browser open")
   const capture = live.get(sessionID)?.capture
   if (!capture) {
     if (input.kind === "down") await awake(client)
@@ -324,11 +335,13 @@ export async function mouse(sessionID: string, input: Cdp.MouseInput): Promise<s
     why = error instanceof Error ? error.message : String(error)
     return undefined
   })
+  step(frame ? "page offset read" : `no page offset (${why || "unknown"})`)
   if (frame && input.y >= frame.top && input.x >= frame.left) {
     if (input.kind === "down") {
       uiFocus.set(sessionID, false)
       await awake(client)
     }
+    step("sending to the page")
     await within(
       Cdp.mouse(client, {
         ...input,
@@ -340,6 +353,7 @@ export async function mouse(sessionID: string, input: Cdp.MouseInput): Promise<s
     return `PAGE at ${Math.round((input.x - frame.left) / frame.scale)},${Math.round((input.y - frame.top) / frame.scale)} from window ${Math.round(input.x)},${Math.round(input.y)} (${frame.raw}, top inset ${Math.round(frame.top)}px)`
   }
   if (input.kind === "down") uiFocus.set(sessionID, true)
+  step("sending to the Chrome window")
   capture.mouse(input)
   return `CHROME-UI window ${Math.round(input.x)},${Math.round(input.y)}${frame ? ` (${frame.raw}, top inset ${Math.round(frame.top)}px)` : ` (no inset: ${why || "unknown"})`}`
 }
@@ -404,7 +418,29 @@ function helperFile() {
  * real Chrome window kept off-screen and out of the taskbar whose pixels the pane shows. The open tabs'
  * addresses are reopened; logins stay in the profile, unsaved page state does not survive.
  */
+const relaunching = new Map<string, Promise<void>>()
+const inside = new Set<string>()
+
 export async function relaunch(sessionID: string, mode: Mode | boolean, size = { width: 1000, height: 640 }) {
+  const before = relaunching.get(sessionID)
+  if (before) await before.catch(() => undefined)
+  const run = (async () => {
+    inside.add(sessionID)
+    try {
+      await restart(sessionID, mode, size)
+    } finally {
+      inside.delete(sessionID)
+    }
+  })()
+  relaunching.set(sessionID, run)
+  try {
+    await run
+  } finally {
+    if (relaunching.get(sessionID) === run) relaunching.delete(sessionID)
+  }
+}
+
+async function restart(sessionID: string, mode: Mode | boolean, size: { width: number; height: number }) {
   const target: Mode = mode === true ? "window" : mode === false ? "headless" : mode
   if (target === "capture" && process.platform !== "win32")
     throw new Error("Showing the real Chrome window in the pane works on Windows only.")
@@ -473,7 +509,7 @@ export async function relaunch(sessionID: string, mode: Mode | boolean, size = {
       next.client.close()
       run.close()
       await quit(run.port).catch(() => undefined)
-      await relaunch(sessionID, "headless").catch(() => undefined)
+      await restart(sessionID, "headless", size).catch(() => undefined)
       throw error
     }
   }
