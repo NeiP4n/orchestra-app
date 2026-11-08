@@ -8,9 +8,10 @@ const read = (file: string) => fs.readFileSync(path.join(import.meta.dir, "..", 
 
 describe("browser view", () => {
   test("Chrome starts only on request, on a per-session profile, and closes with the TUI", () => {
-    const runtime = read("util/browser-runtime.ts")
-    expect(runtime).toContain("Chrome.profileDir(Global.Path.data, sessionID)")
-    expect(runtime).toContain('process.on("exit", closeAll)')
+    const core = fs.readFileSync(path.join(import.meta.dir, "..", "..", "core", "src", "browser", "runtime.ts"), "utf8")
+    expect(core).toContain("Chrome.profileDir(Global.Path.data, sessionID)")
+    expect(core).toContain('process.on("exit", closeAll)')
+    expect(read("util/browser-runtime.ts")).toContain("@orchestra/core/browser/runtime")
     expect(read("component/browser-pane.tsx")).toContain("Open Chrome")
   })
 

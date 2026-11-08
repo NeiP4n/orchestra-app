@@ -14,6 +14,7 @@ import { consoleSiblings, consoleTerminalID } from "../util/console-terminal"
 import { useData } from "../context/data"
 import { useProjects } from "../context/projects"
 import { owningProject } from "../util/project-owner"
+import { publishSelection } from "../util/browser-runtime"
 import { Keymap } from "../context/keymap"
 import { InteractivityProvider } from "../context/interactivity"
 import { useSessionTerminals } from "../context/session-terminals"
@@ -89,6 +90,17 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     const project = owningProject(projectList.list(), directory)
     return project ? notes.browserSelected(project.id) : undefined
   }
+  // The chat agent's browser tool reads which browser session each project has selected from a small file.
+  createEffect(() => {
+    for (const project of projectList.list()) {
+      const selected = notes.browserSelected(project.id)
+      try {
+        publishSelection(project.directory, selected?.id)
+      } catch {
+        // The file is a convenience for the agent; the tab works without it.
+      }
+    }
+  })
   // In the Browser view the chat stays beside the page when the window is wide enough; the Console takes the
   // whole center, and a narrow window shows the browser alone.
   const CHAT_BESIDE_WIDTH = 46
