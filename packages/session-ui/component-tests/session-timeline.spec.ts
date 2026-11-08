@@ -76,16 +76,54 @@ for (const streaming of [false, true]) {
           contentType: "application/json",
         })
         await root.getByRole("button", { name: "Complete response" }).click()
-        await expect(timeline.locator('[data-markdown-complete="true"]')).toHaveCount(2)
+        // Integration contract after completion: the control flips back, both
+        // diagrams stay rendered with their nodes, no fallback pre, and no lost or
+        // duplicated content. The rendered diagram's direct source-code copy
+        // control is intentionally display:none (markdown.css, mermaid-ready), so
+        // copy is exercised on an ordinary visible fenced block in the story below.
+        // The data-markdown-complete marker is STREAMING-renderer-only (set in
+        // updateCodeBlock) and by design does not exist on the fresh static
+        // owner after completion - it is asserted by the low-level markdown
+        // specs instead.
+        await expect(root.getByRole("button", { name: "Stream response" })).toBeVisible()
         await expect(diagrams).toHaveCount(2)
         await expect(diagrams.nth(0)).toBeVisible()
+        await expect(diagrams.nth(0)).toContainText("Client")
         await expect(diagrams.nth(1)).toBeVisible()
+        await expect(diagrams.nth(1)).toContainText("Send prompt")
+        await expect(timeline.locator('[data-mermaid-ready="true"]')).toHaveCount(2)
+        await expect(timeline.locator('[data-mermaid-ready="true"] > pre:visible')).toHaveCount(0)
+        await expect(timeline.getByRole("heading", { name: "Request flow" })).toHaveCount(1)
+        await expect(timeline.getByRole("heading", { name: "Request sequence" })).toHaveCount(1)
+        // Decisive visual evidence for the completed render (reviewed externally).
+        await testInfo.attach("mermaid-after-complete", {
+          body: await page.screenshot({ fullPage: true }),
+          contentType: "image/png",
+        })
       }
     }
     // Any failure (mount, early assertions, the completion flip) attaches the trace.
     await run().catch(attachOnFailure)
   })
 }
+
+story("copies an ordinary fenced code block", async ({ mount, page }) => {
+  // Companion to the Mermaid contract above: the copy action is exercised on an
+  // ordinary visible fenced block, not on a rendered diagram (whose source-code
+  // copy control is intentionally hidden). Low-level clipboard behaviour is
+  // covered in markdown.spec.ts.
+  const markdown = await mount("components-markdown--complete-response")
+  const code = markdown.locator('[data-component="markdown-code"]').filter({ hasText: "export const value = 42" })
+  await expect(code).toHaveCount(1)
+  const copyHost = code.locator('[data-slot="markdown-copy-button"]')
+  await expect(copyHost).toBeVisible()
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+  // The copy control sits at hover opacity 0 on the code block: hover first so the
+  // interaction matches what a person sees (Playwright's click would hover implicitly).
+  await code.hover()
+  await copyHost.locator("button").click()
+  await expect(copyHost).toHaveAttribute("data-copied", "true")
+})
 
 story("aligns the retry icon with the error label", async ({ mount }) => {
   const timeline = await mount("current-session-timeline-rows--provider-retry")
