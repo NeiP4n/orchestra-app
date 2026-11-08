@@ -551,10 +551,13 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
     >
       <box width={props.width} height="100%" flexShrink={0} backgroundColor={theme.background.raised.base} paddingTop={1}>
         {/* The panel's head: a segmented switch between the tree and the notes, the main action, and collapse. */}
-        <box flexDirection="row" paddingLeft={1} paddingRight={1} gap={1} flexShrink={0}>
-          <box flexDirection="row" flexShrink={0}>
+        <box flexDirection="row" flexWrap="wrap" paddingLeft={1} paddingRight={1} columnGap={1} rowGap={0} flexShrink={0}>
+          {/* Tabs wrap to a second row when the panel is narrow, so none is clipped. */}
+          <box flexDirection="row" flexWrap="wrap" flexShrink={1}>
             <Tab tab="projects" icon="◉" label={iconOnly() ? "" : t("Projects")} hover={hover} setHover={setHover} />
             <Tab tab="notes" icon="✎" label={iconOnly() ? "" : t("Notes")} hover={hover} setHover={setHover} />
+            <Tab tab="console" icon="›_" label={iconOnly() ? "" : t("Console")} hover={hover} setHover={setHover} />
+            <Tab tab="browser" icon="◎" label={iconOnly() ? "" : t("Browser")} hover={hover} setHover={setHover} />
           </box>
           <box flexGrow={1} />
           <NeuralChip
@@ -580,8 +583,8 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           <ProjectNotes />
         </Show>
         <box
-          visible={notes.tab() === "projects"}
-          flexGrow={notes.tab() === "projects" ? 1 : 0}
+          visible={notes.tab() !== "notes"}
+          flexGrow={notes.tab() !== "notes" ? 1 : 0}
           minHeight={0}
           position="relative"
           onSizeChange={function () {
