@@ -278,6 +278,88 @@ test("opening project settings from the gear stays open after the mouse is relea
   expect(setup.captureCharFrame()).toContain("Edit project")
 })
 
+test("a click on the gear does not toggle the project row underneath", async () => {
+  await using state = await tmpdir()
+  const calls: Call[] = []
+  await using setup = await render(state.path, calls, [project])
+
+  const frame = await setup.waitForFrame((frame) => frame.includes("Demo") && frame.includes("Orchestrator"))
+  const name = cell(frame, "Demo")
+  await setup.mockMouse.moveTo(name.x + 1, name.y)
+  await setup.renderOnce()
+
+  const hovered = await setup.waitForFrame((f) => f.includes("Demo") && f.includes("✱"))
+  const gear = cell(hovered, "✱")
+  // captureCharFrame emits the wide ○ marker as one char while it occupies two cells.
+  await setup.mockMouse.click(gear.x - 1, gear.y)
+
+  await setup.waitForFrame((f) => f.includes("Edit project"))
+  // The row's own action is expand/collapse; a gear click must not reach it and fold the project.
+  expect(setup.captureCharFrame()).toContain("Orchestrator")
+})
+
+test("a press released away from the gear does not open project settings", async () => {
+  await using state = await tmpdir()
+  const calls: Call[] = []
+  await using setup = await render(state.path, calls, [project])
+
+  const frame = await setup.waitForFrame((frame) => frame.includes("Demo") && frame.includes("Orchestrator"))
+  const name = cell(frame, "Demo")
+  await setup.mockMouse.moveTo(name.x + 1, name.y)
+  await setup.renderOnce()
+
+  const hovered = await setup.waitForFrame((f) => f.includes("Demo") && f.includes("✱"))
+  const gear = cell(hovered, "✱")
+  await setup.mockMouse.pressDown(gear.x - 1, gear.y)
+  await setup.mockMouse.moveTo(name.x + 1, name.y)
+  await setup.mockMouse.release(name.x + 1, name.y)
+  await setup.renderOnce()
+
+  expect(setup.captureCharFrame()).not.toContain("Edit project")
+})
+
+test("a drag released on the gear does not open project settings", async () => {
+  await using state = await tmpdir()
+  const calls: Call[] = []
+  await using setup = await render(state.path, calls, [project])
+
+  const frame = await setup.waitForFrame((frame) => frame.includes("Demo") && frame.includes("Orchestrator"))
+  const name = cell(frame, "Demo")
+  await setup.mockMouse.moveTo(name.x + 1, name.y)
+  await setup.renderOnce()
+
+  const hovered = await setup.waitForFrame((f) => f.includes("Demo") && f.includes("✱"))
+  const gear = cell(hovered, "✱")
+  // The press began on the project name; releasing it over the gear is not a gear click.
+  await setup.mockMouse.pressDown(name.x + 1, name.y)
+  await setup.mockMouse.moveTo(gear.x - 1, gear.y)
+  await setup.mockMouse.release(gear.x - 1, gear.y)
+  await setup.renderOnce()
+
+  expect(setup.captureCharFrame()).not.toContain("Edit project")
+})
+
+test("a group poll returning the same data keeps a held gear press clickable", async () => {
+  await using state = await tmpdir()
+  const calls: Call[] = []
+  await using setup = await render(state.path, calls, [project])
+
+  const frame = await setup.waitForFrame((frame) => frame.includes("Demo") && frame.includes("Orchestrator"))
+  const name = cell(frame, "Demo")
+  await setup.mockMouse.moveTo(name.x + 1, name.y)
+  await setup.renderOnce()
+
+  const hovered = await setup.waitForFrame((f) => f.includes("Demo") && f.includes("✱"))
+  const gear = cell(hovered, "✱")
+  // The tree polls groups every 3s; a press held across an unchanged poll must still land.
+  await setup.mockMouse.pressDown(gear.x - 1, gear.y)
+  await new Promise((resolve) => setTimeout(resolve, 3400))
+  await setup.renderOnce()
+  await setup.mockMouse.release(gear.x - 1, gear.y)
+
+  await setup.waitForFrame((f) => f.includes("Edit project") && f.includes("Path"))
+}, 15_000)
+
 test("the orchestrator council mode button saves the group mode when clicked", async () => {
   await using state = await tmpdir()
   const calls: Call[] = []
