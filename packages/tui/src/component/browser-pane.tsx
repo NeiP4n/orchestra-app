@@ -224,6 +224,9 @@ export function BrowserPane(props: {
       send(BrowserRuntime.key(props.sessionID, { name: "paste", sequence: text }))
     }
     const onKey = (key: KeyEvent) => {
+      BrowserRuntime.trace(
+        `pane got key name=${key.name} sequence=${JSON.stringify(key.sequence)} ctrl=${key.ctrl} meta=${key.meta} shift=${key.shift} type=${key.eventType}`,
+      )
       note("key", `key ${key.name ?? key.sequence} ${key.eventType}`)
       if (key.ctrl && key.name === "g") return (setControl(false), key.preventDefault(), key.stopPropagation())
       key.preventDefault()
@@ -239,8 +242,10 @@ export function BrowserPane(props: {
         ),
       )
     }
-    renderer.keyInput.on("keypress", onKey)
-    renderer.keyInput.on("paste", onPaste)
+    // First in line: the app's own key handlers (Enter and Backspace belong to the composer and its commands)
+    // run in registration order and any of them may stop the key before a later listener sees it.
+    renderer.keyInput.prependListener("keypress", onKey)
+    renderer.keyInput.prependListener("paste", onPaste)
     onCleanup(() => {
       renderer.keyInput.off("keypress", onKey)
       renderer.keyInput.off("paste", onPaste)

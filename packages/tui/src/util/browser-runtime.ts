@@ -11,6 +11,7 @@ export const {
   closeAll,
   publishSelection,
   publishSessions,
+  trace,
   leases,
   setLease,
   watch,
