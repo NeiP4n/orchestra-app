@@ -1,0 +1,71 @@
+name: tui-windows-isolated
+
+# Manual diagnostic control run. Dispatch requires main's decision.
+# Runs the packages/tui unit suite on Windows WITHOUT turbo --affected and
+# WITHOUT the concurrent-abort environment, to classify the 23 frame-predicate
+# timeouts + 2 value mismatches observed in run 42453282619 attempt 2
+# (job 128657936899). Same Bun/setup/fixtures as test.yml's unit job; no
+# assertion or timeout changes; no product changes. NOTE: this workflow file
+# itself is a new commit, so the run is NOT an exact replay of any earlier
+# SHA; tui source is identical between 4e6c3d4 and d18b111. The 30-minute
+# timeout is a diagnostic cap.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  tui-windows:
+    name: tui unit (windows, isolated)
+    runs-on: windows-latest
+    timeout-minutes: 30 # diagnostic cap
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "orchestra-bot@users.noreply.github.com"
+          git config --global user.name "orchestra-bot"
+
+      - name: Run tui unit suite (no turbo, no concurrent abort)
+        working-directory: packages/tui
+        env:
+          ORCHESTRA_EXPERIMENTAL_DISABLE_FILEWATCHER: "true"
+        run: |
+          set -o pipefail
+          {
+            echo "git-sha: $(git rev-parse HEAD)"
+            echo "bun-version: $(bun --version)"
+            echo "os: $(uname -a)"
+            echo "command: bun run test  (packages/tui, no turbo, ORCHESTRA_EXPERIMENTAL_DISABLE_FILEWATCHER=true)"
+            bun run test
+          } 2>&1 | tee tui-windows-isolated.log
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tui-windows-isolated-log
+          path: packages/tui/tui-windows-isolated.log
+          if-no-files-found: warn

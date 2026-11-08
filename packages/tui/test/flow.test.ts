@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { setActiveLanguage, tr, type Language } from "../src/util/i18n"
 import {
   DONE_MS,
   FIRST_WORD_STALL_MS,
@@ -50,13 +51,48 @@ describe("flow mode", () => {
 })
 
 describe("flow text", () => {
-  test("labels say what is happening in plain words", () => {
-    expect(flowLabel("sent", sample({}), 0)).toBe("отправлено")
-    expect(flowLabel("waiting", sample({ startedAt: 97_000 }), 0)).toBe("ждём ответа 3 с")
-    expect(flowLabel("streaming", sample({ lastGrowthAt: 100_000 }), 41.6)).toBe("поток · 42 симв/с")
-    expect(flowLabel("stalled", sample({ lastGrowthAt: 86_000 }), 0)).toBe("нет данных 14 с · Esc — прервать")
-    expect(flowLabel("done", sample({ busy: false, startedAt: 90_000, finishedAt: 97_400 }), 0)).toBe("готово · 7 с")
-    expect(flowLabel("idle", sample({}), 0)).toBe("")
+  // Labels come from tr(), which reads the process-wide active language. The
+  // suite shares that global, so pin it per case and put back what was there:
+  // the prior language is detected through the same tr() seam ("sent" only
+  // translates under ru) and the same setter restores it, which also restores
+  // the widget locale the setter drives. Language is "en" | "ru", so the probe
+  // is exact.
+  const withLanguage = (language: Language, body: () => void): void => {
+    // The probe must be exactly one of the two known domains; anything else
+    // means the dictionary drifted and the guess below would be wrong.
+    const probe = tr("sent")
+    const prior: Language =
+      probe === "отправлено" ? "ru" : probe === "sent" ? "en" : (() => {
+        throw new Error(`flow label test: unexpected active-locale probe ${JSON.stringify(probe)}`)
+      })()
+    setActiveLanguage(language)
+    try {
+      body()
+    } finally {
+      setActiveLanguage(prior)
+    }
+  }
+
+  test("labels say what is happening in plain words (ru)", () => {
+    withLanguage("ru", () => {
+      expect(flowLabel("sent", sample({}), 0)).toBe("отправлено")
+      expect(flowLabel("waiting", sample({ startedAt: 97_000 }), 0)).toBe("ждём ответа 3 с")
+      expect(flowLabel("streaming", sample({ lastGrowthAt: 100_000 }), 41.6)).toBe("поток · 42 симв/с")
+      expect(flowLabel("stalled", sample({ lastGrowthAt: 86_000 }), 0)).toBe("нет данных 14 с · Esc — прервать")
+      expect(flowLabel("done", sample({ busy: false, startedAt: 90_000, finishedAt: 97_400 }), 0)).toBe("готово · 7 с")
+      expect(flowLabel("idle", sample({}), 0)).toBe("")
+    })
+  })
+
+  test("labels say what is happening in plain words (en)", () => {
+    withLanguage("en", () => {
+      expect(flowLabel("sent", sample({}), 0)).toBe("sent")
+      expect(flowLabel("waiting", sample({ startedAt: 97_000 }), 0)).toBe("waiting for an answer 3 s")
+      expect(flowLabel("streaming", sample({ lastGrowthAt: 100_000 }), 41.6)).toBe("stream · 42 chars/s")
+      expect(flowLabel("stalled", sample({ lastGrowthAt: 86_000 }), 0)).toBe("no data for 14 s · Esc to interrupt")
+      expect(flowLabel("done", sample({ busy: false, startedAt: 90_000, finishedAt: 97_400 }), 0)).toBe("done · 7 s")
+      expect(flowLabel("idle", sample({}), 0)).toBe("")
+    })
   })
 
   test("the pattern follows the speed of the text", () => {
