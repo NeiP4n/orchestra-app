@@ -25,6 +25,8 @@ declare module "@opentui/solid" {
 extend({ browserImage: ImageRenderable })
 
 // The commit this TUI runs from (when it runs from a git checkout), so a report can say which build it saw.
+// The route and frame-size lines are a diagnostic: shown only with ORCHESTRA_BROWSER_DEBUG=1.
+const DEBUG = process.env.ORCHESTRA_BROWSER_DEBUG === "1"
 const BUILD = (() => {
   try {
     const out = spawnSync("git", ["rev-parse", "--short", "HEAD"], {
@@ -339,7 +341,7 @@ export function BrowserPane(props: {
           </Show>
           <Action label={narrow() ? t("Close") : t("Close browser")} onClick={stop} />
         </box>
-        <Show when={control()}>
+        <Show when={DEBUG && control()}>
           <text fg={theme.text.feedback.success.base} flexShrink={0} wrapMode="word">
             {`${debug() || "control: on, waiting for mouse or keys"}${route() ? ` · ${route()}` : " · (no press forwarded yet)"} · build ${BUILD}`}
           </text>
@@ -424,9 +426,11 @@ export function BrowserPane(props: {
                 </Show>
               </box>
             </box>
-            <text fg={theme.text.muted} flexShrink={0} wrapMode="none" truncate>
-              {`${stats()} · build ${BUILD}`}
-            </text>
+            <Show when={DEBUG}>
+              <text fg={theme.text.muted} flexShrink={0} wrapMode="none" truncate>
+                {`${stats()} · build ${BUILD}`}
+              </text>
+            </Show>
           </Show>
         </Show>
       </Show>
