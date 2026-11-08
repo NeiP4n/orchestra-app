@@ -458,3 +458,26 @@ export async function relaunch(sessionID: string, mode: Mode | boolean, size = {
   }
   live.set(sessionID, next)
 }
+
+const bridgeFile = () => BrowserBridge.file(Global.Path.data)
+
+/** Records the selected browser session of a project for the chat agent's tool. */
+export function publishSelection(directory: string, sessionID: string | undefined) {
+  const file = bridgeFile()
+  const next = BrowserBridge.withSelection(
+    BrowserBridge.parse(existsSync(file) ? readFileSync(file, "utf8") : undefined),
+    directory,
+    sessionID,
+  )
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, JSON.stringify(next, null, 2))
+}
+
+/** The browser session selected for the project that owns `directory`. */
+export function selectedSession(directory: string) {
+  const file = bridgeFile()
+  return BrowserBridge.selectedFor(
+    BrowserBridge.parse(existsSync(file) ? readFileSync(file, "utf8") : undefined),
+    directory,
+  )
+}
