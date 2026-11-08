@@ -305,7 +305,8 @@ describe("V2 mini transport", () => {
     spyOn(client.session, "prompt").mockImplementation((request) => {
       const item = { ...promptAdmission(request), payload: { text: request.text } }
       inbox.push(item)
-      return ok(item) as never
+      // The generated client resolves session.prompt to { data: SessionInboxUser; held: boolean }.
+      return ok({ data: item, held: false }) as never
     })
     const ui = footer()
     const live: StreamCommit[] = []
@@ -391,7 +392,11 @@ describe("V2 mini transport", () => {
     } satisfies SessionInboxInfo
     const prompt = spyOn(client.session, "prompt").mockImplementation(() => {
       requested.resolve()
-      return ack.promise.then(() => pending) as never
+      // The generated client resolves session.prompt to { data: SessionInboxUser; held: boolean }.
+      return ack.promise.then(() => ({
+        data: pending,
+        held: false,
+      })) as never
     })
     const transport = await createSessionTransport({
       sdk: client,
