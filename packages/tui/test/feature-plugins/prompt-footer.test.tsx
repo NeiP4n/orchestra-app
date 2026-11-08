@@ -1,10 +1,17 @@
 /** @jsxImportSource @opentui/solid */
-import { expect, test } from "bun:test"
+import { afterAll, beforeAll, expect, test } from "bun:test"
 import { RGBA, TextRenderable } from "@opentui/core"
 import { testRender } from "@opentui/solid"
 import type { Context } from "@orchestra/plugin/tui/context"
 import { createSignal } from "solid-js"
 import { PromptFooter } from "../../src/feature-plugins/prompt/footer"
+import { setActiveLanguage } from "../../src/util/i18n"
+import { configureExchangeRate, exchangeRate } from "../../src/util/money"
+
+// These expectations are English; pin the suite language explicitly (the default is "en",
+// but a developer machine may select another one).
+beforeAll(() => setActiveLanguage("en"))
+afterAll(() => setActiveLanguage("en"))
 
 test("prompt footer separates simultaneous subagent, shell, and usage status", async () => {
   const color = RGBA.fromInts(200, 200, 200)
@@ -42,17 +49,20 @@ test("prompt footer separates simultaneous subagent, shell, and usage status", a
       },
     },
   } as unknown as Context
-  const app = await testRender(
-    () => <PromptFooter context={context} sessionID="session" mode="normal" showDetails={true} />,
-    {
-      width: 80,
-      height: 2,
-    },
-  )
-
+  // Pin the exchange rate so the money literal below is deterministic.
+  const previousRate = exchangeRate()
+  configureExchangeRate(80)
+  let app: Awaited<ReturnType<typeof testRender>> | undefined
   try {
+    app = await testRender(
+      () => <PromptFooter context={context} sessionID="session" mode="normal" showDetails={true} />,
+      {
+        width: 80,
+        height: 2,
+      },
+    )
     await app.renderOnce()
-    expect(app.captureCharFrame()).toContain("ctrl+j 1 subagent · 1 shell · $1.00")
+    expect(app.captureCharFrame()).toContain("ctrl+j 1 subagent · 1 shell · 80,00\u00A0₽")
     expect(app.captureCharFrame()).toContain("ctrl+p commands")
 
     await app.mockMouse.moveTo(2, 0)
@@ -63,7 +73,8 @@ test("prompt footer separates simultaneous subagent, shell, and usage status", a
     await app.mockMouse.click(2, 0)
     expect(dispatched).toEqual(["session.child.first"])
   } finally {
-    app.renderer.destroy()
+    configureExchangeRate(previousRate)
+    app?.renderer.destroy()
   }
 })
 
@@ -110,40 +121,44 @@ test("prompt footer can hide details", async () => {
   } as unknown as Context
   const [showDetails, setShowDetails] = createSignal(true)
   const [sessionID, setSessionID] = createSignal<string | undefined>("session")
-  const app = await testRender(
-    () => (
-      <box width="100%" flexDirection="row" justifyContent="space-between" gap={2}>
-        <PromptFooter
-          context={context}
-          sessionID={sessionID()}
-          mode="normal"
-          showDetails={showDetails()}
-        />
-      </box>
-    ),
-    {
-      width: 80,
-      height: 1,
-    },
-  )
-
+  // Pin the exchange rate so the money literal below is deterministic.
+  const previousRate = exchangeRate()
+  configureExchangeRate(80)
+  let app: Awaited<ReturnType<typeof testRender>> | undefined
   try {
+    app = await testRender(
+      () => (
+        <box width="100%" flexDirection="row" justifyContent="space-between" gap={2}>
+          <PromptFooter
+            context={context}
+            sessionID={sessionID()}
+            mode="normal"
+            showDetails={showDetails()}
+          />
+        </box>
+      ),
+      {
+        width: 80,
+        height: 1,
+      },
+    )
     await app.renderOnce()
-    expect(app.captureCharFrame()).toContain("1.0K (10%) · $1.00")
+    expect(app.captureCharFrame()).toContain("1.0K (10%) · 80,00\u00A0₽")
     expect(app.captureCharFrame()).toContain("ctrl+p commands")
 
     setShowDetails(false)
     await app.renderOnce()
     const frame = app.captureCharFrame()
     expect(frame).not.toContain("1.0K (10%)")
-    expect(frame).not.toContain("$1.00")
+    expect(frame).not.toContain("80,00\u00A0₽")
     expect(frame).not.toContain("ctrl+p commands")
 
     setSessionID(undefined)
     await app.renderOnce()
     expect(app.captureCharFrame()).not.toContain("shift+tab agents")
   } finally {
-    app.renderer.destroy()
+    configureExchangeRate(previousRate)
+    app?.renderer.destroy()
   }
 })
 
