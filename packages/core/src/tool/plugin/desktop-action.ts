@@ -608,6 +608,13 @@ export const Plugin = {
 
       if (input.action === "media") {
         const command = input.command!
+        // Media keys go through Bun FFI (user32 keybd_event); a build without
+        // Bun FFI cannot send them. The PowerShell actions below are unaffected.
+        if (typeof Bun === "undefined")
+          return yield* new ToolFailure({
+            message:
+              'desktop_action with action "media" sends Windows media keys through Bun FFI, which this build does not have. Use the Bun build for media keys.',
+          })
         return yield* Effect.try({
           try: () => {
             pressMedia(command)
