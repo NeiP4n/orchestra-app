@@ -2,7 +2,6 @@ import { HoverAction } from "./hover-action"
 import {
   ImageRenderable,
   NativeImage,
-  TextAttributes,
   type BoxRenderable,
   type KeyEvent,
   type MouseEvent,
