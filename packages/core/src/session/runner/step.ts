@@ -46,7 +46,8 @@ export type Outcome = Data.TaggedEnum<{
 }>
 export const Outcome = Data.taggedEnum<Outcome>()
 
-interface Input {
+/** Exported so the settle fixture drives an attempt with a fabricated tool call. */
+export interface Input {
   readonly isLocationClosed: () => boolean
   readonly sessionID: SessionSchema.ID
   readonly assistantMessageID: SessionMessage.ID
@@ -93,7 +94,14 @@ const stringifyToolInput = (input: unknown): string => {
 const toolContentText = (content: ReadonlyArray<Tool.Content>): string =>
   content.flatMap((item) => (item.type === "text" ? [item.text] : [`[file: ${item.name ?? item.mime}]`])).join("\n")
 
-/** Best-effort L3 notification: a missing callback or a failing one is a no-op for the step. */
+/**
+ * Best-effort L3 notification: a missing callback, a synchronously throwing
+ * one or a failing one is a no-op for the step. The callback is invoked
+ * inside Effect.suspend: it runs while the surrounding chain is being
+ * constructed, BEFORE the publisher effect it follows has run, so a
+ * synchronous throw there (not only a defect in the returned effect) must
+ * not escape and block the tool-result publication.
+ */
 const notifyToolSettled = (
   notify: Input["onToolSettled"],
   event: {
@@ -106,7 +114,7 @@ const notifyToolSettled = (
 ) =>
   notify === undefined
     ? Effect.void
-    : notify(event).pipe(
+    : Effect.suspend(() => notify(event)).pipe(
         Effect.catchCause((cause) => (Cause.hasInterruptsOnly(cause) ? Effect.interrupt : Effect.void)),
       )
 

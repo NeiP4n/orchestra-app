@@ -309,24 +309,41 @@ describe("session memory (L3)", () => {
   })
 })
 
-describe("session memory without the Bun sqlite engine (node build degraded mode)", () => {
-  test("tool settlement completes, the journal keeps the record, and the degradation is reported once", async () => {
+describe("session engine acquisition degradation", () => {
+  test("an operational open failure warns once per failure streak, retries on every call and recovers", async () => {
     const directory = await project()
-    // A file where the engine's database directory must go makes the eager
-    // open fail the same way the node artifact's throwing bun:sqlite shim does.
-    const blocker = path.join(directory, "not-a-directory")
-    await writeFile(blocker, "x", "utf8")
+    // The database path exists as a DIRECTORY: the eager engine open fails
+    // operationally (permissions/lock/damaged database behave the same way),
+    // while the journal directory stays writable.
+    const blocker = path.join(directory, ".orchestra", "memory.db")
+    await mkdir(path.dirname(blocker), { recursive: true })
+    await mkdir(blocker)
 
-    const opened = SessionMemory.tryOpenSessionEngine(blocker)
-    expect(opened.engine).toBeUndefined()
-    expect(opened.becameDegraded).toBe(true)
-    // Once per directory: the caller warns on the transition, not on every call.
-    expect(SessionMemory.tryOpenSessionEngine(blocker).becameDegraded).toBe(false)
+    const first = SessionMemory.tryOpenSessionEngine(directory)
+    expect(first.engine).toBeUndefined()
+    expect(first.degradation?.kind).toBe("operational")
+    expect(first.degradation?.warn).toBe(true)
+    if (first.degradation?.kind === "operational") expect(first.degradation.cause).toBeDefined()
 
+    // Every call retries the open; the warning is deduped per failure streak.
+    const second = SessionMemory.tryOpenSessionEngine(directory)
+    expect(second.engine).toBeUndefined()
+    expect(second.degradation?.kind).toBe("operational")
+    expect(second.degradation?.warn).toBe(false)
+
+    // The journal stays the record while the engine is down.
     const result = await capture(directory, "ses_degraded", "call_1", "edit", "edit a.ts", "done")
     expect(result.status).toBe("recorded")
     const journal = await readFile(SessionMemory.pathsFor(directory, "ses_degraded").journal, "utf8")
     expect(journal).toContain("edit a.ts")
+
+    // Recovery: with the blockage gone the next call opens the real engine,
+    // and the cleared streak means a later failure warns again.
+    await rm(blocker, { recursive: true, force: true })
+    const recovered = SessionMemory.tryOpenSessionEngine(directory)
+    expect(recovered.engine).toBeDefined()
+    expect(recovered.degradation).toBeUndefined()
+    recovered.engine?.close()
 
     await rm(directory, { recursive: true, force: true })
   })
@@ -335,7 +352,7 @@ describe("session memory without the Bun sqlite engine (node build degraded mode
     const directory = await project()
     const opened = SessionMemory.tryOpenSessionEngine(directory)
     expect(opened.engine).toBeDefined()
-    expect(opened.becameDegraded).toBe(false)
+    expect(opened.degradation).toBeUndefined()
     const result = await capture(directory, "ses_engine", "call_1", "edit", "edit b.ts", "done", opened.engine)
     expect(result.status).toBe("recorded")
     await rm(directory, { recursive: true, force: true })

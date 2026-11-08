@@ -15,6 +15,7 @@ import { SessionHandoff } from "../session/handoff.js"
 import { ModelRouter } from "../session/model-router.js"
 import { WriteAtomic } from "../write-atomic.js"
 import { MemoryEngine } from "./engine.js"
+import { bunRuntime } from "../runtime.js"
 
 /**
  * L3 — session memory (Б17, approved design §1/§8 steps 3–6).
@@ -444,23 +445,54 @@ export function openSessionEngine(directory: string): MemoryEngine {
 }
 
 
-// Directories whose engine failed to open (a build without the Bun sqlite
-// engine): the session keeps recording to the file journal only.
-const degradedEngineDirs = new Set<string>()
+/** Why a session has no sqlite engine for its settled-tool capture. */
+export type SessionEngineDegradation =
+  | {
+      /** This build has no Bun sqlite engine at all; the open can never succeed in this process. */
+      readonly kind: "capability"
+      /** True exactly once per directory, so the caller warns on the transition only. */
+      readonly warn: boolean
+    }
+  | {
+      /** An operational open failure (permissions, lock, damaged database): retryable on later calls. */
+      readonly kind: "operational"
+      /** True once per failure streak per directory; retry admission is per call, warning dedup per streak. */
+      readonly warn: boolean
+      readonly cause: unknown
+    }
+
+// Only a capability absence is cached for the process lifetime. Operational
+// failures are never cached: every call retries the open, and a success
+// clears the failure streak so a later failure warns again.
+const capabilityDegradedDirs = new Set<string>()
+const operationalWarnedDirs = new Set<string>()
 
 /**
  * Like openSessionEngine, but never throws: the engine opens eagerly and a
- * build without the Bun sqlite engine cannot construct it. Returns no engine
- * then, so the caller records to the file journal only; becameDegraded is
- * true exactly once per directory, so the caller warns once.
+ * build without the Bun sqlite engine cannot construct it, and an
+ * operational failure (permissions, lock, damaged database) must not fail
+ * the caller either. Without an engine the caller records to the file
+ * journal only; degradation says why and whether to warn now.
  */
-export function tryOpenSessionEngine(directory: string): { engine?: MemoryEngine; becameDegraded: boolean } {
-  if (degradedEngineDirs.has(directory)) return { becameDegraded: false }
+export function tryOpenSessionEngine(directory: string): {
+  engine?: MemoryEngine
+  degradation?: SessionEngineDegradation
+} {
+  if (capabilityDegradedDirs.has(directory)) return { degradation: { kind: "capability", warn: false } }
   try {
-    return { engine: openSessionEngine(directory), becameDegraded: false }
-  } catch {
-    degradedEngineDirs.add(directory)
-    return { becameDegraded: true }
+    const engine = openSessionEngine(directory)
+    operationalWarnedDirs.delete(directory)
+    return { engine }
+  } catch (cause) {
+    // The Bun sqlite engine exists only under a Bun runtime: without it the
+    // open can never succeed in this process, so the miss is cached.
+    if (!bunRuntime()) {
+      capabilityDegradedDirs.add(directory)
+      return { degradation: { kind: "capability", warn: true } }
+    }
+    const warn = !operationalWarnedDirs.has(directory)
+    if (warn) operationalWarnedDirs.add(directory)
+    return { degradation: { kind: "operational", warn, cause } }
   }
 }
 

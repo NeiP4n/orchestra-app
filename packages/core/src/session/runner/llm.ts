@@ -55,6 +55,60 @@ const CONTINUE_AFTER_INCOMPLETE_STREAM =
 /** How many times auto-compaction may complete inside one step before the step fails instead of looping. */
 const MAX_AUTO_COMPACTIONS_PER_STEP = 3
 
+/**
+ * L3 session memory capture for one settled tool call (Б17): the exact
+ * callback the runner wires as onToolSettled, exported so the settle fixture
+ * drives the production wiring. Never throws and never fails the step: the
+ * engine opens eagerly, so a build without the Bun sqlite engine cannot
+ * construct it, and an operational open failure (permissions, lock, damaged
+ * database) must not fail the settle either. The scrubbed file journal stays
+ * the record in both cases; the warning distinguishes a permanently missing
+ * capability (once per directory) from a retryable operational failure (once
+ * per failure streak, the open is retried on the next settled tool call).
+ */
+export const toolSettledCapture =
+  (directory: string, sessionID: SessionSchema.ID, scrub: (text: string) => string) =>
+  (event: {
+    readonly id: string
+    readonly name: string
+    readonly inputText: string
+    readonly outputText: string
+    readonly error?: string
+  }): Effect.Effect<void> =>
+    Effect.suspend(() => {
+      const opened = SessionMemory.tryOpenSessionEngine(directory)
+      const capture = SessionMemory.captureToolUse({
+        directory,
+        sessionID,
+        toolUseID: event.id,
+        tool: event.name,
+        inputText: event.inputText,
+        outputText: event.outputText,
+        ...(event.error !== undefined ? { error: event.error } : {}),
+        // Б17: raw tool I/O is scrubbed before it reaches the journal
+        // (foundation slice `memory/scrub.ts`), never stored as-is.
+        scrub,
+        ...(opened.engine !== undefined ? { engine: opened.engine } : {}),
+      })
+      const degradation = opened.degradation
+      if (degradation === undefined || !degradation.warn) return capture
+      const warning =
+        degradation.kind === "capability"
+          ? Effect.logWarning(
+              "Session memory engine is unavailable in this build; the scrubbed file journal stays the record",
+              { sessionID, directory },
+            )
+          : Effect.logWarning(
+              "Session memory engine failed to open; the scrubbed file journal stays the record and the open is retried on the next settled tool call",
+              {
+                sessionID,
+                directory,
+                error: degradation.cause instanceof Error ? degradation.cause.message : String(degradation.cause),
+              },
+            )
+      return warning.pipe(Effect.andThen(capture))
+    })
+
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -370,31 +424,7 @@ const layer = Layer.effect(
           // The engine opens lazily on the first tool use (process-wide
           // cache in SessionMemory), so a step that never touches a tool
           // never creates the session memory database.
-          onToolSettled: (event) =>
-            // The engine opens eagerly, so constructing it can throw (a build
-            // without the Bun sqlite engine). Suspend + degrade: the step must
-            // settle normally and the file journal stays the record.
-            Effect.suspend(() => {
-              const opened = SessionMemory.tryOpenSessionEngine(location.project.directory)
-              const capture = SessionMemory.captureToolUse({
-                directory: location.project.directory,
-                sessionID,
-                toolUseID: event.id,
-                tool: event.name,
-                inputText: event.inputText,
-                outputText: event.outputText,
-                ...(event.error !== undefined ? { error: event.error } : {}),
-                // Б17: raw tool I/O is scrubbed before it reaches the journal
-                // (foundation slice `memory/scrub.ts`), never stored as-is.
-                scrub: scrubText,
-                ...(opened.engine !== undefined ? { engine: opened.engine } : {}),
-              })
-              if (!opened.becameDegraded) return capture
-              return Effect.logWarning(
-                "Session memory engine unavailable in this build; keeping the file journal only",
-                { sessionID, directory: location.project.directory },
-              ).pipe(Effect.andThen(capture))
-            }),
+          onToolSettled: toolSettledCapture(location.project.directory, sessionID, scrubText),
           retry: (cause, error, proposed) =>
             retry.decide({
               cause,
