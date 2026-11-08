@@ -73,8 +73,9 @@ function canonicalizePath(normalized: string, isRelative: boolean): string {
 
   // Backslashes only survive normalization in POSIX-rooted paths, where they
   // are literal name characters. realpath cannot be trusted with such names
-  // (Bun before 1.4.3 silently collapses them into separators), so those
-  // paths are canonicalized segment by segment instead.
+  // (Bun 1.4.2 silently collapses them into separators; 1.4.4 handles them
+  // correctly, with the exact boundary unverified), so those paths are
+  // canonicalized segment by segment instead.
   if (normalized.includes("\\")) return canonicalizePosixLiteral(normalized)
 
   if (isRelative) {
