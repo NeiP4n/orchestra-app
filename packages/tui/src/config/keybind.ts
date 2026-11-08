@@ -176,7 +176,6 @@ export const Definitions = {
   "model.cycle_favorite_reverse": keybind("none", "Previous favorite model"),
   "mcp.list": keybind("none", "List MCP servers"),
   "compat.list": keybind("none", "Other agent tools (.claude, .codex, ...)"),
-  "provider.connect": keybind("none", "Connect integration"),
   "agent.list": keybind("none", "Deprecated: the agent picker is agent.panel"),
   "agent.panel": keybind("shift+tab,<leader>a", "Switch agent"),
   "agent.cycle": keybind("none", "Next agent"),

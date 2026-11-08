@@ -2960,6 +2960,20 @@ export const workerFavorites = Effect.gen(function* () {
   return (Config.latest(yield* config.value.entries(), "model_favorites") ?? []).flatMap(parseModel)
 })
 
+// The models the operator switched on in /models: every model of every ENABLED model collection (the
+// enable toggle of the collections screen). The Orchestrator picks worker models only from this pool.
+// A collection written before `enabled` existed reads as enabled, like the picker treats it. Favorites
+// stay plain favorites and play no part here.
+export const workerEnabledModels = Effect.gen(function* () {
+  const config = yield* Effect.serviceOption(Config.Service)
+  if (Option.isNone(config)) return []
+  const collections = Config.latest(yield* config.value.entries(), "model_collections") ?? []
+  return distinctModels(
+    collections.filter((item) => item.enabled !== false).flatMap((item) => (item.models ?? []).flatMap(parseModel)),
+    undefined,
+  )
+})
+
 function originOf(builtin: readonly { id: string }[], id: string): Orchestra.Origin {
   return builtin.some((item) => item.id === id) ? "edited" : "custom"
 }

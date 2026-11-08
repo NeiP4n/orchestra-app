@@ -51,8 +51,8 @@ export const description = [
  */
 /**
  * Free OpenCode Zen models by kind of work (price 0 in the models.dev catalog), best first. This is a
- * suggestion for what the operator pins to the Feature list of the model picker (model_favorites); it is
- * never applied by itself. The Orchestrator chooses worker models only from that Feature list.
+ * suggestion for what the operator enables in /models; it is never applied by itself. The Orchestrator
+ * chooses worker models only among the models the operator enabled there.
  */
 export const FREE_MODEL_TIERS = [
   {
@@ -77,13 +77,13 @@ export const FREE_MODEL_TIERS = [
   },
 ] as const
 
-/** True when a model is one of the operator's Feature favorites (provider and id; a variant is not part of the pick). */
-export const inFavorites = (favorites: ReadonlyArray<Model.Ref>, model: Model.Ref) =>
-  favorites.some((item) => item.providerID === model.providerID && item.id === model.id)
+/** True when a model is one of the models the operator enabled in /models (provider and id; a variant is not part of the pick). */
+export const inEnabled = (enabled: ReadonlyArray<Model.Ref>, model: Model.Ref) =>
+  enabled.some((item) => item.providerID === model.providerID && item.id === model.id)
 
 export const freeModelGuide = [
-  "Worker models come from the operator's Feature list (the favorites of the model picker) and nothing outside it. Leave model out and your Feature favorites are routed for each task automatically; pass model only to pick one specific Feature favorite for a task, and match the work: the strongest favorite for planning, review and hard debugging, a cheaper one for routine work. A model outside the Feature list is refused, and with an empty list workers use the default.",
-  `The operator's spend limit is 0, so the Feature list should hold free models. A good set to suggest to them: ${FREE_MODEL_TIERS.map((item) => `${item.tier} (${item.for}): ${item.models.join(", ")}`).join("; ")}. Suggest, never assume: you can only use what is in their Feature list.`,
+  "Worker models come only from the models the operator switched on in /models (the enabled model collections) and nothing outside them. Leave model out and the enabled models are routed for each task automatically; pass model only to pick one specific enabled model, and match the work: the strongest for planning, review and hard debugging, a cheaper one for routine work. A model that is not enabled is refused with the list of enabled ones. With nothing enabled, workers use the session's model.",
+  `The operator's spend limit is 0, so the enabled models should be free ones. A good set to suggest to them: ${FREE_MODEL_TIERS.map((item) => `${item.tier} (${item.for}): ${item.models.join(", ")}`).join("; ")}. Suggest, never assume: you can only use what they enabled.`,
 ].join("\n")
 
 export const guide = [
@@ -838,12 +838,18 @@ export const Plugin = {
         try: () => Model.Ref.parse(model),
         catch: () => new ToolFailure({ message: `Invalid model "${model}". Use provider/model or provider/model#variant.` }),
       })
-      // The operator's Feature list is the pool the Orchestrator chooses from; a role's own model list is separate.
-      const feature = yield* Orchestra.workerFavorites
-      if (!role.models?.length && feature.length > 0 && !inFavorites(feature, ref))
-        return yield* new ToolFailure({
-          message: `${model} is not in the operator's Feature list. Choose one of: ${feature.map(modelRef).join(", ")}, or omit model to have the Feature list routed for the task.`,
-        })
+      // The models the operator enabled in /models are the pool the Orchestrator chooses from; a role's own
+      // model list is separate. Nothing enabled means the session's model: there is nothing to choose.
+      if (!role.models?.length) {
+        const enabled = yield* Orchestra.workerEnabledModels
+        if (!inEnabled(enabled, ref))
+          return yield* new ToolFailure({
+            message:
+              enabled.length === 0
+                ? `${model} is not enabled: no models are switched on in /models, so workers use the session's model. Omit model.`
+                : `${model} is not enabled in /models. Enabled: ${enabled.map(modelRef).join(", ")}. Choose one of them, or omit model.`,
+          })
+      }
       const withRoleVariant =
         ref.variant === undefined && role.variant !== undefined
           ? Model.Ref.make({ ...ref, variant: Model.VariantID.make(role.variant) })
@@ -880,8 +886,11 @@ export const Plugin = {
       // The candidates are the operator's own: Feature picks, the role's choice, the worker policy.
       const worker = Orchestra.workerModels(policy, role, { favorites, catalog: available })
       const refs = [worker.model, ...(worker.models ?? [])].filter((item): item is Model.Ref => item !== undefined)
+      // Automatic routing stays inside the models the operator enabled in /models, once any are enabled.
+      const enabled = yield* Orchestra.workerEnabledModels
       const allowed = (ref: Model.Ref) =>
-        role.models?.length ? role.models.some((item) => baseOf(item) === modelRef(ref)) : true
+        (role.models?.length ? role.models.some((item) => baseOf(item) === modelRef(ref)) : true) &&
+        (enabled.length === 0 || inEnabled(enabled, ref))
       // Favorites route first: workerModels ranks them ahead of the role/policy fallbacks, but
       // the router alone would let a cheaper fallback beat a healthy favorite. The fallback pool
       // is what workerModels built — the role and policy models plus its society fallback,

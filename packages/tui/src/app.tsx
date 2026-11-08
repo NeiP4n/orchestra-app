@@ -45,7 +45,6 @@ import {
   type TuiApp,
 } from "./context/runtime"
 import { DialogProvider, useDialog } from "./ui/dialog"
-import { DialogIntegration } from "./component/dialog-integration"
 import { ErrorComponent } from "./component/error-component"
 import { PluginRouteMissing } from "./component/plugin-route-missing"
 import { EditorContextProvider } from "./context/editor"
@@ -62,7 +61,6 @@ import { LocalProvider, useLocal } from "./context/local"
 import { PermissionProvider } from "./context/permission"
 import { DialogModel } from "./component/dialog-model"
 import { DialogMode } from "./component/dialog-mode"
-import { useConnected } from "./component/use-connected"
 import { DialogMcp } from "./component/dialog-mcp"
 import { DialogCompat } from "./component/dialog-compat"
 import { DialogStatus } from "./component/dialog-status"
@@ -187,7 +185,6 @@ const appBindingCommands = [
   "agent.cycle.reverse",
   "variant.cycle",
   "variant.list",
-  "provider.connect",
   "orchestra.settings",
   "orchestra.status",
   "orchestra.update",
@@ -885,7 +882,6 @@ function App() {
       .catch(toast.error)
   })
 
-  const connected = useConnected()
   const appCommands = createMemo(() =>
     [
       {
@@ -1186,20 +1182,6 @@ function App() {
         run: () => {
           local.agent.move(-1)
         },
-      },
-      {
-        name: "provider.connect",
-        title: "Connect an integration",
-        suggested: !connected(),
-        slash: { name: "connect" },
-        run: () => {
-          dialog.replace(() => (
-            <DialogIntegration
-              onConnected={(providerID) => dialog.replace(() => <DialogModel providerID={providerID} />)}
-            />
-          ))
-        },
-        category: "Integration",
       },
       // The left panel holds these too; the palette keeps them reachable when the terminal is too narrow for it.
       {

@@ -87,8 +87,7 @@ test("sidebar shows onboarding without a connected integration", async () => {
     const frame = app.captureCharFrame()
     expect(frame).toContain("Getting started")
     expect(frame).toContain("Orchestra includes free models")
-    expect(frame).toContain("Connect provider")
-    expect(frame).toContain("/connect")
+    expect(frame).not.toContain("/connect")
   } finally {
     app.renderer.destroy()
   }
@@ -107,15 +106,11 @@ test("sidebar hides onboarding after an integration is connected or the card is 
   }
 })
 
-test("sidebar onboarding opens integrations and can be dismissed", async () => {
+test("sidebar onboarding can be dismissed", async () => {
   const dispatched: string[] = []
   const app = await render(context({ integrations: [], dispatched }))
 
   try {
-    const connect = app.renderer.root.findDescendantById("sidebar.footer.getting-started.connect")!
-    await app.mockMouse.click(connect.x, connect.y)
-    expect(dispatched).toEqual(["provider.connect"])
-
     const dismiss = app.renderer.root.findDescendantById("sidebar.footer.getting-started.dismiss")!
     await app.mockMouse.click(dismiss.x, dismiss.y)
     await app.renderOnce()
