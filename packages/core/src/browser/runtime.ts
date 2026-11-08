@@ -252,6 +252,8 @@ interface Inset {
   readonly top: number
   readonly scale: number
   readonly at: number
+  /** What Chrome reported: outer and inner size in CSS pixels, for the debug line. */
+  readonly raw: string
 }
 const insets = new Map<string, Inset>()
 // Where the last press landed: keys go to the address bar (window messages) or to the page (DevTools).
@@ -270,6 +272,7 @@ async function inset(sessionID: string, client: Cdp.Client): Promise<Inset> {
     top: Math.max(0, (oh - ih) * scale),
     scale: scale || 1,
     at: Date.now(),
+    raw: `outer ${ow}x${oh} inner ${iw}x${ih} dpr ${scale}`,
   }
   insets.set(sessionID, next)
   return next
@@ -291,11 +294,11 @@ export async function mouse(sessionID: string, input: Cdp.MouseInput): Promise<s
       x: (input.x - frame.left) / frame.scale,
       y: (input.y - frame.top) / frame.scale,
     })
-    return `page ${Math.round((input.x - frame.left) / frame.scale)},${Math.round((input.y - frame.top) / frame.scale)} (ui ${Math.round(frame.left)},${Math.round(frame.top)} x${frame.scale})`
+    return `PAGE at ${Math.round((input.x - frame.left) / frame.scale)},${Math.round((input.y - frame.top) / frame.scale)} from window ${Math.round(input.x)},${Math.round(input.y)} (${frame.raw}, top inset ${Math.round(frame.top)}px)`
   }
   if (input.kind === "down") uiFocus.set(sessionID, true)
   capture.mouse(input)
-  return `chrome-ui window ${Math.round(input.x)},${Math.round(input.y)}`
+  return `CHROME-UI window ${Math.round(input.x)},${Math.round(input.y)}${frame ? ` (${frame.raw}, top inset ${Math.round(frame.top)}px)` : " (no inset)"}`
 }
 
 export async function key(sessionID: string, input: Parameters<typeof Cdp.key>[1]) {

@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process"
+import { fileURLToPath } from "node:url"
 import { HoverAction } from "./hover-action"
 import {
   ImageRenderable,
@@ -21,6 +23,21 @@ declare module "@opentui/solid" {
 }
 
 extend({ browserImage: ImageRenderable })
+
+// The commit this TUI runs from (when it runs from a git checkout), so a report can say which build it saw.
+const BUILD = (() => {
+  try {
+    const out = spawnSync("git", ["rev-parse", "--short", "HEAD"], {
+      cwd: fileURLToPath(new URL(".", import.meta.url)),
+      encoding: "utf8",
+      timeout: 2000,
+      windowsHide: true,
+    })
+    return out.status === 0 ? out.stdout.trim() || "unknown" : "unknown"
+  } catch {
+    return "unknown"
+  }
+})()
 
 // The live picture is capped so a big terminal does not make Chrome render and ship huge frames.
 const MAX_WIDTH = 1600
@@ -145,9 +162,13 @@ export function BrowserPane(props: {
       BrowserRuntime.mouse(
         props.sessionID,
         kind === "move" ? { kind, ...at } : { kind, ...at, button: event.button === 2 ? "right" : "left" },
-      ).then((where) => {
-        if (kind !== "move") setRoute(`${kind} -> ${where}`)
-      }),
+      ).then(
+        (where) => setRoute(`${kind} -> ${where}`),
+        (error) => {
+          setRoute(`${kind} FAILED: ${errorMessage(error)}`)
+          throw error
+        },
+      ),
     )
   }
   createEffect(() => {
@@ -344,10 +365,13 @@ export function BrowserPane(props: {
               </box>
             </box>
             <text fg={theme.text.muted} flexShrink={0} wrapMode="none" truncate>
-              {control()
-                ? `${debug() || "control: on, waiting for mouse or keys"}${route() ? ` · ${route()}` : ""}`
-                : stats()}
+              {control() ? debug() || "control: on, waiting for mouse or keys" : `${stats()} · build ${BUILD}`}
             </text>
+            <Show when={control() && route()}>
+              <text fg={theme.text.muted} flexShrink={0} wrapMode="word">
+                {`${route()} · build ${BUILD}`}
+              </text>
+            </Show>
           </Show>
         </Show>
       </Show>
