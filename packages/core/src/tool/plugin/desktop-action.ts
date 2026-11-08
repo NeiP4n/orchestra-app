@@ -17,10 +17,10 @@ export const description = [
   "B7: this tool reads and drives the operator's REAL screen through Windows UI Automation — there is no virtual display for it. It needs the real-screen opt-in (ORCHESTRA_DESKTOP_REAL_SCREEN=on, allowlist naming the app, future expiry) on top of ORCHESTRA_DESKTOP_CAPTURE=on. Without it the call is refused; use the desktop_* tools on the virtual display instead.",
   "",
   "Actions:",
-  "  click — the centre of the element named by target (or of the window itself when target is omitted).",
-  "  invoke — the element's own Invoke, Toggle or Select pattern, the way assistive tools press a control.",
-  "  focus — keyboard focus on the element, and the window brought to the front.",
-  "  type — the text into the element: ValuePattern when the field offers one, otherwise focus plus a paste.",
+  "  click and invoke — the element's own Invoke, Toggle or Select pattern, the way assistive tools press a control. The real mouse pointer is never used; an element with none of those patterns is refused. click needs a target.",
+  "  scroll — UI Automation scroll: omit direction to bring the target into view, or pass up, down, top or bottom to scroll the nearest scrollable container. No wheel, no pointer.",
+  "  focus — keyboard focus on the element, and the window brought to the front (the only action that raises a window).",
+  "  type — the text into the element through ValuePattern. No clipboard paste and no window raising: a field without a writable ValuePattern is refused.",
   "  media — play_pause, play, pause, next, prev or mute as a Windows media key, in milliseconds and without touching focus.",
   "",
   "app picks the window by part of its title or by its process name; omit it to act on the window that already has the focus.",
@@ -32,13 +32,15 @@ export const description = [
 ].join("\n")
 
 export const Input = Schema.Struct({
-  action: Schema.Literals(["click", "invoke", "type", "focus", "media"]),
+  action: Schema.Literals(["click", "invoke", "type", "focus", "scroll", "media"]),
   /** Part of a window title or a process name. Omit to use the window that has the focus. */
   app: optional(Schema.String),
   /** Element name, text or automation id. Omit to act on the window itself. */
   target: optional(Schema.String),
   /** The text to type, for action "type". */
   text: optional(Schema.String),
+  /** Scroll direction for action "scroll". Omit to bring the target into view. */
+  direction: optional(Schema.Literals(["up", "down", "top", "bottom"])),
   /** Media key to send, for action "media". */
   command: optional(Schema.Literals(["play_pause", "play", "pause", "next", "prev", "mute"])),
 })
@@ -173,12 +175,16 @@ export function buildScript(input: Input) {
     `-App ${psString(input.app?.trim() ?? "")}`,
     `-Target ${psString(input.target?.trim() ?? "")}`,
     `-Text ${psString(input.text ?? "")}`,
+    ...(input.direction === undefined ? [] : [`-Direction ${psString(input.direction)}`]),
   ].join(" ")
 }
 
 export function renderResult(result: ActionResult) {
   const window = `"${result.window.title}" [${result.window.process || "process"} ${result.window.processId}]`
   const element = describeElement(result.element)
+  if (result.action === "scroll") return clip(`scrolled ${element} in ${window} via ${result.method}.`)
+  if (result.action === "click" && result.point === undefined && result.method.endsWith("Pattern"))
+    return clip(`clicked ${element} in ${window} via ${result.method}.`)
   if (result.action === "click")
     return clip(
       result.point === undefined
@@ -257,8 +263,6 @@ using System;
 using System.Runtime.InteropServices;
 public static class OcAction {
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
-  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-  [DllImport("user32.dll")] public static extern void mouse_event(uint f, int x, int y, int d, IntPtr e);
   [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint f, IntPtr e);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
@@ -402,20 +406,6 @@ function Activate-Window($window) {
   Start-Sleep -Milliseconds 30
 }
 
-function Send-Click([int]$x, [int]$y) {
-  [void][OcAction]::SetCursorPos($x, $y)
-  Start-Sleep -Milliseconds 10
-  [OcAction]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero)
-  [OcAction]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero)
-  return [pscustomobject]@{ x = $x; y = $y }
-}
-
-function Click-Element($element) {
-  $rect = Get-Rect $element
-  if ($null -eq $rect) { throw 'The element has no clickable rectangle; it may be offscreen or minimised.' }
-  return Send-Click ([int][Math]::Round($rect.X + $rect.Width / 2)) ([int][Math]::Round($rect.Y + $rect.Height / 2))
-}
-
 function Invoke-Element($element) {
   $pattern = $null
   if ($element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern) -and $null -ne $pattern) {
@@ -432,7 +422,7 @@ function Invoke-Element($element) {
     $selection.Select()
     return 'SelectionItemPattern'
   }
-  throw 'The element supports no Invoke, Toggle or Select pattern; use action "click" instead.'
+  throw 'The element supports no Invoke, Toggle or Select pattern.'
 }
 
 function Focus-Element($element) {
@@ -467,36 +457,30 @@ function Find-Editable($window) {
   return $null
 }
 
-# A background process may not take the foreground. The Alt tap unlocks SetForegroundWindow, and the result
-# is verified: a paste that would land in another window is refused instead of typing into the operator's app.
-function Force-Foreground($window) {
-  $handle = [IntPtr]$window.Current.NativeWindowHandle
-  if ($handle -eq [IntPtr]::Zero) { return $false }
-  [void][OcAction]::ShowWindow($handle, 9)
-  [OcAction]::keybd_event(0x12, 0, 0, [IntPtr]::Zero)
-  [void][OcAction]::SetForegroundWindow($handle)
-  [OcAction]::keybd_event(0x12, 0, 2, [IntPtr]::Zero)
-  Start-Sleep -Milliseconds 100
-  return ([OcAction]::GetForegroundWindow() -eq $handle)
-}
-
-function Paste-Text($window, $element, [string]$Text) {
-  if (-not (Force-Foreground $window)) {
-    throw ('Could not bring "' + $window.Current.Name + '" to the front, so nothing was typed.')
+# Scroll without the pointer: bring an item into view, or scroll the nearest scrollable ancestor.
+function Scroll-Element($element, [string]$Direction) {
+  if ($Direction -eq '') {
+    $item = $null
+    if ($element.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern, [ref]$item) -and $null -ne $item) {
+      $item.ScrollIntoView()
+      return 'ScrollItemPattern'
+    }
   }
-  try { $element.SetFocus() } catch {}
-  Start-Sleep -Milliseconds 100
-  $previous = $null
-  try { $previous = Get-Clipboard -Raw -Format Text } catch {}
-  Set-Clipboard -Value $Text
-  Start-Sleep -Milliseconds 60
-  [OcAction]::keybd_event(0x11, 0, 0, [IntPtr]::Zero)
-  [OcAction]::keybd_event(0x56, 0, 0, [IntPtr]::Zero)
-  [OcAction]::keybd_event(0x56, 0, 2, [IntPtr]::Zero)
-  [OcAction]::keybd_event(0x11, 0, 2, [IntPtr]::Zero)
-  Start-Sleep -Milliseconds 120
-  if ($null -ne $previous) { Set-Clipboard -Value $previous } else { Set-Clipboard -Value '' }
-  return 'ClipboardPaste'
+  $amountNone = [System.Windows.Automation.ScrollAmount]::NoAmount
+  $node = $element
+  $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+  while ($null -ne $node) {
+    $scroll = $null
+    if ($node.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$scroll) -and $null -ne $scroll -and $scroll.Current.VerticallyScrollable) {
+      if ($Direction -eq 'up') { $scroll.Scroll($amountNone, [System.Windows.Automation.ScrollAmount]::LargeDecrement) }
+      elseif ($Direction -eq 'top') { $scroll.SetScrollPercent([System.Windows.Automation.ScrollPattern]::NoScroll, 0) }
+      elseif ($Direction -eq 'bottom') { $scroll.SetScrollPercent([System.Windows.Automation.ScrollPattern]::NoScroll, 100) }
+      else { $scroll.Scroll($amountNone, [System.Windows.Automation.ScrollAmount]::LargeIncrement) }
+      return 'ScrollPattern'
+    }
+    $node = $walker.GetParent($node)
+  }
+  throw 'Nothing here supports UI Automation scrolling; use desktop_keys (pagedown, up, down) or ask the operator.'
 }
 
 function Get-Entry($element) {
@@ -535,24 +519,26 @@ function ConvertTo-Window($window) {
   return [pscustomobject]@{ title = $title.Trim(); processId = $processId; process = $process; x = $x; y = $y; w = $w; h = $h }
 }
 
-function Invoke-Action([string]$Action, [string]$App, [string]$Target, [string]$Text) {
+function Invoke-Action([string]$Action, [string]$App, [string]$Target, [string]$Text, [string]$Direction = '') {
   $window = Find-Window $App
-  Activate-Window $window
+  # ADR-4: only an explicit focus action brings a window forward; everything else works in the background.
+  if ($Action -eq 'focus') { Activate-Window $window }
   $element = Find-Target $window $Target
   $method = ''
   $point = $null
 
-  if ($Action -eq 'click') {
-    if ($Target -eq '') {
-      $rect = Get-Rect $window
-      if ($null -eq $rect) { throw 'The window has no clickable rectangle.' }
-      $point = Send-Click ([int][Math]::Round($rect.X + $rect.Width / 2)) ([int][Math]::Round($rect.Y + $rect.Height / 2))
-    } else {
-      $point = Click-Element $element
+  if ($Action -eq 'click' -or $Action -eq 'invoke') {
+    # ADR-4: click is the element's own Invoke, Toggle or Select pattern; there is no pointer fallback.
+    if ($Action -eq 'click' -and $Target -eq '') {
+      throw 'click needs a target: the agent never presses the centre of a window with the real pointer. Name a control (see desktop_inspect) or use desktop_keys.'
     }
-    $method = 'Mouse'
-  } elseif ($Action -eq 'invoke') {
-    $method = Invoke-Element $element
+    try {
+      $method = Invoke-Element $element
+    } catch {
+      throw ('Refused: ' + $Action + ' on "' + $Target + '" needs the real mouse pointer, which the agent never moves on Windows (the element has no Invoke, Toggle or Select pattern). Try another control, desktop_keys, or ask the operator to click it.')
+    }
+  } elseif ($Action -eq 'scroll') {
+    $method = Scroll-Element $element $Direction
   } elseif ($Action -eq 'focus') {
     $method = Focus-Element $element
   } elseif ($Action -eq 'type') {
@@ -568,8 +554,8 @@ function Invoke-Action([string]$Action, [string]$App, [string]$Target, [string]$
         }
       }
       if ($method -eq '') {
-        if ($null -ne $editable) { $element = $editable }
-        $method = Paste-Text $window $element $Text
+        # ADR-4: no clipboard paste and no window raising for typing.
+        throw ('Refused: "' + $Target + '" has no writable ValuePattern, and the agent does not paste through the clipboard or pull the window to the front. Use action "focus" then desktop_type, or ask the operator.')
       }
     }
   } else {
