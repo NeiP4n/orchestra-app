@@ -2,13 +2,12 @@ import { describe, expect, test } from "bun:test"
 import { completionNoticeRole, toolRowRole } from "../src/routes/session/notice-color"
 
 describe("completion notice colour", () => {
-  const states = [undefined, "", "running", "completed", "finished", "cancelled", "error"] as const
+  const states: (string | undefined)[] = [undefined, "", "running", "completed", "finished", "cancelled", "error"]
 
-  test.each(states)("state %p is red only when it is a real error", (state) => {
-    for (const hovering of [false, true]) {
-      const role = completionNoticeRole({ state, hovering })
-      expect(role === "error").toBe(state === "error")
-    }
+  test("a state is red only when it is a real error", () => {
+    for (const state of states)
+      for (const hovering of [false, true])
+        expect(completionNoticeRole({ state, hovering }) === "error").toBe(state === "error")
   })
 
   test("a notice with no state (an instruction or system message) is never red", () => {
