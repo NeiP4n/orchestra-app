@@ -62,6 +62,206 @@ describe("util/path: comparablePath and containsDirectory", () => {
     expect(containsDirectory("C:/Program Files", "C:/PROGRA~1/../Windows")).toBe(false)
   })
 
+  test("comparablePath keeps literal backslashes in POSIX-rooted paths and collapses slash-only roots", () => {
+    // On win32 a slash-rooted path is valid current-drive syntax, so
+    // backslashes there stay separators; off Windows they are literal.
+    expect(comparablePath("/tmp/foo\\bar")).toBe(process.platform === "win32" ? "/tmp/foo/bar" : "/tmp/foo\\bar")
+    expect(comparablePath("/tmp/demo///")).toBe("/tmp/demo")
+    expect(comparablePath("/")).toBe("/")
+    expect(comparablePath("//")).toBe("/")
+    expect(comparablePath("///")).toBe("/")
+    expect(comparablePath("///server")).toBe("/server")
+    // Exactly two leading slashes followed by a name stay UNC.
+    expect(comparablePath("//server/share")).toBe("//server/share")
+    // Drive, UNC and relative forms still treat backslashes as separators.
+    expect(comparablePath("C:\\tmp\\demo")).toBe("C:/tmp/demo")
+    expect(comparablePath("\\\\server\\share")).toBe("//server/share")
+    expect(comparablePath("sub\\file.txt")).toBe("sub/file.txt")
+    expect(comparablePath("dir\\..\\other")).toBe("other")
+    expect(comparablePath("..\\evil")).toBe("../evil")
+  })
+
+  test("on win32 slash-rooted paths keep separator semantics for backslashes", () => {
+    if (process.platform !== "win32") return
+
+    expect(comparablePath("/foo\\bar")).toBe("/foo/bar")
+    expect(comparablePath("/foo/..\\outside")).toBe("/outside")
+  })
+
+  test("POSIX directories with literal backslashes keep a distinct identity from slash paths", () => {
+    if (process.platform === "win32") return
+
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "orchestra-test-backslash-"))
+    const backslashDir = path.join(tempRoot, "a\\b")
+    const slashDir = path.join(tempRoot, "a", "b")
+    fs.mkdirSync(backslashDir)
+    fs.mkdirSync(slashDir, { recursive: true })
+
+    try {
+      const root = comparablePath(tempRoot)
+      const backslashKey = comparablePath(backslashDir)
+      const slashKey = comparablePath(slashDir)
+
+      expect(backslashKey).toBe(`${root}/a\\b`)
+      expect(slashKey).toBe(`${root}/a/b`)
+      expect(backslashKey).not.toBe(slashKey)
+      expect(sameDirectory(backslashDir, slashDir)).toBe(false)
+      expect(containsDirectory(tempRoot, backslashDir)).toBe(true)
+      expect(containsDirectory(tempRoot, slashDir)).toBe(true)
+      expect(containsDirectory(backslashDir, slashDir)).toBe(false)
+      expect(containsDirectory(slashDir, backslashDir)).toBe(false)
+
+      // A non-existing tail goes through walk-up canonicalization; the literal
+      // backslash must survive there too.
+      const missingBackslash = path.join(tempRoot, "missing\\tail")
+      const missingSlash = path.join(tempRoot, "missing", "tail")
+      expect(comparablePath(missingBackslash)).toBe(`${root}/missing\\tail`)
+      expect(comparablePath(missingSlash)).toBe(`${root}/missing/tail`)
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test("a POSIX symlink with a backslash in its name still canonicalizes through its target", () => {
+    if (process.platform === "win32") return
+
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "orchestra-test-backslash-link-"))
+    const inside = path.join(tempRoot, "inside")
+    const outside = path.join(tempRoot, "outside")
+    fs.mkdirSync(inside)
+    fs.mkdirSync(outside)
+    const link = path.join(inside, "link\\name")
+    fs.symlinkSync(outside, link)
+
+    try {
+      expect(sameDirectory(link, outside)).toBe(true)
+      expect(containsDirectory(inside, link)).toBe(false)
+
+      // A missing tail under the link resolves against the target, then stays lexical.
+      const missing = path.join(link, "missing")
+      expect(comparablePath(missing)).toBe(`${comparablePath(outside)}/missing`)
+      expect(containsDirectory(inside, missing)).toBe(false)
+      expect(containsDirectory(outside, missing)).toBe(true)
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test("a POSIX symlink with a relative target resolves against its own directory", () => {
+    if (process.platform === "win32") return
+
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "orchestra-test-backslash-rel-"))
+    const inside = path.join(tempRoot, "inside")
+    const outside = path.join(tempRoot, "outside")
+    fs.mkdirSync(inside)
+    fs.mkdirSync(outside)
+    const link = path.join(inside, "rel\\link")
+    fs.symlinkSync("../outside", link)
+
+    try {
+      expect(sameDirectory(link, outside)).toBe(true)
+      expect(containsDirectory(inside, link)).toBe(false)
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test("a POSIX symlink target with .. resolves after following symlink segments inside it", () => {
+    if (process.platform === "win32") return
+
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "orchestra-test-backslash-hop-"))
+    const inside = path.join(tempRoot, "inside")
+    const outside = path.join(tempRoot, "outside")
+    fs.mkdirSync(inside)
+    fs.mkdirSync(path.join(outside, "nested"), { recursive: true })
+    fs.symlinkSync(path.join(outside, "nested"), path.join(inside, "hop"))
+    const link = path.join(inside, "link\\name")
+    // Relative target "hop/..": hop is itself a symlink, so the .. must apply
+    // to the resolved outside/nested, landing on outside - not lexically on inside.
+    fs.symlinkSync("hop/..", link)
+
+    try {
+      expect(sameDirectory(link, outside)).toBe(true)
+      expect(containsDirectory(inside, link)).toBe(false)
+
+      const missing = path.join(link, "missing")
+      expect(comparablePath(missing)).toBe(`${comparablePath(outside)}/missing`)
+      expect(containsDirectory(inside, missing)).toBe(false)
+      expect(containsDirectory(outside, missing)).toBe(true)
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test("a POSIX .. after a backslash-named symlink applies to the link's target", () => {
+    if (process.platform === "win32") return
+
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "orchestra-test-backslash-dotdot-"))
+    const inside = path.join(tempRoot, "inside")
+    const outside = path.join(tempRoot, "outside")
+    fs.mkdirSync(inside)
+    fs.mkdirSync(path.join(outside, "nested"), { recursive: true })
+    const link = path.join(inside, "link\\name")
+    fs.symlinkSync(path.join(outside, "nested"), link)
+
+    try {
+      // The .. must not be collapsed lexically against the link's own name:
+      // it applies after the symlink is followed, landing on outside.
+      expect(comparablePath(`${link}/..`)).toBe(comparablePath(outside))
+      expect(containsDirectory(inside, `${link}/..`)).toBe(false)
+
+      const missing = `${link}/../missing`
+      expect(comparablePath(missing)).toBe(`${comparablePath(outside)}/missing`)
+      expect(containsDirectory(inside, missing)).toBe(false)
+      expect(containsDirectory(outside, missing)).toBe(true)
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test("a missing POSIX tail whose .. climbs back to a resolved prefix stays unresolved", () => {
+    if (process.platform === "win32") return
+
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "orchestra-test-backslash-missing-"))
+    const inside = path.join(tempRoot, "inside")
+    const outside = path.join(tempRoot, "outside")
+    fs.mkdirSync(inside)
+    fs.mkdirSync(outside)
+    const link = path.join(inside, "link\\name")
+    fs.symlinkSync(outside, link)
+    fs.writeFileSync(path.join(inside, "file.txt"), "x")
+
+    try {
+      // Native realpath reports ENOENT for the whole path, so the helper makes
+      // no canonical claim and keeps the input unresolved.
+      // Built by hand: path.join would lexically normalize the .. away.
+      const climbing = `${inside}/missing/../link\\name`
+      expect(comparablePath(climbing)).toBe(climbing)
+      const throughFile = `${inside}/file.txt/x\\y`
+      expect(comparablePath(throughFile)).toBe(throughFile)
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test("a POSIX symlink cycle falls back to the literal spelling instead of hanging", () => {
+    if (process.platform === "win32") return
+
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "orchestra-test-backslash-cycle-"))
+    const a = path.join(tempRoot, "cycle\\a")
+    const b = path.join(tempRoot, "cycle\\b")
+    fs.symlinkSync(b, a)
+    fs.symlinkSync(a, b)
+
+    try {
+      expect(comparablePath(a)).toBe(a)
+      expect(comparablePath(b)).toBe(b)
+      expect(sameDirectory(a, a)).toBe(true)
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true })
+    }
+  })
+
   test("containsDirectory safely handles paths with tilde (~) and prevents traversal escape", () => {
     expect(comparablePath("C:/nonexistent/TEST~1")).toBe("C:/nonexistent/TEST~1")
     expect(containsDirectory("C:/nonexistent/TEST~1", "C:/nonexistent/TEST~1/sub")).toBe(true)

@@ -97,7 +97,9 @@ describe("normalizeProjectInfo", () => {
 test.each([
   ["C:\\Repos\\sst\\opencode", "C:/Repos/sst/opencode"],
   ["C:/Repos/sst/opencode", "C:/Repos/sst/opencode"],
-  ["/tmp/foo\\bar", "/tmp/foo\\bar"],
+  // Off Windows a backslash in a POSIX-rooted path is a literal name
+  // character; on win32 the slash-rooted form is current-drive syntax.
+  ["/tmp/foo\\bar", process.platform === "win32" ? "/tmp/foo/bar" : "/tmp/foo\\bar"],
   ["C:/Repos/sst/opencode/", "C:/Repos/sst/opencode"],
   ["C:/", "C:/"],
   ["/", "/"],

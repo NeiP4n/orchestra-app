@@ -8,6 +8,8 @@
 import * as nodeFs from "node:fs"
 
 const realpathSync = nodeFs.realpathSync
+const lstatSync = nodeFs.lstatSync
+const readlinkSync = nodeFs.readlinkSync
 
 export function getFilename(path: string | undefined) {
   if (!path) return ""
@@ -50,7 +52,11 @@ const isDrive = (value: string) => {
 const isWindowsPlatform = typeof process !== "undefined" && process.platform === "win32"
 
 function cleanResolvedPath(resolved: string): string {
-  let p = resolved.replaceAll("\\", "/")
+  // realpath on Windows reports drive or UNC syntax with backslashes; a POSIX
+  // realpath can legitimately contain a literal backslash inside a name, so
+  // only unambiguous Windows syntax is normalized.
+  const windowsForm = /^[a-zA-Z]:([\\/]|$)/.test(resolved) || resolved.startsWith("\\\\")
+  let p = windowsForm ? resolved.replaceAll("\\", "/") : resolved
   if (p.startsWith("//?/UNC/")) {
     p = "//" + p.slice(8)
   } else if (p.startsWith("//?/")) {
@@ -64,6 +70,12 @@ function cleanResolvedPath(resolved: string): string {
 
 function canonicalizePath(normalized: string, isRelative: boolean): string {
   if (typeof realpathSync !== "function") return normalized
+
+  // Backslashes only survive normalization in POSIX-rooted paths, where they
+  // are literal name characters. realpath cannot be trusted with such names
+  // (Bun before 1.4.3 silently collapses them into separators), so those
+  // paths are canonicalized segment by segment instead.
+  if (normalized.includes("\\")) return canonicalizePosixLiteral(normalized)
 
   if (isRelative) {
     if (typeof process === "undefined" || typeof process.cwd !== "function") return normalized
@@ -110,10 +122,104 @@ function canonicalizePath(normalized: string, isRelative: boolean): string {
   return normalized
 }
 
+// realpath semantics for a POSIX-rooted path that contains literal
+// backslashes, without feeding the name to realpath: one remaining-segments
+// queue plus a resolved prefix, walked with lstat/readlink (which handle such
+// names correctly on every runtime). Symlink targets expand INTO the queue,
+// so every segment resolves in filesystem order under a single hop budget and
+// a ".." only ever applies to an already-resolved prefix. The result is
+// best-effort, not an authorization boundary: only ENOENT keeps a lexical
+// tail under the resolved prefix, while other errors and hop exhaustion
+// return the input unresolved.
+function canonicalizePosixLiteral(normalized: string): string {
+  if (typeof lstatSync !== "function" || typeof readlinkSync !== "function") return normalized
+  const queue = normalized.split("/")
+  const resolved: string[] = []
+  let hops = 0
+  for (let i = 0; i < queue.length; i++) {
+    const segment = queue[i]
+    if (segment === "" || segment === ".") continue
+    if (segment === "..") {
+      resolved.pop()
+      continue
+    }
+    const candidate = `/${[...resolved, segment].join("/")}`
+    let stat: ReturnType<typeof nodeFs.lstatSync>
+    try {
+      stat = lstatSync(candidate)
+    } catch (error) {
+      if ((error as { code?: unknown })?.code === "ENOENT") {
+        // Proper nonexistence: collapse the missing tail lexically against the
+        // resolved prefix. A ".." that climbs out of the missing suffix back
+        // to the resolved prefix invalidates any canonical claim for what
+        // follows (a sibling there could be a symlink; native realpath would
+        // report ENOENT for the whole path), so the input stays unresolved.
+        const tail = [...resolved]
+        for (const part of queue.slice(i)) {
+          if (part === "" || part === ".") continue
+          if (part === "..") {
+            if (tail.length <= resolved.length + 1) return normalized
+            tail.pop()
+            continue
+          }
+          tail.push(part)
+        }
+        return "/" + tail.join("/")
+      }
+      return normalized
+    }
+    if (!stat.isSymbolicLink()) {
+      resolved.push(segment)
+      continue
+    }
+    if (hops >= 40) return normalized
+    hops += 1
+    let target: string
+    try {
+      target = readlinkSync(candidate)
+    } catch {
+      return normalized
+    }
+    const absolute = target.startsWith("/") ? target : `/${[...resolved, target].join("/")}`
+    const rest = queue.slice(i + 1)
+    queue.length = 0
+    queue.push(...absolute.split("/"), ...rest)
+    resolved.length = 0
+    i = -1
+  }
+  return "/" + resolved.join("/")
+}
+
+// Exactly two leading slashes followed by a non-slash name is UNC syntax; a
+// run of three or more slashes (or slashes only) is a POSIX root.
+const hasUncSyntax = (value: string) => value.startsWith("//") && value.length > 2 && value[2] !== "/"
+
+// A path rooted at a single slash with no drive or UNC syntax is POSIX, so a
+// backslash inside it is a literal name character, not a separator. Every
+// other shape (drive, UNC, or relative) keeps treating backslashes as Windows
+// separators.
+const isPosixRooted = (value: string) => value.startsWith("/") && !hasUncSyntax(value)
+
 /** A comparable form of a directory path: forward slashes for Windows paths, collapsed . and .. segments, no trailing slash except on roots. */
 export function comparablePath(path: string) {
-  const value = path.includes("\\") ? path.replaceAll("\\", "/") : path
-  const isUnc = value.startsWith("//")
+  // On win32 a slash-rooted path is valid current-drive syntax, so the
+  // literal-backslash reading only applies off Windows.
+  const posixLiteral = !isWindowsPlatform && isPosixRooted(path)
+  // A ".." after a backslash-named symlink must apply to the link's resolved
+  // target, so raw POSIX-literal input goes through the segment walker before
+  // the generic lexical ".." collapse below can erase the pair. (For paths
+  // without literal backslashes that same symlink-vs-".." ordering remains a
+  // known limitation of the lexical pre-collapse.)
+  if (
+    posixLiteral &&
+    path.includes("\\") &&
+    typeof lstatSync === "function" &&
+    typeof readlinkSync === "function"
+  ) {
+    return canonicalizePosixLiteral(path)
+  }
+  const value = posixLiteral ? path : path.includes("\\") ? path.replaceAll("\\", "/") : path
+  const isUnc = hasUncSyntax(value)
   const isAbsoluteUnix = !isUnc && value.startsWith("/")
   const parts = value.split("/")
   const segments: string[] = []
