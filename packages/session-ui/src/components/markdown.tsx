@@ -15,6 +15,7 @@ import { Icon } from "@orchestra/ui/icon"
 import { IconButton } from "@orchestra/ui/icon-button"
 import { Tooltip } from "@orchestra/ui/tooltip"
 import { canReusePendingBlock, completedProjection } from "./markdown-projection"
+import { markdownTrace } from "./markdown-trace"
 import type { Block, Projection } from "./markdown-stream"
 import {
   disposeMarkdownProjection,
@@ -93,6 +94,12 @@ async function code(text: string, language: string | undefined, key: string, com
       unstable: result.unstable,
     }
   } catch (error) {
+    markdownTrace("code:error", () => ({
+      keyHash: checksum(key),
+      complete,
+      errorClass: error instanceof Error ? error.constructor.name : typeof error,
+    }))
+
     if (
       !(error instanceof MarkdownWorkerDisposedError) &&
       !(error instanceof MarkdownWorkerSupersededError) &&
@@ -545,6 +552,12 @@ export function Markdown(
   const previewImages = createImagePreview()
   const [root, setRoot] = createSignal<HTMLDivElement>()
   const owner = createUniqueId()
+  markdownTrace("owner:mount", () => ({
+    owner,
+    hasKey: !!local.cacheKey,
+    keyHash: local.cacheKey ? checksum(local.cacheKey) : undefined,
+    streaming: local.streaming ?? false,
+  }))
   const lifetime = new AbortController()
   const activeCodeKeys = new Set<string>()
   const completedCode = new Map<string, Extract<RenderedBlock, { mode: "code" }>>()
@@ -558,6 +571,8 @@ export function Markdown(
       if (live) streamed = true
 
       if (!live && !streamed) return
+
+      markdownTrace("source", () => ({ owner, live, streamed, textLength: local.text.length, textHash: checksum(local.text) }))
 
       return { key: owner, text: local.text, live }
     },
@@ -594,7 +609,24 @@ export function Markdown(
         }
       const value = !(local.streaming ?? false) && !streamed ? completedProjection(local.text) : projection.latest
 
-      if (!value || value.text !== local.text) return
+      if (!value || value.text !== local.text) {
+        markdownTrace("html:skip", () => ({
+          owner,
+          reason: value ? "text-mismatch" : "no-projection",
+          textHash: checksum(local.text),
+          projectionTextHash: value ? checksum(value.text) : undefined,
+        }))
+
+        return
+      }
+
+      markdownTrace("html:request", () => ({
+        owner,
+        textHash: checksum(local.text),
+        hasKey: !!local.cacheKey,
+        keyHash: local.cacheKey ? checksum(local.cacheKey) : undefined,
+        blockCount: value.blocks.length,
+      }))
 
       return {
         text: local.text,
@@ -631,8 +663,11 @@ export function Markdown(
 
           if (block.mode === "code") {
             const cached = completedCode.get(blockKey)
+            const hit = !!(block.complete && cached?.raw === block.raw)
 
-            if (block.complete && cached?.raw === block.raw) return cached
+            markdownTrace("html:code-cache", () => ({ owner, index, hit, complete: !!block.complete, rawHash: checksum(block.raw) }))
+
+            if (hit) return cached!
             const result = await code(block.src, block.language, blockKey, block.complete)
 
             const rendered = {
@@ -658,25 +693,43 @@ export function Markdown(
           }
         }),
       )
-        .then((blocks) => ({ text: src.text, blocks, ready: true }) satisfies RenderResult)
-        .catch(
-          () =>
-            (lifetime.signal.aborted
-              ? { text: src.text, blocks: [], ready: false }
-              : {
-                  text: src.text,
-                  ready: true,
-                  blocks: [
-                    {
-                      key: base ?? "fallback",
-                      mode: "full" as const,
-                      raw: src.text,
-                      hash: checksum(src.text) ?? "",
-                      html: fallback(src.text),
-                    },
-                  ],
-                }) satisfies RenderResult,
-        )
+        .then((blocks) => {
+          markdownTrace("html:settled", () => ({
+            owner,
+            textHash: checksum(src.text),
+            blocks: blocks.map((block) => ({
+              keyHash: block.key ? checksum(block.key) : undefined,
+              mode: block.mode,
+              complete: "complete" in block ? !!block.complete : undefined,
+            })),
+          }))
+
+          return { text: src.text, blocks, ready: true } satisfies RenderResult
+        })
+        .catch((error: unknown) => {
+          markdownTrace("html:error", () => ({
+            owner,
+            textHash: checksum(src.text),
+            aborted: lifetime.signal.aborted,
+            errorClass: error instanceof Error ? error.constructor.name : typeof error,
+          }))
+
+          return lifetime.signal.aborted
+            ? { text: src.text, blocks: [], ready: false }
+            : ({
+                text: src.text,
+                ready: true,
+                blocks: [
+                  {
+                    key: base ?? "fallback",
+                    mode: "full" as const,
+                    raw: src.text,
+                    hash: checksum(src.text) ?? "",
+                    html: fallback(src.text),
+                  },
+                ],
+              }) satisfies RenderResult
+        })
     },
     { initialValue: initial },
   )
@@ -779,6 +832,8 @@ export function Markdown(
 
     if (container) disposeRenderedMarkdown(container)
 
+    markdownTrace("owner:dispose", () => ({ owner }))
+
     if (streamed) disposeMarkdownProjection(owner)
     activeCodeKeys.forEach(disposeCode)
     completedCode.clear()
@@ -807,15 +862,45 @@ function pendingBlocks(
 ) {
   if (!result) return []
 
-  if (!projection || result.text === projection.text) return result.blocks
+  if (!projection || result.text === projection.text) {
+    markdownTrace("pending:stable", () => ({
+      owner,
+      textHash: checksum(result.text),
+      blocks: result.blocks.map((block) => ({
+        keyHash: block.key ? checksum(block.key) : undefined,
+        mode: block.mode,
+        complete: "complete" in block ? !!block.complete : undefined,
+      })),
+    }))
+
+    return result.blocks
+  }
 
   if (deferUntilReady) return result.blocks
   const initial = result.blocks.length === 1 && result.blocks[0]?.key === "initial"
 
+  markdownTrace("pending:map", () => ({
+    owner,
+    initial,
+    resultTextHash: checksum(result.text),
+    projectionTextHash: checksum(projection.text),
+    blockCount: projection.blocks.length,
+  }))
+
   return projection.blocks.map((block, index) => {
     const current = initial ? undefined : result.blocks[index]
 
-    if (current && canReusePendingBlock(current, block)) return current
+    if (current && canReusePendingBlock(current, block)) {
+      markdownTrace("pending:reuse", () => ({
+        owner,
+        index,
+        mode: block.mode,
+        currentComplete: "complete" in current ? !!current.complete : undefined,
+        nextComplete: !!block.complete,
+      }))
+
+      return current
+    }
     const key = markdownBlockKey(owner, cacheKey, index, block.mode)
 
     if (block.mode !== "code")
@@ -940,6 +1025,7 @@ function updateCodeBlock(
   next.dataset.markdownKey = block.key
   next.dataset.markdownHash = block.hash
   next.dataset.markdownComplete = block.complete ? "true" : "false"
+  markdownTrace("dom:code-block", () => ({ keyHash: checksum(block.key), complete: !!block.complete, reused: !!existing }))
   next.style.display = "contents"
 
   const code = existing?.querySelector("code")

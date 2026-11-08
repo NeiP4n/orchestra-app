@@ -1,4 +1,5 @@
 import { createMemo, createSignal } from "solid-js"
+import { markdownTrace } from "../components/markdown-trace"
 import type { SessionDocument } from "../document"
 import { CURRENT_SESSION_ID, STORY_MODEL, STORY_TIME } from "../storybook/current-session-fixtures"
 import { CurrentSessionProviders } from "../storybook/current-session-story"
@@ -58,7 +59,16 @@ function MermaidTimeline(props: { streaming: boolean }) {
 
   return (
     <section class="mx-auto flex w-full max-w-[840px] flex-col gap-4 p-6">
-      <button type="button" onClick={() => setCompleted((value) => !value)}>
+      <button
+        type="button"
+        onClick={() =>
+          setCompleted((value) => {
+            markdownTrace("story:toggle", () => ({ completed: !value }))
+
+            return !value
+          })
+        }
+      >
         {completed() ? "Stream response" : "Complete response"}
       </button>
       <CurrentSessionProviders document={document()}>

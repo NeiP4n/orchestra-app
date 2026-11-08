@@ -6,7 +6,9 @@ import {
   type MarkdownWorkerState,
 } from "./markdown-worker-protocol"
 import { createWorkerTransport } from "./markdown-worker-transport"
+import { markdownTrace } from "./markdown-trace"
 import type { Projection } from "./markdown-stream"
+import { checksum } from "@orchestra/util/encode"
 
 type HighlightPending = {
   key: string
@@ -62,6 +64,7 @@ const projectTransport = createWorkerTransport<Extract<MarkdownWorkerRequest, { 
 
     if (!result) return
     projects.delete(request.id)
+    markdownTrace("project:superseded", () => ({ id: request.id, key: request.key }))
     result.reject(new MarkdownWorkerSupersededError())
   },
 })
@@ -90,6 +93,8 @@ export function projectMarkdown(key: string, text: string, live: boolean) {
   getWorker()
   const id = ++nextID
 
+  markdownTrace("project:request", () => ({ id, key, live, textLength: text.length, textHash: checksum(text) }))
+
   return new Promise<Projection>((resolve, reject) => {
     projects.set(id, { key, resolve, reject })
     projectTransport.send({ type: "project", id, key, text, live })
@@ -97,6 +102,7 @@ export function projectMarkdown(key: string, text: string, live: boolean) {
 }
 
 export function disposeMarkdownProjection(key: string) {
+  markdownTrace("project:dispose", () => ({ key }))
   projectTransport.dispose(key)
   projects.forEach((request, id) => {
     if (request.key !== key) return
@@ -164,15 +170,23 @@ function getWorker() {
     }
 
     if (event.data.type === "project") {
-      const result = projects.get(event.data.id)
+      const data = event.data
+      const result = projects.get(data.id)
 
       if (!result) {
+        markdownTrace("project:response-late", () => ({ id: data.id, key: data.key }))
         projectTransport.complete(event.data.key, event.data.id)
 
         return
       }
 
-      projects.delete(event.data.id)
+      projects.delete(data.id)
+      markdownTrace("project:response", () => ({
+        id: data.id,
+        key: data.key,
+        textHash: checksum(data.projection.text),
+        blocks: data.projection.blocks.map((block) => ({ mode: block.mode, complete: !!block.complete })),
+      }))
       result.resolve(event.data.projection)
       projectTransport.complete(event.data.key, event.data.id)
 
@@ -180,7 +194,8 @@ function getWorker() {
     }
 
     if (event.data.type === "error") {
-      const parsed = parses.get(event.data.id)
+      const data = event.data
+      const parsed = parses.get(data.id)
 
       if (parsed) {
         parses.delete(event.data.id)
@@ -193,6 +208,12 @@ function getWorker() {
 
       if (projected) {
         projects.delete(event.data.id)
+        markdownTrace("project:error", () => ({
+          id: data.id,
+          key: projected.key,
+          messageLength: data.message.length,
+          messageHash: checksum(data.message),
+        }))
         projected.reject(new Error(event.data.message))
         projectTransport.complete(projected.key, event.data.id)
 
@@ -205,6 +226,7 @@ function getWorker() {
 
       if (projected) {
         projects.delete(event.data.id)
+        markdownTrace("project:worker-superseded", () => ({ id: event.data.id, key: projected.key }))
         projected.reject(new MarkdownWorkerSupersededError())
         projectTransport.complete(projected.key, event.data.id)
 

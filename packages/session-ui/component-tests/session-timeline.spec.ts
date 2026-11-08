@@ -21,26 +21,69 @@ story("spaces an error between a shell result and expanded updates", async ({ mo
 })
 
 for (const streaming of [false, true]) {
-  story(`renders Mermaid in the ${streaming ? "streaming" : "completed"} timeline`, async ({ mount, page }) => {
-    await page.setViewportSize({ width: 390, height: 900 })
-    const root = await mount("current-session-mermaid--diagrams", { args: { streaming } })
-    const timeline = root.locator('[data-component="session-timeline"]')
-    const diagrams = timeline.locator('[data-component="markdown-mermaid"] > svg')
-    await expect(diagrams).toHaveCount(2)
-    await expect(diagrams.nth(0)).toBeVisible()
-    await expect(diagrams.nth(0)).toContainText("Client")
-    await expect(diagrams.nth(1)).toBeVisible()
-    await expect(diagrams.nth(1)).toContainText("Send prompt")
-    await expect(timeline.locator('[data-mermaid-ready="true"]')).toHaveCount(2)
-    await expect(timeline.locator('[data-mermaid-ready="true"] > pre:visible')).toHaveCount(0)
-
+  story(`renders Mermaid in the ${streaming ? "streaming" : "completed"} timeline`, async ({ mount, page }, testInfo) => {
+    // TEMP (Mermaid streaming->complete investigation): collect gated pipeline
+    // traces and DOM snapshots. Remove with src/components/markdown-trace.ts.
+    const traces: string[] = []
     if (streaming) {
-      await root.getByRole("button", { name: "Complete response" }).click()
-      await expect(timeline.locator('[data-markdown-complete="true"]')).toHaveCount(2)
+      await page.addInitScript(() => {
+        ;(window as unknown as { __MD_TRACE__: boolean }).__MD_TRACE__ = true
+      })
+      page.on("console", (message) => {
+        if (message.text().startsWith("[md-trace]")) traces.push(message.text())
+      })
+      page.on("pageerror", (error) => {
+        // Class + stack frames only: the message line can embed rendered text.
+        const frames = (error.stack ?? "").split("\n").filter((line) => line.trimStart().startsWith("at "))
+        traces.push([`[md-pageerror] ${error.name}`, ...frames].join("\n"))
+      })
+    }
+    const snapshot = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll("[data-markdown-block]")].map((element) => {
+          const block = element as HTMLElement
+          return {
+            key: block.dataset.markdownKey,
+            hash: block.dataset.markdownHash,
+            complete: block.dataset.markdownComplete,
+            mermaid: !!block.querySelector('[data-component="markdown-mermaid"]'),
+          }
+        }),
+      )
+    const attachOnFailure = async (error: unknown) => {
+      await testInfo
+        .attach("md-dom-at-failure", { body: JSON.stringify(await snapshot().catch(() => "snapshot failed"), null, 2), contentType: "application/json" })
+        .catch(() => undefined)
+      await testInfo.attach("md-trace", { body: traces.join("\n"), contentType: "text/plain" }).catch(() => undefined)
+      throw error
+    }
+    const run = async () => {
+      await page.setViewportSize({ width: 390, height: 900 })
+      const root = await mount("current-session-mermaid--diagrams", { args: { streaming } })
+      const timeline = root.locator('[data-component="session-timeline"]')
+      const diagrams = timeline.locator('[data-component="markdown-mermaid"] > svg')
       await expect(diagrams).toHaveCount(2)
       await expect(diagrams.nth(0)).toBeVisible()
+      await expect(diagrams.nth(0)).toContainText("Client")
       await expect(diagrams.nth(1)).toBeVisible()
+      await expect(diagrams.nth(1)).toContainText("Send prompt")
+      await expect(timeline.locator('[data-mermaid-ready="true"]')).toHaveCount(2)
+      await expect(timeline.locator('[data-mermaid-ready="true"] > pre:visible')).toHaveCount(0)
+
+      if (streaming) {
+        await testInfo.attach("md-dom-before-complete", {
+          body: JSON.stringify(await snapshot(), null, 2),
+          contentType: "application/json",
+        })
+        await root.getByRole("button", { name: "Complete response" }).click()
+        await expect(timeline.locator('[data-markdown-complete="true"]')).toHaveCount(2)
+        await expect(diagrams).toHaveCount(2)
+        await expect(diagrams.nth(0)).toBeVisible()
+        await expect(diagrams.nth(1)).toBeVisible()
+      }
     }
+    // Any failure (mount, early assertions, the completion flip) attaches the trace.
+    await run().catch(attachOnFailure)
   })
 }
 
