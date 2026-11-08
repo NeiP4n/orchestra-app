@@ -2,21 +2,26 @@ export * as ServiceRegistration from "./service-registration"
 
 import { Service, type Info } from "@orchestra/client/effect/service"
 import path from "node:path"
-import { Effect, FileSystem, Schedule, Schema } from "effect"
+import { Cause, Effect, FileSystem, Schedule, Schema } from "effect"
 import { HttpServer } from "effect/unstable/http"
+import type { RequestManagedStop } from "@orchestra/server/managed-stop"
 import { ORCHESTRA_VERSION } from "../version"
 
 const infoJson = Schema.fromJsonString(Service.Info)
 const encodeInfo = Schema.encodeEffect(infoJson)
 const decodeInfo = Schema.decodeUnknownEffect(infoJson)
 
-export const register = Effect.fnUntraced(function* (options: {
+type RegistrationOptions = {
   readonly address: HttpServer.Address
   readonly password: string
   readonly id: string
   readonly file: string
-  readonly shutdown: Effect.Effect<void>
-}) {
+} & (
+  | { readonly requestStop: RequestManagedStop; readonly shutdown?: never }
+  | { readonly shutdown: Effect.Effect<void>; readonly requestStop?: never }
+)
+
+export const register = Effect.fnUntraced(function* (options: RegistrationOptions) {
   const fs = yield* FileSystem.FileSystem
   const temp = options.file + "." + options.id + ".tmp"
   yield* fs.makeDirectory(path.dirname(options.file), { recursive: true })
@@ -45,32 +50,32 @@ export const register = Effect.fnUntraced(function* (options: {
     found.pid === info.pid &&
     found.password === info.password
   yield* fs.writeFileString(temp, encoded, { mode: 0o600 }).pipe(Effect.andThen(fs.rename(temp, options.file)))
-  yield* current.pipe(
+  // Turn only read/decode failures into a reason. Scope cancellation must remain cancellation.
+  const check = current.pipe(
     Effect.catchCause((cause) =>
-      Effect.logWarning("managed service registration check failed; shutting down", {
-        cause,
+      Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause) : Effect.succeed({ checkFailure: cause } as const),
+    ),
+  )
+  yield* check.pipe(
+    Effect.repeat({
+      until: (found) => "checkFailure" in found || !owns(found),
+      schedule: Schedule.spaced("5 seconds"),
+    }),
+    Effect.flatMap((found) => {
+      const reason =
+        "checkFailure" in found
+          ? {
+              _tag: "RegistrationCheckFailed" as const,
+              cause: found.checkFailure,
+              diagnostic: { serviceId: options.id, path: options.file, operation: "read-registration" as const },
+            }
+          : { _tag: "OwnershipLost" as const }
+      const stop = options.requestStop ? options.requestStop(reason).pipe(Effect.asVoid) : options.shutdown!
+      return Effect.logWarning("managed service registration stopping", {
+        reason: reason._tag,
         serviceID: options.id,
-        servicePID: process.pid,
-        registration: options.file,
-      }).pipe(Effect.andThen(Effect.failCause(cause))),
-    ),
-    Effect.tap((found) =>
-      owns(found)
-        ? Effect.void
-        : Effect.logWarning("managed service registration replaced; shutting down", {
-            serviceID: options.id,
-            servicePID: process.pid,
-            registration: options.file,
-            observedServiceID: found.id,
-            observedServicePID: found.pid,
-            observedVersion: found.version,
-            observedURL: found.url,
-          }),
-    ),
-    Effect.filterOrFail(owns),
-    Effect.repeat(Schedule.spaced("5 seconds")),
-    Effect.ignore,
-    Effect.andThen(options.shutdown),
+      }).pipe(Effect.andThen(stop))
+    }),
     Effect.forkScoped,
   )
   return current.pipe(

@@ -16,6 +16,7 @@ import { Global } from "@orchestra/util/global"
 import { Cause, Context, Effect, Exit, Latch, Layer, Option, Ref, Scope } from "effect"
 import { HttpMiddleware, HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { createServer } from "node:http"
+import { isOnlyOwnershipLost, makeManagedStop, type RequestManagedStop } from "./managed-stop"
 import { ServerAuth } from "./auth"
 import { isAllowedCorsOrigin } from "./cors"
 import { ServerDatabaseBackup } from "./database-backup"
@@ -33,6 +34,15 @@ export interface Lifecycle<E = never, R = never> {
     address: HttpServer.Address,
     shutdown: Effect.Effect<void>,
   ) => Effect.Effect<Effect.Effect<void>, E, R>
+}
+
+export interface ManagedLifecycle<E = never, R = never> {
+  readonly onManagedListen: (
+    address: HttpServer.Address,
+    requestStop: RequestManagedStop,
+  ) => Effect.Effect<Effect.Effect<void>, E, R>
+  /** @internal Synchronization observer for isolated lifecycle probes; absent in production. */
+  readonly beforeManagedBoot?: Effect.Effect<void, E, R>
 }
 
 type App = Effect.Effect<
@@ -53,7 +63,7 @@ const errorResponseLogger = HttpMiddleware.make((app) =>
 
 export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
   options: ServerOptions,
-  lifecycle?: Lifecycle<E, R>,
+  lifecycle?: Lifecycle<E, R> | ManagedLifecycle<E, R>,
   transform?: Transform,
 ) {
   const password = options.password
@@ -61,6 +71,11 @@ export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
   const hostname = options.hostname ?? "127.0.0.1"
   const port = Option.fromNullishOr(options.port)
   const shutdown = yield* Latch.make()
+  const managedStop = lifecycle && "onManagedListen" in lifecycle ? yield* makeManagedStop : undefined
+  let bootFailure: Cause.Cause<unknown> | undefined
+  const awaitManagedStop = managedStop?.awaitStop.pipe(
+    Effect.catchCause((cause) => Effect.failCause(bootFailure && isOnlyOwnershipLost(cause) ? bootFailure : cause)),
+  )
   const status = yield* Status.make()
   const bound = yield* listen({ hostname, port })
   const urls = () => {
@@ -86,7 +101,11 @@ export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
   if (!isLoopback(hostname) && address !== null && typeof address !== "string")
     yield* ServerRoomDiscovery.respond(address.port)
   if (lifecycle)
-    yield* lifecycle.onListen(bound.http.address, shutdown.open.pipe(Effect.asVoid)).pipe(
+    yield* (
+      "onManagedListen" in lifecycle
+        ? lifecycle.onManagedListen(bound.http.address, managedStop!.request)
+        : lifecycle.onListen(bound.http.address, shutdown.open.pipe(Effect.asVoid))
+    ).pipe(
       Effect.flatMap((cleanup) =>
         Effect.addFinalizer(() => Scope.close(bound.scope, Exit.void).pipe(Effect.andThen(cleanup))),
       ),
@@ -103,6 +122,7 @@ export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
   )
 
   const boot = Effect.gen(function* () {
+    if (lifecycle && "onManagedListen" in lifecycle && lifecycle.beforeManagedBoot) yield* lifecycle.beforeManagedBoot
     const context = yield* Layer.buildWithScope(
       createRoutes(
         {
@@ -139,15 +159,13 @@ export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
     // The autoloop clock rises with the server and falls with it: its loop
     // lives in the application scope, and its state is the journal, so a
     // restart resumes the runs instead of losing them.
-    yield* Context.get(context, Autoloop.Service)
-      .start()
-      .pipe(Effect.provideService(Scope.Scope, applicationScope))
+    yield* Context.get(context, Autoloop.Service).start().pipe(Effect.provideService(Scope.Scope, applicationScope))
     yield* Ref.set(application, Option.some(Context.get(context, HttpRouter.HttpRouter).asHttpEffect()))
     yield* status.ready
     const bus = Context.get(context, Bus.Service)
     return {
       address: bound.http.address,
-      shutdown: shutdown.await,
+      shutdown: awaitManagedStop ?? shutdown.await,
       updateAvailable: (version: string) =>
         bus.publish(InstallationEvent.UpdateAvailable, { version }).pipe(Effect.asVoid),
       updated: (version: string) => bus.publish(InstallationEvent.Updated, { version }).pipe(Effect.asVoid),
@@ -155,6 +173,7 @@ export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
   }).pipe(
     Effect.catchCause((cause) => {
       if (!lifecycle || Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause)
+      if (managedStop) bootFailure = cause
       return status.fail.pipe(
         Effect.andThen(
           Scope.close(applicationScope, Exit.failCause(cause)).pipe(
@@ -169,7 +188,7 @@ export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
     }),
   )
   if (!lifecycle) return yield* boot
-  return yield* Effect.raceFirst(boot, shutdown.await.pipe(Effect.andThen(Effect.interrupt)))
+  return yield* Effect.raceFirst(boot, awaitManagedStop ?? shutdown.await.pipe(Effect.andThen(Effect.interrupt)))
 })
 
 function listen(options: { readonly hostname: string; readonly port: Option.Option<number> }) {
@@ -308,11 +327,14 @@ const installRestartContinuity = Effect.fnUntraced(function* (
   const reportPreflight = Effect.gen(function* () {
     const result = yield* federation.preflight()
     if (result.status === "failed")
-      yield* Effect.logError("Society provider preflight failed: Societies will not resume without a working provider", {
-        reason: result.reason,
-        message: result.message,
-        action: result.action,
-      })
+      yield* Effect.logError(
+        "Society provider preflight failed: Societies will not resume without a working provider",
+        {
+          reason: result.reason,
+          message: result.message,
+          action: result.action,
+        },
+      )
     else if (result.status === "skipped")
       yield* Effect.logWarning("Society provider preflight skipped: Societies resume without a verified provider", {
         reason: result.reason,
@@ -320,32 +342,34 @@ const installRestartContinuity = Effect.fnUntraced(function* (
     else if (result.warnings.length > 0)
       yield* Effect.logWarning("Society provider preflight passed with warnings", { warnings: result.warnings })
   })
-  const resumeAndRecover = reportPreflight.pipe(
-    Effect.andThen(
-      reportStartupFailure("Failed to hold Societies during server startup", federation.startupHold()),
-    ),
-  ).pipe(
-    Effect.andThen(
-      reportStartupFailure(
-        "Failed to tick the autoloop cycle during server startup",
-        autoloop.execute({ type: "tick", args: [] }).pipe(Effect.asVoid),
+  const resumeAndRecover = reportPreflight
+    .pipe(
+      Effect.andThen(reportStartupFailure("Failed to hold Societies during server startup", federation.startupHold())),
+    )
+    .pipe(
+      Effect.andThen(
+        reportStartupFailure(
+          "Failed to tick the autoloop cycle during server startup",
+          autoloop.execute({ type: "tick", args: [] }).pipe(Effect.asVoid),
+        ),
       ),
-    ),
-  ).pipe(
-    Effect.andThen(
-      reportStartupFailure(
-        "Failed to resume suspended sessions during server startup",
-        restart.resumeSuspendedSessions,
+    )
+    .pipe(
+      Effect.andThen(
+        reportStartupFailure(
+          "Failed to resume suspended sessions during server startup",
+          restart.resumeSuspendedSessions,
+        ),
       ),
-    ),
-  ).pipe(
-    Effect.andThen(
-      reportStartupFailure(
-        "Failed to recover Orchestra task reports during server startup",
-        orchestra.recoverPendingTasks(),
+    )
+    .pipe(
+      Effect.andThen(
+        reportStartupFailure(
+          "Failed to recover Orchestra task reports during server startup",
+          orchestra.recoverPendingTasks(),
+        ),
       ),
-    ),
-  )
+    )
   yield* Effect.forkScoped(resumeAndRecover)
 })
 
