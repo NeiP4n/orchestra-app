@@ -132,9 +132,11 @@ export function BrowserPane(props: {
   const [control, setControl] = createSignal(false)
   const toPage = (event: { x: number; y: number }) => {
     if (!screenBox || screenBox.width <= 0 || screenBox.height <= 0) return undefined
+    // A release after dragging out of the pane still arrives; it lands on the nearest edge instead of outside the page.
+    const inside = (value: number, size: number) => Math.min(size - 1, Math.max(0, value))
     return {
-      x: ((event.x - screenBox.x + 0.5) / screenBox.width) * viewport.width,
-      y: ((event.y - screenBox.y + 0.5) / screenBox.height) * viewport.height,
+      x: inside(((event.x - screenBox.x + 0.5) / screenBox.width) * viewport.width, viewport.width),
+      y: inside(((event.y - screenBox.y + 0.5) / screenBox.height) * viewport.height, viewport.height),
     }
   }
   const send = (work: Promise<unknown>) => void work.catch((error) => !disposed && setFailure(errorMessage(error)))
