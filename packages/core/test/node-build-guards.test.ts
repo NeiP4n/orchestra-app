@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, mock, spyOn, test } from "bun:test"
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test"
 import { mkdtemp, mkdir, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -125,7 +125,7 @@ describe("memory tool capability refusal", () => {
     const { context, tool } = fakeContext()
     await Effect.runPromise(
       Effect.scoped(
-        (Plugin.effect as (ctx: never) => Effect.Effect<void, never, never>)(context).pipe(
+        (Plugin.effect as unknown as (ctx: never) => Effect.Effect<void, never, never>)(context).pipe(
           Effect.provideService(Memory.Service, {} as never),
           Effect.provideService(Permission.Service, { assert: () => Effect.void } as never),
           Effect.provideService(Location.Service, locationInfo(directory)),
@@ -140,7 +140,7 @@ describe("memory tool capability refusal", () => {
         ),
       ),
     )
-    expect(Exit.isFailure(exit)).toBe(true)
+    if (!Exit.isFailure(exit)) throw new Error("expected a failure exit")
     const rendered = String(exit.cause)
     expect(rendered).toContain("Bun-backed project memory database")
     expect(rendered).not.toContain("could not be opened")
@@ -170,7 +170,7 @@ describe("memory tool capability refusal", () => {
     const { context, tool } = fakeContext()
     await Effect.runPromise(
       Effect.scoped(
-        (Plugin.effect as (ctx: never) => Effect.Effect<void, never, never>)(context).pipe(
+        (Plugin.effect as unknown as (ctx: never) => Effect.Effect<void, never, never>)(context).pipe(
           Effect.provideService(Memory.Service, {} as never),
           Effect.provideService(Permission.Service, { assert: () => Effect.void } as never),
           Effect.provideService(Location.Service, locationInfo(directory)),
@@ -181,7 +181,7 @@ describe("memory tool capability refusal", () => {
     const exit = await Effect.runPromise(
       Effect.scoped(Effect.exit(tool().execute({ action: "search", query: "deployment" } as never, toolContext))),
     )
-    expect(Exit.isFailure(exit)).toBe(true)
+    if (!Exit.isFailure(exit)) throw new Error("expected a failure exit")
     const rendered = String(exit.cause)
     expect(rendered).toContain("could not be opened")
     expect(rendered).not.toContain("which this build does not have")
@@ -199,7 +199,7 @@ describe("codegraph capability refusal", () => {
     const { context, tool } = fakeContext()
     await Effect.runPromise(
       Effect.scoped(
-        (Plugin.effect as (ctx: never) => Effect.Effect<void, never, never>)(context).pipe(
+        (Plugin.effect as unknown as (ctx: never) => Effect.Effect<void, never, never>)(context).pipe(
           Effect.provideService(Location.Service, locationInfo(directory)),
         ),
       ),
@@ -233,11 +233,15 @@ describe("codegraph capability refusal", () => {
 })
 
 describe("desktop_action media keys without Bun FFI", () => {
-  let platform: ReturnType<typeof spyOn> | undefined
+  // spyOn(process, "platform", "get") does not intercept Bun's data
+  // property, so the platform is overridden with a configurable descriptor.
+  const realPlatform = Object.getOwnPropertyDescriptor(process, "platform")
+  const forceWin32 = () => {
+    Object.defineProperty(process, "platform", { value: "win32", configurable: true })
+  }
 
   afterEach(() => {
-    platform?.mockRestore()
-    platform = undefined
+    if (realPlatform) Object.defineProperty(process, "platform", realPlatform)
     delete process.env.ORCHESTRA_DESKTOP_CAPTURE
     delete process.env.ORCHESTRA_DESKTOP_REAL_SCREEN
     delete process.env.ORCHESTRA_DESKTOP_REAL_SCREEN_ALLOWLIST
@@ -254,34 +258,34 @@ describe("desktop_action media keys without Bun FFI", () => {
   const register = async () => {
     const { Plugin } = await import("@orchestra/core/tool/plugin/desktop-action")
     const { context, tool } = fakeContext()
-    await Effect.runPromise(Effect.scoped((Plugin.effect as (ctx: never) => Effect.Effect<void, never, never>)(context)))
+    await Effect.runPromise(Effect.scoped((Plugin.effect as unknown as (ctx: never) => Effect.Effect<void, never, never>)(context)))
     return tool()
   }
 
   test("win32 media keys refuse before the FFI call, naming Bun FFI", async () => {
     bunAvailable = false
-    platform = spyOn(process, "platform", "get").mockReturnValue("win32")
+    forceWin32()
     allowRealScreen()
 
     const tool = await register()
     const exit = await Effect.runPromise(
       Effect.scoped(Effect.exit(tool.execute({ action: "media", command: "mute" } as never))),
     )
-    expect(Exit.isFailure(exit)).toBe(true)
+    if (!Exit.isFailure(exit)) throw new Error("expected a failure exit")
     expect(String(exit.cause)).toContain("Bun FFI")
     expect(hostCalls).toEqual([])
   })
 
   test("the real-screen permission denial stays first, ahead of the media guard", async () => {
     bunAvailable = false
-    platform = spyOn(process, "platform", "get").mockReturnValue("win32")
+    forceWin32()
     process.env.ORCHESTRA_DESKTOP_CAPTURE = "on"
 
     const tool = await register()
     const exit = await Effect.runPromise(
       Effect.scoped(Effect.exit(tool.execute({ action: "media", command: "mute" } as never))),
     )
-    expect(Exit.isFailure(exit)).toBe(true)
+    if (!Exit.isFailure(exit)) throw new Error("expected a failure exit")
     const rendered = String(exit.cause)
     expect(rendered).toContain("Real-screen access is off")
     expect(rendered).not.toContain("Bun FFI")
@@ -289,7 +293,7 @@ describe("desktop_action media keys without Bun FFI", () => {
 
   test("non-media actions keep their PowerShell dispatch", async () => {
     bunAvailable = false
-    platform = spyOn(process, "platform", "get").mockReturnValue("win32")
+    forceWin32()
     allowRealScreen()
 
     const tool = await register()
@@ -298,7 +302,7 @@ describe("desktop_action media keys without Bun FFI", () => {
     // its unparseable reply fails after the PowerShell call, never at the
     // media guard or the platform-unsupported branch.
     expect(hostCalls.length).toBe(1)
-    expect(Exit.isFailure(exit)).toBe(true)
+    if (!Exit.isFailure(exit)) throw new Error("expected a failure exit")
     const rendered = String(exit.cause)
     expect(rendered).toContain("desktop_action returned unreadable data")
     expect(rendered).not.toContain("Bun FFI")
