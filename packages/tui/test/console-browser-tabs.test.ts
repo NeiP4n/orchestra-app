@@ -31,3 +31,11 @@ test("the session frame defines every terminal helper it reads", () => {
     expect(frame).toMatch(new RegExp(`const ${name} = `))
   }
 })
+
+test("the hidden right pane is remembered across sessions and the chat is unmounted behind Console", () => {
+  const frame = read("component/session-frame.tsx")
+  expect(frame).toMatch(/rightPaneHidden\?: boolean/)
+  expect(frame).toMatch(/const rightPaneHidden = \(\) => layout\.rightPaneHidden === true/)
+  expect(frame).not.toMatch(/const \[rightPaneHidden, setRightPaneHidden\] = createSignal/)
+  expect(frame).toMatch(/<Show when=\{!centerView\(\)\}>\s*<InteractivityProvider/)
+})
