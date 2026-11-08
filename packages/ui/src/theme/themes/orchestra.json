@@ -1,0 +1,57 @@
+{
+  "$schema": "https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/packages/ui/src/theme/desktop-theme.schema.json",
+  "name": "Orchestra",
+  "id": "orchestra",
+  "light": {
+    "palette": {
+      "neutral": "#ffffff",
+      "ink": "#1a1a1a",
+      "primary": "#318795",
+      "accent": "#318795",
+      "success": "#12b57a",
+      "warning": "#b86e00",
+      "error": "#e0394d",
+      "info": "#1a8fd6",
+      "interactive": "#318795",
+      "diffAdd": "#4fbf9b",
+      "diffDelete": "#d9475c"
+    },
+    "overrides": {
+      "text-weak": "#6f9ea4",
+      "syntax-comment": "#8a8a8a",
+      "syntax-keyword": "#318795",
+      "syntax-string": "#318795",
+      "syntax-primitive": "#318795",
+      "syntax-type": "#b0851f",
+      "syntax-operator": "#318795",
+      "syntax-punctuation": "#1a1a1a",
+      "syntax-variable": "#b86e00"
+    }
+  },
+  "dark": {
+    "palette": {
+      "neutral": "#0a0a0a",
+      "ink": "#eeeeee",
+      "primary": "#56b6c2",
+      "accent": "#56b6c2",
+      "success": "#3dffb0",
+      "warning": "#ffb454",
+      "error": "#ff5c6a",
+      "info": "#38b6ff",
+      "interactive": "#56b6c2",
+      "diffAdd": "#2fcf9a",
+      "diffDelete": "#ff6b7d"
+    },
+    "overrides": {
+      "text-weak": "#6f9ea4",
+      "syntax-comment": "#808080",
+      "syntax-keyword": "#56b6c2",
+      "syntax-string": "#56b6c2",
+      "syntax-primitive": "#f5a742",
+      "syntax-type": "#e5c07b",
+      "syntax-operator": "#56b6c2",
+      "syntax-punctuation": "#eeeeee",
+      "syntax-variable": "#ffb454"
+    }
+  }
+}

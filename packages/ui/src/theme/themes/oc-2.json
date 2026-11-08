@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/NeiP4n/orchestra-app/main/packages/ui/src/theme/desktop-theme.schema.json",
-  "name": "Orchestra",
+  "name": "OC-2 (legacy)",
   "id": "oc-2",
   "light": {
     "palette": {
