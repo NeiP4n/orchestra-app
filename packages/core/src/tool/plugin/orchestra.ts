@@ -1484,7 +1484,7 @@ export const Plugin = {
                   if (answers.length === 0) return yield* new ToolFailure({ message: "Pass answers, one list per question" })
                   // The worker's oldest open question; the human may already have answered it in the worker.
                   const form = (yield* forms.list({ sessionID: session.id })).find(
-                    (item) => item.metadata?.kind === "question",
+                    (item) => Orchestra.isForwardedForm(item.metadata?.kind),
                   )
                   if (!form)
                     return yield* new ToolFailure({

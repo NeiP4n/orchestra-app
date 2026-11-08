@@ -1028,6 +1028,28 @@ describe("Orchestra team", () => {
       )
       expect(both.some((text) => text.includes(`session="${tester.id}"`) && text.includes('task="legacy"'))).toBe(true)
       expect(both.some((text) => text.includes(`session="${stray.id}"`))).toBe(false)
+      // The interact tool's decision blocks and the web search provider choice are forwarded the same way.
+      const raise = (sessionID: Session.ID, kind: string, description: string) =>
+        bus.publish(Form.Event.Created, {
+          form: {
+            id: Form.ID.create(),
+            sessionID,
+            title: "Decide",
+            metadata: { kind },
+            fields: [{ key: "choice", type: "string", description, options: [{ value: "a", label: "A" }], custom: false }],
+          },
+        })
+      yield* raise(developer.id, "interactive", "Pick the rollout plan")
+      yield* raise(developer.id, "websearch.provider", "Allow Orchestra to search the web?")
+      yield* raise(developer.id, "something.else", "Unrelated form")
+      const more = yield* questions(project.main!).pipe(
+        Effect.filterOrFail((found) => found.length > 3),
+        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.timeout("2 seconds"),
+      )
+      expect(more.some((text) => text.includes("Pick the rollout plan"))).toBe(true)
+      expect(more.some((text) => text.includes("Allow Orchestra to search the web?"))).toBe(true)
+      expect(more.some((text) => text.includes("Unrelated form"))).toBe(false)
       const qItem = (yield* sessions.inbox(project.main!)).find(
         (item) => item.type === "synthetic" && item.payload.text.startsWith("<team-question"),
       )

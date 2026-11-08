@@ -52,6 +52,11 @@ export const Access = Orchestra.Access
 export type Access = Orchestra.Access
 export const allows = Orchestra.allows
 export const contains = Orchestra.contains
+// The forms a member session raises that its orchestrator decides in place of the human: the question
+// tool, the decision/approval blocks of the interact tool and the web search provider choice.
+const FORWARDED_FORMS = new Set(["question", "interactive", "websearch.provider"])
+export const isForwardedForm = (kind: unknown): boolean => typeof kind === "string" && FORWARDED_FORMS.has(kind)
+
 export const ownerOf = Orchestra.ownerOf
 export const sessionOwner = Orchestra.sessionOwner
 export const Project = Orchestra.Project
@@ -1721,7 +1726,7 @@ const layer: Layer.Layer<
       Stream.runForEach((event) =>
         Effect.gen(function* () {
           const form = event.data.form
-          if (form.metadata?.kind !== "question") return
+          if (!isForwardedForm(form.metadata?.kind)) return
           const workerID = Option.getOrUndefined(decodeSessionID(form.sessionID))
           if (!workerID) return
           const task = Option.getOrUndefined(decodeTask(yield* kv.get(TASK + workerID)))
