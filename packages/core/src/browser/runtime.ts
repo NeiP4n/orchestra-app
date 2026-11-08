@@ -1,7 +1,7 @@
 export * as BrowserRuntime from "./runtime.js"
 
 import { spawn } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { Global } from "@orchestra/util/global"
 import { BrowserBridge } from "./bridge.js"
@@ -94,9 +94,39 @@ function calm(dir: string) {
 }
 
 /** Lets a window that Chrome treats as unfocused or hidden still take clicks and keys from DevTools. */
+/** One line into browser-debug.log (in the app's data folder), so what happened is on disk and not only on screen. */
+export function trace(line: string) {
+  try {
+    const file = path.join(Global.Path.data, "browser-debug.log")
+    mkdirSync(path.dirname(file), { recursive: true })
+    if (existsSync(file) && readFileSync(file).length > 400_000) writeFileSync(file, "")
+    appendFileSync(file, `${new Date().toISOString()} ${line}\n`)
+  } catch {
+    // A log that cannot be written must never get in the way.
+  }
+}
+
+/** What the page is at a point and whether Chrome treats it as visible and focused: the facts a dead click needs. */
+async function probe(client: Cdp.Client, x: number, y: number) {
+  try {
+    const result = (await within(
+      client.send("Runtime.evaluate", {
+        expression: `(() => { const e = document.elementFromPoint(${Math.round(x)}, ${Math.round(y)}); return JSON.stringify({ at: e ? e.tagName + (e.id ? '#' + e.id : '') + ':' + (e.innerText || e.value || '').slice(0, 24) : null, visible: document.visibilityState, focus: document.hasFocus(), w: innerWidth, h: innerHeight }) })()`,
+        returnByValue: true,
+      }),
+      800,
+    )) as { result?: { value?: string } }
+    return result.result?.value ?? "no value"
+  } catch (error) {
+    return `probe failed: ${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
 async function awake(client: Cdp.Client) {
   await within(client.send("Emulation.setFocusEmulationEnabled", { enabled: true }), 800).catch(() => undefined)
   await within(client.send("Page.bringToFront"), 800).catch(() => undefined)
+  // A window kept off-screen must still count as shown, or Chrome may drop the operator's input.
+  await within(client.send("Page.setWebLifecycleState", { state: "active" }), 800).catch(() => undefined)
 }
 
 /** A DevTools call that never answers must not freeze the operator's input: give up after `ms`. */
@@ -342,6 +372,10 @@ export async function mouse(
       await awake(client)
     }
     step("sending to the page")
+    if (input.kind === "down" || input.kind === "up")
+      trace(
+        `mouse ${input.kind} window ${Math.round(input.x)},${Math.round(input.y)} -> page ${Math.round((input.x - frame.left) / frame.scale)},${Math.round((input.y - frame.top) / frame.scale)} (${frame.raw}) ${input.kind === "down" ? await probe(client, (input.x - frame.left) / frame.scale, (input.y - frame.top) / frame.scale) : ""}`,
+      )
     await within(
       Cdp.mouse(client, {
         ...input,
@@ -354,6 +388,10 @@ export async function mouse(
   }
   if (input.kind === "down") uiFocus.set(sessionID, true)
   step("sending to the Chrome window")
+  if (input.kind !== "move")
+    trace(
+      `mouse ${input.kind} to the Chrome window at ${Math.round(input.x)},${Math.round(input.y)} (${frame ? frame.raw : `no offset: ${why}`})`,
+    )
   capture.mouse(input)
   return `CHROME-UI window ${Math.round(input.x)},${Math.round(input.y)}${frame ? ` (${frame.raw}, top inset ${Math.round(frame.top)}px)` : ` (no inset: ${why || "unknown"})`}`
 }
@@ -362,10 +400,15 @@ export async function key(sessionID: string, input: Parameters<typeof Cdp.key>[1
   const client = await within(open(sessionID), 3000)
   const capture = live.get(sessionID)?.capture
   if (capture && uiFocus.get(sessionID)) {
+    trace(`key ${input.name} -> Chrome window`)
     capture.key(input)
     return "Chrome window"
   }
-  await within(Cdp.key(client, input), 2000)
+  trace(`key ${input.name} -> page (${Cdp.keySteps(input).length} steps)`)
+  await within(Cdp.key(client, input), 2000).catch((error: unknown) => {
+    trace(`key ${input.name} FAILED ${error instanceof Error ? error.message : String(error)}`)
+    throw error
+  })
   return "page"
 }
 
@@ -552,6 +595,9 @@ export function publishSessions(list: readonly BrowserBridge.SessionInfo[]) {
   if (existsSync(file) && readFileSync(file, "utf8") === text) return
   mkdirSync(path.dirname(file), { recursive: true })
   writeFileSync(file, text)
+  trace(
+    `sessions published: ${list.length} to ${file} (${list.map((item) => `${item.name}@${item.project}`).join("; ")})`,
+  )
 }
 
 export function sessions() {

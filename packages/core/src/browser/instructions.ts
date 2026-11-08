@@ -28,6 +28,8 @@ export function hasSessions(directory: string) {
   }
 }
 
+let lastSeen = ""
+
 export function make(directory: string): Instructions.List {
   return Instructions.make({
     key: Instructions.Key.make("core/browser-sessions"),
@@ -35,6 +37,8 @@ export function make(directory: string): Instructions.List {
     read: Effect.sync(() => {
       const all = BrowserRuntime.sessions()
       const project = BrowserBridge.projectOf(all, directory)
+      const seen = `context for ${directory}: ${all.length} published, project ${project ?? "none"}`
+      if (seen !== lastSeen) BrowserRuntime.trace((lastSeen = seen))
       if (project === undefined) return Instructions.removed
       const mine = all.filter((item) => item.project === project)
       if (mine.length === 0) return Instructions.removed
