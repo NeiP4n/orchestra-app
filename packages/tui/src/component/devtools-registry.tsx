@@ -1,4 +1,6 @@
 import { createHoverFeedback } from "../ui/hover-feedback"
+import { useProjects } from "../context/projects"
+import { useRoute } from "../context/route"
 import { RegistryVault } from "./registry-vault"
 import { TextAttributes, type InputRenderable, type ScrollBoxRenderable } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
@@ -313,7 +315,7 @@ export function RegistryPanel(props: {
         }}
       >
         <Switch>
-          <Match when={tab() === "vault"}><RegistryVault /></Match>
+          <Match when={tab() === "vault"}><ProjectRegistryVault /></Match>
           <Match when={tab() === "ai" && props.aiTools}>
             {(_) => (
               <AiTools
@@ -1006,3 +1008,6 @@ export function Button(props: {
     </box>
   )
 }
+
+/** Mounted only in the Vault tab, where the operator can bind an existing name to this project. */
+function ProjectRegistryVault(){const route=useRoute(),projects=useProjects();const projectID=()=>route.data.type==="session"?projects.owner(route.data.sessionID):undefined;return <RegistryVault projectID={projectID()}/>}

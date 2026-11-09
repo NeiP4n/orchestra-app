@@ -7,7 +7,7 @@ import { useTheme } from "../context/theme"
 import { Keymap } from "../context/keymap"
 
 /** Operator-only local registry UI. No model tool exposes this collector. */
-export function RegistryVault(props: { access?: ReturnType<typeof CredentialVault.local> }) {
+export function RegistryVault(props: { projectID?:string; access?: Pick<ReturnType<typeof CredentialVault.local>,"list"|"writeFromOperator"|"deleteFromOperator"> & Partial<Pick<ReturnType<typeof CredentialVault.local>,"bindFromOperator">> }) {
   const theme = useTheme().surface("dialog")
   const cancelHover = createHoverFeedback()
   const vault = props.access ?? CredentialVault.local()
@@ -28,7 +28,7 @@ export function RegistryVault(props: { access?: ReturnType<typeof CredentialVaul
     setBusy(true); setArmed(); setMessage("Открываю окно Windows (до 30 с). Если скрыто: Alt+Tab. Esc отменить.")
     try {
       const saved = await vault.writeFromOperator(id, controller.signal, (status) => setMessage(status ? `Windows: окно ${status.visible ? "видимо" : "не видно"}, ${status.foreground ? "на переднем плане" : "не на переднем плане"}. Alt+Tab → Orchestra Vault; Esc отменить. SHOWN: ${status.handle} @ ${status.x},${status.y} ${status.width}×${status.height}.` : "Windows сообщила о показе окна. Если скрыто: Alt+Tab. Esc отменить; таймаут 120 с."))
-      if (saved) { await refresh(); setMessage(`Сохранено. Имена переменных: ${saved.variables.login}, ${saved.variables.password}. Подстановка ещё отключена.`) }
+      if (saved) { await refresh(); setMessage(`Сохранено. Имена переменных: ${saved.variables.login}, ${saved.variables.password}. Запись можно привязать текущему проекту кнопкой, без повторного ввода секрета. HTTP-подстановка включается в Безопасности текущего чата; shell/env-подстановка отсутствует.`) }
       else setMessage(controller.signal.aborted ? "Ввод отменён. Запись не сохранена." : "")
     } catch (error) { setMessage(error instanceof Error && error.message === "Vault secure input timed out; no entry saved." ? "Время ожидания окна истекло (120 с). Запись не сохранена." : error instanceof Error && error.message === "Vault secure input window did not open; no entry saved." ? "Окно Windows не открылось за 30 с. Запись не сохранена." : "Окно Vault не открылось или ввод завершился ошибкой. Запись не сохранена; нужен Windows DPAPI.") }
     finally { if (pending === controller) pending = undefined; setBusy(false) }
@@ -50,7 +50,7 @@ export function RegistryVault(props: { access?: ReturnType<typeof CredentialVaul
     { bind: "ctrl+d", title: "Подтвердить удаление записи Vault", group: "Vault", run: () => { const entry = entries()[cursor()]; if (entry) void remove(entry.id) } },
   ] }))
   return <box flexDirection="column" gap={1}>
-    <text fg={theme.text.muted} wrapMode="word">Windows DPAPI · ввод в отдельном окне · чтение ИИ отключено. Процессы вашей учётной записи не изолированы.</text>
+    <text fg={theme.text.muted} wrapMode="word">Windows DPAPI · ввод в отдельном окне · ИИ видит имена, не значения. API-ключ/токен вводите в маскированное поле Пароль. Процессы вашей учётной записи не изолированы.</text>
     <box alignItems="flex-start">
       <box id="registry-vault.add" border borderStyle="rounded" borderColor={theme.text.action.primary.base}
         paddingLeft={1} paddingRight={1} flexShrink={0}
@@ -66,6 +66,7 @@ export function RegistryVault(props: { access?: ReturnType<typeof CredentialVaul
     <For each={entries()}>{(entry, index) => <box flexDirection="row" gap={1}>
       <text fg={theme.text.base}>{`${cursor() === index() ? "› " : "  "}${entry.name}`}</text>
       <box flexGrow={1} />
+      <Show when={props.projectID&&vault.bindFromOperator}><HoverAction disabled={busy()} onClick={()=>{setBusy(true);void vault.bindFromOperator!(entry.id,props.projectID!).then(()=>setMessage("Имя разрешено этому проекту. HTTP всё ещё OFF до стрелки в Безопасности текущего чата.")).catch(()=>setMessage("Привязка не сохранена: проверьте имя и проект.")).finally(()=>setBusy(false))}}><text fg={theme.text.muted}>Разрешить проекту</text></HoverAction></Show>
       <HoverAction disabled={busy()} onClick={() => void write(entry.id)}><text fg={theme.text.muted}>Заменить</text></HoverAction>
       <HoverAction disabled={busy()} onClick={() => void remove(entry.id)}><text fg={theme.text.feedback.warning.base}>{armed() === entry.id ? "Подтвердить удаление?" : "Удалить"}</text></HoverAction>
     </box>}</For>

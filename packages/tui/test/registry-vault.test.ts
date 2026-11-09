@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 test("Vault appears in Orchestra registry with operator-only secure input, names and confirmed delete", () => {
   const ui = readFileSync(new URL("../src/component/registry-vault.tsx", import.meta.url), "utf8")
   const registry = readFileSync(new URL("../src/component/devtools-registry.tsx", import.meta.url), "utf8")
-  expect(registry).toContain('<Match when={tab() === "vault"}><RegistryVault /></Match>')
+  expect(registry).toContain('<Match when={tab() === "vault"}><ProjectRegistryVault /></Match>')
   expect(ui).toContain("vault.writeFromOperator(id, controller.signal,")
   expect(ui).toContain("if (armed() !== id)")
   expect(ui).toContain("vault.deleteFromOperator(id, true)")
@@ -11,7 +11,8 @@ test("Vault appears in Orchestra registry with operator-only secure input, names
   expect(ui).not.toContain("<textarea")
   expect(ui).not.toContain(".blob")
   expect(ui).not.toContain("entry.password")
-  expect(ui).toContain("Подстановка ещё отключена")
+  expect(ui).toContain("без повторного ввода секрета")
+  expect(ui).toContain("vault.bindFromOperator!")
 })
 
 test("Vault add button has an explicit visible hit area, release handler and hover instead of a press-state trap", () => {

@@ -7,14 +7,18 @@ import { useConfig } from "../config"
 import { securitySettings } from "../util/security-settings"
 import { steppedLimit, parseSecurityNumber } from "../util/security-change"
 import { pendingApprovals, removeApproval } from "../util/security-confirmation"
+import { useProjects } from "../context/projects"
+import { useData } from "../context/data"
+import { Orchestra } from "@orchestra/schema/orchestra"
+import { VaultAccess } from "@orchestra/core/credential-vault/access"
 import { SafetyConfig } from "@orchestra/core/safety-config"
 import { Limits } from "@orchestra/core/limits"
 import { ScheduleView } from "@orchestra/core/schedule-view"
 
-type Row = { id: string; title: string; value: string; description: string; editable?: boolean; environment?: boolean; item?: ScheduleView.Item; day?: boolean; safety?: "all"|"drainMs"|"drainTokens"|"browserMax"|"localTest" }
+type Row = { id: string; title: string; value: string; description: string; editable?: boolean; environment?: boolean; item?: ScheduleView.Item; day?: boolean; vault?:VaultAccess.Scope; safety?: "all"|"drainMs"|"drainTokens"|"browserMax"|"localTest" }
 const environment = new Set(["limits", "wall", "tokens", "browsers"])
 export function DialogSecurity(props: { current?: string } = {}) {
-  const theme=useTheme(), config=useConfig(), route=useRoute(), toast=useToast()
+  const theme=useTheme(), config=useConfig(), projects=useProjects(), data=useData(), route=useRoute(), toast=useToast()
   const sessionID = () => route.data.type === "session" ? route.data.sessionID : undefined
   const [tick,setTick]=createSignal(0), [selected,setSelected]=createSignal(props.current ?? "scope"), [busy,setBusy]=createSignal(false), [digits,setDigits]=createSignal("")
   const timer=setInterval(()=>setTick(n=>n+1),2000);onCleanup(()=>clearInterval(timer))
@@ -31,6 +35,9 @@ export function DialogSecurity(props: { current?: string } = {}) {
       {id:"safety-local",title:"Локальный fixture-test браузера",value:(env.ORCHESTRA_BROWSER_LOCAL_TEST===undefined?safety.localTest===true:env.ORCHESTRA_BROWSER_LOCAL_TEST==="1")?"включён · расширено":"выключен",description:`← выключить, → включить сразу. Только loopback/file; remote URL по-прежнему запрещён. ${envNote("ORCHESTRA_BROWSER_LOCAL_TEST")}.`,editable:true,safety:"localTest"})
     base.splice(1,0,{id:"permissions",title:"Разрешения сессий",value:config.data.session?.permissions==="autoaccept"?"принимать сами · расширено":"спрашивать",description:"Настройка этого TUI. Автоподтверждение команд и изменений файлов не разрешает оплату, секреты или публикацию.",editable:true})
     const owner=sessionID()
+    const projectID=owner?(projects.owner(owner)??Orchestra.sessionOwner(data.session.get(owner)?.metadata)):undefined
+    const info=owner?data.session.get(owner):undefined
+    if(owner&&projectID&&info){const scope={sessionID:owner,projectID,directory:info.location.directory};base.unshift({id:"vault-http",title:"Vault: подстановка HTTP",value:VaultAccess.current(scope)?"ВКЛ · расширено":"OFF",description:"← OFF, → ВКЛ сразу на 1 час, только этот чат/проект. Secret по имени в fixed HTTPS GET/Bearer только savedBase/models; raw body/headers скрыты, redirects запрещены. Произвольная shell/env инъекция отсутствует. DPAPI Windows, другие ОС fail closed. Деньги/публикация не разрешены.",editable:true,vault:scope})}
     const triggers=owner?ScheduleView.list(owner):[]
     if(!triggers.length)base.push({id:"trigger-empty",title:"Лимиты расписаний",value:"откройте главный чат с триггерами",description:"Индивидуальные лимиты показываются только для триггеров текущего главного чата. Чужой триггер не выбирается автоматически."})
     for(const item of triggers)for(const day of [false,true]){
@@ -65,6 +72,7 @@ export function DialogSecurity(props: { current?: string } = {}) {
     if(busy())return
     setDigits("")
     const entry=row();if(!entry?.editable)return
+    if(entry.vault)return apply(()=>VaultAccess.set(entry.vault!,direction>0))
     if(entry.safety){
       const before=SafetyConfig.read(),next={...before}
       if(entry.safety==="all"){

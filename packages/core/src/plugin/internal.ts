@@ -119,6 +119,7 @@ import { Memory } from "../memory/index.js"
 import { Lsp } from "../lsp/index.js"
 import { SymbolsTool } from "../tool/plugin/symbols.js"
 import { NoteTool } from "../tool/plugin/note.js"
+import { VaultTool } from "../tool/plugin/vault.js"
 import { NoteStore } from "../note.js"
 import { SkillMarketplace } from "../skill-marketplace/index.js"
 import { SkillTool } from "../tool/plugin/skill.js"
@@ -361,6 +362,7 @@ const pre = [
 ] as const satisfies readonly InternalPlugin[]
 
 const post = [
+  VaultTool.Plugin,
   ConfigInstructionPlugin.Plugin,
   ConfigReferencePlugin.Plugin,
   ConfigAgentPlugin.Plugin,
