@@ -9,7 +9,7 @@ import { Mode } from "@orchestra/schema/mode"
 import { Orchestra } from "@orchestra/schema/orchestra"
 import { SessionError } from "@orchestra/schema/session-error"
 import { and, desc, eq, sql } from "drizzle-orm"
-import { Cause, Clock, DateTime, Effect, Exit, FiberMap, Layer, Option } from "effect"
+import { Cause, Clock, DateTime, Duration, Effect, Exit, FiberMap, Layer, Option } from "effect"
 import { Database } from "../../database/database.js"
 import { Bus } from "../../bus.js"
 import { Config } from "../../config.js"
@@ -51,6 +51,7 @@ import { Location } from "../../location.js"
 import { SessionMemory } from "../../memory/session.js"
 import { scrubText } from "../../memory/scrub.js"
 import { SessionCompletionGate } from "../completion-gate.js"
+import { RuleEnforce } from "../../rule-enforce.js"
 
 const CONTINUE_AFTER_INCOMPLETE_STREAM =
   "The previous response was interrupted. Continue from where you left off without repeating completed content."
@@ -513,6 +514,40 @@ const layer = Layer.effect(
               metadata: { [SessionCompletionGate.MetadataKey]: true },
             })
             return true
+          }
+          // The soft layer of the rulebook: a light judge reads the finished turn against the free-text rules this
+          // session carries and sends it back to work with the rule quoted. At most JUDGE_MAX times per operator turn;
+          // any failure of the judge lets the turn end.
+          if (title.ask) {
+            const judged = yield* Effect.gen(function* () {
+              const rules = RuleEnforce.recall(String(sessionID)).filter((entry) => !RuleEnforce.isDirective(entry.text))
+              if (rules.length === 0) return undefined
+              const messages = yield* store.context(sessionID)
+              if (SessionCompletionGate.judgedCount(messages, RuleEnforce.JUDGE_KEY) >= RuleEnforce.JUDGE_MAX) return undefined
+              const digest = SessionCompletionGate.turnDigest(messages)
+              const line = yield* title
+                .ask({ sessionID, system: RuleEnforce.JUDGE_SYSTEM, text: RuleEnforce.judgePrompt(rules, digest) })
+                .pipe(Effect.timeoutOption(Duration.seconds(25)), Effect.map(Option.getOrUndefined))
+              const found = RuleEnforce.verdict(line, rules)
+              RuleEnforce.log({
+                layer: "soft",
+                outcome: found ? "sent-back" : "passed",
+                session: String(sessionID),
+                agent: String(loaded.agent.id),
+                ...(found ? { rule: found.entry.text, by: found.entry.by } : {}),
+                what: found ? found.why : String(line ?? "no verdict"),
+              })
+              return found
+            }).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
+            if (judged) {
+              yield* bus.publish(SessionEvent.Synthetic, {
+                sessionID,
+                text: `<system-reminder>\nRule check: this turn breaks a standing rule (${judged.entry.by === "operator" ? "set by the operator" : judged.entry.title}): "${judged.entry.text}". ${judged.why ? `Why: ${judged.why}. ` : ""}Fix it now, then finish. If you believe the rule does not apply, say why in one sentence.\n</system-reminder>`,
+                description: "Rule check",
+                metadata: { [RuleEnforce.JUDGE_KEY]: true },
+              })
+              return true
+            }
           }
         }
         if (completed !== undefined) return completed

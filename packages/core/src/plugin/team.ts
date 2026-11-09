@@ -1,5 +1,6 @@
 export * as TeamPlugin from "./team.js"
 
+import { RuleEnforce } from "../rule-enforce.js"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { define } from "@orchestra/plugin/effect/plugin"
@@ -239,7 +240,12 @@ export const Plugin = define({
         // A load failure is never silent: an agent that starts without its rules is worse than one
         // that does not start, so the failure is handed to the model as an explicit stop.
         const rules = yield* Rules.scopesOf({ sessionID: event.sessionID, sessions, orchestra, federation }).pipe(
-          Effect.flatMap((scopes) => Rules.block(kv, scopes)),
+          Effect.flatMap((scopes) => Rules.load(kv, scopes)),
+          // The same rules feed the hard check before tool calls and the end-of-turn judge.
+          Effect.map((loaded) => {
+            RuleEnforce.remember(String(event.sessionID), loaded.entries)
+            return loaded.block
+          }),
           Effect.catchCause((cause) =>
             Cause.hasInterruptsOnly(cause)
               // The hook's effect never fails: only the interrupt reasons are rethrown,

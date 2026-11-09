@@ -338,6 +338,27 @@ const isBoardFile = (path: string) => /(^|\/)dod\.yaml$/.test(path.replaceAll("\
 const writesBoard = (command: string) =>
   /(^|\/)dod\.yaml/.test(command.replaceAll("\\", "/")) && /(>>?|tee\b|sed\b[^\n]*-i)/.test(command)
 
+/** A short text of the latest turn for the rule judge: its tool calls and its last reply. */
+export function turnDigest(messages: ReadonlyArray<SessionMessage.Info>): string {
+  const start = messages.findLastIndex((message) => message.type === "user")
+  const turn = messages.slice(start + 1)
+  const calls = turnCalls(turn)
+    .slice(-12)
+    .map((call) => `- ${call.name} ${JSON.stringify(call.input).slice(0, 220)}`)
+  const last = turn.findLast((message) => message.type === "assistant")
+  const said =
+    last && last.type === "assistant"
+      ? last.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n").trim().slice(0, 1200)
+      : ""
+  return [`Calls:`, ...(calls.length ? calls : ["- none"]), `Reply: ${said || "(empty)"}`].join("\n")
+}
+
+/** How many times the rule judge has already sent this turn back. */
+export function judgedCount(messages: ReadonlyArray<SessionMessage.Info>, key: string): number {
+  const start = messages.findLastIndex((message) => message.type === "user")
+  return messages.slice(start + 1).filter((message) => message.type === "synthetic" && message.metadata?.[key] === true).length
+}
+
 function turnCalls(turn: ReadonlyArray<SessionMessage.Info>) {
   return turn.flatMap((message) =>
     message.type === "assistant"

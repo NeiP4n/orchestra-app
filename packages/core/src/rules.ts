@@ -429,7 +429,8 @@ const crossScopeConflict = (
 // The system-prompt block for a session. A scope that fails to load, or a contradiction
 // between scopes, fails the whole block: an agent that starts without its rules is worse
 // than one that does not start.
-export const block = (kv: KV.Interface, scopes: Scopes) =>
+/** The block plus the same rules as data, operator rules first, for the enforcement layers. */
+export const load = (kv: KV.Interface, scopes: Scopes) =>
   Effect.gen(function* () {
     const wanted = [
       { title: "Society", scope: scopes.societies.map(societyScope) },
@@ -455,10 +456,16 @@ export const block = (kv: KV.Interface, scopes: Scopes) =>
           `remove or rewrite one of them — the model does not pick a winner.`,
       })
     const lines = parts.flatMap((part) => part.rules.map((rule) => `- [${part.title}] ${rule.text}`))
-    if (lines.length === 0) return ""
-    return [
+    const entries = parts
+      .flatMap((part) => part.rules.map((rule) => ({ title: part.title, text: rule.text, by: rule.by })))
+      .toSorted((a, b) => Number(b.by === "operator") - Number(a.by === "operator"))
+    if (lines.length === 0) return { block: "", entries }
+    const block = [
       "# Rules",
       "Standing rules of this crew, set by the operator and by teammates. Society rules override project rules, which override global rules; a conflict between scopes is an error, not a judgement call. Follow them in every task. When you learn something the whole crew must follow, add it with the rules tool instead of repeating it in briefs; never add a rule that contradicts the operator.",
       ...lines,
     ].join("\n")
+    return { block, entries }
   })
+
+export const block = (kv: KV.Interface, scopes: Scopes) => load(kv, scopes).pipe(Effect.map((loaded) => loaded.block))

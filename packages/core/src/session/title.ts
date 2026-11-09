@@ -26,6 +26,11 @@ const titleChanged = Symbol("Session title changed")
 export interface Interface {
   /** Generates an initial title or regenerates one from bounded conversation history. */
   readonly generate: (sessionID: SessionSchema.ID) => Effect.Effect<void>
+  /**
+   * One short question to the same small model that writes titles (free tier on a zero-spend setup). Returns the first
+   * line of its answer, or undefined when no model is available or the call fails. Used by the rule judge.
+   */
+  readonly ask?: (input: { sessionID: SessionSchema.ID; system: string; text: string }) => Effect.Effect<string | undefined>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@orchestra/SessionTitle") {}
@@ -155,7 +160,23 @@ export const layer = Layer.effect(
         )
         .pipe(Effect.catchDefect((defect) => (defect === titleChanged ? Effect.void : Effect.die(defect))))
     })
-    return Service.of({ generate })
+    const ask = Effect.fn("SessionTitle.ask")(function* (input: {
+      readonly sessionID: SessionSchema.ID
+      readonly system: string
+      readonly text: string
+    }) {
+      const session = yield* store.get(input.sessionID)
+      if (!session) return undefined
+      const selection = yield* context.selectTitle(session)
+      if (!selection) return undefined
+      const agent = { ...selection.agent, system: input.system } as Agent.Info
+      const answer = yield* attempt({ session, agent, text: input.text, model: selection.selected })
+      return answer.title
+    })
+    return Service.of({
+      generate,
+      ask: (input) => ask(input).pipe(Effect.catchCause(() => Effect.succeed(undefined))),
+    })
   }),
 )
 

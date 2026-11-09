@@ -6,13 +6,15 @@ import { Effect, Schema } from "effect"
 import { Federation } from "../../federation.js"
 import { KV } from "../../kv.js"
 import { Orchestra } from "../../orchestra.js"
+import { RuleEnforce } from "../../rule-enforce.js"
 import { Rules } from "../../rules.js"
+import { Tool } from "@orchestra/schema/tool"
 import { Session } from "../../session.js"
 
 export const name = "rules"
 
 export const Input = Schema.Struct({
-  action: Schema.Literals(["list", "add", "remove"]),
+  action: Schema.Literals(["list", "add", "remove", "violations"]),
   text: Schema.optionalKey(Schema.String).annotate({
     description: `For add: the rule, one short sentence (at most ${Rules.MAX_TEXT} characters), written so any teammate can follow it without context.`,
   }),
@@ -28,7 +30,9 @@ export const Output = Schema.Struct({ output: Schema.String })
 
 const description = [
   "The rulebook: standing rules this crew keeps. Add a rule when you learn something every teammate must follow (a convention, something never to do, a decision that settles a debate); it is then part of everyone's instructions without being repeated in briefs.",
-  "Actions: list (the rules that apply to you, with ids), add, remove. Keep rules short and few; remove one that is obsolete. Never add a rule that contradicts the operator.",
+  "Actions: list (the rules that apply to you, with ids), add, remove, violations (the latest refused calls and judged breaks). A rule written as `deny tool <glob> [for role <glob>]`, `only role <glob> may use tool <glob>`, `deny command <regex> [for role <glob>]` or `deny path <glob> [for role <glob>]` is enforced by code: a call that breaks it is refused with the rule's text.",
+  "Other rules are checked at the end of a turn by a light judge and send the agent back to work.",
+  " Keep rules short and few; remove one that is obsolete. Never add a rule that contradicts the operator.",
 ].join("\n")
 
 export const Plugin = {
@@ -38,6 +42,25 @@ export const Plugin = {
     const sessions = yield* Session.Service
     const orchestra = yield* Orchestra.Service
     const federation = yield* Federation.Service
+
+    // The hard layer: one check before every tool call, against the rules this session carried on its latest request.
+    yield* ctx.tool.hook("execute.before", (event) =>
+      Effect.gen(function* () {
+        const entries = RuleEnforce.recall(String(event.sessionID))
+        const broken = RuleEnforce.violation(entries, { tool: event.tool, agent: String(event.agent), input: event.input })
+        if (!broken) return
+        RuleEnforce.log({
+          layer: "hard",
+          outcome: "refused",
+          session: String(event.sessionID),
+          agent: String(event.agent),
+          rule: broken.text,
+          by: broken.by,
+          what: `${event.tool} ${JSON.stringify(event.input ?? {}).slice(0, 200)}`,
+        })
+        return yield* new Tool.Error({ message: RuleEnforce.refusal(broken) })
+      }),
+    )
 
     yield* ctx.tool
       .transform((editor) =>
@@ -73,6 +96,11 @@ export const Plugin = {
                   reach.push({ kind: "session", scope: Rules.sessionScope(input.session), label: `Session ${input.session}` })
                 if (input.role)
                   reach.push({ kind: "role", scope: Rules.roleScope(scopes.project, input.role), label: `Role ${input.role}` })
+              }
+
+              if (input.action === "violations") {
+                const lines = RuleEnforce.recent(15)
+                return { output: lines.length ? lines.join("\n") : "No rule violations logged." }
               }
 
               if (input.action === "list") {
