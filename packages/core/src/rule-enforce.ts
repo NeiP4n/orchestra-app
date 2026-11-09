@@ -203,6 +203,10 @@ export const builtin = (
   // session made with a browser-like name and no page would be a plain chat dressed as one.
   const browserLike = (value: unknown) => typeof value === "string" && /browser/i.test(value) && !/^(?:team-)?browser-agent$/.test(value.trim())
   const nonBrowserAgent = "A role or session named for the browser is refused: browser work belongs to the BrowserAgent of a browser session (browser action=sessions lists them, browser action=create adds one). Use that instead of a new role."
+  // Any way to start a browser-named agent: the subagent tool, sessions create, a role or a team member.
+  if (call.tool === "subagent" && browserLike(input.agent)) return nonBrowserAgent
+  if (call.tool === "team_forge" && (input.action === "team" || input.action === "edit_team") && Array.isArray(input.members) && input.members.some((member) => typeof member === "object" && member !== null && browserLike((member as Record<string, unknown>).role)))
+    return nonBrowserAgent
   if (call.tool === "team_forge" && (input.action === "role" || input.action === "edit_role") && (browserLike(input.name) || browserLike(input.id)))
     return nonBrowserAgent
   if (call.tool === "sessions" && input.action === "create" && browserLike(input.role))
@@ -211,6 +215,8 @@ export const builtin = (
     const code = input.code
     if (/(?:playwright|puppeteer|selenium|chromedriver|msedge|chrome\.exe|google-chrome)/i.test(code) && /(?:spawn|exec|launch|import|require|npx|bunx|Bun\.\$)/i.test(code))
       return "Starting a browser from a script is refused: the browser tool and the Browser tab are the only browser."
+    // A script that names a browser-like role for sessions create, subagent or team_forge.
+    if (/\b(?:sessions|subagent|team_forge)\b/.test(code) && /(?:role|agent|name|id)["']?\s*[:=]\s*["'`](?!(?:team-)?browser-agent["'`])[^"'`]*browser/i.test(code)) return nonBrowserAgent
     if (/\b(?:sessions|subagent)\b/.test(code) && /\b(?:create|send)\b|\bagent\b/.test(code) && browserTask.test(code)) return route
   }
   return undefined
