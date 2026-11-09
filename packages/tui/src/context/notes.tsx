@@ -43,7 +43,7 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
     const client = useClient()
     const data = useData()
     const route = useRoute()
-    const [panel, updatePanel] = useStorage().store<{ tab?: NotesTab; project?: string }>("notes-panel", {
+    const [panel, updatePanel] = useStorage().store<{ tab?: NotesTab; project?: string; collapsed?: Record<string, boolean> }>("notes-panel", {
       initial: {},
     })
     // The browser sessions of each project (the Browser view), kept across restarts.
@@ -301,6 +301,14 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
       setCreating,
       open,
       start,
+      // Folded category headers of the project tree, by "<project>:<group>"; kept between runs.
+      groupCollapsed: (key: string) => panel.collapsed?.[key] === true,
+      toggleGroup: (key: string) =>
+        void updatePanel((draft) => {
+          draft.collapsed ??= {}
+          if (draft.collapsed[key]) delete draft.collapsed[key]
+          else draft.collapsed[key] = true
+        }).catch(() => undefined),
       project: () => panel.project,
       setProject: (projectID: string) =>
         void updatePanel((draft) => void (draft.project = projectID)).catch(() => undefined),

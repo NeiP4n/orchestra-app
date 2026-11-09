@@ -113,3 +113,10 @@ test("row buttons are three cells wide so the hover highlight sits on the glyph,
   expect(tree).toContain("const isBrowserSession")
   expect(tree).toContain("/browser/i.test(session.title")
 })
+
+test("category headers, Browsers included, fold their rows with a remembered state and a count", () => {
+  const tree = read("component/project-tree.tsx")
+  expect(tree).toContain("notes.toggleGroup(`${project.id}:Browsers`)")
+  expect(tree).toContain("notes.toggleGroup(`${project.id}:${group.name}`)")
+  expect(read("context/notes.tsx")).toContain("groupCollapsed")
+})

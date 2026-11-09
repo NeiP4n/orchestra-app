@@ -1155,12 +1155,21 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                   </Row>
                   {childRows(project.main)}
                   <Show when={notes.tab() !== "browser"}>
-                  <box flexDirection="row" paddingLeft={1}>
+                  <box
+                    flexDirection="row"
+                    paddingLeft={1}
+                    onMouseUp={() => notes.toggleGroup(`${project.id}:Browsers`)}
+                  >
                     <Branch through />
                     <text fg={palette().synapse} wrapMode="none" truncate>
-                      {`# ${t("Browsers")}`}
+                      {`${notes.groupCollapsed(`${project.id}:Browsers`) ? "▸" : "▾"} ${t("Browsers")}${
+                        notes.groupCollapsed(`${project.id}:Browsers`)
+                          ? ` (${notes.browserSessions(project.id).length + browserChatsOf(project).length})`
+                          : ""
+                      }`}
                     </text>
                   </box>
+                  <Show when={!notes.groupCollapsed(`${project.id}:Browsers`)}>
                   {browserRows(project)}
                   <For each={browserChatsOf(project)}>
                     {(chat) => (
@@ -1181,18 +1190,25 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                     )}
                   </For>
                   </Show>
+                  </Show>
                   <For each={visibleGroupsOf(project).groups}>
                     {(group) => (
                       <>
                         <Show when={group.name}>
-                          <box flexDirection="row" paddingLeft={1}>
+                          <box
+                            flexDirection="row"
+                            paddingLeft={1}
+                            onMouseUp={() => notes.toggleGroup(`${project.id}:${group.name}`)}
+                          >
                             <Branch through />
                             <text fg={palette().synapse} wrapMode="none" truncate>
-                              {`# ${group.name}`}
+                              {`${notes.groupCollapsed(`${project.id}:${group.name}`) ? "▸" : "▾"} ${group.name}${
+                                notes.groupCollapsed(`${project.id}:${group.name}`) ? ` (${group.sessions.length})` : ""
+                              }`}
                             </text>
                           </box>
                         </Show>
-                        <For each={group.sessions}>
+                        <For each={group.name && notes.groupCollapsed(`${project.id}:${group.name}`) ? [] : group.sessions}>
                           {(session) => {
                             const [modeHovered, setModeHovered] = createSignal(false)
                             const [categoryHovered, setCategoryHovered] = createSignal(false)
