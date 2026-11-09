@@ -151,8 +151,8 @@ export const Plugin = {
           ScheduleView.sync(made.trigger, String(sessionID))
           BrowserSchedule.sync(made.trigger.kind === "browser" ? { ...made.trigger, browserSessionID: made.trigger.spec } : made.trigger)
           if (made.trigger.kind === "browser") {
-            const armed = yield* Effect.promise(() => BrowserWatch.ensure(made.trigger.spec))
-            BrowserSchedule.watchStatus(made.trigger.id, armed)
+            const armed = yield* Effect.promise(() => BrowserRuntime.watchActivate(made.trigger.spec))
+            BrowserSchedule.watchStatus(made.trigger.id, armed, undefined, BrowserRuntime.watcherReason(made.trigger.spec))
           }
           return `Created. ${Trigger.describe(made.trigger)}`
         }
@@ -178,6 +178,10 @@ export const Plugin = {
         yield* kv.set(Trigger.key(project.id, found.id), ready as never)
         ScheduleView.sync(ready, String(sessionID))
         BrowserSchedule.sync(ready.kind === "browser" ? { ...ready, browserSessionID: ready.spec } : ready)
+        if (ready.kind === "browser") {
+          const armed = yield* Effect.promise(() => BrowserRuntime.watchActivate(ready.spec))
+          BrowserSchedule.watchStatus(ready.id, armed, undefined, BrowserRuntime.watcherReason(ready.spec))
+        }
         return `Resumed. ${Trigger.describe(ready)}`
       })
 

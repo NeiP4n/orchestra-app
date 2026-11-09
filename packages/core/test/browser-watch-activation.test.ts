@@ -1,0 +1,40 @@
+import { expect, test } from "bun:test"
+import { readFileSync } from "node:fs"
+
+test("explicit create and resume start watchers, but passive ensure never launches Chrome", () => {
+  const tool = readFileSync(new URL("../src/tool/plugin/triggers.ts", import.meta.url), "utf8")
+  expect(tool).toContain("BrowserRuntime.watchActivate(made.trigger.spec)")
+  expect(tool).toContain("BrowserRuntime.watchActivate(ready.spec)")
+  const runtime = readFileSync(new URL("../src/browser/runtime.ts", import.meta.url), "utf8")
+  const start = runtime.indexOf("export async function watchEnsure(")
+  const ensure = runtime.slice(start, runtime.indexOf("export async function stopPageWatcher", start))
+  expect(ensure).not.toContain("await open(")
+  expect(ensure).toContain("existsSync(watcherStopFile(sessionID))")
+  expect(ensure).toContain("savedState(sessionID).active")
+  expect(ensure).not.toContain("BrowserTabs.activate")
+  expect(ensure).not.toContain("stream(sessionID")
+  const restore = runtime.slice(runtime.indexOf("export async function watchRestore("), runtime.indexOf("const armed ="))
+  expect(restore.indexOf("existsSync(watcherStopFile")).toBeLessThan(restore.indexOf("await open("))
+  expect(restore).toContain("watcherRestoreAttempted.has(sessionID)")
+  expect(runtime).toContain('if (passive && existsSync(watcherStopFile(sessionID))) throw')
+})
+test("durable enabled watchers restore in the server sweep, not from pane rendering", () => {
+  const source = readFileSync(new URL("../src/orchestra.ts", import.meta.url), "utf8")
+  const start = source.indexOf("const fireBrowserTriggers")
+  const body = source.slice(start, source.indexOf("yield* Effect.forever", start))
+  expect(body).toContain("BrowserBridge.resolve(BrowserRuntime.sessions(), item.trigger.spec, project.directory)")
+  expect(body).toContain('if (wanted && bound && !("error" in bound) && ownBrowser)')
+  expect(body.indexOf("BrowserRuntime.watchRestore")).toBeLessThan(body.indexOf("BrowserWatch.ensure"))
+  expect(body).toContain("BrowserSchedule.watchReason")
+  const ui = readFileSync(new URL("../../tui/src/util/schedule-list.ts", import.meta.url), "utf8")
+  expect(ui).toContain('return "ждёт браузер"')
+  expect(ui).toContain("[status.watcherReason]")
+})
+
+test("observer shutdown does not quit a browser owned by another process", () => {
+  const source = readFileSync(new URL("../src/browser/runtime.ts", import.meta.url), "utf8")
+  const start = source.indexOf("export async function closeAllGraceful(")
+  const body = source.slice(start, source.indexOf("export function closeAll(", start))
+  expect(body.indexOf("if (!ownedChrome.has(item.port)) return")).toBeGreaterThan(0)
+  expect(body.indexOf("if (!ownedChrome.has(item.port)) return")).toBeLessThan(body.indexOf("quit(item.port)"))
+})

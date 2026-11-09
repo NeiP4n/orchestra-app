@@ -40,6 +40,7 @@ export function scheduleNext(item: ScheduleView.Item): string {
 export function scheduleState(item: ScheduleView.Item, status?: BrowserSchedule.Status, now = Date.now()): string {
   if (item.pendingDelivery) return "доставка ожидается"
   if (!item.enabled) return item.pausedReason ? /firings.*cap/.test(item.pausedReason) ? "пауза: лимит" : "пауза" : "выкл."
+  if (item.kind === "browser" && status?.watcherReason) return "ждёт браузер"
   if (status?.phase === "error" || status?.watcher === "failed") return "ошибка"
   if (item.actionErrors) return "ошибка действия"
   if (item.kind === "internal") return "ждёт событие"
@@ -64,6 +65,7 @@ export function scheduleDetails(item: ScheduleView.Item, status?: BrowserSchedul
       ? `${watcher} · последнее входящее: ${status?.lastEventAt === undefined ? "нет" : clock(status.lastEventAt)}`
       : `Следующий запуск: ${scheduleNext(item)}`,
     `Последний результат: ${result}${status?.lastCheckedAt === undefined ? "" : ` · чтение ${clock(status.lastCheckedAt)}`}`,
+    ...(status?.watcherReason ? [status.watcherReason] : []),
     ...(item.missedCount ? [`Пропущено: ${item.missedCountAtLeast ? "не менее " : ""}${item.missedCount}${item.lastMissedAt ? ` · ${clock(item.lastMissedAt)}` : ""}`] : []),
     ...(status?.lostPendingRows ? [`Потеряно при перезапуске: ${status.lostPendingRows} строк; повтор не выполнен`] : []),
     ...(status?.restartedAt ? ["Наблюдение восстановлено после перезапуска; события во время простоя неизвестны"] : []),

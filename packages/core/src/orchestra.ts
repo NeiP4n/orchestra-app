@@ -40,6 +40,7 @@ import { TriggerDelivery } from "./trigger-delivery.js"
 import { randomUUID } from "node:crypto"
 import { ScheduleView } from "./schedule-view.js"
 import { BrowserLocalTest } from "./browser/local-test.js"
+import { BrowserBridge } from "./browser/bridge.js"
 import { BrowserRuntime } from "./browser/runtime.js"
 import { BrowserSchedule } from "./browser/schedule.js"
 import { BrowserWatch } from "./browser/watch.js"
@@ -1985,8 +1986,13 @@ const layer: Layer.Layer<
           if (project?.main) ScheduleView.sync(item.trigger, String(project.main))
           BrowserSchedule.sync({ ...item.trigger, browserSessionID: item.trigger.spec })
           BrowserSchedule.queueStatus(item.trigger.id, waiting.get(item.key)?.length ?? 0)
-          const armed = item.trigger.enabled && !(project?.main && ScheduleView.removalRequested(item.trigger.id, String(project.main))) ? yield* Effect.promise(() => BrowserWatch.ensure(item.trigger.spec)) : false
+          const wanted = item.trigger.enabled && project?.main && !ScheduleView.removalRequested(item.trigger.id, String(project.main))
+          const bound = project ? BrowserBridge.resolve(BrowserRuntime.sessions(), item.trigger.spec, project.directory) : undefined
+          const ownBrowser = bound && !("error" in bound) && project && path.resolve(bound.session.project).toLowerCase() === path.resolve(project.directory).toLowerCase()
+          if (wanted && bound && !("error" in bound) && ownBrowser) yield* Effect.promise(() => BrowserRuntime.watchRestore(item.trigger.spec))
+          const armed = wanted && bound && !("error" in bound) && ownBrowser ? yield* Effect.promise(() => BrowserWatch.ensure(item.trigger.spec)) : false
           BrowserSchedule.watchStatus(item.trigger.id, armed)
+          BrowserSchedule.watchReason(item.trigger.id, armed ? undefined : bound && "error" in bound ? bound.error : !ownBrowser ? "Ждёт запуска браузера: сессия не принадлежит этому проекту." : BrowserRuntime.watcherReason(item.trigger.spec) ?? "Ждёт запуска браузера: соединение или страница недоступны.")
         }
       for (const event of browserInbox.splice(0))
         for (const item of mine) {

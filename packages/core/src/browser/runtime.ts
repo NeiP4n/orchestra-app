@@ -287,6 +287,10 @@ export async function profileRunning(sessionID: string): Promise<boolean> {
 }
 /** Explicit operator action only; no launches and no PID loaded from disk is killed. */
 export async function closeBlockedBrowser(sessionID: string) {
+  // A user stop is durable across TUI/server processes and restarts. No sweep may undo it.
+  const marker = watcherStopFile(sessionID)
+  mkdirSync(path.dirname(marker), { recursive: true })
+  writeAtomic(marker, JSON.stringify({ stoppedAt: Date.now() }))
   BrowserActivity.set(sessionID, { phase: "stopping" })
   unwatch(sessionID)
   try { return await launchLock(async () => {
@@ -325,8 +329,11 @@ export async function closeBlockedBrowser(sessionID: string) {
     throw error
   }
 }
-async function start(sessionID: string): Promise<Live> {
-  return launchLock(() => startLocked(sessionID))
+async function start(sessionID: string, passive = false): Promise<Live> {
+  return launchLock(() => {
+    if (passive && existsSync(watcherStopFile(sessionID))) throw new Error("Chrome остановлен оператором")
+    return startLocked(sessionID)
+  })
 }
 async function startLocked(sessionID: string): Promise<Live> {
   const dir = Chrome.profileDir(Global.Path.data, sessionID)
@@ -350,12 +357,16 @@ async function startLocked(sessionID: string): Promise<Live> {
 }
 
 /** The running browser of a session, started (or joined) on first use. */
-export async function open(sessionID: string): Promise<Cdp.Client> {
+export async function open(sessionID: string, options: { passive?: boolean } = {}): Promise<Cdp.Client> {
   if (BrowserActivity.get(sessionID)?.phase === "stopping") throw new Error("Chrome останавливается. Дождитесь завершения остановки.")
   // A restart in progress owns the session: starting another Chrome beside it is what left input hanging.
   const restarting = relaunching.get(sessionID)
   if (restarting && !inside.has(sessionID)) await restarting.catch(() => undefined)
   if (!inside.has(sessionID)) await awaitRelaunch(sessionID)
+  if (!options.passive) {
+    rmSync(watcherStopFile(sessionID), { force: true })
+    watcherRestoreAttempted.delete(sessionID)
+  }
   const existing = live.get(sessionID)
   if (existing && existing.client.isClosed?.() === true) {
     // Chrome died or was closed behind our back: the stored client can never answer again. Forget it, so this call
@@ -371,7 +382,7 @@ export async function open(sessionID: string): Promise<Cdp.Client> {
   }
   const wanted = savedState(sessionID).active
   BrowserActivity.set(sessionID, { phase: "starting" })
-  const promise = start(sessionID)
+  const promise = start(sessionID, options.passive)
     .then(async (value) => {
       live.set(sessionID, value)
       BrowserActivity.set(sessionID, { phase: "running" })
@@ -400,10 +411,36 @@ export const isOpen = (sessionID: string) => live.has(sessionID)
 // Browser triggers: arms the page watcher on the session's current page connection. A tab switch, a restart or a new
 // Chrome gives the session a new connection, so the trigger sweep calls this again every few seconds and it re-arms when
 // the connection changed. It never starts Chrome: a session that is not running is not watched.
+const watcherStopFile = (sessionID: string) => path.join(Global.Path.data, "browser-profiles", encodeURIComponent(sessionID) + ".watcher-stopped.json")
+const watcherRestoreAttempted = new Set<string>()
+const watcherReasons = new Map<string, string>()
+export const watcherReason = (sessionID: string) => watcherReasons.get(sessionID)
+/** Enabled durable triggers restore once at service startup. A user stop always wins until explicit enable/start. */
+export async function watchRestore(sessionID: string): Promise<void> {
+  if (await watchEnsure(sessionID)) { watcherReasons.delete(sessionID); return }
+  if (existsSync(watcherStopFile(sessionID))) { watcherReasons.set(sessionID, "Ждёт запуска браузера: Chrome остановлен оператором. Нажмите ▶ или включите триггер заново."); return }
+  if (watcherRestoreAttempted.has(sessionID)) return
+  watcherRestoreAttempted.add(sessionID)
+  try {
+    await open(sessionID, { passive: true })
+    if (!await watchEnsure(sessionID)) throw new Error("Страница не готова к наблюдению. Откройте сохранённую страницу и проверьте вход в аккаунт.")
+    watcherReasons.delete(sessionID)
+  } catch (error) {
+    watcherReasons.set(sessionID, "Ждёт запуска браузера: " + (error instanceof Error ? error.message : "Не удалось запустить Chrome").slice(0, 180))
+  }
+}
+/** Explicit create/resume is permission to start this already-resolved managed profile, not arbitrary page actions. */
+export async function watchActivate(sessionID: string): Promise<boolean> {
+  rmSync(watcherStopFile(sessionID), { force: true })
+  watcherRestoreAttempted.delete(sessionID)
+  await watchRestore(sessionID)
+  return watchEnsure(sessionID)
+}
 const armed = new Map<string, Cdp.Client>()
 const watchHealth = new Map<string, { at: number; state: "ok" | "lost"; resumed: boolean }>()
 export const watcherHealth = (sessionID: string) => watchHealth.get(sessionID)
 export async function watchEnsure(sessionID: string): Promise<boolean> {
+  if (existsSync(watcherStopFile(sessionID))) return false
   // The pane may own Chrome in another process. Join an existing profile only;
   // peek does not start a stopped browser.
   const previous = live.get(sessionID)
@@ -413,6 +450,20 @@ export async function watchEnsure(sessionID: string): Promise<boolean> {
   if (!item || item.client.isClosed?.() === true) {
     armed.delete(sessionID)
     return false
+  }
+  // The visible pane and scheduler are separate processes. Follow the persisted selected tab
+  // without opening a tab, activating a window, streaming images or navigating a page.
+  const wanted = savedState(sessionID).active
+  if (wanted) {
+    try {
+      const target = (await within(BrowserTabs.list(item.port), 2000)).find(tab => tab.url === wanted)
+      if (target && target.id !== item.tabID) {
+        const previousClient = item.client
+        item.client = await within(connectTab(target), 2000)
+        item.tabID = target.id
+        previousClient.close()
+      }
+    } catch { /* heartbeat below remains the readiness check */ }
   }
   const health = watchHealth.get(sessionID)
   const now = Date.now()
@@ -429,6 +480,7 @@ export async function watchEnsure(sessionID: string): Promise<boolean> {
       return false
     }
     armed.set(sessionID, item.client)
+    watcherReasons.delete(sessionID)
     watchHealth.set(sessionID, { at: now, state: "ok", resumed })
     return true
   } catch (error) {
@@ -449,6 +501,7 @@ BrowserWatch.setEnsurer(watchEnsure)
 
 export async function go(sessionID: string, address: string) {
   await Cdp.navigate(await open(sessionID), Chrome.omnibox(address))
+  await tabs(sessionID)
 }
 
 export async function read(sessionID: string) {
@@ -594,6 +647,7 @@ export async function selectTab(sessionID: string, tabID: string) {
   const tab = (await BrowserTabs.list(live.get(sessionID)!.port)).find((entry) => entry.id === tabID)
   if (!tab) throw new Error("That tab is already closed.")
   await switchTo(sessionID, tab)
+  await tabs(sessionID)
 }
 
 /** Opens a new tab and switches to it. */
@@ -602,6 +656,7 @@ export async function newTab(sessionID: string, address?: string) {
   const item = live.get(sessionID)!
   const tab = await BrowserTabs.create(item.port, address ? Chrome.normalizeUrl(address) : undefined)
   await switchTo(sessionID, tab)
+  await tabs(sessionID)
 }
 
 /** Closes a tab; closing the last one leaves a blank tab, like Chrome keeps a window open. */
@@ -795,7 +850,7 @@ export function close(sessionID: string) {
 }
 
 /**
- * A normal stop of the service: every windowless Chrome is asked to quit (Browser.close), so it writes its cookies
+ * A normal stop of the service: each OWNED windowless Chrome is asked to quit (Browser.close), so it writes its cookies
  * and session to the profile; one that has not closed within the timeout is stopped outright.
  */
 export async function closeAllGraceful(timeoutMs = 4000) {
@@ -806,6 +861,9 @@ export async function closeAllGraceful(timeoutMs = 4000) {
       live.delete(id)
       item.client.close()
       item.capture?.stop()
+      // Joining a pane-owned Chrome for background observation is not ownership.
+      // An observer service exiting must not close the other process's browser.
+      if (!ownedChrome.has(item.port)) return
       const closed = await Promise.race([
         quit(item.port).then(() => true, () => false),
         new Promise<boolean>((done) => setTimeout(() => done(false), timeoutMs)),
@@ -1207,7 +1265,7 @@ export async function peek(sessionID: string): Promise<{ running: boolean; title
     trace(`peek ${sessionID}: profile ${Chrome.profileDir(Global.Path.data, sessionID)}, live port ${port ?? "none"}, own connection ${item ? "closed" : "none"}`)
     if (port === undefined) return { running: false }
     try {
-      await open(sessionID)
+      await open(sessionID, { passive: true })
       item = live.get(sessionID)
     } catch {
       return { running: true }

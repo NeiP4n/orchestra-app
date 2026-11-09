@@ -10,6 +10,7 @@ export interface Status {
   triggerID: string
   browserSessionID: string
   watcher?: "off" | "failed" | "watching"
+  watcherReason?: string
   lastEventAt?: number
   watcherRun?: string
   pendingRows?: number
@@ -131,10 +132,10 @@ export function inspected(id: string, sessionID: string, now = Date.now()) {
 
 
 /** Watching proves installation on a live connection, not that every DOM row is detectable. */
-export function watchStatus(id: string, watching: boolean, lastEventAt?: number) {
+export function watchStatus(id: string, watching: boolean, lastEventAt?: number, reason?: string) {
   const previous = get(id)
   if (!previous) return
-  save({ ...previous, watcher: !previous.enabled ? "off" : watching ? "watching" : "failed",
+  save({ ...previous, watcherReason: watching ? undefined : reason, watcher: !previous.enabled ? "off" : watching ? "watching" : "failed",
     ...(lastEventAt === undefined ? {} : { lastEventAt }) })
 }
 
@@ -147,4 +148,10 @@ export function queueStatus(id: string, pendingRows: number, now = Date.now()) {
   save({ ...previous, watcherRun, pendingRows: Math.max(0, Math.floor(pendingRows)),
     lostPendingRows: (previous.lostPendingRows ?? 0) + (restarted ? previous.pendingRows ?? 0 : 0),
     ...(restarted ? { restartedAt: now, watcher: "failed" as const } : {}) })
+}
+
+/** Operational reason only, never page content. */
+export function watchReason(id: string, reason?: string) {
+  const previous = get(id)
+  if (previous && previous.watcherReason !== reason) save({ ...previous, watcherReason: reason })
 }
