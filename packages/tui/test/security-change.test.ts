@@ -14,13 +14,14 @@ test("real security dialog binds left/right and applies every operator permissio
  expect(source).not.toContain('process.env[')
 })
 
-test("full-disable is operator-only, acknowledged and globally visible with one action restore",()=>{
+test("full-disable is operator-only, recorded and visible in Security only with one action restore",()=>{
  const source=readFileSync(new URL("../src/component/dialog-security.tsx",import.meta.url),"utf8")
  expect(source).toContain('safety:"all"');expect(source).toContain('SafetyConfig.restore()')
  const bar=readFileSync(new URL("../src/component/safety-warning-bar.tsx",import.meta.url),"utf8")
  expect(bar).toContain('SafetyConfig.restore()');expect(bar).toContain('защита лимитов ВЫКЛЮЧЕНА')
  const app=readFileSync(new URL("../src/app.tsx",import.meta.url),"utf8")
- expect(app).toContain('<SafetyWarningBar />')
+ expect(app).not.toContain('SafetyWarningBar')
+ expect(source).toContain('ВЫКЛЮЧЕНА · расширено')
 })
 
 test("fast steps and direct numbers keep original schedule bounds and accept millions for token limits",()=>{

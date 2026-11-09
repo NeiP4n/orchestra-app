@@ -77,7 +77,6 @@ import { ProjectTree } from "./component/project-tree"
 import { HomeProjectPanel } from "./component/home-project-panel"
 import { NeuralLine, useNeuralEnergy } from "./component/neural"
 import { DialogKeybinds } from "./component/dialog-keybinds"
-import { SafetyWarningBar } from "./component/safety-warning-bar"
 import { UserNameBar } from "./component/user-name-bar"
 import { displayUserName } from "./util/user-name"
 import { applyAiLanguage } from "./util/ai-language"
@@ -1693,7 +1692,6 @@ function App() {
       }
     >
       <UserNameBar />
-      <SafetyWarningBar />
       <box
         flexGrow={1}
         minHeight={0}
