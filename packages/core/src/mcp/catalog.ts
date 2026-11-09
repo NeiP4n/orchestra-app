@@ -190,9 +190,17 @@ export const isRealScreenServer = (id: string): boolean =>
 const local = (command: string[]): ServerConfig => ({ type: "local", command }) as ServerConfig
 const remote = (url: string): ServerConfig => ({ type: "remote", url }) as ServerConfig
 
-// Playwright defaults to Google Chrome stable, which many Windows machines lack; Edge ships
-// with Windows and speaks the same protocol, so point it at Edge there.
-const windows = process.platform === "win32"
+/** MCP servers that start a browser of their own. Agents use the `browser` tool and the Browser tab only; these are refused unless the operator sets the flag. */
+export const SEPARATE_BROWSER_FLAG: Readonly<Record<string, string>> = {
+  "chrome-devtools": "ORCHESTRA_MCP_CHROME_DEVTOOLS",
+  playwright: "ORCHESTRA_MCP_PLAYWRIGHT",
+}
+export const separateBrowserDenial = (id: string, env: Record<string, string | undefined>): string | undefined => {
+  const flag = SEPARATE_BROWSER_FLAG[id]
+  return flag !== undefined && env[flag] !== "1"
+    ? `MCP server "${id}" would open a browser outside the Browser tab and is switched off. Use the browser tool (open, snapshot, click, type, eval).`
+    : undefined
+}
 
 export const all: readonly Entry[] = [
   {
@@ -242,7 +250,7 @@ export const all: readonly Entry[] = [
       "For web apps: navigate, inspect the page, interact with elements by stable references, and take screenshots to verify the result. B7: this drives the operator's real browser, so it needs the real-screen opt-in (ORCHESTRA_DESKTOP_REAL_SCREEN=on, allowlist naming playwright, future expiry); without it the server is not acquired and its tools refuse.",
     runtime: "npx",
     realScreen: true,
-    config: local(["npx", "-y", "@playwright/mcp@latest", ...(windows ? ["--browser", "msedge"] : [])]),
+    config: local(["npx", "-y", "@playwright/mcp@latest"]),
   },
   {
     id: "chrome-devtools",

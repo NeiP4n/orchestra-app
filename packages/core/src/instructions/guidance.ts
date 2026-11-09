@@ -37,7 +37,7 @@ export const defaultRules: ReadonlyArray<GuidanceRule> = [
   },
   {
     intent: "Live pages, web apps & browser flows",
-    tools: ["browser", "playwright_*"],
+    tools: ["browser"],
     guidance: "Drive the page with these instead of reconstructing it from a fetch or curl: open the URL, read the accessibility tree or DOM, act, then assert on the result. A rendered page is evidence; a guessed one is not. When the answer needs another assistant's knowledge, open its chat (Gemini, ChatGPT, DeepSeek, Qwen) in the browser, ask it there, and cite the URL you used instead of paraphrasing from memory.",
   },
   {

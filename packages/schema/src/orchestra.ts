@@ -254,7 +254,6 @@ export const impliedTools: Readonly<Record<string, readonly string[]>> = {
   edit: ["patch", "write"],
   desktop: ["playtest", "agent-desktop_*"],
   webfetch: ["context7_*", "deepwiki_*"],
-  browser: ["playwright_*", "chrome-devtools_*"],
   note: ["idea_bank", "plots"],
   mcp_forge: ["mcp_*"],
 }

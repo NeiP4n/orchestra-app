@@ -12,3 +12,17 @@ describe("browser tasks go to the BrowserAgent", () => {
     expect(browserRouteRefusal("developer", undefined)).toBeUndefined()
   })
 })
+
+import { McpCatalog } from "../src/mcp/catalog"
+describe("no browser automation outside the browser tool", () => {
+  test("playwright and chrome-devtools are refused unless the operator sets their flag", () => {
+    expect(McpCatalog.separateBrowserDenial("playwright", {})).toContain("browser tool")
+    expect(McpCatalog.separateBrowserDenial("chrome-devtools", {})).toContain("browser tool")
+    expect(McpCatalog.separateBrowserDenial("playwright", { ORCHESTRA_MCP_PLAYWRIGHT: "1" })).toBeUndefined()
+    expect(McpCatalog.separateBrowserDenial("context7", {})).toBeUndefined()
+  })
+  test("the Playwright entry never points at Edge", () => {
+    const entry = McpCatalog.all.find((item) => item.id === "playwright")!
+    expect(JSON.stringify(entry.config)).not.toMatch(/edge/i)
+  })
+})

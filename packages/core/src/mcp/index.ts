@@ -819,6 +819,8 @@ export const layer = (options?: Options) =>
                 message: `MCP server "${target.name}" drives the operator's real screen and is blocked: ${denial}`,
               })
           }
+          const separate = McpCatalog.separateBrowserDenial(String(target.name), process.env)
+          if (separate) return yield* new ToolCallError({ server: target.name, tool: input.name, message: separate })
           if (input.sessionID) {
             const denial = yield* enforceBudget(input.sessionID, target.name)
             if (denial)

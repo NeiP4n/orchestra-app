@@ -25,11 +25,11 @@ describe("role tool limits", () => {
     expect(toolRules(["desktop"])).toContainEqual({ action: "playtest", resource: "*", effect: "allow" })
   })
 
-  test("web access brings the documentation MCP servers and the browser brings browser automation", () => {
+  test("web access brings the documentation MCP servers; the browser tool brings no external browser automation", () => {
     expect(toolAllowed(["read", "webfetch"], "context7_query-docs")).toBe(true)
     expect(toolAllowed(["read", "webfetch"], "deepwiki_ask_question")).toBe(true)
     expect(toolAllowed(["read", "webfetch"], "playwright_navigate")).toBe(false)
-    expect(toolAllowed(["read", "browser"], "playwright_navigate")).toBe(true)
+    expect(toolAllowed(["read", "browser"], "playwright_navigate")).toBe(false)
     expect(toolAllowed(["read", "desktop"], "agent-desktop_snapshot")).toBe(true)
     expect(toolAllowed(["read"], "context7_query-docs")).toBe(false)
     expect(Permission.evaluate("context7_query-docs", "*", toolRules(["read", "websearch", "webfetch"])).effect).toBe("allow")
