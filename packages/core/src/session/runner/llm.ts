@@ -1,3 +1,6 @@
+import { appendFileSync } from "node:fs"
+import { homedir } from "node:os"
+import { join } from "node:path"
 export * as SessionRunnerLLM from "./llm.js"
 
 import { Message, ProviderCooldown, isContextOverflowFailure } from "@orchestra/ai"
@@ -580,6 +583,13 @@ const layer = Layer.effect(
       })
       if (!next) return false
       refused.add(modelKey(next))
+      const why = `${cause.reason._tag}${cause.reason.http?.status ? ` HTTP ${cause.reason.http.status}` : ""}: ${String(error.message ?? "").slice(0, 300)}`
+      try {
+        appendFileSync(
+          join(homedir(), "orchestra-browser-debug.log"),
+          `${new Date().toISOString()} model-fallback ${loaded.model.ref.providerID}/${loaded.model.ref.id} -> ${next.providerID}/${next.id} ${why.replace(/\s+/g, " ")}\n`,
+        )
+      } catch {}
       yield* Effect.logWarning("the provider refused this model; the worker continues on its next model", {
         sessionID: loaded.session.id,
         model: loaded.model.ref,
@@ -589,9 +599,10 @@ const layer = Layer.effect(
       if (listed.length === 0 || next.providerID !== loaded.model.ref.providerID)
         yield* bus.publish(SessionEvent.Synthetic, {
           sessionID: loaded.session.id,
-          text: `Провайдер отказался от модели ${loaded.model.ref.id}; сессия продолжается на запасной модели ${next.id} (провайдер ${next.providerID}). Это не тихая подмена: если запасная тоже откажет, ошибка уйдёт на эскалацию.`,
+          text: `Провайдер отказался от модели ${loaded.model.ref.id}; сессия продолжается на запасной модели ${next.id} (провайдер ${next.providerID}). Причина: ${why}. Это не тихая подмена: если запасная тоже откажет, ошибка уйдёт на эскалацию.`,
           description: "Model fallback",
           metadata: {
+            reason: why,
             previous: `${loaded.model.ref.providerID}/${loaded.model.ref.id}`,
             next: `${next.providerID}/${next.id}`,
           },
