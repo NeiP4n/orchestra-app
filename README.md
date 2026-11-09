@@ -51,6 +51,8 @@ bun install
 bun run dev
 ```
 
+After `git pull`, run `orchestra service restart`: the background server keeps running after the TUI closes and stays on the old code until it is restarted.
+
 `bun run check` runs lint and type checks across all packages. See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
 
 ## License
