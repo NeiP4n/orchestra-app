@@ -270,8 +270,8 @@ const makeScopes = (options: {
       const boss = yield* Rules.block(kv, { societies: [], project: "prj_x", session: "ses_0", role: "team-orchestrator", orchestrator: true })
       expect(boss).toContain("[Orchestrator] Ask before spending money.")
       const id = operator.rule?.id ?? ""
-      const refused = yield* Rules.remove(kv, Rules.orchestratorScope("prj_x"), id).pipe(Effect.either)
-      expect(refused._tag).toBe("Left")
+      const refused = yield* Rules.remove(kv, Rules.orchestratorScope("prj_x"), id).pipe(Effect.flip)
+      expect(refused._tag).toBe("Rules.ProtectedError")
       expect(yield* Rules.remove(kv, Rules.orchestratorScope("prj_x"), id, { operator: true })).toBe(true)
     }),
   )
