@@ -15,7 +15,8 @@ export const name = "browser"
 
 // The first sentence is the line in the on-demand tools index, so it says when to reach for this tool.
 export const description = [
-  "First choice for ANY work on a website or page: open, read, click, type, accept cookies, sign up, log in. Use this, not powershell, fetch, curl, execute or desktop_*, for pages and forms. It sees and drives the page in the user's Browser tab (not desktop_inspect, to see what they see in it).",
+  "Use this, not desktop_inspect, to see and drive any page: open, click, type, cookies, sign-up.",
+  "First choice for ANY work on a website or form, never powershell, fetch, curl or execute: it acts in the operator's Browser tab, so they watch it happen. It sees and drives the page the user sees there.",
   "It is the browser session the operator has selected for this project in the Browser tab: the same Chrome the operator sees there, on its own profile, so logins made in it are real and your clicks act with those accounts. You never launch a browser of your own: this one starts if it is not running.",
   "",
   "Actions:",
