@@ -184,7 +184,7 @@ async function start(sessionID: string): Promise<Live> {
   const port = await Chrome.livePort(deps.readFile, alive, dir)
   if (port !== undefined) return join(port, () => {})
   const exe = Chrome.find(existsSync)
-  if (!exe) throw new Error("Google Chrome or Microsoft Edge was not found. Install one, or set ORCHESTRA_CHROME_PATH.")
+  if (!exe) throw new Error(Chrome.NOT_FOUND)
   calm(dir)
   const urls = savedTabs(sessionID)
   if (urls.length > 0) trace(`${sessionID}: Chrome was not running, reopening ${urls.length} saved tab(s)`)
@@ -698,7 +698,7 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
   item.capture?.stop()
   await quit(item.port)
   const exe = Chrome.find(existsSync)
-  if (!exe) throw new Error("Google Chrome or Microsoft Edge was not found.")
+  if (!exe) throw new Error(Chrome.NOT_FOUND)
   const headed = target !== "headless"
   calm(Chrome.profileDir(Global.Path.data, sessionID))
   trace(`${sessionID}: restarting ${exe} as ${target} on ${Chrome.profileDir(Global.Path.data, sessionID)} (pid ${process.pid})`)

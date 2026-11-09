@@ -1,5 +1,6 @@
 export * as DesktopTool from "./desktop.js"
 
+import { BrowserGuard } from "../../browser/guard.js"
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -437,6 +438,7 @@ export async function run(host: Host, step: StepInput, scale: { x: number; y: nu
       return host.call(platformScript.focus(step.text))
     case "open":
       if (!step.text) throw new Error("Pass the app, file, folder or URL to open as text")
+      if (BrowserGuard.opensBrowser(step.text)) throw new Error(BrowserGuard.REFUSAL)
       return host.call(platformScript.open(step.text))
     case "clipboard":
       return host.call(step.text === undefined ? platformScript.clipboardRead() : platformScript.clipboardWrite(step.text))

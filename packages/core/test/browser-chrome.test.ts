@@ -15,17 +15,13 @@ describe("Chrome discovery and launch", () => {
     expect(Chrome.candidates("linux", { ORCHESTRA_CHROME_PATH: "/x/chrome" })[0]).toBe("/x/chrome")
   })
 
-  test("Edge is only a fallback after every Chrome path", () => {
-    const win = Chrome.candidates("win32", {
-      PROGRAMFILES: "C:\\Program Files",
-      "PROGRAMFILES(X86)": "C:\\Program Files (x86)",
-    })
-    const edge = win.findIndex((file) => file.endsWith("msedge.exe"))
-    expect(edge).toBeGreaterThan(win.findLastIndex((file) => file.endsWith("chrome.exe")))
-    expect(win[edge]).toBe("C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe")
-    expect(
-      Chrome.find((file) => file.endsWith("msedge.exe"), "win32", { "PROGRAMFILES(X86)": "C:\\Program Files (x86)" }),
-    ).toContain("msedge.exe")
+  test("Edge is never a candidate on any platform (the operator's system browser is not started)", () => {
+    for (const platform of ["win32", "darwin", "linux"] as const) {
+      const list = Chrome.candidates(platform, { PROGRAMFILES: "C:\\Program Files", "PROGRAMFILES(X86)": "C:\\Program Files (x86)" })
+      expect(list.some((file) => /edge/i.test(file))).toBe(false)
+    }
+    expect(Chrome.find((file) => file.endsWith("msedge.exe"), "win32", { "PROGRAMFILES(X86)": "C:\\Program Files (x86)" })).toBeUndefined()
+    expect(Chrome.NOT_FOUND).toContain("ORCHESTRA_CHROME_PATH")
   })
 
   test("find returns the first installed candidate", () => {

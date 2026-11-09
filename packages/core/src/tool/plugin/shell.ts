@@ -1,5 +1,6 @@
 export * as ShellTool from "./shell.js"
 
+import { BrowserGuard } from "../../browser/guard.js"
 import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import type { SessionHooks } from "@orchestra/plugin/effect/session"
@@ -360,6 +361,7 @@ export function forbiddenCommand(command: string): string | undefined {
     return `Refusing to run a command that touches protected file "${file}": secret and credential files are off limits to the AI.`
   if (RoomRules.commandLeaksCredentials(command))
     return "Refusing to run a command that prints the host's environment or credentials."
+  if (BrowserGuard.launchesBrowser(command)) return BrowserGuard.REFUSAL
   // B7: a shell escape to the operator's real screen, mouse, or clipboard
   // (xdotool, screencapture, xclip, PowerShell SendKeys, ...) is refused
   // unless the real-screen opt-in is valid. The desktop_* tools are the

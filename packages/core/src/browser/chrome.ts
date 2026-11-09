@@ -7,20 +7,18 @@ import path from "node:path"
 // (Chrome 136+ also ignores remote debugging on its default profile). Chrome picks a free debugging
 // port itself (port 0) and reports it in DevToolsActivePort inside that directory.
 
-/** Where Chrome is usually installed, best first. ORCHESTRA_CHROME_PATH wins when set. */
+/** Where Chrome is usually installed, best first. ORCHESTRA_CHROME_PATH wins when set. Edge is never searched: a session never starts the operator's system browser. */
+export const NOT_FOUND = "Google Chrome was not found. Install it from https://www.google.com/chrome/ or set ORCHESTRA_CHROME_PATH to the full path of chrome.exe (or another Chromium you want used)."
+
 export function candidates(platform: NodeJS.Platform, env: Record<string, string | undefined>): string[] {
   const custom = env.ORCHESTRA_CHROME_PATH?.trim()
   const list: string[] = custom ? [custom] : []
   if (platform === "win32") {
     for (const base of [env.PROGRAMFILES, env["PROGRAMFILES(X86)"], env.LOCALAPPDATA])
       if (base) list.push(path.win32.join(base, "Google", "Chrome", "Application", "chrome.exe"))
-    // Edge is Chromium with the same DevTools protocol; it is only the fallback when Chrome is missing.
-    for (const base of [env["PROGRAMFILES(X86)"], env.PROGRAMFILES])
-      if (base) list.push(path.win32.join(base, "Microsoft", "Edge", "Application", "msedge.exe"))
   } else if (platform === "darwin") {
     list.push(
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
     )
   } else {
     list.push(
@@ -29,8 +27,6 @@ export function candidates(platform: NodeJS.Platform, env: Record<string, string
       "/opt/google/chrome/chrome",
       "/usr/bin/chromium",
       "/usr/bin/chromium-browser",
-      "/usr/bin/microsoft-edge",
-      "/usr/bin/microsoft-edge-stable",
     )
   }
   return list
