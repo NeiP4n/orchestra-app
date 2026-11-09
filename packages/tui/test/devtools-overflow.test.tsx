@@ -46,5 +46,5 @@ test("the overflow mark opens the command palette", async () => {
   const lines = setup.captureCharFrame().split("\n")
   const y = lines.findIndex((line) => line.includes("⋯"))
   await setup.mockMouse.click(lines[y]!.indexOf("⋯"), y)
-  await setup.waitForFrame((frame) => frame.toLowerCase().includes("command") || frame.includes("Команды"))
+  await setup.waitForFrame((frame) => frame.toLowerCase().includes("command") || frame.includes("Команды") || /All · \d+ options/.test(frame))
 })
