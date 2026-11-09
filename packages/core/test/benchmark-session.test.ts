@@ -251,9 +251,9 @@ describe("Core Performance Benchmarks (Session, EventBus, Storage)", () => {
       const allGuidance = ToolGuidance.render()
       const minimalGuidance = ToolGuidance.render(ToolGuidance.defaultRules, ["read", "edit"])
 
-      expect(allGuidance).toContain("desktop-commander")
+      expect(allGuidance).toContain("Serena")
       expect(allGuidance).toContain("context7")
-      expect(minimalGuidance).not.toContain("desktop-commander")
+      expect(minimalGuidance).not.toContain("Serena")
       expect(minimalGuidance).not.toContain("context7")
       expect(minimalGuidance.length).toBeLessThan(allGuidance.length)
 
