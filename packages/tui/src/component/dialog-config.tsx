@@ -244,17 +244,41 @@ export function DialogConfig(props: { current?: string }) {
   )
 
   return (
-    <box flexDirection="row" flexGrow={1}>
+    <box flexDirection="row" width="100%" minWidth={0}>
       <CategoryRail
         width={20}
         items={railItems()}
         selected={selectedCategory()}
         onSelect={setSelectedCategory}
         footer={
+          // The sensor shivers whenever a setting is saved, like a sculk sensor catching a step.
+          <SculkSprite kind="sensor" state={vibrating() ? "vibrating" : "idle"} backdrop={theme.background.base} />
+        }
+      />
+      <box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0}>
+      <DialogSelect
+      compact
+      tall
+      title={t("Settings")}
+      titleView={
+        <box flexDirection="row" gap={1} alignItems="center">
+          <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
+            {selectedCategory() === "All" ? t("Settings") : t(selectedCategory())}
+          </text>
+          <text fg={theme.text.muted}>{`· ${filteredSettings().length} ${t("options")}`}</text>
+        </box>
+      }
+      options={options()}
+      focusTarget={current}
+      filterThreshold={0.7}
+      sectionNavigation={true}
+      onMove={(option) => setSelected(option.value)}
+      onSelect={(option) => void change(1, option.value)}
+      footer={
         <box flexDirection="column" gap={0} width="100%">
           <text fg={theme.text.base} wrapMode="word">{t(currentSetting()?.description ?? "")}</text>
           <box flexDirection="row" gap={1} flexWrap="wrap">
-            <text fg={theme.text.muted}>{`${t("Default value")}: ${defaultDisplay(currentSetting())}${currentSetting() && changed(currentSetting()!) ? ` · ${t("modified")}` : ""}`}</text>
+            <Show when={currentSetting() && changed(currentSetting()!)}><text fg={theme.text.muted}>{`${t("Current value")}: ${currentSetting() ? display(currentSetting()!) : ""} · ${t("Default value")}: ${defaultDisplay(currentSetting())}`}</text></Show>
             <text fg={theme.text.muted}>{`←/→ ${t("change")} · Tab ${t("category")} · Alt+↑/↓ ${t("section")} · Ctrl+R ${t("reset")}`}</text>
           </box>
         </box>
@@ -292,6 +316,7 @@ export function DialogConfig(props: { current?: string }) {
         },
       ]}
       />
+      </box>
     </box>
   )
 }

@@ -14,3 +14,10 @@ test("Settings and Models opt into compact shared geometry without changing othe
   expect(settings).toContain('defaultDisplay(currentSetting())')
   expect(settings).not.toContain('default: <span')
 })
+test("Settings keeps both CategoryRail and DialogSelect, with footer owned by the select",()=>{
+ const s=source("component/dialog-config.tsx"),rail=s.indexOf("<CategoryRail"),select=s.indexOf("<DialogSelect",rail)
+ expect(rail).toBeGreaterThan(0);expect(select).toBeGreaterThan(rail)
+ expect(s.slice(rail,select)).toContain('kind="sensor"')
+ expect(s.slice(select)).toContain('title={t("Settings")}')
+ expect(s.slice(select)).toContain('footer={')
+})

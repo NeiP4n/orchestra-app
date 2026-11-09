@@ -1011,7 +1011,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           <box
             flexDirection={dimensions().width < 60 ? "column" : "row"}
             flexWrap={dimensions().width < 60 ? undefined : "wrap"}
-            gap={dimensions().width < 60 ? 0 : 2}
+            gap={props.compact ? undefined : dimensions().width < 60 ? 0 : 2}
+            columnGap={props.compact ? 1 : undefined}
+            rowGap={props.compact ? 0 : undefined}
           >
             {props.footer}
             <For each={left()}>{(item) => <FooterAction item={item} />}</For>
