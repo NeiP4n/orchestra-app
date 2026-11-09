@@ -1561,8 +1561,7 @@ export function Prompt(props: PromptProps) {
     if (!chat || chat === shown) return ""
     const list = data.location.agent.list(currentLocation.ref ?? data.location.default()) ?? []
     const entry = list.find((item) => item.id === chat)
-    const where = entry ? (entry.hidden ? "hidden" : entry.mode) : "NOT in list"
-    return ` [chat agent: ${chat} (${where}); list: ${list.length}]`
+    return ` [${chat}:${entry ? (entry.hidden ? "hidden" : "ok") : "NOT in list"}]`
   }
   const promptDisplay = createMemo<{
     agentLabel: string | undefined
