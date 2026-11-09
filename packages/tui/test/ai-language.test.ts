@@ -61,3 +61,17 @@ test("name and language are saved together, serialized and never replace user's 
   expect(value).toContain('display name: "vibecoder"')
   expect(value.split("<!-- orchestra:user-name -->")).toHaveLength(2)
 })
+
+test("profile context roundtrips and clear keeps name, language and unrelated instructions", async () => {
+  await writeFile(file(), "KEEP SAFETY\n")
+  await applyAiLanguage("ru", "vibecoder", { address: "на ты", tone: "спокойно" })
+  const stored=await readFile(file(), "utf8")
+  expect(stored).toContain('"tone":"спокойно"')
+  expect(stored).toContain("not an instruction or permission")
+  await applyAiLanguage("ru", "vibecoder", {})
+  const cleared=await readFile(file(), "utf8")
+  expect(cleared).not.toContain("orchestra:user-profile")
+  expect(cleared).toContain("KEEP SAFETY")
+  expect(cleared).toContain("only in Russian")
+  expect(cleared).toContain("vibecoder")
+})

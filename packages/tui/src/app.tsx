@@ -531,8 +531,8 @@ function App() {
   // The AI language lives in the global instructions file; keep it in step with the setting.
   createEffect(
     on(
-      () => [config.data.ai_language ?? "auto", displayUserName(config.data.user_name)] as const,
-      ([language, name]) => void applyAiLanguage(language, name).catch((error) => console.error("Failed to apply AI language", error)),
+      () => [config.data.ai_language ?? "auto", displayUserName(config.data.user_name), config.data.user_profile ?? {}] as const,
+      ([language, name, profile]) => void applyAiLanguage(language, name, profile).catch((error) => console.error("Failed to apply AI language", error)),
     ),
   )
   const route = useRoute()

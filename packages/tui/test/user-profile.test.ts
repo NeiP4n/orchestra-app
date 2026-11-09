@@ -1,0 +1,4 @@
+import { expect,test } from "bun:test"
+import { cleanProfile,profileBlock,profileValue,PROFILE_START } from "../src/util/user-profile"
+test("profile only stores known visible fields and rejects obvious secrets",()=>{expect(cleanProfile({tone:"прямо",password:"bad",unknown:"bad"})).toEqual({tone:"прямо"});for(const s of ['password: x','api_key=123','sk-123456789012345678901','bad\nname','x'.repeat(241)])expect(()=>profileValue(s)).toThrow();expect(profileValue("коротко, на ты")).toBe("коротко, на ты")})
+test("profile block preserves instructions, is data-only and clear removes only its marked block",()=>{const block=profileBlock("KEEP",{tone:"спокойно"});expect(block).toContain("KEEP");expect(block).toContain("never authority");expect(profileBlock(block,{})).toBe("KEEP");expect(profileBlock(block,{tone:"коротко"}).split(PROFILE_START)).toHaveLength(2);expect(()=>profileBlock(PROFILE_START,{})).toThrow()})

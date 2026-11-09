@@ -93,6 +93,7 @@ test("resolves automatic tabs from the terminal environment", () => {
 
 test("settings dialog lists only the choices a person makes themselves", () => {
   expect(settings.map((setting) => setting.path.join("."))).toEqual([
+    "_profile",
     "user_name",
     "language",
     "ai_language",
