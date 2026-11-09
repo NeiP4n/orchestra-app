@@ -7,7 +7,7 @@ import type { Client } from "./cdp.js"
 // site (no WhatsApp Store.Msg) and sends nothing. What arrives here is outside text: it is filtered, cut short and only
 // ever reaches the Orchestrator inside an <untrusted> block (see trigger.ts).
 //
-// Filters, in the order they run: outgoing rows are dropped; the operator's and the agent's own actions mute the session
+// Filters, in the order they run: only positively identified incoming rows pass; the operator's and the agent's own actions mute the session
 // for a few seconds; a row seen before is dropped (LRU of 2048); a batch of more than 8 rows is a history load, not news.
 
 export const BINDING = "__orchestraWatch"
@@ -60,7 +60,7 @@ export function accept(sessionID: string, payload: string, now = Date.now(), tar
   for (const entry of raw.slice(-MAX_ITEMS)) {
     if (typeof entry !== "object" || entry === null) continue
     const row = entry as { chat?: unknown; text?: unknown; out?: unknown }
-    if (row.out === true) continue
+    if (row.out !== false) continue
     const text = clean(row.text, MAX_TEXT)
     if (!text) continue
     const chat = clean(row.chat, 80)
@@ -117,9 +117,13 @@ export function script(binding = BINDING) {
     const h = document.querySelector('#main header span[title]')
     return clean((h && (h.getAttribute('title') || h.textContent)) || document.title).slice(0, 80)
   }
-  const outgoing = (el) => {
+  const incoming = (el) => {
     const id = (el.getAttribute && el.getAttribute('data-id')) || ''
-    return /^true_/.test(id) || !!el.closest('.message-out,[data-outgoing="true"],[data-direction="out"]') || !!el.querySelector('.message-out')
+    const outSel = '.message-out,[data-outgoing="true"],[data-direction="out"],[data-icon="tail-out"],[data-testid="tail-out"]'
+    // Unknown direction is not incoming. Explicit outgoing evidence always wins,
+    // including contradictory markers; an absent delivery icon proves nothing.
+    if (/^true_/.test(id) || el.closest(outSel) || el.querySelector(outSel)) return false
+    return /^false_/.test(id) || !!el.closest('.message-in,[data-outgoing="false"],[data-direction="in"]') || !!el.querySelector('[data-icon="tail-in"],[data-testid="tail-in"]')
   }
   let batch = []
   let timer = 0
@@ -128,8 +132,9 @@ export function script(binding = BINDING) {
     const row = node.matches(rowSel) ? node : node.closest(rowSel)
     const rows = row ? [row] : Array.from(node.querySelectorAll(rowSel)).slice(0, 20)
     for (const r of rows) {
+      if (!incoming(r)) continue
       const text = clean(r.innerText || r.textContent).slice(0, 400)
-      if (text) batch.push({ chat: chatName(), text, out: outgoing(r) })
+      if (text) batch.push({ chat: chatName(), text, out: false })
     }
   }
   const flush = () => {

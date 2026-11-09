@@ -5,7 +5,7 @@ import { Trigger } from "@orchestra/core/trigger"
 
 const NOW = 1_800_000_000_000
 const pay = (...items: Array<{ chat?: string; text: string; out?: boolean }>) =>
-  JSON.stringify({ items: items.map((item) => ({ chat: "Anna", ...item })) })
+  JSON.stringify({ items: items.map((item) => ({ chat: "Anna", out: false, ...item })) })
 const accept = (state: BrowserWatch.State, payload: string, now = NOW) => BrowserWatch.accept("s1", payload, now, state)
 
 describe("page watcher filters", () => {
@@ -14,6 +14,14 @@ describe("page watcher filters", () => {
     expect(accept(state, pay({ text: "hello" }))).toEqual([{ chat: "Anna", text: "hello" }])
     expect(accept(state, pay({ text: "hello" }), NOW + 1000)).toEqual([])
     expect(accept(state, pay({ text: "my own reply", out: true }), NOW + 2000)).toEqual([])
+  })
+
+  test("missing, malformed or contradictory direction never passes the core gate", () => {
+    const state = BrowserWatch.makeState()
+    for (const out of [undefined, null, "false", 0, true]) {
+      expect(accept(state, JSON.stringify({ items: [{ chat: "Anna", text: "unknown direction", out }] }))).toEqual([])
+    }
+    expect(accept(state, pay({ text: "verified incoming", out: false }))).toEqual([{ chat: "Anna", text: "verified incoming" }])
   })
 
   test("text is cut short and whitespace is folded; bad input is ignored", () => {
