@@ -1,7 +1,7 @@
 export * as BrowserRuntime from "./runtime.js"
 
 import { spawn } from "node:child_process"
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { Global } from "@orchestra/util/global"
 import { BrowserBridge } from "./bridge.js"
@@ -37,8 +37,31 @@ const live = new Map<string, Live>()
 const starting = new Map<string, Promise<Live>>()
 let hooked = false
 
+// Chrome's stderr goes to a small file, so a Chrome that dies at once says why instead of failing silently.
+const stderrFile = () => path.join(Global.Path.data, "browser-profiles", "chrome-stderr.log")
+function stderrFd(): "ignore" | number {
+  try {
+    mkdirSync(path.dirname(stderrFile()), { recursive: true })
+    return openSync(stderrFile(), "w")
+  } catch {
+    return "ignore"
+  }
+}
+const stderrTail = () => {
+  try {
+    return readFileSync(stderrFile(), "utf8").slice(-400)
+  } catch {
+    return ""
+  }
+}
 const deps: Chrome.Deps = {
-  spawn: (exe, args) => spawn(exe, args, { stdio: "ignore", windowsHide: true }),
+  stderrTail,
+  spawn: (exe, args) => {
+    const fd = stderrFd()
+    const child = spawn(exe, args, { stdio: ["ignore", "ignore", fd], windowsHide: true })
+    if (typeof fd === "number") child.once("exit", () => void closeSync(fd))
+    return child
+  },
   readFile: (file) => (existsSync(file) ? readFileSync(file, "utf8") : undefined),
   sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
   mkdir: (dir) => void mkdirSync(dir, { recursive: true }),
@@ -59,7 +82,12 @@ async function join(port: number, stop: () => void, windowed = false): Promise<L
 // A visible window must not be hidden, unlike the windowless session Chrome.
 const windowDeps: Chrome.Deps = {
   ...deps,
-  spawn: (exe, args) => spawn(exe, args, { stdio: "ignore", windowsHide: false }),
+  spawn: (exe, args) => {
+    const fd = stderrFd()
+    const child = spawn(exe, args, { stdio: ["ignore", "ignore", fd], windowsHide: false })
+    if (typeof fd === "number") child.once("exit", () => void closeSync(fd))
+    return child
+  },
 }
 
 /** Asks Chrome itself to quit (works for a Chrome this process did not start) and waits until its port is gone. */

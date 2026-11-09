@@ -48,6 +48,19 @@ it.live(
   "idle eviction ends the browser attachment and permits a fresh attachment",
   () =>
     Effect.gen(function* () {
+      // The browser.tabs.* plugin is offered only with ORCHESTRA_BROWSER_PLUGIN=1 (38834d81): this test is about that plugin.
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          const previous = process.env.ORCHESTRA_BROWSER_PLUGIN
+          process.env.ORCHESTRA_BROWSER_PLUGIN = "1"
+          return previous
+        }),
+        (previous) =>
+          Effect.sync(() => {
+            if (previous === undefined) delete process.env.ORCHESTRA_BROWSER_PLUGIN
+            else process.env.ORCHESTRA_BROWSER_PLUGIN = previous
+          }),
+      )
       const dir = yield* tmpdirScoped()
       const ref = Location.Ref.make({ directory: AbsolutePath.make(dir.path) })
       const locations = yield* LocationServiceMap.Service

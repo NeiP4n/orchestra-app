@@ -97,7 +97,7 @@ const settle = () => new Promise((done) => setTimeout(done, 1500))
 
 /** Errors worth one fresh attempt: a lost connection, a profile still held by a restarting Chrome, a stalled or closed tab. */
 const RETRYABLE =
-  /connection (closed|failed)|Could not connect to Chrome|Another Chrome|profile.*in use|no answer from Chrome|timed out|(target|tab|page) (was )?closed/i
+  /connection (closed|failed)|Could not connect to Chrome|Another Chrome|Chrome closed before it was ready|profile.*in use|no answer from Chrome|timed out|(target|tab|page) (was )?closed/i
 
 /** A closed connection (Chrome died, or was killed with the app) is dropped and the action tried once more on a fresh one. */
 export async function perform(sessionID: string, input: Input) {
