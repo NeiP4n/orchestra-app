@@ -1,4 +1,4 @@
-import { hoverBackground } from "../ui/hover"
+import { tint } from "../theme/color"
 import { createSignal, For, onMount, Show } from "solid-js"
 import { CredentialVault } from "@orchestra/core/credential-vault/index"
 import { HoverAction } from "./hover-action"
@@ -47,11 +47,11 @@ export function RegistryVault(props: { access?: ReturnType<typeof CredentialVaul
     <box alignItems="flex-start">
       <box id="registry-vault.add" border borderStyle="rounded" borderColor={theme.text.action.primary.base}
         paddingLeft={1} paddingRight={1} flexShrink={0}
-        backgroundColor={addHovered() && !busy() ? hoverBackground(theme) : theme.background.action.primary.focused}
+        backgroundColor={addHovered() && !busy() ? tint(theme.background.base, theme.text.base, 0.12) : theme.background.base}
         onMouseOver={() => setAddHovered(true)} onMouseOut={() => setAddHovered(false)}
         onMouseDown={(event) => event.stopPropagation()}
         onMouseUp={(event) => { event.stopPropagation(); if (!busy()) void write() }}>
-        <text fg={theme.text.action.primary[addHovered() ? "hovered" : "base"]} wrapMode="none">{busy() ? "Ожидание окна…" : "+ Добавить запись"}</text>
+        <text fg={theme.text.base} wrapMode="none">{busy() ? "Ожидание окна…" : "+ Добавить запись"}</text>
       </box>
     </box>
     <Show when={entries().length === 0}><text fg={theme.text.muted}>Нет записей</text></Show>
