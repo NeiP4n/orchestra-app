@@ -79,3 +79,9 @@ test("every project tree has a Browsers group with its browser sessions, orphan 
   expect(tree).toContain("browserChatsOf(project)")
   expect(tree.match(/\{browserRows\(project\)\}/g)?.length).toBe(2)
 })
+
+test("deleting a chat or removing a browser session cleans the Browser tab: no pointer to a gone chat, no foreign chat beside the page", () => {
+  expect(read("component/project-tree.tsx")).toContain("notes.forgetBrowserChat(sessionID)")
+  expect(read("util/browser-sessions.ts")).toContain("export function forgetBrowserChat")
+  expect(read("component/session-frame.tsx")).toContain("A chat no browser session owns")
+})

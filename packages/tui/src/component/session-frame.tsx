@@ -219,6 +219,18 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
       ([view, chat]) => {
         if (view !== "browser") return
         if (chat && chat !== untrack(() => props.sessionID)) route.navigate({ type: "session", sessionID: chat })
+        // The selected browser session is gone or has no chat: a BrowserAgent chat still open beside the page is
+        // a removed session's, so it is closed rather than left showing foreign text.
+        else if (!chat) {
+          const open = untrack(() => props.sessionID)
+          // A chat no browser session owns (the Orchestrator made it) stays open: it is listed under Browsers.
+          const owned = projectList
+            .list()
+            .some((project) =>
+              [...notes.browserSessions(project.id), ...notes.closedBrowserSessions(project.id)].some((item) => item.chat === open),
+            )
+          if (owned) route.navigate({ type: "home" })
+        }
       },
     ),
   )

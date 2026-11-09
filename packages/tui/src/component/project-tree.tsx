@@ -492,6 +492,9 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       .remove({ sessionID })
       .then(() => {
         setRemoved(sessionID, true)
+        // A browser session whose BrowserAgent chat was deleted here must not keep pointing at it (the Browser tab
+        // would open a chat that is gone).
+        notes.forgetBrowserChat(sessionID)
         data.session.evict(sessionID)
         if (route.data.type === "session" && route.data.sessionID === sessionID) route.navigate({ type: "home" })
       })
@@ -758,6 +761,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           !session.parentID &&
           !removed[session.id] &&
           !notes.browserSessions(project.id).some((item) => item.chat === session.id) &&
+          !notes.closedBrowserSessions(project.id).some((item) => item.chat === session.id) &&
           owner(session)?.id === project.id,
       )
 

@@ -20,6 +20,7 @@ import {
   emptyBrowserSessions,
   forgetClosedBrowserSession,
   groupBrowserSession,
+  forgetBrowserChat,
   removeBrowserSession,
   reopenBrowserSession,
   renameBrowserSession,
@@ -289,6 +290,7 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
         changeBrowser((draft) => forgetClosedBrowserSession(draft, projectID, id)),
       removeBrowserSession: (projectID: string, id: string) =>
         changeBrowser((draft) => removeBrowserSession(draft, projectID, id)),
+      forgetBrowserChat: (chat: string) => changeBrowser((draft) => void forgetBrowserChat(draft, chat)),
       renameBrowserSession: (projectID: string, id: string, name: string) =>
         changeBrowser((draft) => void renameBrowserSession(draft, projectID, id, name)),
       selectBrowserSession: (projectID: string, id: string) =>

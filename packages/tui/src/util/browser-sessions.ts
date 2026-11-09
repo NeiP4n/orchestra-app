@@ -127,3 +127,9 @@ export function browserSessionGroups(list: readonly BrowserSession[]) {
     ...names.map((name) => ({ name, sessions: list.filter((item) => item.group === name) })),
   ].filter((group) => group.sessions.length > 0)
 }
+
+/** A deleted chat leaves its browser session (open or closed) without a BrowserAgent: the next open gives it a new one. */
+export function forgetBrowserChat(state: BrowserSessionsState, chat: string) {
+  for (const item of Object.values(state.projects).flat()) if (item.chat === chat) delete item.chat
+  for (const item of Object.values(state.closed ?? {}).flat()) if (item.chat === chat) delete item.chat
+}
