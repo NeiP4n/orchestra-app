@@ -113,6 +113,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   type FooterHint = NonNullable<DialogSelectProps<T>["footerHints"]>[number]
   type VisibleAction = (Action & { label: string }) | FooterHint
 
+  const compact = () => props.compact !== false
   const dialog = useDialog()
   const closeHover = createHoverFeedback("secondary")
   const returnHover = createHoverFeedback()
@@ -248,7 +249,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     if (props.loading || props.error) return 4
     const headers = grouped().reduce((acc, [category], i) => {
       if (!category) return acc
-      return acc + (i > 0 && !props.compact ? 2 : 1)
+      return acc + (i > 0 && !compact() ? 2 : 1)
     }, 0)
     return flat().reduce((acc, option) => acc + 1 + (option.details?.length ?? 0), headers)
   })
@@ -259,6 +260,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   )
 
   const selected = createMemo(() => flat()[store.selected])
+  // Category/filter reconciliation can change the selected option without moveTo().
+  // Report that actual option too, so a footer never describes the previous row.
+  createEffect(on(() => selected()?.value, () => { const option = selected(); if (option) props.onMove?.(option) }))
 
   createEffect(
     on(
@@ -399,7 +403,6 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
       selection = option
       resetSelection = !preserve
     }
-    if (option) props.onMove?.(option)
     scrollToSelection(center)
   }
 
@@ -748,8 +751,8 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   }
 
   return (
-    <box gap={props.compact ? 0 : 1} paddingBottom={props.compact ? 0 : 1} flexGrow={1}>
-      <box paddingLeft={props.compact ? 1 : 4} paddingRight={props.compact ? 1 : 4}>
+    <box gap={compact() ? 0 : 1} paddingBottom={compact() ? 0 : 1} flexGrow={compact() ? 0 : 1} minWidth={0}>
+      <box paddingLeft={compact() ? 1 : 4} paddingRight={compact() ? 1 : 4}>
         <box flexDirection="row" justifyContent="space-between" alignItems="center">
           {props.titleView ?? (
             <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
@@ -768,7 +771,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           </box>
         </box>
         <Show when={props.renderFilter !== false}>
-          <box paddingTop={props.compact ? 0 : 1}>
+          <box paddingTop={compact() ? 0 : 1}>
             <input
               onInput={(e) => {
                 if (props.locked) return
@@ -796,7 +799,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           </box>
         </Show>
       </box>
-      <box flexGrow={1} flexShrink={1}>
+      <box flexGrow={compact() ? 0 : 1} flexShrink={1} minWidth={0}>
         <Show
           when={!props.loading}
           fallback={
@@ -913,7 +916,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                   {([category, options], index) => (
                     <>
                       <Show when={category}>
-                        <box paddingTop={index() > 0 && !props.compact ? 1 : 0} paddingLeft={3}>
+                        <box paddingTop={index() > 0 && !compact() ? 1 : 0} paddingLeft={3}>
                           <text fg={theme.hue.accent[200]} attributes={TextAttributes.BOLD}>
                             {category}
                           </text>
@@ -953,7 +956,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                               <box
                                 flexDirection="row"
                                 paddingLeft={current() || option.gutter ? 1 : 3}
-                                paddingRight={props.compact ? 1 : 3}
+                                paddingRight={compact() ? 1 : 3}
                                 gap={1}
                                 backgroundColor={
                                   active()
@@ -1007,13 +1010,13 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
         </Show>
       </box>
       <Show when={props.footer || visibleActions().length || flat().length > 0} fallback={<box flexShrink={0} />}>
-        <box paddingRight={props.compact ? 1 : 2} paddingLeft={props.compact ? 1 : 4} flexDirection="row" justifyContent="space-between" flexShrink={0}>
+        <box paddingRight={compact() ? 1 : 2} paddingLeft={compact() ? 1 : 4} flexDirection="row" justifyContent="space-between" flexShrink={0}>
           <box
             flexDirection={dimensions().width < 60 ? "column" : "row"}
             flexWrap={dimensions().width < 60 ? undefined : "wrap"}
-            gap={props.compact ? undefined : dimensions().width < 60 ? 0 : 2}
-            columnGap={props.compact ? 1 : undefined}
-            rowGap={props.compact ? 0 : undefined}
+            gap={compact() ? undefined : dimensions().width < 60 ? 0 : 2}
+            columnGap={compact() ? 1 : undefined}
+            rowGap={compact() ? 0 : undefined}
           >
             {props.footer}
             <For each={left()}>{(item) => <FooterAction item={item} />}</For>
