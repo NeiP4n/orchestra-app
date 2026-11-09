@@ -569,6 +569,30 @@ export function close(sessionID: string) {
   void quit(item.port).catch(() => item.stop())
 }
 
+/**
+ * A normal stop of the service: every windowless Chrome is asked to quit (Browser.close), so it writes its cookies
+ * and session to the profile; one that has not closed within the timeout is stopped outright.
+ */
+export async function closeAllGraceful(timeoutMs = 4000) {
+  const items = [...live].filter(([, item]) => !item.windowed)
+  await Promise.all(
+    items.map(async ([id, item]) => {
+      unwatch(id)
+      live.delete(id)
+      item.client.close()
+      item.capture?.stop()
+      const closed = await Promise.race([
+        quit(item.port).then(() => true, () => false),
+        new Promise<boolean>((done) => setTimeout(() => done(false), timeoutMs)),
+      ])
+      if (!closed) {
+        trace(`${id}: Chrome did not close in ${timeoutMs} ms on shutdown, stopping it`)
+        item.stop()
+      }
+    }),
+  )
+}
+
 /** At exit only the windowless Chromes close; a window the operator is using stays open. */
 export function closeAll() {
   // The process is ending, so nothing can be awaited here: stop them outright. The next start marks the profile's

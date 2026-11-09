@@ -268,6 +268,13 @@ const processEffect = Effect.fnUntraced(function* (options: Options, probe?: Man
       console.log(options.mode === "stdio" ? JSON.stringify({ url }) : `server listening on ${url}`)
       if (foreground && !environmentPassword)
         console.log("server password saved — run `orchestra service get password` to show it")
+      // A normal stop closes the browser sessions' Chromes gracefully, so logins (cookies) reach the profile on disk.
+      yield* Effect.addFinalizer(() =>
+        Effect.promise(async () => {
+          const { BrowserRuntime } = await import("@orchestra/core/browser/runtime")
+          await BrowserRuntime.closeAllGraceful(4000)
+        }).pipe(Effect.ignore),
+      )
       if (options.mode === "service") return yield* server.shutdown
       if (options.mode === "stdio") return yield* waitForStdinClose()
       reachedListening = true
