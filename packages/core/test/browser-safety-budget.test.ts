@@ -1,3 +1,4 @@
+import type { Cdp as CdpTypes } from "@orchestra/core/browser/cdp"
 import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { BrowserBudget } from "@orchestra/core/browser/budget"
@@ -14,7 +15,12 @@ test("operator selects any profile count; optional ceiling and RAM warning keep 
   const runtime = readFileSync(new URL("../src/browser/runtime.ts", import.meta.url), "utf8")
   expect(runtime).toContain('Flock.withLock("browser-active-profile-budget"')
   expect(runtime).toContain('dir: path.join(Global.Path.data, "browser-launch-locks")')
-  expect(runtime).toContain("return launchLock(() => startLocked(sessionID))")
+  const start = runtime.indexOf("async function start(sessionID:")
+  const launch = runtime.slice(start, runtime.indexOf("async function startLocked(", start))
+  expect(launch).toContain("return launchLock(() => {")
+  expect(launch).toContain("passive && existsSync(watcherStopFile(sessionID))")
+  expect(launch).toContain("return startLocked(sessionID)")
+  expect(launch.indexOf("watcherStopFile")).toBeLessThan(launch.indexOf("return startLocked"))
   expect(runtime).toContain("await checkLaunchBudget(sessionID)")
   expect(runtime).toContain("const run = await launchLock(async () =>")
   expect(runtime).toContain("AbortSignal.timeout(1000)")
@@ -124,7 +130,7 @@ test("CDP socket opening is bounded and an opened socket does not keep the openi
   expect(closed).toBe(1)
   let active: ReturnType<typeof socket> | undefined
   const pending = Cdp.connect(() => active = socket(), "ws://fixture.invalid", { timeoutMs: 15 })
-  ;(active as unknown as Cdp.Socket).onopen?.()
+  ;(active as unknown as CdpTypes.Socket).onopen?.()
   const client = await pending
   await new Promise((resolve) => setTimeout(resolve, 25))
   expect(client.isClosed?.()).toBe(false)
