@@ -25,7 +25,7 @@ export function RegistryVault(props: { access?: ReturnType<typeof CredentialVaul
     const controller = new AbortController(); pending = controller
     setBusy(true); setArmed(); setMessage("Открываю окно Windows (до 30 с). Если скрыто: Alt+Tab. Esc отменить.")
     try {
-      const saved = await vault.writeFromOperator(id, controller.signal, () => setMessage("Окно Vault открыто. Если скрыто: Alt+Tab. Esc отменить; таймаут 120 с."))
+      const saved = await vault.writeFromOperator(id, controller.signal, (status) => setMessage(status ? `Windows: окно ${status.visible ? "видимо" : "не видно"}, ${status.foreground ? "на переднем плане" : "не на переднем плане"}. Alt+Tab → Orchestra Vault; Esc отменить. SHOWN: ${status.handle} @ ${status.x},${status.y} ${status.width}×${status.height}.` : "Windows сообщила о показе окна. Если скрыто: Alt+Tab. Esc отменить; таймаут 120 с."))
       if (saved) { await refresh(); setMessage(`Сохранено. Имена переменных: ${saved.variables.login}, ${saved.variables.password}. Подстановка ещё отключена.`) }
       else setMessage(controller.signal.aborted ? "Ввод отменён. Запись не сохранена." : "")
     } catch (error) { setMessage(error instanceof Error && error.message === "Vault secure input timed out; no entry saved." ? "Время ожидания окна истекло (120 с). Запись не сохранена." : error instanceof Error && error.message === "Vault secure input window did not open; no entry saved." ? "Окно Windows не открылось за 30 с. Запись не сохранена." : "Окно Vault не открылось или ввод завершился ошибкой. Запись не сохранена; нужен Windows DPAPI.") }

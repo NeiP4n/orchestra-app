@@ -21,6 +21,7 @@ test("Vault add button has an explicit visible hit area, release handler and hov
   expect(ui).toContain('tint(theme.background.base, theme.text.base, 0.12)')
   expect(ui).not.toContain('theme.background.action.primary.focused')
   expect(ui).toContain('<text fg={theme.text.base} wrapMode="none">{busy()')
-  expect(ui).toContain('Alt+Tab. Esc отменить; таймаут 120 с.')
+  expect(ui).toContain('Windows сообщила о показе окна.')
+  expect(ui).toContain('SHOWN: ${status.handle}')
   expect(ui).toContain('Ctrl+N добавить · Enter заменить · Ctrl+D дважды удалить.')
 })

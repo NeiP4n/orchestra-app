@@ -4,7 +4,7 @@ import path from "node:path"
 import { randomUUID } from "node:crypto"
 import { Flock } from "@orchestra/util/flock"
 import { Global } from "@orchestra/util/global"
-import { collector, type Collector } from "./windows.js"
+import { collector, type Collector, type WindowStatus } from "./windows.js"
 
 interface Stored { version: 1; id: string; name: string; site: string; variables: { login: string; password: string }; backend: "windows-dpapi-user-v1"; blob: string }
 export interface Name { id: string; name: string; variables: { login: string; password: string } }
@@ -37,7 +37,7 @@ export function make(options: { directory: string; collector: Collector }) {
   return {
     list: async (): Promise<Array<Pick<Name, "id" | "name">>> => (await load()).map(({ id, name }) => ({ id, name })),
     // Operator UI only. No model tool, no plaintext argument and no decrypt/get API.
-    writeFromOperator: async (id?: string, signal?: AbortSignal, onReady?: () => void): Promise<Name | undefined> => {
+    writeFromOperator: async (id?: string, signal?: AbortSignal, onReady?: (status?: WindowStatus) => void): Promise<Name | undefined> => {
       const previous = id === undefined ? undefined : (await load()).find((entry) => entry.id === id)
       if (id && !previous) throw new Error("Vault entry no longer exists.")
       const sealed = await options.collector.collect(previous && { name: previous.name, site: previous.site }, signal, onReady)

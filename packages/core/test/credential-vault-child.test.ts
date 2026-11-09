@@ -35,13 +35,22 @@ test("startup failure and operator cancellation settle without a saved value", a
   expect(await pending).toBeUndefined()
   expect(g.killed()).toBe(1)
 })
-test("native ready handshake is split-chunk safe and never exposes supplied secret values", async () => {
+test("native SHOWN diagnostics are split-chunk safe and never exposes supplied secret values", async () => {
   const f = fake(); let ready = 0
   const pending = collector("win32", { launch: f.launch }).collect(undefined, undefined, () => ready++)
-  f.child.stdout.emit("data", "ORCHESTRA_VAULT_")
-  f.child.stdout.emit("data", "READY\r\n")
+  f.child.stdout.emit("data", "ORCHESTRA_VAULT_SH")
+  f.child.stdout.emit("data", 'OWN {"handle":42,"visible":true,"foreground":false,"x":0,"y":0,"width":460,"height":330}\r\n')
   expect(ready).toBe(1)
   f.child.emit("close", 0)
   expect(await pending).toBeUndefined()
   expect(f.killed()).toBe(0)
+})
+
+test("diagnostics reject any field outside numeric window geometry and visibility", async () => {
+  const f = fake(); let callbacks = 0
+  const pending = collector("win32", { launch: f.launch }).collect(undefined, undefined, () => callbacks++)
+  f.child.stdout.emit("data", 'ORCHESTRA_VAULT_SHOWN {"handle":42,"visible":true,"foreground":true,"x":0,"y":0,"width":460,"height":330,"password":"should-never-be-diagnostic"}\n')
+  await expect(pending).rejects.toThrow("secure input failed")
+  expect(callbacks).toBe(0)
+  expect(f.killed()).toBe(1)
 })
