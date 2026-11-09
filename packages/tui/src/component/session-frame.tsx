@@ -130,7 +130,9 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     if (browserChatHidden() === hidden) return
     void updateLayout((draft) => void (draft.browserChatHidden = hidden)).catch(() => undefined)
   }
-  const chatBeside = () => centerView() === "browser" && dimensions().width >= 110 && !browserChatHidden()
+  // The chat sits beside the page only when both fit: 46 columns of chat and at least 50 of page in the frame
+  // itself (the room left of the project tree), not in the whole terminal.
+  const chatBeside = () => centerView() === "browser" && dimensions().width >= 110 && availableWidth() >= CHAT_BESIDE_WIDTH + 50 && !browserChatHidden()
   const hidesChat = () => centerView() === "console" || (centerView() === "browser" && !chatBeside())
   const centerView = () =>
     fullscreen() ? undefined : notes.tab() === "console" || notes.tab() === "browser" ? notes.tab() : undefined
@@ -643,7 +645,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
           </box>
         </Show>
         <Show when={centerView()}>
-          <box id="center-view" flexGrow={1} flexBasis={0} minWidth={0} minHeight={0} flexDirection="column">
+          <box id="center-view" flexGrow={1} flexBasis={0} minWidth={centerView() === "browser" ? 40 : 0} minHeight={centerView() === "browser" ? 10 : 0} flexDirection="column">
             <Show
               when={centerView() === "console"}
               fallback={

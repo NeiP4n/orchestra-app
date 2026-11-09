@@ -39,6 +39,7 @@ describe("browser view", () => {
   test("the chat is shown beside the page only in a wide window", () => {
     const frame = read("component/session-frame.tsx")
     expect(frame).toContain('centerView() === "browser" && dimensions().width >= 110')
+    expect(frame).toContain("availableWidth() >= CHAT_BESIDE_WIDTH + 50")
     // The page comes first in the row and the chat after it (not relying on row-reverse): page in the center, chat on the right.
     expect(frame.indexOf('id="center-view"')).toBeGreaterThan(0)
     expect(frame.indexOf('id="center-view"')).toBeLessThan(frame.indexOf('id="session-pane"'))
