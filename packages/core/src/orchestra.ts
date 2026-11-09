@@ -1845,7 +1845,13 @@ const layer: Layer.Layer<
     })
 
     const access = Effect.fn("Orchestra.access")(function* (sessionID: SessionID) {
-      return Option.getOrElse(decodeAccess(yield* kv.get(ACCESS + sessionID)), () => Orchestra.defaultAccess)
+      const stored = decodeAccess(yield* kv.get(ACCESS + sessionID))
+      if (Option.isSome(stored)) return stored.value
+      // A BrowserAgent session is the Orchestrator's own working session: without a stored level it is "write", not the
+      // read-only default of a session the operator never configured (the Browser tab makes them without a level).
+      const agent = (yield* sessions.get(sessionID).pipe(Effect.option)).pipe(Option.map((item) => item.agent))
+      if (Option.isSome(agent) && /^team-browser/.test(agent.value ?? "")) return "write" as const
+      return Orchestra.defaultAccess
     })
 
     const permissionContext = Effect.fn("Orchestra.permissionContext")(function* (request: CorePermission.Request) {

@@ -953,10 +953,16 @@ export const Plugin = {
       const access = yield* orchestra.access(session.id)
       if (session.id === project.main || access === "hidden" || !(yield* orchestra.owns(project, session)))
         return yield* new ToolFailure({ message: `Session not found: ${sessionID}. Use the complete ID from the team roster.` })
-      if (!Orchestra.allows(access, required))
+      if (!Orchestra.allows(access, required)) {
+        // A BrowserAgent session belongs to the Orchestrator: it raises the level itself instead of asking.
+        if (/^team-browser/.test(session.agent ?? "")) {
+          yield* orchestra.setAccess(session.id, required === "full" ? "full" : "write")
+          return session
+        }
         return yield* new ToolFailure({
-          message: `Access to ${sessionID} is "${access}"; this action needs "${required}". The operator can raise it in the project panel.`,
+          message: `Access to ${sessionID} is "${access}"; this action needs "${required}". Send the work to a session you can write to (sessions list shows access), or tell the operator which session needs more access and why.`,
         })
+      }
       return session
     })
 
@@ -1530,7 +1536,7 @@ export const Plugin = {
                       }
                       if (reusable.writable.length === 0) {
                         return yield* new ToolFailure({
-                          message: `An existing ${role.name} session has no write access. Do not create a duplicate to bypass permissions; ask the operator to raise its access to write or full.`,
+                          message: `An existing ${role.name} session is read-only, so no work can go to it. Do not create a duplicate. Use a ${role.name} session that has write access, or tell the operator which session needs write access and why.`,
                         })
                       }
                       return yield* new ToolFailure({
