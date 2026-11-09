@@ -7,6 +7,7 @@ import { Global } from "@orchestra/util/global"
 import { BrowserBridge } from "./bridge.js"
 import { Cdp } from "./cdp.js"
 import { BrowserTabs } from "./tabs.js"
+import { BrowserKeyQueue } from "./key-queue.js"
 import { BrowserWatch } from "./watch.js"
 import { Chrome } from "./chrome.js"
 import { WindowCapture } from "./window-capture.js"
@@ -519,7 +520,11 @@ export async function mouse(
   return `CHROME-UI window ${Math.round(input.x)},${Math.round(input.y)}${frame ? ` (${frame.raw}, top inset ${Math.round(frame.top)}px)` : ` (no inset: ${why || "unknown"})`}`
 }
 
-export async function key(sessionID: string, input: Parameters<typeof Cdp.key>[1]): Promise<string> {
+const enqueueKey = BrowserKeyQueue.make()
+export function key(sessionID: string, input: Parameters<typeof Cdp.key>[1]): Promise<string> {
+  return enqueueKey(sessionID, input, (copy) => deliverKey(sessionID, copy))
+}
+async function deliverKey(sessionID: string, input: Parameters<typeof Cdp.key>[1]): Promise<string> {
   BrowserWatch.mute(sessionID, 4000)
   const client = await within(open(sessionID), 3000)
   const capture = live.get(sessionID)?.capture
