@@ -273,7 +273,7 @@ describe("orchestra.worker policy through workspace_forge", () => {
           mcp: { servers: [], maxCalls: 0 },
         }),
       )
-      const sessionID = /Created (ses_[A-Za-z0-9]+)/.exec(output)?.[1]
+      const sessionID = /Created\. VERIFIED: id (ses_[A-Za-z0-9]+)/.exec(output)?.[1]
       expect(sessionID).toBeDefined()
       const worker = yield* sessions.get(Session.ID.make(sessionID!))
       expect(worker.model).toMatchObject({ providerID: "opencode", id: "task-model" })
@@ -293,12 +293,18 @@ describe("orchestra.worker policy through workspace_forge", () => {
           newInstance: true,
           // Explicit MCP assignment is required at dispatch (d9ecc056); this task needs none.
           mcp: { servers: [], maxCalls: 0 },
-        }),
+        }).pipe(Effect.provide(Config.testLayer([new Document({type:"document",info:new Info({model_collections:[{id:"test-enabled",name:"Enabled test models",enabled:true,models:["opencode/other-model"]}]})})]))),
       )
-      const sessionID = /Created (ses_[A-Za-z0-9]+)/.exec(output)?.[1]
+      const sessionID = /Created\. VERIFIED: id (ses_[A-Za-z0-9]+)/.exec(output)?.[1]
       expect(sessionID).toBeDefined()
       const worker = yield* sessions.get(Session.ID.make(sessionID!))
       expect(worker.model).toMatchObject({ providerID: "opencode", id: "other-model" })
+      const orchestra = yield* Orchestra.Service
+      expect(yield* orchestra.owns(main, worker)).toBe(true)
+      yield* Effect.promise(() => mkdir(path.join(main.directory,"foreign")))
+      const other = yield* orchestra.create({ name: "Foreign", directory: path.join(main.directory, "foreign") })
+      expect(yield* orchestra.owns(other, worker)).toBe(false)
+
       expect(worker.model).not.toMatchObject(mainModel)
     }),
   )

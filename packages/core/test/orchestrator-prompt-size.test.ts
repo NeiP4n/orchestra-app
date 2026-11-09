@@ -28,6 +28,14 @@ const mandateHeadings = [
 ]
 
 describe("orchestrator prompt size", () => {
+  test("role and roster explain independent project-local worker creation without changing permission ceilings", () => {
+    expect(PROMPT_ORCHESTRATOR).toContain("not a staffing ceiling")
+    expect(PROMPT_ORCHESTRATOR).toContain("sessions create with role, text and mcp")
+    expect(PROMPT_ORCHESTRATOR).toContain("newInstance=true")
+    expect(PROMPT_ORCHESTRATOR).toContain("never bypass read-only access")
+    expect(PROMPT_ORCHESTRATOR).toContain("Plan the next dependency wave")
+    expect(PROMPT_ORCHESTRATOR).not.toContain("do not launch subagents")
+  })
   test("the base prompt stays under its word budget", () => {
     expect(words(PROMPT_ORCHESTRATOR)).toBeLessThanOrEqual(BASE_WORD_LIMIT)
   })

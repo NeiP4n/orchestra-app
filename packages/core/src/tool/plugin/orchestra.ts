@@ -1580,7 +1580,7 @@ export const Plugin = {
                         })
                       }
                       return yield* new ToolFailure({
-                        message: `All existing ${role.name} sessions have an outstanding task. Wait for a <team-report> before sending more work. No duplicate session was created.`,
+                        message: `All existing ${role.name} sessions have an outstanding task. For independent work with disjoint scope, create with newInstance=true; for dependent or overlapping work, wait for the report. No duplicate session was created.`,
                       })
                     }
                   }
@@ -1834,7 +1834,7 @@ export const Plugin = {
                 ].join("\n"),
             "",
             "Team workflow rules (mandatory):",
-            "- Reuse an existing session with the needed role via action send; do not create a duplicate just because the task is new or a worker is busy.",
+            "- This roster is not a staffing ceiling. Reuse an idle writable worker; otherwise sessions create with role, text and mcp. Use newInstance=true only for independent disjoint work while same-role workers are busy. Never bypass read-only access; all workers stay in this project.",
             "- Each session has a work mode (auto, fast, coding, research, planning, review, debug, design, ops). Set it with action set_mode or pass mode to send/create. A mode changes how the worker works and may make it read-only; it never widens the role's permissions.",
             "- Page actions in a browser session go to that session's BrowserAgent chat (browser action sessions lists its id) with action send; you only look at the page yourself (sessions, info, text, screenshot).",
             "- Copy the complete session ID exactly from this roster. Never truncate, infer, or substitute an ID.",

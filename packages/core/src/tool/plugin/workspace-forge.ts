@@ -125,7 +125,7 @@ export const Plugin = {
         options: { codemode: false, guide, triggers: ["workspace|воркспейс|рабоч\\S+ (пространств|област)"] },
         description: [
           "Create Orchestra workspaces and federated groups. Available only to a project's main Orchestrator; workers should ask their Orchestrator to do this. Actions: list, create_session, create_group.",
-          "Never invent paths or IDs, and never emulate a team by creating extra worker sessions in the current project: a project's team comes only from its own template. A group chat only uses sanitized federation status and permission-checked tickets; it must not access other projects' files or sessions. Never silently fall back to no sandbox.",
+          "Never invent paths or IDs. For workers inside this project use sessions create with an available role, not workspace_forge; templates recommend roles, not a fixed roster. A group chat only uses sanitized federation status and permission-checked tickets; it must not access other projects' files or sessions. Never silently fall back to no sandbox.",
         ].join("\n"),
         input: Input,
         output: Output,
