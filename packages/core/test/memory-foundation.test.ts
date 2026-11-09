@@ -193,11 +193,18 @@ describe("memory.db foundation (B18 №36–№41, minimum)", () => {
     const first = getMemoryEngineForProject(tmpA.path)
     const again = getMemoryEngineForProject(tmpA.path)
     const other = getMemoryEngineForProject(tmpB.path)
-    expect(again).toBe(first)
-    expect(other).not.toBe(first)
-    expect(other.dbPath).toBe(path.join(tmpB.path, ".orchestra", "memory.db"))
-    first.remember({ text: "Project A only fact.", scope: "project" })
-    expect(other.search("Project A only fact")).toHaveLength(0)
+    // Both handles are closed before the temp folders are removed: on Windows an open SQLite file cannot be deleted,
+    // and the folder removal retried for 5 seconds (the test's whole timeout).
+    try {
+      expect(again).toBe(first)
+      expect(other).not.toBe(first)
+      expect(other.dbPath).toBe(path.join(tmpB.path, ".orchestra", "memory.db"))
+      first.remember({ text: "Project A only fact.", scope: "project" })
+      expect(other.search("Project A only fact")).toHaveLength(0)
+    } finally {
+      first.close()
+      other.close()
+    }
   })
 })
 
