@@ -595,7 +595,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
     if (parentID === undefined) return { shown: [], more: 0 }
     const all = data.session
       .list()
-      .filter((item) => item.parentID === parentID && !removed[item.id])
+      .filter((item) => item.parentID === parentID && !removed[item.id] && !isBrowserRole(item.agent))
       .toSorted((a, b) => Number(data.session.status(b.id) === "running") - Number(data.session.status(a.id) === "running"))
     return { shown: all.slice(0, CHILD_LIMIT), more: Math.max(0, all.length - CHILD_LIMIT) }
   }
@@ -747,7 +747,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       if (!current.parentID) {
         const root = current
         return (
-          root.agent === "team-browser-agent" ||
+          isBrowserRole(root.agent) ||
           owner(root)?.id !== project.id
         )
       }
@@ -757,14 +757,17 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
     return true
   }
 
+  // Every session of a browser role (the BrowserAgent, or a role the Orchestrator made for page work such as
+  // "team-browser-registration-agent"), subagents included, is listed in the Browsers group, never beside the sessions.
+  const isBrowserRole = (agent: string | undefined) => agent !== undefined && /^team-browser/.test(agent)
+
   // BrowserAgent chats no browser session owns (the Orchestrator created them) belong to the Browsers group too.
   const browserChatsOf = (project: OrchestraProject) =>
     data.session
       .list()
       .filter(
         (session) =>
-          session.agent === "team-browser-agent" &&
-          !session.parentID &&
+          isBrowserRole(session.agent) &&
           !removed[session.id] &&
           !notes.browserSessions(project.id).some((item) => item.chat === session.id) &&
           !notes.closedBrowserSessions(project.id).some((item) => item.chat === session.id) &&
@@ -781,7 +784,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           session.id !== project.main &&
           // A BrowserAgent chat belongs to its browser session and is listed in the Browser tab, not here. One that no
           // browser session owns (the Orchestrator created it with sessions create) would be listed nowhere, so it stays here.
-          session.agent !== "team-browser-agent" &&
+          !isBrowserRole(session.agent) &&
           owner(session)?.id === project.id,
       )
 

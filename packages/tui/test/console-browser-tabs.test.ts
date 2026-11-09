@@ -92,3 +92,9 @@ test("a browser session row in the Browsers group opens only its chat from Proje
   expect(tree).not.toContain('notes.setTab("browser")')
   expect(read("component/session-frame.tsx")).toContain("openedFromProjects.delete(id)")
 })
+
+test("every browser-role session, subagents and custom browser roles included, is listed in the Browsers group", () => {
+  const tree = read("component/project-tree.tsx")
+  expect(tree).toContain("/^team-browser/.test(agent)")
+  expect(tree).toContain("!isBrowserRole(item.agent)")
+})
