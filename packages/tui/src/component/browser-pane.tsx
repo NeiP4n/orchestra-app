@@ -366,9 +366,12 @@ export function BrowserPane(props: {
       busy = true
       void BrowserRuntime.peek(props.sessionID)
         .then((found) => {
-          if (found.running && !disposed && state() === "idle" && !failure()) return open()
+          if (found.running && !disposed && state() === "idle" && !failure()) {
+            BrowserRuntime.trace(`pane ${props.sessionID}: Chrome of the agent found (${found.url ?? "no page"}), taking it over`)
+            return open()
+          }
         })
-        .catch(() => undefined)
+        .catch((error) => BrowserRuntime.trace(`pane ${props.sessionID}: takeover failed: ${errorMessage(error)}`))
         .finally(() => (busy = false))
     }, 1500)
     onCleanup(() => clearInterval(timer))
