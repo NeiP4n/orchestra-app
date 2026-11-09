@@ -47,6 +47,8 @@ import { DialogMode } from "./dialog-mode"
 import { useNow } from "./note-canvas"
 import { useT } from "../util/i18n"
 import { tint } from "../theme/color"
+import { contrastRatio } from "../theme/system"
+import { browserIndicator } from "../util/browser-indicator"
 import { hoverBackground, selectionBackground } from "../ui/hover"
 import { Branch, NeuralChip, NeuralLine, NeuronDot, neuralPalette, useNeuralEnergy } from "./neural"
 import { AllSessionsField, useEmptyRoom } from "./session-network"
@@ -673,6 +675,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
   // No website reads, screenshots or launches. Refresh after operations and every 15 seconds.
   const [browserConnectionRevision, setBrowserConnectionRevision] = createSignal(0)
   onMount(() => {
+    onCleanup(BrowserRuntime.subscribeBrowserState(() => setBrowserConnectionRevision((n) => n + 1)))
     const timer = setInterval(() => setBrowserConnectionRevision((n) => n + 1), 15000)
     onCleanup(() => clearInterval(timer))
   })
@@ -765,6 +768,14 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                     {(item) => {
                       const [removeHovered, setRemoveHovered] = createSignal(false)
                       const chosen = () => notes.browserSelected(project.id)?.id === item.id
+                      const indicator = () => {
+                        browserConnectionRevision()
+                        return browserIndicator(BrowserRuntime.browserState(item.id), browserConnected(item.id), props.width < 50)
+                      }
+                      const runningColor = () => [theme.hue.green[200], theme.hue.green[300], theme.hue.green[400], theme.hue.green[500], theme.hue.green[600], theme.hue.green[700], theme.hue.green[800]].find((color) => contrastRatio(color, theme.background.raised.base) >= 4.5) ?? theme.text.feedback.success.base
+                      const indicatorColor = () => indicator().phase === "running" ? runningColor()
+                        : indicator().phase === "error" ? theme.text.feedback.error.base
+                        : ["starting", "stopping", "checking"].includes(indicator().phase) ? theme.text.feedback.warning.base : theme.text.muted
                       return (
                         <>
                         <Row
@@ -787,11 +798,12 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                           }}
                         >
                           <Branch lit={chosen() && inProject(project)} />
-                          <text flexShrink={0} fg={browserConnected(item.id) ? theme.text.feedback.success.base : theme.text.muted}>
-                            {browserConnected(item.id) === undefined ? "? " : browserConnected(item.id) ? "● " : "○ "}
+                          <text flexShrink={0} fg={indicatorColor()} wrapMode="none">
+                            {`${indicator().glyph} ${indicator().label} `}
                           </text>
                           <Show when={item.chat !== undefined && data.session.status(item.chat) === "running"}>
                             <NeuronDot energy={0.9} />
+                            <text fg={theme.text.muted} wrapMode="none">AI </text>
                           </Show>
                           <box flexGrow={1} minWidth={0}>
                             <text fg={theme.text.base} wrapMode="none" truncate>
@@ -849,6 +861,9 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                             <text fg={removeHovered() || armed() === `browser-remove:${item.id}` ? theme.text.feedback.error.base : theme.text.muted}>{armed() === `browser-remove:${item.id}` ? " удалить чат? " : "×"}</text>
                           </HoverAction>
                         </Row>
+                        <Show when={indicator().reason}>
+                          <text fg={theme.text.feedback.error.base} wrapMode="word" paddingLeft={2}>{indicator().reason}</text>
+                        </Show>
                         </>
                       )
                     }}

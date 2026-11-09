@@ -8,6 +8,8 @@ export const scheduleStatus = BrowserSchedule.forSession
 
 export const {
   browserResources,
+  browserState,
+  subscribeBrowserState,
   profileRunning,
   browserLimitDetails,
   closeBlockedBrowser,

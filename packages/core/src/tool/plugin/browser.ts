@@ -161,8 +161,8 @@ async function performOnce(sessionID: string, original: Input, localTest = false
   const byRef = input !== original
   // Closing must not first start the Chrome it is about to close.
   if (input.action === "stop") {
-    const was = BrowserRuntime.isOpen(sessionID)
-    BrowserRuntime.close(sessionID)
+    const was = await BrowserRuntime.profileRunning(sessionID)
+    await BrowserRuntime.close(sessionID)
     return {
       text: was
         ? "Browser session closed. Its profile and logins are kept; start brings it back."

@@ -107,6 +107,12 @@ export function BrowserPane(props: {
   const [state, setState] = createSignal<"idle" | "busy" | "ready">(
     BrowserRuntime.isOpen(props.sessionID) ? "ready" : "idle",
   )
+  onCleanup(BrowserRuntime.subscribeBrowserState((id, operation) => {
+    if (id !== props.sessionID) return
+    if (operation.phase === "stopping" || operation.phase === "stopped") {
+      setState("idle"); setPage({ url: "", title: "", text: "" }); setFramed(false)
+    } else if (operation.phase === "error") setFailure(operation.reason)
+  }))
   const [page, setPage] = createSignal({ url: "", title: "", text: "" })
   const [scheduledChecks, setScheduledChecks] = createSignal(BrowserRuntime.scheduleStatus(props.sessionID))
   const [scheduleNow, setScheduleNow] = createSignal(Date.now())
@@ -519,12 +525,14 @@ export function BrowserPane(props: {
   createEffect(() => {
     let busy = false
     const timer = setInterval(() => {
-      if (busy || disposed || state() !== "idle" || failure() || takingOver.has(props.sessionID)) return
+      const phase = BrowserRuntime.browserState(props.sessionID)?.phase
+      if (busy || disposed || phase === "stopping" || phase === "stopped" || state() !== "idle" || failure() || takingOver.has(props.sessionID)) return
       busy = true
       takingOver.add(props.sessionID)
       void BrowserRuntime.peek(props.sessionID)
         .then((found) => {
-          if (found.running && !disposed && state() === "idle" && !failure()) {
+          const phase = BrowserRuntime.browserState(props.sessionID)?.phase
+          if (found.running && phase !== "stopping" && phase !== "stopped" && !disposed && state() === "idle" && !failure()) {
             BrowserRuntime.trace(`pane ${props.sessionID}: Chrome of the agent found (${found.url ?? "no page"}), taking it over`)
             return open()
           }
@@ -650,10 +658,7 @@ export function BrowserPane(props: {
   })
 
   const stop = () => {
-    BrowserRuntime.close(props.sessionID)
-    setPage({ url: "", title: "", text: "" })
-    setMode("headless")
-    setState("idle")
+    void BrowserRuntime.closeBlockedBrowser(props.sessionID).catch((error) => setFailure(errorMessage(error)))
   }
 
   // Short labels when the pane is narrow, so the header stays on one line.

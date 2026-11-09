@@ -6,6 +6,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import path from "node:path"
 import { Flock } from "@orchestra/util/flock"
 import { readdirSync } from "node:fs"
+import * as BrowserActivity from "./activity.js"
 import { BrowserLifecycle } from "./lifecycle.js"
 import { BrowserBudget } from "./budget.js"
 import { Global } from "@orchestra/util/global"
@@ -253,6 +254,9 @@ async function checkLaunchBudget(sessionID?: string): Promise<number | undefined
   }
   BrowserBudget.requireRoom(count, maximum)
 }
+export const browserState = BrowserActivity.get
+export const subscribeBrowserState = BrowserActivity.subscribe
+
 /** Local process view, not a Chromium subprocess count. Never launches or reads a website. */
 export function browserResources() {
   const bytes = freemem()
@@ -265,9 +269,13 @@ export async function profileRunning(sessionID: string): Promise<boolean> {
 }
 /** Explicit operator action only; no launches and no PID loaded from disk is killed. */
 export async function closeBlockedBrowser(sessionID: string) {
-  return launchLock(async () => {
+  BrowserActivity.set(sessionID, { phase: "stopping" })
+  unwatch(sessionID)
+  try { return await launchLock(async () => {
     const dir = Chrome.profileDir(Global.Path.data, sessionID)
     const port = await Chrome.livePort(deps.readFile, alive, dir)
+    let trackedPID: number | undefined
+    try { trackedPID = JSON.parse(readFileSync(processFile(dir), "utf8")).pid } catch {}
     if (port !== undefined) await within(quit(port), 12_000)
     else {
       const file = processFile(dir)
@@ -281,10 +289,23 @@ export async function closeBlockedBrowser(sessionID: string) {
         try { if (JSON.parse(readFileSync(file, "utf8")).pid === pid) rmSync(file, { force: true }) } catch {}
       }
     }
+    await BrowserActivity.verifyStopped({
+      portAlive: () => port === undefined ? Promise.resolve(false) : alive(port).catch(() => false),
+      pidAlive: () => {
+        if (!Number.isSafeInteger(trackedPID) || trackedPID! < 1) return false
+        try { process.kill(trackedPID!, 0); return true }
+        catch (error) { return (error as NodeJS.ErrnoException).code !== "ESRCH" }
+      },
+      sleep: deps.sleep,
+    })
     evict(sessionID)
     // DevToolsActivePort is connection metadata only, not cookies or credentials.
     rmSync(path.join(dir, "DevToolsActivePort"), { force: true })
-  })
+    BrowserActivity.set(sessionID, { phase: "stopped" })
+  }) } catch (error) {
+    BrowserActivity.set(sessionID, { phase: "error", reason: error instanceof Error ? error.message : "Не удалось остановить Chrome" })
+    throw error
+  }
 }
 async function start(sessionID: string): Promise<Live> {
   return launchLock(() => startLocked(sessionID))
@@ -312,6 +333,7 @@ async function startLocked(sessionID: string): Promise<Live> {
 
 /** The running browser of a session, started (or joined) on first use. */
 export async function open(sessionID: string): Promise<Cdp.Client> {
+  if (BrowserActivity.get(sessionID)?.phase === "stopping") throw new Error("Chrome останавливается. Дождитесь завершения остановки.")
   // A restart in progress owns the session: starting another Chrome beside it is what left input hanging.
   const restarting = relaunching.get(sessionID)
   if (restarting && !inside.has(sessionID)) await restarting.catch(() => undefined)
@@ -330,9 +352,11 @@ export async function open(sessionID: string): Promise<Cdp.Client> {
     process.on("exit", closeAll)
   }
   const wanted = savedState(sessionID).active
+  BrowserActivity.set(sessionID, { phase: "starting" })
   const promise = start(sessionID)
     .then(async (value) => {
       live.set(sessionID, value)
+      BrowserActivity.set(sessionID, { phase: "running" })
       // After a restart the tab that was in front comes back in front (best effort, the tabs themselves are enough).
       if (wanted) {
         try {
@@ -343,6 +367,10 @@ export async function open(sessionID: string): Promise<Cdp.Client> {
         }
       }
       return value
+    })
+    .catch((error) => {
+      BrowserActivity.set(sessionID, { phase: "error", reason: error instanceof Error ? error.message : "Не удалось запустить Chrome" })
+      throw error
     })
     .finally(() => starting.delete(sessionID))
   starting.set(sessionID, promise)
@@ -421,7 +449,8 @@ export async function watch(
   size: { width: number; height: number },
   onFrame: (frame: Cdp.Frame) => void,
 ) {
-  const client = await open(sessionID)
+  const client = live.get(sessionID)?.client
+  if (!client || client.isClosed?.()) throw new Error("Chrome этой сессии остановлен. Нажмите «Открыть Chrome».")
   unwatch(sessionID)
   const capture = live.get(sessionID)?.capture
   if (capture) return capture.watch(size, onFrame)
@@ -495,8 +524,9 @@ const savedTabs = (sessionID: string) => savedState(sessionID).urls
 
 /** The session's tabs as Chrome lists them now. The active one is repaired if its tab was closed by the page. */
 export async function tabs(sessionID: string): Promise<TabState[]> {
-  await open(sessionID)
-  const item = live.get(sessionID)!
+  // Passive UI polling must never restart a profile the operator just stopped.
+  const item = live.get(sessionID)
+  if (!item || item.client.isClosed?.() || BrowserActivity.get(sessionID)?.phase === "stopping") return []
   const list = ordered(sessionID, await BrowserTabs.list(item.port))
   // A read never opens anything: the pane polls this, and a list that is empty for a moment (Chrome starting, a
   // capture restart) must not grow a blank tab on every poll. Tabs open only by an explicit newTab / closeTab / the agent.
@@ -727,15 +757,7 @@ export function evict(sessionID: string) {
 }
 
 export function close(sessionID: string) {
-  unwatch(sessionID)
-  orders.delete(sessionID)
-  const item = live.get(sessionID)
-  if (!item) return
-  live.delete(sessionID)
-  item.client.close()
-  item.capture?.stop()
-  // Ask Chrome to quit so it saves its session cleanly; only if that fails is the process stopped.
-  void quit(item.port).catch(() => item.stop())
+  return closeBlockedBrowser(sessionID)
 }
 
 /**
