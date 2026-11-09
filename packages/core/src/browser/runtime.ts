@@ -158,7 +158,9 @@ async function start(sessionID: string): Promise<Live> {
   const exe = Chrome.find(existsSync)
   if (!exe) throw new Error("Google Chrome or Microsoft Edge was not found. Install one, or set ORCHESTRA_CHROME_PATH.")
   calm(dir)
-  const run = await Chrome.launch(deps, { exe, profileDir: dir, headless: true, url: START_PAGE })
+  const urls = savedTabs(sessionID)
+  if (urls.length > 0) trace(`${sessionID}: Chrome was not running, reopening ${urls.length} saved tab(s)`)
+  const run = await Chrome.launch(deps, { exe, profileDir: dir, headless: true, url: START_PAGE, urls })
   try {
     return await join(run.port, run.close)
   } catch (error) {
@@ -259,12 +261,32 @@ function ordered(sessionID: string, list: BrowserTabs.Tab[]) {
   return order.map((id) => list.find((tab) => tab.id === id)!)
 }
 
+// The open addresses are kept on disk, so a Chrome that died (crash, killed) comes back on the same pages.
+const tabsFile = (sessionID: string) => path.join(Global.Path.data, "browser-profiles", `${sessionID}.tabs.json`)
+function saveTabs(sessionID: string, urls: string[]) {
+  const web = urls.filter((url) => /^https?:\/\//i.test(url))
+  if (web.length === 0) return
+  try {
+    mkdirSync(path.dirname(tabsFile(sessionID)), { recursive: true })
+    writeAtomic(tabsFile(sessionID), JSON.stringify(web))
+  } catch {}
+}
+function savedTabs(sessionID: string): string[] {
+  try {
+    const value = JSON.parse(readFileSync(tabsFile(sessionID), "utf8")) as unknown
+    return Array.isArray(value) ? value.filter((url): url is string => typeof url === "string" && /^https?:\/\//i.test(url)).slice(0, 8) : []
+  } catch {
+    return []
+  }
+}
+
 /** The session's tabs as Chrome lists them now. The active one is repaired if its tab was closed by the page. */
 export async function tabs(sessionID: string): Promise<TabState[]> {
   await open(sessionID)
   const item = live.get(sessionID)!
   let list = ordered(sessionID, await BrowserTabs.list(item.port))
   if (list.length === 0) list = [await BrowserTabs.create(item.port)]
+  saveTabs(sessionID, list.map((tab) => tab.url))
   if (!list.some((tab) => tab.id === item.tabID)) await switchTo(sessionID, list[0]!)
   return list.map((tab) => ({
     id: tab.id,
@@ -727,16 +749,52 @@ export function sessions() {
   return BrowserBridge.parseSessions(existsSync(file) ? readFileSync(file, "utf8") : undefined)
 }
 
+/** An agent's hold on a session ends after a day: an agent that died keeps no session locked for good. */
+const LEASE_TTL_MS = 24 * 60 * 60 * 1000
+
 export function leases() {
   const file = BrowserBridge.leasesFile(Global.Path.data)
-  return BrowserBridge.parseLeases(existsSync(file) ? readFileSync(file, "utf8") : undefined)
+  const all = BrowserBridge.parseLeases(existsSync(file) ? readFileSync(file, "utf8") : undefined)
+  const now = Date.now()
+  return Object.fromEntries(
+    Object.entries(all).filter(
+      ([, lease]) => lease.agent === BrowserBridge.OPERATOR || typeof lease.since !== "number" || now - lease.since < LEASE_TTL_MS,
+    ),
+  )
+}
+
+/** Runs a read-modify-write of leases.json under a lock file (O_EXCL, stale after 5 s), so two processes never lose an update. */
+function withLeaseLock<T>(work: () => T): T {
+  const lock = `${BrowserBridge.leasesFile(Global.Path.data)}.lock`
+  mkdirSync(path.dirname(lock), { recursive: true })
+  const until = Date.now() + 2000
+  for (;;) {
+    try {
+      writeFileSync(lock, String(Date.now()), { flag: "wx" })
+      break
+    } catch {
+      let age = 0
+      try {
+        age = Date.now() - Number(readFileSync(lock, "utf8"))
+      } catch {}
+      if (age > 5000 || Date.now() > until) {
+        rmSync(lock, { force: true })
+        if (Date.now() > until) break
+      }
+    }
+  }
+  try {
+    return work()
+  } finally {
+    rmSync(lock, { force: true })
+  }
 }
 
 /** Gives a session to an agent (or the operator), or frees it when `agent` is undefined. */
 export function setLease(sessionID: string, agent: string | undefined) {
   const file = BrowserBridge.leasesFile(Global.Path.data)
   mkdirSync(path.dirname(file), { recursive: true })
-  writeAtomic(file, JSON.stringify(BrowserBridge.withLease(leases(), sessionID, agent, Date.now()), null, 2))
+  withLeaseLock(() => writeAtomic(file, JSON.stringify(BrowserBridge.withLease(leases(), sessionID, agent, Date.now()), null, 2)))
 }
 
 /**
@@ -760,7 +818,7 @@ export function pointAgent(sessionID: string, at: { x: number; y: number } | und
     const all = BrowserBridge.parseCursors(existsSync(file) ? readFileSync(file, "utf8") : undefined)
     all[sessionID] = { x: at.x, y: at.y, at: Date.now() }
     mkdirSync(path.dirname(file), { recursive: true })
-    writeFileSync(file, JSON.stringify(all))
+    writeAtomic(file, JSON.stringify(all))
   } catch {
     // The cursor is a courtesy; a failed write never fails the action.
   }
