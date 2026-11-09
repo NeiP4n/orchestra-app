@@ -211,3 +211,18 @@ describe("automatic read-only watcher wake wiring", () => {
     expect(body).toContain("BrowserSchedule.deliveryFailed(trigger.id)")
   })
 })
+
+test("WhatsApp own outgoing row cannot emit a wake event; incoming counterpart row can", () => {
+  const sessionID = "whatsapp-incoming-only-regression"
+  const events: BrowserWatch.Event[] = []
+  const stop = BrowserWatch.onEvent((event) => { if (event.sessionID === sessionID) events.push(event) })
+  try {
+    BrowserWatch.handle(sessionID, JSON.stringify({ items: [{ chat: "Instinct", text: "my own message", out: true }] }), NOW)
+    expect(events).toEqual([])
+    // Unknown direction cannot be promoted to incoming by the chat's label.
+    BrowserWatch.handle(sessionID, JSON.stringify({ items: [{ chat: "Instinct", text: "unverified direction" }] }), NOW + 1000)
+    expect(events).toEqual([])
+    BrowserWatch.handle(sessionID, JSON.stringify({ items: [{ chat: "Instinct", text: "counterpart reply", out: false }] }), NOW + 2000)
+    expect(events).toEqual([{ sessionID, at: NOW + 2000, items: [{ chat: "Instinct", text: "counterpart reply" }] }])
+  } finally { stop() }
+})
