@@ -230,6 +230,26 @@ describe("mainSessionFallbackChain (G2-14)", () => {
     ])
   })
 
+  test("a spent quota skips the whole current provider, like an authentication failure", () => {
+    const quota = new QuotaExceededError({ message: "Antigravity quota exhausted" })
+    expect(chain({ cause: asFailure(quota), current: "opencode/crouton-alpha-free", catalog })).toEqual([
+      model("anymodel/sonnet-5"),
+      model("anymodel/anymodel-coder"),
+      model("lix/lix-test-model"),
+    ])
+  })
+
+  test("a model with a price per token is never a fallback", () => {
+    const paid = Model.Info.default(Provider.ID.make("lix"), Model.ID.make("lix-test-model"))
+    const priced = {
+      ...paid,
+      cost: [{ input: 3, output: 15, cache: { read: 0, write: 0 } }],
+    } as unknown as Model.Info
+    const withPaid = catalog.map((item) => (item.providerID === "lix" ? priced : item))
+    const result = chain({ cause: asFailure(auth), current: "opencode/crouton-alpha-free", catalog: withPaid })
+    expect(result).not.toContainEqual(model("lix/lix-test-model"))
+  })
+
   test("an authentication failure skips the whole current provider", () => {
     // A 401 means the provider is dead, not the model: no other model of the
     // same provider is tried, on either the current or the Anymodel side.

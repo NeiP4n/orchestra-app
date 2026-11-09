@@ -236,12 +236,26 @@ export function mainSessionFallbackChain(input: {
   const providerDown =
     input.cause.reason._tag === "ProviderInternal" &&
     [502, 503, 504].includes(input.cause.reason.http?.status ?? 0)
-  const wholeProviderDead = authFailure || providerDown
+  // A spent quota is the account's, not one model's: the other models of that provider fail the same way, so the
+  // chain starts on another provider, and when there is none it ends and the error is shown as it is.
+  const quotaSpent =
+    input.cause.reason._tag === "QuotaExceeded" ||
+    (input.cause.reason._tag === "RateLimit" && /quota|exhaust/i.test(input.cause.reason.message ?? ""))
+  const wholeProviderDead = authFailure || providerDown || quotaSpent
+  // The operator's spend limit is 0: a catalog model with a price per token is never a fallback.
+  const priced = (ref: Model.Ref) =>
+    input.catalog.some(
+      (info) =>
+        info.providerID === ref.providerID &&
+        info.id === ref.id &&
+        info.cost.some((cost) => Number(cost.input) > 0 || Number(cost.output) > 0),
+    )
   const seen = new Set<string>([`${input.current.providerID}/${input.current.id}`])
   const push = (ref: Model.Ref): Model.Ref | undefined => {
     if (ref.providerID === "anymodel" && isDeadModelId(ref.id)) return undefined
     if (wholeProviderDead && ref.providerID === input.current.providerID) return undefined
     if (input.coolingDown?.has(ref.providerID)) return undefined
+    if (priced(ref)) return undefined
     const identity = `${ref.providerID}/${ref.id}`
     if (seen.has(identity)) return undefined
     seen.add(identity)
