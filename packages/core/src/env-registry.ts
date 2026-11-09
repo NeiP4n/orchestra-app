@@ -62,6 +62,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     default: "\"http://127.0.0.1:9222\"",
     readIn: "injected-env",
   },
+  ORCHESTRA_BROWSER_DEBUG: {
+    purpose: "Show the Browser tab's input debug lines on screen (\"1\"). The log file is always written.",
+    default: "Off.",
+  },
   ORCHESTRA_BROWSER_LAUNCHER: {
     purpose: "Shell command that starts the browser when the CDP endpoint does not answer.",
     readIn: "injected-env",
@@ -70,10 +74,22 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Local browser for the browser plugin (\"0\" disables it).",
     default: "Enabled.",
   },
+  ORCHESTRA_BROWSER_PIXEL_MOUSE: {
+    purpose: "Pixel-exact pointer in the Browser tab while control is on (\"0\" turns it off).",
+    default: "On; falls back to terminal cells when the terminal sends no pixel reports.",
+  },
   ORCHESTRA_BROWSER_PROFILE: {
     purpose: "Profile directory for the browser plugin's built-in launch.",
     default: "\"<data>/orchestra/browser-profile\" (the opencode profile when it exists and the orchestra one does not).",
     readIn: "injected-env",
+  },
+  ORCHESTRA_BROWSER_SCALE: {
+    purpose: "Device scale (1 to 3) of the Browser tab's captured Chrome; 2 draws Chrome's own tabs and buttons twice as large.",
+    default: "1.",
+  },
+  ORCHESTRA_BROWSER_STRIP_SNAP: {
+    purpose: "Moves pointer events in Chrome's tab strip to the strip's centre line so the close button can be hit (\"0\" turns it off).",
+    default: "On.",
   },
   ORCHESTRA_BUMP: {
     purpose: "Release version bump for the script build (\"major\"/\"minor\"/\"patch\").",
