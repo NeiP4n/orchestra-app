@@ -7,6 +7,9 @@ import { Database } from "@orchestra/core/database/database"
 import { KV } from "@orchestra/core/kv"
 import { Federation } from "@orchestra/core/federation"
 import { Orchestra } from "@orchestra/core/orchestra"
+import { RuleEnforce } from "@orchestra/core/rule-enforce"
+import { Trigger } from "@orchestra/core/trigger"
+import { readFileSync } from "node:fs"
 import { Rules } from "@orchestra/core/rules"
 import { Session } from "@orchestra/core/session"
 import { tempGlobalLayer } from "./fixture/global"
@@ -278,4 +281,64 @@ describe("rulebook scopes", () => {
       expect(yield* Rules.remove(kv, Rules.orchestratorScope("prj_x"), id, { operator: true })).toBe(true)
     }),
   )
+})
+
+
+describe("scheduled request rule lifecycle", () => {
+  it.live("uses rules edited after schedule creation and blocks effects after corrupted reload", () =>
+    Effect.gen(function* () {
+      const kv = yield* KV.Service
+      const project = "prj_scheduled_rules"
+      const scope = Rules.projectScope(project)
+      const session = "scheduled-rule-fixture"
+      const made = Trigger.create({ kind: "interval", spec: "60", prompt: "Run the stored task" }, {
+        id: "rule_schedule", projectID: project, now: 1000, existing: 0,
+      })
+      if (!made.ok) throw new Error(made.error)
+      yield* Rules.loadCurrent(kv, { project, societies: [] }, session)
+      expect(RuleEnforce.unavailableRefusal(session, "shell", {})).toBeUndefined()
+      // The operator edits the rulebook after the schedule was saved.
+      yield* Rules.add(kv, scope, { text: "deny tool shell", by: "operator" })
+      const fired = Trigger.afterFire(made.trigger, 3_601_000)
+      expect(fired.total).toBe(1)
+      yield* Rules.loadCurrent(kv, { project, societies: [] }, session)
+      let effects = 0
+      const runEffect = () => {
+        const gate = RuleEnforce.unavailableRefusal(session, "shell", {})
+        const deny = RuleEnforce.violation(RuleEnforce.recall(session), { tool: "shell", agent: "orchestrator", input: {} })
+        if (!gate && !deny) effects++
+      }
+      runEffect()
+      expect(effects).toBe(0)
+      yield* kv.set(`rules/${scope}`, [{ corrupt: true }])
+      const failed = yield* Rules.loadCurrent(kv, { project, societies: [] }, session).pipe(Effect.flip)
+      expect(failed._tag).toBe("Rules.LoadError")
+      runEffect()
+      expect(effects).toBe(0)
+      expect(RuleEnforce.unavailableRefusal(session, "rules", { action: "list" })).toBeUndefined()
+      yield* kv.set(`rules/${scope}`, [])
+      yield* Rules.loadCurrent(kv, { project, societies: [] }, session)
+      runEffect()
+      expect(effects).toBe(1)
+    }),
+  )
+
+  it.live("the context and pre-execution hooks use the shared gate for every request", () => Effect.sync(() => {
+    const team = readFileSync(new URL("../src/plugin/team.ts", import.meta.url), "utf8")
+    const start = team.indexOf('ctx.session.hook("context"')
+    expect(start).toBeGreaterThan(0)
+    const loading = team.indexOf("RuleEnforce.loading(", start)
+    const scopeLoad = team.indexOf("Rules.scopesOf(", start)
+    const current = team.indexOf("Rules.loadCurrent(", start)
+    expect(loading).toBeGreaterThan(start)
+    expect(loading).toBeLessThan(scopeLoad)
+    expect(scopeLoad).toBeLessThan(current)
+    const tool = readFileSync(new URL("../src/tool/plugin/rules.ts", import.meta.url), "utf8")
+    const hook = tool.indexOf('ctx.tool.hook("execute.before"')
+    const gate = tool.indexOf("RuleEnforce.unavailableRefusal(", hook)
+    const directives = tool.indexOf("RuleEnforce.violation(", gate)
+    expect(hook).toBeGreaterThan(0)
+    expect(gate).toBeGreaterThan(hook)
+    expect(gate).toBeLessThan(directives)
+  }))
 })

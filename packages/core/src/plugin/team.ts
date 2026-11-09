@@ -241,10 +241,9 @@ export const Plugin = define({
         // that does not start, so the failure is handed to the model as an explicit stop.
         RuleEnforce.loading(String(event.sessionID))
         const rules = yield* Rules.scopesOf({ sessionID: event.sessionID, sessions, orchestra, federation }).pipe(
-          Effect.flatMap((scopes) => Rules.load(kv, scopes)),
+          Effect.flatMap((scopes) => Rules.loadCurrent(kv, scopes, String(event.sessionID))),
           // The same rules feed the hard check before tool calls and the end-of-turn judge.
           Effect.map((loaded) => {
-            RuleEnforce.remember(String(event.sessionID), loaded.entries)
             return loaded.block
           }),
           Effect.catchCause((cause) =>

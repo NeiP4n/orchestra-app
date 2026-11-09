@@ -1,5 +1,7 @@
 export * as Rules from "./rules.js"
 
+import { RuleEnforce } from "./rule-enforce.js"
+
 import { Cause, Effect, Option, Schema } from "effect"
 import { SessionID } from "@orchestra/schema/session-id"
 import type { Federation } from "./federation.js"
@@ -471,3 +473,11 @@ export const load = (kv: KV.Interface, scopes: Scopes) =>
   })
 
 export const block = (kv: KV.Interface, scopes: Scopes) => load(kv, scopes).pipe(Effect.map((loaded) => loaded.block))
+
+
+/** Shared request-time load used by the context hook, including scheduled turns. */
+export const loadCurrent = (kv: KV.Interface, scopes: Scopes, sessionID: string) =>
+  Effect.suspend(() => {
+    RuleEnforce.loading(sessionID)
+    return load(kv, scopes).pipe(Effect.tap((loaded) => Effect.sync(() => RuleEnforce.remember(sessionID, loaded.entries))))
+  })
