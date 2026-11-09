@@ -1554,6 +1554,16 @@ export function Prompt(props: PromptProps) {
 
   // Keep the last resolved prompt display visible while destination catalogs load;
   // availability and submission still use the live location-scoped catalog.
+  // Diagnostic: when the agent shown is not the one the chat was created with, say which one the chat has and whether
+  // the server's agent list knows it, so a single screenshot shows why (unknown agent, hidden, or replaced).
+  const agentMismatch = (shown: string) => {
+    const chat = props.sessionID ? data.session.get(props.sessionID)?.agent : undefined
+    if (!chat || chat === shown) return ""
+    const list = data.location.agent.list(currentLocation.ref ?? data.location.default()) ?? []
+    const entry = list.find((item) => item.id === chat)
+    const where = entry ? (entry.hidden ? "hidden" : entry.mode) : "NOT in list"
+    return ` [chat agent: ${chat} (${where}); list: ${list.length}]`
+  }
   const promptDisplay = createMemo<{
     agentLabel: string | undefined
     agentColor: RGBA | undefined
@@ -1574,7 +1584,9 @@ export function Prompt(props: PromptProps) {
       const agent = local.agent.current()
       const model = local.model.parsed()
       return {
-        agentLabel: agent ? (agent.id === "team-browser-agent" ? "BrowserAgent" : Locale.titlecase(agent.id)) : undefined,
+        agentLabel: agent
+          ? (agent.id === "team-browser-agent" ? "BrowserAgent" : Locale.titlecase(agent.id)) + agentMismatch(agent.id)
+          : undefined,
         agentColor: agent ? local.agent.color(agent.id) : undefined,
         modelLabel: model.model,
         providerLabel: model.provider,
