@@ -739,6 +739,9 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                             onMouseEnter={() => setRemoveHovered(true)}
                             onMouseLeave={() => setRemoveHovered(false)}
                             onClick={() => {
+                              const removalKey = `browser-remove:${item.id}`
+                              if (armed() !== removalKey) return arm(removalKey)
+                              clearArmed()
                               void (async () => {
                                 await BrowserRuntime.closeBlockedBrowser(item.id)
                                 if (item.chat) {
@@ -751,7 +754,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                                 .catch((error) => toast.show({ message: errorMessage(error), variant: "error" }))
                             }}
                           >
-                            <text fg={removeHovered() ? theme.text.feedback.error.base : theme.text.muted}>{" × "}</text>
+                            <text fg={removeHovered() || armed() === `browser-remove:${item.id}` ? theme.text.feedback.error.base : theme.text.muted}>{armed() === `browser-remove:${item.id}` ? " удалить чат? " : " × "}</text>
                           </HoverAction>
                         </Row>
                         </>
