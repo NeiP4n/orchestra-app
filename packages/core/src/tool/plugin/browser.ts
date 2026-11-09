@@ -23,12 +23,13 @@ export const description = [
   "  open — go to an http or https address (url), then return the page title, address and text.",
   "  text — the visible text of the current page.",
   "  info — the current address and title only.",
+  "  snapshot — list the page's visible interactive elements, one per line with a ref such as @e3 (link, button, field...). Act on a ref with click or type (`ref`), then snapshot again to check the result. Refs belong to the last snapshot: when the page changes a ref goes stale, so snapshot again.",
   "  screenshot — a picture of the page (shown as an image when the model supports images, with the address and title as text otherwise).",
   "  start — turn the session on: start its Chrome if it is not running (no page change). stop — turn it off: close its Chrome; the profile and logins stay, start brings it back.",
   "  sessions — list every browser session (id, name, project, running or not, page, controller), so you know what exists.",
   "  assign — give a session to another agent (`agent`: its name) so only it may act there; tell that agent the session id. release — take the assignment away.",
-  "  click — click the element matching a CSS selector, or the clickable element whose text contains `text`.",
-  "  type — put `text` into the field matching `selector`; submit: true presses Enter afterwards.",
+  "  click — click the element with the given `ref` (from snapshot), or matching a CSS selector, or the clickable element whose text contains `text`.",
+  "  type — put `text` into the field with the given `ref` or matching `selector`; submit: true presses Enter afterwards.",
   "",
   "Address a session other than the selected one with `session` (its id or name). A session held by another agent, or by the operator in Take control, refuses you.",
   "",
@@ -47,6 +48,7 @@ export const Input = Schema.Struct({
     "open",
     "text",
     "info",
+    "snapshot",
     "screenshot",
     "click",
     "type",
@@ -64,6 +66,7 @@ export const Input = Schema.Struct({
   agent: optional(Schema.String.annotate({ description: "Agent name to give the session to, for assign" })),
   url: optional(Schema.String.annotate({ description: "http or https address, for open" })),
   selector: optional(Schema.String.annotate({ description: "CSS selector, for click and type" })),
+  ref: optional(Schema.String.annotate({ description: "Element ref from snapshot, such as @e3, for click and type" })),
   text: optional(Schema.String.annotate({ description: "Text to type, or text of the element to click" })),
   submit: optional(Schema.Boolean.annotate({ description: "Press Enter after typing" })),
 })
@@ -122,7 +125,13 @@ export async function perform(sessionID: string, input: Input) {
   }
 }
 
-async function performOnce(sessionID: string, input: Input) {
+async function performOnce(sessionID: string, original: Input) {
+  // A ref from snapshot is the selector of the numbered element; a missing element means the page moved on.
+  const input: Input =
+    original.ref !== undefined && original.ref.trim() !== ""
+      ? { ...original, selector: BrowserPage.refSelector(original.ref), text: original.action === "click" ? undefined : original.text }
+      : original
+  const byRef = input !== original
   // Closing must not first start the Chrome it is about to close.
   if (input.action === "stop") {
     const was = BrowserRuntime.isOpen(sessionID)
@@ -147,6 +156,12 @@ async function performOnce(sessionID: string, input: Input) {
     }
     case "text":
       return { text: page(await Cdp.pageInfo(client), await Cdp.pageText(client)) }
+    case "snapshot": {
+      const info = await Cdp.pageInfo(client)
+      const result = await evaluate(client, BrowserPage.snapshotExpression())
+      if (!result.ok) throw new Error(result.error ?? "Snapshot failed.")
+      return { text: page(info, result.text || "(no interactive elements)") }
+    }
     case "info": {
       const info = await Cdp.pageInfo(client)
       return { text: `${info.title || "(no title)"} - ${info.url}` }
@@ -159,7 +174,7 @@ async function performOnce(sessionID: string, input: Input) {
       // Real mouse events (isTrusted) first: sign-up forms and consent dialogs ignore synthetic el.click(). The script
       // click stays as the fallback when the element has no box or the protocol call fails.
       let result = await evaluate(client, BrowserPage.clickExpression({ selector: input.selector, text: input.text, native: true }))
-      if (!result.ok) throw new Error(result.error ?? "Click failed.")
+      if (!result.ok) throw new Error(byRef ? BrowserPage.STALE_REF : (result.error ?? "Click failed."))
       const spot = (result as { rect?: { x: number; y: number } }).rect
       let native = false
       if (spot && Number.isFinite(spot.x) && Number.isFinite(spot.y) && spot.x >= 0 && spot.y >= 0) {
@@ -180,10 +195,10 @@ async function performOnce(sessionID: string, input: Input) {
       }
     }
     case "type": {
-      if (!input.selector || input.text === undefined) throw new Error("type needs a selector and a text.")
+      if (!input.selector || input.text === undefined) throw new Error("type needs a ref or a selector, and a text.")
       // Real keyboard input (Input.insertText) over the selected content first; the script value-setter is the fallback.
       let result = await evaluate(client, BrowserPage.typeExpression({ selector: input.selector, text: input.text, native: true }))
-      if (!result.ok) throw new Error(result.error ?? "Typing failed.")
+      if (!result.ok) throw new Error(byRef ? BrowserPage.STALE_REF : (result.error ?? "Typing failed."))
       try {
         await client.send("Input.insertText", { text: input.text })
       } catch {
@@ -314,7 +329,7 @@ export const Plugin = {
               if (acts(input.action) && !handedOver)
                 yield* permission.assert({
                   action: name,
-                  resources: [input.url ?? input.selector ?? input.text ?? input.action],
+                  resources: [input.url ?? input.ref ?? input.selector ?? input.text ?? input.action],
                   save: ["*"],
                   metadata: { action: input.action },
                   sessionID: context.sessionID,

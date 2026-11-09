@@ -35,3 +35,51 @@ export interface Outcome {
   at?: { x: number; y: number }
   text?: string
 }
+
+const REF = /^@?e(\d{1,5})$/
+
+/** The CSS selector of an element numbered by the last snapshot: "e3" or "@e3". Anything else is refused. */
+export function refSelector(ref: string) {
+  const match = REF.exec(ref.trim())
+  if (!match) throw new Error(`"${ref}" is not a ref. Refs look like @e3 and come from action=snapshot.`)
+  return `[data-orc-ref="e${match[1]}"]`
+}
+
+export const STALE_REF = "That ref is gone: the page changed since the snapshot. Take a new snapshot and use its refs."
+
+/**
+ * Numbers every visible, interactive element of the page (links, buttons, fields, menus, tabs) and returns them as
+ * one line each: `@e3 button "Sign in"`. The number is written onto the element itself (data-orc-ref), so click and
+ * type can find it again; a page that reloads or rebuilds the element loses the number, which the agent sees as a
+ * stale ref and answers with a new snapshot. Refs of an older snapshot are cleared first.
+ */
+export function snapshotExpression(limit = 250) {
+  return `(() => {
+    for (const old of document.querySelectorAll('[data-orc-ref]')) old.removeAttribute('data-orc-ref')
+    const pick = 'a[href],button,input:not([type=hidden]),select,textarea,summary,[role=button],[role=link],[role=textbox],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=option],[role=switch],[role=combobox],[contenteditable=""],[contenteditable=true],[onclick]'
+    const seen = new Set()
+    const lines = []
+    let total = 0
+    for (const el of document.querySelectorAll(pick)) {
+      if (seen.has(el)) continue
+      seen.add(el)
+      const box = el.getBoundingClientRect()
+      const style = getComputedStyle(el)
+      if (box.width < 1 || box.height < 1 || style.visibility === 'hidden' || style.display === 'none') continue
+      total++
+      if (lines.length >= ${limit}) continue
+      const tag = el.tagName.toLowerCase()
+      const role = el.getAttribute('role') || (tag === 'a' ? 'link' : tag === 'input' ? (el.type || 'text') : tag === 'textarea' ? 'textbox' : tag)
+      const label = (el.getAttribute('aria-label') || el.innerText || el.value || el.placeholder || el.title || el.name || '').replace(/\s+/g, ' ').trim().slice(0, 80)
+      const ref = 'e' + (lines.length + 1)
+      el.setAttribute('data-orc-ref', ref)
+      const extra = []
+      if (el.disabled) extra.push('disabled')
+      if (el.checked) extra.push('checked')
+      if (tag === 'a' && el.getAttribute('href')) extra.push('href=' + el.getAttribute('href').slice(0, 80))
+      if ((tag === 'input' || tag === 'textarea') && el.type !== 'password' && el.value && label !== el.value) extra.push('value=' + JSON.stringify(String(el.value).slice(0, 40)))
+      lines.push('@' + ref + ' ' + role + (label ? ' ' + JSON.stringify(label) : '') + (extra.length ? ' ' + extra.join(' ') : ''))
+    }
+    return { ok: true, text: lines.join('\n') + (total > lines.length ? '\n[' + (total - lines.length) + ' more elements not listed: scroll or use text]' : '') }
+  })()`
+}
