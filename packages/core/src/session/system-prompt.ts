@@ -48,7 +48,8 @@ export const CAPABILITY_AWARENESS = [
  */
 export const PLAN_FIRST = [
   "# Plan before acting — understand, then act",
-  "- Before the first tool call for a task, state the goal in one line and the criteria that prove it done, then list the short plan (2-5 steps) you will follow.",
+  "- A greeting, a short question or a follow-up such as \"and now?\" gets a direct answer: no goal, criteria or plan block.",
+  "- Before the first tool call for a task that needs tools or several steps, state the goal in one line and the criteria that prove it done, then list the short plan (2-5 steps) you will follow.",
   "- Act on the plan one step at a time; if the plan breaks, say so and replan instead of probing at random.",
   "- Verify the result against the criteria before reporting done; if a criterion is not met, keep working or say exactly which one failed.",
   "- If the task is unclear — the goal, the target, or the criteria are missing — ask one clarifying question instead of guessing with tool calls. Never probe a live page or app at random to figure out what was asked.",
