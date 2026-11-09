@@ -120,6 +120,17 @@ export function adoptBrowserChat(
 ): BrowserSession | undefined {
   const owned = [...(state.projects[projectID] ?? []), ...(state.closed?.[projectID] ?? [])].some((item) => item.chat === input.chat)
   if (owned) return undefined
+  // A restart finds the chat the last run made for a record whose bind did not reach the disk: the record with this
+  // name and no chat takes it. A record of this name that already has its own chat means this one is a stray copy.
+  const sameName = [...(state.projects[projectID] ?? []), ...(state.closed?.[projectID] ?? [])].filter(
+    (item) => item.name.trim().toLowerCase() === input.name.trim().toLowerCase(),
+  )
+  const chatless = sameName.find((item) => !item.chat)
+  if (chatless) {
+    chatless.chat = input.chat
+    return chatless
+  }
+  if (sameName.length > 0) return undefined
   const selected = state.selected[projectID]
   const session = addBrowserSession(state, projectID, { id: input.id, now: input.now, name: input.name })
   if (!session) return undefined
@@ -142,10 +153,26 @@ export function collapseDuplicateChats(state: BrowserSessionsState): number {
       if (!keeper.has(item.chat)) keeper.set(item.chat, item)
     }
     const drop = list.filter((item) => item.chat && keeper.get(item.chat) !== item)
+    // A record with no chat (never had a page or a BrowserAgent) beside an older one of the same name is an empty copy.
+    const named = new Map<string, BrowserSession>()
+    for (const item of [...list].sort((a, b) => a.created - b.created)) {
+      if (drop.includes(item)) continue
+      const key = item.name.trim().toLowerCase()
+      const first = named.get(key)
+      if (!first) named.set(key, item)
+      else if (!item.chat) drop.push(item)
+      else if (!first.chat) {
+        drop.push(first)
+        named.set(key, item)
+      }
+    }
     if (drop.length === 0) continue
     for (const item of drop) {
       list.splice(list.indexOf(item), 1)
-      if (state.selected[projectID] === item.id) state.selected[projectID] = keeper.get(item.chat!)!.id
+      if (state.selected[projectID] === item.id) {
+        const heir = (item.chat && keeper.get(item.chat)) || named.get(item.name.trim().toLowerCase()) || list[0]
+        state.selected[projectID] = heir?.id
+      }
       removed += 1
     }
   }
