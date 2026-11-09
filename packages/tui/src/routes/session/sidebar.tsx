@@ -120,7 +120,7 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
                 empty.content(this.height)
               }}
             >
-              <ScheduleList sessionID={props.sessionID} />
+              <ScheduleList sessionID={props.sessionID} width={Math.max(1, width() - (layout.compact() ? 2 : 4) - 2)} />
               <Slot path="sidebar.content" input={{ sessionID: props.sessionID }} />
             </box>
           </scrollbox>

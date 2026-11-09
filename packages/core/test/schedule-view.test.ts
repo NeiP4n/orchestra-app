@@ -25,3 +25,10 @@ test("schedule sidebar projection is read-only, scoped and shows paused records"
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test("schedule names elide at whole words before publishing the local sidebar projection", () => {
+  expect(ScheduleView.shortName("слово ".repeat(30))).toBe(`${"слово ".repeat(13)}слово…`)
+  expect(ScheduleView.shortName("x".repeat(100))).toBe("…")
+  expect(ScheduleView.shortName("Короткое имя")).toBe("Короткое имя")
+  expect(ScheduleView.shortName("слово ".repeat(30)).length).toBeLessThanOrEqual(80)
+})

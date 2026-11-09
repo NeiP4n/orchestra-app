@@ -20,9 +20,17 @@ export interface Item {
 }
 const directory = () => path.join(Global.Path.data, "schedule-view")
 const file = (id: string) => path.join(directory(), `${encodeURIComponent(id)}.json`)
+export function shortName(prompt: string): string {
+  const text = prompt.replace(/\s+/g, " ").trim()
+  if (text.length <= 80) return text
+  const prefix = text.slice(0, 79)
+  if (/\s/.test(text[79] ?? "")) return `${prefix.trimEnd()}…`
+  const boundary = prefix.lastIndexOf(" ")
+  return boundary > 0 ? `${prefix.slice(0, boundary)}…` : "…"
+}
 export function sync(trigger: Trigger.Info, sessionID: string) {
   try {
-    const item: Item = { id: trigger.id, sessionID, name: trigger.prompt.slice(0, 80), kind: trigger.kind,
+    const item: Item = { id: trigger.id, sessionID, name: shortName(trigger.prompt), kind: trigger.kind,
       enabled: trigger.enabled, nextAt: trigger.enabled ? trigger.nextAt : null, lastFiredAt: trigger.lastFiredAt,
       pausedReason: trigger.pausedReason, browserSessionID: trigger.browserSessionID, updatedAt: Date.now() }
     mkdirSync(directory(), { recursive: true })
