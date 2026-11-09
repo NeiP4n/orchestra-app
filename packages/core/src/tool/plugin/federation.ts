@@ -224,6 +224,15 @@ export const Plugin = {
                   source: { type: "tool", messageID: context.messageID, id: context.id },
                 })
 
+              const scopeGroups = yield* federation.groups()
+              const ownProject = scope.kind === "project" ? scope.project : undefined
+              const allowedProjects = new Set<string>(scope.kind === "group" ? scope.group.projects : ownProject ? [ownProject.id] : [])
+              if (ownProject) {
+                for (const peer of yield* federation.linked(ownProject.id)) allowedProjects.add(peer.id)
+                for (const group of scopeGroups.filter(group => group.projects.includes(ownProject.id)))
+                  for (const id of group.projects) allowedProjects.add(id)
+              }
+
               // A group chat belongs to the group: it may read the group's own state, never
               // change it and never contact a member project on its own.
               if (scope.kind === "group") {
@@ -258,12 +267,12 @@ export const Plugin = {
                 const visible =
                   scope.kind === "group"
                     ? projects.filter((project) => scope.group.projects.includes(project.id))
-                    : projects
+                    : projects.filter(project => allowedProjects.has(project.id))
                 switch (input.action) {
                   case "projects": {
                     const rows = visible.map(
                       (project) =>
-                        `- ${project.id} · ${project.name} · ${project.main ? `orchestrator session ${project.main}` : "orchestrator session not created yet"}`,
+                        `- ${project.id} · ${project.name}${project.id === ownProject?.id && project.main ? ` · orchestrator session ${project.main}` : ""}`,
                     )
                     return {
                       output: rows.length === 0 ? "No projects on this device." : ["Projects:", ...rows].join("\n"),
@@ -584,7 +593,8 @@ export const Plugin = {
                 case "groups": {
                   const found = yield* federation.groups()
                   const visible =
-                    scope.kind === "group" ? found.filter((group) => group.name === scope.group.name) : found
+                    scope.kind === "group" ? found.filter((group) => group.name === scope.group.name)
+                      : found.filter(group => ownProject && group.projects.includes(ownProject.id))
                   return {
                     output:
                       visible
@@ -595,7 +605,7 @@ export const Plugin = {
                             group.projects.join(", ") +
                             " · mode " +
                             FederationSchema.modeOf(group) +
-                            (group.supervisor ? " · session " + group.supervisor : ""),
+                            (scope.kind === "group" && group.supervisor === context.sessionID ? " · session " + group.supervisor : ""),
                         )
                         .join("\n") || "No groups.",
                   }
@@ -824,6 +834,7 @@ export const Plugin = {
                 case "set_group": {
                   if (!input.name || !input.projects)
                     return yield* new ToolFailure({ message: "set_group needs name and projects." })
+                  yield* ask(`set_group:${input.name}`)
                   yield* federation
                     .setGroup({
                       name: input.name,
