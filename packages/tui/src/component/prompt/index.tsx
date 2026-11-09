@@ -32,7 +32,7 @@ import { parseSlashHead } from "../../prompt/parse"
 import { stringWidth } from "../../util/string-width"
 import { createStore, produce, unwrap } from "solid-js/store"
 import { emptyPrompt, usePromptHistory, type PromptInfo, type PromptPartRef } from "../../prompt/history"
-import { saveDraft, takeDraft } from "./draft-stash"
+import { initDraftStash, saveDraft, takeDraft } from "./draft-stash"
 import { Skill } from "@orchestra/schema/skill"
 import type { JsonValue } from "@orchestra/client/promise"
 import type { Session } from "@orchestra/schema/session"
@@ -737,6 +737,7 @@ export function Prompt(props: PromptProps) {
   const stashSessionID = props.sessionID
 
   onMount(() => {
+    initDraftStash(paths.state)
     const saved = takeDraft(stashSessionID)
     if (store.prompt.text) return
     if (saved && saved.prompt.text) {
