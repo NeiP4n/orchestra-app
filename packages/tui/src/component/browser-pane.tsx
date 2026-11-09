@@ -27,6 +27,11 @@ extend({ browserImage: ImageRenderable })
 // The commit this TUI runs from (when it runs from a git checkout), so a report can say which build it saw.
 // The route and frame-size lines are a diagnostic: shown only with ORCHESTRA_BROWSER_DEBUG=1.
 const PIXEL_MOUSE = process.env.ORCHESTRA_BROWSER_PIXEL_MOUSE !== "0"
+// A terminal pointer moves in cells (about 10x20 px), too coarse for the tab close button (about 16 px, centred in the
+// tab strip). In a captured window a press in Chrome's tab strip is therefore moved to the strip's centre line, so
+// the column the marker is on decides the hit. ORCHESTRA_BROWSER_STRIP_SNAP=0 turns it off.
+const STRIP_SNAP = process.env.ORCHESTRA_BROWSER_STRIP_SNAP !== "0"
+const STRIP_SCALE = Math.min(3, Math.max(1, Number(process.env.ORCHESTRA_BROWSER_SCALE) || 1))
 const DEBUG = process.env.ORCHESTRA_BROWSER_DEBUG === "1"
 const BUILD = (() => {
   try {
@@ -190,8 +195,10 @@ export function BrowserPane(props: {
     if (screenBox) setMarker({ x: Math.max(0, event.x - screenBox.x), y: Math.max(0, event.y - screenBox.y) })
     deliver(kind, at, event.button === 2 ? "right" : "left")
   }
-  const deliver = (kind: "down" | "up" | "move", at: { x: number; y: number }, button: "left" | "right") => {
-    note(kind, `${kind} page ${Math.round(at.x)},${Math.round(at.y)}`)
+  const deliver = (kind: "down" | "up" | "move", point: { x: number; y: number }, button: "left" | "right") => {
+    const snapped = STRIP_SNAP && mode() === "capture" && point.y < 40 * STRIP_SCALE
+    const at = snapped ? { x: point.x, y: 20 * STRIP_SCALE } : point
+    note(kind, `${kind} page ${Math.round(at.x)},${Math.round(at.y)}${snapped ? " (tab strip centre line)" : ""}`)
     const step = (text: string) => setRoute(`${kind}: ${text}`)
     // Moves are coalesced: while one is on its way only the newest position waits, so the pointer never lags
     // behind a queue of stale positions. Presses and releases always go, in order, after the pending move.
