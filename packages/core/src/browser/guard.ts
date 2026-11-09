@@ -47,7 +47,7 @@ export function launchesBrowser(command: string): boolean {
       if (rest.some((token) => /^--headless/.test(token) || token === "--version" || token === "-version")) continue
       return true
     }
-    if (OPENERS.has(head)
+    if (OPENERS.has(head))
       if (rest.some((token) => webTarget(token) || BROWSERS.has(base(token)))) return true
     // A quoted path with spaces (C:\Program Files\...\chrome.exe) is not one token above.
     if (/[\\/](?:chrome|msedge|firefox|brave|opera|vivaldi|iexplore)\.exe/i.test(segment) && !/--headless|--version/i.test(segment)) return true
