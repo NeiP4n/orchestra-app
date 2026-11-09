@@ -10,6 +10,7 @@ import { Session } from "../../session.js"
 import { Trigger } from "../../trigger.js"
 import { BrowserBridge } from "../../browser/bridge.js"
 import { BrowserRuntime } from "../../browser/runtime.js"
+import { ScheduleView } from "../../schedule-view.js"
 import { BrowserProvenance } from "../../browser/provenance.js"
 import { BrowserLocalTest } from "../../browser/local-test.js"
 import { BrowserSchedule } from "../../browser/schedule.js"
@@ -115,6 +116,7 @@ export const Plugin = {
           )
           if (!made.ok) return yield* new ToolFailure({ message: made.error })
           yield* kv.set(Trigger.key(project.id, made.trigger.id), made.trigger as never)
+          ScheduleView.sync(made.trigger, String(sessionID))
           BrowserSchedule.sync(made.trigger)
           if (made.trigger.kind === "browser") yield* Effect.promise(() => BrowserWatch.ensure(made.trigger.spec))
           return `Created. ${Trigger.describe(made.trigger)}`
@@ -123,12 +125,14 @@ export const Plugin = {
         if (!found) return yield* new ToolFailure({ message: `No trigger ${input.id ?? ""} in this project. Use list.` })
         if (input.action === "delete") {
           yield* kv.remove(Trigger.key(project.id, found.id))
+          ScheduleView.remove(found.id)
           BrowserSchedule.remove(found.id)
           return `Deleted ${found.id}.`
         }
         if (input.action === "pause") {
           const next = { ...found, enabled: false, pausedReason: "paused by the Orchestrator" }
           yield* kv.set(Trigger.key(project.id, found.id), next as never)
+          ScheduleView.sync(next, String(sessionID))
           BrowserSchedule.sync(next)
           return `Paused. ${Trigger.describe(next)}`
         }
@@ -136,6 +140,7 @@ export const Plugin = {
         const ready = Trigger.resume(found, Date.now())
         if (!ready) return yield* new ToolFailure({ message: "A one-shot trigger that already fired or whose time has passed cannot be resumed. Create a new one." })
         yield* kv.set(Trigger.key(project.id, found.id), ready as never)
+        ScheduleView.sync(ready, String(sessionID))
         BrowserSchedule.sync(ready)
         return `Resumed. ${Trigger.describe(ready)}`
       })

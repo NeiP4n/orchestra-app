@@ -1,0 +1,51 @@
+export * as ScheduleView from "./schedule-view.js"
+
+import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync, rmSync } from "node:fs"
+import path from "node:path"
+import { Global } from "@orchestra/util/global"
+import type { Trigger } from "./trigger.js"
+
+// Read-only local UI projection. KV remains the scheduler's source of truth.
+export interface Item {
+  id: string
+  sessionID: string
+  name: string
+  kind: Trigger.Kind
+  enabled: boolean
+  nextAt: number | null
+  lastFiredAt?: number
+  pausedReason?: string
+  browserSessionID?: string
+  updatedAt: number
+}
+const directory = () => path.join(Global.Path.data, "schedule-view")
+const file = (id: string) => path.join(directory(), `${encodeURIComponent(id)}.json`)
+export function sync(trigger: Trigger.Info, sessionID: string) {
+  try {
+    const item: Item = { id: trigger.id, sessionID, name: trigger.prompt.slice(0, 80), kind: trigger.kind,
+      enabled: trigger.enabled, nextAt: trigger.enabled ? trigger.nextAt : null, lastFiredAt: trigger.lastFiredAt,
+      pausedReason: trigger.pausedReason, browserSessionID: trigger.browserSessionID, updatedAt: Date.now() }
+    mkdirSync(directory(), { recursive: true })
+    const temporary = `${file(trigger.id)}.${process.pid}.tmp`
+    writeFileSync(temporary, JSON.stringify(item))
+    renameSync(temporary, file(trigger.id))
+    return true
+  } catch { return false }
+}
+export function remove(id: string) {
+  try { rmSync(file(id), { force: true }); return true } catch { return false }
+}
+export function list(sessionID: string): Item[] {
+  try {
+    return readdirSync(directory()).flatMap((name) => {
+      if (!name.endsWith(".json")) return []
+      try {
+        const v = JSON.parse(readFileSync(path.join(directory(), name), "utf8")) as Item
+        if (v.sessionID !== sessionID || typeof v.id !== "string" || typeof v.name !== "string" ||
+          !["cron", "interval", "once", "browser"].includes(v.kind) || typeof v.enabled !== "boolean" ||
+          !(v.nextAt === null || Number.isFinite(v.nextAt)) || !Number.isFinite(v.updatedAt)) return []
+        return [v]
+      } catch { return [] }
+    }).sort((a, b) => a.id.localeCompare(b.id))
+  } catch { return [] }
+}

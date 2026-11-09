@@ -1,3 +1,4 @@
+import { ScheduleList } from "../../component/schedule-list"
 import { useData } from "../../context/data"
 import { createMemo, createSignal, Show } from "solid-js"
 import { useTheme } from "../../context/theme"
@@ -119,6 +120,7 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
                 empty.content(this.height)
               }}
             >
+              <ScheduleList sessionID={props.sessionID} />
               <Slot path="sidebar.content" input={{ sessionID: props.sessionID }} />
             </box>
           </scrollbox>

@@ -35,6 +35,7 @@ import { Society } from "./society.js"
 import { Config } from "./config.js"
 import { Autoloop } from "./autoloop/service.js"
 import { Trigger } from "./trigger.js"
+import { ScheduleView } from "./schedule-view.js"
 import { BrowserLocalTest } from "./browser/local-test.js"
 import { BrowserRuntime } from "./browser/runtime.js"
 import { BrowserSchedule } from "./browser/schedule.js"
@@ -1802,11 +1803,14 @@ const layer: Layer.Layer<
       for (const entry of yield* scanAll(Trigger.PREFIX)) {
         const trigger = Trigger.parse(entry.value)
         if (!trigger) continue
+        const viewProject = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+        if (viewProject?.main) ScheduleView.sync(trigger, String(viewProject.main))
         const verdict = Trigger.due(trigger, now)
         if (verdict === "wait") continue
         if (verdict === "pause") {
           const paused = Trigger.paused(trigger, now)
           yield* kv.set(entry.key, paused as never)
+          if (viewProject?.main) ScheduleView.sync(paused, String(viewProject.main))
           BrowserSchedule.sync(paused)
           reportLog({ event: "trigger-paused", trigger: trigger.id, project: trigger.projectID })
           continue
@@ -1818,12 +1822,14 @@ const layer: Layer.Layer<
           if (!page.running || !BrowserLocalTest.allowed(page.url)) {
             const paused = { ...trigger, enabled: false, pausedReason: "Local test left its allowed local page or the test flag is off." }
             yield* kv.set(entry.key, paused as never)
+            if (viewProject?.main) ScheduleView.sync(paused, String(viewProject.main))
             BrowserSchedule.sync(paused)
             continue
           }
         }
         const next = Trigger.afterFire(trigger, now)
         yield* kv.set(entry.key, next as never)
+        ScheduleView.sync(next, String(project.main))
         BrowserSchedule.sync(next)
         if (trigger.browserSessionID) BrowserSchedule.dispatched(trigger.id, now)
         const ok = yield* sessions
@@ -1884,7 +1890,9 @@ const layer: Layer.Layer<
         }
         const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
         if (!project?.main) continue
-        yield* kv.set(key, Trigger.afterFire(trigger, now) as never)
+        const next = Trigger.afterFire(trigger, now)
+        yield* kv.set(key, next as never)
+        ScheduleView.sync(next, String(project.main))
         const ok = yield* sessions
           .synthetic({
             id: SessionMessage.ID.create(),
