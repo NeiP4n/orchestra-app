@@ -7,6 +7,7 @@ import { Form } from "../../form.js"
 import { FormDecision } from "../../form-decision.js"
 import { Permission } from "../../permission.js"
 import { Question } from "@orchestra/schema/question"
+import { AutoDecide } from "./auto-decide.js"
 
 export const name = "question"
 
@@ -58,6 +59,30 @@ export const Plugin = {
           input: Input,
           output: Output,
           execute: (input, context) =>
+            AutoDecide.active.pipe(Effect.flatMap((auto) => {
+              const fields = input.questions.map((question, index) => toField(question, index))
+              const choosable = fields.every((field) => (field.options?.length ?? 0) > 0)
+              const touchy = input.questions.some((question) =>
+                AutoDecide.sensitive(question.question, question.header, ...question.options.flatMap((o) => [o.label, o.description])),
+              )
+              if (!auto || touchy) return Effect.succeed(undefined)
+              if (!choosable)
+                return Effect.fail(
+                  new ToolFailure({
+                    message:
+                      "Auto mode: do not ask the user how to solve the task. Choose yourself, state the assumption in one line and continue. Only money, secrets or publishing in their name go to the user.",
+                  }),
+                )
+              const answers = fields.map((field): Question.Answer => {
+                const labels = (field.options ?? []).map((option) => option.label)
+                return [labels[AutoDecide.pick(labels)]!]
+              })
+              return Effect.succeed({
+                output: { answers },
+                content: toModelContent(input.questions, answers),
+                metadata: { answers, answeredBy: { by: "Orchestrator (auto)", reason: AutoDecide.REASON } },
+              })
+            })).pipe(Effect.flatMap((auto) => auto !== undefined ? Effect.succeed(auto) :
             permission
               .assert({
                 action: "question",
@@ -108,7 +133,7 @@ export const Plugin = {
                     metadata: { answers: output.answers, ...(decided ? { answeredBy: decided } : {}) },
                   })
                 }),
-              ),
+              ))),
         }),
       )
       .pipe(Effect.orDie)

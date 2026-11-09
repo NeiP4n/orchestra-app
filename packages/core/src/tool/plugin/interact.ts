@@ -6,6 +6,7 @@ import { Interactive } from "@orchestra/schema/interactive"
 import { Effect, Schema } from "effect"
 import { Form } from "../../form.js"
 import { FormDecision } from "../../form-decision.js"
+import { AutoDecide } from "./auto-decide.js"
 import { Orchestra } from "../../orchestra.js"
 import { Permission } from "../../permission.js"
 import { Session } from "../../session.js"
@@ -304,6 +305,33 @@ export const Plugin = {
                   output: { type: "visualization" as const },
                   content: renderVisualization(block),
                   metadata: { interactiveBlock: block },
+                }
+              }
+
+              // In auto the Orchestrator picks the way to solve the task itself: a decision or comparison
+              // takes the recommended entry (else the first) unless it touches money, secrets or publishing.
+              // Approval blocks are never decided here.
+              if (block.type === "decision" || block.type === "comparison") {
+                const entries =
+                  block.type === "decision"
+                    ? block.options.map((o) => ({ id: o.id, label: o.label, recommended: o.recommended === true, text: [o.description, o.consequences, o.cost] }))
+                    : block.items.map((i) => ({ id: i.id, label: i.name, recommended: i.recommended === true, text: [i.summary] }))
+                if (
+                  entries.length > 0 &&
+                  (yield* AutoDecide.active) &&
+                  !AutoDecide.sensitive(block.title, ...entries.flatMap((e) => [e.label, ...e.text]))
+                ) {
+                  const chosen = entries[AutoDecide.pick(entries.map((e) => e.label), entries.map((e) => e.recommended))]!
+                  const response: Interactive.Response = { selected: [chosen.id] }
+                  return {
+                    output: { type: block.type, response },
+                    content: toModelContent(block, response),
+                    metadata: {
+                      interactiveBlock: block,
+                      interactiveResponse: response,
+                      answeredBy: { by: "Orchestrator (auto)", reason: AutoDecide.REASON },
+                    },
+                  }
                 }
               }
 
