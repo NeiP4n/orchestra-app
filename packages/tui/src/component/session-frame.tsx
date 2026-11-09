@@ -210,11 +210,18 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   // In the Browser view the chat beside the page is the BrowserAgent of the selected browser session, whichever chat
   // was open before (the Orchestrator included): one browser session, one BrowserAgent.
   const route = useRoute()
-  createEffect(() => {
-    if (centerView() !== "browser") return
-    const chat = browserSession()?.chat
-    if (chat && chat !== props.sessionID) route.navigate({ type: "session", sessionID: chat })
-  })
+  // It runs when the Browser view opens or the selected browser session changes, and only then: the open chat
+  // (props.sessionID) is read untracked. Tracking it pulled the user back to the BrowserAgent every time they opened
+  // the Orchestrator chat while the Browser tab was up, so what they typed there landed in the BrowserAgent's chat.
+  createEffect(
+    on(
+      () => [centerView(), browserSession()?.chat] as const,
+      ([view, chat]) => {
+        if (view !== "browser") return
+        if (chat && chat !== untrack(() => props.sessionID)) route.navigate({ type: "session", sessionID: chat })
+      },
+    ),
+  )
   let resizeRelease = false
   const finishPaneResize = (event: MouseEvent) => {
     if (paneResize.resizing() || sidebarResize.resizing() || noteChatResize.resizing()) {

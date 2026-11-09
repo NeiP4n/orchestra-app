@@ -39,3 +39,9 @@ test("the hidden right pane is remembered across sessions and the chat is unmoun
   expect(frame).not.toMatch(/const \[rightPaneHidden, setRightPaneHidden\] = createSignal/)
   expect(frame).toMatch(/<Show when=\{!hidesChat\(\)\}>\s*<InteractivityProvider/)
 })
+
+test("the Browser view moves to the BrowserAgent chat only when it opens or the selection changes, not whenever the open chat changes", () => {
+  const frame = read("component/session-frame.tsx")
+  expect(frame).toMatch(/on\(\s*\(\) => \[centerView\(\), browserSession\(\)\?\.chat\] as const/)
+  expect(frame).toContain("untrack(() => props.sessionID)")
+})
