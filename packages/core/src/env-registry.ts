@@ -70,6 +70,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Show the Browser tab's input debug lines on screen (\"1\"). The log file is always written.",
     default: "Off.",
   },
+  ORCHESTRA_BROWSER_GFX: {
+    purpose: "How the Browser tab draws the page: \"sixel\", \"kitty\", \"blocks\" (quadrant block characters) or \"auto\" (the renderer detects the terminal's graphics).",
+    default: "Windows: blocks. Elsewhere: auto.",
+  },
   ORCHESTRA_BROWSER_HALFBLOCKS: {
     purpose: "Draw the Browser tab's page as colored block characters (\"1\") instead of kitty or sixel graphics, for terminals that print graphics data as text. \"0\" asks for the terminal's own graphics even on Windows.",
     default: "On for Windows, off elsewhere (the terminal's graphics protocol is detected).",

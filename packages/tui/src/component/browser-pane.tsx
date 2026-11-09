@@ -32,13 +32,19 @@ const PIXEL_MOUSE = process.env.ORCHESTRA_BROWSER_PIXEL_MOUSE !== "0"
 // the column the marker is on decides the hit. ORCHESTRA_BROWSER_STRIP_SNAP=0 turns it off.
 const STRIP_SNAP = process.env.ORCHESTRA_BROWSER_STRIP_SNAP !== "0"
 // ORCHESTRA_BROWSER_HALFBLOCKS=1 draws the page as block characters, never kitty/sixel graphics.
-// Windows Terminal printed the sixel data as text over the whole screen, so Windows draws blocks unless
-// ORCHESTRA_BROWSER_HALFBLOCKS=0 asks for the terminal's own graphics.
-const IMAGE_PROTOCOL =
-  process.env.ORCHESTRA_BROWSER_HALFBLOCKS === "1" ||
-  (process.platform === "win32" && process.env.ORCHESTRA_BROWSER_HALFBLOCKS !== "0")
-    ? ("blocks" as const)
-    : ("auto" as const)
+// ORCHESTRA_BROWSER_GFX=sixel|kitty|blocks|auto picks how the page is drawn. auto lets the renderer detect the
+// terminal's graphics (kitty, then sixel) and fall back to quadrant blocks. Windows Terminal printed sixel data as
+// text over the screen, so on Windows auto means blocks until sixel is asked for by name.
+// ORCHESTRA_BROWSER_HALFBLOCKS=1 (blocks) and =0 (auto) still work.
+const GFX = (() => {
+  const named = (process.env.ORCHESTRA_BROWSER_GFX ?? "").trim().toLowerCase()
+  if (named === "sixel" || named === "kitty" || named === "blocks") return named
+  if (named === "auto") return "auto" as const
+  if (process.env.ORCHESTRA_BROWSER_HALFBLOCKS === "1") return "blocks" as const
+  if (process.env.ORCHESTRA_BROWSER_HALFBLOCKS === "0") return "auto" as const
+  return process.platform === "win32" ? ("blocks" as const) : ("auto" as const)
+})()
+const IMAGE_PROTOCOL = GFX
 const STRIP_SCALE = Math.min(3, Math.max(1, Number(process.env.ORCHESTRA_BROWSER_SCALE) || 1))
 const DEBUG = process.env.ORCHESTRA_BROWSER_DEBUG === "1"
 const BUILD = (() => {
@@ -59,7 +65,8 @@ const BUILD = (() => {
 const MAX_WIDTH = 1600
 const MAX_HEIGHT = 1000
 // At most this many frames a second are decoded and drawn; Chrome is acknowledged per frame anyway.
-const FRAME_GAP_MS = 120
+// Blocks are cheap; sixel and kitty frames are large, so they are sent less often (a flood is what breaks a terminal).
+const FRAME_GAP_MS = GFX === "blocks" ? 120 : 300
 
 // The text view of one browser session: its page address, title and the page's visible text. It reads
 // the page; pixels and clicking come later. Chrome starts only when the operator opens the page.
