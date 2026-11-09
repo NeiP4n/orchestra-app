@@ -695,7 +695,7 @@ export function BrowserPane(props: {
             <Show when={failure()}>
               <text fg={theme.text.feedback.error.base} wrapMode="word">{failure()}</text>
               <Show when={blockedBrowser()?.canClose}>
-                <Action label={`Закрыть Chrome «${blockedBrowser()?.name}»`} onClick={() => {
+                <Action label={`Закрыть Chrome «${blockedBrowser()?.name}» · затем «Open Chrome»`} onClick={() => {
                   const blocked = blockedBrowser()
                   if (!blocked) return
                   void run(async () => { await BrowserRuntime.closeBlockedBrowser(blocked.sessionID); if (!disposed) setState("idle") }).then(() => { if (!disposed) setState("idle") })

@@ -96,3 +96,17 @@ test("same-profile race joins CDP under the launch lock instead of hitting its o
   expect(runtime).toContain('if ("joined" in run)')
   expect(runtime).toContain("same profile answered during mode switch; joined existing Chrome")
 })
+
+test("watcher heartbeat restores a lost socket without starting another Chrome or streaming images", () => {
+  const source = readFileSync(new URL("../src/browser/runtime.ts", import.meta.url), "utf8")
+  const start = source.indexOf("export async function watchEnsure")
+  const body = source.slice(start, source.indexOf("BrowserWatch.setEnsurer", start))
+  expect(body).toContain('Runtime.getIsolateId')
+  expect(body).toContain('Page.setWebLifecycleState')
+  expect(body).toContain('now - health.at < 60_000')
+  expect(body).toContain('previous?.client.isClosed?.() === true')
+  expect(body).toContain('evict(sessionID)')
+  expect(body).not.toContain('Chrome.launch')
+  expect(body).not.toContain('startScreencast')
+  expect(body).not.toContain('Runtime.evaluate')
+})

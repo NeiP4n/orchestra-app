@@ -217,6 +217,11 @@ const launchLock = <T>(action: () => Promise<T>) => Flock.withLock("browser-acti
 export const browserLimitDetails = (error: unknown) => error instanceof BrowserBudget.LimitError
   ? { sessionID: error.sessionID, name: error.sessionName, canClose: error.reason === "cdp" } : undefined
 async function checkLaunchBudget(sessionID?: string): Promise<number | undefined> {
+  // Joining one's own profile does not consume a new slot, even if another legacy profile also exists.
+  if (sessionID) {
+    const own = await Chrome.livePort(deps.readFile, alive, Chrome.profileDir(Global.Path.data, sessionID))
+    if (own !== undefined) return own
+  }
   if (process.env.ORCHESTRA_BROWSER_LIMIT === "off") { trace("browser profile ceiling disabled explicitly by operator"); return }
   const root = path.join(Global.Path.data, "browser-profiles")
   let folders: string[] = []
@@ -335,22 +340,39 @@ export const isOpen = (sessionID: string) => live.has(sessionID)
 // Chrome gives the session a new connection, so the trigger sweep calls this again every few seconds and it re-arms when
 // the connection changed. It never starts Chrome: a session that is not running is not watched.
 const armed = new Map<string, Cdp.Client>()
+const watchHealth = new Map<string, { at: number; state: "ok" | "lost"; resumed: boolean }>()
+export const watcherHealth = (sessionID: string) => watchHealth.get(sessionID)
 export async function watchEnsure(sessionID: string): Promise<boolean> {
   // The pane may own Chrome in another process. Join an existing profile only;
   // peek does not start a stopped browser.
-  if (!live.has(sessionID)) await peek(sessionID)
+  const previous = live.get(sessionID)
+  if (previous?.client.isClosed?.() === true) evict(sessionID)
+  if (!live.has(sessionID)) await within(peek(sessionID), 4000).catch(() => undefined)
   const item = live.get(sessionID)
   if (!item || item.client.isClosed?.() === true) {
     armed.delete(sessionID)
     return false
   }
-  if (armed.get(sessionID) === item.client) return true
-  armed.set(sessionID, item.client)
+  const health = watchHealth.get(sessionID)
+  const now = Date.now()
+  if (armed.get(sessionID) === item.client && health?.state === "ok" && now - health.at < 60_000) return true
   try {
-    await BrowserWatch.install(sessionID, item.client)
+    // Protocol heartbeat only, no website HTTP request, DOM read, image or arbitrary page code.
+    await within(item.client.send("Page.setWebLifecycleState", { state: "active" }), 2000)
+    await within(item.client.send("Runtime.getIsolateId"), 2000)
+    const resumed = health !== undefined && now - health.at > 120_000
+    watchHealth.set(sessionID, { at: now, state: "ok", resumed })
+    if (resumed) trace(`${sessionID}: watcher heartbeat resumed after a gap; system sleep vs suspended service cannot be distinguished here`)
+    if (armed.get(sessionID) !== item.client) {
+      await within(BrowserWatch.install(sessionID, item.client), 5000)
+      armed.set(sessionID, item.client)
+    }
     return true
   } catch (error) {
     armed.delete(sessionID)
+    watchHealth.set(sessionID, { at: now, state: "lost", resumed: false })
+    // Drop only this socket. Next ensure re-joins the existing endpoint; never launch Chrome for a heartbeat.
+    if (live.get(sessionID) === item) evict(sessionID)
     trace(`${sessionID}: arming the page watcher failed: ${String(error).slice(0, 120)}`)
     return false
   }

@@ -30,12 +30,20 @@ export function connect(
     const socket = open(url)
     let next = 0
     let closed = false
+    let opened = false
+    const openingTimer = setTimeout(() => {
+      if (opened) return
+      closed = true
+      socket.close()
+      reject(new Error("Chrome websocket did not open in time."))
+    }, timeoutMs)
     const listeners = new Map<string, Set<(params: any) => void>>()
     const pending = new Map<
       number,
       { resolve: (value: any) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }
     >()
     const failAll = (message: string) => {
+      clearTimeout(openingTimer)
       closed = true
       for (const [id, entry] of pending) {
         clearTimeout(entry.timer)
@@ -47,7 +55,7 @@ export function connect(
       failAll("The browser connection failed.")
       reject(new Error("Could not connect to Chrome."))
     }
-    socket.onclose = () => failAll("The browser connection closed.")
+    socket.onclose = () => { failAll("The browser connection closed."); if (!opened) reject(new Error("Chrome websocket closed before opening.")) }
     socket.onmessage = (event) => {
       let message: { id?: number; method?: string; params?: unknown; result?: unknown; error?: { message?: string } }
       try {
@@ -66,7 +74,10 @@ export function connect(
       if (message.error) entry.reject(new Error(message.error.message ?? "Browser command failed."))
       else entry.resolve(message.result)
     }
-    socket.onopen = () =>
+    socket.onopen = () => {
+      if (closed) return
+      opened = true
+      clearTimeout(openingTimer)
       resolve({
         send: <T>(method: string, params: Record<string, unknown> = {}) =>
           new Promise<T>((done, fail) => {
@@ -91,6 +102,7 @@ export function connect(
           socket.close()
         },
       })
+    }
   })
 }
 
