@@ -898,27 +898,6 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                             <text fg={removeHovered() ? theme.text.feedback.error.base : theme.text.muted}>{" ×"}</text>
                           </HoverAction>
                         </Row>
-                        {/* The session's BrowserAgent: its chat lives here, under its browser, not in the project list. */}
-                        <Show when={item.chat}>
-                          <Row
-                            id={`browser-agent:${item.id}`}
-                            hover={hover}
-                            setHover={setHover}
-                            selected={item.chat === current()?.id}
-                            onClick={() => {
-                              notes.setProject(project.id)
-                              route.navigate({ type: "session", sessionID: item.chat! })
-                            }}
-                          >
-                            <Branch />
-                            <text flexShrink={0} fg={theme.text.muted}>
-                              {"  ⤷ "}
-                            </text>
-                            <text fg={theme.text.base} wrapMode="none" truncate>
-                              {`BrowserAgent · ${item.name}`}
-                            </text>
-                          </Row>
-                        </Show>
                         </>
                       )
                     }}
