@@ -262,7 +262,7 @@ describe("PatchTool", () => {
                     sessionID,
                     action: "edit",
                     resources: ["nested/new.txt", "update.txt", "remove.txt"],
-                    save: ["*"],
+                    save: ["nested/new.txt", "update.txt", "remove.txt"],
                     metadata: {
                       filepath: "nested/new.txt, update.txt, remove.txt",
                       diff: expect.stringContaining("Index:"),

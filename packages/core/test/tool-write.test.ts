@@ -104,6 +104,18 @@ const call = (input: typeof WriteTool.Input.Type, id = "call-write") => ({
 const it = testEffect(Layer.empty)
 
 describe("WriteTool", () => {
+  it.live("always allow proposal is limited to the exact file and cannot widen to a neighboring file", () => withTempDir(tmp => {
+    const fixture=makeWriteFixture()
+    return withTool(tmp.path,fixture,registry=>Effect.gen(function* () {
+      yield* executeTool(registry,call({path:"first.txt",content:"one"}))
+      yield* executeTool(registry,call({path:"second.txt",content:"two"},"second"))
+      const edits=fixture.assertions.filter(input=>input.action==="edit")
+      expect(edits.map(input=>input.save)).toEqual([["first.txt"],["second.txt"]])
+      expect(edits.every(input=>!input.save?.includes("*"))).toBe(true)
+      expect(yield* Effect.promise(()=>fs.readFile(path.join(tmp.path,"second.txt"),"utf8"))).toBe("two")
+    }))
+  }))
+
   it.live("registers and creates a relative file through FileMutation once", () =>
     withTempDir((tmp) => {
       const fixture = makeWriteFixture()
@@ -125,7 +137,7 @@ describe("WriteTool", () => {
             "created",
           )
           expect(fixture.assertions).toMatchObject([
-            { sessionID, action: "edit", resources: ["src/new.txt"], save: ["*"] },
+            { sessionID, action: "edit", resources: ["src/new.txt"], save: ["src/new.txt"] },
           ])
           expect(fixture.assertions[0]?.metadata).toMatchObject({
             files: [
@@ -305,7 +317,7 @@ describe("WriteTool", () => {
               })
               expect(fixture.assertions[1]).toMatchObject({
                 resources: [absoluteTarget.replaceAll("\\", "/")],
-                save: ["*"],
+                save: [absoluteTarget.replaceAll("\\", "/")],
               })
               expect(settled).toMatchObject({
                 status: "completed",

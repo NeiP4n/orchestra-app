@@ -215,7 +215,7 @@ export const Plugin = {
               yield* permission.assert({
                 action: "edit",
                 resources: [target.resource],
-                save: ["*"],
+                save: [target.resource],
                 metadata: preview ? { files: [preview] } : undefined,
                 sessionID: context.sessionID,
                 agent: context.agent,
