@@ -58,6 +58,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       }
     }
 
+    const BROWSER_AGENT = "team-browser-agent"
     function createAgent() {
       const agents = createMemo(() =>
         (data.location.agent.list(location.ref) ?? []).filter((agent) => agent.mode !== "subagent" && !agent.hidden),
@@ -70,7 +71,15 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       const fixed = () => {
         if (route.data.type !== "session") return
         const session = data.session.get(route.data.sessionID)
-        const id = session?.agent === Orchestra.agent ? Orchestra.agent : Note.chatOf(session?.metadata) ? Note.agent : undefined
+        // A BrowserAgent chat keeps its role too: the composer must not swap it for the default agent on the first prompt.
+        const id =
+          session?.agent === Orchestra.agent
+            ? Orchestra.agent
+            : session?.agent === BROWSER_AGENT
+              ? BROWSER_AGENT
+              : Note.chatOf(session?.metadata)
+                ? Note.agent
+                : undefined
         return id && data.location.agent.list(location.ref)?.find((agent) => agent.id === id)
       }
       const [agentStore, setAgentStore] = createStore({
