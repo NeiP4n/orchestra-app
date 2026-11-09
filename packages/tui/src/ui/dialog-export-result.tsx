@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "./hover-feedback"
 import { TextAttributes } from "@opentui/core"
 import { Keymap } from "../context/keymap"
 import { useTheme } from "../context/theme"
@@ -5,6 +6,8 @@ import { useDialog, type DialogContext } from "./dialog"
 
 export function DialogExportResult(props: { path: string; onClose?: () => void }) {
   const dialog = useDialog()
+  const closeHover = createHoverFeedback("secondary")
+  const buttonHover = createHoverFeedback()
   const theme = useTheme().surface("dialog")
 
   const close = () => {
@@ -30,7 +33,7 @@ export function DialogExportResult(props: { path: string; onClose?: () => void }
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
           Session exported
         </text>
-        <text fg={theme.text.muted} onMouseUp={close}>
+        <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={close}>
           esc
         </text>
       </box>
@@ -41,10 +44,12 @@ export function DialogExportResult(props: { path: string; onClose?: () => void }
         <box
           paddingLeft={3}
           paddingRight={3}
-          backgroundColor={theme.background.action.primary.focused}
+          backgroundColor={buttonHover.background() ?? theme.background.base}
+          onMouseOver={buttonHover.onMouseOver}
+          onMouseOut={buttonHover.onMouseOut}
           onMouseUp={close}
         >
-          <text fg={theme.text.action.primary.focused}>Close</text>
+          <text fg={theme.text.base}>[ Close ]</text>
         </box>
       </box>
     </box>

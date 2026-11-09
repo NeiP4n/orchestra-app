@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { TextAttributes } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createResource, createSignal, For, Show } from "solid-js"
@@ -11,6 +12,7 @@ import { errorMessage } from "../util/error"
 export function DialogPair() {
   const client = useClient()
   const dialog = useDialog()
+  const closeHover = createHoverFeedback("secondary")
   const dimensions = useTerminalDimensions()
   const theme = useTheme().surface("dialog")
   const [loadError, setLoadError] = createSignal<unknown>()
@@ -92,7 +94,7 @@ export function DialogPair() {
         <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
           Pair
         </text>
-        <text fg={theme.text.muted} onMouseUp={() => dialog.clear()}>
+        <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>

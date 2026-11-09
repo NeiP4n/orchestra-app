@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { TextAttributes } from "@opentui/core"
 import { createEffect, createMemo, createResource, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
 import { Keymap } from "../context/keymap"
@@ -16,6 +17,7 @@ export function DialogUpdate(props: {
   restart: () => void
 }) {
   const dialog = useDialog()
+  const closeHover = createHoverFeedback("secondary")
   const theme = useTheme().surface("dialog")
   const t = useT()
   const [error, setError] = createSignal<string>()
@@ -102,7 +104,7 @@ export function DialogUpdate(props: {
               ? t("Update available")
               : t("Update")}
         </text>
-        <text fg={theme.text.muted} onMouseUp={() => dialog.clear()}>
+        <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>
