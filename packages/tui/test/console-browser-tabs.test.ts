@@ -15,7 +15,7 @@ test("the left panel offers Console and Browser tabs that wrap on a narrow panel
 test("the Console and Browser tabs replace the center chat, Projects restores it", () => {
   const frame = read("component/session-frame.tsx")
   expect(frame).toMatch(/notes\.tab\(\) === "console" \|\| notes\.tab\(\) === "browser"/)
-  expect(frame).toMatch(/visible=\{!fullscreen\(\) && !centerView\(\)\}/)
+  expect(frame).toMatch(/visible=\{!fullscreen\(\) && !hidesChat\(\)\}/)
   expect(frame).toMatch(/id="center-view"/)
 })
 
@@ -37,5 +37,5 @@ test("the hidden right pane is remembered across sessions and the chat is unmoun
   expect(frame).toMatch(/rightPaneHidden\?: boolean/)
   expect(frame).toMatch(/const rightPaneHidden = \(\) => layout\.rightPaneHidden === true/)
   expect(frame).not.toMatch(/const \[rightPaneHidden, setRightPaneHidden\] = createSignal/)
-  expect(frame).toMatch(/<Show when=\{!centerView\(\)\}>\s*<InteractivityProvider/)
+  expect(frame).toMatch(/<Show when=\{!hidesChat\(\)\}>\s*<InteractivityProvider/)
 })
