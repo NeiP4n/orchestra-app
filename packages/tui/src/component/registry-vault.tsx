@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { tint } from "../theme/color"
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { CredentialVault } from "@orchestra/core/credential-vault/index"
@@ -8,6 +9,7 @@ import { Keymap } from "../context/keymap"
 /** Operator-only local registry UI. No model tool exposes this collector. */
 export function RegistryVault(props: { access?: ReturnType<typeof CredentialVault.local> }) {
   const theme = useTheme().surface("dialog")
+  const cancelHover = createHoverFeedback()
   const vault = props.access ?? CredentialVault.local()
   const [entries, setEntries] = createSignal<Array<{ id: string; name: string }>>([])
   const [message, setMessage] = createSignal("")
@@ -59,7 +61,7 @@ export function RegistryVault(props: { access?: ReturnType<typeof CredentialVaul
         <text fg={theme.text.base} wrapMode="none">{busy() ? "Ожидание окна…" : "+ Добавить запись"}</text>
       </box>
     </box>
-    <Show when={busy()}><box id="registry-vault.cancel" onMouseDown={(event) => event.stopPropagation()} onMouseUp={(event) => { event.stopPropagation(); cancel() }}><text fg={theme.text.action.primary.base}>[ Отмена (Esc) ]</text></box></Show>
+    <Show when={busy()}><box id="registry-vault.cancel" backgroundColor={cancelHover.background()} onMouseOver={cancelHover.onMouseOver} onMouseOut={cancelHover.onMouseOut} onMouseDown={(event) => event.stopPropagation()} onMouseUp={(event) => { event.stopPropagation(); cancel() }}><text fg={theme.text.action.primary.base}>[ Отмена (Esc) ]</text></box></Show>
     <Show when={entries().length === 0}><text fg={theme.text.muted}>Нет записей</text></Show>
     <For each={entries()}>{(entry, index) => <box flexDirection="row" gap={1}>
       <text fg={theme.text.base}>{`${cursor() === index() ? "› " : "  "}${entry.name}`}</text>

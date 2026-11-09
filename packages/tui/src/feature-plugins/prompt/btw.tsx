@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../../ui/hover-feedback"
 import { Plugin } from "@orchestra/plugin/tui"
 import { TextAttributes, type ScrollBoxRenderable } from "@opentui/core"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
@@ -94,6 +95,8 @@ export function Answer(props: {
   const toast = useToast()
   const clipboard = useClipboard()
   const theme = useTheme().surface("dialog")
+  const closeHover = createHoverFeedback()
+  const copyHover = createHoverFeedback()
   const overlay = useTheme()
   const syntax = useThemes().currentSyntax
   const config = useConfig().data
@@ -133,7 +136,7 @@ export function Answer(props: {
         <text fg={theme.text.muted} wrapMode="none" flexGrow={1} truncate>
           {props.question.replace(/\s+/g, " ")}
         </text>
-        <text fg={theme.text.muted} flexShrink={0} onMouseUp={() => dialog.clear()}>
+        <text fg={theme.text.muted} flexShrink={0} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>
@@ -159,7 +162,7 @@ export function Answer(props: {
         </box>
       </scrollbox>
       <box flexDirection="row" gap={3} paddingLeft={2} paddingRight={2}>
-        <text onMouseUp={copy}>
+        <text bg={copyHover.background()} onMouseOver={copyHover.onMouseOver} onMouseOut={copyHover.onMouseOut} onMouseUp={copy}>
           <span style={{ fg: copied() ? theme.text.feedback.success.base : theme.text.base }}>
             <b>{copied() ? "✓ copied" : "c"}</b>
           </span>

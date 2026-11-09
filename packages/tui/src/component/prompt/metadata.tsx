@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../../ui/hover-feedback"
 import { RGBA, TextAttributes } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
 import { createMemo, Show } from "solid-js"
@@ -22,6 +23,8 @@ export function PromptMetadataRow(props: {
   variantAlpha: number
 }) {
   const theme = useTheme()
+  const agentHover = createHoverFeedback()
+  const modeHover = createHoverFeedback()
   const dimensions = useTerminalDimensions()
   const layout = createMemo(() => {
     if (props.mode === "shell") return { agent: props.agent ?? "Shell", model: "" }
@@ -47,6 +50,9 @@ export function PromptMetadataRow(props: {
           {(agent) => (
             <box
               flexShrink={0}
+              backgroundColor={agentHover.background()}
+              onMouseOver={agentHover.onMouseOver}
+              onMouseOut={agentHover.onMouseOut}
               onMouseDown={(event: { stopPropagation(): void }) => {
                 if (props.mode !== "normal") return
                 event.stopPropagation()
@@ -68,6 +74,9 @@ export function PromptMetadataRow(props: {
           {(workMode) => (
             <box
               flexShrink={0}
+              backgroundColor={modeHover.background()}
+              onMouseOver={modeHover.onMouseOver}
+              onMouseOut={modeHover.onMouseOut}
               onMouseDown={(event: { stopPropagation(): void }) => {
                 event.stopPropagation()
                 props.onModeClick?.()

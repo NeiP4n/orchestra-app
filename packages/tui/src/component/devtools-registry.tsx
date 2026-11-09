@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { RegistryVault } from "./registry-vault"
 import { TextAttributes, type InputRenderable, type ScrollBoxRenderable } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
@@ -49,6 +50,7 @@ export function RegistryPanel(props: {
   plugins?: RegistryPluginsAccess
 }) {
   const theme = useTheme().surface("dialog")
+  const closeHover = createHoverFeedback()
   const t = useT()
   const toast = useToast()
   const dimensions = useTerminalDimensions()
@@ -281,7 +283,7 @@ export function RegistryPanel(props: {
         <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
           {t("Registry")}
         </text>
-        <text fg={theme.text.muted} onMouseUp={() => props.onClose?.()}>
+        <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={() => props.onClose?.()}>
           esc
         </text>
       </box>

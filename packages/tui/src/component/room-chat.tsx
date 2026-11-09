@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { TextAttributes, type TextareaRenderable } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
@@ -155,6 +156,9 @@ function RoomView(props: {
   onMinimize: () => void
 }) {
   const theme = useTheme()
+  const noteHover = createHoverFeedback()
+  const minimizeHover = createHoverFeedback("secondary")
+  const resumeHover = createHoverFeedback()
   const data = useData()
   const config = useConfig().data
   const dimensions = useTerminalDimensions()
@@ -494,7 +498,11 @@ function RoomView(props: {
         </Show>
         <Show when={(props.role === "helper" || props.role === "cohost") && permissions().length > 0}>
           <For each={permissions()}>
-            {(request) => (
+            {(request) => {
+              const onceHover = createHoverFeedback()
+              const alwaysHover = createHoverFeedback()
+              const rejectHover = createHoverFeedback("destructive")
+              return (
               <box
                 flexShrink={0}
                 marginTop={1}
@@ -508,18 +516,18 @@ function RoomView(props: {
                   {request.message ?? `${request.action} ${request.resources.join(", ")}`}
                 </text>
                 <box flexDirection="row" gap={2}>
-                  <text fg={theme.text.action.primary.base} onMouseUp={() => answer(request, "once")}>
+                  <text fg={theme.text.action.primary.base} bg={onceHover.background()} onMouseOver={onceHover.onMouseOver} onMouseOut={onceHover.onMouseOut} onMouseUp={() => answer(request, "once")}>
                     {t("Allow once")}
                   </text>
-                  <text fg={theme.text.action.primary.base} onMouseUp={() => answer(request, "always")}>
+                  <text fg={theme.text.action.primary.base} bg={alwaysHover.background()} onMouseOver={alwaysHover.onMouseOver} onMouseOut={alwaysHover.onMouseOut} onMouseUp={() => answer(request, "always")}>
                     {t("Always allow")}
                   </text>
-                  <text fg={theme.text.feedback.error.base} onMouseUp={() => answer(request, "reject")}>
+                  <text fg={theme.text.feedback.error.base} bg={rejectHover.background()} onMouseOver={rejectHover.onMouseOver} onMouseOut={rejectHover.onMouseOut} onMouseUp={() => answer(request, "reject")}>
                     {t("Deny")}
                   </text>
                 </box>
               </box>
-            )}
+            )}}
           </For>
         </Show>
         <Show when={failure() ?? props.error}>
@@ -545,13 +553,16 @@ function RoomView(props: {
                 truncate
                 flexShrink={1}
                 selectable={false}
+                bg={noteHover.background()}
+                onMouseOver={noteHover.onMouseOver}
+                onMouseOut={noteHover.onMouseOut}
                 onMouseUp={toggleNote}
               >
                 {reading() ? t("Back to chat") : `✎ ${bound().title}`}
               </text>
             )}
           </Show>
-          <text fg={theme.text.action.secondary.base} flexShrink={0} selectable={false} onMouseUp={props.onMinimize}>
+          <text fg={theme.text.action.secondary.base} flexShrink={0} selectable={false} bg={minimizeHover.background()} onMouseOver={minimizeHover.onMouseOver} onMouseOut={minimizeHover.onMouseOut} onMouseUp={props.onMinimize}>
             {t("↓ Minimize")}
           </text>
         </box>
@@ -573,6 +584,9 @@ function RoomView(props: {
                 <text
                   fg={theme.text.action.primary.base}
                   selectable={false}
+                  bg={resumeHover.background()}
+                  onMouseOver={resumeHover.onMouseOver}
+                  onMouseOut={resumeHover.onMouseOut}
                   onMouseUp={() => void resumeAll()}
                 >
                   {resumingAll()
@@ -774,7 +788,9 @@ function RoomSidebar(props: {
       )
       .catch(fail)
 
-  const line = (label: string, value: string, pick?: () => void) => (
+  const line = (label: string, value: string, pick?: () => void) => {
+    const hover = createHoverFeedback("primary", () => !!pick)
+    return (
     <box flexDirection="row" gap={1}>
       <text fg={theme.text.muted} flexShrink={0}>
         {label}
@@ -784,6 +800,9 @@ function RoomSidebar(props: {
           fg={pick ? theme.text.action.primary.base : theme.text.base}
           wrapMode="none"
           truncate
+          bg={hover.background()}
+          onMouseOver={hover.onMouseOver}
+          onMouseOut={hover.onMouseOut}
           onMouseUp={() => pick?.()}
         >
           {value}
@@ -791,6 +810,7 @@ function RoomSidebar(props: {
       </box>
     </box>
   )
+  }
 
   const tabButton = (id: "server" | "client", label: string) => (
     <HoverAction
@@ -966,6 +986,7 @@ function McpList(props: { title: string; items: readonly McpRow[]; empty: string
 // Shown until the host answers, or when it refuses this guest.
 function RoomProblem(props: { room: JoinedRoom; error: unknown; onMinimize: () => void }) {
   const theme = useTheme()
+  const minimizeHover = createHoverFeedback("secondary")
   const t = useT()
   return (
     <box flexGrow={1} paddingLeft={2} paddingTop={1}>
@@ -976,7 +997,7 @@ function RoomProblem(props: { room: JoinedRoom; error: unknown; onMinimize: () =
       <text fg={props.error ? theme.text.feedback.error.base : theme.text.muted} wrapMode="word">
         {props.error ? errorMessage(props.error) : t("Connecting to the host…")}
       </text>
-      <text fg={theme.text.action.secondary.base} selectable={false} onMouseUp={props.onMinimize}>
+      <text fg={theme.text.action.secondary.base} selectable={false} bg={minimizeHover.background()} onMouseOver={minimizeHover.onMouseOver} onMouseOut={minimizeHover.onMouseOut} onMouseUp={props.onMinimize}>
         {t("↓ Minimize")}
       </text>
     </box>
