@@ -37,14 +37,15 @@ export function make(options: { directory: string; collector: Collector }) {
   return {
     list: async (): Promise<Array<Pick<Name, "id" | "name">>> => (await load()).map(({ id, name }) => ({ id, name })),
     // Operator UI only. No model tool, no plaintext argument and no decrypt/get API.
-    writeFromOperator: async (id?: string): Promise<Name | undefined> => {
+    writeFromOperator: async (id?: string, signal?: AbortSignal, onReady?: () => void): Promise<Name | undefined> => {
       const previous = id === undefined ? undefined : (await load()).find((entry) => entry.id === id)
       if (id && !previous) throw new Error("Vault entry no longer exists.")
-      const sealed = await options.collector.collect(previous && { name: previous.name, site: previous.site })
-      if (!sealed) return undefined
+      const sealed = await options.collector.collect(previous && { name: previous.name, site: previous.site }, signal, onReady)
+      if (!sealed || signal?.aborted) return undefined
       const name = sealed.name.trim()
       if (!name || name.length > 80 || /[\x00-\x1f\x7f]/.test(name) || sealed.site.length > 512 || sealed.backend !== "windows-dpapi-user-v1" || !/^[A-Za-z0-9+/]+={0,2}$/.test(sealed.blob)) throw new Error("Vault secure input is invalid.")
       return lock(async () => {
+        if (signal?.aborted) return undefined
         const entries = await load()
         const current = id ? entries.find((entry) => entry.id === id) : undefined
         if (id && !current) throw new Error("Vault entry no longer exists.")
@@ -53,6 +54,7 @@ export function make(options: { directory: string; collector: Collector }) {
         const entryID = current?.id ?? randomUUID()
         const prefix = `ORCH_SECRET_${name.toUpperCase().replace(/[^A-Z0-9]+/g, "_").slice(0, 24) || "ENTRY"}_${entryID.replace(/-/g, "").slice(0, 12).toUpperCase()}`
         const entry: Stored = { version: 1, id: entryID, name, site: sealed.site, variables: current?.variables ?? { login: `${prefix}_LOGIN`, password: `${prefix}_PASSWORD` }, backend: sealed.backend, blob: sealed.blob }
+        if (signal?.aborted) return undefined
         await save([...entries.filter((row) => row.id !== entryID), entry])
         return publicName(entry)
       })

@@ -1,5 +1,5 @@
 import { tint } from "../theme/color"
-import { createSignal, For, onMount, Show } from "solid-js"
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { CredentialVault } from "@orchestra/core/credential-vault/index"
 import { HoverAction } from "./hover-action"
 import { useTheme } from "../context/theme"
@@ -15,17 +15,21 @@ export function RegistryVault(props: { access?: ReturnType<typeof CredentialVaul
   const [addHovered, setAddHovered] = createSignal(false)
   const [armed, setArmed] = createSignal<string>()
   const [cursor, setCursor] = createSignal(0)
+  let pending: AbortController | undefined
+  onCleanup(() => pending?.abort())
+  const cancel = () => { pending?.abort(); setMessage("Ввод отменён. Запись не сохранена.") }
   const refresh = async () => setEntries(await vault.list())
   onMount(() => { void refresh().catch(() => setMessage("Реестр Vault недоступен. Изменения заблокированы.")) })
   const write = async (id?: string) => {
     if (busy()) return
-    setBusy(true); setArmed(); setMessage("Открывается защищённое окно Windows…")
+    const controller = new AbortController(); pending = controller
+    setBusy(true); setArmed(); setMessage("Открываю окно Windows (до 30 с). Если скрыто: Alt+Tab. Esc отменить.")
     try {
-      const saved = await vault.writeFromOperator(id)
+      const saved = await vault.writeFromOperator(id, controller.signal, () => setMessage("Окно Vault открыто. Если скрыто: Alt+Tab. Esc отменить; таймаут 120 с."))
       if (saved) { await refresh(); setMessage(`Сохранено. Имена переменных: ${saved.variables.login}, ${saved.variables.password}. Подстановка ещё отключена.`) }
-      else setMessage("")
-    } catch { setMessage("Не сохранено. Нужен Windows DPAPI и локальный защищённый ввод. Другие ОС пока не поддерживаются; открытого хранения нет.") }
-    finally { setBusy(false) }
+      else setMessage(controller.signal.aborted ? "Ввод отменён. Запись не сохранена." : "")
+    } catch (error) { setMessage(error instanceof Error && error.message === "Vault secure input timed out; no entry saved." ? "Время ожидания окна истекло (120 с). Запись не сохранена." : error instanceof Error && error.message === "Vault secure input window did not open; no entry saved." ? "Окно Windows не открылось за 30 с. Запись не сохранена." : "Окно Vault не открылось или ввод завершился ошибкой. Запись не сохранена; нужен Windows DPAPI.") }
+    finally { if (pending === controller) pending = undefined; setBusy(false) }
   }
   const remove = async (id: string) => {
     if (busy()) return
@@ -36,6 +40,7 @@ export function RegistryVault(props: { access?: ReturnType<typeof CredentialVaul
     finally { setArmed(); setBusy(false) }
   }
   Keymap.createLayer(() => ({ mode: "modal", commands: [
+    ...(busy() ? [{ bind: "escape", title: "Отменить ввод Vault", group: "Vault", run: cancel }] : []),
     { bind: "ctrl+n", title: "Добавить запись Vault", group: "Vault", run: () => void write() },
     { bind: "up", title: "Предыдущая запись", group: "Vault", run: () => { setArmed(); setCursor((value) => Math.max(0, value - 1)) } },
     { bind: "down", title: "Следующая запись", group: "Vault", run: () => { setArmed(); setCursor((value) => Math.min(Math.max(0, entries().length - 1), value + 1)) } },
@@ -54,6 +59,7 @@ export function RegistryVault(props: { access?: ReturnType<typeof CredentialVaul
         <text fg={theme.text.base} wrapMode="none">{busy() ? "Ожидание окна…" : "+ Добавить запись"}</text>
       </box>
     </box>
+    <Show when={busy()}><box id="registry-vault.cancel" onMouseDown={(event) => event.stopPropagation()} onMouseUp={(event) => { event.stopPropagation(); cancel() }}><text fg={theme.text.action.primary.base}>[ Отмена (Esc) ]</text></box></Show>
     <Show when={entries().length === 0}><text fg={theme.text.muted}>Нет записей</text></Show>
     <For each={entries()}>{(entry, index) => <box flexDirection="row" gap={1}>
       <text fg={theme.text.base}>{`${cursor() === index() ? "› " : "  "}${entry.name}`}</text>
