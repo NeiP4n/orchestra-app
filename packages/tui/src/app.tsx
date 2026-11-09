@@ -77,6 +77,8 @@ import { ProjectTree } from "./component/project-tree"
 import { HomeProjectPanel } from "./component/home-project-panel"
 import { NeuralLine, useNeuralEnergy } from "./component/neural"
 import { DialogKeybinds } from "./component/dialog-keybinds"
+import { UserNameBar } from "./component/user-name-bar"
+import { displayUserName } from "./util/user-name"
 import { applyAiLanguage } from "./util/ai-language"
 import { RoomChat } from "./component/room-chat"
 import { basicSymbolsNeeded, replaceMissingGlyphs } from "./ui/console-glyphs"
@@ -529,8 +531,8 @@ function App() {
   // The AI language lives in the global instructions file; keep it in step with the setting.
   createEffect(
     on(
-      () => config.data.ai_language ?? "auto",
-      (language) => void applyAiLanguage(language).catch((error) => console.error("Failed to apply AI language", error)),
+      () => [config.data.ai_language ?? "auto", displayUserName(config.data.user_name)] as const,
+      ([language, name]) => void applyAiLanguage(language, name).catch((error) => console.error("Failed to apply AI language", error)),
     ),
   )
   const route = useRoute()
@@ -1689,6 +1691,7 @@ function App() {
         copyOnSelectEnabled() ? (event) => Selection.copyOnSelectRelease(event, renderer, toast, clipboard) : undefined
       }
     >
+      <UserNameBar />
       <box
         flexGrow={1}
         minHeight={0}

@@ -261,6 +261,7 @@ export const Info = Schema.Struct({
   console_shell: Schema.optional(Schema.String).annotate({
     description: "Shell new consoles start with: pwsh, powershell, bash, nu, zsh, fish or cmd; unset uses the default",
   }),
+  user_name: Schema.optional(Schema.String).annotate({ description: "How agents address the operator (default vibecoder)" }),
   ai_language: Schema.optional(Schema.Literals(["auto", "ru", "en"])).annotate({
     description: "Language the AI thinks and answers in; auto follows the conversation",
   }),

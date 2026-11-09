@@ -50,3 +50,14 @@ test("a file that only held the block is removed again", async () => {
   await applyAiLanguage("auto")
   expect(await Bun.file(file()).exists()).toBe(false)
 })
+
+test("name and language are saved together, serialized and never replace user's other instructions", async () => {
+  await writeFile(file(), "# Mine\n\nKeep safeguards.\n")
+  await Promise.all([applyAiLanguage("ru", "first"), applyAiLanguage("en", "vibecoder")])
+  const value = await readFile(file(), "utf8")
+  expect(value).toContain("Keep safeguards.")
+  expect(value).toContain("only in English")
+  expect(value).not.toContain("first")
+  expect(value).toContain('display name: "vibecoder"')
+  expect(value.split("<!-- orchestra:user-name -->")).toHaveLength(2)
+})
