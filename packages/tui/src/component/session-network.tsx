@@ -1,3 +1,4 @@
+import { networkNames } from "../util/network-labels"
 import type { RGBA } from "@opentui/core"
 import { createMemo, createSignal, Show } from "solid-js"
 import { useData } from "../context/data"
@@ -14,7 +15,7 @@ function useSessionScope(sessionID: () => string) {
   const scope = createMemo(() => [sessionID(), ...workers().map((session) => session.id)])
   const names = createMemo(() => ({
     [sessionID()]: t("this session"),
-    ...Object.fromEntries(workers().map((session) => [session.id, (session.title || "worker").slice(0, 14)])),
+    ...networkNames(workers().map((session) => ({ id: session.id, title: session.title || "worker" }))),
   }))
   const running = () => scope().some((id) => data.session.status(id) === "running")
   return { workers, scope, names, running }
@@ -112,7 +113,7 @@ export function AllSessionsField(props: { currentID?: string; backdrop: RGBA; he
   const data = useData()
   const t = useT()
   const names = createMemo(() =>
-    Object.fromEntries(
+    networkNames(
       data.session
         .list()
         .filter((session) => !session.parentID)
@@ -122,10 +123,10 @@ export function AllSessionsField(props: { currentID?: string; backdrop: RGBA; he
           return busy || right.time.updated - left.time.updated
         })
         .slice(0, 6)
-        .map((session) => [
-          session.id,
-          session.id === props.currentID ? t("this session") : (session.title || "session").slice(0, 14),
-        ]),
+        .map((session) => ({
+          id: session.id,
+          title: session.id === props.currentID ? t("this session") : session.title || "session",
+        })),
     ),
   )
   const running = () => data.session.list().some((session) => data.session.status(session.id) === "running")

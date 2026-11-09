@@ -1,3 +1,4 @@
+import { claimNetworkLabel, type LabelRect } from "../util/network-labels"
 import { BoxRenderable, OptimizedBuffer, RGBA, type BoxOptions, type RenderContext } from "@opentui/core"
 import { extend } from "@opentui/solid"
 import { createMemo, createSignal, Show, splitProps, type JSX, type ParentProps } from "solid-js"
@@ -818,11 +819,13 @@ export class NeuralCanvasRenderable extends BoxRenderable {
       const glyph = hubs.has(index) ? "◈" : node.flash > 0.45 ? "◉" : node.edges.length > 3 ? "●" : "•"
       this.cell(buffer, node.x, node.y, glyph, fg)
     })
+    const occupied: LabelRect[] = []
     this.hubs.forEach((index, id) => {
       const name = this._names[id]
       if (!name) return
       const node = this.nodes[index]!
       const x = node.x + 2 + name.length <= this.width ? node.x + 2 : node.x - 1 - name.length
+      if (x < 0 || !claimNetworkLabel(occupied, { x, y: node.y, width: name.length })) return
       this.text(buffer, x, node.y, name, this.glow(palette.dormant, palette.signal, node.flash))
     })
     // The tool's name sits beside its neuron: `▸` while it runs, then `✓` or `✗` as it fades.
@@ -833,6 +836,7 @@ export class NeuralCanvasRenderable extends BoxRenderable {
       const label = `${bridge.state === "done" ? "✓" : bridge.state === "fail" ? "✗" : "▸"} ${bridge.label}`
       const color = bridge.state === "wait" ? palette.signal : palette[bridge.state]
       const x = node.x + 2 + label.length <= this.width ? node.x + 2 : node.x - 1 - label.length
+      if (x < 0 || !claimNetworkLabel(occupied, { x, y: node.y, width: label.length })) return
       this.text(buffer, x, node.y, label, this.glow(color, this._backdrop, fade))
     })
   }
