@@ -132,7 +132,10 @@ const snapshot = Effect.fnUntraced(function* (access: Access, id: string) {
 })
 
 /** Catalog servers that launch their own Chrome. */
-const SEPARATE_BROWSER: ReadonlySet<string> = new Set(["chrome-devtools"])
+const SEPARATE_BROWSER: Readonly<Record<string, string>> = {
+  "chrome-devtools": "ORCHESTRA_MCP_CHROME_DEVTOOLS",
+  playwright: "ORCHESTRA_MCP_PLAYWRIGHT",
+}
 
 /**
  * Make a catalog server usable, doing the smallest sufficient work:
@@ -170,13 +173,13 @@ export const ensure: (access: Access, id: string) => Effect.Effect<Ensured> = Ef
 
   // A server that starts a browser of its own is not installed behind the operator's back: the Browser tab's `browser`
   // tool is the browser, and a removed chrome-devtools came straight back through acquisition. Installing it needs
-  // ORCHESTRA_MCP_CHROME_DEVTOOLS=1; one that is already configured is left as it is.
-  if (before.state === "not_installed" && SEPARATE_BROWSER.has(id) && process.env.ORCHESTRA_MCP_CHROME_DEVTOOLS !== "1")
+  // its ORCHESTRA_MCP_* flag set to 1 (chrome-devtools, playwright); one that is already configured is left as it is.
+  if (before.state === "not_installed" && SEPARATE_BROWSER[id] !== undefined && process.env[SEPARATE_BROWSER[id]!] !== "1")
     return {
       ...before,
       state: "unavailable" as const,
       action: "none" as const,
-      detail: `${McpCatalog.all.find((item) => item.id === id)?.name ?? id} would open a second Chrome next to the Browser tab and is not installed automatically. Use the browser tool (screenshot, text, open, click, type on the Browser tab's session). The operator can allow it with ORCHESTRA_MCP_CHROME_DEVTOOLS=1.`,
+      detail: `${McpCatalog.all.find((item) => item.id === id)?.name ?? id} would open a second Chrome next to the Browser tab and is not installed automatically. Use the browser tool (screenshot, text, open, click, type on the Browser tab's session). The operator can allow it with ${SEPARATE_BROWSER[id]}=1.`,
     }
   if (before.state === "not_installed") {
     const entry = McpCatalog.all.find((item) => item.id === id)!

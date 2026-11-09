@@ -377,6 +377,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Run MCP servers with the project directory as their working directory.",
     default: "Off (empty working directory).",
   },
+  ORCHESTRA_MCP_PLAYWRIGHT: {
+    purpose: "Let acquisition install the playwright MCP server, which starts a Chrome of its own (\"1\"). The `browser` tool is used otherwise.",
+    default: "Off.",
+  },
   ORCHESTRA_MODELS_PATH: {
     purpose: "Path to a local models file.",
   },

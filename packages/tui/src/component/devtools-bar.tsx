@@ -412,9 +412,9 @@ export function DevToolsBar() {
                 onShell={(shell) => void client.api.config.update({ shell }).catch(toast.error)}
                 aiTools={{
                   installed: () =>
-                    (data.location.mcp.server.list(location.ref ?? data.location.default()) ?? []).map(
-                      (server) => server.name,
-                    ),
+                    (data.location.mcp.server.list(location.ref ?? data.location.default()) ?? [])
+                      .filter((server) => server.status.status !== "disabled")
+                      .map((server) => server.name),
                   set: (id, config) => client.api.config.update({ mcpServers: { [id]: config } }),
                 }}
                 plugins={plugins}
