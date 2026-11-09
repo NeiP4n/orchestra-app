@@ -2,10 +2,11 @@ import fs from "node:fs"
 import path from "node:path"
 import { randomUUID } from "node:crypto"
 import { Global } from "@orchestra/util/global"
-export type Approval = { id:string; kind:"permissions"|"hour"|"day"; sessionID?:string; triggerID?:string; before:string|number|null; next:string|number|null; createdAt:number }
+export type Approval = { id:string; kind:"permissions"|"hour"|"day"|"safety"; sessionID?:string; triggerID?:string; before:string|number|null; next:string|number|null; createdAt:number }
 const directory=()=>path.join(Global.Path.state,"security-confirmations")
 function valid(value:Approval):boolean{
  if(!value||typeof value.id!=="string"||!/^[a-f0-9-]{36}$/.test(value.id)||!Number.isFinite(value.createdAt)||value.createdAt<Date.now()-7*86400_000)return false
+ if(value.kind==="safety")return typeof value.before==="string"&&typeof value.next==="string"&&value.before.length<2048&&value.next.length<2048
  if(value.kind==="permissions")return value.before==="prompt"&&value.next==="autoaccept"
  if(!["hour","day"].includes(value.kind)||typeof value.sessionID!=="string"||typeof value.triggerID!=="string")return false
  const cap=(n:unknown)=>typeof n==="number"&&Number.isInteger(n)&&n>=1&&n<=(value.kind==="day"?100:10000)

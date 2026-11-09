@@ -999,3 +999,9 @@ describe("AutoloopDecide arch3-core fixes", () => {
     expect(complaint).toMatchObject({ kind: "notice", state: "open" })
   })
 })
+
+test("operator full-disable numeric overrides bypass hop and repeat limits without changing default guards",()=>{
+ const limits={maxAttempts:Infinity,maxVerifyIterations:Infinity,failureRepeatStop:Infinity,maxHops:Infinity}
+ const result=decide(emptyView(),{type:"ingest",args:["user",{id:"deep-unbounded",type:"task.created",hops:9999}]},T0,{rules,limits,tokenSecret:"fixture",seq:1,rulesVersion:1})
+ expect(result.value).toMatchObject({routed:["build"]})
+})

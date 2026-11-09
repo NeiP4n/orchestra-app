@@ -279,7 +279,7 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     default: "Watcher enabled.",
   },
   ORCHESTRA_DISABLE_LIMITS: {
-    purpose: "Opt out of step/token limits (\"1\"); ORCHESTRA_ENFORCE_LIMITS=1 still forces them on.",
+    purpose: "Legacy OFF request only; no longer disables limits without operator acknowledgement in Safety settings.",
     default: "Limits enforced.",
     readIn: "injected-env",
   },
@@ -314,7 +314,7 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     default: "None (falls back to CLAUDE_CODE_SSE_PORT).",
   },
   ORCHESTRA_ENFORCE_LIMITS: {
-    purpose: "Force step/token limits on (\"1\"), even when ORCHESTRA_DISABLE_LIMITS is set.",
+    purpose: "Force step/token limits on (\"1\"), overriding an acknowledged UI disable. OFF alone does not disable.",
     default: "Limits enforced unless disabled.",
     readIn: "injected-env",
   },

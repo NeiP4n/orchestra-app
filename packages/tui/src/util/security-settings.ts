@@ -1,3 +1,4 @@
+import { SafetyConfig } from "@orchestra/core/safety-config"
 import { Limits } from "@orchestra/core/limits"
 import { BrowserBudget } from "@orchestra/core/browser/budget"
 import { ENV_REGISTRY } from "@orchestra/core/env-registry"
@@ -6,7 +7,7 @@ export interface SecurityEntry { id: string; title: string; value: string; descr
 const flags = ["ORCHESTRA_DISABLE_LIMITS", "ORCHESTRA_ENFORCE_LIMITS", "ORCHESTRA_BROWSER_LOCAL_TEST", "ORCHESTRA_BROWSER_LIMIT", "ORCHESTRA_TEAM_MODEL_FALLBACK", "ORCHESTRA_MCP", "ORCHESTRA_MCP_ALLOW_CHROME_DEVTOOLS", "ORCHESTRA_MCP_ALLOW_PLAYWRIGHT"]
 export function securitySettings(env: Record<string, string | undefined> = process.env): SecurityEntry[] {
   let browsers = "ошибка значения; запуск запрещён"
-  try { const cap = env.ORCHESTRA_BROWSER_LIMIT === "off" ? Infinity : BrowserBudget.configuredMax(env.ORCHESTRA_BROWSER_MAX); browsers = cap === Infinity ? "без лимита" : String(cap) } catch {}
+  try { const cap = env.ORCHESTRA_BROWSER_LIMIT === "off" ? Infinity : BrowserBudget.configuredMax(env.ORCHESTRA_BROWSER_MAX??(SafetyConfig.read().browserMax==null?undefined:String(SafetyConfig.read().browserMax))); browsers = cap === Infinity ? "без лимита" : String(cap) } catch {}
   const entries: SecurityEntry[] = [
     { id:"scope", title:"Источник значений", value:"локальный TUI", description:"Здесь показаны локальные параметры процесса TUI и известные механизмы. Окружение отдельного сервиса и его конфигурация могут отличаться. Этот экран не выдаёт локальные значения за подтверждённое состояние сервиса." },
     { id:"limits", title:"Защита времени и токенов", value:Limits.enforced(env)?"включена":"ВЫКЛЮЧЕНА · расширено", description:"Реальный Limits.enforced: ограничение шагов, tool timeout и drain budgets. Это не денежный cap. Меняется окружением процесса сервиса; здесь только чтение." },

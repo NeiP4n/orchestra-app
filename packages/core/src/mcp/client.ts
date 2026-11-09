@@ -41,8 +41,7 @@ const DEFAULT_CATALOG_TIMEOUT = 30_000
 const RUNNER_STARTUP_TIMEOUT = 5 * 60 * 1_000
 const RUNNERS = new Set(["npx", "uvx", "bunx", "pnpx"])
 const DEFAULT_EXECUTION_TIMEOUT = 5 * 60 * 1_000 // 5 minutes: a tool call that runs longer is stuck, not working
-// No MCP call runs without a timeout, whatever the config says: even an
-// explicit per-server timeout is clamped to this hard wall.
+// MCP execution is clamped to this wall unless the operator acknowledges full limits disable.
 const MAX_EXECUTION_TIMEOUT_MS = 30 * 60 * 1_000
 // Tools that legitimately run longer than the 5-minute default: a language
 // server starting up behind Serena, a remote model answering behind
@@ -58,8 +57,7 @@ const TOOL_EXECUTION_TIMEOUT_MS: Readonly<Record<string, number>> = {
 /**
  * Execution timeout for one tool call, in milliseconds. Explicit per-server
  * config wins; then the per-tool table; then the 5-minute default. The hard
- * wall caps everything, so no call runs without a timeout whatever the config
- * says. `tool` is the raw tool name the server sees (no `<server>_` prefix).
+ * wall caps execution unless the operator acknowledges full limits disable. `tool` is the raw tool name the server sees (no `<server>_` prefix).
  */
 export function executionTimeoutFor(
   server: string,
@@ -69,6 +67,7 @@ export function executionTimeoutFor(
 ): number {
   const fallback =
     tool === undefined ? DEFAULT_EXECUTION_TIMEOUT : (TOOL_EXECUTION_TIMEOUT_MS[`${server}:${tool}`] ?? DEFAULT_EXECUTION_TIMEOUT)
+  if (Limits.fullyDisabled(env)) return Limits.UNBOUNDED_MS
   return Math.min(Limits.timeout(configured, fallback, env), MAX_EXECUTION_TIMEOUT_MS)
 }
 const TERMINATE_TIMEOUT = 1_000

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { beforeEach, afterEach, describe, expect, test } from "bun:test"
 import { Limits } from "../src/limits"
 
 // Limits are enforced by default (G2-3): no env means on. Only an explicit
@@ -7,15 +7,23 @@ const def = {}
 const on = { ORCHESTRA_ENFORCE_LIMITS: "1" }
 const off = { ORCHESTRA_DISABLE_LIMITS: "1" }
 const offLegacy = { ORCHESTRA_ENFORCE_LIMITS: "0" }
+import { SafetyConfig } from "../src/safety-config"
+import { mkdtempSync, rmSync } from "node:fs"
+import os from "node:os"
+import path from "node:path"
+let dir="", previous:string|undefined
+beforeEach(()=>{previous=process.env.ORCHESTRA_STATE_DIR;dir=mkdtempSync(path.join(os.tmpdir(),"limits-test-"));process.env.ORCHESTRA_STATE_DIR=dir})
+afterEach(()=>{if(previous===undefined)delete process.env.ORCHESTRA_STATE_DIR;else process.env.ORCHESTRA_STATE_DIR=previous;rmSync(dir,{recursive:true,force:true})})
+const disable=()=>SafetyConfig.write({version:1,disabled:true},"РАЗРЕШИТЬ")
 
 describe("Limits", () => {
-  test("is enforced by default; only an explicit opt-out disables it", () => {
+  test("is enforced by default; legacy env off alone cannot silently disable it", () => {
     expect(Limits.enforced(def)).toBe(true)
     expect(Limits.enforced(on)).toBe(true)
     expect(Limits.enforced({ ORCHESTRA_ENFORCE_LIMITS: "true" })).toBe(true)
-    expect(Limits.enforced(off)).toBe(false)
-    expect(Limits.enforced(offLegacy)).toBe(false)
-    expect(Limits.enforced({ ORCHESTRA_ENFORCE_LIMITS: "false" })).toBe(false)
+    expect(Limits.enforced(off)).toBe(true)
+    expect(Limits.enforced(offLegacy)).toBe(true)
+    expect(Limits.enforced({ ORCHESTRA_ENFORCE_LIMITS: "false" })).toBe(true)
   })
 
   test("a misspelled or garbage switch never silently disables limits", () => {
@@ -36,12 +44,14 @@ describe("Limits", () => {
     expect(Limits.steps([undefined, undefined], on)).toBeUndefined()
   })
 
-  test("step ceilings are ignored only while disabled", () => {
+  test("step ceilings are ignored only while acknowledged disabled", () => {
+    disable()
     expect(Limits.steps([5, 3], off)).toBeUndefined()
     expect(Limits.steps([5, 3], offLegacy)).toBeUndefined()
   })
 
-  test("timeouts are effectively unbounded only while disabled", () => {
+  test("timeouts are effectively unbounded only while acknowledged disabled", () => {
+    disable()
     expect(Limits.timeout(undefined, 1000, off)).toBe(Limits.UNBOUNDED_MS)
     expect(Limits.UNBOUNDED_MS).toBeGreaterThan(24 * 24 * 60 * 60 * 1000)
   })
@@ -56,6 +66,7 @@ describe("Limits", () => {
   test("drain budgets default to 4 hours and 10M estimated prompt tokens", () => {
     expect(Limits.drainWallClockMs(def)).toBe(4 * 60 * 60 * 1_000)
     expect(Limits.drainTokenBudget(def)).toBe(10_000_000)
+    disable()
     expect(Limits.drainWallClockMs(off)).toBeUndefined()
     expect(Limits.drainTokenBudget(off)).toBeUndefined()
   })
@@ -77,7 +88,9 @@ describe("Limits", () => {
     expect(Limits.drainBudgetExceeded(fresh, 1000 + Limits.DEFAULT_DRAIN_WALL_CLOCK_MS, def)).toBe("wall-clock")
     expect(Limits.drainBudgetExceeded({ ...fresh, tokensUsed: 10_000_000 }, 1000, def)).toBe("tokens")
     expect(Limits.drainBudgetExceeded({ ...fresh, tokensUsed: 9_999_999 }, 1000, def)).toBeUndefined()
+    disable()
     expect(Limits.drainBudgetExceeded({ ...fresh, tokensUsed: 10_000_000 }, 1000, off)).toBeUndefined()
+    SafetyConfig.restore()
     expect(
       Limits.drainBudgetExceeded(
         { ...fresh, tokensUsed: 500 },

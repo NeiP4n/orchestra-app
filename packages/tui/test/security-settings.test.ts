@@ -3,9 +3,9 @@ import { readFileSync } from "node:fs"
 import { securitySettings } from "../src/util/security-settings"
 test("security inventory derives real local limits and never prints secret environment values",()=>{
   const rows=securitySettings({ORCHESTRA_GATEWAY_TOKEN:"SECRET-GATEWAY",ORCHESTRA_BROWSER_PROFILE:"SECRET-PATH",ORCHESTRA_DRAIN_WALL_CLOCK_MS:"9000",ORCHESTRA_BROWSER_MAX:"4",ORCHESTRA_DISABLE_LIMITS:"1",ORCHESTRA_MCP:"SECRET-INJECTION"})
-  expect(rows.find(r=>r.id==="limits")?.value).toContain("ВЫКЛЮЧЕНА")
+  expect(rows.find(r=>r.id==="limits")?.value).toBe("включена")
   expect(rows.find(r=>r.id==="browsers")?.value).toBe("4")
-  expect(rows.find(r=>r.id==="wall")?.value).toBe("без лимита")
+  expect(rows.find(r=>r.id==="wall")?.value).toBe("9000 мс")
   expect(JSON.stringify(rows)).not.toContain("SECRET-")
   expect(rows.find(r=>r.id==="money")?.value).toContain("не подтверждён")
   expect(rows.find(r=>r.id==="js")?.value).toContain("нет общего")

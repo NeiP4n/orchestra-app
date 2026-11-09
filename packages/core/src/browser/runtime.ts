@@ -8,6 +8,7 @@ import { Flock } from "@orchestra/util/flock"
 import { readdirSync } from "node:fs"
 import * as BrowserActivity from "./activity.js"
 import { BrowserLifecycle } from "./lifecycle.js"
+import { SafetyConfig } from "../safety-config.js"
 import { BrowserBudget } from "./budget.js"
 import { Global } from "@orchestra/util/global"
 import { BrowserBridge } from "./bridge.js"
@@ -242,7 +243,7 @@ async function checkLaunchBudget(sessionID?: string): Promise<number | undefined
     const own = await Chrome.livePort(deps.readFile, alive, Chrome.profileDir(Global.Path.data, sessionID))
     if (own !== undefined) return own
   }
-  const maximum = process.env.ORCHESTRA_BROWSER_LIMIT === "off" ? Infinity : BrowserBudget.configuredMax(process.env.ORCHESTRA_BROWSER_MAX)
+  const maximum = process.env.ORCHESTRA_BROWSER_LIMIT === "off" ? Infinity : BrowserBudget.configuredMax(process.env.ORCHESTRA_BROWSER_MAX ?? (SafetyConfig.read().browserMax == null ? undefined : String(SafetyConfig.read().browserMax)))
   let count = 0
   const warning = BrowserBudget.memoryWarning(freemem())
   if (warning) trace(warning)

@@ -1,3 +1,4 @@
+import { SafetyConfig } from "../safety-config.js"
 export * as BrowserLocalTest from "./local-test.js"
 
 /** Exact loopback hosts only. No suffix matches, credentials or remote file shares. */
@@ -11,7 +12,7 @@ export function localPage(address: string | undefined): boolean {
       ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
   } catch { return false }
 }
-export const enabled = () => process.env.ORCHESTRA_BROWSER_LOCAL_TEST === "1"
+export const enabled = () => process.env.ORCHESTRA_BROWSER_LOCAL_TEST === undefined ? SafetyConfig.read().localTest === true : process.env.ORCHESTRA_BROWSER_LOCAL_TEST === "1"
 export const allowed = (address: string | undefined) => enabled() && localPage(address)
 
 /** Never return page content captured during a navigation out of the fixture. */
