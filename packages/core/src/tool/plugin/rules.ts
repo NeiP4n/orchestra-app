@@ -8,6 +8,7 @@ import { KV } from "../../kv.js"
 import { Orchestra } from "../../orchestra.js"
 import { RuleEnforce } from "../../rule-enforce.js"
 import { Rules } from "../../rules.js"
+import { BROWSER_TASK } from "./orchestra.js"
 import { Tool } from "@orchestra/schema/tool"
 import { Session } from "../../session.js"
 
@@ -47,6 +48,19 @@ export const Plugin = {
     yield* ctx.tool.hook("execute.before", (event) =>
       Effect.gen(function* () {
         const entries = RuleEnforce.recall(String(event.sessionID))
+        const fixed = RuleEnforce.builtin({ tool: event.tool, agent: String(event.agent), input: event.input }, BROWSER_TASK)
+        if (fixed) {
+          RuleEnforce.log({
+            layer: "hard",
+            outcome: "refused",
+            session: String(event.sessionID),
+            agent: String(event.agent),
+            rule: "(built-in) the browser belongs to the BrowserAgent",
+            by: "built-in",
+            what: `${event.tool} ${JSON.stringify(event.input ?? {}).slice(0, 200)}`,
+          })
+          return yield* new Tool.Error({ message: `Rule check: ${fixed}` })
+        }
         const broken = RuleEnforce.violation(entries, { tool: event.tool, agent: String(event.agent), input: event.input })
         if (!broken) return
         RuleEnforce.log({

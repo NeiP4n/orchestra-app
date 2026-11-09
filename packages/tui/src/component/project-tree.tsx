@@ -553,8 +553,10 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           !session.parentID &&
           !removed[session.id] &&
           session.id !== project.main &&
-          // A BrowserAgent chat belongs to its browser session and is listed in the Browser tab, not here.
-          session.agent !== "team-browser-agent" &&
+          // A BrowserAgent chat belongs to its browser session and is listed in the Browser tab, not here. One that no
+          // browser session owns (the Orchestrator created it with sessions create) would be listed nowhere, so it stays here.
+          (session.agent !== "team-browser-agent" ||
+            !notes.browserSessions(project.id).some((item) => item.chat === session.id)) &&
           owner(session)?.id === project.id,
       )
 

@@ -182,3 +182,28 @@ export const verdict = (line: string | undefined, entries: ReadonlyArray<Entry>)
   const entry = entries[Number(match[1]) - 1]
   return entry ? { entry, why: match[2]!.trim().slice(0, 200) } : undefined
 }
+
+/**
+ * Built-in checks that hold without anyone writing a rule: the browser belongs to the BrowserAgent. A subagent or a
+ * Code Mode script that hands page work to another role, or starts a browser of its own, is refused. Returns the
+ * refusal text, or undefined.
+ */
+export const builtin = (
+  call: { tool: string; agent: string; input: unknown },
+  browserTask: RegExp,
+): string | undefined => {
+  const input = typeof call.input === "object" && call.input !== null ? (call.input as Record<string, unknown>) : {}
+  const route =
+    "Page work goes to the BrowserAgent of the browser session: browser action=sessions shows its chat id, then sessions send there. Do not hand it to another role, a subagent or a script."
+  if (call.tool === "subagent") {
+    const target = String(input.agent ?? "").replace(/^team-/, "")
+    if (target !== "browser-agent" && typeof input.prompt === "string" && browserTask.test(input.prompt)) return route
+  }
+  if (call.tool === "execute" && typeof input.code === "string") {
+    const code = input.code
+    if (/(?:playwright|puppeteer|selenium|chromedriver|msedge|chrome\.exe|google-chrome)/i.test(code) && /(?:spawn|exec|launch|import|require|npx|bunx|Bun\.\$)/i.test(code))
+      return "Starting a browser from a script is refused: the browser tool and the Browser tab are the only browser."
+    if (/\b(?:sessions|subagent)\b/.test(code) && /\b(?:create|send)\b|\bagent\b/.test(code) && browserTask.test(code)) return route
+  }
+  return undefined
+}

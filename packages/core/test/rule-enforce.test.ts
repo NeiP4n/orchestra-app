@@ -42,3 +42,14 @@ describe("RuleEnforce judge verdict", () => {
     expect(RuleEnforce.verdict(undefined, entries)).toBeUndefined()
   })
 })
+
+describe("RuleEnforce built-in browser routing", () => {
+  const task = /open[^\n]{0,40}https?:\/\//i
+  test("a subagent or script that takes page work, or starts a browser, is refused", () => {
+    expect(RuleEnforce.builtin({ tool: "subagent", agent: "x", input: { agent: "developer", prompt: "open https://example.com and click" } }, task)).toBeDefined()
+    expect(RuleEnforce.builtin({ tool: "subagent", agent: "x", input: { agent: "team-browser-agent", prompt: "open https://example.com" } }, task)).toBeUndefined()
+    expect(RuleEnforce.builtin({ tool: "subagent", agent: "x", input: { agent: "developer", prompt: "fix the parser" } }, task)).toBeUndefined()
+    expect(RuleEnforce.builtin({ tool: "execute", agent: "x", input: { code: "import('playwright').then(p => p.chromium.launch())" } }, task)).toBeDefined()
+    expect(RuleEnforce.builtin({ tool: "execute", agent: "x", input: { code: "console.log(1)" } }, task)).toBeUndefined()
+  })
+})
