@@ -378,11 +378,10 @@ export function BrowserPane(props: {
     onCleanup(() => void (root.onMouse = undefined))
   })
 
-  // On Windows the real Chrome (its own tabs and address bar) is shown in the pane by default; if that cannot
-  // start, the windowless stream stays and the reason is shown.
+  // The page is the windowless Chrome streamed into this pane, on every system: no Chrome window opens beside
+  // the terminal. The real Chrome window (logins, captchas) is the explicit "Real Chrome in pane" button, Windows only.
   const open = async () => {
     await run(async () => void (await BrowserRuntime.open(props.sessionID)))
-    if (process.platform === "win32" && state() === "ready" && mode() === "headless") switchMode("capture")
   }
 
   // The agent's browser tool starts the session's Chrome in the server process, windowless. While this pane

@@ -52,3 +52,11 @@ describe("browser view", () => {
     expect(read("component/browser-pane.tsx")).toContain("Hide chat")
   })
 })
+
+describe("the browser pane default", () => {
+  test("opening a session streams the windowless Chrome on every system; the real window is an explicit button", () => {
+    const pane = read("component/browser-pane.tsx")
+    expect(pane).not.toMatch(/win32"\s*&&\s*state\(\)\s*===\s*"ready"\s*&&\s*mode\(\)\s*===\s*"headless"\)\s*switchMode/)
+    expect(pane).toContain('switchMode("capture")')
+  })
+})
