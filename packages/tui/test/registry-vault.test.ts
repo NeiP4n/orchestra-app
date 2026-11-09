@@ -13,3 +13,12 @@ test("Vault appears in Orchestra registry with operator-only secure input, names
   expect(ui).not.toContain("entry.password")
   expect(ui).toContain("Подстановка ещё отключена")
 })
+
+test("Vault add button has an explicit visible hit area, release handler and hover instead of a press-state trap", () => {
+  const ui = readFileSync(new URL("../src/component/registry-vault.tsx", import.meta.url), "utf8")
+  expect(ui).toContain('id="registry-vault.add" border borderStyle="rounded"')
+  expect(ui).toContain('onMouseUp={(event) => { event.stopPropagation(); if (!busy()) void write() }}')
+  expect(ui).toContain('hoverBackground(theme)')
+  expect(ui).toContain('Открывается защищённое окно Windows')
+  expect(ui).toContain('Ctrl+N добавить · Enter заменить · Ctrl+D дважды удалить.')
+})
