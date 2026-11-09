@@ -1487,7 +1487,7 @@ export const Plugin = {
                   yield* dispatch(session.id, limit ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
                   return {
                     sessionID: session.id,
-                    output: `Sent to ${session.title ?? session.id}. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.${modelNote(choice.model ?? session.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`,
+                    output: `Sent to ${session.title ?? session.id} (${role?.id ?? session.agent ?? "session"}, id ${session.id}; the operator sees it in the project tree). Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.${modelNote(choice.model ?? session.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`,
                   }
                 }
                 case "create": {
@@ -1573,7 +1573,7 @@ export const Plugin = {
                     yield* dispatch(created.id, limit ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
                   return {
                     sessionID: created.id,
-                    output: `Created ${created.id}${input.text?.trim() ? "; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list." : ""}.${modelNote(created.model, choice.model ? (choice.modelSource ?? "your explicit choice") : worker.model ? "the role/worker policy" : "inherited from your own session — pass model to choose otherwise")}`,
+                    output: `Created ${created.id} (${role.id}; the operator sees it in the project tree)${input.text?.trim() ? "; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list." : ""}.${modelNote(created.model, choice.model ? (choice.modelSource ?? "your explicit choice") : worker.model ? "the role/worker policy" : "inherited from your own session — pass model to choose otherwise")}`,
                   }
                 }
                 case "answer": {

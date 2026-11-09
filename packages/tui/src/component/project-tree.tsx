@@ -545,6 +545,52 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       )
     })
 
+  // Subagents (sessions with a parent) are listed under their parent, running ones first, so a task the Orchestrator
+  // handed off can be found: "↳ <title> · <role> · <status>". At most CHILD_LIMIT per parent, the rest as a count.
+  const CHILD_LIMIT = 6
+  const childrenOf = (parentID: string | undefined) => {
+    if (parentID === undefined) return { shown: [], more: 0 }
+    const all = data.session
+      .list()
+      .filter((item) => item.parentID === parentID && !removed[item.id])
+      .toSorted((a, b) => Number(data.session.status(b.id) === "running") - Number(data.session.status(a.id) === "running"))
+    return { shown: all.slice(0, CHILD_LIMIT), more: Math.max(0, all.length - CHILD_LIMIT) }
+  }
+  const childRows = (parentID: string | undefined) => {
+    const found = childrenOf(parentID)
+    return (
+      <>
+        <For each={found.shown}>
+          {(child) => (
+            <Row
+              id={`child:${child.id}`}
+              hover={hover}
+              setHover={setHover}
+              selected={child.id === current()?.id}
+              onClick={() => route.navigate({ type: "session", sessionID: child.id })}
+            >
+              <Branch lit={child.id === current()?.id || hover() === `child:${child.id}`} />
+              <text flexShrink={0} fg={theme.text.muted}>
+                {data.session.status(child.id) === "running" ? "  ↳ ● " : "  ↳ ○ "}
+              </text>
+              <text fg={theme.text.muted} wrapMode="none" truncate>
+                {`${child.title || t("Untitled")} · ${String(child.agent ?? "").replace(/^team-/, "") || "subagent"} · ${
+                  waiting().has(child.id) ? t("waiting") : data.session.status(child.id) === "running" ? t("running") : t("idle")
+                }`}
+              </text>
+            </Row>
+          )}
+        </For>
+        <Show when={found.more > 0}>
+          <box flexDirection="row" paddingLeft={1}>
+            <Branch through />
+            <text fg={theme.text.muted} wrapMode="none">{`    + ${found.more} ${t("more subagents")}`}</text>
+          </box>
+        </Show>
+      </>
+    )
+  }
+
   const sessionsOf = (project: OrchestraProject) =>
     data.session
       .list()
@@ -972,6 +1018,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                       {project.main !== undefined && waiting().has(project.main) ? `? ${t("Orchestrator")}` : t("Orchestrator")}
                     </text>
                   </Row>
+                  {childRows(project.main)}
                   <For each={visibleGroupsOf(project).groups}>
                     {(group) => (
                       <>
@@ -990,6 +1037,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                             const [accessHovered, setAccessHovered] = createSignal(false)
                             const [deleteHovered, setDeleteHovered] = createSignal(false)
                             return (
+                            <>
                             <Row
                               id={session.id}
                               hover={hover}
@@ -1083,6 +1131,8 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                                 </text>
                               </HoverAction>
                             </Row>
+                            {childRows(session.id)}
+                            </>
                             )
                           }}
                         </For>

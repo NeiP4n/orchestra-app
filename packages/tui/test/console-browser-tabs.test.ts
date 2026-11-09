@@ -53,3 +53,10 @@ test("the view follows the chat that opens: BrowserAgent chat to Browser, any ot
   expect(frame).toContain('notes.setTab("projects")')
   expect(frame).toMatch(/on\(\s*\(\) => props\.sessionID,/)
 })
+
+test("the project tree lists subagents (sessions with a parent) under their parent with role and status", () => {
+  const tree = read("component/project-tree.tsx")
+  expect(tree).toContain("item.parentID === parentID")
+  expect(tree).toContain("childRows(project.main)")
+  expect(tree).toContain("childRows(session.id)")
+})
