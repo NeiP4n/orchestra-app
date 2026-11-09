@@ -61,7 +61,7 @@ export const Plugin = {
           execute: (input, context) =>
             AutoDecide.active.pipe(Effect.flatMap((auto) => {
               const fields = input.questions.map((question, index) => toField(question, index))
-              const choosable = fields.every((field) => (field.options?.length ?? 0) > 0)
+              const choosable = fields.every((field) => "options" in field && (field.options?.length ?? 0) > 0)
               const touchy = input.questions.some((question) =>
                 AutoDecide.sensitive(question.question, question.header, ...question.options.flatMap((o) => [o.label, o.description])),
               )

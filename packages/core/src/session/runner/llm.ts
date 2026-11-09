@@ -416,9 +416,9 @@ const layer = Layer.effect(
           // assistant message last ("does not support assistant message prefill", 400), and every fallback model
           // refuses it the same way. The step-limit notice is therefore a user message, and a history that still
           // ends on an assistant message gets a short user line.
-          messages: endOnUser(
-            stepLimitReached ? [...transcript.messages, Message.user(MAX_STEPS_PROMPT)] : transcript.messages,
-          ),
+          messages: [
+            ...endOnUser(stepLimitReached ? [...transcript.messages, Message.user(MAX_STEPS_PROMPT)] : transcript.messages),
+          ],
           // Keep tool definitions on the final Step to preserve the provider's cached prefix.
           toolChoice: stepLimitReached ? "none" : undefined,
           webSocket: "session",
@@ -528,7 +528,7 @@ const layer = Layer.effect(
               if (SessionCompletionGate.judgedCount(messages, RuleEnforce.JUDGE_KEY) >= RuleEnforce.JUDGE_MAX) return undefined
               const digest = SessionCompletionGate.turnDigest(messages)
               const line = yield* title
-                .ask({ sessionID, system: RuleEnforce.JUDGE_SYSTEM, text: RuleEnforce.judgePrompt(rules, digest) })
+                .ask!({ sessionID, system: RuleEnforce.JUDGE_SYSTEM, text: RuleEnforce.judgePrompt(rules, digest) })
                 .pipe(Effect.timeoutOption(Duration.seconds(25)), Effect.map(Option.getOrUndefined))
               const found = RuleEnforce.verdict(line, rules)
               RuleEnforce.log({

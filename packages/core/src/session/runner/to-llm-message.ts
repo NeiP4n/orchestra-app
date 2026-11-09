@@ -97,7 +97,6 @@ function intakeNoteText(metadata: Record<string, unknown> | undefined, text: str
       : []
   const restatesGoal = (item: string) =>
     item === text.trim() || (goal !== undefined && (item === goal || item.startsWith(`${goal} — `)))
-  const dod = strings(intake.dod, 4).filter((item) => !restatesGoal(item))
   const plan = strings(intake.plan, 4).filter(
     (item) => item !== "Продолжить текущую работу" && !restatesGoal(item),
   )

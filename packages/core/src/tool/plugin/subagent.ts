@@ -252,7 +252,7 @@ export const Plugin = {
                 })
               if (result?.type === "backgrounded") {
                 yield* subagents.notify(recovery, result.info.started_at)
-                return backgroundResult(child.id)
+                return backgroundResult(child.id, facts)
               }
               if (result?.info.status === "error")
                 return yield* new ToolFailure({
