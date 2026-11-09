@@ -1,6 +1,6 @@
 export * as LocalBrowser from "./index.js"
 
-import { spawn } from "node:child_process"
+import { spawn, type ChildProcess } from "node:child_process"
 import { accessSync, constants, existsSync } from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
@@ -175,7 +175,12 @@ function unavailable() {
 async function connect(config: Options) {
   const existing = await debuggerURL(config.endpoint)
   if (existing) return LocalCdp.connect(existing)
-  launch(config)
+  // A failed spawn only reports through the child's "error" event; without a listener Node would
+  // raise it as an unhandled exception. Capture it and fold it into the bounded-wait error below.
+  let launchError: Error | undefined
+  launch(config).on("error", (error) => {
+    launchError = error
+  })
   const deadline = Date.now() + config.launchWaitMs
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 500))
@@ -183,7 +188,9 @@ async function connect(config: Options) {
     if (url) return LocalCdp.connect(url)
   }
   throw new Error(
-    `No Chromium answered at ${config.endpoint} within ${config.launchWaitMs / 1000} s. Start one with --remote-debugging-port, or set ORCHESTRA_BROWSER_LAUNCHER to a command that does.`,
+    `No Chromium answered at ${config.endpoint} within ${config.launchWaitMs / 1000} s.${
+      launchError ? ` The browser process failed to start: ${launchError.message}.` : ""
+    } Start one with --remote-debugging-port, or set ORCHESTRA_BROWSER_LAUNCHER to a command that does.`,
   )
 }
 
@@ -196,11 +203,12 @@ async function debuggerURL(endpoint: string) {
   return body._tag === "Some" ? body.value.webSocketDebuggerUrl : undefined
 }
 
-function launch(config: Options) {
+function launch(config: Options): ChildProcess {
   // Detached, so the browser and its logins outlive this server process.
   if (config.launcher) {
-    spawn("sh", ["-c", config.launcher], { detached: true, stdio: "ignore" }).unref()
-    return
+    const child = spawn("sh", ["-c", config.launcher], { detached: true, stdio: "ignore" })
+    child.unref()
+    return child
   }
   const binary = ["chromium", "chromium-browser", "google-chrome-stable", "google-chrome", "chrome"]
     .flatMap((name) => (process.env.PATH ?? "").split(path.delimiter).map((directory) => path.join(directory, name)))
@@ -209,7 +217,9 @@ function launch(config: Options) {
     throw new Error(
       "No Chromium or Chrome executable was found. Install one, or set ORCHESTRA_BROWSER_LAUNCHER to a command that starts a browser with --remote-debugging-port.",
     )
-  spawn(binary, launchArgs(config), { detached: true, stdio: "ignore" }).unref()
+  const child = spawn(binary, launchArgs(config), { detached: true, stdio: "ignore" })
+  child.unref()
+  return child
 }
 
 /** Arguments for the built-in Chromium launch; the local path serves headless servers, so headless is the default. */

@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test"
 import { createServer } from "node:net"
 import { once } from "node:events"
+import { accessSync, constants, mkdtempSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { delimiter, join } from "node:path"
+import { pathToFileURL } from "node:url"
 import type { Session } from "@orchestra/schema/session"
 import { Browser } from "../src/rpc.js"
 import { LocalBrowser } from "../src/local/index.js"
@@ -84,6 +88,24 @@ function stubBrowser(): Stub {
   stub.endpoint = `http://127.0.0.1:${server.port}`
   return stub
 }
+
+// The custom-launcher path is routed through `sh -c` by design; tests that need a real spawn
+// declare that precondition instead of silently exercising a different failure path.
+const shAvailable = (process.env.PATH ?? "")
+  .split(delimiter)
+  .flatMap((directory) => [join(directory, "sh"), join(directory, "sh.exe")])
+  .some((file) => {
+    try {
+      accessSync(file, constants.X_OK)
+      return true
+    } catch {
+      return false
+    }
+  })
+if (!shAvailable)
+  console.warn(
+    "local.test: skipping 'a browser that never answers' - no sh on PATH; the custom launcher is spawned through sh -c",
+  )
 
 const sessionA = "ses_localtest_a" as Session.ID
 const sessionB = "ses_localtest_b" as Session.ID
@@ -201,7 +223,7 @@ test("release closes every tab the session owns", async () => {
   }
 }, 15_000)
 
-test("a browser that never answers fails the call with the endpoint and wait named", async () => {
+test.skipIf(!shAvailable)("a browser that never answers fails the call with the endpoint and wait named", async () => {
   // Reserve a port and close it, so nothing answers there.
   const probe = createServer()
   await once(probe.listen(0, "127.0.0.1"), "listening")
@@ -221,5 +243,53 @@ test("a browser that never answers fails the call with the endpoint and wait nam
     )
   expect(failure).toContain(`No Chromium answered at http://127.0.0.1:${address.port}`)
   expect(failure).toContain("within 1.2 s")
+  // The shell spawned fine here; the failure is the silent endpoint, not a failed process start.
+  expect(failure).not.toContain("failed to start")
   manager.dispose()
+}, 15_000)
+
+test("a launcher whose shell is missing reports the start failure in the bounded error", async () => {
+  // Runs in a subprocess whose PATH is one empty directory, so production spawn("sh", ...) fails
+  // to start on every OS (an empty PATH string falls back to the default search path, so a real
+  // directory is required). The test itself needs no shell, no `true`, and no PATH entry: the
+  // subprocess is the current runtime addressed by its absolute path.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== "path"))
+  env.PATH = mkdtempSync(join(tmpdir(), "orchestra-empty-path-"))
+  const moduleUrl = pathToFileURL(join(import.meta.dir, "../src/local/index.ts")).href
+  const script = `
+    const main = async () => {
+      const { LocalBrowser } = await import(${JSON.stringify(moduleUrl)})
+      const manager = LocalBrowser.make({
+        endpoint: "http://127.0.0.1:1",
+        profile: "unused-profile",
+        headless: true,
+        launchWaitMs: 1_200,
+        launcher: "true",
+      })
+      const message = await manager
+        .execute("ses_no_shell", { action: { type: "tabs.open" }, files: [] }, new AbortController().signal)
+        .then(
+          () => "UNEXPECTED SUCCESS",
+          (error) => String(error && error.message),
+        )
+      console.log("RESULT:" + message)
+    }
+    main().then(
+      () => setTimeout(() => process.exit(0), 50),
+      (error) => {
+        console.error(error)
+        process.exit(1)
+      },
+    )
+  `
+  const child = Bun.spawn([process.execPath, "-e", script], { env, stdout: "pipe", stderr: "pipe" })
+  const [out, err, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ])
+  // Failure dumps the subprocess output for diagnosis.
+  expect({ code, out, err }).toEqual(expect.objectContaining({ code: 0 }))
+  expect(out).toContain("No Chromium answered at http://127.0.0.1:1")
+  expect(out).toContain("failed to start")
 }, 15_000)
