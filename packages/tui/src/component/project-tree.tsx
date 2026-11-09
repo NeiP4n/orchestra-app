@@ -739,7 +739,10 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
   }
   const browserToolbar = (project: OrchestraProject, collapsible = false) => (
     <box flexDirection="row" flexShrink={0} height={1} paddingLeft={1} gap={1}>
-      <box flexGrow={1} minWidth={0} onMouseUp={() => { if (collapsible) notes.toggleGroup(`${project.id}:Browsers`) }}>
+      <box flexGrow={1} minWidth={0}
+        backgroundColor={collapsible && hover() === `browser-fold:${project.id}` ? hoverBackground(theme) : undefined}
+        onMouseOver={() => { if (collapsible) setHover(`browser-fold:${project.id}`) }} onMouseOut={() => setHover(undefined)}
+        onMouseUp={() => { if (collapsible) notes.toggleGroup(`${project.id}:Browsers`) }}>
         <text fg={theme.text.muted} wrapMode="none" truncate>{`${collapsible ? (notes.groupCollapsed(`${project.id}:Browsers`) ? "▸ " : "▾ ") : ""}${t("Browsers")} · ${browserBatchProgress()[project.id] || browserCount(project, props.width < 46)}`}</text>
       </box>
       <HoverAction id={`browser-start-all:${project.id}`} disabled={!!browserBatchProgress()[project.id]} onClick={() => void batchBrowsers(project)}>
@@ -1327,6 +1330,9 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                           <box
                             flexDirection="row"
                             paddingLeft={1}
+                            backgroundColor={hover() === `group-fold:${project.id}:${group.name}` ? hoverBackground(theme) : undefined}
+                            onMouseOver={() => setHover(`group-fold:${project.id}:${group.name}`)}
+                            onMouseOut={() => setHover(undefined)}
                             onMouseUp={() => notes.toggleGroup(`${project.id}:${group.name}`)}
                           >
                             <Branch through />

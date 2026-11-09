@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { HoverAction } from "./hover-action"
@@ -101,6 +102,7 @@ export function BrowserPane(props: {
   busy?: () => boolean
 }) {
   const theme = useTheme()
+  const addressHover = createHoverFeedback()
   const t = useT()
   const [state, setState] = createSignal<"idle" | "busy" | "ready">(
     BrowserRuntime.isOpen(props.sessionID) ? "ready" : "idle",
@@ -768,7 +770,7 @@ export function BrowserPane(props: {
             <HoverAction paddingLeft={1} paddingRight={1} onClick={() => tabAction(() => BrowserRuntime.reload(props.sessionID))}>
               <text fg={theme.text.action.primary.base}>{"⟳"}</text>
             </HoverAction>
-            <box flexGrow={1} minWidth={0} paddingLeft={1} onMouseDown={editAddress}>
+            <box flexGrow={1} minWidth={0} paddingLeft={1} backgroundColor={addressHover.background()} onMouseOver={addressHover.onMouseOver} onMouseOut={addressHover.onMouseOut} onMouseDown={editAddress}>
               <text fg={theme.text.base} wrapMode="none" truncate>
                 {currentUrl() || t("about:blank")}
               </text>

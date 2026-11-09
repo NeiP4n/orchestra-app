@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../../ui/hover-feedback"
 import {
   batch,
   createEffect,
@@ -2163,6 +2164,7 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
   const data = useData()
   const local = useLocal()
   const theme = useTheme()
+  const continueHover = createHoverFeedback()
   const t = useT()
   const toast = useToast()
   const [continuing, setContinuing] = createSignal(false)
@@ -2219,7 +2221,7 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
       </Show>
       <Show when={ctx.canResumeRateLimited !== false && rateLimitPending() && !retry()}>
         <box paddingLeft={3}>
-          <text fg={theme.text.action.primary.base} selectable={false} onMouseUp={continueWork}>
+          <text fg={theme.text.action.primary.base} selectable={false} bg={continueHover.background()} onMouseOver={continueHover.onMouseOver} onMouseOut={continueHover.onMouseOut} onMouseUp={continueWork}>
             {continuing() ? t("Continuing work…") : `↻ ${t("Continue work")}`}
           </text>
         </box>

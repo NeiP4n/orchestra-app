@@ -1,3 +1,4 @@
+import { hoverBackground } from "../ui/hover"
 import { Keymap } from "../context/keymap"
 import { createStateFeedback } from "../ui/state-feedback"
 import { useConfig } from "../config"
@@ -12,6 +13,7 @@ import { scheduleDetails, scheduleEllipsis, scheduleState, scheduleTone } from "
 
 export function ScheduleList(props: { sessionID: string; width?: number }) {
   const theme = useTheme()
+  const [hoveredRemove, setHoveredRemove] = createSignal<string>()
   const [selected, setSelected] = createSignal<string>()
   const [armed, setArmed] = createSignal<string>()
   const [error, setError] = createSignal("")
@@ -61,7 +63,7 @@ export function ScheduleList(props: { sessionID: string; width?: number }) {
           </HoverAction>
           <box flexDirection="row" gap={1}>
             <box flexGrow={1}><text fg={theme.text.muted}>{item.lastFiredAt === undefined ? "ещё не срабатывал" : `сработал ${Math.max(0, Math.floor((now() - item.lastFiredAt) / 1000))} с назад · ${item.total ?? "?"} раз`}</text></box>
-            <box minWidth={5} onMouseDown={(event) => event.stopPropagation()} onMouseUp={(event) => { event.stopPropagation(); remove(item.id) }}>
+            <box minWidth={5} backgroundColor={hoveredRemove() === item.id ? hoverBackground(theme, "destructive") : undefined} onMouseOver={() => setHoveredRemove(item.id)} onMouseOut={() => setHoveredRemove(undefined)} onMouseDown={(event) => event.stopPropagation()} onMouseUp={(event) => { event.stopPropagation(); remove(item.id) }}>
               <text fg={theme.text.feedback.error.base}>{ScheduleView.removalRequested(item.id, props.sessionID) ? "удаление…" : armed() === item.id ? "[да?]" : "[ × ]"}</text>
             </box>
           </box>

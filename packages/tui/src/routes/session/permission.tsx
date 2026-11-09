@@ -383,6 +383,8 @@ function RejectPrompt(props: {
   let input: TextareaRenderable
   const enabled = useInteractivity()
   const theme = useTheme()
+  const confirmHover = createHoverFeedback()
+  const cancelHover = createHoverFeedback("secondary")
   const config = useConfig().data
   const dimensions = useTerminalDimensions()
   const narrow = createMemo(() => dimensions().width < 80)
@@ -483,6 +485,9 @@ function RejectPrompt(props: {
               label: "Confirm rejection",
               disabled: false,
             }))}
+            backgroundColor={confirmHover.background()}
+            onMouseOver={confirmHover.onMouseOver}
+            onMouseOut={confirmHover.onMouseOut}
             onMouseUp={() => props.onConfirm(input.plainText)}
           >
             <text fg={theme.text.base}>
@@ -497,6 +502,9 @@ function RejectPrompt(props: {
               label: "Cancel rejection",
               disabled: false,
             }))}
+            backgroundColor={cancelHover.background()}
+            onMouseOver={cancelHover.onMouseOver}
+            onMouseOut={cancelHover.onMouseOut}
             onMouseUp={props.onCancel}
           >
             <text fg={theme.text.base}>
