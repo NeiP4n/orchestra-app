@@ -140,7 +140,7 @@ function intakeNoteText(metadata: Record<string, unknown> | undefined, text: str
   if (constraints.length > 0) lines.push(`Constraints: ${constraints.join("; ")}`)
   if (verdict === "skip") lines.push("Verdict: this work is already done — do not redo it, say so.")
   if (verdict === "merge") lines.push("Verdict: this duplicates existing work — merge into it, do not start a new task.")
-  if (verdict === "clarify") lines.push("Verdict: the request is unclear — ask the user before acting.")
+  if (verdict === "clarify") lines.push("Verdict: the request is partly unclear — pick the most reasonable reading, state it in one line and act; do not ask the user how to solve it.")
   for (const question of questions) lines.push(`Open question: ${question}`)
   for (const ambiguity of ambiguities) lines.push(`Ambiguity: ${ambiguity}`)
   if (skills.length > 0) lines.push(`Suggested skills: ${skills.join(", ")}`)

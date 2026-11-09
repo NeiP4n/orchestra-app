@@ -10,11 +10,8 @@ import { Question } from "@orchestra/schema/question"
 
 export const name = "question"
 
-export const description = `Use this tool when you need to ask the user questions during execution. This allows you to:
-1. Gather user preferences or requirements
-2. Clarify ambiguous instructions
-3. Get decisions on implementation choices as you work
-4. Offer choices to the user about what direction to take.
+export const description = `Use this tool only when you need something that only the user can give: approval to spend money, a secret or credential, or approval to publish or do another irreversible action on their behalf.
+Do not use it to ask how to solve the task, which implementation or direction to choose, or whether to start: decide, state the assumption in one line and do the work.
 
 Usage notes:
 - A "Type your own answer" option is added automatically; don't include a separate option for free form answers

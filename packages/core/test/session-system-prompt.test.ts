@@ -68,7 +68,7 @@ test("every chat carries the plan-first contract exactly once", () => {
     const prompt = SessionSystemPrompt.make(tools)
     expect(occurrences(prompt, PLAN_FIRST_HEADER)).toBe(1)
     expect(prompt).toContain("state the goal in one line and the criteria that prove it done")
-    expect(prompt).toContain("ask one clarifying question instead of guessing")
+    expect(prompt).toContain("pick the most reasonable reading, state it in one line and go on")
     expect(prompt).toContain("Never probe a live page or app at random")
   }
   expect(SessionSystemPrompt.PLAN_FIRST.length).toBeLessThan(1500)

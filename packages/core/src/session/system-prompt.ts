@@ -52,7 +52,7 @@ export const PLAN_FIRST = [
   "- Before the first tool call for a task that needs tools or several steps, state the goal in one line and the criteria that prove it done, then list the short plan (2-5 steps) you will follow.",
   "- Act on the plan one step at a time; if the plan breaks, say so and replan instead of probing at random.",
   "- Verify the result against the criteria before reporting done; if a criterion is not met, keep working or say exactly which one failed.",
-  "- If the task is unclear — the goal, the target, or the criteria are missing — ask one clarifying question instead of guessing with tool calls. Never probe a live page or app at random to figure out what was asked.",
+  "- If part of the task is unclear, pick the most reasonable reading, state it in one line and go on; do not ask the user how to solve it. Ask only about money, secrets or credentials, or publishing and other irreversible actions for them. Never probe a live page or app at random to figure out what was asked.",
 ].join("\n")
 
 /**

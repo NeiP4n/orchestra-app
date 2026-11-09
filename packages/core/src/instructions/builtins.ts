@@ -127,10 +127,10 @@ const layer = Layer.effect(
               read: Effect.succeed(
                 [
                   "<ask-first>",
-                  "  Before writing any code for a task, first write exactly three questions about the parts of the task that are unclear to you, then work from the answers.",
-                  "  Ask about the goal, the constraints or the acceptance check — not about trivia you can read in the code yourself.",
-                  "  When a task is trivial and nothing is unclear, write one line saying so instead of inventing questions.",
-                  "  This is for code-writing work only: never for a greeting, a question, a status check or lead and orchestration work, and never as a visible Goal/Criteria/Plan block.",
+                  "  Decide how to solve the task yourself. Do not ask the user how to approach it, which option to pick, or for permission to start.",
+                  "  When a part of the task is unclear, read the code, choose the most reasonable reading, state that assumption in one line and go on.",
+                  "  Ask the user only about spending money, secrets or credentials, publishing or other irreversible actions on their behalf.",
+                  "  Never show this as a Goal/Criteria/Plan block or a list of questions.",
                   "</ask-first>",
                 ].join("\n"),
               ),

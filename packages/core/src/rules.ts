@@ -78,6 +78,14 @@ const toRule = (item: Partial<Rule>): Rule => ({
   at: Number(item.at ?? 0),
 })
 
+// Two defaults that made the AI ask the operator how to solve a task (three questions before code, a read-only
+// "questions only" phase) were removed from DEFAULT_SOCIETY_RULES. Societies seeded earlier still store them, so a
+// stored rule with exactly one of these texts, seeded by "operator", is no longer loaded.
+const LEGACY_DEFAULTS: ReadonlySet<string> = new Set([
+  "Before writing code for a task, first write exactly 3 questions about what is unclear in it, then work from the answers.",
+  "The first 30 minutes of a sprint are reading code and asking questions only; writing code is forbidden until the read-only phase ends.",
+])
+
 /** The stored rules of a scope plus how many stored entries are corrupt and were skipped. */
 export const inspect = (kv: KV.Interface, scope: string): Effect.Effect<{ rules: ReadonlyArray<Rule>; corrupt: number }> =>
   kv.get(KEY + scope).pipe(
@@ -87,8 +95,10 @@ export const inspect = (kv: KV.Interface, scope: string): Effect.Effect<{ rules:
       const rules: Rule[] = []
       let corrupt = 0
       for (const item of value) {
-        if (isRule(item)) rules.push(toRule(item))
-        else corrupt++
+        if (isRule(item)) {
+          const rule = toRule(item)
+          if (!(rule.by === "operator" && LEGACY_DEFAULTS.has(rule.text))) rules.push(rule)
+        } else corrupt++
       }
       return { rules, corrupt }
     }),
@@ -168,10 +178,8 @@ export type AddResult = { readonly error: string; readonly rule?: undefined } | 
 // the operator can, like any operator rule. A Society that already has its own rules
 // keeps them: seeding only fills an empty society scope, it never rewrites one.
 export const DEFAULT_SOCIETY_RULES: ReadonlyArray<string> = [
-  "Before writing code for a task, first write exactly 3 questions about what is unclear in it, then work from the answers.",
   "A big decision — a library, architecture, or module boundary — needs an ADR in .orchestra/decisions/adr-NNNN.md before the code that implements it.",
   "Before any pause or stop, write .orchestra/sessions/<id>/handoff.md: where you stopped, what works, what does not, and the next step.",
-  "The first 30 minutes of a sprint are reading code and asking questions only; writing code is forbidden until the read-only phase ends.",
   "Do the riskiest, least-known part of a task first, not the easiest part; fail fast and cheap, while the rest is still undone.",
   "When a task is verified DONE or FAILED, record the outcome in the knowledge map, so the next assignment uses facts, not claims.",
 ]
