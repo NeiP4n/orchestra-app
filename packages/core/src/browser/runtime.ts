@@ -741,8 +741,19 @@ export function agentCursor(sessionID: string) {
 
 /** What a session shows right now, without starting it. */
 export async function peek(sessionID: string): Promise<{ running: boolean; title?: string; url?: string }> {
-  const item = live.get(sessionID)
-  if (!item) return { running: false }
+  let item = live.get(sessionID)
+  if (!item || item.client.isClosed?.() === true) {
+    // The panel may run Chrome in another process: the real Chrome on the session's profile counts, not only our own map.
+    const port = await Chrome.livePort(deps.readFile, alive, Chrome.profileDir(Global.Path.data, sessionID)).catch(() => undefined)
+    if (port === undefined) return { running: false }
+    try {
+      await open(sessionID)
+      item = live.get(sessionID)
+    } catch {
+      return { running: true }
+    }
+    if (!item) return { running: true }
+  }
   try {
     const info = await Cdp.pageInfo(item.client)
     return { running: true, title: info.title, url: info.url }
