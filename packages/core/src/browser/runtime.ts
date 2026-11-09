@@ -745,6 +745,7 @@ export async function peek(sessionID: string): Promise<{ running: boolean; title
   if (!item || item.client.isClosed?.() === true) {
     // The panel may run Chrome in another process: the real Chrome on the session's profile counts, not only our own map.
     const port = await Chrome.livePort(deps.readFile, alive, Chrome.profileDir(Global.Path.data, sessionID)).catch(() => undefined)
+    trace(`peek ${sessionID}: profile ${Chrome.profileDir(Global.Path.data, sessionID)}, live port ${port ?? "none"}, own connection ${item ? "closed" : "none"}`)
     if (port === undefined) return { running: false }
     try {
       await open(sessionID)

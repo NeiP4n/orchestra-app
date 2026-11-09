@@ -130,6 +130,7 @@ const layer = Layer.effect(
                   "  Before writing any code for a task, first write exactly three questions about the parts of the task that are unclear to you, then work from the answers.",
                   "  Ask about the goal, the constraints or the acceptance check — not about trivia you can read in the code yourself.",
                   "  When a task is trivial and nothing is unclear, write one line saying so instead of inventing questions.",
+                  "  This is for code-writing work only: never for a greeting, a question, a status check or lead and orchestration work, and never as a visible Goal/Criteria/Plan block.",
                   "</ask-first>",
                 ].join("\n"),
               ),
