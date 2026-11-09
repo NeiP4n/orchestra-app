@@ -86,7 +86,9 @@ test("deleting a chat or removing a browser session cleans the Browser tab: no p
   expect(read("component/session-frame.tsx")).toContain("A chat no browser session owns")
 })
 
-test("a browser session row in the Browsers group brings up the Browser view", () => {
+test("a browser session row in the Browsers group opens only its chat from Projects, and the view follow-up leaves the tab", () => {
   const tree = read("component/project-tree.tsx")
-  expect(tree.match(/notes\.setTab\("browser"\)/g)?.length).toBeGreaterThanOrEqual(2)
+  expect(tree).toContain("openedFromProjects.add(item.chat)")
+  expect(tree).not.toContain('notes.setTab("browser")')
+  expect(read("component/session-frame.tsx")).toContain("openedFromProjects.delete(id)")
 })

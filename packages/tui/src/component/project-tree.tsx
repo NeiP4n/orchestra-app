@@ -27,7 +27,7 @@ import { roomClient, tellHostLeft, unlinkRoom } from "../util/room-guest"
 import { DialogGroups } from "./dialog-groups"
 import { openProjectDialog } from "./dialog-project"
 import { useProjects } from "../context/projects"
-import { browserSessionGroups } from "../util/browser-sessions"
+import { browserSessionGroups, openedFromProjects } from "../util/browser-sessions"
 import { DialogPrompt } from "../ui/dialog-prompt"
 import { DialogSelect } from "../ui/dialog-select"
 import { DialogRules } from "./dialog-rules"
@@ -656,8 +656,12 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                             notes.selectBrowserSession(project.id, item.id)
                             notes.ensureBrowserAgent(project.id, item.id, project.directory)
                             notes.setProject(project.id)
-                            // From the Projects tab the row also brings the Browser view up.
-                            notes.setTab("browser")
+                            // From the Projects tab the row opens only its chat; the tab stays (the user's explicit pick).
+                            if (notes.tab() !== "browser" && item.chat) {
+                              if (!(route.data.type === "session" && route.data.sessionID === item.chat)) openedFromProjects.add(item.chat)
+                              route.navigate({ type: "session", sessionID: item.chat })
+                              return
+                            }
                             if (!inProject(project)) void openMain(project)
                           }}
                         >
@@ -722,7 +726,6 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                     onClick={() => {
                       notes.addBrowserSession(project.id, project.directory)
                       notes.setProject(project.id)
-                      notes.setTab("browser")
                       if (!inProject(project)) void openMain(project)
                     }}
                   >

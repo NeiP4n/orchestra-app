@@ -133,3 +133,6 @@ export function forgetBrowserChat(state: BrowserSessionsState, chat: string) {
   for (const item of Object.values(state.projects).flat()) if (item.chat === chat) delete item.chat
   for (const item of Object.values(state.closed ?? {}).flat()) if (item.chat === chat) delete item.chat
 }
+
+/** BrowserAgent chats the user opened from the Projects tab: the view stays on Projects for them. */
+export const openedFromProjects = new Set<string>()

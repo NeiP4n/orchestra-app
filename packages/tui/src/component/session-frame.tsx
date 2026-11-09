@@ -14,6 +14,7 @@ import { consoleSiblings, consoleTerminalID } from "../util/console-terminal"
 import { useData } from "../context/data"
 import { useProjects } from "../context/projects"
 import { owningProject } from "../util/project-owner"
+import { openedFromProjects } from "../util/browser-sessions"
 import { publishSelection, publishSessions, trace } from "../util/browser-runtime"
 import { Keymap } from "../context/keymap"
 import { InteractivityProvider } from "../context/interactivity"
@@ -245,7 +246,10 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
         if (!info) return // not loaded yet: leave the view alone rather than guess
         const isBrowserChat = info.agent === "team-browser-agent"
         const tab = untrack(() => notes.tab())
-        if (isBrowserChat && tab !== "browser") notes.setTab("browser")
+        if (isBrowserChat && tab !== "browser") {
+          // Opened by a click in the Projects tab: the explicit pick wins, the view stays.
+          if (!openedFromProjects.delete(id)) notes.setTab("browser")
+        }
         else if (!isBrowserChat && tab === "browser") notes.setTab("projects")
       },
       { defer: true },
