@@ -2571,7 +2571,7 @@ const layer: Layer.Layer<
                 if (cycle === null) {
                   yield* kv.remove(key)
                   return yield* new DispatchError({
-                    message: `Autoloop has no run ready for this task (the dispatch rule is missing, ${AutoloopOrchestrator.MAX_CONCURRENT_RUNS} runs are already in flight, or the Society's autonomy mode is observe/off — the task is queued as a proposal, flip the mode to auto to execute it).`,
+                    message: `Autoloop has no run ready for this task (the dispatch rule is missing, ${AutoloopOrchestrator.MAX_CONCURRENT_RUNS} runs are already in flight, or the Society's autonomy mode is observe/off — observe is the default of a new setup). The task was NOT sent and it is queued as a proposal. To let the Orchestrator delegate, the operator sets orchestra.society.autonomy to "auto" in the Orchestra config and restarts the server; until then do the work in this session yourself and say so.`,
                   })
                 }
                 yield* kv.set(
