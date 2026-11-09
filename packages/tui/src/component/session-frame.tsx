@@ -222,6 +222,23 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
       },
     ),
   )
+  // And the other way round: the view follows the chat that opens. A BrowserAgent chat belongs to the Browser view
+  // and every other chat (the Orchestrator included) to Projects, wherever the user opened it from. It runs when the
+  // open chat changes, not when the tab does, so choosing a tab still wins until another chat is opened.
+  createEffect(
+    on(
+      () => props.sessionID,
+      (id) => {
+        const info = data.session.get(id)
+        if (!info) return // not loaded yet: leave the view alone rather than guess
+        const isBrowserChat = info.agent === "team-browser-agent"
+        const tab = untrack(() => notes.tab())
+        if (isBrowserChat && tab !== "browser") notes.setTab("browser")
+        else if (!isBrowserChat && tab === "browser") notes.setTab("projects")
+      },
+      { defer: true },
+    ),
+  )
   let resizeRelease = false
   const finishPaneResize = (event: MouseEvent) => {
     if (paneResize.resizing() || sidebarResize.resizing() || noteChatResize.resizing()) {

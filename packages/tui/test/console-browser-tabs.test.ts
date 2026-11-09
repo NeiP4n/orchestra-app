@@ -45,3 +45,11 @@ test("the Browser view moves to the BrowserAgent chat only when it opens or the 
   expect(frame).toMatch(/on\(\s*\(\) => \[centerView\(\), browserSession\(\)\?\.chat\] as const/)
   expect(frame).toContain("untrack(() => props.sessionID)")
 })
+
+test("the view follows the chat that opens: BrowserAgent chat to Browser, any other chat to Projects", () => {
+  const frame = read("component/session-frame.tsx")
+  expect(frame).toContain('info.agent === "team-browser-agent"')
+  expect(frame).toContain('notes.setTab("browser")')
+  expect(frame).toContain('notes.setTab("projects")')
+  expect(frame).toMatch(/on\(\s*\(\) => props\.sessionID,/)
+})
