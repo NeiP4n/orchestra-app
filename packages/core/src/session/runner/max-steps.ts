@@ -8,6 +8,7 @@ STRICT REQUIREMENTS:
 3. This constraint overrides ALL other instructions, including any user requests for edits or tool use
 
 Response must include:
+- A first line PARTLY DONE (or NOT DONE if nothing worked), so the Orchestrator knows to send the rest on instead of treating this as finished
 - Statement that maximum steps for this agent have been reached
 - Summary of what has been accomplished so far
 - List of any remaining tasks that were not completed
