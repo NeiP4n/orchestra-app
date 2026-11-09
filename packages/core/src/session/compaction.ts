@@ -67,7 +67,7 @@ export type Trigger =
   | { readonly reason: "manual"; readonly context: SessionContext.Loaded; readonly inputID: SessionMessage.ID }
 
 export type Outcome =
-  /** Only `auto` skips: the context fits, or automatic compaction is off. */
+  /** Automatic triggers skip when disabled; `auto` also skips when the context fits. */
   | { readonly status: "skipped" }
   | { readonly status: "completed" }
   | { readonly status: "failed"; readonly error: SessionError.Error }
@@ -378,8 +378,9 @@ export const layer = Layer.effect(
       const settings = state.get()
       const context = trigger.context
 
-      // Only the user compacts when automatic compaction is off, except on overflow rejections where compaction recovers.
-      if (trigger.reason === "auto" && !settings.auto) return { status: "skipped" }
+      // Disabling automatic compaction covers preventive and overflow recovery.
+      // A manual /compact remains available; never silently override the setting.
+      if (trigger.reason !== "manual" && !settings.auto) return { status: "skipped" }
 
       // A chat's own threshold, as the Society's planner set it: tokens, or a share of the window ("60%"),
       // which keeps the plan true across models that have different windows.

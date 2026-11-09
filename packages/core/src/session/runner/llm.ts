@@ -448,7 +448,7 @@ const layer = Layer.effect(
           recoverContinuation,
           fallback: (cause, error) => nextModel(loaded, cause, error, refused),
           recoverOverflow: Effect.suspend(() =>
-            recoverOverflow
+            recoverOverflow && compaction.getSettings().auto
               ? compaction
                   .compact({ reason: "overflow", context: loaded })
                   .pipe(Effect.map((result) => result.status === "completed"))
