@@ -30,6 +30,8 @@ export const {
   isWindowed,
   modeOf,
   captureProblemOf,
+  captureAttemptOf,
+  captureRetrying,
   reload,
 } = BrowserRuntime
 

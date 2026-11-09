@@ -619,6 +619,13 @@ const captureProblems = new Map<string, string>()
 // software compositing, which PrintWindow can read. Slower (more CPU, no GPU video or WebGL speed), so only after a blank print.
 const softwareCapture = new Set<string>()
 export const softwareCaptureOf = (sessionID: string) => softwareCapture.has(sessionID)
+// The last attempt, after software compositing also printed blank: no layered/alpha-0 window, only kept off screen.
+const noLayerCapture = new Set<string>()
+// A retry (software, then no-layer) is running: the pane says so instead of "fast view because blank".
+const retrying = new Set<string>()
+export const captureAttemptOf = (sessionID: string) =>
+  noLayerCapture.has(sessionID) ? "no-layered" : softwareCapture.has(sessionID) ? "software" : "gpu"
+export const captureRetrying = (sessionID: string) => retrying.has(sessionID)
 export const captureProblemOf = (sessionID: string) => captureProblems.get(sessionID)
 
 export const modeOf = (sessionID: string): Mode => {
@@ -765,6 +772,7 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
         size,
         undefined,
         (text) => trace(`helper: ${text}`),
+        noLayerCapture.has(sessionID),
       )
       // The window prints blank, or cannot be kept invisible: the pane would show black or Chrome over the terminal.
       // Back to the windowless Chrome (the pane draws its own tab strip there), once.
@@ -775,12 +783,16 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
         captureProblems.set(sessionID, text)
         // A blank print is the GPU-composited window: PrintWindow already runs with PW_RENDERFULLCONTENT (2), so the one
         // remaining try is the same window with software compositing. Only if that prints blank too, the windowless Chrome.
-        if (/blank/i.test(text) && !softwareCapture.has(sessionID)) {
-          softwareCapture.add(sessionID)
-          trace(`${sessionID}: window capture problem (${text}), trying once more with software compositing`)
+        if (/blank/i.test(text) && (!softwareCapture.has(sessionID) || !noLayerCapture.has(sessionID))) {
+          const step = !softwareCapture.has(sessionID) ? "software compositing" : "a window without the alpha-0 trick"
+          if (!softwareCapture.has(sessionID)) softwareCapture.add(sessionID)
+          else noLayerCapture.add(sessionID)
+          retrying.add(sessionID)
+          trace(`${sessionID}: window capture problem (${text}), trying once more with ${step}`)
           void relaunch(sessionID, "headless", size)
             .then(() => relaunch(sessionID, "capture", size))
             .catch(() => relaunch(sessionID, "headless", size).catch(() => undefined))
+            .finally(() => retrying.delete(sessionID))
           return
         }
         trace(`${sessionID}: window capture problem (${text}), back to the windowless Chrome`)

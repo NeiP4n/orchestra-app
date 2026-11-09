@@ -37,8 +37,9 @@ export function parseLine(line: string): Line {
   return { type: "other", text }
 }
 
-export const attachCommand = (pid: number, size: Size) =>
-  `attach ${Math.trunc(pid)} ${OFFSCREEN.x} ${OFFSCREEN.y} ${Math.round(size.width)} ${Math.round(size.height)}`
+/** `noLayer` is the last attempt: no layered/alpha-0 trick, the window is only kept off screen (position -32000). */
+export const attachCommand = (pid: number, size: Size, noLayer = false) =>
+  `attach ${Math.trunc(pid)} ${OFFSCREEN.x} ${OFFSCREEN.y} ${Math.round(size.width)} ${Math.round(size.height)}${noLayer ? " nolayer" : ""}`
 
 export const sizeCommand = (size: Size) => `size ${Math.round(size.width)} ${Math.round(size.height)}`
 
@@ -136,7 +137,8 @@ public static class Cap {
   static bool seenContent = false;
   static bool blankReported = false;
   // Tool window (no taskbar, no Alt-Tab), layered at alpha 0 (invisible wherever it is), click-through, never activated.
-  const int WANT = 0x80 | 0x80000 | 0x20 | 0x08000000;
+  static int WANT = 0x80 | 0x80000 | 0x20 | 0x08000000;
+  static bool noLayer = false;
   static ConcurrentQueue<string> queue = new ConcurrentQueue<string>();
   static ImageCodecInfo jpeg;
   static EncoderParameters quality;
@@ -160,11 +162,23 @@ public static class Cap {
     uint pid = uint.Parse(a[1]);
     posX = int.Parse(a[2]); posY = int.Parse(a[3]);
     int w = int.Parse(a[4]), h = int.Parse(a[5]);
+    // Last attempt: not layered (no alpha-0), only tool window + click-through + no-activate, kept off screen by position.
+    if (a.Length > 6 && a[6] == "nolayer") { noLayer = true; WANT = 0x80 | 0x20 | 0x08000000; }
     for (int i = 0; i < 100 && hwnd == IntPtr.Zero; i++) { hwnd = Find(pid); if (hwnd == IntPtr.Zero) Thread.Sleep(100); }
     if (hwnd == IntPtr.Zero) { Say("S err no Chrome window for that process"); return; }
     chromePid = pid;
     ShowWindow(hwnd, 0);
     Hide();
+    if (noLayer) {
+      // Proof before any frame: the window is far off screen (and not shown yet), otherwise it could show over the terminal.
+      SetWindowPos(hwnd, (IntPtr)1, posX, posY, w, h, 0x10);
+      RECT q; GetWindowRect(hwnd, out q);
+      if (q.L > posX + 100 || (GetWindowLong(hwnd, -20) & WANT) != WANT) { Say("S err the Chrome window could not be kept off screen"); return; }
+      ShowWindow(hwnd, 4);
+      SetWindowPos(hwnd, (IntPtr)1, posX, posY, w, h, 0x10);
+      Say("S ok attached off screen");
+      return;
+    }
     // Proof before any frame: the window must be layered at alpha 0, otherwise it could show over the terminal.
     uint key; byte alpha; uint flags;
     if (!GetLayeredWindowAttributes(hwnd, out key, out alpha, out flags) || alpha != 0 || (GetWindowLong(hwnd, -20) & WANT) != WANT) {
@@ -178,8 +192,9 @@ public static class Cap {
   static void Hide() {
     int ex = GetWindowLong(hwnd, -20);
     ex = (ex | WANT) & ~0x40000;
+    if (noLayer) ex &= ~0x80000;
     SetWindowLong(hwnd, -20, ex);
-    SetLayeredWindowAttributes(hwnd, 0, 0, 2);
+    if (!noLayer) SetLayeredWindowAttributes(hwnd, 0, 0, 2);
   }
 
   // Chrome can move its window back on screen, restore it or take the focus when a tab is activated. Every
@@ -193,7 +208,8 @@ public static class Cap {
       if (lastForeground != IntPtr.Zero && lastForeground != fg) SetForegroundWindow(lastForeground);
     } else if (fg != IntPtr.Zero) lastForeground = fg;
     uint key; byte alpha; uint flags;
-    if (!GetLayeredWindowAttributes(hwnd, out key, out alpha, out flags) || alpha != 0 || (GetWindowLong(hwnd, -20) & WANT) != WANT) Hide();
+    if (noLayer) { if ((GetWindowLong(hwnd, -20) & WANT) != WANT) Hide(); }
+    else if (!GetLayeredWindowAttributes(hwnd, out key, out alpha, out flags) || alpha != 0 || (GetWindowLong(hwnd, -20) & WANT) != WANT) Hide();
     if (IsIconic(hwnd)) ShowWindow(hwnd, 4);
     RECT r; if (GetWindowRect(hwnd, out r) && (r.L != posX || r.T != posY)) SetWindowPos(hwnd, (IntPtr)1, posX, posY, 0, 0, 0x11); // no size, no activate
   }
@@ -347,6 +363,7 @@ export function start(
   size: Size,
   timeoutMs = 12_000,
   note?: (text: string) => void,
+  noLayer = false,
 ): Promise<Controller> {
   const process = spawn()
   let listener: ((frame: { data: string; width: number; height: number }) => void) | undefined
@@ -394,6 +411,6 @@ export function start(
         fail(line.text || "The window capture helper could not attach.")
       }
     })
-    process.write(attachCommand(pid, size))
+    process.write(attachCommand(pid, size, noLayer))
   })
 }

@@ -101,7 +101,7 @@ test("the pane header says whether Chrome's own window is shown and why not", as
   const pane = readFileSync(new URL("../src/component/browser-pane.tsx", import.meta.url), "utf8")
   const line = pane.slice(pane.indexOf("const captureLine"), pane.indexOf("const switchMode"))
   // every reason the user can run into has its own wording
-  for (const part of ["capture: on", "ORCHESTRA_BROWSER_CAPTURE=0", "because:", "capture: starting", "first picture", "turn ends", "captureProblemOf"])
+  for (const part of ["captureAttemptOf", "captureRetrying", "capture: retrying", "attempt: ${attempt}", "capture: on", "ORCHESTRA_BROWSER_CAPTURE=0", "because:", "capture: starting", "first picture", "turn ends", "captureProblemOf"])
     expect(line).toContain(part)
   // the reasons are recorded where capture is given up
   for (const reason of ["you pressed Fast view", "no picture", "did not start"]) expect(pane).toContain(reason)

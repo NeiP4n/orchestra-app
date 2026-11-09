@@ -526,10 +526,14 @@ export function BrowserPane(props: {
   const captureLine = () => {
     tick()
     if (process.platform !== "win32" || mode() === "window") return undefined
-    if (mode() === "capture") return "capture: on (Chrome's own window)"
+    const attempt = BrowserRuntime.captureAttemptOf(props.sessionID)
+    if (mode() === "capture") return `capture: on (Chrome's own window, attempt: ${attempt})`
     const reason = captureWhy.get(props.sessionID) ?? BrowserRuntime.captureProblemOf(props.sessionID)
+    // The runtime is trying the next way (gpu -> software -> no-layered) after a blank print: not a final fall-back yet.
+    if (BrowserRuntime.captureRetrying(props.sessionID))
+      return `capture: retrying, attempt: ${attempt}${reason ? ` (after: ${reason})` : ""}`
     if (!autoCapture) return "capture: off (ORCHESTRA_BROWSER_CAPTURE=0), fast view"
-    if (reason) return `capture: off, fast view because: ${reason}`
+    if (reason) return `capture: off, fast view because: ${reason} (last attempt: ${attempt})`
     if (switching.has(props.sessionID)) return "capture: starting"
     if (!framed()) return "capture: waits for the first picture"
     if (props.busy?.()) return "capture: waits until the agent's turn ends"
