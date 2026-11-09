@@ -128,6 +128,7 @@ export async function perform(sessionID: string, input: Input) {
     case "click": {
       const result = await evaluate(client, BrowserPage.clickExpression({ selector: input.selector, text: input.text }))
       if (!result.ok) throw new Error(result.error ?? "Click failed.")
+      BrowserRuntime.pointAgent(sessionID, result.at)
       await settle()
       return {
         text: `Clicked ${result.tag}${result.text ? ` "${result.text}"` : ""}.\n\n${page(await Cdp.pageInfo(client), await Cdp.pageText(client))}`,
@@ -137,6 +138,7 @@ export async function perform(sessionID: string, input: Input) {
       if (!input.selector || input.text === undefined) throw new Error("type needs a selector and a text.")
       const result = await evaluate(client, BrowserPage.typeExpression({ selector: input.selector, text: input.text }))
       if (!result.ok) throw new Error(result.error ?? "Typing failed.")
+      BrowserRuntime.pointAgent(sessionID, result.at)
       if (input.submit) {
         for (const type of ["keyDown", "keyUp"])
           await client.send("Input.dispatchKeyEvent", {

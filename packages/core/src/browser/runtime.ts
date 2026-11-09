@@ -672,6 +672,25 @@ export function setLease(sessionID: string, agent: string | undefined) {
   writeFileSync(file, JSON.stringify(BrowserBridge.withLease(leases(), sessionID, agent, Date.now()), null, 2))
 }
 
+/** Records where an agent just acted, for the Browser tab to show; ORCHESTRA_AGENT_CURSOR=0 turns it off. */
+export function pointAgent(sessionID: string, at: { x: number; y: number } | undefined) {
+  if (!at || process.env.ORCHESTRA_AGENT_CURSOR === "0") return
+  try {
+    const file = BrowserBridge.cursorFile(Global.Path.data)
+    const all = BrowserBridge.parseCursors(existsSync(file) ? readFileSync(file, "utf8") : undefined)
+    all[sessionID] = { x: at.x, y: at.y, at: Date.now() }
+    mkdirSync(path.dirname(file), { recursive: true })
+    writeFileSync(file, JSON.stringify(all))
+  } catch {
+    // The cursor is a courtesy; a failed write never fails the action.
+  }
+}
+
+export function agentCursor(sessionID: string) {
+  const file = BrowserBridge.cursorFile(Global.Path.data)
+  return BrowserBridge.parseCursors(existsSync(file) ? readFileSync(file, "utf8") : undefined)[sessionID]
+}
+
 /** What a session shows right now, without starting it. */
 export async function peek(sessionID: string): Promise<{ running: boolean; title?: string; url?: string }> {
   const item = live.get(sessionID)

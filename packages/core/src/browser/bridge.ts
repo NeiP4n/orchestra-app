@@ -56,6 +56,33 @@ export function withSelection(map: Record<string, string>, directory: string, se
 export const sessionsFile = (root: string) => path.join(root, "browser-profiles", "sessions.json")
 export const leasesFile = (root: string) => path.join(root, "browser-profiles", "leases.json")
 
+export const cursorFile = (root: string) => path.join(root, "browser-profiles", "agent-cursor.json")
+
+/** Where an agent last acted in a session: fractions of the window, and when. */
+export interface Cursor {
+  readonly x: number
+  readonly y: number
+  readonly at: number
+}
+
+export function parseCursors(text: string | undefined): Record<string, Cursor> {
+  if (!text) return {}
+  try {
+    const value = JSON.parse(text) as unknown
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+    return Object.fromEntries(
+      Object.entries(value).flatMap(([id, item]): Array<[string, Cursor]> => {
+        const c = item as { x?: unknown; y?: unknown; at?: unknown } | null
+        return c && typeof c.x === "number" && typeof c.y === "number" && typeof c.at === "number"
+          ? [[id, { x: Math.min(1, Math.max(0, c.x)), y: Math.min(1, Math.max(0, c.y)), at: c.at }]]
+          : []
+      }),
+    )
+  } catch {
+    return {}
+  }
+}
+
 export interface SessionInfo {
   readonly id: string
   readonly name: string

@@ -14,6 +14,7 @@ export const {
   publishSessions,
   trace,
   leases,
+  agentCursor,
   setLease,
   watch,
   unwatch,

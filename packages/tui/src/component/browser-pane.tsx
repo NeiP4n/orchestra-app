@@ -163,6 +163,22 @@ export function BrowserPane(props: {
       setMarker(undefined)
     })
   })
+  // Where an agent's browser tool last clicked or typed in this session: a marker in the agent's own colour that
+  // stays a few seconds and is gone. ORCHESTRA_AGENT_CURSOR=0 (read by the tool) writes nothing, so nothing shows.
+  const [agentAt, setAgentAt] = createSignal<{ x: number; y: number }>()
+  createEffect(() => {
+    const timer = setInterval(() => {
+      const spot = BrowserRuntime.agentCursor(props.sessionID)
+      const area = size()
+      const next =
+        !spot || !area || Date.now() - spot.at > 4000
+          ? undefined
+          : { x: Math.min(Math.max(0, area.cols - 8), Math.floor(spot.x * area.cols)), y: Math.min(area.rows - 1, Math.floor(spot.y * area.rows)) }
+      const before = agentAt()
+      if (before?.x !== next?.x || before?.y !== next?.y || (before === undefined) !== (next === undefined)) setAgentAt(next)
+    }, 250)
+    onCleanup(() => clearInterval(timer))
+  })
   const [route, setRoute] = createSignal("")
   // While the operator has control, the agent's browser tool is refused for this session; letting go frees it
   // again (an assignment to an agent is never cleared by this).
@@ -497,6 +513,18 @@ export function BrowserPane(props: {
                   height={size()?.rows ?? 1}
                   fit="fill"
                 />
+                <Show when={!control() && agentAt()}>
+                  <text
+                    position="absolute"
+                    left={agentAt()!.x}
+                    top={agentAt()!.y}
+                    fg={theme.text.feedback.warning.base}
+                    attributes={TextAttributes.BOLD}
+                    selectable={false}
+                  >
+                    ◆ agent
+                  </text>
+                </Show>
                 <Show when={control() && marker()}>
                   <text
                     position="absolute"

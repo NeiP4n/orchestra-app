@@ -49,6 +49,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Minutes between activation checks for idle workers.",
     default: "5",
   },
+  ORCHESTRA_AGENT_CURSOR: {
+    purpose: "Show the agent's cursor in the Browser tab where its browser tool clicked or typed (\"0\" turns it off).",
+    default: "On.",
+  },
   ORCHESTRA_API_KEY: {
     purpose: "API key for the opencode provider, used when no stored credential exists.",
   },

@@ -337,3 +337,17 @@ describe("browser sessions and leases", () => {
     expect(BrowserBridge.withLease(one, "a", undefined, 6)).toEqual({})
   })
 })
+
+describe("the agent's cursor", () => {
+  test("is read back clamped to the window, and junk is ignored", () => {
+    const text = JSON.stringify({ a: { x: 0.25, y: 1.5, at: 7 }, b: { x: "no" }, c: null })
+    expect(BrowserBridge.parseCursors(text)).toEqual({ a: { x: 0.25, y: 1, at: 7 } })
+    expect(BrowserBridge.parseCursors("not json")).toEqual({})
+    expect(BrowserBridge.parseCursors(undefined)).toEqual({})
+  })
+  test("click and type scripts report where the element is", () => {
+    expect(BrowserPage.clickExpression({ selector: "#go" })).toContain("at: (() =>")
+    expect(BrowserPage.clickExpression({ text: "Go" })).toContain("at: (() =>")
+    expect(BrowserPage.typeExpression({ selector: "#q", text: "x" })).toContain("at: (() =>")
+  })
+})
