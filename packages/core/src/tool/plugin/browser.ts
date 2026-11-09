@@ -184,7 +184,13 @@ export const Plugin = {
         const found = BrowserBridge.resolve(BrowserRuntime.sessions(), ref, session.location.directory)
         return "error" in found ? yield* Effect.fail(new ToolFailure({ message: found.error })) : found.session.id
       }
-      const chosen = BrowserRuntime.selectedSession(session.location.directory)
+      const published = BrowserRuntime.sessions()
+      // A folder with no session of its own uses the only one the Browser tab has, so the chat is not left blind.
+      const chosen =
+        BrowserRuntime.selectedSession(session.location.directory) ??
+        (BrowserBridge.projectOf(published, session.location.directory) === undefined && published.length === 1
+          ? published[0]!.id
+          : undefined)
       return chosen === undefined ? yield* Effect.fail(new ToolFailure({ message: NO_SESSION })) : chosen
     })
 

@@ -274,7 +274,7 @@ export const layer = Layer.effect(
         ...Mode.toolsOf(session.metadata, input.agent),
         // A project with browser sessions in the Browser tab has the browser tool at hand without being asked
         // for it by name: a model that has to guess it exists answers that it cannot see a browser.
-        ...(BrowserInstructions.hasSessions(session.location.directory) ? ["browser"] : []),
+        ...(BrowserInstructions.hasSessions(session.location.directory) || BrowserInstructions.hasAnySessions() ? ["browser"] : []),
       ])
       const loaded = (tools.lazyDefinitions ?? []).filter((tool) => picked.has(tool.name))
       // Zen's upstream rejects more than 128 tools. Mirrored CodeMode schemas are only a validator

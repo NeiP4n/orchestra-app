@@ -229,4 +229,22 @@ describe("ToolRouter", () => {
       ])
     }),
   )
+
+  it.effect("accepts one name as a plain string, in any case, or several separated by commas", () =>
+    Effect.gen(function* () {
+      const prepared = yield* prepare([Message.user("hello")])
+      const run = (load: unknown) =>
+        prepared.executeTool({
+          sessionID: session.id,
+          agent: Agent.ID.make("build"),
+          messageID: SessionMessage.ID.make("msg_router"),
+          call: { type: "tool-call", id: "call_4", name: "tools", input: { load } },
+        })
+      const loaded = "Loaded: desktop, desktop_click, desktop_type. Call them directly from your next step."
+      expect((yield* run("Desktop")).content).toEqual([{ type: "text", text: loaded }])
+      expect((yield* run("desktop, nope")).content).toEqual([
+        { type: "text", text: `${loaded}\nNot in the tools index: nope.` },
+      ])
+    }),
+  )
 })

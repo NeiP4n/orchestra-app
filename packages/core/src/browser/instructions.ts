@@ -20,6 +20,14 @@ const Entry = Schema.Struct({
 type Entry = typeof Entry.Type
 
 /** Whether the project has any browser session in the Browser tab. */
+export function hasAnySessions() {
+  try {
+    return BrowserRuntime.sessions().length > 0
+  } catch {
+    return false
+  }
+}
+
 export function hasSessions(directory: string) {
   try {
     return BrowserBridge.visible(BrowserRuntime.sessions(), directory).length > 0
@@ -43,10 +51,11 @@ export function make(directory: string): Instructions.List {
       if (seen !== lastSeen) BrowserRuntime.trace((lastSeen = seen))
       // Sessions exist in the Browser tab but none belongs to this directory: say so, or the agent reaches for a
       // browser driver of its own (chrome-devtools) because it has no browser tool here.
-      if (mine.length === 0) return all.length > 0 ? [] : Instructions.removed
+      if (all.length === 0) return Instructions.removed
       const held = BrowserRuntime.leases()
       const selected = BrowserRuntime.selectedSession(directory)
-      return mine.map(
+      // None belongs to this folder: show them all anyway (one operator, one machine); the tool falls back the same way.
+      return (mine.length > 0 ? mine : all).map(
         (item): Entry => ({
           id: item.id,
           name: item.name,
