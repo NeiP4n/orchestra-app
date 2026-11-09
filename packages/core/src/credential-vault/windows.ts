@@ -6,7 +6,9 @@ export interface Collector { collect(existing?: { name: string; site: string }, 
 
 // Only ciphertext crosses stdout. Password/login stay in this operator-owned
 // native process, never in tool args, TUI key events, model context or shell env.
-export const SCRIPT = String.raw`
+// Keep this an ordinary template: bundlers escape Cyrillic as JavaScript Unicode
+// sequences. String.raw would pass those escapes literally to PowerShell.
+export const SCRIPT = `
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 try {

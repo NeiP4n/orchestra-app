@@ -54,3 +54,19 @@ test("diagnostics reject any field outside numeric window geometry and visibilit
   expect(callbacks).toBe(0)
   expect(f.killed()).toBe(1)
 })
+
+
+test("encoded PowerShell command contains readable captions and masked secret fields", async () => {
+  const f = fake()
+  const pending = collector("win32", { launch: f.launch }).collect()
+  const index = f.args().indexOf("-EncodedCommand")
+  expect(index).toBeGreaterThan(-1)
+  const command = Buffer.from(f.args()[index + 1]!, "base64").toString("utf16le")
+  expect(command).not.toMatch(/\\u[0-9a-f]{4}/i)
+  for (const caption of ["Название", "Сайт", "Логин", "Пароль", "Сохранить", "Отмена"]) {
+    expect(command).toContain(caption)
+  }
+  expect(command).toContain("if ($i -ge 2) { $box.UseSystemPasswordChar = $true }")
+  f.child.emit("close", 0)
+  expect(await pending).toBeUndefined()
+})
