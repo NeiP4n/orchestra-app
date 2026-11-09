@@ -2,7 +2,7 @@ export * as BrowserRuntime from "./runtime.js"
 
 import { freemem, totalmem } from "node:os"
 import { spawn } from "node:child_process"
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs"
 import path from "node:path"
 import { Flock } from "@orchestra/util/flock"
 import { readdirSync } from "node:fs"
@@ -55,20 +55,38 @@ let hooked = false
 
 // Chrome's stderr goes to a small file, so a Chrome that dies at once says why instead of failing silently.
 const stderrFile = () => path.join(Global.Path.data, "browser-profiles", "chrome-stderr.log")
+// Past a few launches' worth of output the oldest generation rotates aside;
+// one previous file is kept so a crash's last lines survive the relaunch.
+const STDERR_LIMIT = 64 * 1024
 function stderrFd(): "ignore" | number {
   try {
-    mkdirSync(path.dirname(stderrFile()), { recursive: true })
-    return openSync(stderrFile(), "w")
+    const file = stderrFile()
+    mkdirSync(path.dirname(file), { recursive: true })
+    // Append, never truncate: the "w" mode used to wipe the evidence of the
+    // crash that triggered the relaunch opening the file.
+    try {
+      if (statSync(file).size > STDERR_LIMIT) renameSync(file, `${file}.old`)
+    } catch {}
+    const fd = openSync(file, "a")
+    writeSync(fd, `\n--- chrome launch ${new Date().toISOString()} ---\n`)
+    return fd
   } catch {
     return "ignore"
   }
 }
 const stderrTail = () => {
+  let text = ""
   try {
-    return readFileSync(stderrFile(), "utf8").slice(-400)
-  } catch {
-    return ""
+    text = readFileSync(stderrFile(), "utf8")
+  } catch {}
+  // A fresh file after a rotation is short: reach into the previous
+  // generation, where the crash that triggered the relaunch spoke last.
+  if (text.length < 400) {
+    try {
+      text = readFileSync(`${stderrFile()}.old`, "utf8") + text
+    } catch {}
   }
+  return text.slice(-400)
 }
 const processFile = (dir: string) => path.join(dir, "orchestra-managed-process.json")
 function recordProcess(pid: number | undefined, args: string[]) {
