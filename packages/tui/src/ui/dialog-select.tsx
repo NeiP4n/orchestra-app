@@ -114,6 +114,8 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
 
   const dialog = useDialog()
   const closeHover = createHoverFeedback("secondary")
+  const returnHover = createHoverFeedback()
+  const clearSearchHover = createHoverFeedback()
   const retryHover = createHoverFeedback()
   const theme = useTheme().surface("dialog")
   const config = useConfig().data
@@ -858,7 +860,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                       <box paddingLeft={4} paddingRight={4} paddingTop={1} gap={1} flexDirection="column">
                         <text fg={theme.text.muted}>{t("No items available")}</text>
                         <Show when={props.onCancel}>
-                          <box flexDirection="row" gap={1} onMouseUp={() => props.onCancel?.()}>
+                          <box flexDirection="row" gap={1} backgroundColor={returnHover.background()} onMouseOver={returnHover.onMouseOver} onMouseOut={returnHover.onMouseOut} onMouseUp={() => props.onCancel?.()}>
                             <box backgroundColor={theme.background.raised.base} paddingLeft={1} paddingRight={1}>
                               <text fg={theme.text.base} attributes={TextAttributes.BOLD}>Esc</text>
                             </box>
@@ -877,6 +879,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                       <box
                         flexDirection="row"
                         gap={1}
+                        backgroundColor={clearSearchHover.background()}
+                        onMouseOver={clearSearchHover.onMouseOver}
+                        onMouseOut={clearSearchHover.onMouseOut}
                         onMouseUp={() => {
                           if (input) input.value = ""
                           setStore("filter", "")

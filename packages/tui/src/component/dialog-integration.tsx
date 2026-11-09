@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { ScrollBoxRenderable, TextareaRenderable, TextAttributes } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
 import type {
@@ -504,6 +505,7 @@ function CommandPending(props: {
 
 function CommandView(props: { title: string; output: string; message: string }) {
   const dialog = useDialog()
+  const closeHover = createHoverFeedback("secondary")
   const theme = useTheme().surface("dialog")
   const overlayTheme = useTheme()
   onMount(() => dialog.setSize("large"))
@@ -513,7 +515,7 @@ function CommandView(props: { title: string; output: string; message: string }) 
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
           {props.title}
         </text>
-        <text fg={theme.text.muted} onMouseUp={() => dialog.clear()}>
+        <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={() => dialog.clear()}>
           esc close
         </text>
       </box>
@@ -801,6 +803,7 @@ function OAuthView(props: {
   open?: boolean
 }) {
   const dialog = useDialog()
+  const closeHover = createHoverFeedback("secondary")
   const theme = useTheme().surface("dialog")
   return (
     <box paddingLeft={2} paddingRight={2} gap={1} paddingBottom={1}>
@@ -808,7 +811,7 @@ function OAuthView(props: {
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
           {props.title}
         </text>
-        <text fg={theme.text.muted} onMouseUp={() => dialog.clear()}>
+        <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>
@@ -921,8 +924,11 @@ function StringChoiceField(props: {
   onSubmit: (value: string | undefined) => void
 }) {
   const dialog = useDialog()
+  const closeHover = createHoverFeedback("secondary")
   const theme = useTheme().surface("dialog")
   const dimensions = useTerminalDimensions()
+  const customHover = createHoverFeedback()
+  const skipHover = createHoverFeedback()
   const rows = formRows(props.field)
   const count = rows.length + (props.field.required ? 1 : 2)
   const [store, setStore] = createStore({
@@ -989,7 +995,7 @@ function StringChoiceField(props: {
         <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
           {formLabel(props.field)}
         </text>
-        <text fg={theme.text.muted} onMouseUp={() => (store.editing ? back() : dialog.clear())}>
+        <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={() => (store.editing ? back() : dialog.clear())}>
           esc
         </text>
       </box>
@@ -1006,8 +1012,10 @@ function StringChoiceField(props: {
         }}
       >
         <For each={rows}>
-          {(row, index) => (
-            <box onMouseUp={() => select(index())}>
+          {(row, index) => {
+            const hover = createHoverFeedback()
+            return (
+            <box backgroundColor={hover.background()} onMouseOver={hover.onMouseOver} onMouseOut={hover.onMouseOut} onMouseUp={() => select(index())}>
               <text fg={fg(index())}>
                 {index() + 1}. {row.label}
               </text>
@@ -1019,9 +1027,9 @@ function StringChoiceField(props: {
                 )}
               </Show>
             </box>
-          )}
+          )}}
         </For>
-        <box flexDirection="row" gap={1} onMouseUp={() => select(rows.length)}>
+        <box flexDirection="row" gap={1} backgroundColor={customHover.background()} onMouseOver={customHover.onMouseOver} onMouseOut={customHover.onMouseOut} onMouseUp={() => select(rows.length)}>
           <text fg={fg(rows.length)}>{rows.length + 1}.</text>
           <Show
             when={store.editing}
@@ -1055,7 +1063,7 @@ function StringChoiceField(props: {
           </Show>
         </box>
         <Show when={!props.field.required}>
-          <text fg={fg(rows.length + 1)} onMouseUp={() => select(rows.length + 1)}>
+          <text fg={fg(rows.length + 1)} bg={skipHover.background()} onMouseOver={skipHover.onMouseOver} onMouseOut={skipHover.onMouseOut} onMouseUp={() => select(rows.length + 1)}>
             {rows.length + 2}. Skip
           </text>
         </Show>

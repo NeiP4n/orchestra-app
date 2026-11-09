@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "./hover-feedback"
 import { HoverAction } from "../component/hover-action"
 import { TextAttributes } from "@opentui/core"
 import { Keymap } from "../context/keymap"
@@ -25,6 +26,11 @@ type Active = ExportFormat | "thinking" | "tools" | "sanitize" | "copy" | "expor
 export function DialogExportOptions(props: DialogExportOptionsProps) {
   const dialog = useDialog()
   const theme = useTheme().surface("dialog")
+  const hovers = {
+    markdown: createHoverFeedback(), json: createHoverFeedback(),
+    thinking: createHoverFeedback(), tools: createHoverFeedback(), sanitize: createHoverFeedback(),
+    copy: createHoverFeedback(), export: createHoverFeedback(),
+  }
   const overlayTheme = useTheme()
   const [store, setStore] = createStore({
     format: "markdown" as ExportFormat,
@@ -101,18 +107,20 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
               <box
                 paddingLeft={1}
                 paddingRight={1}
-                backgroundColor={
+                backgroundColor={hovers[format].background() ?? (
                   store.active === format
                     ? theme.background.formfield.focused
                     : store.format === format
                       ? theme.background.formfield.selected
                       : theme.background.formfield.base
-                }
+                )}
+                onMouseOver={hovers[format].onMouseOver}
+                onMouseOut={hovers[format].onMouseOut}
                 onMouseUp={() => selectFormat(format)}
               >
                 <text
                   fg={
-                    store.active === format
+                    hovers[format].active() ? theme.text.base : store.active === format
                       ? theme.text.formfield.focused
                       : store.format === format
                         ? theme.text.formfield.selected
@@ -130,13 +138,15 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
         <box
           flexDirection="row"
           gap={1}
-          backgroundColor={
+          backgroundColor={hovers.thinking.background() ?? (
             store.active === "thinking"
               ? theme.background.formfield.focused
               : store.thinking
                 ? theme.background.formfield.selected
                 : theme.background.formfield.base
-          }
+          )}
+          onMouseOver={hovers.thinking.onMouseOver}
+          onMouseOut={hovers.thinking.onMouseOut}
           onMouseUp={() => {
             setStore("active", "thinking")
             setStore("thinking", !store.thinking)
@@ -144,7 +154,7 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
         >
           <text
             fg={
-              store.active === "thinking"
+              hovers.thinking.active() ? theme.text.base : store.active === "thinking"
                 ? theme.text.formfield.focused
                 : store.thinking
                   ? theme.text.formfield.selected
@@ -155,7 +165,7 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
           </text>
           <text
             fg={
-              store.active === "thinking"
+              hovers.thinking.active() ? theme.text.base : store.active === "thinking"
                 ? theme.text.formfield.focused
                 : store.thinking
                   ? theme.text.formfield.selected
@@ -168,13 +178,15 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
         <box
           flexDirection="row"
           gap={1}
-          backgroundColor={
+          backgroundColor={hovers.tools.background() ?? (
             store.active === "tools"
               ? theme.background.formfield.focused
               : store.tools
                 ? theme.background.formfield.selected
                 : theme.background.formfield.base
-          }
+          )}
+          onMouseOver={hovers.tools.onMouseOver}
+          onMouseOut={hovers.tools.onMouseOut}
           onMouseUp={() => {
             setStore("active", "tools")
             setStore("tools", !store.tools)
@@ -182,7 +194,7 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
         >
           <text
             fg={
-              store.active === "tools"
+              hovers.tools.active() ? theme.text.base : store.active === "tools"
                 ? theme.text.formfield.focused
                 : store.tools
                   ? theme.text.formfield.selected
@@ -193,7 +205,7 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
           </text>
           <text
             fg={
-              store.active === "tools"
+              hovers.tools.active() ? theme.text.base : store.active === "tools"
                 ? theme.text.formfield.focused
                 : store.tools
                   ? theme.text.formfield.selected
@@ -208,13 +220,15 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
         <box
           flexDirection="row"
           gap={1}
-          backgroundColor={
+          backgroundColor={hovers.sanitize.background() ?? (
             store.active === "sanitize"
               ? theme.background.formfield.focused
               : store.sanitize
                 ? theme.background.formfield.selected
                 : theme.background.formfield.base
-          }
+          )}
+          onMouseOver={hovers.sanitize.onMouseOver}
+          onMouseOut={hovers.sanitize.onMouseOut}
           onMouseUp={() => {
             setStore("active", "sanitize")
             setStore("sanitize", !store.sanitize)
@@ -222,7 +236,7 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
         >
           <text
             fg={
-              store.active === "sanitize"
+              hovers.sanitize.active() ? theme.text.base : store.active === "sanitize"
                 ? theme.text.formfield.focused
                 : store.sanitize
                   ? theme.text.formfield.selected
@@ -233,7 +247,7 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
           </text>
           <text
             fg={
-              store.active === "sanitize"
+              hovers.sanitize.active() ? theme.text.base : store.active === "sanitize"
                 ? theme.text.formfield.focused
                 : store.sanitize
                   ? theme.text.formfield.selected
@@ -248,7 +262,9 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
         <box
           paddingLeft={4}
           paddingRight={4}
-          backgroundColor={overlayTheme.background.raised.high}
+          backgroundColor={hovers.copy.background() ?? overlayTheme.background.raised.high}
+          onMouseOver={hovers.copy.onMouseOver}
+          onMouseOut={hovers.copy.onMouseOut}
           onMouseUp={() => confirm("copy")}
         >
           <text fg={overlayTheme.text.base}>Copy</text>
@@ -256,14 +272,12 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
         <box
           paddingLeft={4}
           paddingRight={4}
-          backgroundColor={
-            store.active === "export"
-              ? theme.background.action.primary.focused
-              : theme.background.action.primary.base
-          }
+          backgroundColor={hovers.export.background() ?? theme.background.raised.base}
+          onMouseOver={hovers.export.onMouseOver}
+          onMouseOut={hovers.export.onMouseOut}
           onMouseUp={() => confirm("export")}
         >
-          <text fg={store.active === "export" ? theme.text.action.primary.focused : theme.text.action.primary.base}>
+          <text fg={theme.text.base}>
             Export
           </text>
         </box>
