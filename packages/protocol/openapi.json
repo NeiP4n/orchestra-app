@@ -25115,6 +25115,21 @@
               ]
             }
           },
+          "self_index": {
+            "type": "object",
+            "properties": {
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "docs": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
           "websearch": {
             "anyOf": [
               {
