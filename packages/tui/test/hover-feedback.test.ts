@@ -46,3 +46,13 @@ test("permission form diff and MCP leaf actions keep selection guards while addi
   expect(mcp).toContain('teamHover.background()')
   expect(mcp).toContain('allHover.background()')
 })
+test("team editor covers close fields and member actions without replacing focus and click handlers", () => {
+  const teams = readFileSync(new URL("../src/component/dialog-teams.tsx", import.meta.url), "utf8")
+  for (const key of ['close', 'list', 'autoTools', 'rules', 'addMember', 'playbook', 'field', 'title', 'category', 'previous', 'next', 'pick', 'remove']) expect(teams).toContain(`${key}Hover.background()`)
+  expect(teams).toContain('onMouseUp={props.onClose}')
+  expect(teams).toContain('onMouseUp={() => openPicker(index())}')
+  expect(teams).toContain('cycleRole(index(), -1)')
+  expect(teams).toContain('cycleRole(index(), 1)')
+  expect(teams).toContain('onMouseUp={() => choose(role)}')
+  expect(teams).toContain('onMouseDown={() => props.focus.set(props.target)}')
+})
