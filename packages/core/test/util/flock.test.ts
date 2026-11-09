@@ -268,6 +268,28 @@ describe("util.flock", () => {
     )
   })
 
+  test("publishes meta.json atomically: no temp file remains while the lock is held", async () => {
+    await using tmp = await tmpdir("flock-test-")
+    const dir = path.join(tmp.path, "locks")
+    const key = "flock:meta-atomic"
+
+    await Flock.withLock(
+      key,
+      async () => {
+        const entries = (await fs.readdir(lock(dir, key))).sort()
+        expect(entries).toEqual(["heartbeat", "meta.json"])
+        // The meta is a complete document on first sight, never a torn half-write.
+        const raw = await fs.readFile(path.join(lock(dir, key), "meta.json"), "utf8")
+        expect(() => JSON.parse(raw)).not.toThrow()
+      },
+      {
+        dir,
+        staleMs: 1_000,
+        timeoutMs: 3_000,
+      },
+    )
+  })
+
   test("supports acquire with await using", async () => {
     await using tmp = await tmpdir("flock-test-")
     const dir = path.join(tmp.path, "locks")

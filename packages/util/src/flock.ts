@@ -1,7 +1,7 @@
 import path from "path"
 import os from "os"
 import { randomBytes, randomUUID } from "crypto"
-import { mkdir, readFile, rm, stat, utimes, writeFile } from "fs/promises"
+import { link, mkdir, readFile, rm, stat, utimes, writeFile } from "fs/promises"
 import { Hash } from "./hash.js"
 import { Effect } from "effect"
 
@@ -215,10 +215,32 @@ export namespace Flock {
       throw new Error("Lock acquired but heartbeat already existed (possible compromise).")
     })
 
-    await writeFile(metaPath, JSON.stringify(meta, null, 2), { flag: "wx" }).catch(async () => {
+    // Publish meta.json whole or not at all: a crash mid-write used to leave a
+    // torn meta that the owner's own release then read as "compromised". The
+    // payload goes to a unique temp file and is published with link() — an
+    // atomic exclusive create, so the pre-existing-meta compromise check keeps
+    // working (EEXIST). Filesystems without hard links fall back to an
+    // exclusive create; the temp is removed either way.
+    const metaTemp = `${metaPath}.${process.pid}.${token}.tmp`
+    const metaPayload = JSON.stringify(meta, null, 2)
+    try {
+      await writeFile(metaTemp, metaPayload, { flag: "wx" })
+      try {
+        await link(metaTemp, metaPath)
+      } catch (linkErr) {
+        const linkCode = code(linkErr)
+        if (linkCode === "EPERM" || linkCode === "ENOSYS" || linkCode === "EXDEV" || linkCode === "ENOTSUP") {
+          await writeFile(metaPath, metaPayload, { flag: "wx" })
+        } else {
+          throw linkErr
+        }
+      }
+    } catch {
       await rm(lockDir, { recursive: true, force: true })
       throw new Error("Lock acquired but meta.json already existed (possible compromise).")
-    })
+    } finally {
+      await rm(metaTemp, { force: true }).catch(() => undefined)
+    }
 
     let timer: NodeJS.Timeout | undefined
 
