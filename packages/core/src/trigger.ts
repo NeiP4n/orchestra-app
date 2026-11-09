@@ -1,5 +1,6 @@
 export * as Trigger from "./trigger.js"
 
+import { TriggerActions } from "./trigger-actions.js"
 import { AutoloopDecide } from "./autoloop/kernel/decide.js"
 
 // Wake-up triggers for a project's Orchestrator: a cron time, an interval or a one-shot time. A trigger is a record
@@ -41,6 +42,8 @@ export interface Info {
   maxPerDay: number
   /** Set only by the operator's own explicit yes for this trigger. Nothing in this version sets it. */
   publishApproved: boolean
+  /** Optional bounded read-only workflow; absent in legacy wake-only records. */
+  actions?: TriggerActions.Action[]
 }
 
 const MINUTE = 60_000
@@ -63,6 +66,7 @@ export const localZone = () => {
 }
 
 export interface CreateInput {
+  actions?: unknown
   kind: string
   spec: string
   prompt: string
@@ -83,6 +87,8 @@ export function create(
   input: CreateInput,
   context: { id: string; projectID: string; now: number; timezone?: string; existing: number },
 ): Created {
+  const actionPlan = TriggerActions.parse(input.actions)
+  if (!actionPlan.ok) return actionPlan
   const zone = context.timezone ?? localZone()
   if (context.existing >= MAX_TRIGGERS_PER_PROJECT)
     return { ok: false, error: `This project already has ${MAX_TRIGGERS_PER_PROJECT} triggers. Delete one first.` }
@@ -144,6 +150,7 @@ export function create(
       maxPerHour: clampCap(input.maxPerHour, DEFAULT_PER_HOUR, HARD_PER_HOUR),
       maxPerDay: clampCap(input.maxPerDay, DEFAULT_PER_DAY, HARD_PER_DAY),
       publishApproved: false,
+      ...(actionPlan.actions.length ? { actions: actionPlan.actions } : {}),
     },
   }
 }
@@ -152,6 +159,8 @@ export function create(
 export function parse(value: unknown): Info | undefined {
   if (typeof value !== "object" || value === null) return undefined
   const v = value as Record<string, unknown>
+  const actionPlan = TriggerActions.parse(v.actions)
+  if (!actionPlan.ok) return undefined
   if (typeof v.id !== "string" || typeof v.projectID !== "string" || typeof v.prompt !== "string") return undefined
   if (v.kind !== "cron" && v.kind !== "interval" && v.kind !== "once" && v.kind !== "browser") return undefined
   if (typeof v.spec !== "string" || typeof v.enabled !== "boolean" || typeof v.createdAt !== "number") return undefined
@@ -160,6 +169,7 @@ export function parse(value: unknown): Info | undefined {
       (v.kind !== "interval" || typeof v.browserSessionID !== "string" || !v.browserSessionID.trim())) return undefined
   if (v.localTest !== undefined && (v.localTest !== true || v.kind !== "interval" || !v.browserSessionID)) return undefined
   return {
+    ...(actionPlan.actions.length ? { actions: actionPlan.actions } : {}),
     ...(v.localTest === true ? { localTest: true } : {}),
     id: v.id,
     projectID: v.projectID,
