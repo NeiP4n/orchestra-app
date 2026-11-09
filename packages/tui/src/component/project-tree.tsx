@@ -781,6 +781,9 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                           <text flexShrink={0} fg={browserConnected(item.id) ? theme.text.feedback.success.base : theme.text.muted}>
                             {browserConnected(item.id) === undefined ? "? " : browserConnected(item.id) ? "● " : "○ "}
                           </text>
+                          <Show when={item.chat !== undefined && data.session.status(item.chat) === "running"}>
+                            <NeuronDot energy={0.9} />
+                          </Show>
                           <box flexGrow={1} minWidth={0}>
                             <text fg={theme.text.base} wrapMode="none" truncate>
                               {item.group ? `${item.group} · ${item.name}` : item.name}

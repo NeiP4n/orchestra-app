@@ -52,7 +52,8 @@ describe("browser view", () => {
     const frame = read("component/session-frame.tsx")
     expect(frame).toContain("draft.browserChatHidden = hidden")
     expect(frame).toContain("&& !browserChatHidden()")
-    expect(read("component/browser-pane.tsx")).toContain("Hide chat")
+    expect(read("component/browser-pane.tsx")).toContain('props.chatHidden ? "Чат +" : "Чат −"')
+    expect(read("component/browser-pane.tsx")).toContain('onClick={props.onToggleChat}')
   })
 })
 
