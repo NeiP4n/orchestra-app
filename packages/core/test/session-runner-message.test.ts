@@ -138,7 +138,7 @@ describe("toLLMMessages", () => {
     expect(message.text).not.toContain("[PromptIntake")
   })
 
-  test("adds the distilled goal and suggested skills when they add signal", () => {
+  test("adds suggested skills but not the distilled goal", () => {
     const text = "Исправь ошибку. Сервер падает при пустом промпте."
     const message = SessionMessage.User.make({
       id: id("intake-goal"),
@@ -158,12 +158,13 @@ describe("toLLMMessages", () => {
     })
 
     const lowered = JSON.stringify(toLLMMessages([message], model))
-    expect(lowered).toContain("Goal: Исправь ошибку в сервере при пустом промпте")
+    // The goal is no longer passed on (models echoed it as a visible block).
+    expect(lowered).not.toContain("Goal: ")
     expect(lowered).toContain("Suggested skills: testing")
     expect(message.text).toBe(text)
   })
 
-  test("carries the structured task's DoD, plan, constraints and ambiguities in the intake note", () => {
+  test("carries the structured task's constraints and ambiguities (not goal, DoD or plan) in the intake note", () => {
     const text = "Исправь ошибку. Сервер падает при пустом промпте. Только без регрессий."
     const message = SessionMessage.User.make({
       id: id("intake-task"),
@@ -189,9 +190,9 @@ describe("toLLMMessages", () => {
     })
 
     const lowered = JSON.stringify(toLLMMessages([message], model))
-    expect(lowered).toContain("Goal: Исправь ошибку в сервере при пустом промпте")
-    expect(lowered).toContain("Done when: Результат проверен: связанные проверки пройдены")
-    expect(lowered).toContain("Plan: 1. Воспроизвести проблему; 2. Найти причину; 3. Исправить; 4. Проверить исправление")
+    expect(lowered).not.toContain("Goal: ")
+    expect(lowered).not.toContain("Done when: ")
+    expect(lowered).not.toContain("Plan: ")
     expect(lowered).toContain("Constraints: Только без регрессий.")
     expect(lowered).toContain(
       "Ambiguity: В каком файле или модуле работать? (if unanswered, assume: Найду место работы сам.)",

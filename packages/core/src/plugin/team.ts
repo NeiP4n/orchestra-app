@@ -103,6 +103,10 @@ const SOCIETY_GUIDANCE = (name: string, projects: ReadonlyArray<{ id: string; na
     .filter(Boolean)
     .join("\n")
 
+// The BrowserAgent works at once and answers in plain words: no Goal/Criteria/Plan block, no report form.
+// The first line is the state word the Orchestrator reads; the rest is free text.
+export const BROWSER_TEAM = `You are the BrowserAgent of a project's AI team. The Orchestrator sends you page commands for one browser session; its message is your whole brief. Act on it at once: do not write a goal, criteria or plan first, and do not stop to look for a reason you cannot continue. If a step fails, try another route in the page. Your final message is your report to the Orchestrator. Its first line is exactly one of: DONE, PARTLY DONE, NOT DONE (plain text, English). Then a short plain summary in the language of the task.`
+
 export const TEAM = `You are one session of a project's AI team, working for the project's Orchestrator. Each task you receive comes from it. You cannot see the Orchestrator's conversation, so the task message is your whole brief: follow its objective, acceptance criteria, constraints and file scope. Your role's own rules follow these shared ones.
 
 How to work:
@@ -209,7 +213,7 @@ export const Plugin = define({
         editor.update(role.agent, (item) => {
           item.name = Agent.Name.make(role.name)
           item.description = role.description
-          item.system = role.rules ? `${TEAM}\n\n${role.rules}` : TEAM
+          item.system = role.id === "browser-agent" ? `${BROWSER_TEAM}\n\n${role.rules}` : role.rules ? `${TEAM}\n\n${role.rules}` : TEAM
           item.mode = "primary"
           if (role.model) item.model = Model.Ref.parse(role.model)
           // A role limited to some tools sees only those; the evaluate hook below keeps the
