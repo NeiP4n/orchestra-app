@@ -30,6 +30,7 @@ import { useProjects } from "../context/projects"
 import { browserSessionGroups } from "../util/browser-sessions"
 import { DialogPrompt } from "../ui/dialog-prompt"
 import { DialogSelect } from "../ui/dialog-select"
+import { DialogRules } from "./dialog-rules"
 import * as BrowserRuntime from "../util/browser-runtime"
 import { DialogConfirm } from "../ui/dialog-confirm"
 import { ClearSessionsAction } from "./clear-sessions"
@@ -932,6 +933,23 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                   </Row>
                 </Show>
                 <Show when={expanded[project.id] && !projectOnly()}>
+                  {/* The rulebooks of this project: the crew's rules, and the rules only its Orchestrator gets (operator-only). */}
+                  <Row
+                    hover={hover}
+                    setHover={setHover}
+                    onClick={() => dialog.replace(() => <DialogRules scope={`project:${project.id}`} title={project.directory} />)}
+                  >
+                    <Branch />
+                    <text fg={theme.text.muted} wrapMode="none" truncate>{`§ ${t("Project rules")}`}</text>
+                  </Row>
+                  <Row
+                    hover={hover}
+                    setHover={setHover}
+                    onClick={() => dialog.replace(() => <DialogRules scope={`orchestrator:${project.id}`} title={`${t("Orchestrator")}: ${project.directory}`} />)}
+                  >
+                    <Branch />
+                    <text fg={theme.text.muted} wrapMode="none" truncate>{`§ ${t("Orchestrator rules")}`}</text>
+                  </Row>
                   <Row
                     id={`${project.id}:main`}
                     hover={hover}
