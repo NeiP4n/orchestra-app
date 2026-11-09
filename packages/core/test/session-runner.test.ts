@@ -95,7 +95,7 @@ import { permissionLayer } from "./lib/permission"
 import { agentHost, modelHost, host, noProviders } from "./plugin/host"
 import { CodeModeInstructions } from "@orchestra/core/codemode/instructions"
 import { HubInstructions } from "@orchestra/core/hub/instructions"
-import { Memory } from "@orchestra/core/memory"
+import { Memory } from "@orchestra/core/memory/index"
 import { BrowserRuntime } from "@orchestra/core/browser/runtime"
 
 const emptyCodeMode = `${CodeModeInstructions.render({ total: 0, shown: 0, namespaces: [] })}\n\n`
