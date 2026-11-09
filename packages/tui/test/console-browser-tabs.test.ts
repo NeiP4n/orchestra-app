@@ -132,3 +132,10 @@ test("a browser chat the Orchestrator made becomes a browser session once, keepi
   expect(adoptBrowserChat(state, "p", { id: "c", chat: "ses_1", name: "Again", now: 3 })).toBeUndefined()
   expect(state.projects.p).toHaveLength(2)
 })
+
+test("the browser pane draws its own tab strip and address from the runtime's tabs", () => {
+  const pane = read("component/browser-pane.tsx")
+  for (const name of ["BrowserRuntime.tabs(", "BrowserRuntime.selectTab(", "BrowserRuntime.closeTab(", "BrowserRuntime.newTab(", "BrowserRuntime.go(", "BrowserRuntime.history("])
+    expect(pane).toContain(name)
+  expect(pane.indexOf("tabList()")).toBeLessThan(pane.indexOf("<browserImage"))
+})

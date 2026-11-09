@@ -10,10 +10,12 @@ import {
   type MouseEvent,
 } from "@opentui/core"
 import { extend, useRenderer } from "@opentui/solid"
-import { createEffect, createSignal, onCleanup, Show } from "solid-js"
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js"
 import { useTheme } from "../context/theme"
 import { errorMessage } from "../util/error"
 import { useT } from "../util/i18n"
+import { useDialog } from "../ui/dialog"
+import { DialogPrompt } from "../ui/dialog-prompt"
 import * as BrowserRuntime from "../util/browser-runtime"
 
 declare module "@opentui/solid" {
@@ -115,6 +117,57 @@ export function BrowserPane(props: {
     disposed = true
     repaint()
   })
+
+  // The page's own tab strip and address, drawn here because the streamed picture holds only the page. The list is
+  // Chrome's (one profile, the same tabs the agent works in), read every 1.5 s while the pane is open.
+  const dialog = useDialog()
+  const [tabList, setTabList] = createSignal<ReadonlyArray<{ id: string; title: string; url: string; active: boolean }>>([])
+  let reading = false
+  const refreshTabs = async () => {
+    if (reading || disposed) return
+    reading = true
+    try {
+      const next = await BrowserRuntime.tabs(props.sessionID)
+      if (!disposed) setTabList(next)
+    } catch {
+      // Chrome is starting or gone: the strip keeps the last list.
+    } finally {
+      reading = false
+    }
+  }
+  createEffect(() => {
+    if (state() !== "ready") return
+    void refreshTabs()
+    const timer = setInterval(() => void refreshTabs(), 1500)
+    onCleanup(() => clearInterval(timer))
+  })
+  const tabAction = (work: () => Promise<unknown>) =>
+    void work()
+      .then(refreshTabs)
+      .catch((error) => setFailure(errorMessage(error)))
+  const tabLabel = (tab: { title: string; url: string }) => {
+    let host = ""
+    try {
+      host = new URL(tab.url).host.replace(/^www\./, "")
+    } catch {}
+    const text = (tab.title || host || t("New tab")).trim()
+    return text.length > 18 ? `${text.slice(0, 17)}…` : text
+  }
+  const currentUrl = () => tabList().find((tab) => tab.active)?.url ?? page().url
+  const editAddress = () =>
+    dialog.replace(() => (
+      <DialogPrompt
+        title={t("Address")}
+        placeholder={t("https://... or search words")}
+        value={currentUrl()}
+        onCancel={() => dialog.clear()}
+        onConfirm={(value) => {
+          dialog.clear()
+          const address = value.trim()
+          if (address) tabAction(() => BrowserRuntime.go(props.sessionID, address))
+        }}
+      />
+    ))
 
   const run = async (work: () => Promise<void>) => {
     setFailure(undefined)
@@ -498,6 +551,47 @@ export function BrowserPane(props: {
           </Show>
           <Action label={narrow() ? t("Close") : t("Close browser")} onClick={stop} />
         </box>
+        <Show when={!windowed()}>
+          <box flexDirection="row" flexShrink={0} gap={0} height={1}>
+            <HoverAction paddingLeft={1} paddingRight={1} onClick={() => tabAction(() => BrowserRuntime.history(props.sessionID, -1))}>
+              <text fg={theme.text.action.primary.base}>{"‹"}</text>
+            </HoverAction>
+            <HoverAction paddingLeft={1} paddingRight={1} onClick={() => tabAction(() => BrowserRuntime.history(props.sessionID, 1))}>
+              <text fg={theme.text.action.primary.base}>{"›"}</text>
+            </HoverAction>
+            <HoverAction paddingLeft={1} paddingRight={1} onClick={() => tabAction(() => BrowserRuntime.reload(props.sessionID))}>
+              <text fg={theme.text.action.primary.base}>{"⟳"}</text>
+            </HoverAction>
+            <box flexGrow={1} minWidth={0} paddingLeft={1} onMouseDown={editAddress}>
+              <text fg={theme.text.base} wrapMode="none" truncate>
+                {currentUrl() || t("about:blank")}
+              </text>
+            </box>
+          </box>
+          <box flexDirection="row" flexShrink={0} gap={0} height={1} overflow="hidden">
+            <For each={tabList()}>
+              {(tab) => (
+                <>
+                  <HoverAction paddingLeft={1} onClick={() => tabAction(() => BrowserRuntime.selectTab(props.sessionID, tab.id))}>
+                    <text
+                      fg={tab.active ? theme.text.base : theme.text.muted}
+                      attributes={tab.active ? TextAttributes.BOLD | TextAttributes.UNDERLINE : undefined}
+                      wrapMode="none"
+                    >
+                      {tabLabel(tab)}
+                    </text>
+                  </HoverAction>
+                  <HoverAction paddingRight={1} onClick={() => tabAction(() => BrowserRuntime.closeTab(props.sessionID, tab.id))}>
+                    <text fg={theme.text.muted}>{" ×"}</text>
+                  </HoverAction>
+                </>
+              )}
+            </For>
+            <HoverAction paddingLeft={1} paddingRight={1} onClick={() => tabAction(() => BrowserRuntime.newTab(props.sessionID))}>
+              <text fg={theme.text.action.primary.base}>{"+"}</text>
+            </HoverAction>
+          </box>
+        </Show>
         <Show when={DEBUG && control()}>
           <text fg={theme.text.feedback.success.base} flexShrink={0} wrapMode="word">
             {`${debug() || "control: on, waiting for mouse or keys"}${route() ? ` · ${route()}` : " · (no press forwarded yet)"} · build ${BUILD}`}
