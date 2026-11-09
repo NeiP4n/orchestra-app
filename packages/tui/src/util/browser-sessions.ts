@@ -14,6 +14,8 @@ export type BrowserSession = {
 export type ClosedBrowserSession = BrowserSession & { closedAt: number }
 
 export type BrowserSessionsState = {
+  /** BrowserAgent chats explicitly removed/closed, including evicted history. Never auto-adopt them. */
+  retiredChats?: Record<string, string[]>
   projects: Record<string, BrowserSession[]>
   selected: Record<string, string | undefined>
   /** Closed sessions per project, newest first. Missing in state saved by older versions. */
@@ -55,6 +57,10 @@ export function removeBrowserSession(state: BrowserSessionsState, projectID: str
   const index = list.findIndex((item) => item.id === id)
   if (index < 0) return
   const [gone] = list.splice(index, 1)
+  if (gone?.chat) {
+    state.retiredChats ??= {}
+    state.retiredChats[projectID] = [...new Set([...(state.retiredChats[projectID] ?? []), gone.chat])]
+  }
   // Kept aside, not forgotten: the name, group and profile id come back when the user reopens it.
   state.closed ??= {}
   const kept = (state.closed[projectID] ??= []).filter((item) => item.id !== id)
@@ -88,6 +94,11 @@ export function reopenBrowserSession(state: BrowserSessionsState, projectID: str
 /** Drops a closed session from the list for good. Its profile folder is not touched here. */
 export function forgetClosedBrowserSession(state: BrowserSessionsState, projectID: string, id: string) {
   const closed = state.closed?.[projectID]
+  const removed = closed?.find((item) => item.id === id)
+  if (removed?.chat) {
+    state.retiredChats ??= {}
+    state.retiredChats[projectID] = [...new Set([...(state.retiredChats[projectID] ?? []), removed.chat])]
+  }
   if (closed) state.closed![projectID] = closed.filter((item) => item.id !== id)
 }
 
@@ -118,6 +129,7 @@ export function adoptBrowserChat(
   projectID: string,
   input: { id: string; chat: string; name: string; now: number },
 ): BrowserSession | undefined {
+  if (state.retiredChats?.[projectID]?.includes(input.chat)) return undefined
   const owned = [...(state.projects[projectID] ?? []), ...(state.closed?.[projectID] ?? [])].some((item) => item.chat === input.chat)
   if (owned) return undefined
   // A restart finds the chat the last run made for a record whose bind did not reach the disk: the record with this

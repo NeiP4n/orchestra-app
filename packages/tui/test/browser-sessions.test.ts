@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test"
 import {
   addBrowserSession,
+  adoptBrowserChat,
+  bindBrowserChat,
   browserSessionGroups,
   emptyBrowserSessions,
   forgetClosedBrowserSession,
@@ -115,4 +117,17 @@ test("forgetting a closed session removes it from the list and leaves the open o
   expect(state.closed?.p?.map((item) => item.id)).toEqual(["b"])
   expect(state.projects.p?.map((item) => item.id)).toEqual(["c"])
   forgetClosedBrowserSession(state, "other", "x")
+})
+
+test("forgotten and history-evicted BrowserAgent chats never resurrect through adoption", () => {
+  const state = emptyBrowserSessions()
+  addBrowserSession(state, "p", { id: "a", now: 1, name: "Old browser" })
+  bindBrowserChat(state, "p", "a", "old-chat")
+  removeBrowserSession(state, "p", "a")
+  forgetClosedBrowserSession(state, "p", "a")
+  const restored = JSON.parse(JSON.stringify(state))
+  expect(adoptBrowserChat(restored, "p", { id: "new", chat: "old-chat", name: "Old browser", now: 2 })).toBeUndefined()
+  expect(restored.projects.p).toEqual([])
+  // A brand new chat still gets adopted; tombstones do not ban a label forever.
+  expect(adoptBrowserChat(restored, "p", { id: "fresh", chat: "new-chat", name: "Old browser", now: 3 })).toBeDefined()
 })

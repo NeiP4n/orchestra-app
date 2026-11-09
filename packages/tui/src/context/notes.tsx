@@ -59,7 +59,9 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
         mutation(draft)
         // One chat, one browser session: a duplicate record of the same chat is folded into the oldest.
         collapseDuplicateChats(draft)
-      }).catch(() => undefined)
+      }).catch((error) => {
+        console.error("Browser session changes could not be saved; no successful change was recorded.", error)
+      })
     // Chats a browser session is being given or adopted right now: the instant the chat exists it is claimed, so the
     // adoption of "orphan" browser chats never takes the one the button is still binding.
     const claimed = new Set<string>()
