@@ -14,7 +14,7 @@ import { LocalPage } from "./page.js"
 // its own tabs inside the shared browser, so cookies and logins are shared while work is not.
 
 export const DEFAULT_ENDPOINT = "http://127.0.0.1:9222"
-const LAUNCH_WAIT_MS = 20_000
+export const LAUNCH_WAIT_MS = 20_000
 
 export type Options = {
   /** CDP HTTP endpoint, for example http://127.0.0.1:9222. */
@@ -23,6 +23,10 @@ export type Options = {
   launcher?: string
   /** Profile directory for the built-in launch when no launcher is configured. */
   profile: string
+  /** Built-in launch uses headless mode; a custom launcher command chooses its own flags. Default true. */
+  headless: boolean
+  /** How long the built-in launch may take before the endpoint must answer. */
+  launchWaitMs: number
 }
 
 export function options(env: Record<string, string | undefined> = process.env): Options {
@@ -35,7 +39,14 @@ export function options(env: Record<string, string | undefined> = process.env): 
     profile:
       env.ORCHESTRA_BROWSER_PROFILE ||
       (existsSync(legacyProfile) && !existsSync(orchestraProfile) ? legacyProfile : orchestraProfile),
+    headless: env.ORCHESTRA_BROWSER_HEADLESS !== "0",
+    launchWaitMs: launchWait(env.ORCHESTRA_BROWSER_LAUNCH_WAIT_MS),
   }
+}
+
+function launchWait(value: string | undefined): number {
+  const parsed = value ? Number.parseInt(value, 10) : Number.NaN
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : LAUNCH_WAIT_MS
 }
 
 export type Manager = ReturnType<typeof make>
@@ -165,14 +176,14 @@ async function connect(config: Options) {
   const existing = await debuggerURL(config.endpoint)
   if (existing) return LocalCdp.connect(existing)
   launch(config)
-  const deadline = Date.now() + LAUNCH_WAIT_MS
+  const deadline = Date.now() + config.launchWaitMs
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 500))
     const url = await debuggerURL(config.endpoint)
     if (url) return LocalCdp.connect(url)
   }
   throw new Error(
-    `No Chromium answered at ${config.endpoint} within ${LAUNCH_WAIT_MS / 1000} s. Start one with --remote-debugging-port, or set ORCHESTRA_BROWSER_LAUNCHER to a command that does.`,
+    `No Chromium answered at ${config.endpoint} within ${config.launchWaitMs / 1000} s. Start one with --remote-debugging-port, or set ORCHESTRA_BROWSER_LAUNCHER to a command that does.`,
   )
 }
 
@@ -198,18 +209,20 @@ function launch(config: Options) {
     throw new Error(
       "No Chromium or Chrome executable was found. Install one, or set ORCHESTRA_BROWSER_LAUNCHER to a command that starts a browser with --remote-debugging-port.",
     )
+  spawn(binary, launchArgs(config), { detached: true, stdio: "ignore" }).unref()
+}
+
+/** Arguments for the built-in Chromium launch; the local path serves headless servers, so headless is the default. */
+export function launchArgs(config: Options): string[] {
   const port = new URL(config.endpoint).port || "9222"
-  spawn(
-    binary,
-    [
-      `--remote-debugging-port=${port}`,
-      "--remote-debugging-address=127.0.0.1",
-      `--user-data-dir=${config.profile}`,
-      "--no-first-run",
-      "--no-default-browser-check",
-    ],
-    { detached: true, stdio: "ignore" },
-  ).unref()
+  return [
+    ...(config.headless ? ["--headless=new"] : []),
+    `--remote-debugging-port=${port}`,
+    "--remote-debugging-address=127.0.0.1",
+    `--user-data-dir=${config.profile}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+  ]
 }
 
 function executable(file: string) {
