@@ -22,3 +22,44 @@ describe("browser snapshot refs", () => {
     expect(BrowserTool.description).toContain("snapshot")
   })
 })
+
+import { BrowserDevtools } from "../src/browser/devtools"
+
+describe("browser devtools actions", () => {
+  test("eval refuses reading cookies, storage and passwords, and sending data out", () => {
+    for (const bad of [
+      "document.cookie",
+      "localStorage.getItem('t')",
+      "fetch('/x', {method:'POST'})",
+      "document.querySelector('form').submit()",
+      "document.querySelector('input[type=password]').value",
+      "",
+    ])
+      expect(BrowserDevtools.refuseExpression(bad)).toBeDefined()
+    expect(BrowserDevtools.refuseExpression("document.title")).toBeUndefined()
+    expect(BrowserDevtools.refuseExpression("document.querySelectorAll('a').length")).toBeUndefined()
+  })
+  test("redact cuts tokens, jwts and long keys", () => {
+    expect(BrowserDevtools.redact("Authorization: Bearer abcdef1234567890")).not.toContain("abcdef1234567890")
+    expect(BrowserDevtools.redact("token=supersecretvalue")).toBe("token=[redacted]")
+    expect(BrowserDevtools.redact("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcd1234")).toBe("[redacted jwt]")
+    expect(BrowserDevtools.redact("x".repeat(50))).toBe("[redacted key]")
+    expect(BrowserDevtools.redact("Hello world")).toBe("Hello world")
+  })
+  test("network addresses lose their query values and credentials", () => {
+    expect(BrowserDevtools.safeUrl("https://user:pw@a.test/p?token=abc&x=1#h")).toBe("https://a.test/p?token=%E2%80%A6&x=%E2%80%A6")
+  })
+  test("cookies are listed without values", () => {
+    const text = BrowserDevtools.formatCookies([{ name: "sid", domain: "a.test", path: "/", secure: true, httpOnly: true }])
+    expect(text).toContain("sid @ a.test/")
+    expect(text).toContain("value hidden")
+  })
+  test("the eval script and the storage script are valid JavaScript", () => {
+    expect(() => new Function(`return ${BrowserDevtools.evalExpression("1+1")}`)).not.toThrow()
+    expect(() => new Function(`return ${BrowserDevtools.storageExpression}`)).not.toThrow()
+  })
+  test("eval asks for permission", () => {
+    expect(BrowserTool.acts("eval")).toBe(true)
+    expect(BrowserTool.acts("console")).toBe(false)
+  })
+})
