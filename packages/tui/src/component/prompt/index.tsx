@@ -7,7 +7,7 @@ import {
   decodePasteBytes,
   type KeyEvent,
 } from "@opentui/core"
-import { createEffect, createMemo, onMount, createSignal, onCleanup, on, Show, Switch, Match, For } from "solid-js"
+import { createEffect, createMemo, createResource, onMount, createSignal, onCleanup, on, Show, Switch, Match, For } from "solid-js"
 import path from "path"
 import { useLocal } from "../../context/local"
 import { useTheme, useThemes } from "../../context/theme"
@@ -1558,12 +1558,17 @@ export function Prompt(props: PromptProps) {
   // the server's agent list knows it, so a single screenshot shows why (unknown agent, hidden, or replaced).
   // Browser chats: label comes straight from the session agent, not from the
   // server agent list. Diagnostic goes first so it is never cut off.
+  // Server-side roles: tells "server runs an old build" (role missing here too) from
+  // "role exists but is not registered as an agent" (role present, agent missing).
+  const [serverRoles] = createResource(() => client.api.orchestra.role.list().catch(() => undefined))
   const browserChatLabel = () => {
     const chat = props.sessionID ? data.session.get(props.sessionID)?.agent : undefined
     if (chat !== "team-browser-agent") return undefined
     const list = data.location.agent.list(currentLocation.ref ?? data.location.default())
     const entry = list?.find((item) => item.id === chat)
-    return `[n${list?.length ?? "?"}:${entry ? (entry.hidden ? "H" : "ok") : "NO"}] BrowserAgent`
+    const roles = serverRoles()
+    const role = roles ? (roles.some((item) => item.id === "browser-agent") ? "Y" : "N") : "?"
+    return `[a${list?.length ?? "?"}:${entry ? (entry.hidden ? "H" : "ok") : "NO"} r${roles?.length ?? "?"}:${role}] BrowserAgent`
   }
   const promptDisplay = createMemo<{
     agentLabel: string | undefined
