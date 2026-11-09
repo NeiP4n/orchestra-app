@@ -95,7 +95,10 @@ const deps: Chrome.Deps = {
   remove: (file) => rmSync(file, { force: true }),
 }
 
-const alive = async (port: number) => (await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(1000) })).ok
+const alive = async (port: number, expectedPath?: string) => {
+  const response = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(1000) })
+  return response.ok && (!expectedPath || BrowserBudget.matchesEndpoint(await response.json(), expectedPath))
+}
 
 const connectTab = (tab: BrowserTabs.Tab) =>
   Cdp.connect((address) => new WebSocket(address) as unknown as Cdp.Socket, tab.wsUrl)
@@ -210,23 +213,40 @@ function within<T>(work: Promise<T>, ms: number): Promise<T> {
 const launchLock = <T>(action: () => Promise<T>) => Flock.withLock("browser-active-profile-budget", action, {
   dir: path.join(Global.Path.data, "browser-launch-locks"), timeoutMs: 5000, baseDelayMs: 50, maxDelayMs: 100,
 })
+export const browserLimitDetails = (error: unknown) => error instanceof BrowserBudget.LimitError
+  ? { sessionID: error.sessionID, name: error.sessionName, canClose: error.reason === "cdp" } : undefined
 async function checkLaunchBudget() {
+  if (process.env.ORCHESTRA_BROWSER_LIMIT === "off") { trace("browser profile ceiling disabled explicitly by operator"); return }
   const root = path.join(Global.Path.data, "browser-profiles")
   let folders: string[] = []
   if (existsSync(root)) folders = readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory() && /^[A-Za-z0-9_-]{1,64}$/.test(entry.name)).map((entry) => entry.name)
   for (const id of folders) {
     const dir = Chrome.profileDir(Global.Path.data, id)
-    if (await Chrome.livePort(deps.readFile, alive, dir) !== undefined) BrowserBudget.requireRoom(1)
+    let name = id
+    try { name = sessions().find((item) => item.id === id)?.name || id } catch {}
+    if (await Chrome.livePort(deps.readFile, alive, dir) !== undefined) throw new BrowserBudget.LimitError(id, name, "cdp")
     const file = processFile(dir)
     if (!existsSync(file)) continue // Legacy profiles may predate PID tracking.
     let pid: number
     try { pid = JSON.parse(readFileSync(file, "utf8")).pid; if (!Number.isSafeInteger(pid) || pid < 1) throw new Error() }
-    catch { throw new Error("Browser safety limit: managed process record is unreadable. No new Chrome was started.") }
-    BrowserBudget.requireStopped(pid, (value) => {
-      try { process.kill(value, 0); return "alive" }
-      catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH" ? "dead" : "unknown" }
-    })
+    catch { throw new BrowserBudget.LimitError(id, name, "record") }
+    let dead = false
+    try { process.kill(pid, 0) }
+    catch (error) { dead = (error as NodeJS.ErrnoException).code === "ESRCH" }
+    if (!dead) throw new BrowserBudget.LimitError(id, name, "pid")
+    // Dead PID is not a blocker. Remove only this stale tracking record, never the profile or its logins.
+    try { if (JSON.parse(readFileSync(file, "utf8")).pid === pid) rmSync(file, { force: true }) } catch {}
   }
+}
+/** Explicit operator button only; fresh endpoint identity check, never kill a PID loaded from disk. */
+export async function closeBlockedBrowser(sessionID: string) {
+  return launchLock(async () => {
+    const dir = Chrome.profileDir(Global.Path.data, sessionID)
+    const port = await Chrome.livePort(deps.readFile, alive, dir)
+    if (port === undefined) throw new Error("Chrome этой сессии не отвечает. Автоматическое завершение по PID отключено; чужой Chrome не затронут.")
+    await within(quit(port), 12_000)
+    evict(sessionID)
+  })
 }
 async function start(sessionID: string): Promise<Live> {
   return launchLock(() => startLocked(sessionID))

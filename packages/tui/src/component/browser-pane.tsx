@@ -120,6 +120,7 @@ export function BrowserPane(props: {
     onCleanup(() => clearInterval(timer))
   })
   const [failure, setFailure] = createSignal<string>()
+  const [blockedBrowser, setBlockedBrowser] = createSignal<{ sessionID: string; name: string; canClose: boolean }>()
   const [mode, setMode] = createSignal<"headless" | "window" | "capture">(BrowserRuntime.modeOf(props.sessionID))
   const windowed = () => mode() === "window"
   // The screen is the page streamed as pictures (kitty or sixel graphics when the terminal has them,
@@ -219,6 +220,7 @@ export function BrowserPane(props: {
     ))
 
   const run = async (work: () => Promise<void>) => {
+    setBlockedBrowser(undefined)
     setFailure(undefined)
     setState("busy")
     try {
@@ -228,6 +230,7 @@ export function BrowserPane(props: {
       // Chrome did not start: back to the Open Chrome screen with the reason.
       if (disposed) return
       setFailure(errorMessage(error))
+      setBlockedBrowser(BrowserRuntime.browserLimitDetails(error))
       setState("idle")
     }
   }
@@ -690,7 +693,14 @@ export function BrowserPane(props: {
               <Action label={props.chatHidden ? t("Show chat") : t("Hide chat")} onClick={props.onToggleChat} />
             </Show>
             <Show when={failure()}>
-              <text fg={theme.text.feedback.error.base}>{failure()}</text>
+              <text fg={theme.text.feedback.error.base} wrapMode="word">{failure()}</text>
+              <Show when={blockedBrowser()?.canClose}>
+                <Action label={`Закрыть Chrome «${blockedBrowser()?.name}»`} onClick={() => {
+                  const blocked = blockedBrowser()
+                  if (!blocked) return
+                  void run(async () => { await BrowserRuntime.closeBlockedBrowser(blocked.sessionID); if (!disposed) setState("idle") }).then(() => { if (!disposed) setState("idle") })
+                }} />
+              </Show>
             </Show>
           </box>
         }

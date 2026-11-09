@@ -94,6 +94,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "How long the browser plugin waits for the CDP endpoint after a built-in launch, in milliseconds.",
     default: "20000.",
   },
+  ORCHESTRA_BROWSER_LIMIT: {
+    purpose: "Set off explicitly to bypass the one-active-Orchestra-profile safety ceiling; increases CPU/RAM risk.",
+    default: "On.",
+  },
   ORCHESTRA_BROWSER_LOCAL: {
     purpose: "Local browser for the browser plugin (\"0\" disables it).",
     default: "Enabled.",

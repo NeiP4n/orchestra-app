@@ -179,13 +179,13 @@ export interface Deps {
  */
 export async function livePort(
   readFile: (file: string) => string | undefined,
-  alive: (port: number) => Promise<boolean>,
+  alive: (port: number, expectedPath?: string) => Promise<boolean>,
   dir: string,
 ): Promise<number | undefined> {
   const text = readFile(path.join(dir, "DevToolsActivePort"))
   const active = text === undefined ? undefined : parseActivePort(text)
-  if (!active) return undefined
-  return (await alive(active.port).catch(() => false)) ? active.port : undefined
+  if (!active || !active.path.startsWith("/devtools/browser/")) return undefined
+  return (await alive(active.port, active.path).catch(() => false)) ? active.port : undefined
 }
 
 /** Starts Chrome on the profile directory and waits for its debugging port. Rejects if Chrome exits or never answers. */

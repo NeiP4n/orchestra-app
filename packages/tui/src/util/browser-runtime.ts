@@ -7,6 +7,8 @@ import { BrowserRuntime } from "@orchestra/core/browser/runtime"
 export const scheduleStatus = BrowserSchedule.forSession
 
 export const {
+  browserLimitDetails,
+  closeBlockedBrowser,
   open,
   isOpen,
   deleteProfile,

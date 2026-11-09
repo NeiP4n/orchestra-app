@@ -207,3 +207,10 @@ describe("Cdp client", () => {
     expect(Cdp.pageSocketUrl([])).toBeUndefined()
   })
 })
+
+test("stale active-port file must identify the same browser websocket, not just an HTTP listener", async () => {
+  let pathSeen: string | undefined
+  expect(await Chrome.livePort(() => "9222\n/devtools/browser/original", async (_port, expected) => { pathSeen = expected; return false }, "/profile")).toBeUndefined()
+  expect(pathSeen).toBe("/devtools/browser/original")
+  expect(await Chrome.livePort(() => "9222", async () => true, "/profile")).toBeUndefined()
+})
