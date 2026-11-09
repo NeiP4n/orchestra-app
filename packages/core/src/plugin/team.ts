@@ -47,7 +47,7 @@ const NOTES_LIMIT = 8_000
 // Permission actions a role's tool list governs; other actions (asking, other directories) are not tools.
 const TOOL_ACTIONS = new Set(Orchestra.toolGroups.flatMap((group) => group.actions))
 // The Orchestrator may look around briefly before it dispatches; past this many calls it must hand the work on.
-const EXPLORE_LIMIT = 15
+export const EXPLORE_LIMIT = 15
 const EXPLORING_TOOLS = new Set(["read", "grep", "glob", "shell"])
 // Shell commands the Registry (hub) has ready recipes for. A model that never calls hub is told once per session.
 const HUB_COVERED = /(?:^|[\s;&|(])(?:rg|grep|egrep|fgrep|find|fd|jq|yq)\s|git\s+grep/

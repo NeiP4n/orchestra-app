@@ -45,7 +45,7 @@ import { Location } from "@orchestra/core/location"
 import { AbsolutePath } from "@orchestra/core/schema"
 import { location } from "./fixture/location"
 import { TeamPlugin } from "@orchestra/core/plugin/team"
-import { isLimitReport } from "@orchestra/core/plugin/team"
+import { EXPLORE_LIMIT, isLimitReport } from "@orchestra/core/plugin/team"
 import { SandboxPlugin } from "@orchestra/core/plugin/sandbox"
 import type { ShellCreateBefore } from "@orchestra/plugin/effect/shell"
 import { agentHost, host } from "./plugin/host"
@@ -2151,12 +2151,12 @@ describe("Orchestra team", () => {
             }),
           { discard: true },
         )
-      for (let index = 0; index < 6; index++) yield* call("read")
+      for (let index = 0; index < EXPLORE_LIMIT; index++) yield* call("read")
       const refused = yield* call("grep").pipe(Effect.flip)
       expect(refused.message).toContain("without dispatching anything")
       yield* call("sessions", { action: "send" })
       yield* call("shell")
-      for (let index = 0; index < 5; index++) yield* call("read")
+      for (let index = 0; index < EXPLORE_LIMIT - 1; index++) yield* call("read")
       expect((yield* call("read").pipe(Effect.flip)).message).toContain("without dispatching anything")
       yield* Effect.forEach(prompts, (hook) => hook({ sessionID: modeSession, prompt: { text: "go on" } } as never), { discard: true })
       yield* call("read")
