@@ -40,6 +40,17 @@ const HISTORY_CAP = 100
 
 export const GLOBAL = "global"
 export const projectScope = (id: string) => `project:${id}`
+/** Independent, editable copy of defaults, initialized atomically including an empty copy. */
+export const projectDefaultsScope = (id: string) => `project-defaults:${id}`
+export const societyDefaultsScope = (name: string) => `society-defaults:${name}`
+const snapshotScope = (kv: KV.Interface, scope: string) => Effect.gen(function* () {
+  if ((yield* kv.get(KEY + scope)) !== undefined) return
+  const defaults = yield* listStrict(kv, GLOBAL)
+  yield* kv.atomicUpdate(KEY + scope, (current) => current === undefined ? defaults as unknown as KV.Value : current)
+})
+export const snapshotDefaults = (kv: KV.Interface, projectID: string) => snapshotScope(kv, projectDefaultsScope(projectID))
+export const snapshotSocietyDefaults = (kv: KV.Interface, name: string) => snapshotScope(kv, societyDefaultsScope(name))
+
 export const societyScope = (name: string) => `society:${name}`
 /** Rules the operator puts on a project's Orchestrator: it gets them every turn; nobody but the operator removes them. */
 export const orchestratorScope = (project: string) => `orchestrator:${project}`
@@ -239,7 +250,7 @@ export const remove = (
         reason: `Rule ${id} was written by the operator; only the operator can remove it.`,
       })
     const next = rules.filter((rule) => rule.id !== id)
-    if (next.length === 0) yield* kv.remove(KEY + scope)
+    if (next.length === 0 && !scope.startsWith("project-defaults:") && !scope.startsWith("society-defaults:")) yield* kv.remove(KEY + scope)
     else yield* kv.set(KEY + scope, next as unknown as KV.Value)
     yield* recordHistory(kv, scope, { action: "remove", id, text: target.text, by: target.by, at: Date.now() })
     return true
@@ -453,6 +464,9 @@ const crossScopeConflict = (
 /** The block plus the same rules as data, operator rules first, for the enforcement layers. */
 export const load = (kv: KV.Interface, scopes: Scopes) =>
   Effect.gen(function* () {
+    if (scopes.project) yield* snapshotDefaults(kv, scopes.project)
+    else if (scopes.chatOf) yield* snapshotSocietyDefaults(kv, scopes.chatOf)
+
     const wanted = [
       { title: "Society", scope: scopes.societies.map(societyScope) },
       { title: "Society (inherited)", scope: (scopes.inherited?.societies ?? []).map(societyScope) },
@@ -461,7 +475,7 @@ export const load = (kv: KV.Interface, scopes: Scopes) =>
       { title: "Orchestrator", scope: scopes.orchestrator && scopes.project ? [orchestratorScope(scopes.project)] : [] },
       { title: "Role", scope: scopes.project && scopes.role ? [roleScope(scopes.project, scopes.role)] : [] },
       { title: "Session", scope: scopes.session ? [sessionScope(scopes.session)] : [] },
-      { title: "Global", scope: [GLOBAL] },
+      { title: "Defaults copy", scope: scopes.project ? [projectDefaultsScope(scopes.project)] : scopes.chatOf ? [societyDefaultsScope(scopes.chatOf)] : [] },
     ]
     const parts = yield* Effect.forEach(wanted, (group) =>
       Effect.forEach(group.scope, (scope) => listStrict(kv, scope)).pipe(
@@ -473,7 +487,7 @@ export const load = (kv: KV.Interface, scopes: Scopes) =>
       return yield* new ConflictError({
         reason:
           `Rule conflict: [${conflict.higher.title}] "${conflict.higher.rule.text}" contradicts ` +
-          `[${conflict.lower.title}] "${conflict.lower.rule.text}". Society rules override project rules, which override global rules; ` +
+          `[${conflict.lower.title}] "${conflict.lower.rule.text}". Society rules override project rules, which override defaults copies; ` +
           `remove or rewrite one of them — the model does not pick a winner.`,
       })
     const lines = parts.flatMap((part) => part.rules.map((rule) => `- [${part.title}] ${rule.text}`))
@@ -483,7 +497,7 @@ export const load = (kv: KV.Interface, scopes: Scopes) =>
     if (lines.length === 0) return { block: "", entries }
     const block = [
       "# Rules",
-      "Standing rules of this crew, set by the operator and by teammates. Society rules override project rules, which override global rules; a conflict between scopes is an error, not a judgement call. Follow them in every task. When you learn something the whole crew must follow, add it with the rules tool instead of repeating it in briefs; never add a rule that contradicts the operator.",
+      "Standing rules of this crew, set by the operator and by teammates. Society rules override project rules, which override defaults copies; a conflict between scopes is an error, not a judgement call. Follow them in every task. When you learn something the whole crew must follow, add it with the rules tool instead of repeating it in briefs; never add a rule that contradicts the operator.",
       ...lines,
     ].join("\n")
     return { block, entries }

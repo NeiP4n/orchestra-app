@@ -3,6 +3,7 @@ export * as ProjectFilesState from "./files-state.js"
 import { appendFile, mkdir } from "node:fs/promises"
 import path from "node:path"
 import { Effect, Option, Schema } from "effect"
+import { Orchestra } from "@orchestra/schema/orchestra"
 import { Config } from "@orchestra/schema/config"
 import { Federation } from "@orchestra/schema/federation"
 import { Adr } from "../adr.js"
@@ -201,16 +202,28 @@ export const writeConfig = (
 // scope whose stored rules are corrupt fails the sync loudly instead of
 // writing a file that silently drops them.
 
+/** Only a stable project record at this exact directory can own a rule mirror. */
+const ruleScopes = (directory: string, deps: SyncDeps) => Effect.gen(function* () {
+  const records = yield* scanAll(deps.kv, "orchestra/project/")
+  const projects = records.flatMap((entry) => Option.toArray(Schema.decodeUnknownOption(Orchestra.Project)(entry.value)))
+  const own = projects.filter((project) => path.resolve(project.directory) === path.resolve(directory))
+  if (own.length !== 1) return yield* ProjectFilesErrors.invalid(RULES_FILE, "Rule mirror requires one verified project owner for this exact directory.")
+  const id = own[0]!.id
+  return (scope: string) => scope === Rules.projectScope(id) || scope === Rules.projectDefaultsScope(id)
+    || scope === Rules.orchestratorScope(id) || scope.startsWith(`role:${id}:`)
+})
+
 export const syncRules = (
   directory: string,
   deps: SyncDeps,
 ): Effect.Effect<void, ProjectFilesErrors.ProjectFileError, SyncEnv> =>
   Effect.gen(function* () {
+    const allowed = yield* ruleScopes(directory, deps)
     const entries = yield* scanAll(deps.kv, RULES_PREFIX)
     const scopes = entries
       .map((entry) => entry.key.slice(RULES_PREFIX.length))
       // session:<id> rules belong to one chat and die with it; mirroring them would fill the file with dead entries.
-      .filter((scope) => scope.length > 0 && !scope.startsWith("history/") && !scope.startsWith("session:"))
+      .filter(allowed)
       .toSorted()
     const rows: Array<{ scope: string; id: string; text: string; by: string; at: number }> = []
     for (const scope of scopes) {
@@ -238,6 +251,10 @@ export const restoreRules = (
       ),
     )
     if (parsed === undefined) return { file: RULES_FILE, status: "skipped" as const }
+    const allowed = yield* ruleScopes(directory, deps)
+    // Validate the entire file before writing any row, including legacy global mirrors.
+    if (parsed.rules.some((row) => !allowed(row.scope)))
+      return yield* ProjectFilesErrors.invalid(RULES_FILE, "Rule mirror contains foreign or global scopes. No rules were restored.")
     const byScope = new Map<string, Array<{ id: string; text: string; by: string; at: number }>>()
     for (const row of parsed.rules) {
       const scope = byScope.get(row.scope) ?? []

@@ -18,6 +18,38 @@ import { testEffect } from "./lib/effect"
 const it = testEffect(AppNodeBuilder.build(LayerNode.group([Database.node, KV.node]), [Global.node.replace(tempGlobalLayer)]))
 
 describe("rulebook", () => {
+  it.live("global defaults become independent durable project copies, including empty and concurrent initialization", () =>
+    Effect.gen(function* () {
+      const kv = yield* KV.Service
+      const original = yield* Rules.add(kv, Rules.GLOBAL, { text: "Original operator instruction.", by: "operator" })
+      yield* Effect.all([Rules.snapshotDefaults(kv, "prj_a"), Rules.snapshotDefaults(kv, "prj_a"), Rules.snapshotDefaults(kv, "prj_b")], { concurrency: "unbounded" })
+      const a = Rules.projectDefaultsScope("prj_a"), b = Rules.projectDefaultsScope("prj_b")
+      expect(yield* Rules.list(kv, a)).toEqual([original.rule!])
+      yield* Rules.add(kv, Rules.GLOBAL, { text: "New projects only.", by: "operator" })
+      yield* Rules.snapshotDefaults(kv, "prj_a")
+      expect(yield* Rules.list(kv, a)).toEqual([original.rule!])
+      expect(yield* Rules.list(kv, b)).toEqual([original.rule!])
+      yield* Rules.remove(kv, a, original.rule!.id, { operator: true })
+      yield* Rules.snapshotDefaults(kv, "prj_a")
+      expect(yield* Rules.list(kv, a)).toEqual([])
+      expect((yield* Rules.list(kv, b)).map(r => r.text)).toEqual(["Original operator instruction."])
+      yield* Rules.snapshotSocietyDefaults(kv, "Society A")
+      yield* Rules.snapshotSocietyDefaults(kv, "Society B")
+      yield* Rules.remove(kv, Rules.societyDefaultsScope("Society A"), original.rule!.id, { operator: true })
+      yield* Rules.snapshotSocietyDefaults(kv, "Society A")
+      expect((yield* Rules.list(kv, Rules.societyDefaultsScope("Society A"))).some(r=>r.id===original.rule!.id)).toBe(false)
+      expect((yield* Rules.list(kv, Rules.societyDefaultsScope("Society B"))).some(r=>r.id===original.rule!.id)).toBe(true)
+      yield* Rules.snapshotDefaults(kv, "prj_new")
+      expect((yield* Rules.list(kv, Rules.projectDefaultsScope("prj_new")))).toHaveLength(2)
+      const block = yield* Rules.block(kv, { project: "prj_b", societies: [] })
+      expect(block).toContain("Original operator instruction.")
+      expect(block).not.toContain("New projects only.")
+      expect(yield* Rules.block(kv, { societies: [] })).not.toContain("Original operator instruction.")
+      yield* Rules.remove(kv, Rules.GLOBAL, original.rule!.id, { operator: true })
+      expect((yield* Rules.list(kv, b)).map(r => r.text)).toEqual(["Original operator instruction."])
+    }),
+  )
+
   it.live("keeps rules per scope, refuses duplicates and empty text, and removes by id", () =>
     Effect.gen(function* () {
       const kv = yield* KV.Service

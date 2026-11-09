@@ -90,6 +90,8 @@ export const Plugin = {
           execute: (input, context) =>
             Effect.gen(function* () {
               const scopes = yield* Rules.scopesOf({ sessionID: context.sessionID, sessions, orchestra, federation })
+              if (scopes.project) yield* Rules.snapshotDefaults(kv, scopes.project)
+              else if (scopes.chatOf) yield* Rules.snapshotSocietyDefaults(kv, scopes.chatOf)
               const mine = [
                 ...scopes.societies.map((society) => ({ kind: "society" as const, scope: Rules.societyScope(society), label: `Society ${society}` })),
                 ...(scopes.project ? [{ kind: "project" as const, scope: Rules.projectScope(scopes.project), label: "Project" }] : []),
@@ -101,7 +103,7 @@ export const Plugin = {
                   ? [{ kind: "role" as const, scope: Rules.roleScope(scopes.project, scopes.role), label: `Role ${scopes.role}` }]
                   : []),
                 ...(scopes.session ? [{ kind: "session" as const, scope: Rules.sessionScope(scopes.session), label: "This session" }] : []),
-                { kind: "global" as const, scope: Rules.GLOBAL, label: "Global" },
+                ...(scopes.project ? [{ kind: "global" as const, scope: Rules.projectDefaultsScope(scopes.project), label: "Project defaults" }] : scopes.chatOf ? [{ kind: "global" as const, scope: Rules.societyDefaultsScope(scopes.chatOf), label: "Society defaults" }] : []),
               ]
               // The Orchestrator hands rules to other sessions and roles of its project; nobody else reaches them.
               const reach: Array<{ kind: "session" | "role"; scope: string; label: string }> = []

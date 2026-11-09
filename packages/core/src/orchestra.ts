@@ -18,6 +18,7 @@ import type { Session as SessionSchema } from "@orchestra/schema/session"
 import { AbsolutePath } from "./schema.js"
 import { Bus } from "./bus.js"
 import { KV } from "./kv.js"
+import { Rules } from "./rules.js"
 import { Session } from "./session.js"
 import { SessionActivation } from "./session/activation.js"
 import { SessionStore } from "./session/store.js"
@@ -427,9 +428,11 @@ const layer: Layer.Layer<
     }
 
     const projects = Effect.fn("Orchestra.projects")(function* () {
-      return (yield* scanAll(PROJECT))
+      const all = (yield* scanAll(PROJECT))
         .flatMap((entry) => Option.toArray(decodeProject(entry.value)))
         .toSorted((a, b) => a.created - b.created)
+      for (const project of all) yield* Rules.snapshotDefaults(kv, project.id).pipe(Effect.orDie)
+      return all
     })
 
     const get = Effect.fnUntraced(function* (id: ProjectID) {
@@ -613,8 +616,11 @@ const layer: Layer.Layer<
       )
     })
 
-    const save = (project: Project) =>
-      kv.set(PROJECT + project.id, Schema.encodeSync(Project)(project)).pipe(Effect.as(project))
+    const save = (project: Project) => Effect.gen(function* () {
+      yield* Rules.snapshotDefaults(kv, project.id).pipe(Effect.orDie)
+      yield* kv.set(PROJECT + project.id, Schema.encodeSync(Project)(project))
+      return project
+    })
 
     // The operator types the path, so it is resolved here and must already be a directory.
     const directory = Effect.fnUntraced(function* (input: string) {

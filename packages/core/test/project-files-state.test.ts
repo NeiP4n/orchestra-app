@@ -82,18 +82,19 @@ describe("ProjectFiles state: orchestra.json", () => {
 })
 
 describe("ProjectFiles state: rules.yaml", () => {
-  it.live("syncs every scope from KV and skips the history keys", () =>
+  it.live("syncs only the owning project scopes and skips global, foreign and history keys", () =>
     Effect.gen(function* () {
       const dir = yield* Effect.tryPromise(() => fixture())
       const kv = yield* KV.Service
+      yield* kv.set("orchestra/project/prj_a", {id:"prj_a",name:"A",directory:dir,created:1})
       yield* Rules.add(kv, Rules.GLOBAL, { text: "Never edit generated files.", by: "operator" })
-      yield* Rules.add(kv, Rules.projectScope("proj-a"), { text: "Tests before code.", by: "team-dev" })
+      yield* Rules.add(kv, Rules.projectScope("prj_a"), { text: "Tests before code.", by: "team-dev" })
       yield* ProjectFilesState.syncRules(dir, { kv })
       const text = yield* Effect.tryPromise(() => read(dir, "rules.yaml"))
-      expect(text).toContain("Never edit generated files.")
+      expect(text).not.toContain("Never edit generated files.")
       expect(text).toContain("Tests before code.")
-      expect(text).toContain("global")
-      expect(text).toContain("project:proj-a")
+      expect(text).not.toContain("global")
+      expect(text).toContain("project:prj_a")
       expect(text).not.toContain("history")
     }),
   )
@@ -102,21 +103,20 @@ describe("ProjectFiles state: rules.yaml", () => {
     Effect.gen(function* () {
       const dir = yield* Effect.tryPromise(() => fixture())
       const kv = yield* KV.Service
+      yield* kv.set("orchestra/project/prj_a", {id:"prj_a",name:"A",directory:dir,created:1})
       yield* Rules.add(kv, Rules.GLOBAL, { text: "Never edit generated files.", by: "operator" })
-      yield* Rules.add(kv, Rules.projectScope("proj-a"), { text: "Tests before code.", by: "team-dev" })
+      yield* Rules.add(kv, Rules.projectScope("prj_a"), { text: "Tests before code.", by: "team-dev" })
       yield* ProjectFilesState.syncRules(dir, { kv })
       yield* kv.remove(`rules/${Rules.GLOBAL}`)
-      yield* kv.remove(`rules/${Rules.projectScope("proj-a")}`)
+      yield* kv.remove(`rules/${Rules.projectScope("prj_a")}`)
       expect(yield* Rules.list(kv, Rules.GLOBAL)).toEqual([])
-      expect(yield* Rules.list(kv, Rules.projectScope("proj-a"))).toEqual([])
+      expect(yield* Rules.list(kv, Rules.projectScope("prj_a"))).toEqual([])
       const report = yield* ProjectFiles.ProjectFilesRestore.restoreFromFiles(dir, { kv })
       const rules = report.entries.find((entry) => entry.file === "rules.yaml")
       expect(rules?.status).toBe("restored")
-      expect(rules?.count).toBe(2)
-      expect((yield* Rules.list(kv, Rules.GLOBAL)).map((rule) => rule.text)).toEqual([
-        "Never edit generated files.",
-      ])
-      expect((yield* Rules.list(kv, Rules.projectScope("proj-a"))).map((rule) => rule.text)).toEqual([
+      expect(rules?.count).toBe(1)
+      expect(yield* Rules.list(kv, Rules.GLOBAL)).toEqual([])
+      expect((yield* Rules.list(kv, Rules.projectScope("prj_a"))).map((rule) => rule.text)).toEqual([
         "Tests before code.",
       ])
     }),
@@ -126,6 +126,7 @@ describe("ProjectFiles state: rules.yaml", () => {
     Effect.gen(function* () {
       const dir = yield* Effect.tryPromise(() => fixture())
       const kv = yield* KV.Service
+      yield* kv.set("orchestra/project/prj_a", {id:"prj_a",name:"A",directory:dir,created:1})
       const skipped = yield* ProjectFilesState.restoreRules(dir, { kv })
       expect(skipped.status).toBe("skipped")
       yield* Effect.tryPromise(() => write(dir, "rules.yaml", "rules: not-a-list\n"))
@@ -134,6 +135,20 @@ describe("ProjectFiles state: rules.yaml", () => {
     }),
   )
 })
+
+it.live("foreign or global scope in a legacy mirror is rejected before any KV mutation", () => Effect.gen(function* () {
+  const dir = yield* Effect.tryPromise(() => fixture())
+  const kv = yield* KV.Service
+  yield* kv.set("orchestra/project/prj_a", {id:"prj_a",name:"A",directory:dir,created:1})
+  yield* Rules.add(kv, Rules.projectScope("prj_b"), {text:"Other project instruction.",by:"operator"})
+  yield* Effect.tryPromise(() => write(dir,"rules.yaml",JSON.stringify({rules:[
+    {scope:"project:prj_a",id:"r1",text:"Own entry.",by:"operator",at:1},
+    {scope:"project:prj_b",id:"r2",text:"Replacement.",by:"operator",at:1}
+  ]})))
+  expect((yield* Effect.exit(ProjectFilesState.restoreRules(dir,{kv})))._tag).toBe("Failure")
+  expect(yield* Rules.list(kv,"project:prj_a")).toEqual([])
+  expect((yield* Rules.list(kv,"project:prj_b"))[0]?.text).toBe("Other project instruction.")
+}))
 
 describe("ProjectFiles state: tasks.yaml", () => {
   it.live("projects the DoD leaves with owner, state and zone", () =>
@@ -407,7 +422,8 @@ describe("ProjectFiles state: syncAll and restoreFromFiles", () => {
     Effect.gen(function* () {
       const dir = yield* Effect.tryPromise(() => fixture())
       const kv = yield* KV.Service
-      yield* Rules.add(kv, Rules.GLOBAL, { text: "Never edit generated files.", by: "operator" })
+      yield* kv.set("orchestra/project/prj_a", {id:"prj_a",name:"A",directory:dir,created:1})
+      yield* Rules.add(kv, Rules.projectScope("prj_a"), { text: "Never edit generated files.", by: "operator" })
       yield* seedGroup(kv, "shop", 25)
       yield* Effect.tryPromise(() =>
         write(
@@ -422,14 +438,14 @@ describe("ProjectFiles state: syncAll and restoreFromFiles", () => {
       for (const file of ["budget.yaml", "decisions.yaml", "rules.yaml", "society.yaml", "tasks.yaml"]) {
         expect(syncedByFile.get(file)).toBe("ok")
       }
-      yield* kv.remove(`rules/${Rules.GLOBAL}`)
+      yield* kv.remove(`rules/${Rules.projectScope("prj_a")}`)
       yield* kv.remove("federation/group/shop")
       const restored = yield* ProjectFiles.ProjectFilesRestore.restoreFromFiles(dir, { kv })
       const restoredByFile = new Map(restored.entries.map((entry) => [entry.file, entry.status]))
       for (const file of ["budget.yaml", "rules.yaml", "society.yaml"]) {
         expect(restoredByFile.get(file)).toBe("restored")
       }
-      expect((yield* Rules.list(kv, Rules.GLOBAL)).map((rule) => rule.text)).toEqual([
+      expect((yield* Rules.list(kv, Rules.projectScope("prj_a"))).map((rule) => rule.text)).toEqual([
         "Never edit generated files.",
       ])
       expect(Number(Schema.decodeUnknownSync(Federation.Group)(yield* kv.get("federation/group/shop")).budget)).toBe(25)

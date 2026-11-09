@@ -15,7 +15,15 @@ export function DialogRules(props: { scope: string; title: string }) {
   const dialog = useDialog()
   const toast = useToast()
   const t = useT()
-  const [rules] = createResource(() => client.api.orchestra.rules.list({ scope: props.scope }).catch(() => []))
+  const copiedScope = () => props.scope.startsWith("project:")
+    ? `project-defaults:${props.scope.slice("project:".length)}`
+    : props.scope.startsWith("society:") ? `society-defaults:${props.scope.slice("society:".length)}` : undefined
+  const [rules, { refetch }] = createResource(async () => {
+    const scopes = [props.scope, ...(copiedScope() ? [copiedScope()!] : [])]
+    return (await Promise.all(scopes.map(async (scope) =>
+      (await client.api.orchestra.rules.list({ scope })).map((rule) => ({ ...rule, scope })),
+    ))).flat()
+  })
 
   const reopen = () => dialog.replace(() => <DialogRules scope={props.scope} title={props.title} />)
   const fail = (error: unknown) => toast.show({ message: errorMessage(error), variant: "error" })
@@ -37,14 +45,14 @@ export function DialogRules(props: { scope: string; title: string }) {
       />
     ))
 
-  const remove = (rule: { id: string; text: string }) =>
+  const remove = (rule: { id: string; text: string; scope: string }) =>
     dialog.replace(() => (
       <DialogConfirm
         title={t("Delete rule")}
         message={rule.text}
         onCancel={reopen}
         onConfirm={() => {
-          void client.api.orchestra.rules.remove({ scope: props.scope, id: rule.id }).then(reopen).catch((error: unknown) => {
+          void client.api.orchestra.rules.remove({ scope: rule.scope, id: rule.id }).then(reopen).catch((error: unknown) => {
             fail(error)
             reopen()
           })
@@ -56,8 +64,8 @@ export function DialogRules(props: { scope: string; title: string }) {
     { title: `+ ${t("Add a rule")}`, value: "add", description: t("The AIs of this crew follow it from their next request") },
     ...(rules.latest ?? []).map((rule) => ({
       title: rule.text,
-      value: rule.id,
-      footer: rule.by,
+      value: `${rule.scope}/${rule.id}`,
+      footer: rule.scope === props.scope ? rule.by : `${rule.by} · ${t("Project defaults copy")}`,
     })),
   ])
 
@@ -65,9 +73,12 @@ export function DialogRules(props: { scope: string; title: string }) {
     <DialogSelect
       title={`${t("Rules")} · ${props.title}`}
       options={options()}
+      loading={rules.loading}
+      error={rules.error ? errorMessage(rules.error) : undefined}
+      onRetry={() => void refetch()}
       onSelect={(option) => {
         if (option.value === "add") return add()
-        const rule = (rules.latest ?? []).find((item) => item.id === option.value)
+        const rule = (rules.latest ?? []).find((item) => `${item.scope}/${item.id}` === option.value)
         if (rule) remove(rule)
       }}
       footerHints={[{ title: t("delete"), label: "enter" }]}
