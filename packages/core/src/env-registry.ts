@@ -78,9 +78,17 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Draw the Browser tab's page as colored block characters (\"1\") instead of kitty or sixel graphics, for terminals that print graphics data as text. \"0\" asks for the terminal's own graphics even on Windows.",
     default: "On for Windows, off elsewhere (the terminal's graphics protocol is detected).",
   },
+  ORCHESTRA_BROWSER_HEADLESS: {
+    purpose: "Built-in launch of the browser plugin starts Chromium headless (\"0\" opens a visible window).",
+    default: "Headless.",
+  },
   ORCHESTRA_BROWSER_LAUNCHER: {
     purpose: "Shell command that starts the browser when the CDP endpoint does not answer.",
     readIn: "injected-env",
+  },
+  ORCHESTRA_BROWSER_LAUNCH_WAIT_MS: {
+    purpose: "How long the browser plugin waits for the CDP endpoint after a built-in launch, in milliseconds.",
+    default: "20000.",
   },
   ORCHESTRA_BROWSER_LOCAL: {
     purpose: "Local browser for the browser plugin (\"0\" disables it).",

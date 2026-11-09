@@ -1,6 +1,6 @@
 export * as LocalBrowser from "./index.js"
 
-import { spawn } from "node:child_process"
+import { spawn, type ChildProcess } from "node:child_process"
 import { accessSync, constants, existsSync } from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
@@ -14,7 +14,7 @@ import { LocalPage } from "./page.js"
 // its own tabs inside the shared browser, so cookies and logins are shared while work is not.
 
 export const DEFAULT_ENDPOINT = "http://127.0.0.1:9222"
-const LAUNCH_WAIT_MS = 20_000
+export const LAUNCH_WAIT_MS = 20_000
 
 export type Options = {
   /** CDP HTTP endpoint, for example http://127.0.0.1:9222. */
@@ -23,6 +23,10 @@ export type Options = {
   launcher?: string
   /** Profile directory for the built-in launch when no launcher is configured. */
   profile: string
+  /** Built-in launch uses headless mode; a custom launcher command chooses its own flags. Default true. */
+  headless: boolean
+  /** How long the built-in launch may take before the endpoint must answer. */
+  launchWaitMs: number
 }
 
 export function options(env: Record<string, string | undefined> = process.env): Options {
@@ -35,7 +39,14 @@ export function options(env: Record<string, string | undefined> = process.env): 
     profile:
       env.ORCHESTRA_BROWSER_PROFILE ||
       (existsSync(legacyProfile) && !existsSync(orchestraProfile) ? legacyProfile : orchestraProfile),
+    headless: env.ORCHESTRA_BROWSER_HEADLESS !== "0",
+    launchWaitMs: launchWait(env.ORCHESTRA_BROWSER_LAUNCH_WAIT_MS),
   }
+}
+
+function launchWait(value: string | undefined): number {
+  const parsed = value ? Number.parseInt(value, 10) : Number.NaN
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : LAUNCH_WAIT_MS
 }
 
 export type Manager = ReturnType<typeof make>
@@ -164,15 +175,22 @@ function unavailable() {
 async function connect(config: Options) {
   const existing = await debuggerURL(config.endpoint)
   if (existing) return LocalCdp.connect(existing)
-  launch(config)
-  const deadline = Date.now() + LAUNCH_WAIT_MS
+  // A failed spawn only reports through the child's "error" event; without a listener Node would
+  // raise it as an unhandled exception. Capture it and fold it into the bounded-wait error below.
+  let launchError: Error | undefined
+  launch(config).on("error", (error) => {
+    launchError = error
+  })
+  const deadline = Date.now() + config.launchWaitMs
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 500))
     const url = await debuggerURL(config.endpoint)
     if (url) return LocalCdp.connect(url)
   }
   throw new Error(
-    `No Chromium answered at ${config.endpoint} within ${LAUNCH_WAIT_MS / 1000} s. Start one with --remote-debugging-port, or set ORCHESTRA_BROWSER_LAUNCHER to a command that does.`,
+    `No Chromium answered at ${config.endpoint} within ${config.launchWaitMs / 1000} s.${
+      launchError ? ` The browser process failed to start: ${launchError.message}.` : ""
+    } Start one with --remote-debugging-port, or set ORCHESTRA_BROWSER_LAUNCHER to a command that does.`,
   )
 }
 
@@ -185,11 +203,12 @@ async function debuggerURL(endpoint: string) {
   return body._tag === "Some" ? body.value.webSocketDebuggerUrl : undefined
 }
 
-function launch(config: Options) {
+function launch(config: Options): ChildProcess {
   // Detached, so the browser and its logins outlive this server process.
   if (config.launcher) {
-    spawn("sh", ["-c", config.launcher], { detached: true, stdio: "ignore" }).unref()
-    return
+    const child = spawn("sh", ["-c", config.launcher], { detached: true, stdio: "ignore" })
+    child.unref()
+    return child
   }
   const binary = ["chromium", "chromium-browser", "google-chrome-stable", "google-chrome", "chrome"]
     .flatMap((name) => (process.env.PATH ?? "").split(path.delimiter).map((directory) => path.join(directory, name)))
@@ -198,18 +217,22 @@ function launch(config: Options) {
     throw new Error(
       "No Chromium or Chrome executable was found. Install one, or set ORCHESTRA_BROWSER_LAUNCHER to a command that starts a browser with --remote-debugging-port.",
     )
+  const child = spawn(binary, launchArgs(config), { detached: true, stdio: "ignore" })
+  child.unref()
+  return child
+}
+
+/** Arguments for the built-in Chromium launch; the local path serves headless servers, so headless is the default. */
+export function launchArgs(config: Options): string[] {
   const port = new URL(config.endpoint).port || "9222"
-  spawn(
-    binary,
-    [
-      `--remote-debugging-port=${port}`,
-      "--remote-debugging-address=127.0.0.1",
-      `--user-data-dir=${config.profile}`,
-      "--no-first-run",
-      "--no-default-browser-check",
-    ],
-    { detached: true, stdio: "ignore" },
-  ).unref()
+  return [
+    ...(config.headless ? ["--headless=new"] : []),
+    `--remote-debugging-port=${port}`,
+    "--remote-debugging-address=127.0.0.1",
+    `--user-data-dir=${config.profile}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+  ]
 }
 
 function executable(file: string) {
