@@ -135,16 +135,16 @@ describe("untrusted text and publishing", () => {
 describe("wiring", () => {
   const read = (file: string) => readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8")
 
-  test("the sweep saves the record before it sends, and pauses a full cap", () => {
+  test("the sweep durably reserves before idempotent delivery, and pauses a full cap", () => {
     const source = read("orchestra.ts")
     const start = source.indexOf("const fireTriggers")
     const body = source.slice(start, source.indexOf("yield* Effect.forever", start))
     expect(start).toBeGreaterThan(0)
-    expect(body.indexOf("Trigger.afterFire")).toBeGreaterThan(0)
-    expect(body.indexOf("kv.set(entry.key, next")).toBeGreaterThan(0)
-    expect(body.indexOf("kv.set(entry.key, next")).toBeLessThan(body.indexOf(".synthetic("))
+    expect(body.indexOf("TriggerDelivery.reserve")).toBeGreaterThan(0)
+    expect(body.indexOf("kv.atomicUpdate(entry.key")).toBeGreaterThan(0)
+    expect(body.indexOf("TriggerDelivery.reserve")).toBeLessThan(body.indexOf("deliverPending(entry.key, next"))
     expect(body).toContain("Trigger.paused")
-    expect(body).toContain('source: "trigger"')
+    expect(source).toContain('source: "trigger"')
   })
 
   test("sessions send and create check the publishing refusal before anything is dispatched", () => {

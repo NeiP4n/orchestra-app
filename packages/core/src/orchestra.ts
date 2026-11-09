@@ -35,6 +35,9 @@ import { Society } from "./society.js"
 import { Config } from "./config.js"
 import { Autoloop } from "./autoloop/service.js"
 import { Trigger } from "./trigger.js"
+import { TriggerMissed } from "./trigger-missed.js"
+import { TriggerDelivery } from "./trigger-delivery.js"
+import { randomUUID } from "node:crypto"
 import { ScheduleView } from "./schedule-view.js"
 import { BrowserLocalTest } from "./browser/local-test.js"
 import { BrowserRuntime } from "./browser/runtime.js"
@@ -1826,17 +1829,45 @@ const layer: Layer.Layer<
       appendFileSync(file, `${JSON.stringify({ time: new Date(now).toISOString(), ...entry })}\n`)
     }))
     // Real internal bus events only, with a bounded queue. No replay after restart and no payload instructions.
+    const deliverPending = (key: string, trigger: Trigger.Info, main: SessionID) => Effect.gen(function* () {
+      const pending = trigger.pendingFire
+      if (!pending) return false
+      const source = pending.source
+      if (source.actions?.length) {
+        // Local allowlisted actions are at-least-once across a process crash, never arbitrary effects.
+        const result = yield* localActions(trigger, pending.firedAt)
+        yield* kv.atomicUpdate(key, (current) => {
+          const latest = Trigger.parse(current)
+          if (latest?.pendingFire?.fireId !== pending.fireId) return current
+          return TriggerDelivery.acknowledge({ ...latest, errors: result.errors, enabled: result.enabled, pausedReason: result.pausedReason }, pending.fireId) as never
+        })
+        return true
+      }
+      const ok = yield* sessions.synthetic({
+        id: SessionMessage.ID.make(pending.messageID), sessionID: main,
+        description: `Trigger ${source.id} fired`, text: Trigger.render(source, pending.firedAt),
+        metadata: { source: "trigger", triggerID: source.id, fireId: pending.fireId, publishApproved: source.publishApproved, ...(source.browserSessionID ? { browserSessionID: source.browserSessionID } : {}) },
+      }).pipe(Effect.as(true), Effect.orElseSucceed(() => false))
+      if (ok) yield* kv.atomicUpdate(key, (current) => TriggerDelivery.acknowledge(current, pending.fireId) as never)
+      return ok
+    })
     const internalInbox: Array<{ sessionID: string; event: "execution.succeeded" | "execution.failed" }> = []
     yield* bus.subscribe([SessionEvent.Execution.Succeeded, SessionEvent.Execution.Failed]).pipe(
       Stream.runForEach((event) => Effect.sync(() => {
         if (internalInbox.length < 200) internalInbox.push({ sessionID: String(event.data.sessionID), event: event.type === SessionEvent.Execution.Succeeded.type ? "execution.succeeded" : "execution.failed" })
       })), Effect.forkScoped({ startImmediately: true }),
     )
+    const sweepOwner = randomUUID()
+    const withTriggerLease = <A, E, R>(kind: string, work: Effect.Effect<A, E, R>) => Effect.gen(function* () {
+      if (!(yield* TriggerDelivery.acquire(kv, kind, sweepOwner, Date.now()))) return
+      return yield* work.pipe(Effect.ensuring(TriggerDelivery.release(kv, kind, sweepOwner)))
+    })
     const fireInternalTriggers = Effect.gen(function* () {
       if (!internalInbox.length) return
       const events = internalInbox.splice(0)
       const now = Date.now()
       for (const entry of yield* scanAll(Trigger.PREFIX)) {
+        if (!(yield* TriggerDelivery.acquire(kv, "internal", sweepOwner, Date.now()))) return
         let trigger = Trigger.parse(entry.value)
         if (!trigger || trigger.kind !== "internal" || !trigger.actions?.length) continue
         const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
@@ -1858,17 +1889,28 @@ const layer: Layer.Layer<
         }
       }
     }).pipe(Effect.catch(() => Effect.void))
-    yield* Effect.forever(Effect.sleep(Duration.seconds(5)).pipe(Effect.andThen(fireInternalTriggers))).pipe(Effect.forkScoped({ startImmediately: true }))
+    yield* Effect.forever(Effect.sleep(Duration.seconds(5)).pipe(Effect.andThen(withTriggerLease("internal", fireInternalTriggers)))).pipe(Effect.forkScoped({ startImmediately: true }))
     // Triggers (a cron time, an interval, a one-shot time): once a minute the due ones are handed to their project's
     // Orchestrator as a <trigger-fired> message (steer + wake, like a <team-report>). The record is saved BEFORE the
-    // message goes out, so a crash in between loses one firing instead of repeating it. A full cap pauses the trigger.
+    // message goes out with a durable pending fire; replay uses the same inbox id. A full cap pauses the trigger.
     const fireTriggers = Effect.gen(function* () {
       const now = Date.now()
       for (const entry of yield* scanAll(Trigger.PREFIX)) {
-        const trigger = Trigger.parse(entry.value)
+        if (!(yield* TriggerDelivery.acquire(kv, "time", sweepOwner, Date.now()))) return
+        let trigger = Trigger.parse(entry.value)
+        if (!trigger) continue
+        const planned = TriggerMissed.plan(trigger, now)
+        if (planned !== trigger) trigger = Trigger.parse(yield* kv.atomicUpdate(entry.key, (current) => {
+          const latest = Trigger.parse(current)
+          return latest ? TriggerMissed.plan(latest, now) as never : current
+        }))
         if (!trigger) continue
         const viewProject = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
         if (viewProject?.main) ScheduleView.sync(trigger, String(viewProject.main))
+        if (trigger.pendingFire) {
+          if (viewProject?.main && !ScheduleView.removalRequested(trigger.id, String(viewProject.main))) yield* deliverPending(entry.key, trigger, viewProject.main)
+          continue
+        }
         const verdict = Trigger.due(trigger, now)
         if (verdict === "wait") continue
         if (verdict === "pause") {
@@ -1892,31 +1934,17 @@ const layer: Layer.Layer<
             continue
           }
         }
-        const next = Trigger.afterFire(trigger, now)
-        yield* kv.set(entry.key, next as never)
+        const next = Trigger.parse(yield* kv.atomicUpdate(entry.key, (current) => TriggerDelivery.reserve(current, trigger, now, Trigger.localZone()) as never))
+        if (!next?.pendingFire) continue
         ScheduleView.sync(next, String(project.main))
         BrowserSchedule.sync(next)
         if (trigger.browserSessionID) BrowserSchedule.dispatched(trigger.id, now)
-        if (trigger.actions?.length) {
-          const result = yield* localActions(next, now)
-          yield* kv.set(entry.key, result as never)
-          ScheduleView.sync(result, String(project.main))
-          continue
-        }
-        const ok = yield* sessions
-          .synthetic({
-            id: SessionMessage.ID.create(),
-            sessionID: project.main,
-            description: `Trigger ${trigger.id} fired`,
-            text: Trigger.render(trigger, now),
-            metadata: { source: "trigger", triggerID: trigger.id, publishApproved: trigger.publishApproved, ...(trigger.browserSessionID ? { browserSessionID: trigger.browserSessionID } : {}) },
-          })
-          .pipe(Effect.as(true), Effect.orElseSucceed(() => false))
+        const ok = yield* deliverPending(entry.key, next, project.main)
         if (!ok && trigger.browserSessionID) BrowserSchedule.deliveryFailed(trigger.id)
         reportLog({ event: "trigger-fired", trigger: trigger.id, project: trigger.projectID, kind: trigger.kind, delivered: ok, nextAt: next.nextAt })
       }
     }).pipe(Effect.catch(() => Effect.void))
-    yield* Effect.forever(Effect.sleep(Duration.seconds(60)).pipe(Effect.andThen(fireTriggers))).pipe(
+    yield* Effect.forever(Effect.sleep(Duration.seconds(60)).pipe(Effect.andThen(withTriggerLease("time", fireTriggers)))).pipe(
       Effect.forkScoped({ startImmediately: true }),
     )
 
@@ -1938,6 +1966,7 @@ const layer: Layer.Layer<
       })
       for (const key of [...waiting.keys()]) if (!mine.some((item) => item.key === key)) waiting.delete(key)
       for (const item of mine) {
+          if (!(yield* TriggerDelivery.acquire(kv, "browser", sweepOwner, Date.now()))) return
           const project = yield* get(item.trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
           if (project?.main) ScheduleView.sync(item.trigger, String(project.main))
           BrowserSchedule.sync({ ...item.trigger, browserSessionID: item.trigger.spec })
@@ -1994,7 +2023,7 @@ const layer: Layer.Layer<
         reportLog({ event: "trigger-fired", trigger: trigger.id, project: trigger.projectID, kind: "browser", rows: rows.length, delivered: ok })
       }
     }).pipe(Effect.catch(() => Effect.void))
-    yield* Effect.forever(Effect.sleep(Duration.seconds(5)).pipe(Effect.andThen(fireBrowserTriggers))).pipe(
+    yield* Effect.forever(Effect.sleep(Duration.seconds(5)).pipe(Effect.andThen(withTriggerLease("browser", fireBrowserTriggers)))).pipe(
       Effect.forkScoped({ startImmediately: true }),
     )
     yield* Effect.forever(Effect.sleep(Duration.seconds(60)).pipe(Effect.andThen(watchReports))).pipe(

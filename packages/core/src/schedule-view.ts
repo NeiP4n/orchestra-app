@@ -11,6 +11,11 @@ export interface Item {
   sessionID: string
   name: string
   total?: number
+  missedCount?: number
+  missedCountAtLeast?: boolean
+  lastMissedAt?: number
+  missedPolicy?: Trigger.Info["missedPolicy"]
+  pendingDelivery?: boolean
   localActions?: boolean
   actionErrors?: number
   kind: Trigger.Kind
@@ -34,6 +39,7 @@ export function shortName(prompt: string): string {
 export function sync(trigger: Trigger.Info, sessionID: string) {
   try {
     const item: Item = { id: trigger.id, sessionID, name: shortName(trigger.prompt), kind: trigger.kind,
+      missedCount: trigger.missedCount, missedCountAtLeast: trigger.missedCountAtLeast, lastMissedAt: trigger.lastMissedAt, missedPolicy: trigger.missedPolicy, pendingDelivery: !!trigger.pendingFire,
       total: trigger.total, localActions: !!trigger.actions?.length, actionErrors: trigger.errors?.consecutive,
       enabled: trigger.enabled, nextAt: trigger.enabled ? trigger.nextAt : null, lastFiredAt: trigger.lastFiredAt,
       pausedReason: trigger.pausedReason, browserSessionID: trigger.browserSessionID, updatedAt: Date.now() }

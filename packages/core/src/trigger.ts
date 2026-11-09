@@ -1,5 +1,6 @@
 export * as Trigger from "./trigger.js"
 
+import type { TriggerDelivery } from "./trigger-delivery.js"
 import { TriggerConditions } from "./trigger-conditions.js"
 import { TriggerActions } from "./trigger-actions.js"
 import { AutoloopDecide } from "./autoloop/kernel/decide.js"
@@ -36,6 +37,12 @@ export interface Info {
   createdAt: number
   nextAt: number | null
   lastFiredAt?: number
+  pendingFire?: TriggerDelivery.Pending
+  missedPolicy?: "skip" | "run-once" | "catch-up"
+  missedCount?: number
+  missedCountAtLeast?: boolean
+  lastMissedAt?: number
+  catchUpRemaining?: number
   /** Fire times of the last 24 hours, for the caps. */
   fired: number[]
   total: number
@@ -74,6 +81,7 @@ export interface CreateInput {
   kind: string
   spec: string
   prompt: string
+  missedPolicy?: "skip" | "run-once" | "catch-up"
   maxPerHour?: number
   maxPerDay?: number
   match?: string
@@ -168,6 +176,7 @@ export function create(
       maxPerHour: clampCap(input.maxPerHour, DEFAULT_PER_HOUR, HARD_PER_HOUR),
       maxPerDay: clampCap(input.maxPerDay, DEFAULT_PER_DAY, HARD_PER_DAY),
       publishApproved: false,
+      missedPolicy: input.missedPolicy ?? (input.kind === "once" ? "run-once" : "skip"),
       ...(actionPlan.actions.length ? { actions: actionPlan.actions } : {}),
     },
   }
@@ -193,7 +202,23 @@ export function parse(value: unknown): Info | undefined {
   if (actionPlan.actions.some((a) => a.kind === "browser.read")) return undefined
   const errors = v.errors as TriggerActions.Errors | undefined
   if (errors && (!Number.isInteger(errors.consecutive) || errors.consecutive < 0 || !Number.isInteger(errors.total) || errors.total < errors.consecutive)) return undefined
+  let pendingFire: TriggerDelivery.Pending | undefined
+  if (v.pendingFire !== undefined) {
+    const p = v.pendingFire as TriggerDelivery.Pending | null
+    if (!p || typeof p !== "object" || !Number.isFinite(p.scheduledAt) || !Number.isFinite(p.firedAt) ||
+      p.fireId !== `${v.id}:${p.scheduledAt}` || !/^msg_trigger_[a-f0-9]{64}$/.test(p.messageID) ||
+      !p.source || p.source.pendingFire !== undefined) return undefined
+    const source = parse(p.source)
+    if (!source || source.id !== v.id || source.projectID !== v.projectID) return undefined
+    pendingFire = { fireId: p.fireId, messageID: p.messageID, scheduledAt: p.scheduledAt, firedAt: p.firedAt, source }
+  }
   return {
+    ...(pendingFire ? { pendingFire } : {}),
+    missedPolicy: v.missedPolicy === "catch-up" || v.missedPolicy === "run-once" ? v.missedPolicy : v.kind === "once" && v.missedPolicy === undefined ? "run-once" : "skip",
+    ...(typeof v.missedCount === "number" && Number.isFinite(v.missedCount) ? { missedCount: Math.max(0, Math.floor(v.missedCount)) } : {}),
+    ...(v.missedCountAtLeast === true ? { missedCountAtLeast: true } : {}),
+    ...(typeof v.lastMissedAt === "number" ? { lastMissedAt: v.lastMissedAt } : {}),
+    ...(Number.isInteger(v.catchUpRemaining) && Number(v.catchUpRemaining) > 0 && Number(v.catchUpRemaining) <= 3 ? { catchUpRemaining: Number(v.catchUpRemaining) } : {}),
     ...(condition ? { condition } : {}),
     ...(errors ? { errors } : {}),
     ...(actionPlan.actions.length ? { actions: actionPlan.actions } : {}),
@@ -262,7 +287,9 @@ export function afterFire(trigger: Info, now: number, timezone = localZone()): I
   const base = { ...trigger, fired, total: trigger.total + 1, lastFiredAt: now }
   if (trigger.kind === "once") return { ...base, enabled: false, nextAt: null, pausedReason: "done: a one-shot trigger fires once" }
   if (trigger.kind === "browser" || trigger.kind === "internal") return base
-  const next = nextFrom(trigger, now, timezone)
+  const remaining = Math.max(0, (trigger.catchUpRemaining ?? 0)-1)
+  const next = nextFrom(trigger, remaining && trigger.nextAt !== null ? trigger.nextAt : now, timezone)
+  base.catchUpRemaining = remaining || undefined
   return next === null ? { ...base, enabled: false, nextAt: null, pausedReason: "paused: the cron line has no next time" } : { ...base, nextAt: next }
 }
 
