@@ -356,6 +356,24 @@ export function BrowserPane(props: {
     if (process.platform === "win32" && state() === "ready" && mode() === "headless") switchMode("capture")
   }
 
+  // The agent's browser tool starts the session's Chrome in the server process, windowless. While this pane
+  // still shows the Open Chrome screen, a Chrome running on the session's profile is taken over and shown here,
+  // as if Open Chrome had been pressed. A failed start stops this until the operator presses the button.
+  createEffect(() => {
+    let busy = false
+    const timer = setInterval(() => {
+      if (busy || disposed || state() !== "idle" || failure()) return
+      busy = true
+      void BrowserRuntime.peek(props.sessionID)
+        .then((found) => {
+          if (found.running && !disposed && state() === "idle" && !failure()) return open()
+        })
+        .catch(() => undefined)
+        .finally(() => (busy = false))
+    }, 1500)
+    onCleanup(() => clearInterval(timer))
+  })
+
   // Chrome runs either windowless (streamed into this pane) or as a normal visible window with real Chrome tabs
   // and address bar. Switching restarts it on the same profile and reopens the tabs.
   const switchMode = (next: "headless" | "window" | "capture") => {
