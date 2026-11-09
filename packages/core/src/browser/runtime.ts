@@ -216,7 +216,7 @@ const launchLock = <T>(action: () => Promise<T>) => Flock.withLock("browser-acti
 })
 export const browserLimitDetails = (error: unknown) => error instanceof BrowserBudget.LimitError
   ? { sessionID: error.sessionID, name: error.sessionName, canClose: error.reason === "cdp" } : undefined
-async function checkLaunchBudget() {
+async function checkLaunchBudget(sessionID?: string): Promise<number | undefined> {
   if (process.env.ORCHESTRA_BROWSER_LIMIT === "off") { trace("browser profile ceiling disabled explicitly by operator"); return }
   const root = path.join(Global.Path.data, "browser-profiles")
   let folders: string[] = []
@@ -225,7 +225,11 @@ async function checkLaunchBudget() {
     const dir = Chrome.profileDir(Global.Path.data, id)
     let name = id
     try { name = sessions().find((item) => item.id === id)?.name || id } catch {}
-    if (await Chrome.livePort(deps.readFile, alive, dir) !== undefined) throw new BrowserBudget.LimitError(id, name, "cdp")
+    const port = await Chrome.livePort(deps.readFile, alive, dir)
+    if (port !== undefined) {
+      if (id === sessionID) return port
+      throw new BrowserBudget.LimitError(id, name, "cdp")
+    }
     const file = processFile(dir)
     if (!existsSync(file)) continue // Legacy profiles may predate PID tracking.
     let pid: number
@@ -269,7 +273,8 @@ async function startLocked(sessionID: string): Promise<Live> {
   const dir = Chrome.profileDir(Global.Path.data, sessionID)
   const port = await Chrome.livePort(deps.readFile, alive, dir)
   if (port !== undefined) return join(port, ownedChrome.get(port) ?? (() => {}))
-  await checkLaunchBudget()
+  const joinedPort = await checkLaunchBudget(sessionID)
+  if (joinedPort !== undefined) return join(joinedPort, ownedChrome.get(joinedPort) ?? (() => {}))
   const exe = Chrome.find(existsSync)
   if (!exe) throw new Error(Chrome.NOT_FOUND)
   calm(dir)
@@ -844,7 +849,8 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
   calm(Chrome.profileDir(Global.Path.data, sessionID))
   trace(`${sessionID}: restarting ${exe} as ${target} on ${Chrome.profileDir(Global.Path.data, sessionID)} (pid ${process.pid})`)
   const run = await launchLock(async () => {
-    await checkLaunchBudget()
+    const joinedPort = await checkLaunchBudget(sessionID)
+    if (joinedPort !== undefined) return { port: joinedPort, pid: undefined, close: ownedChrome.get(joinedPort) ?? (() => {}), joined: true as const }
     return Chrome.launch(headed ? windowDeps : deps, {
     exe,
     profileDir: Chrome.profileDir(Global.Path.data, sessionID),
@@ -866,6 +872,11 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
         : [],
     })
   })
+  if ("joined" in run) {
+    live.set(sessionID, await join(run.port, run.close))
+    trace(`${sessionID}: same profile answered during mode switch; joined existing Chrome without another launch`)
+    return
+  }
   const owned = target === "window" ? run : rememberOwned(run)
   const next = await join(owned.port, target === "window" ? () => {} : owned.close, target === "window").catch((error) => {
     run.close()

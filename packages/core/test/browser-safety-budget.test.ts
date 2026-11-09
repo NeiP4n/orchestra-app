@@ -12,7 +12,7 @@ test("one active profile is the safe ceiling; no claim of one Chromium OS subpro
   expect(runtime).toContain('Flock.withLock("browser-active-profile-budget"')
   expect(runtime).toContain('dir: path.join(Global.Path.data, "browser-launch-locks")')
   expect(runtime).toContain("return launchLock(() => startLocked(sessionID))")
-  expect(runtime).toContain("await checkLaunchBudget()")
+  expect(runtime).toContain("await checkLaunchBudget(sessionID)")
   expect(runtime).toContain("const run = await launchLock(async () =>")
   expect(runtime).toContain("AbortSignal.timeout(1000)")
 })
@@ -87,4 +87,12 @@ test("endpoint identity distinguishes port reuse; safety error identifies the se
   expect(runtime).toContain('process.env.ORCHESTRA_BROWSER_LIMIT === "off"')
   expect(runtime).toContain('dead = (error as NodeJS.ErrnoException).code === "ESRCH"')
   expect(runtime).toContain('rmSync(file, { force: true })')
+})
+
+test("same-profile race joins CDP under the launch lock instead of hitting its own ceiling", () => {
+  const runtime = readFileSync(new URL("../src/browser/runtime.ts", import.meta.url), "utf8")
+  expect(runtime).toContain("if (id === sessionID) return port")
+  expect(runtime).toContain("if (joinedPort !== undefined) return join(joinedPort")
+  expect(runtime).toContain('if ("joined" in run)')
+  expect(runtime).toContain("same profile answered during mode switch; joined existing Chrome")
 })
