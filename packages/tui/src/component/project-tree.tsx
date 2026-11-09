@@ -3,7 +3,6 @@ import { createStateFeedback } from "../ui/state-feedback"
 import { useMotion } from "./neural"
 import { useConfig } from "../config"
 import { TextAttributes } from "@opentui/core"
-import { useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, untrack, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import type {
@@ -49,7 +48,7 @@ import { useNow } from "./note-canvas"
 import { useT } from "../util/i18n"
 import { tint } from "../theme/color"
 import { hoverBackground } from "../ui/hover"
-import { Branch, NeuralChip, NeuralLine, NeuronDot, neuralPalette, useNeuralEnergy } from "./neural"
+import { Branch, NeuralChip, NeuronDot, neuralPalette } from "./neural"
 import { AllSessionsField, useEmptyRoom } from "./session-network"
 
 // The left panel: the operator's own projects, each a name and a directory,
@@ -257,11 +256,9 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
     current()?.location.directory !== undefined &&
     owningProject(projects(), current()!.location.directory)?.id === project.id
   const palette = () => neuralPalette(theme)
-  const energy = useNeuralEnergy()
   const empty = useEmptyRoom()
-  const dimensions = useTerminalDimensions()
   // A narrow panel keeps the switch as two icons so the names below get the room.
-  const iconOnly = () => props.width < 36
+  const iconOnly = () => props.width < 60
   // A narrow panel keeps session titles readable by showing the category and access controls
   // only on the hovered session.
   const narrow = () => props.width < 36
@@ -1052,11 +1049,11 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
         </box>
       }
     >
-      <box width={props.width} height="100%" flexShrink={0} backgroundColor={theme.background.raised.base} paddingTop={1}>
+      <box width={props.width} height="100%" flexShrink={0} backgroundColor={theme.background.raised.base}>
         {/* The panel's head: a segmented switch between the tree and the notes, the main action, and collapse. */}
-        <box flexDirection="row" flexWrap="wrap" paddingLeft={1} paddingRight={1} columnGap={1} rowGap={0} flexShrink={0}>
+        <box flexDirection="row" height={1} paddingLeft={1} paddingRight={1} columnGap={1} flexShrink={0}>
           {/* Tabs wrap to a second row when the panel is narrow, so none is clipped. */}
-          <box flexDirection="row" flexWrap="wrap" flexShrink={1}>
+          <box flexDirection="row" flexShrink={0}>
             <Tab tab="projects" icon="◉" label={iconOnly() ? "" : t("Projects")} hover={hover} setHover={setHover} />
             <Tab tab="notes" icon="✎" label={iconOnly() ? "" : t("Notes")} hover={hover} setHover={setHover} />
             <Tab tab="console" icon="›_" label={iconOnly() ? "" : t("Console")} hover={hover} setHover={setHover} />
@@ -1076,12 +1073,6 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
             </HoverAction>
           </Show>
         </box>
-        {/* Decoration goes first on a short window: the tree needs every row. */}
-        <Show when={dimensions().height >= 24} fallback={<box height={1} flexShrink={0} />}>
-          <box paddingLeft={1} paddingRight={1} paddingTop={1} paddingBottom={1} flexShrink={0}>
-            <NeuralLine energy={energy()} seed={5} backdrop={theme.background.raised.base} />
-          </box>
-        </Show>
         <Show when={notes.tab() === "notes"}>
           <ProjectNotes />
         </Show>
@@ -1509,11 +1500,10 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
             }}
           </For>
           </Section>
-          <Section title={t("Multiplayer")} icon="⇄" gap>
-            <box flexDirection="row" flexWrap="wrap" gap={1} paddingBottom={1}>
+          <Section title={t("Multiplayer")} icon="⇄" actions={<>
               <SectionButton icon="◈" label={t("Host")} onClick={() => openRooms(DialogHost)} />
               <SectionButton icon="⇢" label={t("Connect")} onClick={() => openRooms(DialogConnect)} />
-            </box>
+            </>}>
             <Show when={meshStatus() && meshStatus()!.status !== "unconfigured"}>
               <Row
                 id="mesh:connected"
@@ -1665,9 +1655,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
             </For>
             <Show when={(rooms.latest ?? []).length === 0 && joined.joined.length === 0}>
               <box paddingLeft={1} paddingRight={1}>
-                <text fg={theme.text.muted} attributes={TextAttributes.ITALIC} wrapMode="word">
-                  {t("No rooms yet. Host a session or connect to someone else's.")}
-                </text>
+                <text fg={theme.text.muted} wrapMode="none" truncate>Нет подключённых комнат</text>
               </box>
             </Show>
           </Section>
@@ -1707,8 +1695,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
   )
 }
 
-// A collapsible section of the panel: a rounded card whose border carries the name, so projects
-// and multiplayer read as separate blocks. The first line holds the count, the actions and the fold.
+// Dense, border-free section: title, count, actions and fold share one terminal row.
 function Section(props: {
   title: string
   icon: string
@@ -1719,35 +1706,13 @@ function Section(props: {
 }) {
   const theme = useTheme()
   const [open, setOpen] = createSignal(true)
-  const [hovered, setHovered] = createSignal(false)
-  const palette = () => neuralPalette(theme)
   return (
-    <box
-      flexShrink={0}
-      marginTop={props.gap ? 1 : 0}
-      marginLeft={1}
-      marginRight={1}
-      border
-      borderStyle="rounded"
-      borderColor={hovered() ? tint(theme.border.base, palette().signal, 0.6) : theme.border.base}
-      title={` ${props.icon} ${props.title.toLocaleUpperCase()} `}
-      titleColor={hovered() ? palette().signal : theme.text.base}
-      onMouseOver={() => setHovered(true)}
-      onMouseOut={() => setHovered(false)}
-    >
-      <box flexDirection="row" paddingRight={0} flexShrink={0}>
-        <Show when={props.count !== undefined}>
-          <box paddingLeft={1} flexShrink={0}>
-            <text fg={palette().signal} wrapMode="none">
-              {`${props.count}`}
-            </text>
-          </box>
-        </Show>
-        <box flexGrow={1} />
-        {props.actions}
-        <HoverAction id={`section-fold:${props.title}`} paddingLeft={1} paddingRight={1} onClick={() => setOpen(!open())}>
-          <text fg={theme.text.muted}>{open() ? "▾" : "▸"}</text>
+    <box flexShrink={0}>
+      <box flexDirection="row" height={1} paddingLeft={1} paddingRight={1} flexShrink={0}>
+        <HoverAction id={`section-fold:${props.title}`} flexGrow={1} minWidth={0} onClick={() => setOpen(!open())}>
+          <text fg={theme.text.muted} wrapMode="none" truncate>{`${open() ? "▾" : "▸"} ${props.icon} ${props.title}${props.count === undefined ? "" : ` · ${props.count}`}`}</text>
         </HoverAction>
+        {props.actions}
       </box>
       <Show when={open()}>{props.children}</Show>
     </box>
@@ -1785,7 +1750,7 @@ function Tab(props: {
       paddingLeft={1}
       paddingRight={1}
       backgroundColor={
-        active() ? theme.background.action.primary.focused : props.hover() === id ? hoverBackground(theme) : undefined
+        active() || props.hover() === id ? hoverBackground(theme) : undefined
       }
       onMouseOver={() => props.setHover(id)}
       onMouseOut={() => props.setHover(undefined)}
@@ -1798,7 +1763,7 @@ function Tab(props: {
       <text
         fg={
           active()
-            ? theme.text.action.primary.focused
+            ? theme.text.base
             : props.hover() === id
               ? theme.text.action.primary.hovered
               : palette().synapse
@@ -1810,7 +1775,7 @@ function Tab(props: {
       <text
         fg={
           active()
-            ? theme.text.action.primary.focused
+            ? theme.text.base
             : props.hover() === id
               ? theme.text.base
               : theme.text.muted
