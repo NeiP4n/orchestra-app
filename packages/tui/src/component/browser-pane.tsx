@@ -101,6 +101,8 @@ export function BrowserPane(props: {
   // What the last frame and the pane measured, shown under the page so a size mismatch is visible at once.
   const [stats, setStats] = createSignal("")
   let lastFrame = 0
+  // Until the first picture is drawn the screen would be a black box: a line says what is going on and what to do.
+  const [framed, setFramed] = createSignal(false)
   let disposed = false
   // Repaints every cell from scratch: whatever a picture or a mode switch left on the screen is overwritten.
   const repaint = () => {
@@ -145,6 +147,7 @@ export function BrowserPane(props: {
         lastFrame = now
         try {
           picture.source = NativeImage.decode(Buffer.from(frame.data, "base64"))
+          setFramed(true)
           // A captured window may be a little off the size asked for: the clicks map onto what is really shown.
           if (mode() === "capture" && frame.width > 0 && frame.height > 0)
             viewport = { width: frame.width, height: frame.height }
@@ -568,6 +571,12 @@ export function BrowserPane(props: {
                   fit="fill"
                   protocol={IMAGE_PROTOCOL}
                 />
+                <Show when={!framed()}>
+                  <box position="absolute" left={0} top={0} width="100%" height="100%" alignItems="center" justifyContent="center" flexDirection="column">
+                    <text fg={theme.text.muted}>{t("Waiting for the page picture...")}</text>
+                    <text fg={theme.text.muted}>{t("Still black? This terminal may not show pictures: press Text, or set ORCHESTRA_BROWSER_GFX=blocks.")}</text>
+                  </box>
+                </Show>
                 <Show when={!control() && agentAt()}>
                   <text
                     position="absolute"

@@ -607,7 +607,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
         flexBasis={0}
         minWidth={0}
         minHeight={0}
-        flexDirection={stacked() ? "column" : chatBeside() ? "row-reverse" : "row"}
+        flexDirection={stacked() ? "column" : "row"}
         position="relative"
         onSizeChange={function () {
           setCanvasHostWidth(this.width)
@@ -639,6 +639,68 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
                   )}
                 </Show>
               )}
+            </Show>
+          </box>
+        </Show>
+        <Show when={centerView()}>
+          <box id="center-view" flexGrow={1} flexBasis={0} minWidth={0} minHeight={0} flexDirection="column">
+            <Show
+              when={centerView() === "console"}
+              fallback={
+                <Show
+                  keyed
+                  when={browserSession()}
+                  fallback={
+                    <box flexGrow={1} alignItems="center" justifyContent="center" flexDirection="column">
+                      <text fg={theme.text.base}>{t("Browser")}</text>
+                      <text fg={theme.text.muted}>{t("Add a browser session to this project in the left panel.")}</text>
+                    </box>
+                  }
+                >
+                  {(item) => (
+                      <BrowserPane
+                        sessionID={item.id}
+                        name={item.name}
+                        chatHidden={browserChatHidden() || dimensions().width < 110}
+                        canShowChat={dimensions().width >= 110}
+                        onToggleChat={() => setBrowserChatHidden(!browserChatHidden())}
+                      />
+                    )}
+                </Show>
+              }
+            >
+              <Show
+                keyed
+                when={sessions.available()}
+                fallback={
+                  // No persistent PTY on this server (Windows): the plain PTY of the project directory.
+                  <Show
+                    keyed
+                    when={sessions.checked() ? data.session.get(props.sessionID)?.location.directory : undefined}
+                  >
+                    {(directory) => <PlainTerminalPane directory={directory} autoFocus />}
+                  </Show>
+                }
+              >
+                <Show
+                  keyed
+                  when={consoleTerminal()?.id}
+                  fallback={
+                    // Say why the pane is empty instead of leaving a blank panel.
+                    <box flexGrow={1} alignItems="center" justifyContent="center">
+                      <text fg={theme.text.muted}>
+                        {consoleError()
+                          ? `${t("Unable to load terminal")}: ${consoleError()}`
+                          : t("Starting the project shell...")}
+                      </text>
+                    </box>
+                  }
+                >
+                  {(ptyID) => (
+                    <TerminalPane ptyID={ptyID} autoFocus onFocusRequest={(value) => (focusTerminal = value)} />
+                  )}
+                </Show>
+              </Show>
             </Show>
           </box>
         </Show>
@@ -711,68 +773,6 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
             />
           </Show>
         </box>
-        <Show when={centerView()}>
-          <box id="center-view" flexGrow={1} flexBasis={0} minWidth={0} minHeight={0} flexDirection="column">
-            <Show
-              when={centerView() === "console"}
-              fallback={
-                <Show
-                  keyed
-                  when={browserSession()}
-                  fallback={
-                    <box flexGrow={1} alignItems="center" justifyContent="center" flexDirection="column">
-                      <text fg={theme.text.base}>{t("Browser")}</text>
-                      <text fg={theme.text.muted}>{t("Add a browser session to this project in the left panel.")}</text>
-                    </box>
-                  }
-                >
-                  {(item) => (
-                      <BrowserPane
-                        sessionID={item.id}
-                        name={item.name}
-                        chatHidden={browserChatHidden() || dimensions().width < 110}
-                        canShowChat={dimensions().width >= 110}
-                        onToggleChat={() => setBrowserChatHidden(!browserChatHidden())}
-                      />
-                    )}
-                </Show>
-              }
-            >
-              <Show
-                keyed
-                when={sessions.available()}
-                fallback={
-                  // No persistent PTY on this server (Windows): the plain PTY of the project directory.
-                  <Show
-                    keyed
-                    when={sessions.checked() ? data.session.get(props.sessionID)?.location.directory : undefined}
-                  >
-                    {(directory) => <PlainTerminalPane directory={directory} autoFocus />}
-                  </Show>
-                }
-              >
-                <Show
-                  keyed
-                  when={consoleTerminal()?.id}
-                  fallback={
-                    // Say why the pane is empty instead of leaving a blank panel.
-                    <box flexGrow={1} alignItems="center" justifyContent="center">
-                      <text fg={theme.text.muted}>
-                        {consoleError()
-                          ? `${t("Unable to load terminal")}: ${consoleError()}`
-                          : t("Starting the project shell...")}
-                      </text>
-                    </box>
-                  }
-                >
-                  {(ptyID) => (
-                    <TerminalPane ptyID={ptyID} autoFocus onFocusRequest={(value) => (focusTerminal = value)} />
-                  )}
-                </Show>
-              </Show>
-            </Show>
-          </box>
-        </Show>
       </box>
       <Show
         when={
