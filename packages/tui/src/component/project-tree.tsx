@@ -549,7 +549,12 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       .list()
       .filter(
         (session) =>
-          !session.parentID && !removed[session.id] && session.id !== project.main && owner(session)?.id === project.id,
+          !session.parentID &&
+          !removed[session.id] &&
+          session.id !== project.main &&
+          // A BrowserAgent chat belongs to its browser session and is listed in the Browser tab, not here.
+          session.agent !== "team-browser-agent" &&
+          owner(session)?.id === project.id,
       )
 
   // A chat the AI is waiting on: a pending question or permission request, subagents included.
@@ -843,6 +848,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                       const [removeHovered, setRemoveHovered] = createSignal(false)
                       const chosen = () => notes.browserSelected(project.id)?.id === item.id
                       return (
+                        <>
                         <Row
                           id={`browser:${item.id}`}
                           hover={hover}
@@ -892,6 +898,28 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                             <text fg={removeHovered() ? theme.text.feedback.error.base : theme.text.muted}>{" ×"}</text>
                           </HoverAction>
                         </Row>
+                        {/* The session's BrowserAgent: its chat lives here, under its browser, not in the project list. */}
+                        <Show when={item.chat}>
+                          <Row
+                            id={`browser-agent:${item.id}`}
+                            hover={hover}
+                            setHover={setHover}
+                            selected={item.chat === current()?.id}
+                            onClick={() => {
+                              notes.setProject(project.id)
+                              route.navigate({ type: "session", sessionID: item.chat! })
+                            }}
+                          >
+                            <Branch />
+                            <text flexShrink={0} fg={theme.text.muted}>
+                              {"  ⤷ "}
+                            </text>
+                            <text fg={theme.text.base} wrapMode="none" truncate>
+                              {`BrowserAgent · ${item.name}`}
+                            </text>
+                          </Row>
+                        </Show>
+                        </>
                       )
                     }}
                   </For>
