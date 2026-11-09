@@ -9,7 +9,7 @@ test("left tightens, right expands without wrap and unlimited needs expansion",(
 test("real security dialog binds left/right and confirms every permission or cap expansion",()=>{
  const source=readFileSync(new URL("../src/component/dialog-security.tsx",import.meta.url),"utf8")
  expect(source).toContain('bind:"left"');expect(source).toContain('run:()=>change(-1)');expect(source).toContain('bind:"right"');expect(source).toContain('run:()=>change(1)')
- expect(source).toContain('answer.trim()==="РАЗРЕШИТЬ"');expect(source).toContain('limitExpansion(current,next)')
+ expect(source).toContain('if(answer.trim()!=="РАЗРЕШИТЬ")return');expect(source).toContain('limitExpansion(current,next)')
  expect(source).toContain('ScheduleView.requestDailyLimit(item.id,owner,next!)');expect(source).toContain('задаётся окружением')
  expect(source).not.toContain('process.env[')
 })
