@@ -217,9 +217,19 @@ export async function open(sessionID: string): Promise<Cdp.Client> {
     hooked = true
     process.on("exit", closeAll)
   }
+  const wanted = savedState(sessionID).active
   const promise = start(sessionID)
-    .then((value) => {
+    .then(async (value) => {
       live.set(sessionID, value)
+      // After a restart the tab that was in front comes back in front (best effort, the tabs themselves are enough).
+      if (wanted) {
+        try {
+          const tab = (await BrowserTabs.list(value.port)).find((entry) => entry.url === wanted)
+          if (tab) await switchTo(sessionID, tab)
+        } catch (error) {
+          trace(`${sessionID}: restoring the active tab failed: ${String(error).slice(0, 120)}`)
+        }
+      }
       return value
     })
     .finally(() => starting.delete(sessionID))
@@ -292,22 +302,36 @@ function ordered(sessionID: string, list: BrowserTabs.Tab[]) {
 
 // The open addresses are kept on disk, so a Chrome that died (crash, killed) comes back on the same pages.
 const tabsFile = (sessionID: string) => path.join(Global.Path.data, "browser-profiles", `${sessionID}.tabs.json`)
-function saveTabs(sessionID: string, urls: string[]) {
-  const web = urls.filter((url) => /^https?:\/\//i.test(url))
+function saveTabs(sessionID: string, list: ReadonlyArray<{ url: string; title?: string; active?: boolean }>) {
+  const web = list.filter((tab) => /^https?:\/\//i.test(tab.url))
   if (web.length === 0) return
+  // Only address, title and order are kept (and which tab was in front): never cookies, storage or page content.
+  const text = JSON.stringify({
+    tabs: web.map((tab) => ({ url: tab.url, title: (tab.title ?? "").slice(0, 200) })),
+    active: web.find((tab) => tab.active)?.url,
+  })
   try {
+    if (existsSync(tabsFile(sessionID)) && readFileSync(tabsFile(sessionID), "utf8") === text) return
     mkdirSync(path.dirname(tabsFile(sessionID)), { recursive: true })
-    writeAtomic(tabsFile(sessionID), JSON.stringify(web))
+    writeAtomic(tabsFile(sessionID), text)
   } catch {}
 }
-function savedTabs(sessionID: string): string[] {
+function savedState(sessionID: string): { urls: string[]; active?: string } {
   try {
     const value = JSON.parse(readFileSync(tabsFile(sessionID), "utf8")) as unknown
-    return Array.isArray(value) ? value.filter((url): url is string => typeof url === "string" && /^https?:\/\//i.test(url)).slice(0, 8) : []
+    // The first version wrote a bare list of addresses; both forms are read.
+    const raw = Array.isArray(value) ? value : (value as { tabs?: unknown })?.tabs
+    const urls = (Array.isArray(raw) ? raw : [])
+      .map((entry) => (typeof entry === "string" ? entry : (entry as { url?: unknown })?.url))
+      .filter((url): url is string => typeof url === "string" && /^https?:\/\//i.test(url))
+      .slice(0, 8)
+    const active = Array.isArray(value) ? undefined : (value as { active?: unknown })?.active
+    return { urls, active: typeof active === "string" && urls.includes(active) ? active : undefined }
   } catch {
-    return []
+    return { urls: [] }
   }
 }
+const savedTabs = (sessionID: string) => savedState(sessionID).urls
 
 /** The session's tabs as Chrome lists them now. The active one is repaired if its tab was closed by the page. */
 export async function tabs(sessionID: string): Promise<TabState[]> {
@@ -315,7 +339,7 @@ export async function tabs(sessionID: string): Promise<TabState[]> {
   const item = live.get(sessionID)!
   let list = ordered(sessionID, await BrowserTabs.list(item.port))
   if (list.length === 0) list = [await BrowserTabs.create(item.port)]
-  saveTabs(sessionID, list.map((tab) => tab.url))
+  saveTabs(sessionID, list.map((tab) => ({ url: tab.url, title: tab.title, active: tab.id === live.get(sessionID)?.tabID })))
   if (!list.some((tab) => tab.id === item.tabID)) await switchTo(sessionID, list[0]!)
   return list.map((tab) => ({
     id: tab.id,
