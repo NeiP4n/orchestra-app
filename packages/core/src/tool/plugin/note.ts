@@ -57,6 +57,8 @@ export type Output = typeof Output.Type
 export const description = [
   `Read and write the project notes: markdown files in ${FOLDER}/, one file per note, and the file name is the note id. Existing notes in ${LEGACY_FOLDER}/ are read as a fallback; new and updated notes are saved in ${FOLDER}/.`,
   "",
+  "A note is only stored: nothing makes anyone follow it. When the operator tells you a standing rule (\"from now on...\", \"all X goes to Y\", \"поставь правило\"), put it in the rulebook with the rules tool (add), not here: the rulebook rides on every request of the whole crew.",
+  "",
   "Actions:",
   "  list — every note as `- name [status] title`, then its tags and its `updated` file mtime, newest first; an `updated` value from here can be passed straight back as expectedMtime.",
   "  read — one note with its full body; the `updated` number in its output is the file mtime to pass back as expectedMtime.",

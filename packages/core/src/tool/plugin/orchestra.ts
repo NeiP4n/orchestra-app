@@ -677,6 +677,14 @@ export const resolveVariant = Effect.fnUntraced(function* (
   return withVariant(chosen)
 })
 
+/** A task that drives a web page (open, click, fill, sign in) belongs to the BrowserAgent, not to another role. */
+export const BROWSER_TASK =
+  /(?:\b(?:open|visit|go to|navigate|click|fill(?: in| out)?|sign ?up|register|log ?in|sign in|scroll)\b|открой|зайди|перейди|кликни|нажми|заполни|зарегистр|войди|залогин)[^\n]{0,80}(?:https?:\/\/|www\.|\.(?:com|org|net|io|ru|ai)\b|\b(?:site|website|web ?page|page|form|button|browser)\b|сайт|страниц|форм|кнопк|браузер)/i
+export const browserRouteRefusal = (roleID: string | undefined, text: string | undefined) =>
+  roleID !== "browser-agent" && text !== undefined && BROWSER_TASK.test(text)
+    ? "Page work (open, click, fill, sign in on a site) goes to the BrowserAgent of the browser session: use browser action=sessions to see its chat id, then sessions send there. Send this to another role only for work that is not driving a page."
+    : undefined
+
 const modelRef = (model: Model.Ref) => `${model.providerID}/${model.id}`
 const refWithVariant = (model: Model.Ref) => `${modelRef(model)}${model.variant ? `#${model.variant}` : ""}`
 const baseOf = (reference: string) => reference.split("#")[0]
@@ -1465,6 +1473,8 @@ export const Plugin = {
                   if (!input.text?.trim()) return yield* new ToolFailure({ message: "Pass the message as text" })
                   yield* busy(session.id)
                   const role = roles.find((item) => item.agent === session.agent)
+                  const wrongRoute = browserRouteRefusal(role?.id, input.text)
+                  if (wrongRoute) return yield* new ToolFailure({ message: wrongRoute })
                   const mode = yield* requireMode(input.mode)
                   const choice = yield* choose(
                     role,
@@ -1488,6 +1498,8 @@ export const Plugin = {
                     return yield* new ToolFailure({
                       message: `${input.role ? `Unknown role ${input.role}` : "Pass a role"}. Roles: ${roles.map((role) => role.id).join(", ")}`,
                     })
+                  const wrongRoute = browserRouteRefusal(role.id, input.text)
+                  if (wrongRoute) return yield* new ToolFailure({ message: wrongRoute })
                   const mode = yield* requireMode(input.mode)
                   const choice = yield* choose(role, input.text, mode ?? Mode.defaultForRole(role))
 
