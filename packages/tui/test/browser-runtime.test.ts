@@ -57,14 +57,17 @@ describe("browser view", () => {
 })
 
 describe("the browser pane default", () => {
-  test("Windows opens Chrome's own window captured into the pane (real tabs and address bar); the windowless Chrome with the pane's strip is the fallback", () => {
+  test("on Windows every session's Chrome ends up as the captured real window, between the agent's turns; our own strip is emergency-only", () => {
     const pane = read("component/browser-pane.tsx")
-    // Capture by default only on Windows, only when not switched off, and not under an agent that holds the page.
     expect(pane).toContain('process.platform === "win32" && process.env.ORCHESTRA_BROWSER_CAPTURE !== "0"')
+    // One try per pane, never while the session's BrowserAgent chat is working.
+    expect(pane).toContain("captureTried")
+    expect(pane).toContain("props.busy?.()")
     expect(pane).toContain('switchMode("capture")')
-    expect(pane).toContain("BrowserRuntime.leases()")
-    // Our own strip is drawn only when Chrome's is not in the picture.
-    expect(pane).toContain('mode() !== "capture"')
+    expect(read("component/session-frame.tsx")).toContain('data.session.status(item.chat) === "running"')
+    // The pane's own tab strip is behind ORCHESTRA_BROWSER_STRIP=1 and never drawn over the captured window.
+    expect(pane).toContain('process.env.ORCHESTRA_BROWSER_STRIP === "1"')
+    expect(pane).toContain('STRIP && !windowed() && mode() !== "capture"')
   })
 
   test("the capture helper proves the window invisible and blank pictures fall back to the windowless Chrome", () => {

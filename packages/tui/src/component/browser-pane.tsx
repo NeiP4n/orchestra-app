@@ -49,6 +49,8 @@ const GFX = (() => {
 const IMAGE_PROTOCOL = GFX
 const STRIP_SCALE = Math.min(3, Math.max(1, Number(process.env.ORCHESTRA_BROWSER_SCALE) || 1))
 const DEBUG = process.env.ORCHESTRA_BROWSER_DEBUG === "1"
+// Emergency only: the pane's own tab strip and address row. By default the tabs and address bar are Chrome's own, in the captured window.
+const STRIP = process.env.ORCHESTRA_BROWSER_STRIP === "1"
 const BUILD = (() => {
   try {
     const out = spawnSync("git", ["rev-parse", "--short", "HEAD"], {
@@ -81,6 +83,8 @@ export function BrowserPane(props: {
   chatHidden: boolean
   canShowChat: boolean
   onToggleChat: () => void
+  /** True while this session's BrowserAgent chat is working: Chrome is not restarted under it. */
+  busy?: () => boolean
 }) {
   const theme = useTheme()
   const t = useT()
@@ -136,7 +140,7 @@ export function BrowserPane(props: {
     }
   }
   createEffect(() => {
-    if (state() !== "ready" || mode() === "capture") return
+    if (!STRIP || state() !== "ready" || mode() === "capture") return
     void refreshTabs()
     const timer = setInterval(() => void refreshTabs(), 1500)
     onCleanup(() => clearInterval(timer))
@@ -448,14 +452,24 @@ export function BrowserPane(props: {
   // streamed here with this pane's own tab strip. A capture that goes wrong later falls back to the windowless Chrome
   // by itself. ORCHESTRA_BROWSER_CAPTURE=0 keeps the windowless view. The explicit "Real Chrome" button stays.
   const autoCapture = process.platform === "win32" && process.env.ORCHESTRA_BROWSER_CAPTURE !== "0"
-  const open = async (auto = true) => {
+  const open = async () => {
     await run(async () => void (await BrowserRuntime.open(props.sessionID)))
     setMode(BrowserRuntime.modeOf(props.sessionID))
-    // Not while an agent holds the page: restarting its Chrome under it would cut its work.
-    const held = BrowserRuntime.leases()[props.sessionID]?.agent
-    if (auto && autoCapture && !disposed && state() === "ready" && mode() === "headless" && (!held || held === "operator"))
-      switchMode("capture")
   }
+  // Every session's Chrome ends up in capture, however it started (this pane, or the agent's windowless one): once the
+  // pane shows it, and only between the agent's turns, it is restarted once as the captured real window. Tried once
+  // per pane: a capture that failed (or "Fast view" pressed) is not tried again until the pane is reopened.
+  let captureTried = false
+  createEffect(() => {
+    if (!autoCapture || state() !== "ready") return
+    const timer = setInterval(() => {
+      if (disposed || captureTried || state() !== "ready" || mode() !== "headless") return
+      if (props.busy?.()) return
+      captureTried = true
+      switchMode("capture")
+    }, 1500)
+    onCleanup(() => clearInterval(timer))
+  })
 
   // The agent's browser tool starts the session's Chrome in the server process, windowless. While this pane
   // still shows the Open Chrome screen, a Chrome running on the session's profile is taken over and shown here,
@@ -470,7 +484,7 @@ export function BrowserPane(props: {
         .then((found) => {
           if (found.running && !disposed && state() === "idle" && !failure()) {
             BrowserRuntime.trace(`pane ${props.sessionID}: Chrome of the agent found (${found.url ?? "no page"}), taking it over`)
-            return open(true)
+            return open()
           }
         })
         .catch((error) => BrowserRuntime.trace(`pane ${props.sessionID}: takeover failed: ${errorMessage(error)}`))
@@ -567,11 +581,14 @@ export function BrowserPane(props: {
             />
           </Show>
           <Show when={mode() === "capture"}>
-            <Action label={t("Fast view")} onClick={() => switchMode("headless")} />
+            <Action label={t("Fast view")} onClick={() => {
+              captureTried = true
+              switchMode("headless")
+            }} />
           </Show>
           <Action label={narrow() ? t("Close") : t("Close browser")} onClick={stop} />
         </box>
-        <Show when={!windowed() && mode() !== "capture"}>
+        <Show when={STRIP && !windowed() && mode() !== "capture"}>
           <box flexDirection="row" flexShrink={0} gap={0} height={1}>
             <HoverAction paddingLeft={1} paddingRight={1} onClick={() => tabAction(() => BrowserRuntime.history(props.sessionID, -1))}>
               <text fg={theme.text.action.primary.base}>{"‹"}</text>

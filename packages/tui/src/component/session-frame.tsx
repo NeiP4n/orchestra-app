@@ -666,6 +666,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
                         chatHidden={browserChatHidden() || dimensions().width < 110}
                         canShowChat={dimensions().width >= 110}
                         onToggleChat={() => setBrowserChatHidden(!browserChatHidden())}
+                        busy={() => (item.chat ? data.session.status(item.chat) === "running" : false)}
                       />
                     )}
                 </Show>
