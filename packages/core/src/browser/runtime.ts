@@ -1,6 +1,6 @@
 export * as BrowserRuntime from "./runtime.js"
 
-import { freemem } from "node:os"
+import { freemem, totalmem } from "node:os"
 import { spawn } from "node:child_process"
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
@@ -256,7 +256,7 @@ async function checkLaunchBudget(sessionID?: string): Promise<number | undefined
 /** Local process view, not a Chromium subprocess count. Never launches or reads a website. */
 export function browserResources() {
   const bytes = freemem()
-  return { connectedProfiles: live.size, freeGB: (bytes / 1024 ** 3).toFixed(1), warning: BrowserBudget.memoryWarning(bytes) }
+  return { connectedProfiles: live.size, freeGB: (bytes / 1024 ** 3).toFixed(1), totalGB: (totalmem() / 1024 ** 3).toFixed(0), warning: BrowserBudget.memoryWarning(bytes) }
 }
 /** Explicit operator action only; no launches and no PID loaded from disk is killed. */
 export async function closeBlockedBrowser(sessionID: string) {

@@ -105,7 +105,7 @@ export function BrowserPane(props: {
   const [state, setState] = createSignal<"idle" | "busy" | "ready">(
     BrowserRuntime.isOpen(props.sessionID) ? "ready" : "idle",
   )
-  const [page, setPage] = createSignal({ url: "", title: "", text: "Фоновый режим: страница остаётся в Chrome, изображения не передаются. «Screen» включает экран, «Прочитать страницу» запрашивает текст один раз." })
+  const [page, setPage] = createSignal({ url: "", title: "", text: "Фоновый режим · «Прочитать» покажет текст, «Экран» включит изображение." })
   const [scheduledChecks, setScheduledChecks] = createSignal(BrowserRuntime.scheduleStatus(props.sessionID))
   const [scheduleNow, setScheduleNow] = createSignal(Date.now())
   createEffect(() => {
@@ -119,6 +119,7 @@ export function BrowserPane(props: {
     const timer = setInterval(refresh, 2000)
     onCleanup(() => clearInterval(timer))
   })
+  const [lastReadAt, setLastReadAt] = createSignal<number>()
   const [failure, setFailure] = createSignal<string>()
   const [blockedBrowser, setBlockedBrowser] = createSignal<{ sessionID: string; name: string; canClose: boolean }>()
   const [mode, setMode] = createSignal<"headless" | "window" | "capture">(BrowserRuntime.modeOf(props.sessionID))
@@ -656,17 +657,17 @@ export function BrowserPane(props: {
   // Short labels when the pane is narrow, so the header stays on one line.
   const narrow = () => (size()?.cols ?? 0) < 130
   const Action = (action: { label: string; onClick: () => void }) => (
-    <HoverAction paddingLeft={1} paddingRight={1} onClick={action.onClick}>
-      <text fg={theme.text.action.primary.base} wrapMode="none">
-        {action.label}
-      </text>
-    </HoverAction>
+    <box border borderStyle="rounded" borderColor={theme.border.base} flexShrink={0}>
+      <HoverAction paddingLeft={1} paddingRight={1} onClick={action.onClick}>
+        <text fg={theme.text.base} wrapMode="none">{action.label}</text>
+      </HoverAction>
+    </box>
   )
 
   const resources = () => { tick(); return BrowserRuntime.browserResources() }
   return (
     <box flexGrow={1} minWidth={0} minHeight={0} flexDirection="column" paddingLeft={1} paddingRight={1}>
-      <text fg={resources().warning ? theme.text.feedback.warning.base : theme.text.muted} wrapMode="word">{`Chrome подключено в этом процессе: ${resources().connectedProfiles} · свободно RAM ${resources().freeGB} ГБ${resources().warning ? ` · ${resources().warning}` : ""}`}</text>
+      <text fg={resources().warning ? theme.text.feedback.warning.base : theme.text.muted} wrapMode="none" truncate>{`Chrome (локально): ${resources().connectedProfiles} · RAM свободно ${resources().freeGB}/${resources().totalGB} ГБ${resources().warning ? " · мало памяти" : ""}`}</text>
       <Show when={!DEBUG && scheduledChecks().some((check) => check.phase === "error")}>
         <text fg={theme.text.feedback.error.base} wrapMode="word">Проверка страницы не подтверждена. Подробности в «Расписаниях».</text>
       </Show>
@@ -689,10 +690,10 @@ export function BrowserPane(props: {
         when={state() !== "idle"}
         fallback={
           <box flexGrow={1} alignItems="center" justifyContent="center" flexDirection="column" gap={1}>
-            <text fg={theme.text.muted}>{t("This session runs its own Google Chrome with a separate profile.")}</text>
-            <Action label={`▶ ${t("Open Chrome")}`} onClick={() => void open()} />
+            <text fg={theme.text.muted}>Браузер с отдельным профилем и сохранёнными логинами.</text>
+            <Action label="▶ Открыть Chrome" onClick={() => void open()} />
             <Show when={props.canShowChat}>
-              <Action label={props.chatHidden ? t("Show chat") : t("Hide chat")} onClick={props.onToggleChat} />
+              <Action label={props.chatHidden ? "Показать чат" : "Скрыть чат"} onClick={props.onToggleChat} />
             </Show>
             <Show when={failure()}>
               <text fg={theme.text.feedback.error.base} wrapMode="word">{failure()}</text>
@@ -707,16 +708,15 @@ export function BrowserPane(props: {
           </box>
         }
       >
-        <box flexDirection="row" flexWrap="wrap" flexShrink={0} gap={0}>
+        <box flexDirection="row" flexWrap="wrap" flexShrink={0} gap={1}>
           {/* The BrowserAgent of this session is working right now: the same firing neuron as in the session list. */}
           <Show when={props.busy?.()}>
             <NeuronDot energy={0.9} />
             <text fg={theme.text.muted}>{narrow() ? "" : ` ${t("running")}`}</text>
           </Show>
 
-          <box flexGrow={1} />
           <Show when={props.canShowChat}>
-            <Action label={props.chatHidden ? t("Show chat") : t("Hide chat")} onClick={props.onToggleChat} />
+            <Action label={props.chatHidden ? "Показать чат" : "Скрыть чат"} onClick={props.onToggleChat} />
           </Show>
           <Show when={view() === "screen" && !windowed()}>
             <Action
@@ -734,10 +734,10 @@ export function BrowserPane(props: {
           </Show>
           <Show when={!windowed()}>
             <Show when={view() === "text"}>
-              <Action label="Прочитать страницу" onClick={() => void run(async () => { setPage(await BrowserRuntime.read(props.sessionID)) })} />
+              <Action label="Прочитать" onClick={() => void run(async () => { setPage(await BrowserRuntime.read(props.sessionID)); setLastReadAt(Date.now()) })} />
             </Show>
             <Action
-              label={view() === "screen" ? t("Text") : t("Screen")}
+              label={view() === "screen" ? "Экран: вкл" : "Экран: выкл"}
               onClick={() => {
                 if (view() === "screen") BrowserRuntime.unwatch(props.sessionID)
                 setView(view() === "screen" ? "text" : "screen")
@@ -746,18 +746,18 @@ export function BrowserPane(props: {
           </Show>
           <Show when={mode() === "headless" && process.platform === "win32"}>
             <Action
-              label={narrow() ? t("Real Chrome") : t("Real Chrome in pane")}
+              label="Окно Chrome"
               onClick={() => switchMode("capture")}
             />
           </Show>
           <Show when={mode() === "capture"}>
-            <Action label={t("Fast view")} onClick={() => {
+            <Action label="Фоновый режим" onClick={() => {
               captureGaveUp.add(props.sessionID)
               captureWhy.set(props.sessionID, "you pressed Fast view")
               switchMode("headless")
             }} />
           </Show>
-          <Action label={narrow() ? t("Close") : t("Close browser")} onClick={stop} />
+          <Action label="Закрыть" onClick={stop} />
         </box>
         <Show when={STRIP && !windowed() && mode() !== "capture"}>
           <box flexDirection="row" flexShrink={0} gap={0} height={1}>
@@ -824,11 +824,14 @@ export function BrowserPane(props: {
           <Show
             when={view() === "screen"}
             fallback={
+              <box flexGrow={1} minHeight={0} flexDirection="column">
+              <Show when={lastReadAt()}><text fg={theme.text.muted} wrapMode="none" truncate>{`Текст страницы · прочитано ${new Date(lastReadAt()!).toLocaleTimeString("ru-RU")}`}</text></Show>
               <scrollbox flexGrow={1} minHeight={0} horizontalScrollbarOptions={{ visible: false }}>
                 <text fg={theme.text.base} wrapMode="word">
                   {page().text}
                 </text>
               </scrollbox>
+              </box>
             }
           >
             <box

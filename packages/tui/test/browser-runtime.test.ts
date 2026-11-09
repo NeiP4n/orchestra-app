@@ -125,6 +125,15 @@ test("opening browser pane stays text-only until explicit Screen request, withou
   expect(pane).toContain('createSignal<"screen" | "text">("text")')
   expect(pane).toContain('view() !== "screen"')
   expect(pane).toContain('if (!autoCapture || state() !== "ready" || view() !== "screen") return')
-  expect(pane).toContain('label="Прочитать страницу"')
+  expect(pane).toContain('label="Прочитать"')
   expect(pane).toContain('setPage(await BrowserRuntime.read(props.sessionID))')
+})
+
+test("browser toolbar names screen state in Russian, keeps resource line compact and last page read visible", () => {
+  const pane = read("component/browser-pane.tsx")
+  expect(pane).toContain('"Экран: вкл" : "Экран: выкл"')
+  expect(pane).toContain('Chrome (локально):')
+  expect(pane).toContain('RAM свободно')
+  expect(pane).toContain('Текст страницы · прочитано')
+  expect(pane).toContain('border borderStyle="rounded" borderColor={theme.border.base}')
 })
