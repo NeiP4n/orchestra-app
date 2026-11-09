@@ -656,6 +656,8 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                             notes.selectBrowserSession(project.id, item.id)
                             notes.ensureBrowserAgent(project.id, item.id, project.directory)
                             notes.setProject(project.id)
+                            // From the Projects tab the row also brings the Browser view up.
+                            notes.setTab("browser")
                             if (!inProject(project)) void openMain(project)
                           }}
                         >
@@ -720,6 +722,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                     onClick={() => {
                       notes.addBrowserSession(project.id, project.directory)
                       notes.setProject(project.id)
+                      notes.setTab("browser")
                       if (!inProject(project)) void openMain(project)
                     }}
                   >
