@@ -237,6 +237,9 @@ export const Plugin = {
         return "error" in found ? yield* Effect.fail(new ToolFailure({ message: found.error })) : found.session.id
       }
       const published = BrowserRuntime.sessions()
+      // A BrowserAgent works in the one session its chat owns, without being told which.
+      const own = BrowserBridge.ownedBy(published, sessionID)
+      if (own) return own.id
       // A folder with no session of its own uses the only one the Browser tab has, so the chat is not left blind.
       const chosen =
         BrowserRuntime.selectedSession(session.location.directory) ??
@@ -283,6 +286,8 @@ export const Plugin = {
                 acts(input.action) || managing,
               )
               if (blocked) return yield* fail(blocked)
+              const foreign = BrowserBridge.agentRefusal(BrowserRuntime.sessions(), browserSession, context.sessionID, caller)
+              if (foreign) return yield* fail(foreign)
               if (input.action === "assign" || input.action === "release") {
                 const name =
                   BrowserRuntime.sessions().find((item) => item.id === browserSession)?.name ?? browserSession

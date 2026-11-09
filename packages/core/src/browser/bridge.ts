@@ -89,6 +89,8 @@ export interface SessionInfo {
   /** The directory of the project the session belongs to. */
   readonly project: string
   readonly group?: string
+  /** The chat session of this browser session's BrowserAgent: the one agent that acts in it. */
+  readonly chat?: string
 }
 
 export interface Lease {
@@ -106,9 +108,17 @@ export function parseSessions(text: string | undefined): SessionInfo[] {
     if (!Array.isArray(value)) return []
     return value.flatMap((item): SessionInfo[] => {
       if (!item || typeof item !== "object") return []
-      const { id, name, project, group } = item as Record<string, unknown>
+      const { id, name, project, group, chat } = item as Record<string, unknown>
       if (typeof id !== "string" || typeof name !== "string" || typeof project !== "string") return []
-      return [{ id, name, project, ...(typeof group === "string" && group ? { group } : {}) }]
+      return [
+        {
+          id,
+          name,
+          project,
+          ...(typeof group === "string" && group ? { group } : {}),
+          ...(typeof chat === "string" && chat ? { chat } : {}),
+        },
+      ]
     })
   } catch {
     return []
@@ -223,3 +233,31 @@ export function describe(
     })
     .join("\n")
 }
+
+/** The browser session a BrowserAgent chat owns, if any. */
+export function ownedBy(list: readonly SessionInfo[], chat: string): SessionInfo | undefined {
+  return list.find((item) => item.chat === chat)
+}
+
+/**
+ * Why a BrowserAgent may not act in a session: every browser session has exactly one BrowserAgent, so a BrowserAgent
+ * chat acts only in the session it owns. Undefined for other agents (the lease rules cover them) and for sessions
+ * that have no BrowserAgent yet.
+ */
+export function agentRefusal(
+  list: readonly SessionInfo[],
+  sessionID: string,
+  chat: string,
+  agent: string,
+): string | undefined {
+  if (agent !== BROWSER_AGENT) return undefined
+  const mine = ownedBy(list, chat)
+  const target = list.find((item) => item.id === sessionID)
+  if (!target?.chat || target.chat === chat) return undefined
+  return `This browser session belongs to another BrowserAgent. ${
+    mine ? `Your own session is "${mine.name}" [${mine.id}].` : "Use the session this chat owns."
+  }`
+}
+
+/** The agent id of the BrowserAgent role. */
+export const BROWSER_AGENT = "team-browser-agent"

@@ -850,6 +850,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                           selected={chosen() && inProject(project)}
                           onClick={() => {
                             notes.selectBrowserSession(project.id, item.id)
+                            notes.ensureBrowserAgent(project.id, item.id, project.directory)
                             notes.setProject(project.id)
                             if (!inProject(project)) void openMain(project)
                           }}
@@ -912,7 +913,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                     hover={hover}
                     setHover={setHover}
                     onClick={() => {
-                      notes.addBrowserSession(project.id)
+                      notes.addBrowserSession(project.id, project.directory)
                       notes.setProject(project.id)
                       if (!inProject(project)) void openMain(project)
                     }}

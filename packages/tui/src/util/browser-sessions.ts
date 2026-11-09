@@ -1,7 +1,14 @@
 // The Browser view keeps any number of browser sessions per project. A session is a name, an optional
 // group and, later, its own browser profile directory (the id keys that directory). The state is plain
 // data so the panel and the center view read one source and tests can drive it without a terminal.
-export type BrowserSession = { id: string; name: string; group?: string; created: number }
+export type BrowserSession = {
+  id: string
+  name: string
+  group?: string
+  created: number
+  /** The chat of this session's BrowserAgent. One browser session has one BrowserAgent; it comes back with the session. */
+  chat?: string
+}
 
 /** A session the user closed. Its id still keys the Chrome profile folder, so reopening it brings the logins back. */
 export type ClosedBrowserSession = BrowserSession & { closedAt: number }
@@ -69,6 +76,7 @@ export function reopenBrowserSession(state: BrowserSessionsState, projectID: str
     id: found.id,
     name: found.name,
     ...(found.group ? { group: found.group } : {}),
+    ...(found.chat ? { chat: found.chat } : {}),
     created: found.created,
   }
   list.push(session)
@@ -89,6 +97,14 @@ export function renameBrowserSession(state: BrowserSessionsState, projectID: str
   const next = name.trim().slice(0, 60)
   if (!item || !next) return false
   item.name = next
+  return true
+}
+
+/** Binds the BrowserAgent chat to a session. A session keeps the first chat it got: one session, one BrowserAgent. */
+export function bindBrowserChat(state: BrowserSessionsState, projectID: string, id: string, chat: string) {
+  const item = state.projects[projectID]?.find((entry) => entry.id === id)
+  if (!item || item.chat) return false
+  item.chat = chat
   return true
 }
 

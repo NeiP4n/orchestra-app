@@ -111,6 +111,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
             name: item.name,
             project: project.directory,
             ...(item.group ? { group: item.group } : {}),
+            ...(item.chat ? { chat: item.chat } : {}),
           })),
         ),
       )

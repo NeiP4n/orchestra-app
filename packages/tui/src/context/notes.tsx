@@ -16,6 +16,7 @@ import { useRoute } from "./route"
 import { useStorage } from "./storage"
 import {
   addBrowserSession,
+  bindBrowserChat,
   emptyBrowserSessions,
   forgetClosedBrowserSession,
   groupBrowserSession,
@@ -49,7 +50,7 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
       initial: emptyBrowserSessions(),
     })
     const changeBrowser = (mutation: (draft: BrowserSessionsState) => void) =>
-      void updateBrowser((draft) => {
+      updateBrowser((draft) => {
         draft.projects ??= {}
         draft.selected ??= {}
         mutation(draft)
@@ -237,6 +238,18 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
           rule.effect === rules[index]!.effect,
       )
 
+    // One browser session, one BrowserAgent: an empty chat of the browser-agent role in the project's folder,
+    // titled like the session. The chat id is kept with the session so reopening it brings the same chat back.
+    const giveBrowserAgent = async (projectID: string, sessionID: string, directory: string, title: string) => {
+      try {
+        const created = data.session.create({ title, location: { directory }, agent: "team-browser-agent" })
+        await created.request
+        changeBrowser((draft) => void bindBrowserChat(draft, projectID, sessionID, created.id))
+      } catch {
+        // The browser works without its chat; the next open tries again.
+      }
+    }
+
     const tab = () => panel.tab ?? "projects"
 
     return {
@@ -247,13 +260,19 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
         const id = browser.selected?.[projectID]
         return browser.projects?.[projectID]?.find((item) => item.id === id)
       },
-      addBrowserSession: (projectID: string) =>
-        changeBrowser((draft) =>
-          addBrowserSession(draft, projectID, {
-            id: `brw_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-            now: Date.now(),
-          }),
-        ),
+      addBrowserSession: (projectID: string, directory?: string) => {
+        const id = `brw_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+        let title = "Browser"
+        const added = changeBrowser((draft) => {
+          title = addBrowserSession(draft, projectID, { id, now: Date.now() })?.name ?? title
+        })
+        if (directory) void added.then(() => giveBrowserAgent(projectID, id, directory, title))
+      },
+      // A session that has no BrowserAgent yet (made before BrowserAgent existed) gets one the first time it is opened.
+      ensureBrowserAgent: (projectID: string, id: string, directory: string) => {
+        const item = browser.projects?.[projectID]?.find((entry) => entry.id === id)
+        if (item && !item.chat) void giveBrowserAgent(projectID, id, directory, item.name)
+      },
       closedBrowserSessions: (projectID: string) => browser.closed?.[projectID] ?? [],
       reopenBrowserSession: (projectID: string, id: string) =>
         changeBrowser((draft) => void reopenBrowserSession(draft, projectID, id)),
