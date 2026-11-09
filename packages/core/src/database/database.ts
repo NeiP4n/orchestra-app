@@ -1,11 +1,11 @@
 export * as Database from "./database.js"
 
 import { EffectDrizzleSqlite } from "./drizzle.js"
-import { checkpointWal, sqliteLayer, supportsForeignKeyToggle, supportsTuningPragmas } from "#sqlite"
+import { checkpointWal, sqliteLayer, supportsForeignKeyToggle, supportsTuningPragmas, verifyDatabaseFile } from "#sqlite"
 import { Cause, Context, Effect, Layer, Schema, Semaphore } from "effect"
 import type { SqlClient } from "effect/unstable/sql"
 import { Global } from "@orchestra/util/global"
-import { closeSync, copyFileSync, existsSync, openSync } from "node:fs"
+import { closeSync, copyFileSync, existsSync, openSync, statSync } from "node:fs"
 import { chmod } from "node:fs/promises"
 import { basename, dirname, isAbsolute, join } from "path"
 import { DatabaseBackup } from "./backup.js"
@@ -147,6 +147,19 @@ export function layer(options: Options = { path: ":memory:" }) {
           }
         }
       }
+      // A non-empty file that fails verification is corrupt or truncated:
+      // opening it would fail later with a raw SQLite error (or worse,
+      // accept writes). Fail the boot here, loudly, with the way out.
+      // verifyDatabaseFile never throws; a missing or empty file reads as a
+      // fresh start to SQLite, so only an existing bad file reaches this branch.
+      if (existsSync(file) && statSync(file).size > 0 && supportsTuningPragmas && !verifyDatabaseFile(file))
+        return yield* Effect.fail(
+          new Error(
+            `Database file ${file} failed integrity verification (truncated or corrupt). ` +
+              "Restore the newest verified database+key pair with `orchestra db restore` " +
+              `(backups live in ${join(dataDir, "backups")}), or move the corrupt file aside to start with an empty database.`,
+          ),
+        )
       yield* Effect.promise(() => restrictToOwner(file))
       return provide(file)
     }),
