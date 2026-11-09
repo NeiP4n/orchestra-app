@@ -615,6 +615,10 @@ export type Mode = "headless" | "window" | "capture"
 
 /** Why the last capture attempt of a session did not hold (the helper failed, or the window printed blank). The pane shows it. */
 const captureProblems = new Map<string, string>()
+// Sessions whose window printed blank with the GPU on (DWM / hardware composition): the next capture of them runs Chrome with
+// software compositing, which PrintWindow can read. Slower (more CPU, no GPU video or WebGL speed), so only after a blank print.
+const softwareCapture = new Set<string>()
+export const softwareCaptureOf = (sessionID: string) => softwareCapture.has(sessionID)
 export const captureProblemOf = (sessionID: string) => captureProblems.get(sessionID)
 
 export const modeOf = (sessionID: string): Mode => {
@@ -719,6 +723,7 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
       target === "capture"
         ? [
             ...WindowCapture.KEEP_PAINTING_FLAGS,
+            ...(softwareCapture.has(sessionID) ? ["--disable-gpu", "--disable-gpu-compositing"] : []),
             // The pane shows the window pixel for pixel: no display scaling, so Chrome's tabs and page keep their
             // normal size instead of being 1.5x larger than the pane the window was sized for.
             `--force-device-scale-factor=${CAPTURE_SCALE}`,
@@ -768,6 +773,16 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
         if (reported) return
         reported = true
         captureProblems.set(sessionID, text)
+        // A blank print is the GPU-composited window: PrintWindow already runs with PW_RENDERFULLCONTENT (2), so the one
+        // remaining try is the same window with software compositing. Only if that prints blank too, the windowless Chrome.
+        if (/blank/i.test(text) && !softwareCapture.has(sessionID)) {
+          softwareCapture.add(sessionID)
+          trace(`${sessionID}: window capture problem (${text}), trying once more with software compositing`)
+          void relaunch(sessionID, "headless", size)
+            .then(() => relaunch(sessionID, "capture", size))
+            .catch(() => relaunch(sessionID, "headless", size).catch(() => undefined))
+          return
+        }
         trace(`${sessionID}: window capture problem (${text}), back to the windowless Chrome`)
         void relaunch(sessionID, "headless", size).catch(() => undefined)
       })
