@@ -3,6 +3,7 @@ export * as Orchestra from "./orchestra.js"
 import { Context, DateTime, Duration, Effect, Layer, Option, PubSub, Schema, Stream } from "effect"
 import { KeyedMutex } from "./effect/keyed-mutex.js"
 import path from "node:path"
+import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from "node:fs"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { FSUtil } from "@orchestra/util/fs-util"
 import { Orchestra } from "@orchestra/schema/orchestra"
@@ -1194,7 +1195,10 @@ const layer: Layer.Layer<
             !workerRemoved && task.value.messageID
               ? yield* sessions.message({ sessionID, messageID: task.value.messageID })
               : undefined
-          if (!workerRemoved && task.value.messageID && taskMessage?.type !== "user") return
+          if (!workerRemoved && task.value.messageID && taskMessage?.type !== "user") {
+            reportLog({ event: "report-skipped", session: sessionID, main: task.value.main, reason: "the task message is not a delivered user message yet (still queued)", terminal: state })
+            return
+          }
 
           const recent = workerRemoved
             ? []
@@ -1208,16 +1212,18 @@ const layer: Layer.Layer<
           // every assistant answer newer than it belongs to unrelated work, not this assigned task.
           const nextUser = recent.findLastIndex((message) => message.type === "user")
           const taskMessages = nextUser < 0 ? recent : recent.slice(nextUser + 1)
-          const answer = workerRemoved
-            ? "(worker session was deleted before it could report)"
-            : taskMessages.flatMap(finalText).at(0) ?? "(no text answer)"
+          const final = workerRemoved ? undefined : finalAnswer(taskMessages)
+          const noFinal = final?.noFinal === true
+          const answer = final ? final.answer : "(worker session was deleted before it could report)"
           // A worker's execution can finish while its assigned task is only partly complete.
           // Keep that semantic outcome separate from the execution event's terminal state.
           const stated = workerRemoved
             ? "failed"
             : state === "failed" || state === "stopped"
               ? state
-              : outcomeOf(answer)
+              : noFinal
+                ? "incomplete"
+                : outcomeOf(answer)
           // DONE from a role that changes files is evidence only with a check it actually ran and
           // none that failed; otherwise the task stays open as partial, whatever the worker says.
           const editor = (yield* roles()).some((role) => role.agent === session?.agent && !role.readOnly)
@@ -1302,6 +1308,21 @@ const layer: Layer.Layer<
               ? task.value.reportVerification ?? verification
               : verification,
           }
+          reportLog({
+            event: "report",
+            session: sessionID,
+            title,
+            role: session?.agent,
+            main: task.value.main,
+            terminal: state,
+            state: stateForReport,
+            outcome,
+            bodyLength: body.length,
+            noFinalAnswer: noFinal,
+            workerRemoved,
+            modelError: modelFailure !== undefined,
+            ageSeconds: Math.round((Date.now() - task.value.sent) / 1000),
+          })
           // Persist the complete intended payload before admission. A retry after a crash uses
           // the same ID and byte-for-byte equivalent content instead of inventing a "recovered" report.
           yield* kv.set(TASK + sessionID, Schema.encodeSync(Task)(preparedTask))
@@ -1352,6 +1373,7 @@ const layer: Layer.Layer<
               },
             })
             .pipe(Effect.as(true), Effect.orElseSucceed(() => false))
+          reportLog({ event: "delivered", session: sessionID, main: task.value.main, reportID, admitted })
           // Keep the task marker until admission succeeds; it is the durable retry record.
           if (admitted) {
             // The report is delivered; the run ends with what it says. A
@@ -1475,7 +1497,7 @@ const layer: Layer.Layer<
 
     // Bus subscriptions only observe live events. Reconcile task markers left behind when a
     // worker completed before its terminal event could be observed by this process.
-    const recoverPending = Effect.fn("Orchestra.recoverPending")(function* (mainID?: SessionID) {
+    const recoverPending = Effect.fn("Orchestra.recoverPending")(function* (mainID?: SessionID, olderThanMs = 0) {
       const read = (after?: string): Effect.Effect<KV.Entry[]> =>
         kv.scan({ prefix: TASK, after, limit: 1000 }).pipe(
           Effect.flatMap((result) =>
@@ -1498,6 +1520,8 @@ const layer: Layer.Layer<
             // Context hooks ask mainOf for ordinary sessions too. Never recover a different
             // project's worker just because an unrelated session was opened.
             if (mainID && task.value.main !== mainID) return
+            // The watchdog sweep leaves recent dispatches to their live run.
+            if (olderThanMs > 0 && Date.now() - task.value.sent < olderThanMs) return
             const sessionID = SessionID.make(entry.key.slice(TASK.length))
             if (active.has(sessionID)) return
             let staleClaim = false
@@ -1721,6 +1745,53 @@ const layer: Layer.Layer<
         }),
         Effect.forkScoped({ startImmediately: true }),
       )
+
+    // A dispatched task with no report for 5 minutes is not silent any more. Every minute: reports that were lost
+    // (a worker idle with its task still open) are recovered from the transcript, and for tasks still open the
+    // Orchestrator gets an explicit <team-status> (running, or idle and unreported) now and every 10 minutes after,
+    // so it can read the worker or ask it instead of waiting for a report that is not coming.
+    const NO_REPORT_AFTER_MS = 5 * 60_000
+    const NO_REPORT_REPEAT_MS = 10 * 60_000
+    const noticed = new Map<string, number>()
+    const watchReports = Effect.gen(function* () {
+      yield* recoverPending(undefined, NO_REPORT_AFTER_MS)
+      const active = yield* sessions.active
+      for (const entry of yield* scanAll(TASK)) {
+        const task = decodeTask(entry.value)
+        if (Option.isNone(task)) continue
+        const age = Date.now() - task.value.sent
+        if (age < NO_REPORT_AFTER_MS) continue
+        const key = entry.key
+        if (Date.now() - (noticed.get(key) ?? 0) < NO_REPORT_REPEAT_MS) continue
+        const workerID = SessionID.make(key.slice(TASK.length))
+        const worker = yield* sessions.get(workerID).pipe(Effect.orElseSucceed(() => undefined))
+        if (!worker) continue
+        const running = active.has(workerID)
+        const minutes = Math.round(age / 60_000)
+        noticed.set(key, Date.now())
+        if (noticed.size > 512) noticed.clear()
+        const text = [
+          `<team-status session="${workerID}" title="${worker.title ?? ""}" role="${worker.agent ?? ""}" state="${running ? "running" : "idle"}" minutes="${minutes}">`,
+          running
+            ? `No report yet from ${worker.title ?? workerID} after ${minutes} min: the worker is still running. Wait for its <team-report>, or read it with sessions action=read if you need to know what it is doing.`
+            : `No report yet from ${worker.title ?? workerID} after ${minutes} min, and the worker is NOT running. Its result did not reach you. Read it with sessions action=read, or ask it with sessions action=send.`,
+          "</team-status>",
+        ].join("\n")
+        const ok = yield* sessions
+          .synthetic({
+            id: SessionMessage.ID.create(),
+            sessionID: task.value.main,
+            description: `${worker.title ?? workerID}: no report yet`,
+            text,
+            metadata: { source: "team", sessionID: workerID, state: running ? "running" : "idle", taskID: task.value.messageID },
+          })
+          .pipe(Effect.as(true), Effect.orElseSucceed(() => false))
+        reportLog({ event: "no-report-notice", session: workerID, main: task.value.main, state: running ? "running" : "idle", minutes, delivered: ok })
+      }
+    }).pipe(Effect.catch(() => Effect.void))
+    yield* Effect.forever(Effect.sleep(Duration.seconds(60)).pipe(Effect.andThen(watchReports))).pipe(
+      Effect.forkScoped({ startImmediately: true }),
+    )
 
     // While a worker streams, its run stays visibly alive in the cycle: the
     // sweep must not mistake a long task for a worker gone quiet (a run
@@ -3385,6 +3456,63 @@ export function verificationOf(
 }
 
 // The last assistant answer with text, newest first.
+// One line per report event, kept in a file the operator can send: why did (or did not) a worker's result reach the
+// Orchestrator. Small on purpose: rolled to .1 at 1 MB.
+export const reportLogFile = () => path.join(Global.Path.data, "team-reports.log")
+export function reportLog(entry: Record<string, unknown>) {
+  try {
+    const file = reportLogFile()
+    mkdirSync(path.dirname(file), { recursive: true })
+    if (existsSync(file) && statSync(file).size > 1_000_000) renameSync(file, `${file}.1`)
+    appendFileSync(file, `${JSON.stringify({ time: new Date().toISOString(), ...entry })}\n`)
+  } catch {}
+}
+
+// What a worker's tool call did, in one short line: the tool, what it was asked, what came back.
+function toolBrief(part: { name: string; state: unknown }) {
+  const state = part.state as { status?: string; input?: unknown; content?: unknown; error?: unknown }
+  const input = typeof state.input === "object" && state.input !== null ? (state.input as Record<string, unknown>) : {}
+  const asked = ["action", "url", "ref", "selector", "text", "command", "expression", "path"]
+    .flatMap((key) => (typeof input[key] === "string" ? [`${key}=${String(input[key]).replace(/\s+/g, " ").slice(0, 60)}`] : []))
+    .join(" ")
+  const raw =
+    state.status === "completed"
+      ? Array.isArray(state.content)
+        ? state.content.map((item) => (typeof item === "object" && item !== null && "text" in item ? String((item as { text: unknown }).text) : "")).join(" ")
+        : String(state.content ?? "")
+      : state.error !== undefined
+        ? `error: ${typeof state.error === "object" && state.error !== null && "message" in state.error ? String((state.error as { message: unknown }).message) : String(state.error)}`
+        : `(${state.status ?? "no result"})`
+  const result = raw.replace(/\s+/g, " ").trim().slice(0, 140)
+  return `${part.name}${asked ? ` ${asked}` : ""} -> ${result || "(empty)"}`
+}
+
+/**
+ * The text a worker's task is reported with. The worker's last turn when it wrote text; when it ended on tool calls
+ * (or with nothing), an honest "no final answer" with its last three tool calls and results, so the report is never empty
+ * and an earlier mid-turn remark is never passed off as the result. Messages are newest first.
+ */
+export function finalAnswer(messages: ReadonlyArray<SessionMessage.Info>): { answer: string; noFinal: boolean } {
+  const last = messages.find((message) => message.type === "assistant")
+  const text = last ? finalText(last).at(0) : undefined
+  if (text) return { answer: text, noFinal: false }
+  const calls = messages
+    .flatMap((message) => (message.type === "assistant" ? [message] : []))
+    .toSorted((left, right) => DateTime.toEpochMillis(left.time.created) - DateTime.toEpochMillis(right.time.created))
+    .flatMap((message) => message.content.flatMap((part) => (part.type === "tool" ? [part] : [])))
+  const earlier = messages.flatMap(finalText).at(0)
+  return {
+    noFinal: true,
+    answer: [
+      "NO FINAL ANSWER from the worker: its last turn ended without text, so there is no DONE/PARTLY DONE/NOT DONE report. Treat the task as unconfirmed.",
+      calls.length > 0
+        ? `Its last tool calls: ${calls.slice(-3).map((call) => toolBrief(call)).join(" | ")}`
+        : "It made no tool calls.",
+      ...(earlier ? [`An earlier remark of the worker (not a result): ${earlier.replace(/\s+/g, " ").slice(0, 300)}`] : []),
+    ].join("\n"),
+  }
+}
+
 function finalText(message: SessionMessage.Info) {
   if (message.type !== "assistant") return []
   const text = message.content
