@@ -44,6 +44,8 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
           <NeuronDot energy={running() ? 0.35 : 0.04} session={props.sessionID} />
           <box flexGrow={1} minWidth={0}>
             <title_shimmer
+              wrapMode="none"
+              truncate
               fg={theme.text.base}
               rename={{
                 pending: data.session.title.pending(props.sessionID),

@@ -535,7 +535,7 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
 
   const toolTokens = createMemo(() => estimateToolTokens(msg()))
 
-  const toolLabel = () => barWidth() < 36 ? t("Tools & MCP short") : t("Tools & MCP")
+  const toolLabel = () => barWidth() < 36 ? t("Tools/MCP") : t("Tools & MCP")
 
   // "Context limit" means "no threshold" and is the only label that changes with the language.
   const thresholdLabel = (value: number) => (value <= 0 ? t("Context limit") : formatCompactionThreshold(value))

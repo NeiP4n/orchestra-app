@@ -657,17 +657,24 @@ export function BrowserPane(props: {
   }
 
   // Short labels when the pane is narrow, so the header stays on one line.
-  const narrow = () => (size()?.cols ?? 0) < 130
+  const [paneCols, setPaneCols] = createSignal(100)
+  const narrow = () => paneCols() < 130
   const Action = (action: { label: string; onClick: () => void }) => (
-    <HoverAction paddingLeft={1} paddingRight={1} onClick={action.onClick}>
+    <HoverAction paddingLeft={0} paddingRight={1} onClick={action.onClick}>
       <text fg={theme.text.base} wrapMode="none">{action.label}</text>
     </HoverAction>
   )
 
   const resources = () => { tick(); return BrowserRuntime.browserResources() }
+  const resourceLabel = () => {
+    const r = resources()
+    return `Chrome: ${r.connectedProfiles} · RAM${paneCols() >= 120 ? " свободно" : ""} ${r.freeGB}/${r.totalGB} ГБ${r.warning ? " !" : ""}`
+  }
   return (
-    <box flexGrow={1} minWidth={0} minHeight={0} flexDirection="column" paddingLeft={1} paddingRight={1}>
-      <text fg={resources().warning ? theme.text.feedback.warning.base : theme.text.muted} wrapMode="none" truncate>{`Chrome: ${resources().connectedProfiles} · RAM свободно ${resources().freeGB}/${resources().totalGB} ГБ${resources().warning ? " · мало памяти" : ""}`}</text>
+    <box flexGrow={1} minWidth={0} minHeight={0} flexDirection="column" paddingLeft={1} paddingRight={1} onSizeChange={function () { setPaneCols(this.width - 2) }}>
+      <Show when={state() === "idle"}>
+        <text fg={resources().warning ? theme.text.feedback.warning.base : theme.text.muted} wrapMode="none" truncate>{resourceLabel()}</text>
+      </Show>
       <Show when={!DEBUG && scheduledChecks().some((check) => check.phase === "error")}>
         <text fg={theme.text.feedback.error.base} wrapMode="word">Проверка страницы не подтверждена. Подробности в «Расписаниях».</text>
       </Show>
@@ -708,7 +715,8 @@ export function BrowserPane(props: {
           </box>
         }
       >
-        <box flexDirection="row" flexWrap="wrap" flexShrink={0} columnGap={1} rowGap={0}>
+        <box id="browser.toolbar" flexDirection="row" flexWrap="wrap" flexShrink={0} columnGap={0} rowGap={0}>
+          <text flexGrow={1} flexShrink={0} minWidth={resourceLabel().length + 1} fg={resources().warning ? theme.text.feedback.warning.base : theme.text.muted} wrapMode="none" truncate>{resourceLabel()}</text>
           {/* The BrowserAgent of this session is working right now: the same firing neuron as in the session list. */}
           <Show when={props.busy?.()}>
             <NeuronDot energy={0.9} />
@@ -760,14 +768,14 @@ export function BrowserPane(props: {
           <Action label="Закрыть" onClick={stop} />
         </box>
         <Show when={STRIP && !windowed() && mode() !== "capture"}>
-          <box flexDirection="row" flexShrink={0} gap={0} height={1}>
-            <HoverAction paddingLeft={1} paddingRight={1} onClick={() => tabAction(() => BrowserRuntime.history(props.sessionID, -1))}>
+          <box id="browser.navigation" flexDirection="row" flexShrink={0} gap={0} height={1} minWidth={0}>
+            <HoverAction paddingLeft={0} paddingRight={1} onClick={() => tabAction(() => BrowserRuntime.history(props.sessionID, -1))}>
               <text fg={theme.text.action.primary.base}>{"‹"}</text>
             </HoverAction>
-            <HoverAction paddingLeft={1} paddingRight={1} onClick={() => tabAction(() => BrowserRuntime.history(props.sessionID, 1))}>
+            <HoverAction paddingLeft={0} paddingRight={1} onClick={() => tabAction(() => BrowserRuntime.history(props.sessionID, 1))}>
               <text fg={theme.text.action.primary.base}>{"›"}</text>
             </HoverAction>
-            <HoverAction paddingLeft={1} paddingRight={1} onClick={() => tabAction(() => BrowserRuntime.reload(props.sessionID))}>
+            <HoverAction paddingLeft={0} paddingRight={1} onClick={() => tabAction(() => BrowserRuntime.reload(props.sessionID))}>
               <text fg={theme.text.action.primary.base}>{"⟳"}</text>
             </HoverAction>
             <box flexGrow={1} minWidth={0} paddingLeft={1} backgroundColor={addressHover.background()} onMouseOver={addressHover.onMouseOver} onMouseOut={addressHover.onMouseOut} onMouseDown={editAddress}>
@@ -775,8 +783,7 @@ export function BrowserPane(props: {
                 {currentUrl() || t("about:blank")}
               </text>
             </box>
-          </box>
-          <box flexDirection="row" flexShrink={0} gap={0} height={1} overflow="hidden">
+            <scrollbox id="browser.tabs" width={Math.max(12, Math.floor(paneCols() * 0.35))} height={1} flexShrink={0} scrollX={true} scrollY={false} horizontalScrollbarOptions={{ visible: false }} verticalScrollbarOptions={{ visible: false }} contentOptions={{ flexDirection: "row" }}>
             <For each={tabList()}>
               {(tab) => (
                 <>
@@ -795,7 +802,8 @@ export function BrowserPane(props: {
                 </>
               )}
             </For>
-            <HoverAction paddingLeft={1} paddingRight={1} onClick={() => tabAction(() => BrowserRuntime.newTab(props.sessionID))}>
+            </scrollbox>
+            <HoverAction paddingLeft={1} paddingRight={0} onClick={() => tabAction(() => BrowserRuntime.newTab(props.sessionID))}>
               <text fg={theme.text.action.primary.base}>{"+"}</text>
             </HoverAction>
           </box>
