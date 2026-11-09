@@ -95,6 +95,8 @@ import { permissionLayer } from "./lib/permission"
 import { agentHost, modelHost, host, noProviders } from "./plugin/host"
 import { CodeModeInstructions } from "@orchestra/core/codemode/instructions"
 import { HubInstructions } from "@orchestra/core/hub/instructions"
+import { Memory } from "@orchestra/core/memory"
+import { BrowserRuntime } from "@orchestra/core/browser/runtime"
 
 const emptyCodeMode = `${CodeModeInstructions.render({ total: 0, shown: 0, namespaces: [] })}\n\n`
 type ToolBarrier = {
@@ -432,6 +434,9 @@ const layer = Layer.unwrap(
       LayerNodePlatform.llmClient.replace(TestLLM.clientLayer.pipe(Layer.provide(testLLM))),
       SessionRunnerModel.node.replace(models),
       InstructionBuiltIns.node.replace(systemContext),
+      // The virtual /project fixture is not a real project memory store. An empty
+      // service also prevents a pre-existing /project/.orchestra from leaking in.
+      Memory.node.replace(Layer.mock(Memory.Service, { blocks: () => Effect.succeed([]) })),
       HubInstructions.node.replace(Layer.mock(HubInstructions.Service, { load: () => Instructions.empty })),
       InstructionDiscovery.node.replace(instructionContext),
       Location.node.replace(Location.boundNode({ directory: AbsolutePath.make("/project") })),
@@ -496,6 +501,7 @@ const layer = Layer.unwrap(
         echoNode,
         SessionRunnerModel.node,
         InstructionBuiltIns.node,
+        Memory.node,
         InstructionDiscovery.node,
         InstructionEntry.node,
         SkillInstructions.node,
@@ -521,6 +527,17 @@ const layer = Layer.unwrap(
 const it = testEffect(layer)
 const sessionID = Session.ID.make("ses_runner_test")
 const otherSessionID = Session.ID.make("ses_runner_other")
+
+it.effect(
+  "starts with empty memory and no published browser sessions",
+  Effect.gen(function* () {
+    const memory = yield* Memory.Service
+    expect(yield* memory.blocks()).toEqual([])
+    // BrowserRuntime uses Global.Path directly, so a Global.node mock alone is
+    // insufficient. The preload's isolated data root must cover this path too.
+    expect(BrowserRuntime.sessions()).toEqual([])
+  }),
+)
 
 const insertSession = (id: Session.ID) =>
   Effect.gen(function* () {
@@ -3053,7 +3070,10 @@ describe("SessionRunnerLLM", () => {
       // conversation rather than sending an empty or silently lost history.
       expect(messageRoles(s.requests[0])).toEqual(["user", "assistant", "user", "assistant", "user", "assistant", "user"])
       expect(userTexts(s.requests[0])).toEqual([
-        ...[0, 1, 2].map((index) => intakeText(`Request ${index}: ${"x".repeat(8_000)}`)),
+        ...[0, 1, 2].map((index) => intakeText(
+          `Request ${index}: ${"x".repeat(8_000)}`,
+          Array.from({ length: index }, (_, earlier) => `Request ${earlier}: ${"x".repeat(8_000)}`),
+        )),
         SessionCompaction.buildPrompt(false),
       ])
       expect(s.requests[0].messages.filter((message) => message.role === "assistant").map((message) => message.content))
