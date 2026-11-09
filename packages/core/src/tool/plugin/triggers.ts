@@ -15,7 +15,6 @@ import { ScheduleView } from "../../schedule-view.js"
 import { BrowserProvenance } from "../../browser/provenance.js"
 import { BrowserLocalTest } from "../../browser/local-test.js"
 import { BrowserSchedule } from "../../browser/schedule.js"
-import { BrowserWatch } from "../../browser/watch.js"
 
 export const name = "triggers"
 

@@ -153,7 +153,7 @@ export function layer(options: Options = { path: ":memory:" }) {
       // verifyDatabaseFile never throws; a missing or empty file reads as a
       // fresh start to SQLite, so only an existing bad file reaches this branch.
       if (existsSync(file) && statSync(file).size > 0 && supportsTuningPragmas && !verifyDatabaseFile(file))
-        return yield* Effect.fail(
+        return yield* Effect.die(
           new Error(
             `Database file ${file} failed integrity verification (truncated or corrupt). ` +
               "Restore the newest verified database+key pair with `orchestra db restore` " +

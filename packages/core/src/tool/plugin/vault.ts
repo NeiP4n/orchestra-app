@@ -16,7 +16,7 @@ export const Plugin={id:"orchestra.tool.vault",effect:Effect.fn("VaultTool.Plugi
  yield* ctx.session.hook("context",event=>Effect.sync(()=>{event.system.push({type:"text",text:SECRET_GUIDE})}))
  yield* ctx.tool.transform(editor=>editor.add({name,options:{codemode:false,core:true},input:Input,output:Output,description:SECRET_GUIDE,
  execute:(input,context)=>Effect.gen(function*(){
-  const session=yield* sessions.get(context.sessionID),projectID=Orchestra.sessionOwner(session.metadata)
+  const session=yield* sessions.get(context.sessionID).pipe(Effect.mapError(()=>new ToolFailure({message:"Vault session is unavailable."}))),projectID=Orchestra.sessionOwner(session.metadata)
   if(!projectID)return yield* new ToolFailure({message:"Vault requires a verified project owner."})
   const scope:VaultAccess.Scope={sessionID:String(context.sessionID),projectID,directory:session.location.directory}
   const vault=CredentialVault.local(projectID)

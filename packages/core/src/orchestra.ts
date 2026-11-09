@@ -29,6 +29,7 @@ import { isRecord } from "@orchestra/ai/utils/record"
 import { SessionEvent } from "@orchestra/schema/session-event"
 import { SessionMessage } from "./session/message.js"
 import { SessionInbox } from "./session/inbox.js"
+import {Database} from "./database/database.js"
 import {ProjectFilesBootstrap} from "./project-files/bootstrap.js"
 import { Dod } from "./dod.js"
 import { OrchestraStage } from "./stage.js"
@@ -386,6 +387,7 @@ export interface WorkerModelChoice {
 const layer: Layer.Layer<
   Service,
   never,
+  | Database.Service
   | KV.Service
   | Session.Service
   | SessionStore.Service
@@ -398,6 +400,7 @@ const layer: Layer.Layer<
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
+    const database = yield* Database.Service
     const kv = yield* KV.Service
     const sessions = yield* Session.Service
     const sessionStore = yield* SessionStore.Service
@@ -821,7 +824,7 @@ const layer: Layer.Layer<
     const bootstrapFiles=(project:Project)=>Effect.gen(function*(){
       const key=project.id+":"+project.directory
       if(bootstrappedFiles.has(key))return
-      yield* ProjectFilesBootstrap.initialize(project.directory,project.name,kv).pipe(Effect.tap(()=>Effect.sync(()=>bootstrappedFiles.add(key))),Effect.catchCause(cause=>Effect.logWarning("Project file bootstrap incomplete; database project remains intact",{projectID:project.id,cause:String(cause)})))
+      yield* ProjectFilesBootstrap.initialize(project.directory,project.name,kv).pipe(Effect.provideService(Database.Service,database),Effect.tap(()=>Effect.sync(()=>bootstrappedFiles.add(key))),Effect.catchCause(cause=>Effect.logWarning("Project file bootstrap incomplete; database project remains intact",{projectID:project.id,cause:String(cause)})))
     })
     const ensureMain = (id: ProjectID) =>
       mainLocks.withLock(id)(
@@ -3826,5 +3829,5 @@ function finalText(message: SessionMessage.Info) {
 export const node = makeGlobalNode({
   service: Service,
   layer,
-  deps: [KV.node, Session.node, SessionStore.node, FSUtil.node, Bus.node, Git.node, Global.node, Autoloop.node, CorePermission.delegateNode],
+  deps: [Database.node, KV.node, Session.node, SessionStore.node, FSUtil.node, Bus.node, Git.node, Global.node, Autoloop.node, CorePermission.delegateNode],
 })

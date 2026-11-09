@@ -12,7 +12,7 @@ test("workspace list scopes metadata and foreign create_group member requires co
  const orchestra={mainOf:()=>Effect.succeed(projects[0]),projects:()=>Effect.succeed(projects),templates:()=>Effect.succeed([]),roles:()=>Effect.succeed([])} as any
  const federation={groups:()=>Effect.succeed(groups),linked:()=>Effect.succeed([])} as any
  const permission={confirm:(input:any)=>{checks.push(input);return Effect.fail(new Error("operator confirmation pending"))}} as any
- await Effect.runPromise(W.Plugin.effect({tool:{transform:(fn:any)=>Effect.sync(()=>fn({add:(value:any)=>tool=value}))}} as any).pipe(Effect.provideService(O.Service,orchestra),Effect.provideService(F.Service,federation),Effect.provideService(P.Service,permission)))
+ await Effect.runPromise(Effect.scoped(W.Plugin.effect({tool:{transform:(fn:any)=>Effect.sync(()=>fn({add:(value:any)=>tool=value}))}} as any).pipe(Effect.provideService(O.Service,orchestra),Effect.provideService(F.Service,federation),Effect.provideService(P.Service,permission))))
  const context={sessionID:"ses_a",agent:"orchestrator",messageID:"msg",id:"call"} as any
  const list=await Effect.runPromise(tool.execute({action:"list"},context))
  expect(JSON.stringify(list)).toContain("Same society")

@@ -64,7 +64,7 @@ describe("the clock and the caps", () => {
   })
 
   test("a full hourly cap pauses the trigger instead of firing it, and resume does not clear the history", () => {
-    let trigger = { ...interval(), maxPerHour: 2 }
+    let trigger: Trigger.Info = { ...interval(), maxPerHour: 2 }
     let at = NOW + 10 * 60_000
     for (let i = 0; i < 2; i++) {
       expect(Trigger.due(trigger, at)).toBe("fire")

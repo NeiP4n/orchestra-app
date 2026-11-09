@@ -77,7 +77,7 @@ describe("CredentialEncryption", () => {
     // A torn create used to leave credential.key.<pid>.tmp files behind; an
     // interrupted run must never be mistaken for a written key.
     expect(readdirSync(directory.path)).toEqual(["credential.key"])
-    expect(readFileSync(keyFile)).toEqual(key)
+    expect(readFileSync(keyFile)).toEqual(Buffer.from(key))
   })
 
   test("a crashed creation (0-byte key file) reads as corrupt, never as a valid key", async () => {

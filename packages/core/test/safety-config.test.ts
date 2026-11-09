@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import os from "node:os"
 import { SafetyConfig } from "../src/safety-config"

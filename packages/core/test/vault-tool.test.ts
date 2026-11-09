@@ -12,7 +12,7 @@ test("actual Vault tool returns names only and fixed errors, never request error
  const run=(v:any)=>Effect.runPromise(v.pipe(Effect.provideService(Sessions,{get:()=>Effect.succeed({location:{directory:"/project"},metadata:projectID?{"orchestra:project-owner":{projectID}}:{}})})))
  await run(VaultTool.Plugin.effect({session:{hook:(_name:string,fn:any)=>Effect.sync(()=>hook=fn)},tool:{transform:(fn:any)=>Effect.sync(()=>fn({add:(v:any)=>tool=v}))}} as any))
  const ctx={sessionID:"ses_a"},execute=(input:any)=>run(tool.execute(input,ctx))
- const output=await execute({action:"list"});expect(output.content).toContain('"name":"API"');expect(output.content).not.toContain("blob");expect(calls).toEqual(["prj_a"])
+ const output:any=await execute({action:"list"});expect(output.content).toContain('"name":"API"');expect(output.content).not.toContain("blob");expect(calls).toEqual(["prj_a"])
  for(const input of [{action:"request",name:"new",site:"https://example.invalid/v1"},{action:"check_http",name:"API",url:"https://example.invalid/v1/models"}]){try{await execute(input);throw Error("must reject")}catch(error){expect(String(error)).not.toContain("fake-SECRET");expect(String(error)).toContain("Vault action failed")}}
  const event={system:[] as any[]};await run(hook(event));expect(event.system[0].text).toContain("NEVER be requested in chat");expect(event.system[0].text).toContain(".env");expect(event.system[0].text).toContain("masked native operator form")
  projectID=undefined;await expect(execute({action:"list"})).rejects.toThrow("verified project")
