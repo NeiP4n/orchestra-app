@@ -290,7 +290,7 @@ describe("window capture (Windows helper protocol)", () => {
     controller.watch({ width: 900, height: 600 }, (frame) => frames.push(frame))
     line("F 900 600 QUJD")
     controller.mouse({ kind: "move", x: 5, y: 6 })
-    expect(written.slice(1)).toEqual(["size 900 600", "mouse move 5 6"])
+    expect(written.slice(1)).toEqual(["size 900 600", "stream on", "mouse move 5 6"])
     expect(frames).toEqual([{ data: "QUJD", width: 900, height: 600 }])
 
     const failing = WindowCapture.start(make, 8, { width: 800, height: 500 })

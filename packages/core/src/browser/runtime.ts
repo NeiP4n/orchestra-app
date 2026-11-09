@@ -3,6 +3,9 @@ export * as BrowserRuntime from "./runtime.js"
 import { spawn } from "node:child_process"
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
+import { Flock } from "@orchestra/util/flock"
+import { readdirSync } from "node:fs"
+import { BrowserBudget } from "./budget.js"
 import { Global } from "@orchestra/util/global"
 import { BrowserBridge } from "./bridge.js"
 import { Cdp } from "./cdp.js"
@@ -70,7 +73,7 @@ const deps: Chrome.Deps = {
   remove: (file) => rmSync(file, { force: true }),
 }
 
-const alive = async (port: number) => (await fetch(`http://127.0.0.1:${port}/json/version`)).ok
+const alive = async (port: number) => (await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(1000) })).ok
 
 const connectTab = (tab: BrowserTabs.Tab) =>
   Cdp.connect((address) => new WebSocket(address) as unknown as Cdp.Socket, tab.wsUrl)
@@ -181,10 +184,23 @@ function within<T>(work: Promise<T>, ms: number): Promise<T> {
   })
 }
 
+const launchLock = <T>(action: () => Promise<T>) => Flock.withLock("browser-active-profile-budget", action, {
+  dir: path.join(Global.Path.data, "browser-launch-locks"), timeoutMs: 5000, baseDelayMs: 50, maxDelayMs: 100,
+})
+async function checkLaunchBudget() {
+  const root = path.join(Global.Path.data, "browser-profiles")
+  let folders: string[] = []
+  if (existsSync(root)) folders = readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory() && /^[A-Za-z0-9_-]{1,64}$/.test(entry.name)).map((entry) => entry.name)
+  for (const id of folders) if (await Chrome.livePort(deps.readFile, alive, Chrome.profileDir(Global.Path.data, id)) !== undefined) BrowserBudget.requireRoom(1)
+}
 async function start(sessionID: string): Promise<Live> {
+  return launchLock(() => startLocked(sessionID))
+}
+async function startLocked(sessionID: string): Promise<Live> {
   const dir = Chrome.profileDir(Global.Path.data, sessionID)
   const port = await Chrome.livePort(deps.readFile, alive, dir)
   if (port !== undefined) return join(port, () => {})
+  await checkLaunchBudget()
   const exe = Chrome.find(existsSync)
   if (!exe) throw new Error(Chrome.NOT_FOUND)
   calm(dir)
@@ -755,7 +771,9 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
   const headed = target !== "headless"
   calm(Chrome.profileDir(Global.Path.data, sessionID))
   trace(`${sessionID}: restarting ${exe} as ${target} on ${Chrome.profileDir(Global.Path.data, sessionID)} (pid ${process.pid})`)
-  const run = await Chrome.launch(headed ? windowDeps : deps, {
+  const run = await launchLock(async () => {
+    await checkLaunchBudget()
+    return Chrome.launch(headed ? windowDeps : deps, {
     exe,
     profileDir: Chrome.profileDir(Global.Path.data, sessionID),
     headless: !headed,
@@ -771,9 +789,10 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
             `--force-device-scale-factor=${CAPTURE_SCALE}`,
             `--window-position=${WindowCapture.OFFSCREEN.x},${WindowCapture.OFFSCREEN.y}`,
             // The window size is in scaled units, so the pixels on screen still match the pane.
-            `--window-size=${Math.round(size.width / CAPTURE_SCALE)},${Math.round(size.height / CAPTURE_SCALE)}`,
+            `--window-size=${Math.round(WindowCapture.captureSize(size).width / CAPTURE_SCALE)},${Math.round(WindowCapture.captureSize(size).height / CAPTURE_SCALE)}`,
           ]
         : [],
+    })
   })
   const next = await join(run.port, target === "window" ? () => {} : run.close, target === "window")
   if (target !== "window") await awake(next.client)

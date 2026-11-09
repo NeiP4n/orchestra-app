@@ -484,8 +484,8 @@ export function BrowserPane(props: {
   // The page is Chrome's own window captured into the pane (its real tabs and address bar) on Windows, when the helper
   // proved the window invisible and its pictures are not blank; otherwise, and everywhere else, the windowless Chrome
   // streamed here with this pane's own tab strip. A capture that goes wrong later falls back to the windowless Chrome
-  // by itself. ORCHESTRA_BROWSER_CAPTURE=0 keeps the windowless view. The explicit "Real Chrome" button stays.
-  const autoCapture = process.platform === "win32" && process.env.ORCHESTRA_BROWSER_CAPTURE !== "0"
+  // by itself. Capture is opt-in: ORCHESTRA_BROWSER_CAPTURE=1 enables auto capture; default keeps the windowless view. The explicit "Real Chrome" button stays.
+  const autoCapture = process.platform === "win32" && process.env.ORCHESTRA_BROWSER_CAPTURE === "1"
   const open = async () => {
     await run(async () => void (await BrowserRuntime.open(props.sessionID)))
     setMode(BrowserRuntime.modeOf(props.sessionID))
@@ -547,7 +547,7 @@ export function BrowserPane(props: {
     // The runtime is trying the next way (gpu -> software -> no-layered) after a blank print: not a final fall-back yet.
     if (BrowserRuntime.captureRetrying(props.sessionID))
       return `capture: retrying, attempt: ${attempt}${reason ? ` (after: ${reason})` : ""}`
-    if (!autoCapture) return "capture: off (ORCHESTRA_BROWSER_CAPTURE=0), fast view"
+    if (!autoCapture) return "capture: off (safe default), fast view"
     if (reason) return `capture: off, fast view because: ${reason} (last attempt: ${attempt})`
     if (switching.has(props.sessionID)) return "capture: starting"
     if (!framed()) return "capture: waits for the first picture"

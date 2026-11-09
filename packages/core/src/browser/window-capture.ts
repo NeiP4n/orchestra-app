@@ -38,10 +38,14 @@ export function parseLine(line: string): Line {
 }
 
 /** `noLayer` is the last attempt: no layered/alpha-0 trick, the window is only kept off screen (position -32000). */
+export const captureSize = (size: Size): Size => ({
+  width: Math.min(1280, Math.max(50, Math.round(size.width) || 50)),
+  height: Math.min(800, Math.max(50, Math.round(size.height) || 50)),
+})
 export const attachCommand = (pid: number, size: Size, noLayer = false) =>
-  `attach ${Math.trunc(pid)} ${OFFSCREEN.x} ${OFFSCREEN.y} ${Math.round(size.width)} ${Math.round(size.height)}${noLayer ? " nolayer" : ""}`
+  `attach ${Math.trunc(pid)} ${OFFSCREEN.x} ${OFFSCREEN.y} ${captureSize(size).width} ${captureSize(size).height}${noLayer ? " nolayer" : ""}`
 
-export const sizeCommand = (size: Size) => `size ${Math.round(size.width)} ${Math.round(size.height)}`
+export const sizeCommand = (size: Size) => `size ${captureSize(size).width} ${captureSize(size).height}`
 
 export type Mouse =
   | { kind: "down" | "up"; x: number; y: number; button?: "left" | "middle" | "right" }
@@ -282,11 +286,12 @@ public static class Cap {
     else PostMessage(to, 0x101, (IntPtr)vk, unchecked((IntPtr)(int)0xC0000001));
   }
 
+  static bool streaming = false;
   static void Frame() {
-    if (hwnd == IntPtr.Zero) return;
+    if (!streaming || hwnd == IntPtr.Zero) return;
     RECT r; if (!GetWindowRect(hwnd, out r)) return;
     int w = r.R - r.L, h = r.B - r.T;
-    if (w < 50 || h < 50) return;
+    if (w < 50 || h < 50 || w > 1280 || h > 800) return;
     using (Bitmap bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb)) {
       using (Graphics g = Graphics.FromImage(bmp)) {
         IntPtr dc = g.GetHdc();
@@ -319,13 +324,14 @@ public static class Cap {
           if (a[0] == "quit") return;
           else if (a[0] == "attach") Attach(a);
           else if (a[0] == "size" && hwnd != IntPtr.Zero) SetWindowPos(hwnd, IntPtr.Zero, posX, posY, int.Parse(a[1]), int.Parse(a[2]), 0x14);
+          else if (a[0] == "stream") streaming = a[1] == "on";
           else if (a[0] == "mouse") Mouse(a);
           else if (a[0] == "key") Key(a);
           else if (a[0] == "char" && hwnd != IntPtr.Zero) PostMessage(Target(), 0x102, (IntPtr)int.Parse(a[1]), (IntPtr)1);
         } catch (Exception e) { Say("S err " + e.Message.Replace('\n', ' ')); }
       }
       if (DateTime.UtcNow >= nextGuard) { try { Guard(); } catch (Exception e) { Say("S err " + e.Message.Replace('\n', ' ')); } nextGuard = DateTime.UtcNow.AddMilliseconds(250); }
-      if (DateTime.UtcNow >= next) { try { Frame(); } catch (Exception e) { Say("S err " + e.Message.Replace('\n', ' ')); } next = DateTime.UtcNow.AddMilliseconds(120); }
+      if (DateTime.UtcNow >= next) { try { Frame(); } catch (Exception e) { Say("S err " + e.Message.Replace('\n', ' ')); } next = DateTime.UtcNow.AddMilliseconds(250); }
       Thread.Sleep(15);
     }
   }
@@ -392,9 +398,11 @@ export function start(
           watch: (next, onFrame) => {
             listener = onFrame
             process.write(sizeCommand(next))
+            process.write("stream on")
           },
           unwatch: () => {
             listener = undefined
+            process.write("stream off")
           },
           mouse: (input) => process.write(mouseCommand(input)),
           key: (key) => keyCommands(key).forEach((command) => process.write(command)),
