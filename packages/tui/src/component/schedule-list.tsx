@@ -1,6 +1,4 @@
-import { saveApproval, removeApproval } from "../util/security-confirmation"
-import { limitExpansion } from "../util/security-change"
-import { DialogPrompt } from "../ui/dialog-prompt"
+import { ScheduleLimitDialog } from "./schedule-limit-dialog"
 import { useDialog } from "../ui/dialog"
 import { hoverBackground } from "../ui/hover"
 import { Keymap } from "../context/keymap"
@@ -18,21 +16,7 @@ import { scheduleDetails, scheduleEllipsis, scheduleState, scheduleTone } from "
 export function ScheduleList(props: { sessionID: string; width?: number }) {
   const theme = useTheme()
   const dialog = useDialog()
-  const editLimit = (item: ScheduleView.Item) => dialog.replace(() => <DialogPrompt
-    title="Часовой лимит этого триггера"
-    value={item.maxPerHour === null ? "без лимита" : String(item.maxPerHour ?? 6)}
-    description={() => <text fg={theme.text.muted}>Число 1-10000 или «без лимита». Отключение расширяет только часовой лимит этого триггера. Снимет паузу по нему, если суточный лимит ещё не исчерпан. История, суточный лимит, защита цикла и бюджет не меняются.</text>}
-    onConfirm={(value) => {
-      const text = value.trim().toLowerCase()
-      const limit = text === "без лимита" ? null : /^\d+$/.test(text) ? Number(text) : NaN
-      const commit=()=>{try { ScheduleView.requestHourlyLimit(item.id, props.sessionID, limit); setError(""); dialog.clear();return true } catch { setError("Лимит: число 1-10000 или без лимита.");return false }}
-      if(limit!==null&&(!Number.isInteger(limit)||limit<1||limit>10000))return setError("Лимит: число 1-10000 или без лимита.")
-      if(limitExpansion(item.maxPerHour===null?null:item.maxPerHour??6,limit)){
-        const request=saveApproval({kind:"hour",sessionID:props.sessionID,triggerID:item.id,before:item.maxPerHour===null?null:item.maxPerHour??6,next:limit})
-        return dialog.replace(()=><DialogPrompt title="Расширить лимит триггера?" placeholder="Введите РАЗРЕШИТЬ" description={()=><text fg={theme.text.muted}>{item.name} ({item.id}): в час {item.maxPerHour===null?"без лимита":item.maxPerHour??6} → {limit===null?"без лимита":limit}. Суточный лимит и история остаются.</text>} onConfirm={answer=>{if(answer.trim()==="РАЗРЕШИТЬ"){if(commit())removeApproval(request.id)}}} onCancel={()=>{removeApproval(request.id);dialog.clear()}}/>)
-      }
-      commit()
-    }} onCancel={() => dialog.clear()} />)
+  const editLimit=(item:ScheduleView.Item,day=false)=>dialog.replace(()=><ScheduleLimitDialog item={item} sessionID={props.sessionID} day={day} onSaved={()=>{setNow(Date.now());setError("")}}/>)
 
   const [hoveredRemove, setHoveredRemove] = createSignal<string>()
   const [selected, setSelected] = createSignal<string>()
@@ -89,6 +73,9 @@ export function ScheduleList(props: { sessionID: string; width?: number }) {
             </box>
           </box>
           <HoverAction onClick={() => editLimit(item)}><text fg={item.maxPerHour === null ? theme.text.feedback.warning.base : theme.text.muted}>{`Час: ${(item.fired ?? []).filter((at) => at > now()-3600_000).length}/${item.maxPerHour === null ? "без лимита · расширено" : item.maxPerHour ?? 6} · изменить`}</text></HoverAction>
+          <Show when={ScheduleView.hourlyLimitRequested(item.id,props.sessionID)}>{request=><text fg={theme.text.muted}>{`Час: запрос ${request().maxPerHour??"без лимита"} сохранён; ждёт сервиса`}</text>}</Show>
+          <HoverAction onClick={()=>editLimit(item,true)}><text fg={theme.text.muted}>{`Сутки: ${(item.fired??[]).filter(at=>at>now()-86400_000).length}/${item.maxPerDay??48} · изменить`}</text></HoverAction>
+          <Show when={ScheduleView.dailyLimitRequested(item.id,props.sessionID)}>{request=><text fg={theme.text.muted}>{`Сутки: запрос ${request().maxPerDay} сохранён; ждёт сервиса`}</text>}</Show>
           <Show when={expanded()[item.id]}>
             <For each={scheduleDetails(item, status).map((line) => scheduleEllipsis(line, width()))}>{(line) => <text fg={theme.text.muted} attributes={TextAttributes.DIM}>{line}</text>}</For>
           </Show>
