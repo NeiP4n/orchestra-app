@@ -1246,10 +1246,19 @@ const layer: Layer.Layer<
             state === "done" &&
             AutoloopOrchestrator.looksLikeNothing(answer, note)
           const stateForReport = workerRemoved ? "failed" : didNothing ? "nothing" : state
+          // A worker whose model failed: the Orchestrator reads the model and the provider's error here and decides
+          // whether to switch the model (sessions set_model) and send the task again. The worker never switches itself.
+          const failedTurn = workerRemoved
+            ? undefined
+            : taskMessages.find((message) => message.type === "assistant" && message.error)
+          const modelFailure =
+            failedTurn?.type === "assistant" && failedTurn.error
+              ? `Model error: ${failedTurn.model.providerID}/${failedTurn.model.id} failed: ${String(failedTurn.error.message ?? failedTurn.error.type ?? "unknown").slice(0, 400)}`
+              : undefined
           const detailForReport =
             workerRemoved
               ? `Worker session ${sessionID} was removed before it could report the assigned task.`
-              : [detail, unproven].filter(Boolean).join("\n") || undefined
+              : [detail, unproven, modelFailure].filter(Boolean).join("\n") || undefined
           // "recovered" is provisional until admitted. If a real terminal event arrives after
           // recovery prepared but failed to admit its report, the terminal event must replace it.
           const preservePreparedTerminalPayload = wasPrepared && task.value.reportState !== "recovered"

@@ -538,7 +538,7 @@ const StageInput = Schema.Struct({
 })
 
 export const Input = Schema.Struct({
-  action: Schema.Literals(["list", "read", "send", "create", "set_mode", "stop", "answer", "plan", "stages", "stage", "verify", "acquire_mcp"]),
+  action: Schema.Literals(["list", "read", "send", "create", "set_mode", "set_model", "stop", "answer", "plan", "stages", "stage", "verify", "acquire_mcp"]),
   sessionID: Schema.optionalKey(SessionSchema.ID).annotate({ description: "Target session for read, send and stop" }),
   text: Schema.optionalKey(Schema.String).annotate({
     description: "Message for send, or the first task for create",
@@ -1624,6 +1624,18 @@ export const Plugin = {
                   return {
                     sessionID: session.id,
                     output: `${session.title ?? session.id} now works in the ${mode.name} mode (${mode.id}) from its next task.`,
+                  }
+                }
+                case "set_model": {
+                  // Only the Orchestrator changes a worker's model; a worker never does it by itself.
+                  const session = yield* target(project, input.sessionID, "write")
+                  if (!input.model?.trim()) return yield* new ToolFailure({ message: "Pass model (provider/model) to set_model" })
+                  const role = roles.find((item) => item.agent === session.agent)
+                  const choice = yield* choose(role)
+                  if (choice.model) yield* apply(session.id, { model: choice.model })
+                  return {
+                    sessionID: session.id,
+                    output: `${session.title ?? session.id} now runs on ${choice.model ? modelRef(choice.model) : input.model}. Send the task again.`,
                   }
                 }
                 case "stop": {

@@ -101,6 +101,9 @@ export const Plugin = {
 
     const run = Effect.fn("DodTool.run")(function* (input: Input, context: Tool.Context) {
       const source = { type: "tool" as const, messageID: context.messageID, id: context.id }
+      // The board belongs to the Orchestrator: a team worker may not add items, whatever its prompt says.
+      if (input.action === "add" && String(context.agent).startsWith("team-"))
+        return yield* new ToolFailure({ message: "Only the Orchestrator adds items to the DoD board. Report the gap to the Orchestrator instead." })
       const owner = ownerOf(context.sessionID)
       // Whether a holder's session is running in this process right now, so an item
       // whose lease ran out mid-step still reads as held while its session works.
