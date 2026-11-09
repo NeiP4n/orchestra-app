@@ -278,6 +278,9 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
       ensureBrowserAgent: (projectID: string, id: string, directory: string) => {
         const item = browser.projects?.[projectID]?.find((entry) => entry.id === id)
         if (item && !item.chat) void giveBrowserAgent(projectID, id, directory, item.name)
+        // A chat made before the role existed runs the default agent: put it on the BrowserAgent role.
+        else if (item?.chat && data.session.get(item.chat)?.agent !== "team-browser-agent")
+          void client.api.session.switchAgent({ sessionID: item.chat, agent: "team-browser-agent" }).catch(() => undefined)
       },
       closedBrowserSessions: (projectID: string) => browser.closed?.[projectID] ?? [],
       reopenBrowserSession: (projectID: string, id: string) =>

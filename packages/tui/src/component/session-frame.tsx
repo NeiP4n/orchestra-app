@@ -24,6 +24,7 @@ import { useStorage } from "../context/storage"
 import { useNotes } from "../context/notes"
 import { useTheme } from "../context/theme"
 import { useDialog } from "../ui/dialog"
+import { useRoute } from "../context/route"
 import { Session } from "../routes/session"
 import { Sidebar } from "../routes/session/sidebar"
 import {
@@ -206,6 +207,14 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   })
   const rightPaneResize = () => (rightPane() === "sidebar" ? sidebarResize : paneResize)
 
+  // In the Browser view the chat beside the page is the BrowserAgent of the selected browser session, whichever chat
+  // was open before (the Orchestrator included): one browser session, one BrowserAgent.
+  const route = useRoute()
+  createEffect(() => {
+    if (centerView() !== "browser") return
+    const chat = browserSession()?.chat
+    if (chat && chat !== props.sessionID) route.navigate({ type: "session", sessionID: chat })
+  })
   let resizeRelease = false
   const finishPaneResize = (event: MouseEvent) => {
     if (paneResize.resizing() || sidebarResize.resizing() || noteChatResize.resizing()) {
