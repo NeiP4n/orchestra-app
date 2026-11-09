@@ -166,3 +166,50 @@ describe("cron single values", () => {
     expect(Trigger.nextFrom({ ...(first as { ok: true; trigger: Trigger.Info }).trigger }, Date.parse("2026-11-09T14:30:00Z"), "UTC")).toBe(Date.parse("2026-11-10T14:30:00Z"))
   })
 })
+
+
+describe("scheduled browser binding", () => {
+  test("keeps minutes and resolved session separate through persistence and firing", () => {
+    const made = make("interval", "60", { browserSessionID: "browser_1" })
+    if (!made.ok) throw new Error(made.error)
+    expect(made.trigger.spec).toBe("60")
+    expect(made.trigger.browserSessionID).toBe("browser_1")
+    expect(made.trigger.publishApproved).toBe(false)
+    expect(Trigger.parse(JSON.parse(JSON.stringify(made.trigger)))).toEqual(made.trigger)
+    const next = Trigger.afterFire(made.trigger, NOW + 60 * 60_000)
+    expect(next.browserSessionID).toBe("browser_1")
+    expect(next.nextAt).toBe(NOW + 120 * 60_000)
+    expect(Trigger.render(next, NOW)).toContain("Dispatch the BrowserAgent bound to this session")
+    expect(Trigger.render(next, NOW)).toContain("not evidence that a check succeeded")
+    expect(Trigger.render(next, NOW)).toContain("NOT approved")
+    expect(Trigger.describe(next)).toContain("last dispatch:")
+    expect(Trigger.describe(next)).not.toContain("last check:")
+  })
+
+  test("rejects empty, mistyped and non-interval bindings rather than ignoring them", () => {
+    for (const kind of ["cron", "once", "browser"]) {
+      expect(make(kind, "anything", { browserSessionID: "b" }).ok).toBe(false)
+    }
+    expect(make("interval", "60", { browserSessionID: " " }).ok).toBe(false)
+    const made = make("interval", "60")
+    if (!made.ok) throw new Error(made.error)
+    for (const browserSessionID of [" ", 3, false]) {
+      expect(Trigger.parse({ ...made.trigger, browserSessionID })).toBeUndefined()
+    }
+    expect(Trigger.parse({ ...made.trigger, kind: "browser", browserSessionID: "b" })).toBeUndefined()
+    expect(Trigger.parse(made.trigger)).toEqual(made.trigger)
+  })
+
+  test("binding does not bypass the floor, caps, pause or publishing taint", () => {
+    expect(make("interval", "4", { browserSessionID: "b" }).ok).toBe(false)
+    const made = make("interval", "60", { browserSessionID: "b", maxPerHour: 1 })
+    if (!made.ok) throw new Error(made.error)
+    const fired = Trigger.afterFire(made.trigger, NOW)
+    expect(Trigger.browserDue(fired, NOW)).toBe("skip")
+    expect(Trigger.due({ ...fired, nextAt: NOW }, NOW)).toBe("pause")
+    const resumed = Trigger.resume(Trigger.paused(fired, NOW), NOW)
+    expect(resumed?.browserSessionID).toBe("b")
+    expect(resumed?.fired).toEqual([NOW])
+    expect(resumed?.publishApproved).toBe(false)
+  })
+})
