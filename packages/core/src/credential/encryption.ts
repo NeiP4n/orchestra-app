@@ -1,8 +1,20 @@
 export * as CredentialEncryption from "./encryption.js"
 
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto"
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from "node:crypto"
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  fsyncSync,
+  linkSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
+import { basename, dirname, join } from "node:path"
 import { Effect, Option, Schema } from "effect"
 import { Credential } from "@orchestra/schema/credential"
 
@@ -142,20 +154,95 @@ const readExistingKey = (path: string): Buffer | undefined => {
   }
 }
 
-const writeKeyExclusive = (path: string, key: Buffer): boolean => {
+// Best-effort fsync of a directory entry after an atomic create, so a power
+// loss cannot roll the directory back to before the key file existed.
+// Windows cannot fsync a directory handle; NTFS journal ordering covers it.
+const fsyncDirectory = (dir: string): void => {
+  if (process.platform === "win32") return
   try {
-    mkdirSync(dirname(path), { recursive: true })
-    const fd = openSync(path, "wx", 0o600)
+    const fd = openSync(dir, "r")
     try {
-      writeFileSync(fd, key)
+      fsyncSync(fd)
     } finally {
       closeSync(fd)
     }
+  } catch {
+    // Durability hint only; a failed fsync never fails key creation.
+  }
+}
+
+// Removes temp files an interrupted creation left beside the key file.
+// Cosmetic: a crash loop could otherwise litter one `.tmp` per attempt.
+const sweepTempFiles = (path: string): void => {
+  try {
+    const dir = dirname(path)
+    const prefix = `${basename(path)}.`
+    for (const entry of readdirSync(dir)) {
+      if (entry.startsWith(prefix) && entry.endsWith(".tmp")) rmSync(join(dir, entry), { force: true })
+    }
+  } catch {
+    // The key file itself is what matters; sweeping must never fail a load.
+  }
+}
+
+// Creates the key file whole or not at all. The naive `open(wx)` + write used
+// to leave a 0-byte or torn key when the process died between the two calls,
+// and the next boot then read that file as corrupt — with sealed credentials
+// in the database, that is every stored API key lost to a crash that wrote
+// nothing. The key is now written to a unique temp file, fsynced, and
+// published with link(): link is an atomic exclusive create on POSIX and
+// NTFS, so a concurrent creator fails with EEXIST instead of renaming its
+// different key over the winner's. On filesystems without hard links the
+// code falls back to an exclusive direct create (no worse than before, still
+// fsynced). A crash leaves at most an orphan `.tmp`, swept on the next load.
+const writeKeyExclusive = (path: string, key: Buffer): boolean => {
+  mkdirSync(dirname(path), { recursive: true })
+  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
+  try {
+    const fd = openSync(temporary, "wx", 0o600)
+    try {
+      writeFileSync(fd, key)
+      fsyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
+  } catch (cause) {
+    rmSync(temporary, { force: true })
+    throw new KeyFileError({ path, reason: "unavailable", detail: `cannot create credential key file: ${errorMessage(cause)}` })
+  }
+  try {
+    linkSync(temporary, path)
+    fsyncDirectory(dirname(path))
     return true
   } catch (cause) {
+    const code = (cause as NodeJS.ErrnoException).code
     // Lost the creation race to another process: the winner's key is the one to use.
-    if ((cause as NodeJS.ErrnoException).code === "EEXIST") return false
+    if (code === "EEXIST") return false
+    // FAT-like and some network filesystems cannot hard-link: fall back to an
+    // exclusive direct create, still fsynced before it is declared written.
+    if (code === "EPERM" || code === "ENOSYS" || code === "EXDEV" || code === "ENOTSUP") {
+      try {
+        const fd = openSync(path, "wx", 0o600)
+        try {
+          writeFileSync(fd, key)
+          fsyncSync(fd)
+        } finally {
+          closeSync(fd)
+        }
+        fsyncDirectory(dirname(path))
+        return true
+      } catch (fallbackCause) {
+        if ((fallbackCause as NodeJS.ErrnoException).code === "EEXIST") return false
+        throw new KeyFileError({
+          path,
+          reason: "unavailable",
+          detail: `cannot create credential key file: ${errorMessage(fallbackCause)}`,
+        })
+      }
+    }
     throw new KeyFileError({ path, reason: "unavailable", detail: `cannot create credential key file: ${errorMessage(cause)}` })
+  } finally {
+    rmSync(temporary, { force: true })
   }
 }
 
@@ -186,6 +273,7 @@ export function loadOrCreateKey(path: string): Buffer {
         reason: "corrupt",
         detail: `credential key file must hold ${KEY_BYTES} bytes, found ${existing.length}`,
       })
+    sweepTempFiles(path)
     tightenKeyFile(path)
     return existing
   }
