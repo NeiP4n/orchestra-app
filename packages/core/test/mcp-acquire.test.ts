@@ -113,6 +113,21 @@ function fake(initial: Mcp.ServerInfo[] = [], settle: "connected" | "failed" = "
   return { access, calls }
 }
 
+describe("a server that starts its own browser", () => {
+  test("is not installed behind the operator's back, and one already configured is left alone", async () => {
+    const absent = fake()
+    const refused = await Effect.runPromise(McpAcquire.ensure(absent.access, "chrome-devtools"))
+    expect(absent.calls).toEqual([])
+    expect(refused.state).toBe("unavailable")
+    expect(refused.action).toBe("none")
+    expect(refused.detail).toContain("browser tool")
+    const there = fake([info("chrome-devtools", { status: "connected" })])
+    const kept = await Effect.runPromise(McpAcquire.ensure(there.access, "chrome-devtools"))
+    expect(kept.state).toBe("healthy")
+    expect(there.calls).toEqual([])
+  })
+})
+
 describe("ensure", () => {
   test("reuses a healthy server without touching the service", async () => {
     const { access, calls } = fake([info("context7", { status: "connected" })])
