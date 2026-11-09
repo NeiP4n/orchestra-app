@@ -60,3 +60,17 @@ export function list(sessionID: string): Item[] {
     }).sort((a, b) => a.id.localeCompare(b.id))
   } catch { return [] }
 }
+
+const removalFile = (id: string) => path.join(directory(), `${encodeURIComponent(id)}.remove.json`)
+/** Operator sidebar request, not a model action. Scheduler validates exact owning main before deletion. */
+export function requestRemoval(id: string, sessionID: string) {
+  const item = list(sessionID).find((item) => item.id === id)
+  if (!item) throw new Error("Расписание не найдено в этом чате.")
+  const tmp = `${removalFile(id)}.${process.pid}.tmp`
+  writeFileSync(tmp, JSON.stringify({ id, sessionID }))
+  renameSync(tmp, removalFile(id))
+}
+export function removalRequested(id: string, sessionID: string): boolean {
+  try { const v = JSON.parse(readFileSync(removalFile(id), "utf8")); return v.id === id && v.sessionID === sessionID } catch { return false }
+}
+export function clearRemoval(id: string) { try { rmSync(removalFile(id), { force: true }) } catch {} }

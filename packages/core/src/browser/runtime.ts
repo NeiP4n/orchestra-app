@@ -377,6 +377,11 @@ export async function watchEnsure(sessionID: string): Promise<boolean> {
     return false
   }
 }
+export async function stopPageWatcher(sessionID: string) {
+  const client = armed.get(sessionID)
+  armed.delete(sessionID); watchHealth.delete(sessionID)
+  if (client) await within(BrowserWatch.uninstall(client), 3000).catch(() => undefined)
+}
 BrowserWatch.setEnsurer(watchEnsure)
 
 export async function go(sessionID: string, address: string) {

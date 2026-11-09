@@ -1795,6 +1795,29 @@ const layer: Layer.Layer<
         reportLog({ event: "no-report-notice", session: workerID, main: task.value.main, state: running ? "running" : "idle", minutes, delivered: ok })
       }
     }).pipe(Effect.catch(() => Effect.void))
+    // Local operator delete requests are validated against KV and the project's actual main, never trusted by ID alone.
+    const deleteRequestedTriggers = Effect.gen(function* () {
+      const entries = yield* scanAll(Trigger.PREFIX)
+      for (const entry of entries) {
+        const trigger = Trigger.parse(entry.value)
+        if (!trigger) continue
+        const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+        if (!project?.main || !ScheduleView.removalRequested(trigger.id, String(project.main))) continue
+        yield* kv.remove(entry.key)
+        ScheduleView.remove(trigger.id)
+        BrowserSchedule.remove(trigger.id)
+        ScheduleView.clearRemoval(trigger.id)
+        if (trigger.kind === "browser") {
+          const remaining = (yield* scanAll(Trigger.PREFIX)).some((entry) => {
+            const other = Trigger.parse(entry.value)
+            return other?.enabled && other.kind === "browser" && other.spec === trigger.spec
+          })
+          if (!remaining) yield* Effect.promise(() => BrowserRuntime.stopPageWatcher(trigger.spec))
+        }
+        reportLog({ event: "trigger-deleted-by-operator", trigger: trigger.id, project: trigger.projectID })
+      }
+    }).pipe(Effect.catch(() => Effect.void))
+    yield* Effect.forever(Effect.sleep(Duration.seconds(5)).pipe(Effect.andThen(deleteRequestedTriggers))).pipe(Effect.forkScoped({ startImmediately: true }))
     // Operator-authored local actions never wake an AI or launch a browser. Storage failures count as failures.
     const localActions = (trigger: Trigger.Info, now: number) => Effect.promise(() => Trigger.executeLocal(trigger, now, (entry) => {
       const file = reportLogFile()
@@ -1818,6 +1841,7 @@ const layer: Layer.Layer<
         if (!trigger || trigger.kind !== "internal" || !trigger.actions?.length) continue
         const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
         if (!project?.main) continue
+        if (ScheduleView.removalRequested(trigger.id, String(project.main))) continue
         for (const event of events) {
           const verdict = Trigger.internalDue(trigger, event, now)
           if (verdict === "wait") continue
@@ -1857,6 +1881,7 @@ const layer: Layer.Layer<
         }
         const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
         if (!project?.main) continue
+        if (ScheduleView.removalRequested(trigger.id, String(project.main))) continue
         if (trigger.localTest && trigger.browserSessionID) {
           const page = yield* Effect.promise(() => BrowserRuntime.peek(trigger.browserSessionID!))
           if (!page.running || !BrowserLocalTest.allowed(page.url)) {
@@ -1920,7 +1945,7 @@ const layer: Layer.Layer<
           const project = yield* get(item.trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
           if (project?.main) ScheduleView.sync(item.trigger, String(project.main))
           BrowserSchedule.sync({ ...item.trigger, browserSessionID: item.trigger.spec })
-          const armed = item.trigger.enabled ? yield* Effect.promise(() => BrowserWatch.ensure(item.trigger.spec)) : false
+          const armed = item.trigger.enabled && !(project?.main && ScheduleView.removalRequested(item.trigger.id, String(project.main))) ? yield* Effect.promise(() => BrowserWatch.ensure(item.trigger.spec)) : false
           BrowserSchedule.watchStatus(item.trigger.id, armed)
         }
       for (const event of browserInbox.splice(0))
@@ -1943,6 +1968,7 @@ const layer: Layer.Layer<
         }
         const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
         if (!project?.main) continue
+        if (ScheduleView.removalRequested(trigger.id, String(project.main))) continue
         const next = Trigger.afterFire(trigger, now)
         yield* kv.set(key, next as never)
         ScheduleView.sync(next, String(project.main))

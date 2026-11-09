@@ -145,24 +145,36 @@ export function script(binding = BINDING) {
     try { window[${JSON.stringify(binding)}](JSON.stringify({ items: items.slice(-5), at: Date.now() })) } catch (e) {}
   }
   const start = () => {
-    new MutationObserver((records) => {
+    window.__orchestraWatchObserver = new MutationObserver((records) => {
       for (const record of records) for (const node of record.addedNodes) consider(node)
       if (batch.length > 0 && !timer) timer = setTimeout(flush, 1000)
-    }).observe(document.documentElement, { childList: true, subtree: true })
+    })
+    window.__orchestraWatchObserver.observe(document.documentElement, { childList: true, subtree: true })
   }
   if (document.documentElement) start()
   else document.addEventListener('DOMContentLoaded', start, { once: true })
 })()`
 }
 
+const installed = new WeakMap<Client, { stop: () => void; identifier?: string }>()
+export async function uninstall(client: Client) {
+  const item = installed.get(client)
+  if (!item) return
+  item.stop(); installed.delete(client)
+  await client.send("Runtime.evaluate", { expression: "window.__orchestraWatchObserver?.disconnect(); window.__orchestraWatchOn = false", returnByValue: true }).catch(() => undefined)
+  if (item.identifier) await client.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: item.identifier }).catch(() => undefined)
+  await client.send("Runtime.removeBinding", { name: BINDING }).catch(() => undefined)
+}
+
 /** Arms one page connection: the binding, the script for every new document, and the script for the page already open. */
 export async function install(sessionID: string, client: Client) {
   await client.send("Runtime.enable")
   await client.send("Runtime.addBinding", { name: BINDING })
-  await client.send("Page.addScriptToEvaluateOnNewDocument", { source: script() })
+  const added = await client.send<{ identifier?: string }>("Page.addScriptToEvaluateOnNewDocument", { source: script() })
   await client.send("Runtime.evaluate", { expression: script(), returnByValue: true })
-  client.on("Runtime.bindingCalled", (params) => {
+  const stop = client.on("Runtime.bindingCalled", (params) => {
     if (params?.name !== BINDING) return
     handle(sessionID, String(params.payload ?? ""))
   })
+  installed.set(client, { stop, identifier: added?.identifier })
 }
