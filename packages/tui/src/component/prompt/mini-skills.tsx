@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../../ui/hover-feedback"
 import { BoxRenderable, MouseEvent, TextareaRenderable } from "@opentui/core"
 import { Portal, useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
@@ -693,6 +694,7 @@ function MiniSkillEditor(props: {
 }) {
   const dialog = useDialog()
   const theme = useTheme().surface("dialog")
+  const cancelHover = createHoverFeedback()
   const toast = useToast()
   const t = useT()
   const config = useConfig().data
@@ -785,6 +787,9 @@ function MiniSkillEditor(props: {
         <text fg={theme.text.muted}>{`tab / shift+tab ${t("switch fields")}`}</text>
         <text
           fg={theme.text.muted}
+          bg={cancelHover.background()}
+          onMouseOver={cancelHover.onMouseOver}
+          onMouseOut={cancelHover.onMouseOut}
           onMouseUp={(event: MouseEvent) => {
             if (event.button !== 0) return
             event.stopPropagation()

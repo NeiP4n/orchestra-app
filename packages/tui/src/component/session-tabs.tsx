@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import {
   BoxRenderable,
   CliRenderEvents,
@@ -142,20 +143,23 @@ function ProjectGroups(props: {
       <box flexDirection="column" paddingLeft={1} paddingRight={1}>
         <For each={projects()}>
           {(pr) => {
+            const hover = createHoverFeedback()
             const live = pr.chats.filter(alive)
             const isOpen = () => open()[pr.id] ?? true
             return (
               <box flexDirection="column">
-                <text fg={muted} selectable={false} onMouseUp={() => setOpen((o) => ({ ...o, [pr.id]: !isOpen() }))}>
+                <text fg={muted} selectable={false} bg={hover.background()} onMouseOver={hover.onMouseOver} onMouseOut={hover.onMouseOut} onMouseUp={() => setOpen((o) => ({ ...o, [pr.id]: !isOpen() }))}>
                   {"▸ " + pr.name + " (" + live.length + ")"}
                 </text>
                 <Show when={isOpen()}>
                   <For each={live}>
-                    {(id) => (
-                      <text selectable={false} onMouseUp={() => props.tabs.select(id)}>
+                    {(id) => {
+                      const hover = createHoverFeedback()
+                      return (
+                      <text selectable={false} bg={hover.background()} onMouseOver={hover.onMouseOver} onMouseOut={hover.onMouseOut} onMouseUp={() => props.tabs.select(id)}>
                         {"  · " + id.slice(0, 12)}
                       </text>
-                    )}
+                    )}}
                   </For>
                 </Show>
               </box>
@@ -665,6 +669,7 @@ function VerticalSessionTabs(props: {
   const dimensions = useTerminalDimensions()
   const renderer = useRenderer()
   const theme = useTheme()
+  const newCloseHover = createHoverFeedback("secondary")
   const background = () => theme.background.raised.base
   const actionSelected = () => hoverBackground(theme)
   const actionHovered = () => hoverBackground(theme)
@@ -1352,6 +1357,9 @@ function VerticalSessionTabs(props: {
                   width={1}
                   fg={theme.text.muted}
                   selectable={false}
+                  bg={newCloseHover.background()}
+                  onMouseOver={newCloseHover.onMouseOver}
+                  onMouseOut={newCloseHover.onMouseOut}
                   onMouseUp={(event) => {
                     if (event.button === RIGHT_MOUSE_BUTTON) return
                     if (suppressClick) return
