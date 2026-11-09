@@ -48,7 +48,7 @@ import { useNow } from "./note-canvas"
 import { useT } from "../util/i18n"
 import { tint } from "../theme/color"
 import { hoverBackground } from "../ui/hover"
-import { Branch, NeuralChip, NeuronDot, neuralPalette } from "./neural"
+import { Branch, NeuralChip, NeuralLine, NeuronDot, neuralPalette, useNeuralEnergy } from "./neural"
 import { AllSessionsField, useEmptyRoom } from "./session-network"
 
 // The left panel: the operator's own projects, each a name and a directory,
@@ -258,7 +258,8 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
   const palette = () => neuralPalette(theme)
   const empty = useEmptyRoom()
   // A narrow panel keeps the switch as two icons so the names below get the room.
-  const iconOnly = () => props.width < 60
+  const energy = useNeuralEnergy()
+  const iconOnly = () => props.width < 40
   // A narrow panel keeps session titles readable by showing the category and access controls
   // only on the hovered session.
   const narrow = () => props.width < 36
@@ -793,7 +794,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                             id={`browser-toggle:${item.id}`}
                             disabled={!!browserBatchProgress()[project.id] || !!browserToggleBusy()[item.id]}
                             paddingLeft={1}
-                            paddingRight={1}
+                            paddingRight={0}
                             onClick={() => void toggleBrowser(project, item.id)}
                           >
                             <text fg={theme.text.action.primary.base} wrapMode="none">{browserToggleBusy()[item.id] ? "…" : browserConnected(item.id) ? "■" : "▶"}</text>
@@ -815,7 +816,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                               ))
                             }
                           >
-                            <text fg={theme.text.action.primary.base}>{" ✎ "}</text>
+                            <text fg={theme.text.action.primary.base}>{"✎ "}</text>
                           </HoverAction>
                           <HoverAction
                             id={`browser-remove:${item.id}`}
@@ -837,7 +838,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                                 .catch((error) => toast.show({ message: errorMessage(error), variant: "error" }))
                             }}
                           >
-                            <text fg={removeHovered() || armed() === `browser-remove:${item.id}` ? theme.text.feedback.error.base : theme.text.muted}>{armed() === `browser-remove:${item.id}` ? " удалить чат? " : " × "}</text>
+                            <text fg={removeHovered() || armed() === `browser-remove:${item.id}` ? theme.text.feedback.error.base : theme.text.muted}>{armed() === `browser-remove:${item.id}` ? " удалить чат? " : "×"}</text>
                           </HoverAction>
                         </Row>
                         </>
@@ -1049,29 +1050,28 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
         </box>
       }
     >
-      <box width={props.width} height="100%" flexShrink={0} backgroundColor={theme.background.raised.base}>
+      <box width={props.width} height="100%" flexShrink={0} overflow="hidden" paddingRight={1} backgroundColor={theme.background.raised.base}>
         {/* The panel's head: a segmented switch between the tree and the notes, the main action, and collapse. */}
         <box flexDirection="row" height={1} paddingLeft={1} paddingRight={1} columnGap={1} flexShrink={0}>
-          {/* Tabs wrap to a second row when the panel is narrow, so none is clipped. */}
+          {/* Labels fit at >=40 columns; narrower panels name the active tab. No blank spacer rows. */}
           <box flexDirection="row" flexShrink={0}>
-            <Tab tab="projects" icon="◉" label={iconOnly() ? "" : t("Projects")} hover={hover} setHover={setHover} />
-            <Tab tab="notes" icon="✎" label={iconOnly() ? "" : t("Notes")} hover={hover} setHover={setHover} />
-            <Tab tab="console" icon="›_" label={iconOnly() ? "" : t("Console")} hover={hover} setHover={setHover} />
-            <Tab tab="browser" icon="◎" label={iconOnly() ? "" : t("Browser")} hover={hover} setHover={setHover} />
+            <Tab tab="projects" icon="◉" label={!iconOnly() || notes.tab() === "projects" ? t("Projects") : ""} hover={hover} setHover={setHover} />
+            <Tab tab="notes" icon="✎" label={!iconOnly() || notes.tab() === "notes" ? t("Notes") : ""} hover={hover} setHover={setHover} />
+            <Tab tab="console" icon="›_" label={!iconOnly() || notes.tab() === "console" ? t("Console") : ""} hover={hover} setHover={setHover} />
+            <Tab tab="browser" icon="◎" label={!iconOnly() || notes.tab() === "browser" ? t("Browser") : ""} hover={hover} setHover={setHover} />
           </box>
           <box flexGrow={1} />
-          <NeuralChip
-            id="project-tree.new"
-            icon="+"
-            label={props.width < 30 ? "" : t("New")}
-            accent
-            onClick={() => (notes.tab() === "notes" ? notes.setCreating(true) : edit())}
-          />
+          <HoverAction id="project-tree.new" onClick={() => (notes.tab() === "notes" ? notes.setCreating(true) : edit())}>
+            <text fg={theme.text.action.primary.base} wrapMode="none">{props.width < 60 ? "+" : `+ ${t("New")}`}</text>
+          </HoverAction>
           <Show when={props.onHide}>
-            <HoverAction id="project-tree.hide" onClick={() => props.onHide?.()} paddingLeft={1} paddingRight={1}>
+            <HoverAction id="project-tree.hide" onClick={() => props.onHide?.()}>
               <text fg={palette().synapse}>‹</text>
             </HoverAction>
           </Show>
+        </box>
+        <box height={1} flexShrink={0} paddingLeft={1} paddingRight={1}>
+          <NeuralLine energy={energy()} seed={5} backdrop={theme.background.raised.base} />
         </box>
         <Show when={notes.tab() === "notes"}>
           <ProjectNotes />
@@ -1500,9 +1500,9 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
             }}
           </For>
           </Section>
-          <Section title={t("Multiplayer")} icon="⇄" actions={<>
+          <Section title={t("Multiplayer")} icon="⇄" stackActions={props.width < 36} actions={<>
               <SectionButton icon="◈" label={t("Host")} onClick={() => openRooms(DialogHost)} />
-              <SectionButton icon="⇢" label={t("Connect")} onClick={() => openRooms(DialogConnect)} />
+              <SectionButton icon="⇢" label={props.width < 50 ? "Войти" : t("Connect")} onClick={() => openRooms(DialogConnect)} />
             </>}>
             <Show when={meshStatus() && meshStatus()!.status !== "unconfigured"}>
               <Row
@@ -1670,8 +1670,8 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           </Show>
           </box>
         </scrollbox>
-        {/* In a chat, the room the tree leaves below it shows every Session's hub on the network. */}
-        <Show when={route.data.type === "session" && empty.room() >= 5}>
+        {/* Paint only unused rows, outside layout flow; never take height from the tree. */}
+        <Show when={empty.room() >= 5}>
           <box position="absolute" left={0} bottom={0} width="100%" height={empty.room()} paddingLeft={1} paddingRight={1}>
             <AllSessionsField
               currentID={route.data.type === "session" ? route.data.sessionID : undefined}
@@ -1701,6 +1701,7 @@ function Section(props: {
   icon: string
   count?: number
   gap?: boolean
+  stackActions?: boolean
   actions?: JSX.Element
   children: JSX.Element
 }) {
@@ -1712,9 +1713,12 @@ function Section(props: {
         <HoverAction id={`section-fold:${props.title}`} flexGrow={1} minWidth={0} onClick={() => setOpen(!open())}>
           <text fg={theme.text.muted} wrapMode="none" truncate>{`${open() ? "▾" : "▸"} ${props.icon} ${props.title}${props.count === undefined ? "" : ` · ${props.count}`}`}</text>
         </HoverAction>
-        {props.actions}
+        <Show when={!props.stackActions}>{props.actions}</Show>
       </box>
-      <Show when={open()}>{props.children}</Show>
+      <Show when={open()}>
+        <Show when={props.stackActions}><box flexDirection="row" height={1} paddingLeft={1}>{props.actions}</box></Show>
+        {props.children}
+      </Show>
     </box>
   )
 }
@@ -1747,7 +1751,7 @@ function Tab(props: {
       id={id}
       flexDirection="row"
       flexShrink={0}
-      paddingLeft={1}
+      paddingLeft={0}
       paddingRight={1}
       backgroundColor={
         active() || props.hover() === id ? hoverBackground(theme) : undefined
@@ -1760,6 +1764,7 @@ function Tab(props: {
       }}
     >
       {/* On the filled active half the icon takes the label's color, or it vanishes into the fill. */}
+      <Show when={!props.label}>
       <text
         fg={
           active()
@@ -1770,8 +1775,9 @@ function Tab(props: {
         }
         wrapMode="none"
       >
-        {props.label ? `${props.icon} ` : props.icon}
+        {props.icon}
       </text>
+      </Show>
       <text
         fg={
           active()
@@ -1780,7 +1786,7 @@ function Tab(props: {
               ? theme.text.base
               : theme.text.muted
         }
-        attributes={active() ? TextAttributes.BOLD : undefined}
+        attributes={active() ? TextAttributes.BOLD | TextAttributes.UNDERLINE : undefined}
         wrapMode="none"
       >
         {props.label}
