@@ -128,7 +128,7 @@ describe("toLLMMessages", () => {
 
     const lowered = JSON.stringify(toLLMMessages([message], model))
     expect(lowered).toContain("[PromptIntake — internal analysis")
-    expect(lowered).toContain("Verdict: the request is unclear")
+    expect(lowered).toContain("Verdict: the request is partly unclear")
     expect(lowered).toContain("Open question: В каком файле или модуле работать?")
     // The goal restates the message, so it is not repeated in the note.
     expect(lowered).not.toContain("Goal: Fix the failing tests")
