@@ -532,12 +532,25 @@ const layer = Layer.effect(
     // providers; and `fallbackModel` no longer re-checks retryability — step.ts only
     // calls it after the retry policy already declined (retries spent), so a retryable
     // cause here means "change the model", not "wait again".
+    const failureSignatures = new WeakMap<Set<string>, string[]>()
     const nextModel = Effect.fn("SessionRunner.nextModel")(function* (
       loaded: SessionContext.Loaded,
       cause: AIError,
       error: SessionError.Error,
       refused: Set<string>,
     ) {
+      // The same error from two models in a row is the request's, not the models': stop the chain so the
+      // real reason is shown instead of six fallbacks that all fail alike.
+      const signature = `${cause.reason._tag}:${String(error.message ?? "").replace(/\d+/g, "#").slice(0, 160)}`
+      const seenErrors = failureSignatures.get(refused) ?? []
+      failureSignatures.set(refused, [...seenErrors, signature])
+      if (seenErrors.at(-1) === signature) {
+        yield* Effect.logWarning("two models in a row failed with the same error; the fallback chain stops", {
+          sessionID: loaded.session.id,
+          signature,
+        })
+        return false
+      }
       const listed = Orchestra.sessionModels(loaded.session.metadata)
       // The catalog is read for every session now, not only main sessions: a
       // worker whose own list is exhausted (or all on one dead provider) falls
