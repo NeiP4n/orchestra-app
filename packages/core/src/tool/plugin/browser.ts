@@ -101,9 +101,19 @@ export async function perform(sessionID: string, input: Input) {
   } catch (error) {
     if (!/connection (closed|failed)|Could not connect to Chrome/i.test(error instanceof Error ? error.message : String(error)))
       throw error
-    BrowserRuntime.trace(`browser ${input.action}: connection lost, reconnecting once`)
-    BrowserRuntime.evict(sessionID)
-    return await performOnce(sessionID, input)
+    // The Chrome this call talked to went away (killed, closed, or restarted into the pane's window mode). open() waits
+    // for a restart in progress and joins the Chrome that runs now; a dead stored connection is dropped first.
+    for (let attempt = 1; ; attempt++) {
+      BrowserRuntime.trace(`browser ${input.action}: connection lost, reconnecting (try ${attempt})`)
+      BrowserRuntime.evictIfClosed(sessionID)
+      await new Promise((done) => setTimeout(done, 700 * attempt))
+      try {
+        return await performOnce(sessionID, input)
+      } catch (again) {
+        if (attempt >= 2 || !/connection (closed|failed)|Could not connect to Chrome/i.test(again instanceof Error ? again.message : String(again)))
+          throw again
+      }
+    }
   }
 }
 

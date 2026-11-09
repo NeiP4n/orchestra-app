@@ -461,6 +461,15 @@ export function deleteProfile(sessionID: string): string | undefined {
   }
 }
 
+/**
+ * Drops the stored connection only when it is dead. A restart into another mode (the pane switches the windowless
+ * Chrome to the real window right after it starts) replaces the stored Chrome by a healthy one; dropping that
+ * one because an older call failed on the old Chrome would kill the pane's browser.
+ */
+export function evictIfClosed(sessionID: string) {
+  if (live.get(sessionID)?.client.isClosed?.() === true) evict(sessionID)
+}
+
 /** Drops the stored (dead) connection of a session without asking Chrome to quit. */
 export function evict(sessionID: string) {
   unwatch(sessionID)
