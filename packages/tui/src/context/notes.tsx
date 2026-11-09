@@ -304,6 +304,7 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
         changeBrowser((draft) => removeBrowserSession(draft, projectID, id)),
       // A browser chat the Orchestrator made becomes a real browser session of the project (a page, a profile, its chat).
       claimedChat: (chat: string) => claimed.has(chat),
+      retiredBrowserChat: (projectID: string, chat: string) => browser.retiredChats?.[projectID]?.includes(chat) ?? false,
       adoptBrowserChat: (projectID: string, chat: string, name: string) => {
         if (claimed.has(chat)) return
         claimed.add(chat)

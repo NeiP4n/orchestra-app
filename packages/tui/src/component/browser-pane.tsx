@@ -446,9 +446,9 @@ export function BrowserPane(props: {
       const input = { name: key.name, sequence: key.sequence, ctrl: key.ctrl, meta: key.meta }
       send(
         BrowserRuntime.key(props.sessionID, input).then(
-          (where) => setRoute(`key ${key.name ?? key.sequence} -> ${where}`),
+          (where) => setRoute(`key ${input.name ?? input.sequence} -> ${where}`),
           (error) => {
-            setRoute(`key ${key.name ?? key.sequence} FAILED: ${errorMessage(error)}`)
+            setRoute(`key ${input.name ?? input.sequence} FAILED: ${errorMessage(error)}`)
             throw error
           },
         ),

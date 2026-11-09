@@ -819,6 +819,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           (isBrowserRole(session.agent) || /browser/i.test(session.title ?? "")) &&
           !removed[session.id] &&
           !ownedByBrowserRecord(project, session.id) &&
+          !notes.retiredBrowserChat(project.id, session.id) &&
           !notes.claimedChat(session.id) &&
           owner(session)?.id === project.id,
       )

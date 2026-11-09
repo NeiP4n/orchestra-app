@@ -144,3 +144,14 @@ test("closed history eviction does not let old browser chats return", () => {
   const closed = state.closed!.p![0]!
   expect(reopenBrowserSession(state, "p", closed.id)?.chat).toBe(closed.chat)
 })
+
+test("explicit reopen keeps original browser identity after JSON roundtrip of tombstones", () => {
+  const state = emptyBrowserSessions()
+  addBrowserSession(state, "p", { id: "same-profile", name: "Work", now: 1 })
+  bindBrowserChat(state, "p", "same-profile", "same-chat")
+  removeBrowserSession(state, "p", "same-profile")
+  const restored = JSON.parse(JSON.stringify(state))
+  expect(adoptBrowserChat(restored, "p", { id: "other", name: "Work", chat: "same-chat", now: 2 })).toBeUndefined()
+  expect(reopenBrowserSession(restored, "p", "same-profile")?.chat).toBe("same-chat")
+  expect(restored.selected.p).toBe("same-profile")
+})
