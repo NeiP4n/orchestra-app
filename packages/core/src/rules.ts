@@ -39,6 +39,12 @@ const HISTORY_CAP = 100
 export const GLOBAL = "global"
 export const projectScope = (id: string) => `project:${id}`
 export const societyScope = (name: string) => `society:${name}`
+/** Rules the operator puts on a project's Orchestrator: it gets them every turn; nobody but the operator removes them. */
+export const orchestratorScope = (project: string) => `orchestrator:${project}`
+/** Rules for one role (agent name) of a project: only sessions of that role carry them. The Orchestrator hands them out. */
+export const roleScope = (project: string, role: string) => `role:${project}:${role}`
+/** Rules for one session: only that session carries them. */
+export const sessionScope = (id: string) => `session:${id}`
 
 /** A scope's stored rules could not be read, or some of its stored entries are corrupt. */
 export class LoadError extends Schema.TaggedError<LoadError>()("Rules.LoadError", {
@@ -244,6 +250,10 @@ export interface Scopes {
   readonly project?: string
   /** The Societies that project belongs to. */
   readonly societies: ReadonlyArray<string>
+  /** The session being asked about, its agent (role) and whether it is its project's Orchestrator (main session). */
+  readonly session?: string
+  readonly role?: string
+  readonly orchestrator?: boolean
   /** Scopes a sandbox session reads from the project it was copied from: read-only — the
       sandbox follows the source's rules, it never writes them. */
   readonly inherited?: {
@@ -260,6 +270,30 @@ export interface Scopes {
 // A lookup that fails is an error, not an empty answer: scopes that could not be determined
 // must never read as "no rule applies".
 export const scopesOf = (input: {
+  readonly sessionID: string
+  readonly sessions: Session.Interface
+  readonly orchestra: Orchestra.Interface
+  readonly federation: Federation.Interface
+}): Effect.Effect<Scopes, ScopesError> =>
+  Effect.gen(function* () {
+    const base = yield* baseScopes(input)
+    const own = yield* input.sessions.get(input.sessionID as SessionID).pipe(Effect.option)
+    const orchestrator = base.project !== undefined && (yield* input.orchestra.mainOf(input.sessionID as SessionID)) !== undefined
+    return {
+      ...base,
+      session: input.sessionID,
+      ...(Option.isSome(own) && typeof own.value.agent === "string" ? { role: own.value.agent } : {}),
+      orchestrator,
+    } satisfies Scopes
+  }).pipe(
+    Effect.catchCause((cause) => {
+      if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause)
+      const error = failureOf(cause)
+      return Effect.fail(new ScopesError({ reason: `scopes could not be determined: ${error === undefined ? Cause.pretty(cause) : String(error)}` }))
+    }),
+  )
+
+const baseScopes = (input: {
   readonly sessionID: string
   readonly sessions: Session.Interface
   readonly orchestra: Orchestra.Interface
@@ -402,6 +436,9 @@ export const block = (kv: KV.Interface, scopes: Scopes) =>
       { title: "Society (inherited)", scope: (scopes.inherited?.societies ?? []).map(societyScope) },
       { title: "Project", scope: scopes.project ? [projectScope(scopes.project)] : [] },
       { title: "Project (inherited)", scope: (scopes.inherited?.projects ?? []).map(projectScope) },
+      { title: "Orchestrator", scope: scopes.orchestrator && scopes.project ? [orchestratorScope(scopes.project)] : [] },
+      { title: "Role", scope: scopes.project && scopes.role ? [roleScope(scopes.project, scopes.role)] : [] },
+      { title: "Session", scope: scopes.session ? [sessionScope(scopes.session)] : [] },
       { title: "Global", scope: [GLOBAL] },
     ]
     const parts = yield* Effect.forEach(wanted, (group) =>

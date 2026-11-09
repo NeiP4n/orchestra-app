@@ -253,4 +253,26 @@ const makeScopes = (options: {
     groups: () =>
       options.groups === undefined ? Effect.fail(new Error("groups unavailable")) : Effect.succeed(options.groups),
   } as unknown as Federation.Interface,
+
+  it.live("session, role and orchestrator rules ride only on the sessions they are for, and operator ones resist workers", () =>
+    Effect.gen(function* () {
+      const kv = yield* KV.Service
+      yield* Rules.add(kv, Rules.sessionScope("ses_1"), { text: "Keep answers short.", by: "team-orchestrator" })
+      yield* Rules.add(kv, Rules.roleScope("prj_x", "team-tester"), { text: "Run the suite before reporting.", by: "team-orchestrator" })
+      const operator = yield* Rules.add(kv, Rules.orchestratorScope("prj_x"), { text: "Ask before spending money.", by: "operator" })
+      const worker = yield* Rules.block(kv, { societies: [], project: "prj_x", session: "ses_1", role: "team-tester", orchestrator: false })
+      expect(worker).toContain("[Session] Keep answers short.")
+      expect(worker).toContain("[Role] Run the suite before reporting.")
+      expect(worker).not.toContain("Ask before spending money.")
+      const other = yield* Rules.block(kv, { societies: [], project: "prj_x", session: "ses_2", role: "team-developer", orchestrator: false })
+      expect(other).not.toContain("Keep answers short.")
+      expect(other).not.toContain("Run the suite")
+      const boss = yield* Rules.block(kv, { societies: [], project: "prj_x", session: "ses_0", role: "team-orchestrator", orchestrator: true })
+      expect(boss).toContain("[Orchestrator] Ask before spending money.")
+      const id = operator.rule?.id ?? ""
+      const refused = yield* Rules.remove(kv, Rules.orchestratorScope("prj_x"), id).pipe(Effect.either)
+      expect(refused._tag).toBe("Left")
+      expect(yield* Rules.remove(kv, Rules.orchestratorScope("prj_x"), id, { operator: true })).toBe(true)
+    }),
+  )
 })
