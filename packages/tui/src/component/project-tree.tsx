@@ -671,9 +671,54 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
 
   // The browser sessions of a project with reopen and new. Shown in the Browser tab and, always, as the "Browsers"
   // group of the project tree.
+  // Verify local CDP identities only, including profiles opened by another Orchestra process.
+  // No website reads, screenshots or launches. Refresh after operations and every 15 seconds.
+  const [browserConnectionRevision, setBrowserConnectionRevision] = createSignal(0)
+  onMount(() => {
+    const timer = setInterval(() => setBrowserConnectionRevision((n) => n + 1), 15000)
+    onCleanup(() => clearInterval(timer))
+  })
+  const [browserRunning, { refetch: refreshBrowserRunning }] = createResource(
+    () => ({ revision: browserConnectionRevision(), ids: [...new Set(projects().flatMap((project) => notes.browserSessions(project.id).map((item) => item.id)))].sort() }),
+    async ({ ids }) => {
+      const result: Record<string, boolean> = {}
+      let cursor = 0
+      // Bound local probes even when there are hundreds of saved profiles.
+      await Promise.all(Array.from({ length: Math.min(4, ids.length) }, async () => {
+        while (cursor < ids.length) {
+          const id = ids[cursor++]!
+          result[id] = await BrowserRuntime.profileRunning(id).catch(() => false)
+        }
+      }))
+      return result
+    },
+  )
+  const browserConnected = (id: string) => browserRunning()?.[id]
+  const browserCount = (project: OrchestraProject) => {
+    const ids = [...new Set(notes.browserSessions(project.id).map((item) => item.id))]
+    const verified = ids.filter((id) => browserConnected(id) === true).length
+    return `запущено ${ids.some((id) => browserConnected(id) === undefined) ? "?" : verified} из ${ids.length}`
+  }
+  const [browserToggleBusy, setBrowserToggleBusy] = createSignal<Record<string, boolean>>({})
+  const toggleBrowser = async (project: OrchestraProject, id: string) => {
+    if (browserToggleBusy()[id] || browserBatchProgress()[project.id]) return
+    setBrowserToggleBusy((value) => ({ ...value, [id]: true }))
+    try {
+      if (await BrowserRuntime.profileRunning(id)) await BrowserRuntime.closeBlockedBrowser(id)
+      else {
+        const warning = BrowserRuntime.browserResources().warning
+        if (warning) toast.show({ message: warning, variant: "warning", duration: 6000 })
+        await BrowserRuntime.open(id)
+      }
+    } catch (error) { toast.show({ message: errorMessage(error), variant: "error" }) }
+    finally {
+      setBrowserToggleBusy((value) => ({ ...value, [id]: false }))
+      await refreshBrowserRunning()
+    }
+  }
   const [browserBatchProgress, setBrowserBatchProgress] = createSignal<Record<string, string>>({})
   const batchBrowsers = async (project: OrchestraProject, stop = false) => {
-    if (browserBatchProgress()[project.id]) return
+    if (browserBatchProgress()[project.id] || notes.browserSessions(project.id).some((item) => browserToggleBusy()[item.id])) return
     const ids = notes.browserSessions(project.id).map((item) => item.id)
     if (!ids.length) return
     if (stop) {
@@ -683,12 +728,30 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
     const warning = BrowserRuntime.browserResources().warning
     if (warning && !stop) toast.show({ message: warning, variant: "warning", duration: 6000 })
     try {
-      const result = await browserBatch(ids, stop ? BrowserRuntime.closeBlockedBrowser : BrowserRuntime.open, (done, total) => setBrowserBatchProgress((value) => ({ ...value, [project.id]: `${stop ? "Остановка" : "Запуск"} ${done}/${total}` })))
+      const result = await browserBatch(ids, stop ? BrowserRuntime.closeBlockedBrowser : BrowserRuntime.open, (done, total) => {
+        setBrowserBatchProgress((value) => ({ ...value, [project.id]: `${stop ? "Остановка" : "Запуск"} ${done}/${total}` }))
+        setBrowserConnectionRevision((n) => n + 1)
+      })
       toast.show({ message: result.failures.length ? `${stop ? "Остановлено" : "Запущено/подключено"} ${result.total - result.failures.length}/${result.total}. Ошибки: ${result.failures.map((f) => `${f.id}: ${errorMessage(f.error)}`).join("; ")}` : `${stop ? "Остановлено" : "Запущено/подключено"} ${result.total}/${result.total}.`, variant: result.failures.length ? "warning" : "success", duration: 6000 })
-    } finally { setBrowserBatchProgress((value) => ({ ...value, [project.id]: "" })) }
+    } finally {
+      setBrowserBatchProgress((value) => ({ ...value, [project.id]: "" }))
+      setBrowserConnectionRevision((n) => n + 1)
+    }
   }
   const browserRows = (project: OrchestraProject): JSX.Element => (
     <>
+                  <Show when={notes.tab() === "browser"}>
+                    <text fg={theme.text.muted} wrapMode="none" truncate>{`  ${t("Browsers")} · ${browserCount(project)}`}</text>
+                  </Show>
+                  <box flexDirection="row" gap={1} paddingLeft={1} flexShrink={0}>
+                    <HoverAction id={`browser-start-all:${project.id}`} border disabled={!!browserBatchProgress()[project.id]} paddingLeft={1} paddingRight={1} onClick={() => void batchBrowsers(project)}>
+                      <text fg={theme.text.action.primary.base} wrapMode="none">▶ Все</text>
+                    </HoverAction>
+                    <HoverAction id={`browser-stop-all:${project.id}`} border disabled={!!browserBatchProgress()[project.id]} variant="destructive" paddingLeft={1} paddingRight={1} onClick={() => void batchBrowsers(project, true)}>
+                      <text fg={theme.text.muted} wrapMode="none">■ Все</text>
+                    </HoverAction>
+                    <text fg={theme.text.muted} wrapMode="none" truncate>{browserBatchProgress()[project.id] || ""}</text>
+                  </box>
                   <For each={browserSessionGroups(notes.browserSessions(project.id)).flatMap((group) => group.sessions)}>
                     {(item) => {
                       const [removeHovered, setRemoveHovered] = createSignal(false)
@@ -715,23 +778,23 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                           }}
                         >
                           <Branch lit={chosen() && inProject(project)} />
-                          {/* A working BrowserAgent (the chat's own running status, no extra polling) is a firing neuron; idle is dim. */}
-                          <Show
-                            when={item.chat !== undefined && data.session.status(item.chat) === "running"}
-                            fallback={
-                              <text flexShrink={0} fg={chosen() ? palette().synapse : theme.text.muted}>
-                                {"◎ "}
-                              </text>
-                            }
-                          >
-                            <NeuronDot energy={0.9} />
-                            <text flexShrink={0}> </text>
-                          </Show>
+                          <text flexShrink={0} fg={browserConnected(item.id) ? theme.text.feedback.success.base : theme.text.muted}>
+                            {browserConnected(item.id) === undefined ? "? " : browserConnected(item.id) ? "● " : "○ "}
+                          </text>
                           <box flexGrow={1} minWidth={0}>
                             <text fg={theme.text.base} wrapMode="none" truncate>
                               {item.group ? `${item.group} · ${item.name}` : item.name}
                             </text>
                           </box>
+                          <HoverAction
+                            id={`browser-toggle:${item.id}`}
+                            disabled={!!browserBatchProgress()[project.id] || !!browserToggleBusy()[item.id]}
+                            paddingLeft={1}
+                            paddingRight={1}
+                            onClick={() => void toggleBrowser(project, item.id)}
+                          >
+                            <text fg={theme.text.action.primary.base} wrapMode="none">{browserToggleBusy()[item.id] ? "…" : browserConnected(item.id) ? "■" : "▶"}</text>
+                          </HoverAction>
                           <HoverAction
                             id={`browser-rename:${item.id}`}
                             onClick={() =>
@@ -791,14 +854,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                       </text>
                     </Row>
                   </Show>
-                  <box flexDirection="row" flexWrap="wrap" gap={1} paddingLeft={1}>
-                    <HoverAction id={`browser-start-all:${project.id}`} disabled={!!browserBatchProgress()[project.id]} paddingLeft={1} paddingRight={1} onClick={() => void batchBrowsers(project)}>
-                      <text fg={theme.text.action.primary.base} wrapMode="none">{browserBatchProgress()[project.id] || "[ ▶ Запустить все браузеры ]"}</text>
-                    </HoverAction>
-                    <HoverAction id={`browser-stop-all:${project.id}`} disabled={!!browserBatchProgress()[project.id]} variant="destructive" paddingLeft={1} paddingRight={1} onClick={() => void batchBrowsers(project, true)}>
-                      <text fg={theme.text.muted} wrapMode="none">[ Остановить все ]</text>
-                    </HoverAction>
-                  </box>
+
                   <Row
                     id={`browser-new:${project.id}`}
                     hover={hover}
@@ -1251,11 +1307,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                   >
                     <Branch through />
                     <text fg={palette().synapse} wrapMode="none" truncate>
-                      {`${notes.groupCollapsed(`${project.id}:Browsers`) ? "▸" : "▾"} ${t("Browsers")}${
-                        notes.groupCollapsed(`${project.id}:Browsers`)
-                          ? ` (${notes.browserSessions(project.id).length + browserChatsOf(project).length})`
-                          : ""
-                      }`}
+                      {`${notes.groupCollapsed(`${project.id}:Browsers`) ? "▸" : "▾"} ${t("Browsers")} · ${browserCount(project)}`}
                     </text>
                   </box>
                   <Show when={!notes.groupCollapsed(`${project.id}:Browsers`)}>

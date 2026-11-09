@@ -1,0 +1,28 @@
+import { expect, test } from "bun:test"
+import { readFileSync } from "node:fs"
+test("sidebar toolbar stays on one row with framed release-safe controls", () => {
+  const text = readFileSync(new URL("../src/component/project-tree.tsx", import.meta.url), "utf8")
+  const start = text.indexOf('id={`browser-start-all:')
+  const end = text.indexOf('<For each={browserSessionGroups', start)
+  const toolbar = text.slice(start, end)
+  expect(toolbar).toContain('border disabled=')
+  expect(toolbar).toContain('▶ Все')
+  expect(toolbar).toContain('■ Все')
+  expect(toolbar).not.toContain('[ ▶')
+  expect(text).not.toContain('flexWrap="wrap" gap={1} paddingLeft={1}')
+  expect(text).toContain('id={`browser-toggle:')
+  expect(text).toContain('await BrowserRuntime.profileRunning(id)')
+  expect(text).toContain('browserCount(project)')
+  expect(text).toContain('await refreshBrowserRunning()')
+  expect(text).toContain('onCleanup(() => clearInterval(timer))')
+})
+test("running count verifies exact local CDP profile rather than saved records or chat status", () => {
+  const source = readFileSync(new URL("../../core/src/browser/runtime.ts", import.meta.url), "utf8")
+  const start = source.indexOf('export async function profileRunning(')
+  const end = source.indexOf('/** Explicit operator action', start)
+  const body = source.slice(start, end)
+  expect(body).toContain('Chrome.profileDir(Global.Path.data, sessionID)')
+  expect(body).toContain('Chrome.livePort(deps.readFile, alive, dir)')
+  expect(body).not.toContain('open(')
+  expect(body).not.toContain('live.has(')
+})

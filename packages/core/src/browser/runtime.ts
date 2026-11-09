@@ -258,6 +258,11 @@ export function browserResources() {
   const bytes = freemem()
   return { connectedProfiles: live.size, freeGB: (bytes / 1024 ** 3).toFixed(1), totalGB: (totalmem() / 1024 ** 3).toFixed(0), warning: BrowserBudget.memoryWarning(bytes) }
 }
+/** Verify only this Orchestra profile's local CDP identity. Does not join, launch or read a page. */
+export async function profileRunning(sessionID: string): Promise<boolean> {
+  const dir = Chrome.profileDir(Global.Path.data, sessionID)
+  return (await Chrome.livePort(deps.readFile, alive, dir)) !== undefined
+}
 /** Explicit operator action only; no launches and no PID loaded from disk is killed. */
 export async function closeBlockedBrowser(sessionID: string) {
   return launchLock(async () => {

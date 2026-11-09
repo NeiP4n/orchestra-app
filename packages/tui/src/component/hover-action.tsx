@@ -20,6 +20,7 @@ type Props = ParentProps<{
   justifyContent?: "flex-start" | "flex-end" | "center" | "space-between" | "space-around"
   variant?: HoverVariant
   /** Resting background (for example a focused button); hover still takes over on mouse-over. */
+  border?: boolean
   background?: ColorInput
   onHoverChange?: (hovered: boolean) => void
   onMouseEnter?: () => void
@@ -39,6 +40,9 @@ export function HoverAction(props: Props) {
   return (
     <box
       id={props.id}
+      border={props.border ? ["left", "right"] : undefined}
+      borderStyle="rounded"
+      borderColor={theme.text.muted}
       flexShrink={props.flexShrink ?? 0}
       flexGrow={props.flexGrow}
       minWidth={props.minWidth}
