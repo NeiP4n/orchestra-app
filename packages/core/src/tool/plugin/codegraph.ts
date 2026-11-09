@@ -65,7 +65,11 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false },
+          options: {
+            codemode: false,
+            // Without words that load it, only a model that reads the tools index finds it.
+            triggers: ["code ?graph|call graph|граф (кода|вызовов)", "who calls|callers? of|кто вызывает|что вызывает|impact of (changing|a change)"],
+          },
           description,
           input: Input,
           output: Output,
