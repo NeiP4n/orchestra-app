@@ -21,3 +21,16 @@ test("persistence creates parent directories and supports text, append, and JSON
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test("atomic writes are readable before process exit and leave no temp files", async () => {
+  const fs = await import("node:fs/promises")
+  const os = await import("node:os")
+  const path = await import("node:path")
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "persist-on-write-"))
+  try {
+    const file = path.join(root, "browser-sessions.json")
+    await writeJsonAtomic(file, { projects: { p: [{ id: "a" }] } })
+    expect(JSON.parse(await fs.readFile(file, "utf8"))).toEqual({ projects: { p: [{ id: "a" }] } })
+    expect(await fs.readdir(root)).toEqual(["browser-sessions.json"])
+  } finally { await fs.rm(root, { recursive: true, force: true }) }
+})
