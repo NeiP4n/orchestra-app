@@ -15,7 +15,7 @@ export const name = "browser"
 
 // The first sentence is the line in the on-demand tools index, so it says when to reach for this tool.
 export const description = [
-  "See and drive the page in the user's Browser tab (use this, not desktop_inspect, to see what they see in it).",
+  "First choice for ANY work on a website or page: open, read, click, type, accept cookies, sign up, log in. Use this, not powershell, fetch, curl, execute or desktop_*, for pages and forms. It sees and drives the page in the user's Browser tab (not desktop_inspect, to see what they see in it).",
   "It is the browser session the operator has selected for this project in the Browser tab: the same Chrome the operator sees there, on its own profile, so logins made in it are real and your clicks act with those accounts. You never launch a browser of your own: this one starts if it is not running.",
   "",
   "Actions:",
@@ -37,6 +37,7 @@ export const description = [
 /** Words that load this tool: the browser itself, and the ways a person asks whether you can see their page. */
 export const triggers = [
   "браузер|browser|сайт|страниц[уаы]|web ?page|website",
+  "зарегистр|регистрац|sign ?up|register|log ?in|войд[иу]|залогин|cookie|куки|кликни|нажми|заполни|форм[ауе]|аккаунт|account|click|fill (in|out)",
   "ты видишь|видишь (это|меня|страницу|экран)|что (я )?(вижу|открыт)|что на (экране|странице|сайте)|посмотри|открой (сайт|страниц|ссылк)|can you see|do you see|what('s| is) on (my|the) (screen|page)|look at (my|the) (page|browser|tab)",
 ]
 

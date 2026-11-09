@@ -123,7 +123,7 @@ export const baseTranscript = (input: {
 }) => {
   const providerMetadataKey = input.model.model.route.providerMetadataKey ?? input.model.model.provider
   const systemPrompt = input.agent.system
-    ? SessionSystemPrompt.withGlobalContracts(input.agent.system)
+    ? SessionSystemPrompt.withGlobalContracts(input.agent.system, input.agent.id)
     : SessionSystemPrompt.make(input.tools.definitions.map((tool) => tool.name))
   return {
     providerMetadataKey,

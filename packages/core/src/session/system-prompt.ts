@@ -60,11 +60,14 @@ export const PLAN_FIRST = [
  * carry appended. A prompt that embeds a contract keeps its own copy — neither contract is
  * ever duplicated.
  */
-export function withGlobalContracts(system: string) {
+export function withGlobalContracts(system: string, agent?: string) {
   const missing: string[] = []
   if (!system.includes("# Truthfulness — no simulation")) missing.push(TRUTHFULNESS)
   if (!system.includes("# Capability awareness — compose what Orchestra can do")) missing.push(CAPABILITY_AWARENESS)
-  if (!system.includes("# Plan before acting — understand, then act")) missing.push(PLAN_FIRST)
+  // The Orchestrator has its own plan / DoD / dispatch / check procedure; a second goal-criteria-plan block on top
+  // made it announce plans for greetings and questions and cost ~220 tokens a request.
+  if (agent !== "orchestrator" && !system.includes("# Plan before acting — understand, then act"))
+    missing.push(PLAN_FIRST)
   return missing.length === 0 ? system : `${system}\n\n${missing.join("\n\n")}\n`
 }
 

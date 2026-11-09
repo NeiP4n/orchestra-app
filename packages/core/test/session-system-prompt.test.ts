@@ -182,3 +182,11 @@ test("baseTranscript includes truthfulness contract even when agent.system is cu
   expect(systemText).toContain("# Truthfulness — no simulation")
   expect(systemText).toContain("Mandatory Freshness & Knowledge Retrieval Mandate")
 })
+
+test("the orchestrator's prompt gets truthfulness and capability contracts but not PLAN_FIRST", () => {
+  const system = SessionSystemPrompt.withGlobalContracts("You are the Orchestrator.", "orchestrator")
+  expect(occurrences(system, PLAN_FIRST_HEADER)).toBe(0)
+  expect(system).toContain("# Truthfulness — no simulation")
+  expect(occurrences(SessionSystemPrompt.withGlobalContracts("You are a worker.", "build"), PLAN_FIRST_HEADER)).toBe(1)
+})
+
