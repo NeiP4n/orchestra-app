@@ -79,7 +79,9 @@ export const Plugin = {
           if (input.browserSession !== undefined) {
             if (input.kind !== "interval") return yield* new ToolFailure({ message: "browserSession is only supported for interval triggers." })
             if (!input.browserSession.trim()) return yield* new ToolFailure({ message: "browserSession must name the browser session to check." })
-            const source = yield* sessions.get(sessionID)
+            const source = yield* sessions.get(sessionID).pipe(
+              Effect.mapError(() => new ToolFailure({ message: "This session was not found. The scheduled browser check was not created." })),
+            )
             const found = BrowserBridge.resolve(BrowserRuntime.sessions(), input.browserSession, source.location.directory)
             if ("error" in found) return yield* new ToolFailure({ message: found.error })
             browserSessionID = found.session.id

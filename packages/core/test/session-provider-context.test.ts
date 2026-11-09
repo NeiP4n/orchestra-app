@@ -377,8 +377,8 @@ it.effect("quarantines a malformed native window without losing the surrounding 
       messageID: row.id,
     })
     const expected = [
-      { id: before, type: "user", text: "before malformed checkpoint" },
-      { id: after, type: "user", text: "after malformed checkpoint" },
+      { id: before, type: "user" as const, text: "before malformed checkpoint" },
+      { id: after, type: "user" as const, text: "after malformed checkpoint" },
     ]
     const history = yield* SessionHistory.load(s.db, sessionID, target)
     expect(history.map(({ id, type, ...message }) => ({ id, type, text: "text" in message ? message.text : undefined })))
