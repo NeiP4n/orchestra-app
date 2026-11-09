@@ -1,8 +1,15 @@
 export * as BrowserBudget from "./budget.js"
 /** A profile contains several Chromium OS processes. This is a profile budget, not a PID count. */
-export const MAX_ACTIVE_PROFILES = 1
-export function requireRoom(active: number) {
-  if (active >= MAX_ACTIVE_PROFILES) throw new Error("Browser safety limit: one Orchestra Chrome profile at a time. Close the running Orchestra browser before opening another. Saved sessions and logins are not deleted.")
+export const MAX_ACTIVE_PROFILES = Infinity
+export function configuredMax(value?: string) {
+  if (!value?.trim()) return Infinity
+  const n = Number(value)
+  if (!Number.isSafeInteger(n) || n < 1) throw new Error("ORCHESTRA_BROWSER_MAX: нужно целое число больше нуля или пустое значение (без лимита).")
+  return n
+}
+export const memoryWarning = (bytes: number) => bytes < 1.5 * 1024 ** 3 ? "Мало свободной RAM (<1.5 ГБ). Новые браузеры могут замедлить ПК; запуск не заблокирован." : undefined
+export function requireRoom(active: number, maximum = MAX_ACTIVE_PROFILES) {
+  if (active >= maximum) throw new Error(`Достигнут настроенный ORCHESTRA_BROWSER_MAX=${maximum}. Закройте ненужный Chrome Orchestra или увеличьте настройку. Логины сохраняются.`)
 }
 
 export function requireStopped(pid: number, probe: (pid: number) => "alive" | "dead" | "unknown") {

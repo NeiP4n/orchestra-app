@@ -95,8 +95,8 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     default: "20000.",
   },
   ORCHESTRA_BROWSER_LIMIT: {
-    purpose: "Set off explicitly to bypass the one-active-Orchestra-profile safety ceiling; increases CPU/RAM risk.",
-    default: "On.",
+    purpose: "Legacy alias: off bypasses the explicitly configured ORCHESTRA_BROWSER_MAX ceiling.",
+    default: "No fixed profile ceiling.",
   },
   ORCHESTRA_BROWSER_LOCAL: {
     purpose: "Local browser for the browser plugin (\"0\" disables it).",
@@ -105,6 +105,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   ORCHESTRA_BROWSER_LOCAL_TEST: {
     purpose: "Allow explicitly requested 5-minute browser schedule tests only on exact loopback or local file pages; checked again at each dispatch and read.",
     default: "Off.",
+  },
+  ORCHESTRA_BROWSER_MAX: {
+    purpose: "Optional positive integer ceiling for active Orchestra Chrome profiles; unset means no fixed ceiling. Low free RAM warns but does not block.",
+    default: "Unlimited.",
   },
   ORCHESTRA_BROWSER_PIXEL_MOUSE: {
     purpose: "Pixel-exact pointer in the Browser tab while control is on (\"0\" turns it off).",

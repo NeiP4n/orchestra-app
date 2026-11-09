@@ -663,8 +663,10 @@ export function BrowserPane(props: {
     </HoverAction>
   )
 
+  const resources = () => { tick(); return BrowserRuntime.browserResources() }
   return (
     <box flexGrow={1} minWidth={0} minHeight={0} flexDirection="column" paddingLeft={1} paddingRight={1}>
+      <text fg={resources().warning ? theme.text.feedback.warning.base : theme.text.muted} wrapMode="word">{`Chrome подключено в этом процессе: ${resources().connectedProfiles} · свободно RAM ${resources().freeGB} ГБ${resources().warning ? ` · ${resources().warning}` : ""}`}</text>
       <Show when={!DEBUG && scheduledChecks().some((check) => check.phase === "error")}>
         <text fg={theme.text.feedback.error.base} wrapMode="word">Проверка страницы не подтверждена. Подробности в «Расписаниях».</text>
       </Show>

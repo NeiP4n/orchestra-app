@@ -1,5 +1,6 @@
 export * as BrowserRuntime from "./runtime.js"
 
+import { freemem } from "node:os"
 import { spawn } from "node:child_process"
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
@@ -222,7 +223,10 @@ async function checkLaunchBudget(sessionID?: string): Promise<number | undefined
     const own = await Chrome.livePort(deps.readFile, alive, Chrome.profileDir(Global.Path.data, sessionID))
     if (own !== undefined) return own
   }
-  if (process.env.ORCHESTRA_BROWSER_LIMIT === "off") { trace("browser profile ceiling disabled explicitly by operator"); return }
+  const maximum = process.env.ORCHESTRA_BROWSER_LIMIT === "off" ? Infinity : BrowserBudget.configuredMax(process.env.ORCHESTRA_BROWSER_MAX)
+  let count = 0
+  const warning = BrowserBudget.memoryWarning(freemem())
+  if (warning) trace(warning)
   const root = path.join(Global.Path.data, "browser-profiles")
   let folders: string[] = []
   if (existsSync(root)) folders = readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory() && /^[A-Za-z0-9_-]{1,64}$/.test(entry.name)).map((entry) => entry.name)
@@ -233,20 +237,26 @@ async function checkLaunchBudget(sessionID?: string): Promise<number | undefined
     const port = await Chrome.livePort(deps.readFile, alive, dir)
     if (port !== undefined) {
       if (id === sessionID) return port
-      throw new BrowserBudget.LimitError(id, name, "cdp")
+      count++; continue
     }
     const file = processFile(dir)
     if (!existsSync(file)) continue // Legacy profiles may predate PID tracking.
     let pid: number
     try { pid = JSON.parse(readFileSync(file, "utf8")).pid; if (!Number.isSafeInteger(pid) || pid < 1) throw new Error() }
-    catch { throw new BrowserBudget.LimitError(id, name, "record") }
+    catch { if (id === sessionID) throw new BrowserBudget.LimitError(id, name, "record"); count++; continue }
     let dead = false
     try { process.kill(pid, 0) }
     catch (error) { dead = (error as NodeJS.ErrnoException).code === "ESRCH" }
-    if (!dead) throw new BrowserBudget.LimitError(id, name, "pid")
+    if (!dead) { if (id === sessionID) throw new BrowserBudget.LimitError(id, name, "pid"); count++; continue }
     // Dead PID is not a blocker. Remove only this stale tracking record, never the profile or its logins.
     try { if (JSON.parse(readFileSync(file, "utf8")).pid === pid) rmSync(file, { force: true }) } catch {}
   }
+  BrowserBudget.requireRoom(count, maximum)
+}
+/** Local process view, not a Chromium subprocess count. Never launches or reads a website. */
+export function browserResources() {
+  const bytes = freemem()
+  return { connectedProfiles: live.size, freeGB: (bytes / 1024 ** 3).toFixed(1), warning: BrowserBudget.memoryWarning(bytes) }
 }
 /** Explicit operator action only; no launches and no PID loaded from disk is killed. */
 export async function closeBlockedBrowser(sessionID: string) {

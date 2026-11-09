@@ -3,11 +3,14 @@ import { readFileSync } from "node:fs"
 import { BrowserBudget } from "@orchestra/core/browser/budget"
 import { WindowCapture } from "@orchestra/core/browser/window-capture"
 import { Chrome } from "@orchestra/core/browser/chrome"
-test("one active profile is the safe ceiling; no claim of one Chromium OS subprocess", () => {
-  expect(BrowserBudget.MAX_ACTIVE_PROFILES).toBe(1)
+test("operator selects any profile count; optional ceiling and RAM warning keep launch lock", () => {
+  expect(BrowserBudget.MAX_ACTIVE_PROFILES).toBe(Infinity)
+  expect(BrowserBudget.configuredMax(undefined)).toBe(Infinity)
+  expect(BrowserBudget.configuredMax("3")).toBe(3)
+  expect(BrowserBudget.memoryWarning(1024 ** 3)).toContain("не заблокирован")
   expect(() => BrowserBudget.requireRoom(0)).not.toThrow()
-  expect(() => BrowserBudget.requireRoom(1)).toThrow("one Orchestra Chrome profile")
-  expect(() => BrowserBudget.requireRoom(4)).toThrow("safety limit")
+  expect(() => BrowserBudget.requireRoom(100)).not.toThrow()
+  expect(() => BrowserBudget.requireRoom(4, 4)).toThrow("ORCHESTRA_BROWSER_MAX=4")
   const runtime = readFileSync(new URL("../src/browser/runtime.ts", import.meta.url), "utf8")
   expect(runtime).toContain('Flock.withLock("browser-active-profile-budget"')
   expect(runtime).toContain('dir: path.join(Global.Path.data, "browser-launch-locks")')
