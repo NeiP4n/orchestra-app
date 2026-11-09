@@ -64,3 +64,21 @@ test("denied status IO degrades to an error without a defect or a fake success",
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test("watcher status distinguishes installation, accepted events and off", () => {
+  const id = `watch_status_${process.pid}`
+  try {
+    BrowserSchedule.sync({ id, browserSessionID: "watched", enabled: true, nextAt: null })
+    BrowserSchedule.watchStatus(id, false)
+    expect(BrowserSchedule.get(id)?.watcher).toBe("failed")
+    BrowserSchedule.watchStatus(id, true)
+    expect(BrowserSchedule.get(id)?.watcher).toBe("watching")
+    expect(BrowserSchedule.get(id)?.lastEventAt).toBeUndefined()
+    BrowserSchedule.watchStatus(id, true, 1234)
+    expect(BrowserSchedule.get(id)?.lastEventAt).toBe(1234)
+    expect(BrowserSchedule.get(id)?.lastCheckedAt).toBeUndefined()
+    BrowserSchedule.sync({ id, browserSessionID: "watched", enabled: false, nextAt: null })
+    BrowserSchedule.watchStatus(id, false)
+    expect(BrowserSchedule.get(id)?.watcher).toBe("off")
+  } finally { BrowserSchedule.remove(id) }
+})

@@ -245,6 +245,9 @@ export const isOpen = (sessionID: string) => live.has(sessionID)
 // the connection changed. It never starts Chrome: a session that is not running is not watched.
 const armed = new Map<string, Cdp.Client>()
 export async function watchEnsure(sessionID: string): Promise<boolean> {
+  // The pane may own Chrome in another process. Join an existing profile only;
+  // peek does not start a stopped browser.
+  if (!live.has(sessionID)) await peek(sessionID)
   const item = live.get(sessionID)
   if (!item || item.client.isClosed?.() === true) {
     armed.delete(sessionID)

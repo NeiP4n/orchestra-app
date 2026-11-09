@@ -108,6 +108,8 @@ export const Plugin = {
               .pipe(Effect.mapError(() => new ToolFailure({ message: "This session was not found." })))
             const found = BrowserBridge.resolve(BrowserRuntime.sessions(), spec, session.location.directory)
             if ("error" in found) return yield* new ToolFailure({ message: found.error })
+            if (found.session.chat && !BrowserProvenance.bind(found.session.chat))
+              return yield* new ToolFailure({ message: "The watcher worker safety marker could not be saved. Nothing was enabled." })
             spec = found.session.id
           }
           const made = Trigger.create(
@@ -117,8 +119,11 @@ export const Plugin = {
           if (!made.ok) return yield* new ToolFailure({ message: made.error })
           yield* kv.set(Trigger.key(project.id, made.trigger.id), made.trigger as never)
           ScheduleView.sync(made.trigger, String(sessionID))
-          BrowserSchedule.sync(made.trigger)
-          if (made.trigger.kind === "browser") yield* Effect.promise(() => BrowserWatch.ensure(made.trigger.spec))
+          BrowserSchedule.sync(made.trigger.kind === "browser" ? { ...made.trigger, browserSessionID: made.trigger.spec } : made.trigger)
+          if (made.trigger.kind === "browser") {
+            const armed = yield* Effect.promise(() => BrowserWatch.ensure(made.trigger.spec))
+            BrowserSchedule.watchStatus(made.trigger.id, armed)
+          }
           return `Created. ${Trigger.describe(made.trigger)}`
         }
         const found = existing.find((item) => item.id === (input.id ?? "").trim())
@@ -133,7 +138,8 @@ export const Plugin = {
           const next = { ...found, enabled: false, pausedReason: "paused by the Orchestrator" }
           yield* kv.set(Trigger.key(project.id, found.id), next as never)
           ScheduleView.sync(next, String(sessionID))
-          BrowserSchedule.sync(next)
+          BrowserSchedule.sync(next.kind === "browser" ? { ...next, browserSessionID: next.spec } : next)
+          if (next.kind === "browser") BrowserSchedule.watchStatus(next.id, false)
           return `Paused. ${Trigger.describe(next)}`
         }
         // resume: the next time comes from now; the caps' history stays, so a resume cannot reset a cap
@@ -141,7 +147,7 @@ export const Plugin = {
         if (!ready) return yield* new ToolFailure({ message: "A one-shot trigger that already fired or whose time has passed cannot be resumed. Create a new one." })
         yield* kv.set(Trigger.key(project.id, found.id), ready as never)
         ScheduleView.sync(ready, String(sessionID))
-        BrowserSchedule.sync(ready)
+        BrowserSchedule.sync(ready.kind === "browser" ? { ...ready, browserSessionID: ready.spec } : ready)
         return `Resumed. ${Trigger.describe(ready)}`
       })
 

@@ -1870,10 +1870,17 @@ const layer: Layer.Layer<
       })
       for (const key of [...waiting.keys()]) if (!mine.some((item) => item.key === key)) waiting.delete(key)
       if (beat % 12 === 0)
-        for (const item of mine) if (item.trigger.enabled) yield* Effect.promise(() => BrowserWatch.ensure(item.trigger.spec))
+        for (const item of mine) {
+          const project = yield* get(item.trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+          if (project?.main) ScheduleView.sync(item.trigger, String(project.main))
+          BrowserSchedule.sync({ ...item.trigger, browserSessionID: item.trigger.spec })
+          const armed = item.trigger.enabled ? yield* Effect.promise(() => BrowserWatch.ensure(item.trigger.spec)) : false
+          BrowserSchedule.watchStatus(item.trigger.id, armed)
+        }
       for (const event of browserInbox.splice(0))
         for (const item of mine) {
           const rows = event.items.filter((row) => Trigger.matches(item.trigger, event.sessionID, row))
+          if (rows.length > 0) BrowserSchedule.watchStatus(item.trigger.id, true, event.at)
           if (rows.length > 0) waiting.set(item.key, [...(waiting.get(item.key) ?? []), ...rows].slice(-Trigger.MAX_PENDING))
         }
       for (const { key, trigger } of mine) {
@@ -1893,15 +1900,18 @@ const layer: Layer.Layer<
         const next = Trigger.afterFire(trigger, now)
         yield* kv.set(key, next as never)
         ScheduleView.sync(next, String(project.main))
+        BrowserSchedule.sync({ ...next, browserSessionID: trigger.spec })
+        BrowserSchedule.dispatched(trigger.id, now)
         const ok = yield* sessions
           .synthetic({
             id: SessionMessage.ID.create(),
             sessionID: project.main,
             description: `Trigger ${trigger.id} fired`,
-            text: Trigger.render(trigger, now, Trigger.renderRows(trigger, rows)),
-            metadata: { source: "trigger", triggerID: trigger.id, publishApproved: trigger.publishApproved, ...(trigger.browserSessionID ? { browserSessionID: trigger.browserSessionID } : {}) },
+            text: Trigger.render({ ...trigger, publishApproved: false, browserSessionID: trigger.spec }, now, Trigger.renderRows(trigger, rows)),
+            metadata: { source: "trigger", triggerID: trigger.id, publishApproved: false, browserSessionID: trigger.spec },
           })
           .pipe(Effect.as(true), Effect.orElseSucceed(() => false))
+        if (!ok) BrowserSchedule.deliveryFailed(trigger.id)
         reportLog({ event: "trigger-fired", trigger: trigger.id, project: trigger.projectID, kind: "browser", rows: rows.length, delivered: ok })
       }
     }).pipe(Effect.catch(() => Effect.void))

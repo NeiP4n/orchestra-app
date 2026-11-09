@@ -8,6 +8,8 @@ import { Global } from "@orchestra/util/global"
 export interface Status {
   triggerID: string
   browserSessionID: string
+  watcher?: "off" | "failed" | "watching"
+  lastEventAt?: number
   localTest?: boolean
   enabled: boolean
   nextAt: number | null
@@ -120,4 +122,13 @@ export function inspected(id: string, sessionID: string, now = Date.now()) {
   const previous = get(id)
   if (!previous?.enabled || previous.browserSessionID !== sessionID) return
   save({ ...previous, phase: "info", lastInfoAt: now, error: undefined })
+}
+
+
+/** Watching proves installation on a live connection, not that every DOM row is detectable. */
+export function watchStatus(id: string, watching: boolean, lastEventAt?: number) {
+  const previous = get(id)
+  if (!previous) return
+  save({ ...previous, watcher: !previous.enabled ? "off" : watching ? "watching" : "failed",
+    ...(lastEventAt === undefined ? {} : { lastEventAt }) })
 }
