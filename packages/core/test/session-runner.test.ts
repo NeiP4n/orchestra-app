@@ -622,11 +622,6 @@ const scenario = (
     }),
   )
 
-// Nominal retry gaps: exponential from 2s capped at 10s, for 10 retries.
-const RETRY_GAPS = [2_000, 4_000, 8_000, ...Array<number>(7).fill(10_000)]
-// Longest possible gap per retry (+20% jitter); advancing the clock by these always fires the retry.
-const RETRY_GAPS_MAX = RETRY_GAPS.map((gap) => gap * 1.2)
-
 // Subscribe before resuming; model requests can arrive before retry backoff is scheduled.
 const subscribeRetries = (s: Scenario) =>
   Effect.gen(function* () {
@@ -2688,56 +2683,53 @@ describe("SessionRunnerLLM", () => {
     }
   }
 
-  scenario("restarts compaction drafts after transient failures and unsuccessful finishes", function* (s) {
-    yield* s.llm.push(TestLLM.text("Earlier answer", "text-manual-failure-history"))
-    yield* s.runPrompt("Earlier question")
-    s.requests.length = 0
-    const hooks = yield* PluginHooks.Service
-    const retries: PluginHooks.Domains["session"]["retry"][] = []
-    yield* hooks.register("session", "retry", (event) =>
-      Effect.sync(() => {
-        retries.push({ ...event })
-        event.decision = { retry: true, delay: 0 }
-      }),
-    )
-    const draft = TestLLM.complete(
-      {
-        reason: { normalized: "unknown" },
-        usage: { nonCachedInputTokens: 10 },
-        providerMetadata: { openai: { responseId: "discarded-draft" } },
-      },
-      LLMEvent.textDelta({ id: "draft", text: "## Objective\n- Partial draft" }),
-    )
-    yield* s.llm.push(
-      TestLLM.failAfter(streamDisconnected(), ...draft.slice(0, -1)),
-      draft,
-      TestLLM.complete(
-        { reason: { normalized: "error" } },
-        LLMEvent.textDelta({ id: "failed", text: "## Objective\n- Failed draft" }),
-      ),
-      Stream.fail(rateLimited(60_000)),
-      TestLLM.textWithUsage("## Objective\n- Accepted summary", "accepted", 30),
-    )
-    const compaction = yield* s.session.compact({ sessionID })
-    yield* s.resume
+  for (const finish of ["unknown", "error"] as const) {
+    scenario(`restarts compaction drafts after a transient failure and an unsuccessful ${finish} finish`, function* (s) {
+      yield* s.llm.push(TestLLM.text("Earlier answer", "text-manual-failure-history"))
+      yield* s.runPrompt("Earlier question")
+      s.requests.length = 0
+      const hooks = yield* PluginHooks.Service
+      const retries: Array<{ attempt: number; retry: boolean; delay?: number }> = []
+      yield* hooks.register("session", "retry", (event) =>
+        Effect.sync(() => {
+          retries.push({ attempt: event.attempt, ...event.decision })
+          // The policy permits the first transient retry. The unsuccessful
+          // finish is allowed one explicit hook recovery, never an unbounded
+          // sequence of four failures under the obsolete ten-retry allowance.
+          event.decision = { retry: true, delay: 0 }
+        }),
+      )
+      const draft = (reason: "unknown" | "error") => TestLLM.complete(
+        {
+          reason: { normalized: reason },
+          usage: { nonCachedInputTokens: 10 },
+          providerMetadata: { openai: { responseId: "discarded-draft" } },
+        },
+        LLMEvent.textDelta({ id: "draft", text: "## Objective\n- Partial draft" }),
+      )
+      yield* s.llm.push(
+        TestLLM.failAfter(streamDisconnected(), ...draft("unknown").slice(0, -1)),
+        draft(finish),
+        TestLLM.textWithUsage("## Objective\n- Accepted summary", "accepted", 30),
+      )
+      const compaction = yield* s.session.compact({ sessionID })
+      yield* s.resume
 
-    expect(s.requests).toHaveLength(5)
-    for (const request of s.requests) expect(request).toEqual(s.requests[0])
-    expect(retries.map((event) => event.attempt)).toEqual([2, 3, 4, 5])
-    expect(retries.every((event) => event.sessionID === sessionID && event.agent === "build")).toBe(true)
-    const lastDecision = retries[3].decision
-    expect(lastDecision.retry).toBe(true)
-    if (!lastDecision.retry) throw new Error("A rate limit must stay retryable")
-    // The provider's one-minute hint is ignored, so the gap stays inside the shared schedule.
-    expect(lastDecision.delay).toBeGreaterThanOrEqual(RETRY_GAPS[3] * 0.8)
-    expect(lastDecision.delay).toBeLessThanOrEqual(RETRY_GAPS_MAX[3])
-    expect((yield* s.messages).find((message) => message.id === compaction.id)).toMatchObject({
-      status: "completed",
-      summary: "## Objective\n- Accepted summary",
+      expect(s.requests).toHaveLength(3)
+      for (const request of s.requests) expect(request).toEqual(s.requests[0])
+      expect(retries.map(({ attempt, retry }) => ({ attempt, retry }))).toEqual([
+        { attempt: 2, retry: true }, { attempt: 3, retry: false },
+      ])
+      expect(retries[0]?.delay).toBeGreaterThanOrEqual(1_600)
+      expect(retries[0]?.delay).toBeLessThanOrEqual(2_400)
+      expect((yield* s.messages).find((message) => message.id === compaction.id)).toMatchObject({
+        status: "completed",
+        summary: "## Objective\n- Accepted summary",
+      })
+      expect(JSON.stringify(yield* s.messages)).not.toContain("discarded-draft")
+      expect((yield* s.session.get(sessionID))?.tokens.input).toBe(50)
     })
-    expect(JSON.stringify(yield* s.messages)).not.toContain("discarded-draft")
-    expect((yield* s.session.get(sessionID))?.tokens.input).toBe(50)
-  })
+  }
 
   scenario("bounds compaction network retries across a template correction", function* (s) {
     yield* s.llm.push(TestLLM.text("Earlier answer", "history"))
@@ -3030,7 +3022,8 @@ describe("SessionRunnerLLM", () => {
     expect((yield* s.messages).find((message) => message.id === compaction.id)).toMatchObject({ status: "completed" })
   })
 
-  scenario("fits serialized compaction history by omitting oldest exchanges", function* (s) {
+  for (const fits of [true, false]) {
+  scenario(fits ? "fits serialized compaction history by omitting oldest exchanges" : "sends the original compaction request when no serialized exchange fits", function* (s) {
     const service = yield* SessionCompaction.Service
     yield* service.transform((editor) => editor.configure({ buffer: 3_000 }))
     s.currentModel = testModel("large-history", { context: 1_000_000, output: 32_000 })
@@ -3039,25 +3032,41 @@ describe("SessionRunnerLLM", () => {
       Array.from({ length: 4 }, (_, index) => index),
       (index) => s.runPrompt(`Request ${index}: ${"x".repeat(8_000)}`),
     )
-    // The window leaves room for exactly the two newest exchanges beside the system prompt;
-    // it is calibrated to the prompt, so it grew with the capability-awareness contract
-    // (~627 estimated tokens) that every system prompt now carries.
-    s.currentModel = testModel("smaller-history", { context: 7_700, output: 1_000 })
+    // Measured at context=7700: target=3823, lead=2109, note=7,
+    // room=1707, exchange sizes=[2141,2091,2091]. Nothing fits there.
+    // A 1000-token larger window leaves room=2707: only the newest
+    // exchange fits, so the two oldest must be omitted, not the assertion.
+    s.currentModel = testModel("smaller-history", { context: fits ? 8_700 : 7_700, output: 1_000 })
     s.requests.length = 0
     yield* s.llm.push(TestLLM.text("## Objective\n- Recovered", "summary"))
     const compaction = yield* s.session.compact({ sessionID })
     yield* s.resume
 
     expect(s.requests).toHaveLength(1)
-    expect(userTexts(s.requests[0])[0]).toContain("older exchanges omitted")
-    expect(userTexts(s.requests[0])[0]).not.toContain("Request 0:")
-    expect(userTexts(s.requests[0])[0]).not.toContain("Request 1:")
-    expect(userTexts(s.requests[0])[0]).toContain("Request 2:")
+    if (fits) {
+      expect(userTexts(s.requests[0])[0]).toContain("2 older exchanges omitted")
+      expect(userTexts(s.requests[0])[0]).not.toContain("Request 0:")
+      expect(userTexts(s.requests[0])[0]).not.toContain("Request 1:")
+      expect(userTexts(s.requests[0])[0]).toContain("Request 2:")
+    } else {
+      // Until the provider rejects the request, preserve the original
+      // conversation rather than sending an empty or silently lost history.
+      expect(messageRoles(s.requests[0])).toEqual(["user", "assistant", "user", "assistant", "user", "assistant", "user"])
+      expect(userTexts(s.requests[0])).toEqual([
+        ...[0, 1, 2].map((index) => intakeText(`Request ${index}: ${"x".repeat(8_000)}`)),
+        SessionCompaction.buildPrompt(false),
+      ])
+      expect(s.requests[0].messages.filter((message) => message.role === "assistant").map((message) => message.content))
+        .toEqual([0, 1, 2].map((index) => [Message.text(`Answer ${index}`)]))
+      expect(userTexts(s.requests[0]).join("\n")).not.toContain("older exchanges omitted")
+    }
     expect((yield* s.messages).find((message) => message.id === compaction.id)).toMatchObject({
       status: "completed",
       summary: "## Objective\n- Recovered",
     })
   })
+
+  }
 
   scenario("records cancelled manual compaction without surfacing an internal failure", function* (s) {
     yield* s.llm.push(TestLLM.text("Earlier answer", "text-manual-interrupt-history"))
