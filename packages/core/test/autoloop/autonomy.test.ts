@@ -64,7 +64,7 @@ describe("Autonomy modes", () => {
   test("resolveAutonomy keeps the legacy behaviour when no mode is given", () => {
     expect(resolveAutonomy(undefined)).toBe("auto")
     expect(resolveAutonomy("observe")).toBe("observe")
-    expect(DEFAULT_AUTONOMY).toBe("observe")
+    expect(DEFAULT_AUTONOMY).toBe("auto")
   })
 
   test("off records the event but routes nothing, queues nothing, claims nothing", () => {
@@ -229,9 +229,9 @@ describe("Router batching", () => {
 })
 
 describe("Autonomy config", () => {
-  test("no society setting means observe; an explicit setting wins", () => {
-    expect(autonomyFromConfig(undefined)).toBe("observe")
-    expect(autonomyFromConfig(new ConfigOrchestra.Info({}))).toBe("observe")
+  test("no society setting means auto; an explicit setting wins", () => {
+    expect(autonomyFromConfig(undefined)).toBe("auto")
+    expect(autonomyFromConfig(new ConfigOrchestra.Info({}))).toBe("auto")
     expect(
       autonomyFromConfig(
         new ConfigOrchestra.Info({ society: new ConfigOrchestra.Society({ autonomy: "auto" }) }),
