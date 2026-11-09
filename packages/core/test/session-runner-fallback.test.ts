@@ -765,3 +765,13 @@ describe("endOnUser", () => {
     expect(SessionRunnerLLM.endOnUser([{ role: "assistant" }, { role: "tool" }]).at(-1)?.role).toBe("tool")
   })
 })
+
+describe("team agents do not switch models by themselves", () => {
+  test("only the operator's flag lets a team agent fall back; other sessions keep their chain", async () => {
+    const { SessionRunnerLLM } = await import("@orchestra/core/session/runner/llm")
+    expect(SessionRunnerLLM.mayFallBack("team-browser-agent", undefined)).toBe(false)
+    expect(SessionRunnerLLM.mayFallBack("team-developer", "0")).toBe(false)
+    expect(SessionRunnerLLM.mayFallBack("team-developer", "1")).toBe(true)
+    expect(SessionRunnerLLM.mayFallBack("build", undefined)).toBe(true)
+  })
+})

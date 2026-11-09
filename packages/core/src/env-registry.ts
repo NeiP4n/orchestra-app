@@ -558,6 +558,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   ORCHESTRA_STORY: {
     purpose: "TUI storybook story to open (\"1\" opens the index).",
   },
+  ORCHESTRA_TEAM_MODEL_FALLBACK: {
+    purpose: "Let a team agent (BrowserAgent, workers) switch to a fallback model by itself when its model fails. Off by default: only the Orchestrator changes a team agent's model.",
+    default: "Off.",
+  },
   ORCHESTRA_TEST_HOME: {
     purpose: "Override for the home directory (tests).",
     default: "The real home directory.",

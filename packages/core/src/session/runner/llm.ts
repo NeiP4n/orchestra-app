@@ -558,6 +558,16 @@ const layer = Layer.effect(
         })
         return false
       }
+      // Only the Orchestrator (or the operator) changes a team agent's model. A BrowserAgent or worker whose model fails
+      // stops with the real error, which reaches the Orchestrator in the team report; it decides what to switch to.
+      if (!mayFallBack(loaded.agent.id, process.env.ORCHESTRA_TEAM_MODEL_FALLBACK)) {
+        yield* Effect.logWarning("a team agent does not switch models by itself; the error goes to the Orchestrator", {
+          sessionID: loaded.session.id,
+          agent: loaded.agent.id,
+          message: error.message,
+        })
+        return false
+      }
       const listed = Orchestra.sessionModels(loaded.session.metadata)
       // The catalog is read for every session now, not only main sessions: a
       // worker whose own list is exhausted (or all on one dead provider) falls
@@ -717,6 +727,9 @@ const modelIdentity = (model: Model.Ref) => `${model.providerID}/${model.id}`
 
 /** `refused` holds full keys (`provider/id#variant`); a refusal is per model, not per variant. */
 const refusedIdentities = (refused: ReadonlySet<string>) => new Set([...refused].map((key) => key.split("#")[0] ?? key))
+
+/** A team agent (agent id "team-...") never switches model on its own unless the operator turns it on. */
+export const mayFallBack = (agent: string, flag: string | undefined) => !String(agent).startsWith("team-") || flag === "1"
 
 /** A provider-safe tail: the last message is never the assistant's. */
 export function endOnUser<T extends { readonly role: string }>(messages: ReadonlyArray<T>): ReadonlyArray<T> {
