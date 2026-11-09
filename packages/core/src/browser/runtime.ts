@@ -67,12 +67,26 @@ const stderrTail = () => {
     return ""
   }
 }
+const processFile = (dir: string) => path.join(dir, "orchestra-managed-process.json")
+function recordProcess(pid: number | undefined, args: string[]) {
+  const dir = args.find((arg) => arg.startsWith("--user-data-dir="))?.slice("--user-data-dir=".length)
+  if (!dir || !pid) return
+  // Fail before another launch if the new Chrome remains alive but CDP hangs.
+  // This file is only for refusal/probing. Never kill a PID read from disk.
+  writeAtomic(processFile(dir), JSON.stringify({ pid }))
+}
+function forgetProcess(pid: number | undefined, args: string[]) {
+  const dir = args.find((arg) => arg.startsWith("--user-data-dir="))?.slice("--user-data-dir=".length)
+  if (!dir || !pid) return
+  try { if (JSON.parse(readFileSync(processFile(dir), "utf8")).pid === pid) rmSync(processFile(dir), { force: true }) } catch {}
+}
 const deps: Chrome.Deps = {
   stderrTail,
   spawn: (exe, args) => {
     const fd = stderrFd()
     const child = spawn(exe, args, { stdio: ["ignore", "ignore", fd], windowsHide: true })
-    if (typeof fd === "number") child.once("exit", () => void closeSync(fd))
+    try { recordProcess(child.pid, args) } catch (error) { child.kill(); if (typeof fd === "number") closeSync(fd); throw error }
+    child.once("exit", () => { forgetProcess(child.pid, args); if (typeof fd === "number") closeSync(fd) })
     return child
   },
   readFile: (file) => (existsSync(file) ? readFileSync(file, "utf8") : undefined),
@@ -98,7 +112,8 @@ const windowDeps: Chrome.Deps = {
   spawn: (exe, args) => {
     const fd = stderrFd()
     const child = spawn(exe, args, { stdio: ["ignore", "ignore", fd], windowsHide: false })
-    if (typeof fd === "number") child.once("exit", () => void closeSync(fd))
+    try { recordProcess(child.pid, args) } catch (error) { child.kill(); if (typeof fd === "number") closeSync(fd); throw error }
+    child.once("exit", () => { forgetProcess(child.pid, args); if (typeof fd === "number") closeSync(fd) })
     return child
   },
 }
@@ -199,7 +214,19 @@ async function checkLaunchBudget() {
   const root = path.join(Global.Path.data, "browser-profiles")
   let folders: string[] = []
   if (existsSync(root)) folders = readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory() && /^[A-Za-z0-9_-]{1,64}$/.test(entry.name)).map((entry) => entry.name)
-  for (const id of folders) if (await Chrome.livePort(deps.readFile, alive, Chrome.profileDir(Global.Path.data, id)) !== undefined) BrowserBudget.requireRoom(1)
+  for (const id of folders) {
+    const dir = Chrome.profileDir(Global.Path.data, id)
+    if (await Chrome.livePort(deps.readFile, alive, dir) !== undefined) BrowserBudget.requireRoom(1)
+    const file = processFile(dir)
+    if (!existsSync(file)) continue // Legacy profiles may predate PID tracking.
+    let pid: number
+    try { pid = JSON.parse(readFileSync(file, "utf8")).pid; if (!Number.isSafeInteger(pid) || pid < 1) throw new Error() }
+    catch { throw new Error("Browser safety limit: managed process record is unreadable. No new Chrome was started.") }
+    BrowserBudget.requireStopped(pid, (value) => {
+      try { process.kill(value, 0); return "alive" }
+      catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH" ? "dead" : "unknown" }
+    })
+  }
 }
 async function start(sessionID: string): Promise<Live> {
   return launchLock(() => startLocked(sessionID))
