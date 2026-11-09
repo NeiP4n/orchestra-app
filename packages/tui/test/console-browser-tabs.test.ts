@@ -163,8 +163,13 @@ test("the button's session and the Orchestrator's chat each give exactly one rec
 
 test("a chat is claimed the moment it is created, before its binding lands, so adoption never takes it", () => {
   const notes = read("context/notes.tsx")
-  expect(notes.indexOf("claimed.add(created.id)")).toBeGreaterThan(0)
-  expect(notes.indexOf("claimed.add(created.id)")).toBeLessThan(notes.indexOf("await created.request"))
+  // Inside giveBrowserAgent only (another function above it also awaits a request): claim, then await.
+  const start = notes.indexOf("const giveBrowserAgent")
+  expect(start).toBeGreaterThan(0)
+  const body = notes.slice(start, notes.indexOf("const tab = ", start))
+  expect(body).toContain("claimed.add(created.id)")
+  expect(body).toContain("await created.request")
+  expect(body.indexOf("claimed.add(created.id)")).toBeLessThan(body.indexOf("await created.request"))
   expect(notes).toContain("if (claimed.has(chat)) return")
   expect(read("component/project-tree.tsx")).toContain("!notes.claimedChat(session.id)")
 })
