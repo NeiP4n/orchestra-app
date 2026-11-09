@@ -104,6 +104,9 @@ const AI_OWNER = "AI"
 const AI_OWNER_ID = "local-ai"
 const WORK_ACTIONS = new Set(["next", "take", "add", "check", "uncheck"])
 
+// A <team-report> whose outcome leaves the task open.
+const OPEN_REPORT = /<team-report[^>]*outcome="(?:partial|incomplete|failed|stopped|blocked)"/i
+
 // Phrases of giving up, and the tools whose use shows the agent looked or asked first.
 const GIVE_UP =
   /не знаю|не могу|не смог|не получилось|не удалось|нет возможности|\b(?:i )?(?:do not|don't) know\b|\bcan(?:'|no)t\b|\bcannot\b|\bcouldn't\b|\bunable to\b/i
@@ -158,6 +161,26 @@ export function check(
         : "You have not used the browser tool yet. Do the task in the page with the browser tool (open, snapshot, click, type); fetch and search are not a substitute for the page.",
       "End with the first line DONE, PARTLY DONE or NOT DONE and a short plain summary.",
     ])
+  }
+  // A worker that came back partial, failed or blocked has not finished the task: the Orchestrator sends it on (the
+  // same worker with a hint, or another role) before it tells the operator. Limited by the reminder count.
+  {
+    const lastReport = turn.findLastIndex((message) => message.type === "synthetic" && message.text.includes("<team-report"))
+    const report = lastReport >= 0 ? turn[lastReport] : undefined
+    if (report?.type === "synthetic" && OPEN_REPORT.test(report.text) && nudges.length < max) {
+      const after = turnCalls(turn.slice(lastReport + 1))
+      const acted = after.some(
+        (call) =>
+          (call.name === "sessions" && ["send", "create", "answer"].includes(String(call.input.action))) ||
+          call.name === "interact" ||
+          call.name === "question",
+      )
+      if (!acted)
+        return reminder([
+          "Completion check: a worker's report says the task is partial, failed or blocked, and you have not acted on it.",
+          "Do not hand this to the operator yet. Send the task on: to the same worker with a specific hint, or to another role that knows it better (researcher, architect, debugger). Search for the missing information yourself if that is quicker. Write to the operator only after these tries, and list them.",
+        ])
+    }
   }
   // A model that answers a nudge without doing anything has said it is done twice; believe it.
   const previous = turn.findLastIndex((message) => message.type === "synthetic" && message.metadata?.[MetadataKey] === true)

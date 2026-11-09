@@ -289,3 +289,26 @@ describe("SessionCompletionGate: giving up", () => {
     expect(worker(spent)).toBeUndefined()
   })
 })
+
+describe("SessionCompletionGate: open worker reports", () => {
+  const report = (outcome: string): SessionMessage.Info => ({
+    type: "synthetic",
+    id: id(),
+    time,
+    text: `<team-report session="s1" outcome="${outcome}">could not finish</team-report>`,
+  })
+  const orchestrator = (messages: SessionMessage.Info[]) => SessionCompletionGate.check(messages, empty, undefined, undefined, undefined, "orchestrator")
+  test("a partial report with no follow-up sends the Orchestrator back", () => {
+    expect(orchestrator([user("build it"), report("partial"), assistant("The worker could not finish; telling you.")])).toContain("Do not hand this to the operator yet")
+  })
+  test("a follow-up sent to a worker satisfies it", () => {
+    expect(orchestrator([user("build it"), report("failed"), assistant("", [{ name: "sessions", input: { action: "send" } }]), assistant("Sent it on.")])).toBeUndefined()
+  })
+  test("a complete report is left alone", () => {
+    expect(orchestrator([user("build it"), report("complete"), assistant("All done.")])).toBeUndefined()
+  })
+  test("the reminders are limited", () => {
+    const spent = [user("build it"), report("partial"), assistant("x"), nudge(), assistant("x"), nudge(), assistant("x"), nudge(), assistant("x")]
+    expect(orchestrator(spent)).toBeUndefined()
+  })
+})
