@@ -92,7 +92,20 @@ export const NO_SESSION =
 // A short pause so a page that just navigated or reacted has started to render before it is read.
 const settle = () => new Promise((done) => setTimeout(done, 1500))
 
+/** A closed connection (Chrome died, or was killed with the app) is dropped and the action tried once more on a fresh one. */
 export async function perform(sessionID: string, input: Input) {
+  try {
+    return await performOnce(sessionID, input)
+  } catch (error) {
+    if (!/connection (closed|failed)|Could not connect to Chrome/i.test(error instanceof Error ? error.message : String(error)))
+      throw error
+    BrowserRuntime.trace(`browser ${input.action}: connection lost, reconnecting once`)
+    BrowserRuntime.evict(sessionID)
+    return await performOnce(sessionID, input)
+  }
+}
+
+async function performOnce(sessionID: string, input: Input) {
   // Closing must not first start the Chrome it is about to close.
   if (input.action === "stop") {
     const was = BrowserRuntime.isOpen(sessionID)

@@ -173,7 +173,12 @@ export async function open(sessionID: string): Promise<Cdp.Client> {
   const restarting = relaunching.get(sessionID)
   if (restarting && !inside.has(sessionID)) await restarting.catch(() => undefined)
   const existing = live.get(sessionID)
-  if (existing) return existing.client
+  if (existing && existing.client.isClosed?.() === true) {
+    // Chrome died or was closed behind our back: the stored client can never answer again. Forget it, so this call
+    // joins the Chrome still running on the profile (livePort) or starts a new one.
+    trace(`connection of ${sessionID} is closed: reconnecting`)
+    evict(sessionID)
+  } else if (existing) return existing.client
   const pending = starting.get(sessionID)
   if (pending) return (await pending).client
   if (!hooked) {
@@ -454,6 +459,17 @@ export function deleteProfile(sessionID: string): string | undefined {
   } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
+}
+
+/** Drops the stored (dead) connection of a session without asking Chrome to quit. */
+export function evict(sessionID: string) {
+  unwatch(sessionID)
+  orders.delete(sessionID)
+  const item = live.get(sessionID)
+  if (!item) return
+  live.delete(sessionID)
+  item.client.close()
+  item.capture?.stop()
 }
 
 export function close(sessionID: string) {

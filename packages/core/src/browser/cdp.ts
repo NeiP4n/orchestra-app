@@ -14,6 +14,8 @@ export interface Socket {
 export interface Client {
   readonly send: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>
   readonly close: () => void
+  /** True once the websocket closed or failed: nothing can be sent on this client any more. */
+  readonly isClosed?: () => boolean
   /** Listens to a protocol event such as Page.screencastFrame; returns the way to stop listening. */
   readonly on: (method: string, listener: (params: any) => void) => () => void
 }
@@ -83,6 +85,7 @@ export function connect(
           listeners.set(method, set)
           return () => void set.delete(listener)
         },
+        isClosed: () => closed,
         close: () => {
           failAll("The browser connection closed.")
           socket.close()
