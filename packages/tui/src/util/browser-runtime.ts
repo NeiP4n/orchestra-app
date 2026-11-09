@@ -16,6 +16,7 @@ export const {
   leases,
   agentCursor,
   setLease,
+  releaseOperatorLeases,
   watch,
   unwatch,
   tabs,
@@ -30,3 +31,10 @@ export const {
   modeOf,
   reload,
 } = BrowserRuntime
+
+// A control lease left by a killed run would lock the agents out of the session; the tab that starts now owns none.
+try {
+  BrowserRuntime.releaseOperatorLeases()
+} catch {
+  // The state folder may not exist yet: there is nothing to release.
+}

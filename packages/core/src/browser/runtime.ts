@@ -1,7 +1,7 @@
 export * as BrowserRuntime from "./runtime.js"
 
 import { spawn } from "node:child_process"
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { Global } from "@orchestra/util/global"
 import { BrowserBridge } from "./bridge.js"
@@ -609,6 +609,16 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
   live.set(sessionID, next)
 }
 
+/**
+ * Writes a shared state file (sessions, selection, leases) whole or not at all: a process killed in the middle of a
+ * plain write leaves a cut-off file that reads back as empty, and the list of sessions is gone for the agents.
+ */
+function writeAtomic(file: string, text: string) {
+  const temp = `${file}.${process.pid}.tmp`
+  writeFileSync(temp, text)
+  renameSync(temp, file)
+}
+
 const bridgeFile = () => BrowserBridge.file(Global.Path.data)
 
 /** Records the selected browser session of a project for the chat agent's tool. */
@@ -620,7 +630,7 @@ export function publishSelection(directory: string, sessionID: string | undefine
     sessionID,
   )
   mkdirSync(path.dirname(file), { recursive: true })
-  writeFileSync(file, JSON.stringify(next, null, 2))
+  writeAtomic(file, JSON.stringify(next, null, 2))
 }
 
 /** The browser session selected for the project that owns `directory`. */
@@ -647,7 +657,7 @@ export function publishSessions(list: readonly BrowserBridge.SessionInfo[]) {
   }
   lastPublished = text
   mkdirSync(path.dirname(file), { recursive: true })
-  writeFileSync(file, text)
+  writeAtomic(file, text)
   trace(
     `sessions published: ${list.length} to ${file} (${list.map((item) => `${item.name}@${item.project}`).join("; ")})`,
   )
@@ -669,7 +679,20 @@ export function leases() {
 export function setLease(sessionID: string, agent: string | undefined) {
   const file = BrowserBridge.leasesFile(Global.Path.data)
   mkdirSync(path.dirname(file), { recursive: true })
-  writeFileSync(file, JSON.stringify(BrowserBridge.withLease(leases(), sessionID, agent, Date.now()), null, 2))
+  writeAtomic(file, JSON.stringify(BrowserBridge.withLease(leases(), sessionID, agent, Date.now()), null, 2))
+}
+
+/**
+ * "Operator took control" belongs to a Browser tab that is open right now. After a crash or a killed terminal it
+ * would stay in leases.json and lock the agents out for good, so the Browser tab drops those when it starts.
+ */
+export function releaseOperatorLeases() {
+  const held = leases()
+  const stale = Object.entries(held).filter(([, lease]) => lease.agent === BrowserBridge.OPERATOR)
+  if (stale.length === 0) return
+  const file = BrowserBridge.leasesFile(Global.Path.data)
+  writeAtomic(file, JSON.stringify(Object.fromEntries(Object.entries(held).filter(([, lease]) => lease.agent !== BrowserBridge.OPERATOR)), null, 2))
+  trace(`dropped ${stale.length} operator lease(s) left by an earlier run: ${stale.map(([id]) => id).join(", ")}`)
 }
 
 /** Records where an agent just acted, for the Browser tab to show; ORCHESTRA_AGENT_CURSOR=0 turns it off. */
