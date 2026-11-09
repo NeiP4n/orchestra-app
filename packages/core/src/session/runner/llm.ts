@@ -285,6 +285,8 @@ const layer = Layer.effect(
         const exceeded = Limits.drainBudgetExceeded(drainBudget, yield* Clock.currentTimeMillis)
         if (exceeded) return yield* failDrainBudget(sessionID, exceeded, drainBudget)
         continuing = yield* runStep(next.context, step, refused, drainBudget, toolPruneUnusedSteps, pruneState)
+        // A step that finished ends the run of identical failures: two refusals in a row means in a row.
+        failureSignatures.delete(refused)
         step++
         force = false
         entering = false

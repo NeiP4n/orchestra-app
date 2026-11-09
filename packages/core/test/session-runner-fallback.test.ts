@@ -717,8 +717,9 @@ describe("SessionRunnerLLM fallback while draining a session", () => {
       const result = yield* drainPrompt(workerSession, "Do the work")
 
       expect(Exit.isFailure(result.exit)).toBe(true)
-      expect(result.requested).toEqual(["worker", "backup", "sonnet-5", "anymodel-coder", "lix-test-model"])
-      expect(result.model).toMatchObject({ providerID: "lix", id: "lix-test-model" })
+      // Two models in a row failing with the same error stop the chain (b66abc39): the rest would fail the same way.
+      expect(result.requested).toEqual(["worker", "backup"])
+      expect(result.model).toMatchObject({ providerID: "fake", id: "backup" })
       expect(result.messages.at(-1)).toMatchObject({
         type: "assistant",
         finish: "error",

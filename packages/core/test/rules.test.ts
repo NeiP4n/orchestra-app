@@ -253,7 +253,9 @@ const makeScopes = (options: {
     groups: () =>
       options.groups === undefined ? Effect.fail(new Error("groups unavailable")) : Effect.succeed(options.groups),
   } as unknown as Federation.Interface,
+})
 
+describe("rulebook scopes", () => {
   it.live("session, role and orchestrator rules ride only on the sessions they are for, and operator ones resist workers", () =>
     Effect.gen(function* () {
       const kv = yield* KV.Service
