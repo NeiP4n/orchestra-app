@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { browserRouteRefusal } from "../src/tool/plugin/orchestra"
+import { browserRouteRefusal, browserSessionTitle } from "../src/tool/plugin/orchestra"
 
 describe("browser tasks go to the BrowserAgent", () => {
   test("page work sent to another role is refused with the way to the BrowserAgent", () => {
@@ -32,5 +32,14 @@ describe("MCP switch", () => {
     expect(McpCatalog.mcpEnabled({})).toBe(false)
     expect(McpCatalog.mcpEnabled({ ORCHESTRA_MCP: "0" })).toBe(false)
     expect(McpCatalog.mcpEnabled({ ORCHESTRA_MCP: "1" })).toBe(true)
+  })
+})
+
+describe("browser session titles", () => {
+  test("a given name stays; empty or a bare Browser N becomes a short name from the task", () => {
+    expect(browserSessionTitle("Muse регистрация", "x")).toBe("Muse регистрация")
+    expect(browserSessionTitle("Browser 3", "Open https://muse.ai and sign up")).toBe("Open muse.ai and sign up")
+    expect(browserSessionTitle(undefined, "Поиск цен на билеты")).toBe("Поиск цен на билеты")
+    expect(browserSessionTitle("", undefined)).toBe("Browser task")
   })
 })

@@ -16,6 +16,7 @@ import { useRoute } from "./route"
 import { useStorage } from "./storage"
 import {
   addBrowserSession,
+  adoptBrowserChat,
   bindBrowserChat,
   emptyBrowserSessions,
   forgetClosedBrowserSession,
@@ -290,6 +291,12 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
         changeBrowser((draft) => forgetClosedBrowserSession(draft, projectID, id)),
       removeBrowserSession: (projectID: string, id: string) =>
         changeBrowser((draft) => removeBrowserSession(draft, projectID, id)),
+      // A browser chat the Orchestrator made becomes a real browser session of the project (a page, a profile, its chat).
+      adoptBrowserChat: (projectID: string, chat: string, name: string) =>
+        changeBrowser((draft) => {
+          const id = `brw_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+          adoptBrowserChat(draft, projectID, { id, chat, name, now: Date.now() })
+        }),
       forgetBrowserChat: (chat: string) => changeBrowser((draft) => void forgetBrowserChat(draft, chat)),
       renameBrowserSession: (projectID: string, id: string, name: string) =>
         changeBrowser((draft) => void renameBrowserSession(draft, projectID, id, name)),

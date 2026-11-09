@@ -685,6 +685,24 @@ export const browserRouteRefusal = (roleID: string | undefined, text: string | u
     ? "Page work (open, click, fill, sign in on a site) goes to the BrowserAgent of the browser session: use browser action=sessions to see its chat id, then sessions send there. Send this to another role only for work that is not driving a page."
     : undefined
 
+/**
+ * The title of a browser session made by the Orchestrator: the one it gave, unless that is empty or a bare
+ * "Browser" / "Browser 2"; then a short one from the task, so the tree never lists "Browser 3".
+ */
+export const browserSessionTitle = (title: string | undefined, text: string | undefined) => {
+  const given = title?.trim() ?? ""
+  if (given && !/^browser(?:\s*\d+)?$/i.test(given)) return given
+  const words = (text ?? "")
+    .split(/\r?\n/, 1)[0]!
+    .replace(/https?:\/\/(?:www\.)?/gi, "")
+    .replace(/[^\p{L}\p{N}\s.-]+/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 5)
+  const short = words.join(" ").slice(0, 32).trim()
+  return short ? short[0]!.toUpperCase() + short.slice(1) : "Browser task"
+}
+
 const modelRef = (model: Model.Ref) => `${model.providerID}/${model.id}`
 const refWithVariant = (model: Model.Ref) => `${modelRef(model)}${model.variant ? `#${model.variant}` : ""}`
 const baseOf = (reference: string) => reference.split("#")[0]
@@ -1511,7 +1529,8 @@ export const Plugin = {
 
                   // Reuse the project's existing worker by role before creating anything.
                   // A new instance is an explicit opt-in, not the default response to a new task.
-                  if (!input.newInstance) {
+                  // Every browser session is its own page and its own BrowserAgent, so a request for one more is never a reuse.
+                  if (!input.newInstance && role.id !== "browser-agent") {
                     const rows = yield* team(project)
                     const matching = rows.filter((row) => row.role === role.id)
                     if (matching.length > 0) {
@@ -1558,7 +1577,10 @@ export const Plugin = {
                   const created = yield* orchestra
                     .createMember({
                       project,
-                      title: input.title?.trim() || undefined,
+                      title:
+                        role.id === "browser-agent"
+                          ? browserSessionTitle(input.title, input.text)
+                          : input.title?.trim() || undefined,
                       agent: role.agent,
                       model: choice.model ?? worker.model ?? Option.getOrUndefined(main)?.model,
                       models: worker.models,

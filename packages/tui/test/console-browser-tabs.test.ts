@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import path from "node:path"
+import { adoptBrowserChat, emptyBrowserSessions } from "../src/util/browser-sessions"
 
 const read = (file: string) => readFileSync(path.join(import.meta.dir, "..", "src", file), "utf8")
 
@@ -119,4 +120,15 @@ test("category headers, Browsers included, fold their rows with a remembered sta
   expect(tree).toContain("notes.toggleGroup(`${project.id}:Browsers`)")
   expect(tree).toContain("notes.toggleGroup(`${project.id}:${group.name}`)")
   expect(read("context/notes.tsx")).toContain("groupCollapsed")
+})
+
+test("a browser chat the Orchestrator made becomes a browser session once, keeping the selection", () => {
+  const state = emptyBrowserSessions()
+  state.projects.p = [{ id: "a", name: "One", created: 1 }]
+  state.selected.p = "a"
+  const made = adoptBrowserChat(state, "p", { id: "b", chat: "ses_1", name: "Muse регистрация", now: 2 })
+  expect(made).toMatchObject({ id: "b", chat: "ses_1", name: "Muse регистрация" })
+  expect(state.selected.p).toBe("a")
+  expect(adoptBrowserChat(state, "p", { id: "c", chat: "ses_1", name: "Again", now: 3 })).toBeUndefined()
+  expect(state.projects.p).toHaveLength(2)
 })

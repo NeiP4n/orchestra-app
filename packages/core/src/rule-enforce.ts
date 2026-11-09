@@ -202,14 +202,14 @@ export const builtin = (
   // A browser role is the BrowserAgent of a browser session (a record and a page in the Browser tab). A role or a
   // session made with a browser-like name and no page would be a plain chat dressed as one.
   const browserLike = (value: unknown) => typeof value === "string" && /browser/i.test(value) && !/^(?:team-)?browser-agent$/.test(value.trim())
-  const nonBrowserAgent = "A role or session named for the browser is refused: browser work belongs to the BrowserAgent of a browser session (browser action=sessions lists them, browser action=create adds one). Use that instead of a new role."
+  const nonBrowserAgent = "A role or session named for the browser is refused: browser work belongs to the BrowserAgent of a browser session (browser action=sessions lists them). To add one, use sessions action=create role=browser-agent with a title that names the task or site; it appears in Browsers. Do not make browser sessions with another role or a \"Browser N\" title."
   // Any way to start a browser-named agent: the subagent tool, sessions create, a role or a team member.
   if (call.tool === "subagent" && browserLike(input.agent)) return nonBrowserAgent
   if (call.tool === "team_forge" && (input.action === "team" || input.action === "edit_team") && Array.isArray(input.members) && input.members.some((member) => typeof member === "object" && member !== null && browserLike((member as Record<string, unknown>).role)))
     return nonBrowserAgent
   if (call.tool === "team_forge" && (input.action === "role" || input.action === "edit_role") && (browserLike(input.name) || browserLike(input.id)))
     return nonBrowserAgent
-  if (call.tool === "sessions" && input.action === "create" && browserLike(input.role))
+  if (call.tool === "sessions" && input.action === "create" && (browserLike(input.role) || (!/^(?:team-)?browser-agent$/.test(String(input.role ?? "").trim()) && /^\s*browser\b/i.test(String(input.title ?? "")))))
     return nonBrowserAgent
   if (call.tool === "execute" && typeof input.code === "string") {
     const code = input.code

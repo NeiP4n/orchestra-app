@@ -108,6 +108,26 @@ export function bindBrowserChat(state: BrowserSessionsState, projectID: string, 
   return true
 }
 
+/**
+ * Makes a record for a browser chat nobody owns (the Orchestrator created it): its own id, so its own Chrome
+ * profile, named like the chat and holding it. The selection stays where it was. Returns it, or undefined when
+ * the chat is already owned (open or closed) or the project is at the limit.
+ */
+export function adoptBrowserChat(
+  state: BrowserSessionsState,
+  projectID: string,
+  input: { id: string; chat: string; name: string; now: number },
+): BrowserSession | undefined {
+  const owned = [...(state.projects[projectID] ?? []), ...(state.closed?.[projectID] ?? [])].some((item) => item.chat === input.chat)
+  if (owned) return undefined
+  const selected = state.selected[projectID]
+  const session = addBrowserSession(state, projectID, { id: input.id, now: input.now, name: input.name })
+  if (!session) return undefined
+  session.chat = input.chat
+  state.selected[projectID] = selected
+  return session
+}
+
 export function selectBrowserSession(state: BrowserSessionsState, projectID: string, id: string) {
   if (state.projects[projectID]?.some((item) => item.id === id)) state.selected[projectID] = id
 }

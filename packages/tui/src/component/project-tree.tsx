@@ -813,6 +813,19 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           owner(session)?.id === project.id,
       )
 
+  // A browser chat the Orchestrator created is made a real browser session (page and profile) once, so it is never a
+  // bare chat. One at a time per chat; subagents stay chats.
+  const adopting = new Set<string>()
+  createEffect(() => {
+    for (const project of projects()) {
+      for (const chat of browserChatsOf(project)) {
+        if (chat.parentID || adopting.has(chat.id)) continue
+        adopting.add(chat.id)
+        void notes.adoptBrowserChat(project.id, chat.id, chat.title || "Browser task")
+      }
+    }
+  })
+
   const sessionsOf = (project: OrchestraProject) =>
     data.session
       .list()
