@@ -20,6 +20,10 @@ const withoutSecrets = (provider: Provider.Info): Provider.Info => {
   return { ...provider, settings }
 }
 
+// Plugin activation fills the provider list, so a read waits for it, but only briefly: a plugin that never
+// settles (slow or stuck) must not hold every provider read. After the wait the current snapshot is returned.
+const activated = Plugin.awaitActivation.pipe(Effect.timeout("1 second"), Effect.ignore)
+
 export const ProviderHandler = HttpApiBuilder.group(Api, "server.provider", (handlers) =>
   Effect.gen(function* () {
     return handlers
@@ -30,7 +34,7 @@ export const ProviderHandler = HttpApiBuilder.group(Api, "server.provider", (han
           // G2-6 (N2): providers are registered by plugin activation, like
           // models — without awaiting it this answered [] on the first call
           // while /api/model already showed the activated catalog.
-          yield* Plugin.awaitActivation
+          yield* activated
           const providers = yield* Provider.Service
           // available() returns an Effect of the provider list, not the list
           // itself: yield it before mapping. Calling .map on the Effect was
@@ -44,7 +48,7 @@ export const ProviderHandler = HttpApiBuilder.group(Api, "server.provider", (han
         "provider.get",
         Effect.fn(function* (ctx) {
           yield* requireLocationDirectory()
-          yield* Plugin.awaitActivation
+          yield* activated
           const providers = yield* Provider.Service
           const provider = yield* providers.get(ctx.params.providerID)
           if (!provider)
