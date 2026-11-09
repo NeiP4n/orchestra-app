@@ -168,6 +168,11 @@ export function DialogConfig(props: { current?: string }) {
     const index = setting.values?.indexOf(current)
     return t(index === undefined || index < 0 ? String(current) : (setting.labels?.[index] ?? String(current)))
   }
+  const defaultDisplay = (setting?: Setting) => {
+    if (!setting) return ""
+    const index = setting.values?.indexOf(setting.default)
+    return t(index === undefined || index < 0 ? String(setting.default) : setting.labels?.[index] ?? String(setting.default))
+  }
   const changed = (setting: Setting) => stored(setting) !== undefined && value(setting) !== setting.default
 
   const filteredSettings = createMemo(() => {
@@ -241,58 +246,16 @@ export function DialogConfig(props: { current?: string }) {
   return (
     <box flexDirection="row" flexGrow={1}>
       <CategoryRail
+        width={20}
         items={railItems()}
         selected={selectedCategory()}
         onSelect={setSelectedCategory}
         footer={
-          // The sensor shivers whenever a setting is saved, like a sculk sensor catching a step.
-          <SculkSprite kind="sensor" state={vibrating() ? "vibrating" : "idle"} backdrop={theme.background.base} />
-        }
-      />
-      <DialogSelect
-      title={t("Settings")}
-      titleView={
-        <box flexDirection="row" gap={1} alignItems="center">
-          <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
-            {selectedCategory() === "All" ? t("Settings") : t(selectedCategory())}
-          </text>
-          <text fg={theme.text.muted}>{`· ${filteredSettings().length} ${t("options")}`}</text>
-        </box>
-      }
-      options={options()}
-      focusTarget={current}
-      filterThreshold={0.7}
-      sectionNavigation={true}
-      onMove={(option) => setSelected(option.value)}
-      onSelect={(option) => void change(1, option.value)}
-      footer={
-        <box flexDirection="column" gap={0} paddingTop={1} border={["top"]} borderColor={theme.border.base} width="100%">
-          <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="flex-start">
-            <box flexGrow={1} minWidth={0} paddingRight={2}>
-              <text fg={theme.text.base} wrapMode="word">
-                {t(currentSetting()?.description ?? "")}
-              </text>
-              <box flexDirection="row" gap={2} paddingTop={0}>
-                <Show when={currentSetting()?.default !== undefined}>
-                  <text fg={theme.text.muted}>
-                    default: <span style={{ fg: theme.text.base }}>{String(currentSetting()?.default)}</span>
-                  </text>
-                </Show>
-                <Show when={currentSetting() && changed(currentSetting()!)}>
-                  <text fg={theme.text.action.primary.base} attributes={TextAttributes.BOLD}>
-                    ● {t("modified")}
-                  </text>
-                </Show>
-              </box>
-            </box>
-            <box flexDirection="column" flexShrink={0} alignItems="flex-end">
-              <text fg={theme.text.muted}>
-                {`←/→ ${t("change")} · tab ${t("category")}`}
-              </text>
-              <text fg={theme.text.muted}>
-                {`alt+↑/↓ ${t("section")} · ctrl+r ${t("reset")}`}
-              </text>
-            </box>
+        <box flexDirection="column" gap={0} width="100%">
+          <text fg={theme.text.base} wrapMode="word">{t(currentSetting()?.description ?? "")}</text>
+          <box flexDirection="row" gap={1} flexWrap="wrap">
+            <text fg={theme.text.muted}>{`${t("Default value")}: ${defaultDisplay(currentSetting())}${currentSetting() && changed(currentSetting()!) ? ` · ${t("modified")}` : ""}`}</text>
+            <text fg={theme.text.muted}>{`←/→ ${t("change")} · Tab ${t("category")} · Alt+↑/↓ ${t("section")} · Ctrl+R ${t("reset")}`}</text>
           </box>
         </box>
       }

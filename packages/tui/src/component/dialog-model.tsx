@@ -372,6 +372,8 @@ export function DialogModel(props: {
 
   const select = (
     <DialogSelect<ReturnType<typeof options>[number]["value"]>
+      compact
+      tall
       options={options()}
       actions={[
         {
@@ -437,6 +439,7 @@ export function DialogModel(props: {
   return (
     <box flexDirection="row" flexGrow={1}>
       <CategoryRail
+        width={20}
         items={categories()}
         selected={activeCategory()?.id ?? CATEGORY_ALL}
         onSelect={setSelectedCategory}
