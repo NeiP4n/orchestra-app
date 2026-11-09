@@ -11,8 +11,9 @@ export interface Status {
   localTest?: boolean
   enabled: boolean
   nextAt: number | null
-  phase: "waiting" | "dispatched" | "checking" | "checked" | "error" | "paused"
+  phase: "waiting" | "dispatched" | "checking" | "checked" | "info" | "error" | "paused"
   lastDispatchAt?: number
+  lastInfoAt?: number
   lastCheckedAt?: number
   error?: string
 }
@@ -21,7 +22,7 @@ const file = (id: string) => path.join(Global.Path.data, "browser-schedules", `$
 // A denied write cannot be persisted to the same denied folder. Keep a local
 // error overlay for reporting and fail closed; never turn a failed save green.
 const ioErrors = new Map<string, Status>()
-const phases = new Set(["waiting", "dispatched", "checking", "checked", "error", "paused"])
+const phases = new Set(["waiting", "dispatched", "checking", "checked", "info", "error", "paused"])
 const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v)
 export function get(id: string): Status | undefined {
   const error = ioErrors.get(file(id))
@@ -30,6 +31,7 @@ export function get(id: string): Status | undefined {
     const v = JSON.parse(readFileSync(file(id), "utf8")) as Status
     if (!v || v.triggerID !== id || typeof v.browserSessionID !== "string" || typeof v.enabled !== "boolean" ||
       !phases.has(v.phase) || !(v.nextAt === null || finite(v.nextAt)) ||
+      (v.lastInfoAt !== undefined && !finite(v.lastInfoAt)) ||
       (v.lastCheckedAt !== undefined && !finite(v.lastCheckedAt)) ||
       (v.lastDispatchAt !== undefined && !finite(v.lastDispatchAt))) return undefined
     return v
@@ -110,4 +112,12 @@ export function forSession(sessionID: string): Status[] {
   for (const [target, status] of ioErrors)
     if (path.dirname(target) === directory && status.browserSessionID === sessionID) found.set(status.triggerID, status)
   return [...found.values()]
+}
+
+
+/** Title/URL inspection is an update, not evidence that page content was read. */
+export function inspected(id: string, sessionID: string, now = Date.now()) {
+  const previous = get(id)
+  if (!previous?.enabled || previous.browserSessionID !== sessionID) return
+  save({ ...previous, phase: "info", lastInfoAt: now, error: undefined })
 }

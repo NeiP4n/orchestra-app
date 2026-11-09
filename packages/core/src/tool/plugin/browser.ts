@@ -438,9 +438,10 @@ export const Plugin = {
                     error,
                   }),
               }).pipe(Effect.tapError(() => Effect.sync(() => {
-                if (checkedTask) BrowserSchedule.finished(checkedTask.triggerID, browserSession, false)
+                if (scheduled) BrowserSchedule.finished(scheduled.triggerID, browserSession, false)
               })))
               if (checkedTask) BrowserSchedule.finished(checkedTask.triggerID, browserSession, true)
+              else if (scheduled) BrowserSchedule.inspected(scheduled.triggerID, browserSession)
               const text = provenance.mode !== "ordinary" ? Trigger.untrusted(`browser:${browserSession}`, result.text, 8000) : result.text
               return {
                 output: { output: text },
