@@ -199,6 +199,14 @@ export const builtin = (
     const target = String(input.agent ?? "").replace(/^team-/, "")
     if (target !== "browser-agent" && typeof input.prompt === "string" && browserTask.test(input.prompt)) return route
   }
+  // A browser role is the BrowserAgent of a browser session (a record and a page in the Browser tab). A role or a
+  // session made with a browser-like name and no page would be a plain chat dressed as one.
+  const browserLike = (value: unknown) => typeof value === "string" && /browser/i.test(value) && !/^(?:team-)?browser-agent$/.test(value.trim())
+  const nonBrowserAgent = "A role or session named for the browser is refused: browser work belongs to the BrowserAgent of a browser session (browser action=sessions lists them, browser action=create adds one). Use that instead of a new role."
+  if (call.tool === "team_forge" && (input.action === "role" || input.action === "edit_role") && (browserLike(input.name) || browserLike(input.id)))
+    return nonBrowserAgent
+  if (call.tool === "sessions" && input.action === "create" && browserLike(input.role))
+    return nonBrowserAgent
   if (call.tool === "execute" && typeof input.code === "string") {
     const code = input.code
     if (/(?:playwright|puppeteer|selenium|chromedriver|msedge|chrome\.exe|google-chrome)/i.test(code) && /(?:spawn|exec|launch|import|require|npx|bunx|Bun\.\$)/i.test(code))
