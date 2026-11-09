@@ -9,5 +9,6 @@ test("schedule indicator distinguishes dispatch from a fresh page read", () => {
   expect(scheduleLine({ ...base, phase: "checking" }, 200)).toContain("reading page")
   expect(scheduleLine({ ...base, phase: "error" }, 200)).toContain("last read: never")
   expect(scheduleLine({ ...base, enabled: false, phase: "paused" }, 200)).toContain("next: none")
+  expect(scheduleLine({ ...base, enabled: false, phase: "error" }, 200)).toContain(": error |")
   expect(scheduleLine(base, 10_001)).toContain("next: due")
 })

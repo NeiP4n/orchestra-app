@@ -17,21 +17,53 @@ export interface Status {
 }
 const file = (id: string) => path.join(Global.Path.data, "browser-schedules", `${encodeURIComponent(id)}.json`)
 
+// A denied write cannot be persisted to the same denied folder. Keep a local
+// error overlay for reporting and fail closed; never turn a failed save green.
+const ioErrors = new Map<string, Status>()
+const phases = new Set(["waiting", "dispatched", "checking", "checked", "error", "paused"])
+const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v)
 export function get(id: string): Status | undefined {
+  const error = ioErrors.get(file(id))
+  if (error) return error
   try {
     const v = JSON.parse(readFileSync(file(id), "utf8")) as Status
-    if (v.triggerID !== id || typeof v.browserSessionID !== "string" || typeof v.enabled !== "boolean") return undefined
+    if (!v || v.triggerID !== id || typeof v.browserSessionID !== "string" || typeof v.enabled !== "boolean" ||
+      !phases.has(v.phase) || !(v.nextAt === null || finite(v.nextAt)) ||
+      (v.lastCheckedAt !== undefined && !finite(v.lastCheckedAt)) ||
+      (v.lastDispatchAt !== undefined && !finite(v.lastDispatchAt))) return undefined
     return v
   } catch { return undefined }
 }
-export function save(status: Status) {
+export function save(status: Status): boolean {
   const target = file(status.triggerID)
-  mkdirSync(path.dirname(target), { recursive: true })
+  const previous = get(status.triggerID)
   const tmp = `${target}.${process.pid}.tmp`
-  writeFileSync(tmp, JSON.stringify(status))
-  renameSync(tmp, target)
+  try {
+    mkdirSync(path.dirname(target), { recursive: true })
+    writeFileSync(tmp, JSON.stringify(status))
+    renameSync(tmp, target)
+    ioErrors.delete(target)
+    return true
+  } catch {
+    ioErrors.set(target, { ...status, enabled: false, nextAt: null, phase: "error",
+      lastCheckedAt: previous?.lastCheckedAt,
+      error: "Schedule status storage is unavailable. No new successful check was recorded." })
+    try { rmSync(tmp, { force: true }) } catch {}
+    return false
+  }
 }
-export function remove(id: string) { rmSync(file(id), { force: true }) }
+export function remove(id: string): boolean {
+  const previous = get(id)
+  try {
+    rmSync(file(id), { force: true })
+    ioErrors.delete(file(id))
+    return true
+  } catch {
+    if (previous) ioErrors.set(file(id), { ...previous, enabled: false, nextAt: null, phase: "error",
+      error: "Schedule status could not be removed. Page checks are blocked in this process." })
+    return false
+  }
+}
 
 export function sync(trigger: { id: string; browserSessionID?: string; enabled: boolean; nextAt: number | null }) {
   if (!trigger.browserSessionID) return
@@ -63,13 +95,18 @@ export function deliveryFailed(id: string) {
 
 /** Only this session's operational status, never another session's page content. */
 export function forSession(sessionID: string): Status[] {
+  const found = new Map<string, Status>()
+  const directory = path.join(Global.Path.data, "browser-schedules")
   try {
-    return readdirSync(path.join(Global.Path.data, "browser-schedules")).flatMap((name) => {
-      if (!name.endsWith(".json")) return []
+    for (const name of readdirSync(directory)) {
+      if (!name.endsWith(".json")) continue
       let id: string
-      try { id = decodeURIComponent(name.slice(0, -5)) } catch { return [] }
+      try { id = decodeURIComponent(name.slice(0, -5)) } catch { continue }
       const status = get(id)
-      return status?.browserSessionID === sessionID ? [status] : []
-    })
-  } catch { return [] }
+      if (status?.browserSessionID === sessionID) found.set(id, status)
+    }
+  } catch {}
+  for (const [target, status] of ioErrors)
+    if (path.dirname(target) === directory && status.browserSessionID === sessionID) found.set(status.triggerID, status)
+  return [...found.values()]
 }

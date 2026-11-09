@@ -30,3 +30,34 @@ test("browser schedule status records successful reads, not dispatches", () => {
   } finally { BrowserSchedule.remove(id) }
   expect(BrowserSchedule.get(id)).toBeUndefined()
 })
+
+test("denied status IO degrades to an error without a defect or a fake success", async () => {
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs")
+  const os = await import("node:os")
+  const path = await import("node:path")
+  const previous = process.env.ORCHESTRA_DATA_DIR
+  const root = mkdtempSync(path.join(os.tmpdir(), "schedule-denied-"))
+  process.env.ORCHESTRA_DATA_DIR = root
+  const trigger = { id: "denied", browserSessionID: "b", enabled: true, nextAt: 100 }
+  try {
+    // A regular file where a directory is required deterministically refuses
+    // writes even under privileged CI users, unlike chmod-based fixtures.
+    writeFileSync(path.join(root, "browser-schedules"), "blocked")
+    expect(() => BrowserSchedule.sync(trigger)).not.toThrow()
+    expect(BrowserSchedule.get("denied")).toMatchObject({ phase: "error", enabled: false })
+    expect(() => BrowserSchedule.finished("denied", "b", true, 500)).not.toThrow()
+    expect(BrowserSchedule.get("denied")?.lastCheckedAt).toBeUndefined()
+    expect(BrowserSchedule.forSession("b")).toHaveLength(1)
+    expect(BrowserSchedule.remove("denied")).toBe(false)
+    rmSync(path.join(root, "browser-schedules"))
+    BrowserSchedule.sync(trigger)
+    expect(BrowserSchedule.get("denied")?.enabled).toBe(true)
+    BrowserSchedule.finished("denied", "b", true, 600)
+    expect(BrowserSchedule.get("denied")?.lastCheckedAt).toBe(600)
+    BrowserSchedule.remove("denied")
+  } finally {
+    if (previous === undefined) delete process.env.ORCHESTRA_DATA_DIR
+    else process.env.ORCHESTRA_DATA_DIR = previous
+    rmSync(root, { recursive: true, force: true })
+  }
+})

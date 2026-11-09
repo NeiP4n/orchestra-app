@@ -9,7 +9,7 @@ export function scheduleLine(status: BrowserSchedule.Status, now: number) {
   const last = status.lastCheckedAt === undefined ? "never" : clock(status.lastCheckedAt)
   const next = !status.enabled || status.nextAt === null ? "none" :
     status.nextAt <= now ? `due (${clock(status.nextAt)})` : clock(status.nextAt)
-  const state = !status.enabled ? "paused" : status.phase === "dispatched" ? "awaiting BrowserAgent" :
+  const state = status.phase === "error" ? "error" : !status.enabled ? "paused" : status.phase === "dispatched" ? "awaiting BrowserAgent" :
     status.phase === "checked" ? "page read completed" : status.phase === "checking" ? "reading page" : status.phase
   return `Read-only check ${status.triggerID}: ${state} | last read: ${last} | next: ${next}`
 }
