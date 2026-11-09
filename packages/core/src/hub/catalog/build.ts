@@ -38,14 +38,6 @@ export const entries: Entry[] = [
     templates: { bash: "npx --yes tsc --noEmit" },
   },
   {
-    id: "build.page-screenshot",
-    title: "Screenshot a web page",
-    description: "Render a URL (such as the local dev server) in a headless browser and save a PNG",
-    category: "build",
-    requires: ["npx"],
-    templates: { bash: "npx --yes playwright screenshot --full-page {url} {output}" },
-  },
-  {
     id: "build.dotnet-build",
     title: ".NET build",
     description: "Build a .NET solution or project",

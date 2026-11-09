@@ -42,6 +42,9 @@ export function launchesBrowser(command: string): boolean {
     while (i < tokens.length && (WRAPPERS.has(tokens[i]!.toLowerCase()) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i]!))) i++
     const head = tokens[i] ? base(tokens[i]!) : ""
     const rest = tokens.slice(i + 1)
+    // Browser automation libraries start a browser of their own: the browser tool is the only browser.
+    if (/^(?:playwright|puppeteer|selenium|chromedriver|msedgedriver|geckodriver|webdriver-manager|cypress)$/.test(head)) return true
+    if (/^(?:npx|bunx|pnpx|yarn|pnpm|npm|bun|uvx|pipx|node|python3?|py)$/.test(head) && rest.some((token) => /^(?:@?playwright(?:\/\S*)?|puppeteer(?:-core)?|selenium(?:-webdriver)?|cypress)(?:@\S*)?$/i.test(token.replace(/^["']|["']$/g, "")))) return true
     if (BROWSERS.has(head)) {
       // A windowless browser (CI, screenshots, version checks) shows nothing, so it stays allowed.
       if (rest.some((token) => /^--headless/.test(token) || token === "--version" || token === "-version")) continue

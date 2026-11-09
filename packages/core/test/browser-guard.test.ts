@@ -35,3 +35,12 @@ describe("BrowserGuard", () => {
     expect(BrowserGuard.opensBrowser("C:\\Windows\\notepad.exe")).toBe(false)
   })
 })
+
+describe("automation libraries", () => {
+  test("playwright, puppeteer and selenium launches through the shell are refused", () => {
+    for (const command of ["npx playwright screenshot x y", "npx --yes playwright test", "bunx puppeteer browsers install chrome", "playwright install", "npx -y @playwright/mcp@latest", "chromedriver --port=9515"])
+      expect(BrowserGuard.launchesBrowser(command)).toBe(true)
+    expect(BrowserGuard.launchesBrowser("npm test")).toBe(false)
+    expect(BrowserGuard.launchesBrowser("git status")).toBe(false)
+  })
+})

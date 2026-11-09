@@ -24,32 +24,14 @@ export const defaultRules: ReadonlyArray<GuidanceRule> = [
     guidance: "Prefer hub recipes over hand-written shell pipelines for registry-provided git work; plain shell git covers the rest.",
   },
   {
-    intent: "Cross-file code navigation & refactors",
-    tools: ["serena_*"],
-    guidance:
-      "Serena works through a session REPL: call its initial_instructions first, activate the project, then use the lsp facade (declarations, references, implementations, rename) through serena_repl for cross-file questions instead of grep-and-read; fall back to native symbols/grep when Serena is unavailable.",
-  },
-  {
-    intent: "Library documentation & external APIs",
-    tools: ["context7"],
-    guidance:
-      "Query context7 (resolve-library-id -> query-docs) instead of assuming obsolete API signatures. Mandatory Freshness: never write code from memory relying on outdated knowledge cutoff; verify current documentation before implementation.",
-  },
-  {
     intent: "Live pages, web apps & browser flows",
     tools: ["browser"],
     guidance: "Drive the page with these instead of reconstructing it from a fetch or curl: open the URL, read the accessibility tree or DOM, act, then assert on the result. A rendered page is evidence; a guessed one is not. When the answer needs another assistant's knowledge, open its chat (Gemini, ChatGPT, DeepSeek, Qwen) in the browser, ask it there, and cite the URL you used instead of paraphrasing from memory.",
   },
   {
     intent: "Current information, unfamiliar libraries & APIs",
-    tools: ["research", "websearch", "webfetch", "deepwiki_*"],
+    tools: ["research", "websearch", "webfetch"],
     guidance: "Call research first: one call searches and reads the most relevant pages. Then read the primary source (official docs, changelog, source) before relying on the fact. If the source needs a signed-in or interactive assistant, use the browser and ask there; never answer a current-events or version question from memory.",
-  },
-  {
-    intent: "Binary analysis, decompilation, APK reversing & native library inspection",
-    tools: ["rea-anything_*", "rea_*"],
-    guidance:
-      "Use rea-anything tools (JADX, Ghidra, Hopper, APK inspector, native disassembly) to extract exact exported symbols, function signatures, struct layouts, and decompiled code before writing integration code. Never guess native function signatures, JNI exports, or undocumented protocols.",
   },
   {
     intent: "A vague or underspecified request",
