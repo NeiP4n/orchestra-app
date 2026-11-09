@@ -634,6 +634,100 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
     )
   }
 
+  // The browser sessions of a project with reopen and new. Shown in the Browser tab and, always, as the "Browsers"
+  // group of the project tree.
+  const browserRows = (project: OrchestraProject): JSX.Element => (
+    <>
+                  <For each={browserSessionGroups(notes.browserSessions(project.id)).flatMap((group) => group.sessions)}>
+                    {(item) => {
+                      const [removeHovered, setRemoveHovered] = createSignal(false)
+                      const chosen = () => notes.browserSelected(project.id)?.id === item.id
+                      return (
+                        <>
+                        <Row
+                          id={`browser:${item.id}`}
+                          hover={hover}
+                          setHover={setHover}
+                          selected={chosen() && inProject(project)}
+                          onClick={() => {
+                            notes.selectBrowserSession(project.id, item.id)
+                            notes.ensureBrowserAgent(project.id, item.id, project.directory)
+                            notes.setProject(project.id)
+                            if (!inProject(project)) void openMain(project)
+                          }}
+                        >
+                          <Branch lit={chosen() && inProject(project)} />
+                          <text flexShrink={0} fg={chosen() ? palette().synapse : theme.text.muted}>
+                            {"◎ "}
+                          </text>
+                          <box flexGrow={1} minWidth={0}>
+                            <text fg={theme.text.base} wrapMode="none" truncate>
+                              {item.group ? `${item.group} · ${item.name}` : item.name}
+                            </text>
+                          </box>
+                          <HoverAction
+                            id={`browser-rename:${item.id}`}
+                            onClick={() =>
+                              dialog.replace(() => (
+                                <DialogPrompt
+                                  title={t("Rename browser session")}
+                                  placeholder={t("Name (logins and cookies stay)")}
+                                  value={item.name}
+                                  onCancel={() => dialog.clear()}
+                                  onConfirm={(value) => {
+                                    dialog.clear()
+                                    notes.renameBrowserSession(project.id, item.id, value)
+                                  }}
+                                />
+                              ))
+                            }
+                          >
+                            <text fg={theme.text.action.primary.base}>{" ✎"}</text>
+                          </HoverAction>
+                          <HoverAction
+                            id={`browser-remove:${item.id}`}
+                            onMouseEnter={() => setRemoveHovered(true)}
+                            onMouseLeave={() => setRemoveHovered(false)}
+                            onClick={() => notes.removeBrowserSession(project.id, item.id)}
+                          >
+                            <text fg={removeHovered() ? theme.text.feedback.error.base : theme.text.muted}>{" ×"}</text>
+                          </HoverAction>
+                        </Row>
+                        </>
+                      )
+                    }}
+                  </For>
+                  <Show when={notes.closedBrowserSessions(project.id).length > 0}>
+                    <Row
+                      id={`browser-reopen:${project.id}`}
+                      hover={hover}
+                      setHover={setHover}
+                      onClick={() => openClosedPicker(project)}
+                    >
+                      <Branch />
+                      <text fg={theme.text.action.primary.base} wrapMode="none" truncate>
+                        {`↺ ${t("Reopen closed session")} (${notes.closedBrowserSessions(project.id).length})`}
+                      </text>
+                    </Row>
+                  </Show>
+                  <Row
+                    id={`browser-new:${project.id}`}
+                    hover={hover}
+                    setHover={setHover}
+                    onClick={() => {
+                      notes.addBrowserSession(project.id, project.directory)
+                      notes.setProject(project.id)
+                      if (!inProject(project)) void openMain(project)
+                    }}
+                  >
+                    <Branch last />
+                    <text fg={theme.text.action.primary.base} wrapMode="none" truncate>
+                      {`+ ${t("New browser session")}`}
+                    </text>
+                  </Row>
+    </>
+  )
+
   // A subagent whose chain of parents does not end at the Orchestrator or at a session listed in this project would be
   // listed nowhere (its parent is hidden, in another project, or not loaded), so it is listed as a session of its own.
   const orphan = (parentID: string, project: OrchestraProject) => {
@@ -644,7 +738,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       if (!current.parentID) {
         const root = current
         return (
-          root.agent === "team-browser-agent" && notes.browserSessions(project.id).some((item) => item.chat === root.id) ||
+          root.agent === "team-browser-agent" ||
           owner(root)?.id !== project.id
         )
       }
@@ -653,6 +747,19 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
     }
     return true
   }
+
+  // BrowserAgent chats no browser session owns (the Orchestrator created them) belong to the Browsers group too.
+  const browserChatsOf = (project: OrchestraProject) =>
+    data.session
+      .list()
+      .filter(
+        (session) =>
+          session.agent === "team-browser-agent" &&
+          !session.parentID &&
+          !removed[session.id] &&
+          !notes.browserSessions(project.id).some((item) => item.chat === session.id) &&
+          owner(session)?.id === project.id,
+      )
 
   const sessionsOf = (project: OrchestraProject) =>
     data.session
@@ -664,8 +771,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           session.id !== project.main &&
           // A BrowserAgent chat belongs to its browser session and is listed in the Browser tab, not here. One that no
           // browser session owns (the Orchestrator created it with sessions create) would be listed nowhere, so it stays here.
-          (session.agent !== "team-browser-agent" ||
-            !notes.browserSessions(project.id).some((item) => item.chat === session.id)) &&
+          session.agent !== "team-browser-agent" &&
           owner(session)?.id === project.id,
       )
 
@@ -955,93 +1061,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                 </Row>
                 {/* Browser view: the project's browser sessions, any number, each its own profile. */}
                 <Show when={notes.tab() === "browser"}>
-                  <For each={browserSessionGroups(notes.browserSessions(project.id)).flatMap((group) => group.sessions)}>
-                    {(item) => {
-                      const [removeHovered, setRemoveHovered] = createSignal(false)
-                      const chosen = () => notes.browserSelected(project.id)?.id === item.id
-                      return (
-                        <>
-                        <Row
-                          id={`browser:${item.id}`}
-                          hover={hover}
-                          setHover={setHover}
-                          selected={chosen() && inProject(project)}
-                          onClick={() => {
-                            notes.selectBrowserSession(project.id, item.id)
-                            notes.ensureBrowserAgent(project.id, item.id, project.directory)
-                            notes.setProject(project.id)
-                            if (!inProject(project)) void openMain(project)
-                          }}
-                        >
-                          <Branch lit={chosen() && inProject(project)} />
-                          <text flexShrink={0} fg={chosen() ? palette().synapse : theme.text.muted}>
-                            {"◎ "}
-                          </text>
-                          <box flexGrow={1} minWidth={0}>
-                            <text fg={theme.text.base} wrapMode="none" truncate>
-                              {item.group ? `${item.group} · ${item.name}` : item.name}
-                            </text>
-                          </box>
-                          <HoverAction
-                            id={`browser-rename:${item.id}`}
-                            onClick={() =>
-                              dialog.replace(() => (
-                                <DialogPrompt
-                                  title={t("Rename browser session")}
-                                  placeholder={t("Name (logins and cookies stay)")}
-                                  value={item.name}
-                                  onCancel={() => dialog.clear()}
-                                  onConfirm={(value) => {
-                                    dialog.clear()
-                                    notes.renameBrowserSession(project.id, item.id, value)
-                                  }}
-                                />
-                              ))
-                            }
-                          >
-                            <text fg={theme.text.action.primary.base}>{" ✎"}</text>
-                          </HoverAction>
-                          <HoverAction
-                            id={`browser-remove:${item.id}`}
-                            onMouseEnter={() => setRemoveHovered(true)}
-                            onMouseLeave={() => setRemoveHovered(false)}
-                            onClick={() => notes.removeBrowserSession(project.id, item.id)}
-                          >
-                            <text fg={removeHovered() ? theme.text.feedback.error.base : theme.text.muted}>{" ×"}</text>
-                          </HoverAction>
-                        </Row>
-                        </>
-                      )
-                    }}
-                  </For>
-                  <Show when={notes.closedBrowserSessions(project.id).length > 0}>
-                    <Row
-                      id={`browser-reopen:${project.id}`}
-                      hover={hover}
-                      setHover={setHover}
-                      onClick={() => openClosedPicker(project)}
-                    >
-                      <Branch />
-                      <text fg={theme.text.action.primary.base} wrapMode="none" truncate>
-                        {`↺ ${t("Reopen closed session")} (${notes.closedBrowserSessions(project.id).length})`}
-                      </text>
-                    </Row>
-                  </Show>
-                  <Row
-                    id={`browser-new:${project.id}`}
-                    hover={hover}
-                    setHover={setHover}
-                    onClick={() => {
-                      notes.addBrowserSession(project.id, project.directory)
-                      notes.setProject(project.id)
-                      if (!inProject(project)) void openMain(project)
-                    }}
-                  >
-                    <Branch last />
-                    <text fg={theme.text.action.primary.base} wrapMode="none" truncate>
-                      {`+ ${t("New browser session")}`}
-                    </text>
-                  </Row>
+                  {browserRows(project)}
                 </Show>
                 <Show when={expanded[project.id] && !projectOnly()}>
                   {/* The rulebooks of this project: the crew's rules, and the rules only its Orchestrator gets (operator-only). */}
@@ -1082,6 +1102,30 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                     </text>
                   </Row>
                   {childRows(project.main)}
+                  <Show when={notes.tab() !== "browser"}>
+                  <box flexDirection="row" paddingLeft={1}>
+                    <Branch through />
+                    <text fg={palette().synapse} wrapMode="none" truncate>
+                      {`# ${t("Browsers")}`}
+                    </text>
+                  </box>
+                  {browserRows(project)}
+                  <For each={browserChatsOf(project)}>
+                    {(chat) => (
+                      <Row
+                        id={`browser-chat:${chat.id}`}
+                        hover={hover}
+                        setHover={setHover}
+                        selected={chat.id === current()?.id}
+                        onClick={() => route.navigate({ type: "session", sessionID: chat.id })}
+                      >
+                        <Branch lit={chat.id === current()?.id} />
+                        <text flexShrink={0} fg={theme.text.muted}>{"◎ "}</text>
+                        <text fg={theme.text.base} wrapMode="none" truncate>{chat.title || t("Browser agent")}</text>
+                      </Row>
+                    )}
+                  </For>
+                  </Show>
                   <For each={visibleGroupsOf(project).groups}>
                     {(group) => (
                       <>

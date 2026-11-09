@@ -72,3 +72,10 @@ test("a subagent whose parent is not listed is listed as a session of its own, a
   expect(tree).toContain("orphan(session.parentID, project)")
   expect(tree).toContain("childRows(child.id, depth + 1)")
 })
+
+test("every project tree has a Browsers group with its browser sessions, orphan BrowserAgent chats and New browser session", () => {
+  const tree = read("component/project-tree.tsx")
+  expect(tree).toContain('`# ${t("Browsers")}`')
+  expect(tree).toContain("browserChatsOf(project)")
+  expect(tree.match(/\{browserRows\(project\)\}/g)?.length).toBe(2)
+})
