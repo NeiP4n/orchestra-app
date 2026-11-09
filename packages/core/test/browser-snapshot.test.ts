@@ -63,3 +63,16 @@ describe("browser devtools actions", () => {
     expect(BrowserTool.acts("console")).toBe(false)
   })
 })
+
+describe("scripts sent to the page are valid JavaScript", () => {
+  test("snapshot keeps its newline and whitespace escapes inside the script text", () => {
+    const script = BrowserPage.snapshotExpression(5)
+    expect(() => new Function(`return ${script}`)).not.toThrow()
+    expect(script).toContain("join('\\n')")
+    expect(script).toContain("/\\s+/g")
+  })
+  test("eval and storage scripts parse", () => {
+    expect(() => new Function(`return ${BrowserDevtools.evalExpression("1 + 1")}`)).not.toThrow()
+    expect(() => new Function(`return ${BrowserDevtools.storageExpression}`)).not.toThrow()
+  })
+})

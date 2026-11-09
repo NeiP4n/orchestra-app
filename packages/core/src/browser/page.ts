@@ -70,7 +70,7 @@ export function snapshotExpression(limit = 250) {
       if (lines.length >= ${limit}) continue
       const tag = el.tagName.toLowerCase()
       const role = el.getAttribute('role') || (tag === 'a' ? 'link' : tag === 'input' ? (el.type || 'text') : tag === 'textarea' ? 'textbox' : tag)
-      const label = (el.getAttribute('aria-label') || el.innerText || el.value || el.placeholder || el.title || el.name || '').replace(/\s+/g, ' ').trim().slice(0, 80)
+      const label = (el.getAttribute('aria-label') || el.innerText || el.value || el.placeholder || el.title || el.name || '').replace(/\\s+/g, ' ').trim().slice(0, 80)
       const ref = 'e' + (lines.length + 1)
       el.setAttribute('data-orc-ref', ref)
       const extra = []
@@ -80,6 +80,6 @@ export function snapshotExpression(limit = 250) {
       if ((tag === 'input' || tag === 'textarea') && el.type !== 'password' && el.value && label !== el.value) extra.push('value=' + JSON.stringify(String(el.value).slice(0, 40)))
       lines.push('@' + ref + ' ' + role + (label ? ' ' + JSON.stringify(label) : '') + (extra.length ? ' ' + extra.join(' ') : ''))
     }
-    return { ok: true, text: lines.join('\n') + (total > lines.length ? '\n[' + (total - lines.length) + ' more elements not listed: scroll or use text]' : '') }
+    return { ok: true, text: lines.join('\\n') + (total > lines.length ? '\\n[' + (total - lines.length) + ' more elements not listed: scroll or use text]' : '') }
   })()`
 }
