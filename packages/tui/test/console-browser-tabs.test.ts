@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import path from "node:path"
-import { adoptBrowserChat, emptyBrowserSessions } from "../src/util/browser-sessions"
+import { adoptBrowserChat, collapseDuplicateChats, emptyBrowserSessions } from "../src/util/browser-sessions"
 
 const read = (file: string) => readFileSync(path.join(import.meta.dir, "..", "src", file), "utf8")
 
@@ -138,4 +138,33 @@ test("the browser pane draws its own tab strip and address from the runtime's ta
   for (const name of ["BrowserRuntime.tabs(", "BrowserRuntime.selectTab(", "BrowserRuntime.closeTab(", "BrowserRuntime.newTab(", "BrowserRuntime.go(", "BrowserRuntime.history("])
     expect(pane).toContain(name)
   expect(pane.indexOf("tabList()")).toBeLessThan(pane.indexOf("<browserImage"))
+})
+
+test("the button's session and the Orchestrator's chat each give exactly one record per chat", () => {
+  // Orchestrator path: the same orphan chat seen twice is adopted once.
+  const state = emptyBrowserSessions()
+  expect(adoptBrowserChat(state, "p", { id: "a", chat: "ses_1", name: "One", now: 1 })).toBeDefined()
+  expect(adoptBrowserChat(state, "p", { id: "b", chat: "ses_1", name: "One", now: 2 })).toBeUndefined()
+  expect(state.projects.p).toHaveLength(1)
+  // Button path: a record that got its chat, then a second record adopted for the same chat before the bind landed.
+  const both = emptyBrowserSessions()
+  both.projects.p = [
+    { id: "btn", name: "Browser 1", created: 1, chat: "ses_2" },
+    { id: "dup", name: "Browser 1", created: 2, chat: "ses_2" },
+    { id: "other", name: "Other", created: 3, chat: "ses_3" },
+    { id: "nochat", name: "Fresh", created: 4 },
+  ]
+  both.selected.p = "dup"
+  expect(collapseDuplicateChats(both)).toBe(1)
+  expect(both.projects.p.map((item) => item.id)).toEqual(["btn", "other", "nochat"])
+  expect(both.selected.p).toBe("btn")
+  expect(collapseDuplicateChats(both)).toBe(0)
+})
+
+test("a chat is claimed the moment it is created, before its binding lands, so adoption never takes it", () => {
+  const notes = read("context/notes.tsx")
+  expect(notes.indexOf("claimed.add(created.id)")).toBeGreaterThan(0)
+  expect(notes.indexOf("claimed.add(created.id)")).toBeLessThan(notes.indexOf("await created.request"))
+  expect(notes).toContain("if (claimed.has(chat)) return")
+  expect(read("component/project-tree.tsx")).toContain("!notes.claimedChat(session.id)")
 })

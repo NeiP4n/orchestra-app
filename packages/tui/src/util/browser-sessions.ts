@@ -128,6 +128,30 @@ export function adoptBrowserChat(
   return session
 }
 
+/**
+ * One chat belongs to one browser session. When several records point at the same chat (an adopted copy made while
+ * the button's record was still being given its chat), the oldest stays and the others go, with the selection moved
+ * to the survivor. They are dropped, not kept closed: they never had a page or a chat of their own. Returns the number removed.
+ */
+export function collapseDuplicateChats(state: BrowserSessionsState): number {
+  let removed = 0
+  for (const [projectID, list] of Object.entries(state.projects ?? {})) {
+    const keeper = new Map<string, BrowserSession>()
+    for (const item of [...list].sort((a, b) => a.created - b.created)) {
+      if (!item.chat) continue
+      if (!keeper.has(item.chat)) keeper.set(item.chat, item)
+    }
+    const drop = list.filter((item) => item.chat && keeper.get(item.chat) !== item)
+    if (drop.length === 0) continue
+    for (const item of drop) {
+      list.splice(list.indexOf(item), 1)
+      if (state.selected[projectID] === item.id) state.selected[projectID] = keeper.get(item.chat!)!.id
+      removed += 1
+    }
+  }
+  return removed
+}
+
 export function selectBrowserSession(state: BrowserSessionsState, projectID: string, id: string) {
   if (state.projects[projectID]?.some((item) => item.id === id)) state.selected[projectID] = id
 }

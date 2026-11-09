@@ -17,6 +17,7 @@ import { useStorage } from "./storage"
 import {
   addBrowserSession,
   adoptBrowserChat,
+  collapseDuplicateChats,
   bindBrowserChat,
   emptyBrowserSessions,
   forgetClosedBrowserSession,
@@ -56,7 +57,14 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
         draft.projects ??= {}
         draft.selected ??= {}
         mutation(draft)
+        // One chat, one browser session: a duplicate record of the same chat is folded into the oldest.
+        collapseDuplicateChats(draft)
       }).catch(() => undefined)
+    // Chats a browser session is being given or adopted right now: the instant the chat exists it is claimed, so the
+    // adoption of "orphan" browser chats never takes the one the button is still binding.
+    const claimed = new Set<string>()
+    // Heals duplicates made before this fix, once.
+    void changeBrowser(() => {})
     // Sessions whose bound note the user put aside to read the full chat.
     const [chat, setChat] = createStore<Record<string, boolean>>({})
     const [listings, setListings] = createStore<Record<string, Listing>>({})
@@ -249,6 +257,7 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
       agentPending.add(sessionID)
       try {
         const created = data.session.create({ title, location: { directory }, agent: "team-browser-agent" })
+        claimed.add(created.id)
         await created.request
         await changeBrowser((draft) => void bindBrowserChat(draft, projectID, sessionID, created.id))
       } catch {
@@ -292,11 +301,15 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
       removeBrowserSession: (projectID: string, id: string) =>
         changeBrowser((draft) => removeBrowserSession(draft, projectID, id)),
       // A browser chat the Orchestrator made becomes a real browser session of the project (a page, a profile, its chat).
-      adoptBrowserChat: (projectID: string, chat: string, name: string) =>
-        changeBrowser((draft) => {
+      claimedChat: (chat: string) => claimed.has(chat),
+      adoptBrowserChat: (projectID: string, chat: string, name: string) => {
+        if (claimed.has(chat)) return
+        claimed.add(chat)
+        return changeBrowser((draft) => {
           const id = `brw_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
           adoptBrowserChat(draft, projectID, { id, chat, name, now: Date.now() })
-        }),
+        })
+      },
       forgetBrowserChat: (chat: string) => changeBrowser((draft) => void forgetBrowserChat(draft, chat)),
       renameBrowserSession: (projectID: string, id: string, name: string) =>
         changeBrowser((draft) => void renameBrowserSession(draft, projectID, id, name)),
