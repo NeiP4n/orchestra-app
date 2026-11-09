@@ -1556,12 +1556,14 @@ export function Prompt(props: PromptProps) {
   // availability and submission still use the live location-scoped catalog.
   // Diagnostic: when the agent shown is not the one the chat was created with, say which one the chat has and whether
   // the server's agent list knows it, so a single screenshot shows why (unknown agent, hidden, or replaced).
-  const agentMismatch = (shown: string) => {
+  // Browser chats: label comes straight from the session agent, not from the
+  // server agent list. Diagnostic goes first so it is never cut off.
+  const browserChatLabel = () => {
     const chat = props.sessionID ? data.session.get(props.sessionID)?.agent : undefined
-    if (!chat || chat === shown) return ""
-    const list = data.location.agent.list(currentLocation.ref ?? data.location.default()) ?? []
-    const entry = list.find((item) => item.id === chat)
-    return ` [${chat}:${entry ? (entry.hidden ? "hidden" : "ok") : "NOT in list"}]`
+    if (chat !== "team-browser-agent") return undefined
+    const list = data.location.agent.list(currentLocation.ref ?? data.location.default())
+    const entry = list?.find((item) => item.id === chat)
+    return `[n${list?.length ?? "?"}:${entry ? (entry.hidden ? "H" : "ok") : "NO"}] BrowserAgent`
   }
   const promptDisplay = createMemo<{
     agentLabel: string | undefined
@@ -1584,7 +1586,7 @@ export function Prompt(props: PromptProps) {
       const model = local.model.parsed()
       return {
         agentLabel: agent
-          ? (agent.id === "team-browser-agent" ? "BrowserAgent" : Locale.titlecase(agent.id)) + agentMismatch(agent.id)
+          ? Locale.titlecase(agent.id)
           : undefined,
         agentColor: agent ? local.agent.color(agent.id) : undefined,
         modelLabel: model.model,
@@ -1605,7 +1607,9 @@ export function Prompt(props: PromptProps) {
     if (store.mode === "shell") return theme.text.action.primary.selected
     return promptDisplay().agentColor ?? theme.border.base
   })
-  const agentLabel = createMemo(() => (store.mode === "shell" ? "Shell" : promptDisplay().agentLabel))
+  const agentLabel = createMemo(() =>
+    store.mode === "shell" ? "Shell" : (browserChatLabel() ?? promptDisplay().agentLabel),
+  )
   const animateMetadata = !revealedPromptMetadata.has(local)
   const metadataAnimationsEnabled = () => animationsEnabled() && animateMetadata
   const agentMetaAlpha = createFadeIn(() => !!agentLabel(), metadataAnimationsEnabled)
