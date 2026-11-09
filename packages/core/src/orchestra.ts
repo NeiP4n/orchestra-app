@@ -487,7 +487,7 @@ const layer: Layer.Layer<
       return found
     })
 
-    const projectSessions = Effect.fn("Orchestra.projectSessions")(function* (project: Project) {
+    const projectSessions = Effect.fn("Orchestra.projectSessions")(function* (project: Project, withSubagents = false) {
       const all = yield* projects()
       const claims = yield* owners()
       // One scoped read instead of the full top-level scan: with ~2000 sessions on
@@ -510,7 +510,7 @@ const layer: Layer.Layer<
         })
       ).flatMap((item) => Option.toArray(item))
       const seen = new Set<string>()
-      return [...inTree.data, ...claimed.filter((session) => session.parentID === undefined)]
+      const top = [...inTree.data, ...claimed.filter((session) => session.parentID === undefined)]
         .toSorted((a, b) => DateTime.toEpochMillis(b.time.updated) - DateTime.toEpochMillis(a.time.updated))
         .filter((session) => {
           if (seen.has(session.id)) return false
@@ -523,6 +523,24 @@ const layer: Layer.Layer<
             Orchestra.ownerOf(all, session.location.directory, claimed)?.id === project.id
           )
         })
+      // Subagents (sessions with a parent) belong to the project of their parent and are listed with it, down to
+      // three levels, so what the Orchestrator hands off is never hidden from the operator.
+      if (!withSubagents) return top
+      const found: SessionSchema.Info[] = [...top]
+      const known = new Set(found.map((session) => session.id))
+      let level: SessionID[] = [...(project.main ? [project.main] : []), ...top.map((session) => session.id)]
+      for (let depth = 0; depth < 3 && level.length > 0; depth++) {
+        const pages = yield* Effect.forEach(
+          level,
+          (id) => sessions.list({ parentID: id, order: "desc" }).pipe(Effect.map((page) => page.data)),
+          { concurrency: 8 },
+        )
+        const next = pages.flat().filter((session) => !known.has(session.id))
+        next.forEach((session) => known.add(session.id))
+        found.push(...next)
+        level = next.map((session) => session.id)
+      }
+      return found
     })
 
     // When a main Session is deleted, its replacement has a new ID. Keep any outstanding
@@ -2303,10 +2321,10 @@ const layer: Layer.Layer<
             const project = yield* get(id)
             if (Option.isSome(decodeProjectMovePlan(yield* kv.get(MOVE_PLAN + id)))) return []
             yield* reconcileTeamUnlocked(project)
-            const list = yield* projectSessions(project)
+            const list = yield* projectSessions(project, true)
             const result: SessionSchema.Info[] = []
             for (const s of list) {
-              if (s.metadata?.[SessionPlan.CONTEXT_KEY] === undefined) {
+              if (s.parentID === undefined && s.metadata?.[SessionPlan.CONTEXT_KEY] === undefined) {
                 const metadata = { ...s.metadata, [SessionPlan.CONTEXT_KEY]: CompactionPolicy.mainThreshold }
                 yield* sessions.setMetadata({ sessionID: s.id, metadata }).pipe(Effect.orDie)
                 result.push({ ...s, metadata })
@@ -2324,10 +2342,10 @@ const layer: Layer.Layer<
               ? Effect.succeed(opt.value)
               : Effect.gen(function* () {
                   const project = yield* get(id)
-                  const list = yield* projectSessions(project)
+                  const list = yield* projectSessions(project, true)
                   const result: SessionSchema.Info[] = []
                   for (const s of list) {
-                    if (s.metadata?.[SessionPlan.CONTEXT_KEY] === undefined) {
+                    if (s.parentID === undefined && s.metadata?.[SessionPlan.CONTEXT_KEY] === undefined) {
                       const metadata = { ...s.metadata, [SessionPlan.CONTEXT_KEY]: CompactionPolicy.mainThreshold }
                       yield* sessions.setMetadata({ sessionID: s.id, metadata }).pipe(Effect.orDie)
                       result.push({ ...s, metadata })

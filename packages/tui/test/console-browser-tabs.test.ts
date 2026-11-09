@@ -66,3 +66,9 @@ test("the project tree refetches categories when an open project's session set c
   expect(tree).toContain("const refresh = (projectID: string)")
   expect(tree).toContain("setTimeout(() => refresh(project.id)")
 })
+
+test("a subagent whose parent is not listed is listed as a session of its own, and nesting is recursive", () => {
+  const tree = read("component/project-tree.tsx")
+  expect(tree).toContain("orphan(session.parentID, project)")
+  expect(tree).toContain("childRows(child.id, depth + 1)")
+})

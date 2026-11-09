@@ -587,7 +587,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
 
   // Subagents (sessions with a parent) are listed under their parent, running ones first, so a task the Orchestrator
   // handed off can be found: "↳ <title> · <role> · <status>". At most CHILD_LIMIT per parent, the rest as a count.
-  const CHILD_LIMIT = 6
+  const CHILD_LIMIT = 30
   const childrenOf = (parentID: string | undefined) => {
     if (parentID === undefined) return { shown: [], more: 0 }
     const all = data.session
@@ -596,12 +596,13 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       .toSorted((a, b) => Number(data.session.status(b.id) === "running") - Number(data.session.status(a.id) === "running"))
     return { shown: all.slice(0, CHILD_LIMIT), more: Math.max(0, all.length - CHILD_LIMIT) }
   }
-  const childRows = (parentID: string | undefined) => {
+  const childRows = (parentID: string | undefined, depth = 1): JSX.Element => {
     const found = childrenOf(parentID)
     return (
       <>
         <For each={found.shown}>
           {(child) => (
+            <>
             <Row
               id={`child:${child.id}`}
               hover={hover}
@@ -611,7 +612,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
             >
               <Branch lit={child.id === current()?.id || hover() === `child:${child.id}`} />
               <text flexShrink={0} fg={theme.text.muted}>
-                {data.session.status(child.id) === "running" ? "  ↳ ● " : "  ↳ ○ "}
+                {`${"  ".repeat(depth)}${data.session.status(child.id) === "running" ? "↳ ● " : "↳ ○ "}`}
               </text>
               <text fg={theme.text.muted} wrapMode="none" truncate>
                 {`${child.title || t("Untitled")} · ${String(child.agent ?? "").replace(/^team-/, "") || "subagent"} · ${
@@ -619,6 +620,8 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                 }`}
               </text>
             </Row>
+            {childRows(child.id, depth + 1)}
+            </>
           )}
         </For>
         <Show when={found.more > 0}>
@@ -631,12 +634,32 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
     )
   }
 
+  // A subagent whose chain of parents does not end at the Orchestrator or at a session listed in this project would be
+  // listed nowhere (its parent is hidden, in another project, or not loaded), so it is listed as a session of its own.
+  const orphan = (parentID: string, project: OrchestraProject) => {
+    const list = data.session.list()
+    let current = list.find((item) => item.id === parentID)
+    for (let hops = 0; current && hops < 8; hops++) {
+      if (current.id === project.main) return false
+      if (!current.parentID) {
+        const root = current
+        return (
+          root.agent === "team-browser-agent" && notes.browserSessions(project.id).some((item) => item.chat === root.id) ||
+          owner(root)?.id !== project.id
+        )
+      }
+      const up: string = current.parentID
+      current = list.find((item) => item.id === up)
+    }
+    return true
+  }
+
   const sessionsOf = (project: OrchestraProject) =>
     data.session
       .list()
       .filter(
         (session) =>
-          !session.parentID &&
+          (!session.parentID || orphan(session.parentID, project)) &&
           !removed[session.id] &&
           session.id !== project.main &&
           // A BrowserAgent chat belongs to its browser session and is listed in the Browser tab, not here. One that no
