@@ -78,7 +78,6 @@ function intakeNoteText(metadata: Record<string, unknown> | undefined, text: str
       text,
     ].join("\n")
   }
-  const goal = typeof intake.goal === "string" && intake.goal.trim() ? intake.goal.trim() : undefined
   const verdict = typeof intake.verdict === "string" ? intake.verdict : undefined
   const questions = Array.isArray(intake.questions)
     ? intake.questions.filter(
@@ -95,11 +94,6 @@ function intakeNoteText(metadata: Record<string, unknown> | undefined, text: str
           .map((item) => item.trim())
           .slice(0, limit)
       : []
-  const restatesGoal = (item: string) =>
-    item === text.trim() || (goal !== undefined && (item === goal || item.startsWith(`${goal} — `)))
-  const plan = strings(intake.plan, 4).filter(
-    (item) => item !== "Продолжить текущую работу" && !restatesGoal(item),
-  )
   const constraints = strings(intake.constraints, 3)
   const ambiguities = Array.isArray(intake.ambiguities)
     ? intake.ambiguities

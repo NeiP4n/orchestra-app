@@ -74,7 +74,7 @@ export const Plugin = {
                   }),
                 )
               const answers = fields.map((field): Question.Answer => {
-                const labels = (field.options ?? []).map((option) => option.label)
+                const labels = ("options" in field && field.options ? field.options : []).map((option) => option.label)
                 return [labels[AutoDecide.pick(labels)]!]
               })
               return Effect.succeed({
