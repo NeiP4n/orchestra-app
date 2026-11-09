@@ -31,6 +31,8 @@ const PIXEL_MOUSE = process.env.ORCHESTRA_BROWSER_PIXEL_MOUSE !== "0"
 // tab strip). In a captured window a press in Chrome's tab strip is therefore moved to the strip's centre line, so
 // the column the marker is on decides the hit. ORCHESTRA_BROWSER_STRIP_SNAP=0 turns it off.
 const STRIP_SNAP = process.env.ORCHESTRA_BROWSER_STRIP_SNAP !== "0"
+// ORCHESTRA_BROWSER_HALFBLOCKS=1 draws the page as block characters, never kitty/sixel graphics.
+const IMAGE_PROTOCOL = process.env.ORCHESTRA_BROWSER_HALFBLOCKS === "1" ? ("blocks" as const) : ("auto" as const)
 const STRIP_SCALE = Math.min(3, Math.max(1, Number(process.env.ORCHESTRA_BROWSER_SCALE) || 1))
 const DEBUG = process.env.ORCHESTRA_BROWSER_DEBUG === "1"
 const BUILD = (() => {
@@ -512,6 +514,7 @@ export function BrowserPane(props: {
                   width={size()?.cols ?? 1}
                   height={size()?.rows ?? 1}
                   fit="fill"
+                  protocol={IMAGE_PROTOCOL}
                 />
                 <Show when={!control() && agentAt()}>
                   <text

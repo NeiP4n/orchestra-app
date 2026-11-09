@@ -70,6 +70,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Show the Browser tab's input debug lines on screen (\"1\"). The log file is always written.",
     default: "Off.",
   },
+  ORCHESTRA_BROWSER_HALFBLOCKS: {
+    purpose: "Draw the Browser tab's page as colored block characters (\"1\") instead of kitty or sixel graphics, for terminals that print graphics data as text.",
+    default: "Off: the terminal's graphics protocol is detected.",
+  },
   ORCHESTRA_BROWSER_LAUNCHER: {
     purpose: "Shell command that starts the browser when the CDP endpoint does not answer.",
     readIn: "injected-env",
