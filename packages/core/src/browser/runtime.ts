@@ -613,6 +613,10 @@ export const isWindowed = (sessionID: string) => live.get(sessionID)?.windowed =
 
 export type Mode = "headless" | "window" | "capture"
 
+/** Why the last capture attempt of a session did not hold (the helper failed, or the window printed blank). The pane shows it. */
+const captureProblems = new Map<string, string>()
+export const captureProblemOf = (sessionID: string) => captureProblems.get(sessionID)
+
 export const modeOf = (sessionID: string): Mode => {
   const item = live.get(sessionID)
   return item?.capture ? "capture" : item?.windowed ? "window" : "headless"
@@ -692,6 +696,7 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
   await open(sessionID)
   const item = live.get(sessionID)!
   if (modeOf(sessionID) === target) return
+  if (target === "capture") captureProblems.delete(sessionID)
   const urls = (await BrowserTabs.list(item.port)).map((tab) => tab.url).filter((url) => /^https?:\/\//i.test(url))
   unwatch(sessionID)
   orders.delete(sessionID)
@@ -762,11 +767,13 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
       next.capture.onProblem((text) => {
         if (reported) return
         reported = true
+        captureProblems.set(sessionID, text)
         trace(`${sessionID}: window capture problem (${text}), back to the windowless Chrome`)
         void relaunch(sessionID, "headless", size).catch(() => undefined)
       })
     } catch (error) {
       // Capture did not work here: leave the operator with the streamed, windowless Chrome rather than nothing.
+      captureProblems.set(sessionID, error instanceof Error ? error.message : String(error))
       next.client.close()
       run.close()
       await quit(run.port).catch(() => undefined)

@@ -83,6 +83,8 @@ const takingOver = new Set<string>()
 // again until the TUI restarts), and the one automatic switch allowed at a time (Browser 1, 2, 3 picked one after another).
 const switching = new Set<string>()
 const captureGaveUp = new Set<string>()
+// Why a session's capture was given up in this TUI process (shown in the pane header, so nobody has to guess).
+const captureWhy = new Map<string, string>()
 const silentRetried = new Set<string>()
 let autoSwitching = false
 // No picture this long after a switch: capture goes back to the windowless Chrome; a windowless one says why it is silent.
@@ -166,6 +168,7 @@ export function BrowserPane(props: {
     if (state() !== "ready") return
     const timer = setInterval(() => {
       const real = BrowserRuntime.modeOf(props.sessionID)
+      if (!disposed) setTick((value) => value + 1)
       if (!disposed && real !== mode()) {
         setMode(real)
         repaint()
@@ -517,12 +520,28 @@ export function BrowserPane(props: {
   // Chrome runs either windowless (streamed into this pane) or as a normal visible window with real Chrome tabs
   // and address bar. Switching restarts it on the same profile and reopens the tabs.
   const [modeNote, setModeNote] = createSignal<string>()
+  // One line that says whether Chrome's own window is shown and, when it is not, why. The runtime's own fall-back reason
+  // (blank print, window could not be hidden) is read with the 1 s mode poll's tick.
+  const [tick, setTick] = createSignal(0)
+  const captureLine = () => {
+    tick()
+    if (process.platform !== "win32" || mode() === "window") return undefined
+    if (mode() === "capture") return "capture: on (Chrome's own window)"
+    const reason = captureWhy.get(props.sessionID) ?? BrowserRuntime.captureProblemOf(props.sessionID)
+    if (!autoCapture) return "capture: off (ORCHESTRA_BROWSER_CAPTURE=0), fast view"
+    if (reason) return `capture: off, fast view because: ${reason}`
+    if (switching.has(props.sessionID)) return "capture: starting"
+    if (!framed()) return "capture: waits for the first picture"
+    if (props.busy?.()) return "capture: waits until the agent's turn ends"
+    return "capture: starts in a moment"
+  }
   const switchMode = (next: "headless" | "window" | "capture", auto = false) => {
     if (switching.has(props.sessionID)) {
       if (auto) autoSwitching = false
       return
     }
     switching.add(props.sessionID)
+    if (next === "capture") captureWhy.delete(props.sessionID)
     setFailure(undefined)
     setModeNote(next === "capture" ? t("Switching to Chrome's own window (up to 15 seconds)...") : undefined)
     setFramed(false)
@@ -532,7 +551,10 @@ export function BrowserPane(props: {
       .then(() => !disposed && setMode(BrowserRuntime.modeOf(props.sessionID)))
       .catch((error) => {
         BrowserRuntime.trace(`pane ${props.sessionID}: switch to ${next} failed: ${errorMessage(error)}`)
-        if (next === "capture") captureGaveUp.add(props.sessionID)
+        if (next === "capture") {
+          captureGaveUp.add(props.sessionID)
+          captureWhy.set(props.sessionID, errorMessage(error))
+        }
         if (!disposed) setFailure(errorMessage(error))
       })
       // A failed capture falls back to the windowless Chrome, so read the mode that is really running.
@@ -546,6 +568,7 @@ export function BrowserPane(props: {
         repaint()
         if (next === "capture" && real !== "capture") {
           captureGaveUp.add(props.sessionID)
+          captureWhy.set(props.sessionID, BrowserRuntime.captureProblemOf(props.sessionID) ?? "Chrome's window did not start")
           setModeNote(t("Chrome's own window did not start here: showing the fast view."))
           return
         }
@@ -559,6 +582,7 @@ export function BrowserPane(props: {
       if (disposed || framed() || mode() !== "capture" || switching.has(props.sessionID)) return
       BrowserRuntime.trace(`pane ${props.sessionID}: no picture ${FIRST_FRAME_MS} ms after capture started, back to the windowless Chrome`)
       captureGaveUp.add(props.sessionID)
+      captureWhy.set(props.sessionID, `no picture ${FIRST_FRAME_MS / 1000} s after the window started`)
       switchMode("headless")
       setModeNote(t("Chrome's own window sent no picture: showing the fast view."))
     }, FIRST_FRAME_MS)
@@ -631,6 +655,9 @@ export function BrowserPane(props: {
             <NeuronDot energy={0.9} />
             <text fg={theme.text.muted}>{narrow() ? "" : ` ${t("running")}`}</text>
           </Show>
+          <Show when={captureLine()}>
+            <text fg={theme.text.muted} wrapMode="none" truncate>{`${props.busy?.() ? "  " : ""}${captureLine()}`}</text>
+          </Show>
           <box flexGrow={1} />
           <Show when={props.canShowChat}>
             <Action label={props.chatHidden ? t("Show chat") : t("Hide chat")} onClick={props.onToggleChat} />
@@ -667,6 +694,7 @@ export function BrowserPane(props: {
           <Show when={mode() === "capture"}>
             <Action label={t("Fast view")} onClick={() => {
               captureGaveUp.add(props.sessionID)
+              captureWhy.set(props.sessionID, "you pressed Fast view")
               switchMode("headless")
             }} />
           </Show>
