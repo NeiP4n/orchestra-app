@@ -63,3 +63,24 @@ describe("RuleEnforce built-in browser routing", () => {
     expect(RuleEnforce.builtin({ tool: "execute", agent: "x", input: { code: "console.log(1)" } }, task)).toBeUndefined()
   })
 })
+
+
+describe("rule load action gate", () => {
+  test("failed refresh blocks actions for ordinary and scheduled sessions, not rules reads", () => {
+    for (const id of ["rules-gate-interactive", "rules-gate-scheduled"]) {
+      RuleEnforce.remember(id, [rule("deny tool shell")])
+      RuleEnforce.loading(id)
+      expect(RuleEnforce.recall(id)).toEqual([])
+      for (const tool of ["shell", "browser", "execute", "triggers", "write", "webfetch"])
+        expect(RuleEnforce.unavailableRefusal(id, tool, {})).toContain("No actions are allowed")
+      for (const action of ["list", "violations"])
+        expect(RuleEnforce.unavailableRefusal(id, "rules", { action })).toBeUndefined()
+      for (const action of ["add", "remove", undefined])
+        expect(RuleEnforce.unavailableRefusal(id, "rules", { action })).toBeDefined()
+      expect(RuleEnforce.unavailableRefusal(id, "question", {})).toBeUndefined()
+      RuleEnforce.remember(id, [rule("deny tool browser")])
+      expect(RuleEnforce.unavailableRefusal(id, "shell", {})).toBeUndefined()
+      expect(RuleEnforce.violation(RuleEnforce.recall(id), { tool: "browser", agent: "a", input: {} })).toBeDefined()
+    }
+  })
+})

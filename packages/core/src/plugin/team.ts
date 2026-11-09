@@ -239,6 +239,7 @@ export const Plugin = define({
         // The crew's standing rules ride on every request of its sessions, the Society's chat included.
         // A load failure is never silent: an agent that starts without its rules is worse than one
         // that does not start, so the failure is handed to the model as an explicit stop.
+        RuleEnforce.loading(String(event.sessionID))
         const rules = yield* Rules.scopesOf({ sessionID: event.sessionID, sessions, orchestra, federation }).pipe(
           Effect.flatMap((scopes) => Rules.load(kv, scopes)),
           // The same rules feed the hard check before tool calls and the end-of-turn judge.

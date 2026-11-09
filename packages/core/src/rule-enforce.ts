@@ -29,9 +29,25 @@ export const JUDGE_MAX = 2
 const EXEMPT = new Set(["rules", "question"])
 
 const active = new Map<string, ReadonlyArray<Entry>>()
+const unavailable = new Set<string>()
+/** Close the action gate before refreshing rules; interruption must not retain old authority. */
+export const loading = (sessionID: string) => {
+  unavailable.add(sessionID)
+  active.delete(sessionID)
+}
+/** A failed load leaves the gate closed, without retaining private exception details. */
+export const loadFailed = loading
+export function unavailableRefusal(sessionID: string, tool: string, input: unknown): string | undefined {
+  if (!unavailable.has(sessionID)) return undefined
+  const action = input && typeof input === "object" ? (input as { action?: unknown }).action : undefined
+  if (tool === "rules" && (action === "list" || action === "violations")) return undefined
+  if (tool === "question") return undefined
+  return "Rule check: the current rulebook could not be loaded. No actions are allowed until it loads successfully. Read rules or report this to the operator; do not edit rules or use another tool to bypass the failure."
+}
 /** The rules a session carried on its latest request (set by the context hook, read by the tool hook and the judge). */
 export const remember = (sessionID: string, entries: ReadonlyArray<Entry>) => {
   active.set(sessionID, entries)
+  unavailable.delete(sessionID)
   if (active.size > 500) active.delete(active.keys().next().value as string)
 }
 export const recall = (sessionID: string): ReadonlyArray<Entry> => active.get(sessionID) ?? []

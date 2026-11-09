@@ -47,6 +47,8 @@ export const Plugin = {
     // The hard layer: one check before every tool call, against the rules this session carried on its latest request.
     yield* ctx.tool.hook("execute.before", (event) =>
       Effect.gen(function* () {
+        const unavailable = RuleEnforce.unavailableRefusal(String(event.sessionID), event.tool, event.input)
+        if (unavailable) return yield* new Tool.Error({ message: unavailable })
         const entries = RuleEnforce.recall(String(event.sessionID))
         const fixed = RuleEnforce.builtin({ tool: event.tool, agent: String(event.agent), input: event.input }, BROWSER_TASK)
         if (fixed) {
