@@ -303,7 +303,12 @@ export const layer = Layer.effect(
               )
               .slice(0, Math.max(0, ZEN_TOOL_LIMIT - tools.definitions.length - loaded.length))
           : []
-      const advertised = [...tools.definitions, ...loaded, ...zenCompatibility]
+      // The orchestra_* session tools are for Muse chats (meta provider) only; their own description says other models
+      // ignore them, yet models kept calling them on "look at the browser" instead of the browser tool.
+      const museOnly = (name: string) =>
+        model.ref.providerID !== "meta" &&
+        /^orchestra_(list_agents|create_session|get_session|prompt_session|switch_agent|switch_model)$/.test(name)
+      const advertised = [...tools.definitions, ...loaded, ...zenCompatibility].filter((tool) => !museOnly(tool.name))
       // Remember which tool each definition object came from. Hooks rename a tool by moving
       // its definition to a new key, so after the hook we find the tool by object identity.
       const given = new Map(
