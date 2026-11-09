@@ -1795,6 +1795,46 @@ const layer: Layer.Layer<
         reportLog({ event: "no-report-notice", session: workerID, main: task.value.main, state: running ? "running" : "idle", minutes, delivered: ok })
       }
     }).pipe(Effect.catch(() => Effect.void))
+    // Operator-authored local actions never wake an AI or launch a browser. Storage failures count as failures.
+    const localActions = (trigger: Trigger.Info, now: number) => Effect.promise(() => Trigger.executeLocal(trigger, now, (entry) => {
+      const file = reportLogFile()
+      mkdirSync(path.dirname(file), { recursive: true })
+      if (existsSync(file) && statSync(file).size > 1_000_000) renameSync(file, `${file}.1`)
+      appendFileSync(file, `${JSON.stringify({ time: new Date(now).toISOString(), ...entry })}\n`)
+    }))
+    // Real internal bus events only, with a bounded queue. No replay after restart and no payload instructions.
+    const internalInbox: Array<{ sessionID: string; event: "execution.succeeded" | "execution.failed" }> = []
+    yield* bus.subscribe([SessionEvent.Execution.Succeeded, SessionEvent.Execution.Failed]).pipe(
+      Stream.runForEach((event) => Effect.sync(() => {
+        if (internalInbox.length < 200) internalInbox.push({ sessionID: String(event.data.sessionID), event: event.type === SessionEvent.Execution.Succeeded.type ? "execution.succeeded" : "execution.failed" })
+      })), Effect.forkScoped({ startImmediately: true }),
+    )
+    const fireInternalTriggers = Effect.gen(function* () {
+      if (!internalInbox.length) return
+      const events = internalInbox.splice(0)
+      const now = Date.now()
+      for (const entry of yield* scanAll(Trigger.PREFIX)) {
+        let trigger = Trigger.parse(entry.value)
+        if (!trigger || trigger.kind !== "internal" || !trigger.actions?.length) continue
+        const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+        if (!project?.main) continue
+        for (const event of events) {
+          const verdict = Trigger.internalDue(trigger, event, now)
+          if (verdict === "wait") continue
+          const source = yield* sessions.get(event.sessionID as SessionID).pipe(Effect.orElseSucceed(() => undefined))
+          if (!source || source.id === project.main || !(yield* owns(project, source))) continue
+          if (verdict === "pause") trigger = Trigger.paused(trigger, now)
+          else {
+            trigger = Trigger.afterFire(trigger, now)
+            yield* kv.set(entry.key, trigger as never) // reserve before effects, never duplicate on crash
+            trigger = yield* localActions(trigger, now)
+          }
+          yield* kv.set(entry.key, trigger as never)
+          ScheduleView.sync(trigger, String(project.main))
+        }
+      }
+    }).pipe(Effect.catch(() => Effect.void))
+    yield* Effect.forever(Effect.sleep(Duration.seconds(5)).pipe(Effect.andThen(fireInternalTriggers))).pipe(Effect.forkScoped({ startImmediately: true }))
     // Triggers (a cron time, an interval, a one-shot time): once a minute the due ones are handed to their project's
     // Orchestrator as a <trigger-fired> message (steer + wake, like a <team-report>). The record is saved BEFORE the
     // message goes out, so a crash in between loses one firing instead of repeating it. A full cap pauses the trigger.
@@ -1832,6 +1872,12 @@ const layer: Layer.Layer<
         ScheduleView.sync(next, String(project.main))
         BrowserSchedule.sync(next)
         if (trigger.browserSessionID) BrowserSchedule.dispatched(trigger.id, now)
+        if (trigger.actions?.length) {
+          const result = yield* localActions(next, now)
+          yield* kv.set(entry.key, result as never)
+          ScheduleView.sync(result, String(project.main))
+          continue
+        }
         const ok = yield* sessions
           .synthetic({
             id: SessionMessage.ID.create(),
@@ -1901,6 +1947,12 @@ const layer: Layer.Layer<
         yield* kv.set(key, next as never)
         ScheduleView.sync(next, String(project.main))
         BrowserSchedule.sync({ ...next, browserSessionID: trigger.spec })
+        if (trigger.actions?.length) {
+          const result = yield* localActions(next, now)
+          yield* kv.set(key, result as never)
+          ScheduleView.sync(result, String(project.main))
+          continue
+        }
         BrowserSchedule.dispatched(trigger.id, now)
         const ok = yield* sessions
           .synthetic({

@@ -10,6 +10,8 @@ export interface Item {
   id: string
   sessionID: string
   name: string
+  localActions?: boolean
+  actionErrors?: number
   kind: Trigger.Kind
   enabled: boolean
   nextAt: number | null
@@ -31,6 +33,7 @@ export function shortName(prompt: string): string {
 export function sync(trigger: Trigger.Info, sessionID: string) {
   try {
     const item: Item = { id: trigger.id, sessionID, name: shortName(trigger.prompt), kind: trigger.kind,
+      localActions: !!trigger.actions?.length, actionErrors: trigger.errors?.consecutive,
       enabled: trigger.enabled, nextAt: trigger.enabled ? trigger.nextAt : null, lastFiredAt: trigger.lastFiredAt,
       pausedReason: trigger.pausedReason, browserSessionID: trigger.browserSessionID, updatedAt: Date.now() }
     mkdirSync(directory(), { recursive: true })
@@ -50,7 +53,7 @@ export function list(sessionID: string): Item[] {
       try {
         const v = JSON.parse(readFileSync(path.join(directory(), name), "utf8")) as Item
         if (v.sessionID !== sessionID || typeof v.id !== "string" || typeof v.name !== "string" ||
-          !["cron", "interval", "once", "browser"].includes(v.kind) || typeof v.enabled !== "boolean" ||
+          !["cron", "interval", "once", "browser", "internal"].includes(v.kind) || typeof v.enabled !== "boolean" ||
           !(v.nextAt === null || Number.isFinite(v.nextAt)) || !Number.isFinite(v.updatedAt)) return []
         return [v]
       } catch { return [] }

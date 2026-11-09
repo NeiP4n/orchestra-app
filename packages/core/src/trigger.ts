@@ -1,5 +1,6 @@
 export * as Trigger from "./trigger.js"
 
+import { TriggerConditions } from "./trigger-conditions.js"
 import { TriggerActions } from "./trigger-actions.js"
 import { AutoloopDecide } from "./autoloop/kernel/decide.js"
 
@@ -15,7 +16,7 @@ import { AutoloopDecide } from "./autoloop/kernel/decide.js"
 //  - publishing in the operator's name (a reply, a post, a message to someone else's chat) needs the operator's own yes
 //    for each trigger. No tool sets that yes in this version, so a turn started by a trigger cannot publish.
 
-export type Kind = "cron" | "interval" | "once" | "browser"
+export type Kind = "cron" | "interval" | "once" | "browser" | "internal"
 
 export interface Info {
   id: string
@@ -44,6 +45,8 @@ export interface Info {
   publishApproved: boolean
   /** Optional bounded read-only workflow; absent in legacy wake-only records. */
   actions?: TriggerActions.Action[]
+  condition?: TriggerConditions.Condition
+  errors?: TriggerActions.Errors
 }
 
 const MINUTE = 60_000
@@ -66,6 +69,7 @@ export const localZone = () => {
 }
 
 export interface CreateInput {
+  condition?: unknown
   actions?: unknown
   kind: string
   spec: string
@@ -89,6 +93,16 @@ export function create(
 ): Created {
   const actionPlan = TriggerActions.parse(input.actions)
   if (!actionPlan.ok) return actionPlan
+  const condition = input.condition === undefined ? undefined : TriggerConditions.parse(input.condition)
+  if (input.condition !== undefined && !condition) return { ok: false, error: "Unknown or malformed trigger condition." }
+  if (condition) {
+    const kind = condition.type === "time" ? condition.kind : condition.type === "browser" ? "browser" : "internal"
+    const spec = condition.type === "time" ? condition.spec : condition.sessionID
+    if ((input.kind && input.kind !== kind) || (input.spec && input.spec !== spec)) return { ok: false, error: "condition conflicts with legacy kind/spec." }
+    input = { ...input, kind, spec, ...(condition.type === "browser" ? { match: condition.match } : {}) }
+  }
+  if (input.browserSessionID && actionPlan.actions.length) return { ok: false, error: "Do not combine a BrowserAgent interval check with local-only actions." }
+  if (actionPlan.actions.some((a) => a.kind === "browser.read")) return { ok: false, error: "Direct browser.read action is not wired. Use the existing browser-bound interval check through its BrowserAgent. Arbitrary JS is disabled." }
   const zone = context.timezone ?? localZone()
   if (context.existing >= MAX_TRIGGERS_PER_PROJECT)
     return { ok: false, error: `This project already has ${MAX_TRIGGERS_PER_PROJECT} triggers. Delete one first.` }
@@ -127,14 +141,18 @@ export function create(
     if (at <= context.now) return { ok: false, error: "That time has already passed." }
     if (at > context.now + 366 * 24 * 60 * MINUTE) return { ok: false, error: "That time is more than a year away." }
     nextAt = at
+  } else if (input.kind === "internal") {
+    if (condition?.type !== "orchestra" || !actionPlan.actions.length) return { ok: false, error: "Internal events require an exact Orchestra condition and local allowlisted actions; they never start a model." }
+    nextAt = null
   } else if (input.kind === "browser") {
     // The tool resolves a name to the session id before it gets here; the trigger has no time, it fires on page events.
     if (!spec) return { ok: false, error: "For browser, spec is the browser session (id or name) to watch." }
     nextAt = null
-  } else return { ok: false, error: `kind is cron, interval, once or browser, not "${input.kind}".` }
+  } else return { ok: false, error: `kind is cron, interval, once, browser or internal, not "${input.kind}".` }
   return {
     ok: true,
     trigger: {
+      ...(condition ? { condition } : {}),
       id: context.id,
       projectID: context.projectID,
       kind: input.kind,
@@ -162,13 +180,22 @@ export function parse(value: unknown): Info | undefined {
   const actionPlan = TriggerActions.parse(v.actions)
   if (!actionPlan.ok) return undefined
   if (typeof v.id !== "string" || typeof v.projectID !== "string" || typeof v.prompt !== "string") return undefined
-  if (v.kind !== "cron" && v.kind !== "interval" && v.kind !== "once" && v.kind !== "browser") return undefined
+  if (v.kind !== "cron" && v.kind !== "interval" && v.kind !== "once" && v.kind !== "browser" && v.kind !== "internal") return undefined
   if (typeof v.spec !== "string" || typeof v.enabled !== "boolean" || typeof v.createdAt !== "number") return undefined
   if (!(v.nextAt === null || typeof v.nextAt === "number")) return undefined
   if (v.browserSessionID !== undefined &&
       (v.kind !== "interval" || typeof v.browserSessionID !== "string" || !v.browserSessionID.trim())) return undefined
   if (v.localTest !== undefined && (v.localTest !== true || v.kind !== "interval" || !v.browserSessionID)) return undefined
+  const condition = v.condition === undefined ? undefined : TriggerConditions.parse(v.condition)
+  if (v.condition !== undefined && !condition) return undefined
+  if (condition && (v.kind !== (condition.type === "time" ? condition.kind : condition.type === "browser" ? "browser" : "internal") || v.spec !== (condition.type === "time" ? condition.spec : condition.sessionID))) return undefined
+  if (v.kind === "internal" && (condition?.type !== "orchestra" || !actionPlan.actions.length)) return undefined
+  if (actionPlan.actions.some((a) => a.kind === "browser.read")) return undefined
+  const errors = v.errors as TriggerActions.Errors | undefined
+  if (errors && (!Number.isInteger(errors.consecutive) || errors.consecutive < 0 || !Number.isInteger(errors.total) || errors.total < errors.consecutive)) return undefined
   return {
+    ...(condition ? { condition } : {}),
+    ...(errors ? { errors } : {}),
     ...(actionPlan.actions.length ? { actions: actionPlan.actions } : {}),
     ...(v.localTest === true ? { localTest: true } : {}),
     id: v.id,
@@ -234,14 +261,14 @@ export function afterFire(trigger: Info, now: number, timezone = localZone()): I
   const fired = [...trigger.fired.filter((at) => at > now - 24 * 60 * MINUTE), now]
   const base = { ...trigger, fired, total: trigger.total + 1, lastFiredAt: now }
   if (trigger.kind === "once") return { ...base, enabled: false, nextAt: null, pausedReason: "done: a one-shot trigger fires once" }
-  if (trigger.kind === "browser") return base
+  if (trigger.kind === "browser" || trigger.kind === "internal") return base
   const next = nextFrom(trigger, now, timezone)
   return next === null ? { ...base, enabled: false, nextAt: null, pausedReason: "paused: the cron line has no next time" } : { ...base, nextAt: next }
 }
 
 /** Switches a paused trigger back on. The firing history stays, so a resume cannot clear a cap. Undefined when nothing is left to wait for. */
 export function resume(trigger: Info, now: number, timezone = localZone()): Info | undefined {
-  if (trigger.kind === "browser") {
+  if (trigger.kind === "browser" || trigger.kind === "internal") {
     const { pausedReason: _done, ...rest } = trigger
     return { ...rest, enabled: true }
   }
@@ -325,6 +352,9 @@ export const describe = (trigger: Info) =>
     trigger.nextAt === null ? "next: none" : `next: ${new Date(trigger.nextAt).toISOString()}`,
     ...(trigger.browserSessionID ? [`browser: ${trigger.browserSessionID} (read-only)`] : []),
     trigger.lastFiredAt === undefined ? "last dispatch: never" : `last dispatch: ${new Date(trigger.lastFiredAt).toISOString()}`,
+    ...(trigger.condition ? [`condition: ${trigger.condition.type}${trigger.condition.type === "time" ? "" : `/${trigger.condition.event}`}`] : []),
+    ...(trigger.actions?.length ? [`local actions: ${trigger.actions.map((a) => a.kind).join(", ")} (no model wake)`] : []),
+    ...(trigger.errors ? [`errors: ${trigger.errors.consecutive} consecutive, ${trigger.errors.total} total`] : []),
     `fired ${trigger.total}x`,
     `cap ${trigger.maxPerHour}/h ${trigger.maxPerDay}/day`,
     trigger.pausedReason ? trigger.pausedReason : "",
@@ -413,4 +443,24 @@ export function scheduledBrowserRefusal(task: { browserSessionID: string }, acti
   if (!SCHEDULE_READS.has(action)) return "Scheduled page checks are read-only: only text, snapshot, screenshot or info are allowed."
   if (target !== undefined && target !== task.browserSessionID) return "Scheduled page checks may read only their bound browser session."
   return undefined
+}
+
+/** Bounded local-only action execution. No synthetic message, model, browser, network or shell. */
+export async function executeLocal(trigger: Info, now: number, log: (entry: Record<string, unknown>) => void): Promise<Info> {
+  try {
+    for (const action of trigger.actions ?? []) {
+      if (action.kind === "orchestra.status") log({ event: "trigger-status", trigger: trigger.id, project: trigger.projectID, enabled: trigger.enabled, total: trigger.total, at: now })
+      else if (action.kind === "orchestra.log") log({ event: "trigger-local-log", trigger: trigger.id, project: trigger.projectID, message: action.message, at: now })
+      else throw new Error("Unsupported action")
+    }
+    return { ...trigger, errors: TriggerActions.recordSuccess(trigger.errors ?? TriggerActions.emptyErrors()) }
+  } catch {
+    const errors = TriggerActions.recordFailure(trigger.errors ?? TriggerActions.emptyErrors(), now)
+    return { ...trigger, errors, ...(TriggerActions.mustPause(errors) ? { enabled: false, pausedReason: "Три ошибки действий подряд; триггер приостановлен." } : {}) }
+  }
+}
+export function internalDue(trigger: Info, event: { sessionID: string; event: string }, now: number): Due {
+  if (!trigger.enabled || trigger.kind !== "internal" || trigger.condition?.type !== "orchestra" || trigger.condition.sessionID !== event.sessionID || trigger.condition.event !== event.event) return "wait"
+  if (trigger.lastFiredAt !== undefined && now - trigger.lastFiredAt < MIN_GAP_MINUTES * MINUTE) return "wait"
+  return due({ ...trigger, nextAt: now }, now)
 }

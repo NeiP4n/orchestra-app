@@ -35,11 +35,13 @@ export function schedulePause(reason: string): string {
   return "расписание приостановлено; требуется проверка причины"
 }
 export function scheduleNext(item: ScheduleView.Item): string {
-  return item.nextAt === null ? item.kind === "browser" && item.enabled ? "событие страницы" : "нет" : clock(item.nextAt)
+  return item.nextAt === null ? item.enabled && item.kind === "internal" ? "событие Orchestra" : item.kind === "browser" && item.enabled ? "событие страницы" : "нет" : clock(item.nextAt)
 }
 export function scheduleState(item: ScheduleView.Item, status?: BrowserSchedule.Status, now = Date.now()): string {
   if (!item.enabled) return item.pausedReason ? /firings.*cap/.test(item.pausedReason) ? "пауза: лимит" : "пауза" : "выкл."
   if (status?.phase === "error" || status?.watcher === "failed") return "ошибка"
+  if (item.actionErrors) return "ошибка действия"
+  if (item.kind === "internal") return "ждёт событие"
   if (item.kind === "browser") return status?.watcher === "watching" ? "следит" : "выкл."
   if (item.nextAt === null) return "выкл."
   const minutes = Math.max(0, Math.ceil((item.nextAt - now) / 60000))
@@ -54,7 +56,7 @@ export function scheduleSummary(item: ScheduleView.Item, width: number): string 
   return scheduleEllipsis(scheduleState(item), width)
 }
 export function scheduleDetails(item: ScheduleView.Item, status?: BrowserSchedule.Status): string[] {
-  const result = status ? phases[status.phase] : item.lastFiredAt === undefined ? "ещё не запускалось" : phases.dispatched
+  const result = item.localActions ? item.actionErrors ? "ошибка действия; см. журнал" : item.lastFiredAt === undefined ? "ещё не запускалось" : "локальное действие; см. журнал" : status ? phases[status.phase] : item.lastFiredAt === undefined ? "ещё не запускалось" : phases.dispatched
   const watcher = !item.enabled ? "выключен" : status?.watcher === "watching" ? "следит" : status?.watcher === "failed" ? "ошибка наблюдателя" : "выключен"
   return [
     item.kind === "browser"
