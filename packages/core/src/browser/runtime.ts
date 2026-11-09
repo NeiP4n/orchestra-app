@@ -337,8 +337,10 @@ const savedTabs = (sessionID: string) => savedState(sessionID).urls
 export async function tabs(sessionID: string): Promise<TabState[]> {
   await open(sessionID)
   const item = live.get(sessionID)!
-  let list = ordered(sessionID, await BrowserTabs.list(item.port))
-  if (list.length === 0) list = [await BrowserTabs.create(item.port)]
+  const list = ordered(sessionID, await BrowserTabs.list(item.port))
+  // A read never opens anything: the pane polls this, and a list that is empty for a moment (Chrome starting, a
+  // capture restart) must not grow a blank tab on every poll. Tabs open only by an explicit newTab / closeTab / the agent.
+  if (list.length === 0) return []
   saveTabs(sessionID, list.map((tab) => ({ url: tab.url, title: tab.title, active: tab.id === live.get(sessionID)?.tabID })))
   if (!list.some((tab) => tab.id === item.tabID)) await switchTo(sessionID, list[0]!)
   return list.map((tab) => ({
