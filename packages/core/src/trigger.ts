@@ -25,6 +25,7 @@ export interface Info {
   /** Browser triggers only: fire only for rows whose chat or text contains this (case-insensitive). */
   match?: string
   /** Interval only: the resolved browser session to check read-only when due. */
+  localTest?: boolean
   browserSessionID?: string
   /** The operator's instruction, written when the trigger was created. Never taken from a page or a request. */
   prompt: string
@@ -68,6 +69,7 @@ export interface CreateInput {
   maxPerHour?: number
   maxPerDay?: number
   match?: string
+  localTest?: boolean
   browserSessionID?: string
 }
 
@@ -88,6 +90,8 @@ export function create(
   if (!prompt) return { ok: false, error: "Pass prompt: what the Orchestrator should do when the trigger fires." }
   if (prompt.length > MAX_PROMPT) return { ok: false, error: `prompt is longer than ${MAX_PROMPT} characters.` }
   const browserSessionID = input.browserSessionID?.trim()
+  if (input.localTest === true && (!browserSessionID || input.kind !== "interval"))
+    return { ok: false, error: "localTest requires an interval bound to a browser session." }
   if (input.browserSessionID !== undefined && (!browserSessionID || input.kind !== "interval"))
     return { ok: false, error: "browserSessionID must name a browser session and is only supported for interval triggers." }
   const spec = (input.spec ?? "").trim()
@@ -108,7 +112,7 @@ export function create(
     const minutes = Number(spec)
     if (!Number.isInteger(minutes) || minutes < MIN_GAP_MINUTES || minutes > 10_080)
       return { ok: false, error: `For interval, spec is a whole number of minutes from ${MIN_GAP_MINUTES} to 10080.` }
-    if (browserSessionID && minutes < 60)
+    if (browserSessionID && minutes < 60 && input.localTest !== true)
       return { ok: false, error: "Scheduled browser checks require at least 60 minutes; faster checks are not enabled." }
     nextAt = context.now + minutes * MINUTE
   } else if (input.kind === "once") {
@@ -130,7 +134,7 @@ export function create(
       kind: input.kind,
       spec,
       ...(input.kind === "browser" && input.match?.trim() ? { match: input.match.trim().slice(0, 80) } : {}),
-      ...(browserSessionID ? { browserSessionID } : {}),
+      ...(browserSessionID ? { browserSessionID, ...(input.localTest === true ? { localTest: true } : {}) } : {}),
       prompt,
       enabled: true,
       createdAt: context.now,
@@ -154,7 +158,9 @@ export function parse(value: unknown): Info | undefined {
   if (!(v.nextAt === null || typeof v.nextAt === "number")) return undefined
   if (v.browserSessionID !== undefined &&
       (v.kind !== "interval" || typeof v.browserSessionID !== "string" || !v.browserSessionID.trim())) return undefined
+  if (v.localTest !== undefined && (v.localTest !== true || v.kind !== "interval" || !v.browserSessionID)) return undefined
   return {
+    ...(v.localTest === true ? { localTest: true } : {}),
     id: v.id,
     projectID: v.projectID,
     kind: v.kind,

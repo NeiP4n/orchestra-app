@@ -98,6 +98,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Local browser for the browser plugin (\"0\" disables it).",
     default: "Enabled.",
   },
+  ORCHESTRA_BROWSER_LOCAL_TEST: {
+    purpose: "Allow explicitly requested 5-minute browser schedule tests only on exact loopback or local file pages; checked again at each dispatch and read.",
+    default: "Off.",
+  },
   ORCHESTRA_BROWSER_PIXEL_MOUSE: {
     purpose: "Pixel-exact pointer in the Browser tab while control is on (\"0\" turns it off).",
     default: "On; falls back to terminal cells when the terminal sends no pixel reports.",

@@ -171,7 +171,7 @@ describe("hard layer: a worker from a triggered turn cannot act in a page", () =
     const sessionGuard = execute.indexOf("Trigger.scheduledBrowserRefusal(scheduled, input.action, browserSession)")
     const enabledGuard = execute.indexOf("!status?.enabled")
     const runningCheck = execute.indexOf("BrowserRuntime.peek(browserSession)")
-    const pageRead = execute.indexOf("perform(browserSession, input)")
+    const pageRead = execute.indexOf("perform(browserSession, input")
     for (const at of [actionGuard, taintGuard, resolveSession, sessionGuard, enabledGuard, runningCheck, pageRead])
       expect(at).toBeGreaterThan(0)
     // All scheduled calls hit the read-only allowlist even before the sessions

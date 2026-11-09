@@ -8,6 +8,7 @@ import { Global } from "@orchestra/util/global"
 export interface Status {
   triggerID: string
   browserSessionID: string
+  localTest?: boolean
   enabled: boolean
   nextAt: number | null
   phase: "waiting" | "dispatched" | "checking" | "checked" | "error" | "paused"
@@ -65,10 +66,10 @@ export function remove(id: string): boolean {
   }
 }
 
-export function sync(trigger: { id: string; browserSessionID?: string; enabled: boolean; nextAt: number | null }) {
+export function sync(trigger: { id: string; browserSessionID?: string; localTest?: boolean; enabled: boolean; nextAt: number | null }) {
   if (!trigger.browserSessionID) return
   const previous = get(trigger.id)
-  save({ ...previous, triggerID: trigger.id, browserSessionID: trigger.browserSessionID,
+  save({ ...previous, triggerID: trigger.id, browserSessionID: trigger.browserSessionID, localTest: trigger.localTest,
     enabled: trigger.enabled, nextAt: trigger.enabled ? trigger.nextAt : null,
     phase: trigger.enabled ? previous?.phase === "paused" ? "waiting" : previous?.phase ?? "waiting" : "paused" })
 }

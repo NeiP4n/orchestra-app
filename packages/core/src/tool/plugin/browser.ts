@@ -13,6 +13,7 @@ import { Chrome } from "../../browser/chrome.js"
 import { Permission } from "../../permission.js"
 import { Trigger } from "../../trigger.js"
 import { BrowserProvenance } from "../../browser/provenance.js"
+import { BrowserLocalTest } from "../../browser/local-test.js"
 import { BrowserSchedule } from "../../browser/schedule.js"
 import { BrowserWatch } from "../../browser/watch.js"
 
@@ -122,9 +123,9 @@ const RETRYABLE =
   /connection (closed|failed)|Could not connect to Chrome|Another Chrome|Chrome closed before it was ready|profile.*in use|no answer from Chrome|timed out|(target|tab|page) (was )?closed/i
 
 /** A closed connection (Chrome died, or was killed with the app) is dropped and the action tried once more on a fresh one. */
-export async function perform(sessionID: string, input: Input) {
+export async function perform(sessionID: string, input: Input, localTest = false) {
   try {
-    return await performOnce(sessionID, input)
+    return await performOnce(sessionID, input, localTest)
   } catch (error) {
     if (!RETRYABLE.test(error instanceof Error ? error.message : String(error)))
       throw error
@@ -135,7 +136,7 @@ export async function perform(sessionID: string, input: Input) {
       BrowserRuntime.evictIfClosed(sessionID)
       await new Promise((done) => setTimeout(done, 700 * attempt))
       try {
-        return await performOnce(sessionID, input)
+        return await performOnce(sessionID, input, localTest)
       } catch (again) {
         if (attempt >= 2 || !RETRYABLE.test(again instanceof Error ? again.message : String(again)))
           throw again
@@ -144,7 +145,7 @@ export async function perform(sessionID: string, input: Input) {
   }
 }
 
-async function performOnce(sessionID: string, original: Input) {
+async function performOnce(sessionID: string, original: Input, localTest = false) {
   // A ref from snapshot is the selector of the numbered element; a missing element means the page moved on.
   const input: Input =
     original.ref !== undefined && original.ref.trim() !== ""
@@ -162,6 +163,8 @@ async function performOnce(sessionID: string, original: Input) {
     }
   }
   const client = await BrowserRuntime.open(sessionID)
+  if (localTest && !BrowserLocalTest.allowed((await Cdp.pageInfo(client)).url))
+    throw new Error("Local fixture check refused: page is not local or test mode is off.")
   // Console and network are recorded from the first call on, so a later console or network action has something to show.
   const recorded = await BrowserDevtools.ensure(client)
   switch (input.action) {
@@ -410,6 +413,10 @@ export const Plugin = {
               }
               if (provenance.mode !== "ordinary") {
                 const running = yield* Effect.promise(() => BrowserRuntime.peek(browserSession))
+                if (scheduled && BrowserSchedule.get(scheduled.triggerID)?.localTest && !BrowserLocalTest.allowed(running.url)) {
+                  BrowserSchedule.finished(scheduled.triggerID, browserSession, false)
+                  return yield* fail("The local test page changed to a non-local URL or the test flag is off. No page content was read.")
+                }
                 if (!running.running) {
                   if (scheduled) BrowserSchedule.finished(scheduled.triggerID, browserSession, false)
                   return yield* fail("The scheduled browser session is not running. The check did not start Chrome or open a page.")
@@ -418,7 +425,7 @@ export const Plugin = {
               const checkedTask = input.action !== "info" ? scheduled : undefined
               if (checkedTask) BrowserSchedule.started(checkedTask.triggerID, browserSession)
               const result = yield* Effect.tryPromise({
-                try: () => perform(browserSession, input).finally(() => acts(input.action) && BrowserWatch.mute(browserSession, 5_000)),
+                try: () => perform(browserSession, input, scheduled ? BrowserSchedule.get(scheduled.triggerID)?.localTest === true : false).finally(() => acts(input.action) && BrowserWatch.mute(browserSession, 5_000)),
                 catch: (error) =>
                   new ToolFailure({
                     message: `Browser ${input.action} failed: ${error instanceof Error ? error.message : String(error)}. Call browser action=start and repeat this step. Playwright, MCP browsers, desktop_* and execute are not the browser in the panel: do not switch to them.`,

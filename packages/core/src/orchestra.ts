@@ -35,6 +35,8 @@ import { Society } from "./society.js"
 import { Config } from "./config.js"
 import { Autoloop } from "./autoloop/service.js"
 import { Trigger } from "./trigger.js"
+import { BrowserLocalTest } from "./browser/local-test.js"
+import { BrowserRuntime } from "./browser/runtime.js"
 import { BrowserSchedule } from "./browser/schedule.js"
 import { BrowserWatch } from "./browser/watch.js"
 import { AutoloopOrchestrator } from "./autoloop/orchestrator.js"
@@ -1811,6 +1813,15 @@ const layer: Layer.Layer<
         }
         const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
         if (!project?.main) continue
+        if (trigger.localTest && trigger.browserSessionID) {
+          const page = yield* Effect.promise(() => BrowserRuntime.peek(trigger.browserSessionID!))
+          if (!page.running || !BrowserLocalTest.allowed(page.url)) {
+            const paused = { ...trigger, enabled: false, pausedReason: "Local test left its allowed local page or the test flag is off." }
+            yield* kv.set(entry.key, paused as never)
+            BrowserSchedule.sync(paused)
+            continue
+          }
+        }
         const next = Trigger.afterFire(trigger, now)
         yield* kv.set(entry.key, next as never)
         BrowserSchedule.sync(next)
