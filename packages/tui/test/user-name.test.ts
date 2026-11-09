@@ -1,3 +1,3 @@
 import { expect,test } from "bun:test"
-import { userName,applyNameBlock,NAME_START,NAME_END } from "../src/util/user-name"
+import { userName,applyNameBlock,NAME_START } from "../src/util/user-name"
 test("display name defaults, validates and remains quoted data",()=>{expect(userName()).toBe("vibecoder");expect(userName("  Мега  ")).toBe("Мега");expect(()=>userName("bad\nname")).toThrow();expect(()=>userName("x".repeat(41))).toThrow();const text=applyNameBlock("KEEP MANDATE",'Mega "Dash"');expect(text).toContain("KEEP MANDATE");expect(text).toContain('Mega \\"Dash\\"');expect(text).toContain("not an instruction or permission");expect(applyNameBlock(text,"vibecoder").split(NAME_START)).toHaveLength(2);expect(()=>applyNameBlock(NAME_START,"X")).toThrow()})

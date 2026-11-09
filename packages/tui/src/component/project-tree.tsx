@@ -46,9 +46,7 @@ import { HoverAction } from "./hover-action"
 import { DialogMode } from "./dialog-mode"
 import { useNow } from "./note-canvas"
 import { useT } from "../util/i18n"
-import { tint } from "../theme/color"
-import { contrastRatio } from "../theme/system"
-import { browserIndicator } from "../util/browser-indicator"
+import { browserIndicator, browserRunningColor } from "../util/browser-indicator"
 import { hoverBackground, selectionBackground } from "../ui/hover"
 import { Branch, NeuralChip, NeuralLine, NeuronDot, neuralPalette, useNeuralEnergy } from "./neural"
 import { AllSessionsField, useEmptyRoom } from "./session-network"
@@ -772,7 +770,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                         browserConnectionRevision()
                         return browserIndicator(BrowserRuntime.browserState(item.id), browserConnected(item.id), props.width < 50)
                       }
-                      const runningColor = () => [theme.hue.green[200], theme.hue.green[300], theme.hue.green[400], theme.hue.green[500], theme.hue.green[600], theme.hue.green[700], theme.hue.green[800]].find((color) => contrastRatio(color, theme.background.raised.base) >= 4.5) ?? theme.text.feedback.success.base
+                      const runningColor = () => browserRunningColor(theme.background.raised.base)
                       const indicatorColor = () => indicator().phase === "running" ? runningColor()
                         : indicator().phase === "error" ? theme.text.feedback.error.base
                         : ["starting", "stopping", "checking"].includes(indicator().phase) ? theme.text.feedback.warning.base : theme.text.muted
@@ -1282,6 +1280,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                 <Show when={expanded[project.id] && !projectOnly()}>
                   {/* The rulebooks of this project: the crew's rules, and the rules only its Orchestrator gets (operator-only). */}
                   <Row
+                    id={`project-rules:${project.id}`}
                     hover={hover}
                     setHover={setHover}
                     onClick={() => dialog.replace(() => <DialogRules scope={`project:${project.id}`} title={project.directory} />)}
@@ -1290,6 +1289,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                     <text fg={theme.text.muted} wrapMode="none" truncate>{`§ ${t("Project rules")}`}</text>
                   </Row>
                   <Row
+                    id={`orchestrator-rules:${project.id}`}
                     hover={hover}
                     setHover={setHover}
                     onClick={() => dialog.replace(() => <DialogRules scope={`orchestrator:${project.id}`} title={`${t("Orchestrator")}: ${project.directory}`} />)}

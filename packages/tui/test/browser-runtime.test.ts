@@ -92,7 +92,7 @@ test("a working BrowserAgent lights up in the session list and in the pane heade
   expect(row).toContain('data.session.status(item.chat) === "running"')
   expect(row.indexOf("<NeuronDot")).toBeGreaterThan(row.indexOf('=== "running"'))
   expect(row).toContain('browserIndicator(BrowserRuntime.browserState(item.id), browserConnected(item.id)')
-  expect(row).toContain('theme.hue.green[200]')
+  expect(row).toContain('browserRunningColor(theme.background.raised.base)')
   expect(row).toContain('`${indicator().glyph} ${indicator().label} `')
   expect(row).toContain('>AI </text>')
   // The header: shown only while props.busy() holds, which the frame feeds from the same chat status.
