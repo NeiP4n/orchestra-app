@@ -94,12 +94,16 @@ export const NO_SESSION =
 // A short pause so a page that just navigated or reacted has started to render before it is read.
 const settle = () => new Promise((done) => setTimeout(done, 1500))
 
+/** Errors worth one fresh attempt: a lost connection, a profile still held by a restarting Chrome, a stalled or closed tab. */
+const RETRYABLE =
+  /connection (closed|failed)|Could not connect to Chrome|Another Chrome|profile.*in use|no answer from Chrome|timed out|(target|tab|page) (was )?closed/i
+
 /** A closed connection (Chrome died, or was killed with the app) is dropped and the action tried once more on a fresh one. */
 export async function perform(sessionID: string, input: Input) {
   try {
     return await performOnce(sessionID, input)
   } catch (error) {
-    if (!/connection (closed|failed)|Could not connect to Chrome/i.test(error instanceof Error ? error.message : String(error)))
+    if (!RETRYABLE.test(error instanceof Error ? error.message : String(error)))
       throw error
     // The Chrome this call talked to went away (killed, closed, or restarted into the pane's window mode). open() waits
     // for a restart in progress and joins the Chrome that runs now; a dead stored connection is dropped first.
@@ -110,7 +114,7 @@ export async function perform(sessionID: string, input: Input) {
       try {
         return await performOnce(sessionID, input)
       } catch (again) {
-        if (attempt >= 2 || !/connection (closed|failed)|Could not connect to Chrome/i.test(again instanceof Error ? again.message : String(again)))
+        if (attempt >= 2 || !RETRYABLE.test(again instanceof Error ? again.message : String(again)))
           throw again
       }
     }

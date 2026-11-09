@@ -172,6 +172,7 @@ export async function open(sessionID: string): Promise<Cdp.Client> {
   // A restart in progress owns the session: starting another Chrome beside it is what left input hanging.
   const restarting = relaunching.get(sessionID)
   if (restarting && !inside.has(sessionID)) await restarting.catch(() => undefined)
+  if (!inside.has(sessionID)) await awaitRelaunch(sessionID)
   const existing = live.get(sessionID)
   if (existing && existing.client.isClosed?.() === true) {
     // Chrome died or was closed behind our back: the stored client can never answer again. Forget it, so this call
@@ -531,6 +532,35 @@ function helperFile() {
  * addresses are reopened; logins stay in the profile, unsaved page state does not survive.
  */
 const relaunching = new Map<string, Promise<void>>()
+
+// The pane and the agent's server are different processes: the in-memory `relaunching` map is invisible to the
+// server, so a restart in progress is also marked by a small file with a time limit (a crashed pane must not block).
+const RELAUNCH_TTL_MS = 20_000
+const relaunchFile = (sessionID: string) => path.join(Global.Path.data, "browser-profiles", `${sessionID}.relaunch`)
+function markRelaunch(sessionID: string) {
+  try {
+    mkdirSync(path.dirname(relaunchFile(sessionID)), { recursive: true })
+    writeFileSync(relaunchFile(sessionID), String(Date.now()))
+  } catch {}
+}
+function clearRelaunch(sessionID: string) {
+  try {
+    rmSync(relaunchFile(sessionID), { force: true })
+  } catch {}
+}
+/** Waits while another process restarts this session's Chrome (fresh lock file), at most the lock's time limit. */
+export async function awaitRelaunch(sessionID: string) {
+  for (;;) {
+    let stamp = 0
+    try {
+      stamp = Number(readFileSync(relaunchFile(sessionID), "utf8"))
+    } catch {
+      return
+    }
+    if (!Number.isFinite(stamp) || Date.now() - stamp > RELAUNCH_TTL_MS) return
+    await new Promise((done) => setTimeout(done, 250))
+  }
+}
 const inside = new Set<string>()
 
 export async function relaunch(sessionID: string, mode: Mode | boolean, size = { width: 1000, height: 640 }) {
@@ -538,10 +568,12 @@ export async function relaunch(sessionID: string, mode: Mode | boolean, size = {
   if (before) await before.catch(() => undefined)
   const run = (async () => {
     inside.add(sessionID)
+    markRelaunch(sessionID)
     try {
       await restart(sessionID, mode, size)
     } finally {
       inside.delete(sessionID)
+      clearRelaunch(sessionID)
     }
   })()
   relaunching.set(sessionID, run)
