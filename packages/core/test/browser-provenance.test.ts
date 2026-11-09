@@ -9,6 +9,11 @@ test("browser task provenance fails closed and survives a fresh disk read", () =
   const root = mkdtempSync(path.join(os.tmpdir(), "browser-provenance-"))
   process.env.ORCHESTRA_DATA_DIR = root
   try {
+    // Mega's interactive main-chat flow remains available without a trigger marker.
+    expect(BrowserProvenance.read("main")).toEqual({ mode: "ordinary" })
+    for (const action of ["open", "start", "click", "type"])
+      expect(BrowserProvenance.refusal(BrowserProvenance.read("main"), action)).toBeUndefined()
+    expect(BrowserProvenance.bind("worker")).toBe(true)
     expect(BrowserProvenance.read("worker")).toEqual({ mode: "unknown" })
     for (const action of ["click", "type", "eval", "open", "start", "assign", "sessions"])
       expect(BrowserProvenance.refusal(BrowserProvenance.read("worker"), action)).toContain("read-only")
@@ -28,8 +33,11 @@ test("browser task provenance fails closed and survives a fresh disk read", () =
     expect(BrowserProvenance.write("worker", { mode: "ordinary" })).toBe(false)
     expect(BrowserProvenance.refusal(BrowserProvenance.read("worker"), "click")).toBeDefined()
     rmSync(file, { recursive: true })
-    expect(BrowserProvenance.write("worker", { mode: "ordinary" })).toBe(true)
+    expect(BrowserProvenance.reset("worker")).toBe(true)
     expect(BrowserProvenance.refusal(BrowserProvenance.read("worker"), "click")).toBeUndefined()
+    // Reset preserves the bound marker. Losing the reset record closes access again.
+    rmSync(file)
+    expect(BrowserProvenance.read("worker")).toEqual({ mode: "unknown" })
   } finally {
     if (previous === undefined) delete process.env.ORCHESTRA_DATA_DIR
     else process.env.ORCHESTRA_DATA_DIR = previous

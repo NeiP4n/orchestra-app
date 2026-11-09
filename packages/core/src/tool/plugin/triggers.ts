@@ -10,6 +10,7 @@ import { Session } from "../../session.js"
 import { Trigger } from "../../trigger.js"
 import { BrowserBridge } from "../../browser/bridge.js"
 import { BrowserRuntime } from "../../browser/runtime.js"
+import { BrowserProvenance } from "../../browser/provenance.js"
 import { BrowserLocalTest } from "../../browser/local-test.js"
 import { BrowserSchedule } from "../../browser/schedule.js"
 import { BrowserWatch } from "../../browser/watch.js"
@@ -87,6 +88,8 @@ export const Plugin = {
             )
             const found = BrowserBridge.resolve(BrowserRuntime.sessions(), input.browserSession, source.location.directory)
             if ("error" in found) return yield* new ToolFailure({ message: found.error })
+            if (found.session.chat && !BrowserProvenance.bind(found.session.chat))
+              return yield* new ToolFailure({ message: "The scheduled worker safety marker could not be saved. The trigger was not created." })
             browserSessionID = found.session.id
             spec = input.spec?.trim() || "60"
             if (input.localTest) {

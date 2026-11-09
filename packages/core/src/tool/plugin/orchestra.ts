@@ -1221,7 +1221,7 @@ export const Plugin = {
                   const provenance: BrowserProvenance.Record = by && !by.publishApproved
                     ? { mode: "read-only", triggerID: by.id, ...(by.browserSessionID ? { browserSessionID: by.browserSessionID } : {}) }
                     : { mode: "ordinary" }
-                  if (!BrowserProvenance.write(String(sessionID), provenance))
+                  if (!(provenance.mode === "ordinary" ? BrowserProvenance.reset(String(sessionID)) : BrowserProvenance.write(String(sessionID), provenance)))
                     return yield* new ToolFailure({ message: "The browser task authority could not be saved. Nothing was dispatched; fix storage access and try again." })
                   if (by && !by.publishApproved) Trigger.taint(String(sessionID), by.id, Date.now(), by.browserSessionID)
                   else Trigger.clearTaint(String(sessionID))

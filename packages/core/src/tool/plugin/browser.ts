@@ -428,7 +428,7 @@ export const Plugin = {
                 try: () => perform(browserSession, input, scheduled ? BrowserSchedule.get(scheduled.triggerID)?.localTest === true : false).finally(() => acts(input.action) && BrowserWatch.mute(browserSession, 5_000)),
                 catch: (error) =>
                   new ToolFailure({
-                    message: `Browser ${input.action} failed: ${error instanceof Error ? error.message : String(error)}. Call browser action=start and repeat this step. Playwright, MCP browsers, desktop_* and execute are not the browser in the panel: do not switch to them.`,
+                    message: `Browser ${input.action} failed: ${error instanceof Error ? error.message : String(error)}. ${provenance.mode === "ordinary" ? "Call browser action=start and repeat this step." : "This task is read-only: do not start or change the browser. Report the failed check to the operator; a new ordinary operator dispatch can reset the worker."} Playwright, MCP browsers, desktop_* and execute are not alternatives.`,
                     error,
                   }),
               }).pipe(Effect.tapError(() => Effect.sync(() => {
