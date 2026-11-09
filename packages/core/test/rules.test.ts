@@ -172,7 +172,8 @@ describe("rulebook", () => {
           groups: [{ name: "Lead", projects: ["prj_a"], mode: "lead", supervisor: "ses_president" }],
         }),
       )
-      expect(president).toEqual({ chatOf: "Lead", societies: ["Lead"] })
+      // The scopes also name the asking session, its role and whether it is an Orchestrator (session/role/orchestrator rules).
+      expect(president).toMatchObject({ chatOf: "Lead", societies: ["Lead"], orchestrator: false })
     }),
   )
 
