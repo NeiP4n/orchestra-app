@@ -209,7 +209,7 @@ export const builtin = (
     return nonBrowserAgent
   if (call.tool === "team_forge" && (input.action === "role" || input.action === "edit_role") && (browserLike(input.name) || browserLike(input.id)))
     return nonBrowserAgent
-  if (call.tool === "sessions" && input.action === "create" && (browserLike(input.role) || (!/^(?:team-)?browser-agent$/.test(String(input.role ?? "").trim()) && /^\s*browser\b/i.test(String(input.title ?? "")))))
+  if (call.tool === "sessions" && input.action === "create" && (browserLike(input.role) || (!/^(?:team-)?browser-agent$/.test(String(input.role ?? "").trim()) && /^\s*browser(?:\s+session)?(?:\s*\d+)?\s*$/i.test(String(input.title ?? "")))))
     return nonBrowserAgent
   if (call.tool === "execute" && typeof input.code === "string") {
     const code = input.code

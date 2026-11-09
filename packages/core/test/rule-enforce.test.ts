@@ -57,6 +57,8 @@ describe("RuleEnforce built-in browser routing", () => {
     expect(RuleEnforce.builtin({ tool: "execute", agent: "x", input: { code: "await tools.sessions({ action: 'create', role: 'browser-registrar' })" } }, task)).toBeDefined()
     expect(RuleEnforce.builtin({ tool: "execute", agent: "x", input: { code: "await tools.sessions({ action: 'create', role: 'browser-agent' })" } }, task)).toBeUndefined()
     expect(RuleEnforce.builtin({ tool: "sessions", agent: "x", input: { action: "create", role: "developer", title: "Browser tests" } }, task)).toBeUndefined()
+    expect(RuleEnforce.builtin({ tool: "sessions", agent: "x", input: { action: "create", role: "developer", title: "Browser 3" } }, task)).toBeDefined()
+    expect(RuleEnforce.builtin({ tool: "sessions", agent: "x", input: { action: "create", role: "browser-agent", title: "Browser 3" } }, task)).toBeUndefined()
     expect(RuleEnforce.builtin({ tool: "execute", agent: "x", input: { code: "import('playwright').then(p => p.chromium.launch())" } }, task)).toBeDefined()
     expect(RuleEnforce.builtin({ tool: "execute", agent: "x", input: { code: "console.log(1)" } }, task)).toBeUndefined()
   })
