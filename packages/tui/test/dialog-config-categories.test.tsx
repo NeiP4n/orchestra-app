@@ -58,7 +58,7 @@ test("DialogConfig sets dialog size to large and renders categorized navigation 
 
   const frame = app.captureCharFrame()
   // Verify category tabs are rendered
-  for (const category of ["All", "General", "Chat", "Agent", "Notifications", "Developer"])
+  for (const category of ["All", "General", "Chat", "Безопасность", "Notifications", "Developer", "Профиль"])
     expect(frame).toContain(category)
 
   // Verify rich footer card metadata is rendered: the default stays, the internal config

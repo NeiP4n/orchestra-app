@@ -7,6 +7,8 @@ import { DialogSelect } from "../ui/dialog-select"
 import { useToast } from "../ui/toast"
 import { useT } from "../util/i18n"
 import { CategoryRail } from "../ui/category-rail"
+import { DialogSecurity } from "./dialog-security"
+import { DialogPrompt } from "../ui/dialog-prompt"
 import { DialogUserProfile } from "./dialog-user-profile"
 import { UserNameEdit } from "./user-name-bar"
 import { SculkSprite } from "./sculk-sprite-view"
@@ -35,6 +37,7 @@ const toggle = { values: [false, true], labels: ["off", "on"] } as const
 // (thinking visibility has a session command, the diff viewer picks its
 // own source, the DevTools bar follows Developer mode and the channel).
 export const settings: Setting[] = [
+  { title: "Параметры безопасности", category: "Безопасность", description: "Реальные механизмы, текущие локальные лимиты и отсутствие жёстких защит. Без секретов и фейковых переключателей.", path: ["_security"], default: "открыть" },
   { title: "Профиль пользователя", category: "Профиль", description: "Обращение, манера, язык и стиль работы. Всё видно и редактируется оператором; не храните секреты.", path: ["_profile"], default: "открыть" },
   { title: "Имя пользователя", category: "Профиль", description: "Как ИИ обращается к вам. Нажмите, чтобы изменить.", path: ["user_name"], default: "vibecoder" },
   {
@@ -67,12 +70,12 @@ export const settings: Setting[] = [
   },
   {
     title: "Permissions",
-    category: "Agent",
+    category: "Безопасность",
     description: "Ask before the AI runs commands and edits files, or accept automatically",
     path: ["session", "permissions"],
     default: "prompt",
     values: ["prompt", "autoaccept"],
-    labels: ["prompt", "auto accept"],
+    labels: ["prompt", "принимать сами · расширено"],
     keywords: ["approve", "accept", "permission requests", "yolo"],
   },
   {
@@ -224,6 +227,7 @@ export function DialogConfig(props: { current?: string }) {
     if (saving()) return
     const setting = settings[index]
     if (!setting) return
+    if (settingID(setting) === "_security") return dialog.replace(() => <DialogSecurity />)
     if (settingID(setting) === "_profile") return dialog.replace(() => <DialogUserProfile />)
     if (settingID(setting) === "user_name") return dialog.replace(() => <UserNameEdit />)
     const current = value(setting)
@@ -231,6 +235,13 @@ export function DialogConfig(props: { current?: string }) {
     if (!choices) return
     const next = choices[(choices.indexOf(current) + direction + choices.length) % choices.length]
     if (next === current) return
+    if (settingID(setting) === "session.permissions" && next === "autoaccept") {
+      dialog.replace(() => <DialogPrompt title="Расширить права сессий?" placeholder="Введите РАЗРЕШИТЬ"
+        description={() => <text fg={theme.text.muted} wrapMode="word">Auto accept автоматически подтверждает запросы команд и изменений файлов. Это расширение прав, не разрешение на оплату или секреты. Для включения введите РАЗРЕШИТЬ.</text>}
+        onConfirm={(answer) => { if (answer.trim() !== "РАЗРЕШИТЬ") return; void write(next, index).then(() => dialog.replace(() => <DialogConfig current="session.permissions" />)) }}
+        onCancel={() => dialog.replace(() => <DialogConfig current="session.permissions" />)} />)
+      return
+    }
     return write(next, index)
   }
 

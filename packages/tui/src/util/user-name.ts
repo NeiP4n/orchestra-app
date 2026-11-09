@@ -1,6 +1,7 @@
+import { profileValue } from "./user-profile"
 export const DEFAULT_USER_NAME = "vibecoder"
 export function userName(value?: string): string {
-  const name = value?.trim() || DEFAULT_USER_NAME
+  const name = profileValue(value?.trim() || DEFAULT_USER_NAME)
   if (Array.from(name).length > 40 || /[\r\n\p{Cc}<>]/u.test(name)) throw new Error("Имя: до40символов, без переводов строки и угловых скобок.")
   return name
 }
