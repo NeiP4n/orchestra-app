@@ -24,7 +24,7 @@ describe("creating triggers", () => {
     expect(make("cron", "*/5 * * * *").ok).toBe(true)
     expect(make("cron", "not a cron")).toEqual({ ok: false, error: expect.stringContaining("five-field") })
     expect(make("once", "2026-11-01T00:00:00Z")).toEqual({ ok: false, error: expect.stringContaining("passed") })
-    expect(make("weekly", "x")).toEqual({ ok: false, error: expect.stringContaining("cron, interval or once") })
+    expect(make("weekly", "x")).toEqual({ ok: false, error: expect.stringContaining("cron, interval, once or browser") })
     expect(Trigger.create({ kind: "interval", spec: "10", prompt: "  " }, ctx)).toEqual({ ok: false, error: expect.stringContaining("prompt") })
     expect(Trigger.create({ kind: "interval", spec: "10", prompt: "x" }, { ...ctx, existing: Trigger.MAX_TRIGGERS_PER_PROJECT }).ok).toBe(false)
   })

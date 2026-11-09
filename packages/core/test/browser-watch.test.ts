@@ -145,7 +145,10 @@ describe("hard layer: a worker from a triggered turn cannot act in a page", () =
 
   test("the wiring: dispatch marks, the browser tool checks the action before the session, the sweep uses the gate", () => {
     const dispatch = readFileSync(new URL("../src/tool/plugin/orchestra.ts", import.meta.url), "utf8")
-    const marked = dispatch.slice(dispatch.indexOf("const dispatch = (sessionID"), dispatch.indexOf("const roles = yield* orchestra.roles()"))
+    const from = dispatch.indexOf("const dispatch = (sessionID")
+    expect(from).toBeGreaterThan(0)
+    const marked = dispatch.slice(from, dispatch.indexOf("const roles = yield* orchestra.roles()", from))
+    expect(marked.length).toBeGreaterThan(100)
     expect(marked).toContain("Trigger.taint(String(sessionID)")
     expect(marked).toContain("Trigger.clearTaint(String(sessionID))")
     const tool = readFileSync(new URL("../src/tool/plugin/browser.ts", import.meta.url), "utf8")
