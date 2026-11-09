@@ -21,8 +21,8 @@ export function ScheduleList(props: { sessionID: string; width?: number }) {
     if (armed() !== id) { setArmed(id); return }
     try { ScheduleView.requestRemoval(id, props.sessionID); setArmed(); setError("") } catch { setError("Не удалось удалить расписание.") }
   }
-  Keymap.createLayer(() => ({ enabled: () => !collapsed() && !!selected(), commands: [{ bind: "ctrl+d", title: "Удалить выбранное расписание (дважды)", group: "Расписания", run: () => { const id = selected(); if (id) remove(id) } }] }))
   const [collapsed, setCollapsed] = createSignal(true)
+  Keymap.createLayer(() => ({ enabled: () => !collapsed() && !!selected(), commands: [{ bind: "ctrl+d", title: "Удалить выбранное расписание (дважды)", group: "Расписания", run: () => { const id = selected(); if (id) remove(id) } }] }))
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>({})
   const [measuredWidth, setMeasuredWidth] = createSignal<number>()
   const width = () => Math.max(1, measuredWidth() ?? props.width ?? 32)
@@ -60,7 +60,7 @@ export function ScheduleList(props: { sessionID: string; width?: number }) {
             </box>
           </HoverAction>
           <box flexDirection="row" gap={1}>
-            <box flexGrow={1}><text fg={theme.text.muted}>{item.lastFiredAt === undefined ? "ещё не срабатывал" : `сработал ${Math.max(0, Math.floor((now() - item.lastFiredAt) / 1000))} с назад`}</text></box>
+            <box flexGrow={1}><text fg={theme.text.muted}>{item.lastFiredAt === undefined ? "ещё не срабатывал" : `сработал ${Math.max(0, Math.floor((now() - item.lastFiredAt) / 1000))} с назад · ${item.total ?? "?"} раз`}</text></box>
             <box minWidth={5} onMouseDown={(event) => event.stopPropagation()} onMouseUp={(event) => { event.stopPropagation(); remove(item.id) }}>
               <text fg={theme.text.feedback.error.base}>{ScheduleView.removalRequested(item.id, props.sessionID) ? "удаление…" : armed() === item.id ? "[да?]" : "[ × ]"}</text>
             </box>

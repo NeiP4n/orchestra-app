@@ -1806,7 +1806,7 @@ const layer: Layer.Layer<
         yield* kv.remove(entry.key)
         ScheduleView.remove(trigger.id)
         BrowserSchedule.remove(trigger.id)
-        ScheduleView.clearRemoval(trigger.id)
+        // Retain the operator tombstone: another sweep may already hold the old record.
         if (trigger.kind === "browser") {
           const remaining = (yield* scanAll(Trigger.PREFIX)).some((entry) => {
             const other = Trigger.parse(entry.value)

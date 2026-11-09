@@ -10,6 +10,7 @@ export interface Item {
   id: string
   sessionID: string
   name: string
+  total?: number
   localActions?: boolean
   actionErrors?: number
   kind: Trigger.Kind
@@ -33,7 +34,7 @@ export function shortName(prompt: string): string {
 export function sync(trigger: Trigger.Info, sessionID: string) {
   try {
     const item: Item = { id: trigger.id, sessionID, name: shortName(trigger.prompt), kind: trigger.kind,
-      localActions: !!trigger.actions?.length, actionErrors: trigger.errors?.consecutive,
+      total: trigger.total, localActions: !!trigger.actions?.length, actionErrors: trigger.errors?.consecutive,
       enabled: trigger.enabled, nextAt: trigger.enabled ? trigger.nextAt : null, lastFiredAt: trigger.lastFiredAt,
       pausedReason: trigger.pausedReason, browserSessionID: trigger.browserSessionID, updatedAt: Date.now() }
     mkdirSync(directory(), { recursive: true })
