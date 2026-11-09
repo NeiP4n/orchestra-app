@@ -168,13 +168,29 @@ export async function uninstall(client: Client) {
 
 /** Arms one page connection: the binding, the script for every new document, and the script for the page already open. */
 export async function install(sessionID: string, client: Client) {
+  if (installed.has(client)) {
+    // Navigation can race document-start injection. Re-evaluate our fixed observer,
+    // whose page flag makes this idempotent, without duplicating binding listeners.
+    await client.send("Runtime.evaluate", { expression: script(), returnByValue: true })
+    return
+  }
+  await client.send("Page.enable")
   await client.send("Runtime.enable")
   await client.send("Runtime.addBinding", { name: BINDING })
   const added = await client.send<{ identifier?: string }>("Page.addScriptToEvaluateOnNewDocument", { source: script() })
-  await client.send("Runtime.evaluate", { expression: script(), returnByValue: true })
   const stop = client.on("Runtime.bindingCalled", (params) => {
     if (params?.name !== BINDING) return
     handle(sessionID, String(params.payload ?? ""))
   })
   installed.set(client, { stop, identifier: added?.identifier })
+  try { await client.send("Runtime.evaluate", { expression: script(), returnByValue: true }) }
+  catch (error) { await uninstall(client); throw error }
+}
+
+/** Fixed read-only readiness probe. It never returns page text or auth information. */
+export async function ready(client: Client): Promise<boolean> {
+  const result = await client.send<{ result?: { value?: boolean }; exceptionDetails?: unknown }>("Runtime.evaluate", {
+    expression: "Boolean(document.documentElement && window.__orchestraWatchOn && window.__orchestraWatchObserver)", returnByValue: true,
+  })
+  return !result.exceptionDetails && result.result?.value === true
 }

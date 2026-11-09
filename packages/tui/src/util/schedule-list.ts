@@ -63,6 +63,9 @@ export function scheduleDetails(item: ScheduleView.Item, status?: BrowserSchedul
       ? `${watcher} · последнее входящее: ${status?.lastEventAt === undefined ? "нет" : clock(status.lastEventAt)}`
       : `Следующий запуск: ${scheduleNext(item)}`,
     `Последний результат: ${result}${status?.lastCheckedAt === undefined ? "" : ` · чтение ${clock(status.lastCheckedAt)}`}`,
+    ...(status?.lostPendingRows ? [`Потеряно при перезапуске: ${status.lostPendingRows} строк; повтор не выполнен`] : []),
+    ...(status?.restartedAt ? ["Наблюдение восстановлено после перезапуска; события во время простоя неизвестны"] : []),
+    ...(status?.pendingRows ? [`В очереди наблюдателя: ${status.pendingRows}`] : []),
     ...(item.pausedReason ? [`Причина паузы: ${schedulePause(item.pausedReason)}`] : []),
   ]
 }

@@ -82,3 +82,16 @@ test("watcher status distinguishes installation, accepted events and off", () =>
     expect(BrowserSchedule.get(id)?.watcher).toBe("off")
   } finally { BrowserSchedule.remove(id) }
 })
+
+
+test("watcher restart preserves only lost queue count, not a false replay", () => {
+  const id = "restart-count-fixture"
+  BrowserSchedule.save({ triggerID: id, browserSessionID: "fixture", enabled: true, nextAt: null, phase: "waiting", watcherRun: "old-process", pendingRows: 4 })
+  BrowserSchedule.queueStatus(id, 0, 4567)
+  expect(BrowserSchedule.get(id)?.lostPendingRows).toBe(4)
+  expect(BrowserSchedule.get(id)?.pendingRows).toBe(0)
+  expect(BrowserSchedule.get(id)?.restartedAt).toBe(4567)
+  BrowserSchedule.queueStatus(id, 2)
+  expect(BrowserSchedule.get(id)?.lostPendingRows).toBe(4)
+  BrowserSchedule.remove(id)
+})

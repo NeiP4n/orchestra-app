@@ -1923,28 +1923,25 @@ const layer: Layer.Layer<
     // Browser triggers: rows the page watcher reports wait in memory, then go to the Orchestrator of the project whose
     // trigger watches that session, as a <trigger-fired> with the rows inside an <untrusted> block. The same caps and
     // auto-pause as the schedules apply; rows that arrive inside the 60 s gap wait and go out together. Every minute the
-    // sweep also re-arms the watchers (a tab switch or a Chrome restart gives the session a new connection).
+    // sweep re-arms every five seconds (tab switches, reloads and Chrome restarts replace the connection).
     const browserInbox: BrowserWatch.Event[] = []
     const stopBrowserWatch = BrowserWatch.onEvent((event) => {
       if (browserInbox.length < 200) browserInbox.push(event)
     })
     yield* Effect.addFinalizer(() => Effect.sync(stopBrowserWatch))
     const waiting = new Map<string, Trigger.Row[]>()
-    let beat = 0
     const fireBrowserTriggers = Effect.gen(function* () {
-      beat++
-      if (browserInbox.length === 0 && waiting.size === 0 && beat % 12 !== 0) return
       const now = Date.now()
       const mine = (yield* scanAll(Trigger.PREFIX)).flatMap((entry) => {
         const trigger = Trigger.parse(entry.value)
         return trigger && trigger.kind === "browser" ? [{ key: entry.key, trigger }] : []
       })
       for (const key of [...waiting.keys()]) if (!mine.some((item) => item.key === key)) waiting.delete(key)
-      if (beat % 12 === 0)
-        for (const item of mine) {
+      for (const item of mine) {
           const project = yield* get(item.trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
           if (project?.main) ScheduleView.sync(item.trigger, String(project.main))
           BrowserSchedule.sync({ ...item.trigger, browserSessionID: item.trigger.spec })
+          BrowserSchedule.queueStatus(item.trigger.id, waiting.get(item.key)?.length ?? 0)
           const armed = item.trigger.enabled && !(project?.main && ScheduleView.removalRequested(item.trigger.id, String(project.main))) ? yield* Effect.promise(() => BrowserWatch.ensure(item.trigger.spec)) : false
           BrowserSchedule.watchStatus(item.trigger.id, armed)
         }
@@ -1952,7 +1949,10 @@ const layer: Layer.Layer<
         for (const item of mine) {
           const rows = event.items.filter((row) => Trigger.matches(item.trigger, event.sessionID, row))
           if (rows.length > 0) BrowserSchedule.watchStatus(item.trigger.id, true, event.at)
-          if (rows.length > 0) waiting.set(item.key, [...(waiting.get(item.key) ?? []), ...rows].slice(-Trigger.MAX_PENDING))
+          if (rows.length > 0) {
+            waiting.set(item.key, [...(waiting.get(item.key) ?? []), ...rows].slice(-Trigger.MAX_PENDING))
+            BrowserSchedule.queueStatus(item.trigger.id, waiting.get(item.key)!.length)
+          }
         }
       for (const { key, trigger } of mine) {
         const rows = waiting.get(key)
@@ -1960,6 +1960,7 @@ const layer: Layer.Layer<
         const verdict = Trigger.browserDue(trigger, now)
         if (verdict === "wait") continue
         waiting.delete(key)
+        BrowserSchedule.queueStatus(trigger.id, 0)
         if (verdict === "skip") continue
         if (verdict === "pause") {
           yield* kv.set(key, Trigger.paused(trigger, now) as never)

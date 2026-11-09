@@ -2,6 +2,7 @@ export * as BrowserSchedule from "./schedule.js"
 
 import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync, rmSync } from "node:fs"
 import path from "node:path"
+import { randomUUID } from "node:crypto"
 import { Global } from "@orchestra/util/global"
 
 // Operational status only. No page text, titles, URLs or private messages are stored.
@@ -10,6 +11,10 @@ export interface Status {
   browserSessionID: string
   watcher?: "off" | "failed" | "watching"
   lastEventAt?: number
+  watcherRun?: string
+  pendingRows?: number
+  lostPendingRows?: number
+  restartedAt?: number
   localTest?: boolean
   enabled: boolean
   nextAt: number | null
@@ -131,4 +136,15 @@ export function watchStatus(id: string, watching: boolean, lastEventAt?: number)
   if (!previous) return
   save({ ...previous, watcher: !previous.enabled ? "off" : watching ? "watching" : "failed",
     ...(lastEventAt === undefined ? {} : { lastEventAt }) })
+}
+
+// Only counts, never message bodies. A process restart cannot replay a volatile queue.
+const watcherRun = randomUUID()
+export function queueStatus(id: string, pendingRows: number, now = Date.now()) {
+  const previous = get(id)
+  if (!previous) return
+  const restarted = previous.watcherRun !== undefined && previous.watcherRun !== watcherRun
+  save({ ...previous, watcherRun, pendingRows: Math.max(0, Math.floor(pendingRows)),
+    lostPendingRows: (previous.lostPendingRows ?? 0) + (restarted ? previous.pendingRows ?? 0 : 0),
+    ...(restarted ? { restartedAt: now, watcher: "failed" as const } : {}) })
 }

@@ -398,18 +398,20 @@ export async function watchEnsure(sessionID: string): Promise<boolean> {
   }
   const health = watchHealth.get(sessionID)
   const now = Date.now()
-  if (armed.get(sessionID) === item.client && health?.state === "ok" && now - health.at < 60_000) return true
   try {
     // Protocol heartbeat only, no website HTTP request, DOM read, image or arbitrary page code.
     await within(item.client.send("Page.setWebLifecycleState", { state: "active" }), 2000)
     await within(item.client.send("Runtime.getIsolateId"), 2000)
     const resumed = health !== undefined && now - health.at > 120_000
-    watchHealth.set(sessionID, { at: now, state: "ok", resumed })
     if (resumed) trace(`${sessionID}: watcher heartbeat resumed after a gap; system sleep vs suspended service cannot be distinguished here`)
-    if (armed.get(sessionID) !== item.client) {
-      await within(BrowserWatch.install(sessionID, item.client), 5000)
-      armed.set(sessionID, item.client)
+    await within(BrowserWatch.install(sessionID, item.client), 5000)
+    if (!await within(BrowserWatch.ready(item.client), 2000)) {
+      armed.delete(sessionID)
+      watchHealth.set(sessionID, { at: now, state: "lost", resumed: false })
+      return false
     }
+    armed.set(sessionID, item.client)
+    watchHealth.set(sessionID, { at: now, state: "ok", resumed })
     return true
   } catch (error) {
     armed.delete(sessionID)
