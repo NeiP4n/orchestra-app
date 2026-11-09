@@ -35,6 +35,7 @@ import { Society } from "./society.js"
 import { Config } from "./config.js"
 import { Autoloop } from "./autoloop/service.js"
 import { Trigger } from "./trigger.js"
+import { BrowserWatch } from "./browser/watch.js"
 import { AutoloopOrchestrator } from "./autoloop/orchestrator.js"
 import type { EventRow, Job, Receipt, RunRow } from "./autoloop/kernel/decide.js"
 import type { View } from "./autoloop/kernel/evolve.js"
@@ -1822,6 +1823,64 @@ const layer: Layer.Layer<
       }
     }).pipe(Effect.catch(() => Effect.void))
     yield* Effect.forever(Effect.sleep(Duration.seconds(60)).pipe(Effect.andThen(fireTriggers))).pipe(
+      Effect.forkScoped({ startImmediately: true }),
+    )
+
+    // Browser triggers: rows the page watcher reports wait in memory, then go to the Orchestrator of the project whose
+    // trigger watches that session, as a <trigger-fired> with the rows inside an <untrusted> block. The same caps and
+    // auto-pause as the schedules apply; rows that arrive inside the 60 s gap wait and go out together. Every minute the
+    // sweep also re-arms the watchers (a tab switch or a Chrome restart gives the session a new connection).
+    const browserInbox: BrowserWatch.Event[] = []
+    const stopBrowserWatch = BrowserWatch.onEvent((event) => {
+      if (browserInbox.length < 200) browserInbox.push(event)
+    })
+    yield* Effect.addFinalizer(() => Effect.sync(stopBrowserWatch))
+    const waiting = new Map<string, Trigger.Row[]>()
+    let beat = 0
+    const fireBrowserTriggers = Effect.gen(function* () {
+      beat++
+      if (browserInbox.length === 0 && waiting.size === 0 && beat % 12 !== 0) return
+      const now = Date.now()
+      const mine = (yield* scanAll(Trigger.PREFIX)).flatMap((entry) => {
+        const trigger = Trigger.parse(entry.value)
+        return trigger && trigger.kind === "browser" ? [{ key: entry.key, trigger }] : []
+      })
+      for (const key of [...waiting.keys()]) if (!mine.some((item) => item.key === key)) waiting.delete(key)
+      if (beat % 12 === 0)
+        for (const item of mine) if (item.trigger.enabled) yield* Effect.promise(() => BrowserWatch.ensure(item.trigger.spec))
+      for (const event of browserInbox.splice(0))
+        for (const item of mine) {
+          const rows = event.items.filter((row) => Trigger.matches(item.trigger, event.sessionID, row))
+          if (rows.length > 0) waiting.set(item.key, [...(waiting.get(item.key) ?? []), ...rows].slice(-Trigger.MAX_PENDING))
+        }
+      for (const { key, trigger } of mine) {
+        const rows = waiting.get(key)
+        if (!rows || rows.length === 0) continue
+        const verdict = Trigger.browserDue(trigger, now)
+        if (verdict === "wait") continue
+        waiting.delete(key)
+        if (verdict === "skip") continue
+        if (verdict === "pause") {
+          yield* kv.set(key, Trigger.paused(trigger, now) as never)
+          reportLog({ event: "trigger-paused", trigger: trigger.id, project: trigger.projectID })
+          continue
+        }
+        const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+        if (!project?.main) continue
+        yield* kv.set(key, Trigger.afterFire(trigger, now) as never)
+        const ok = yield* sessions
+          .synthetic({
+            id: SessionMessage.ID.create(),
+            sessionID: project.main,
+            description: `Trigger ${trigger.id} fired`,
+            text: Trigger.render(trigger, now, Trigger.renderRows(trigger, rows)),
+            metadata: { source: "trigger", triggerID: trigger.id, publishApproved: trigger.publishApproved },
+          })
+          .pipe(Effect.as(true), Effect.orElseSucceed(() => false))
+        reportLog({ event: "trigger-fired", trigger: trigger.id, project: trigger.projectID, kind: "browser", rows: rows.length, delivered: ok })
+      }
+    }).pipe(Effect.catch(() => Effect.void))
+    yield* Effect.forever(Effect.sleep(Duration.seconds(5)).pipe(Effect.andThen(fireBrowserTriggers))).pipe(
       Effect.forkScoped({ startImmediately: true }),
     )
     yield* Effect.forever(Effect.sleep(Duration.seconds(60)).pipe(Effect.andThen(watchReports))).pipe(

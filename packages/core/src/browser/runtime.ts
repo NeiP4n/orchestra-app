@@ -7,6 +7,7 @@ import { Global } from "@orchestra/util/global"
 import { BrowserBridge } from "./bridge.js"
 import { Cdp } from "./cdp.js"
 import { BrowserTabs } from "./tabs.js"
+import { BrowserWatch } from "./watch.js"
 import { Chrome } from "./chrome.js"
 import { WindowCapture } from "./window-capture.js"
 
@@ -239,6 +240,29 @@ export async function open(sessionID: string): Promise<Cdp.Client> {
 
 export const isOpen = (sessionID: string) => live.has(sessionID)
 
+// Browser triggers: arms the page watcher on the session's current page connection. A tab switch, a restart or a new
+// Chrome gives the session a new connection, so the trigger sweep calls this again every few seconds and it re-arms when
+// the connection changed. It never starts Chrome: a session that is not running is not watched.
+const armed = new Map<string, Cdp.Client>()
+export async function watchEnsure(sessionID: string): Promise<boolean> {
+  const item = live.get(sessionID)
+  if (!item || item.client.isClosed?.() === true) {
+    armed.delete(sessionID)
+    return false
+  }
+  if (armed.get(sessionID) === item.client) return true
+  armed.set(sessionID, item.client)
+  try {
+    await BrowserWatch.install(sessionID, item.client)
+    return true
+  } catch (error) {
+    armed.delete(sessionID)
+    trace(`${sessionID}: arming the page watcher failed: ${String(error).slice(0, 120)}`)
+    return false
+  }
+}
+BrowserWatch.setEnsurer(watchEnsure)
+
 export async function go(sessionID: string, address: string) {
   await Cdp.navigate(await open(sessionID), Chrome.omnibox(address))
 }
@@ -444,6 +468,8 @@ export async function mouse(
   step: (text: string) => void = () => undefined,
 ): Promise<string> {
   step("runtime called")
+  // The operator's own clicks (opening a chat loads old rows) are not news for a browser trigger.
+  BrowserWatch.mute(sessionID, 4000)
   const client = await within(open(sessionID), 3000).catch((error: unknown) => {
     throw new Error(`browser not ready (${error instanceof Error ? error.message : String(error)})`)
   })
@@ -491,6 +517,7 @@ export async function mouse(
 }
 
 export async function key(sessionID: string, input: Parameters<typeof Cdp.key>[1]): Promise<string> {
+  BrowserWatch.mute(sessionID, 4000)
   const client = await within(open(sessionID), 3000)
   const capture = live.get(sessionID)?.capture
   if (capture && uiFocus.get(sessionID)) {

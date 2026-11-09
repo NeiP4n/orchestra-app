@@ -14,14 +14,16 @@ import { AutoloopDecide } from "./autoloop/kernel/decide.js"
 //  - publishing in the operator's name (a reply, a post, a message to someone else's chat) needs the operator's own yes
 //    for each trigger. No tool sets that yes in this version, so a turn started by a trigger cannot publish.
 
-export type Kind = "cron" | "interval" | "once"
+export type Kind = "cron" | "interval" | "once" | "browser"
 
 export interface Trigger {
   id: string
   projectID: string
   kind: Kind
-  /** A five-field cron line, a number of minutes, or an ISO time. */
+  /** A five-field cron line, a number of minutes, an ISO time, or (browser) the id of a browser session. */
   spec: string
+  /** Browser triggers only: fire only for rows whose chat or text contains this (case-insensitive). */
+  match?: string
   /** The operator's instruction, written when the trigger was created. Never taken from a page or a request. */
   prompt: string
   enabled: boolean
@@ -63,6 +65,7 @@ export interface CreateInput {
   prompt: string
   maxPerHour?: number
   maxPerDay?: number
+  match?: string
 }
 
 export type Created = { ok: true; trigger: Trigger } | { ok: false; error: string }
@@ -106,7 +109,11 @@ export function create(
     if (at <= context.now) return { ok: false, error: "That time has already passed." }
     if (at > context.now + 366 * 24 * 60 * MINUTE) return { ok: false, error: "That time is more than a year away." }
     nextAt = at
-  } else return { ok: false, error: `kind is cron, interval or once, not "${input.kind}".` }
+  } else if (input.kind === "browser") {
+    // The tool resolves a name to the session id before it gets here; the trigger has no time, it fires on page events.
+    if (!spec) return { ok: false, error: "For browser, spec is the browser session (id or name) to watch." }
+    nextAt = null
+  } else return { ok: false, error: `kind is cron, interval, once or browser, not "${input.kind}".` }
   return {
     ok: true,
     trigger: {
@@ -114,6 +121,7 @@ export function create(
       projectID: context.projectID,
       kind: input.kind,
       spec,
+      ...(input.kind === "browser" && input.match?.trim() ? { match: input.match.trim().slice(0, 80) } : {}),
       prompt,
       enabled: true,
       createdAt: context.now,
@@ -132,7 +140,7 @@ export function parse(value: unknown): Trigger | undefined {
   if (typeof value !== "object" || value === null) return undefined
   const v = value as Record<string, unknown>
   if (typeof v.id !== "string" || typeof v.projectID !== "string" || typeof v.prompt !== "string") return undefined
-  if (v.kind !== "cron" && v.kind !== "interval" && v.kind !== "once") return undefined
+  if (v.kind !== "cron" && v.kind !== "interval" && v.kind !== "once" && v.kind !== "browser") return undefined
   if (typeof v.spec !== "string" || typeof v.enabled !== "boolean" || typeof v.createdAt !== "number") return undefined
   if (!(v.nextAt === null || typeof v.nextAt === "number")) return undefined
   return {
@@ -140,6 +148,7 @@ export function parse(value: unknown): Trigger | undefined {
     projectID: v.projectID,
     kind: v.kind,
     spec: v.spec,
+    ...(typeof v.match === "string" && v.match ? { match: v.match } : {}),
     prompt: v.prompt,
     enabled: v.enabled,
     ...(typeof v.pausedReason === "string" ? { pausedReason: v.pausedReason } : {}),
@@ -197,12 +206,17 @@ export function afterFire(trigger: Trigger, now: number, timezone = localZone())
   const fired = [...trigger.fired.filter((at) => at > now - 24 * 60 * MINUTE), now]
   const base = { ...trigger, fired, total: trigger.total + 1, lastFiredAt: now }
   if (trigger.kind === "once") return { ...base, enabled: false, nextAt: null, pausedReason: "done: a one-shot trigger fires once" }
+  if (trigger.kind === "browser") return base
   const next = nextFrom(trigger, now, timezone)
   return next === null ? { ...base, enabled: false, nextAt: null, pausedReason: "paused: the cron line has no next time" } : { ...base, nextAt: next }
 }
 
 /** Switches a paused trigger back on. The firing history stays, so a resume cannot clear a cap. Undefined when nothing is left to wait for. */
 export function resume(trigger: Trigger, now: number, timezone = localZone()): Trigger | undefined {
+  if (trigger.kind === "browser") {
+    const { pausedReason: _done, ...rest } = trigger
+    return { ...rest, enabled: true }
+  }
   const next = nextFrom(trigger, now, timezone)
   if (next === null) return undefined
   const { pausedReason: _gone, ...rest } = trigger
@@ -222,13 +236,14 @@ export function untrusted(source: string, text: string, max = 1500) {
 }
 
 /** The message the Orchestrator receives when a trigger fires. */
-export function render(trigger: Trigger, now: number) {
+export function render(trigger: Trigger, now: number, extra?: string) {
   return [
     `<trigger-fired id="${trigger.id}" kind="${trigger.kind}" spec="${trigger.spec}" at="${new Date(now).toISOString()}" count="${trigger.total + 1}">`,
     `Your project's trigger ${trigger.id} fired. The operator's instruction, written when the trigger was created:`,
     "<instruction>",
     trigger.prompt,
     "</instruction>",
+    ...(extra ? [extra] : []),
     trigger.publishApproved
       ? "Publishing in the operator's name is approved for this trigger."
       : "Publishing in the operator's name (sending or replying in someone's chat, posting, commenting) is NOT approved for this trigger. Do not do it and do not hand it to a worker; tell the operator what you would send.",
@@ -272,7 +287,7 @@ export function publishRefusal(messages: Parameters<typeof triggered>[0], text: 
 
 export const describe = (trigger: Trigger) =>
   [
-    `${trigger.id} [${trigger.enabled ? "on" : "off"}] ${trigger.kind} ${trigger.spec}`,
+    `${trigger.id} [${trigger.enabled ? "on" : "off"}] ${trigger.kind} ${trigger.spec}${trigger.match ? ` match "${trigger.match}"` : ""}`,
     trigger.nextAt === null ? "next: none" : `next: ${new Date(trigger.nextAt).toISOString()}`,
     `fired ${trigger.total}x`,
     `cap ${trigger.maxPerHour}/h ${trigger.maxPerDay}/day`,
@@ -281,3 +296,71 @@ export const describe = (trigger: Trigger) =>
   ]
     .filter(Boolean)
     .join(" | ")
+
+
+// ---- Browser triggers: a page event (a new row in a chat) wakes the Orchestrator ----
+
+/** The least time between two firings of one browser trigger; rows that arrive sooner wait and go out together. */
+export const BROWSER_GAP_SECONDS = 60
+export const MAX_PENDING = 10
+
+export interface Row {
+  readonly chat: string
+  readonly text: string
+}
+
+/** True when a browser trigger watches this session and the row passes its `match`. */
+export function matches(trigger: Trigger, sessionID: string, row: Row) {
+  if (trigger.kind !== "browser" || !trigger.enabled || trigger.spec !== sessionID) return false
+  return !trigger.match || `${row.chat} ${row.text}`.toLowerCase().includes(trigger.match.toLowerCase())
+}
+
+/** What to do with waiting rows now: fire, wait for the gap, pause on a full cap, or skip (off). Same caps as the schedules. */
+export function browserDue(trigger: Trigger, now: number): Due | "skip" {
+  if (!trigger.enabled || trigger.kind !== "browser") return "skip"
+  const hour = trigger.fired.filter((at) => at > now - 60 * MINUTE).length
+  const day = trigger.fired.filter((at) => at > now - 24 * 60 * MINUTE).length
+  if (hour >= trigger.maxPerHour || day >= trigger.maxPerDay) return "pause"
+  if (trigger.lastFiredAt !== undefined && now - trigger.lastFiredAt < BROWSER_GAP_SECONDS * 1000) return "wait"
+  return "fire"
+}
+
+/** The block of new rows for the Orchestrator. The page text sits in an <untrusted> block; the instruction stays the operator's. */
+export function renderRows(trigger: Trigger, rows: readonly Row[]) {
+  const lines = rows.slice(-MAX_PENDING).map((row) => `[${row.chat || "no chat name"}] ${row.text}`)
+  return [
+    `New on the watched page (browser session ${trigger.spec}): ${rows.length} row(s). Only "something new appeared" is certain; open the page with the BrowserAgent to read more.`,
+    untrusted(`browser:${trigger.spec}`, lines.join("\n")),
+  ].join("\n")
+}
+
+// ---- Hard layer: a worker reached from a triggered turn cannot act in a page ----
+
+const TAINT_MS = 2 * 60 * 60_000
+const tainted = new Map<string, { id: string; at: number }>()
+
+/** Marks a session that got its task from a turn a trigger started (publishing not approved). */
+export function taint(sessionID: string, triggerID: string, now = Date.now()) {
+  if (tainted.size > 200) tainted.clear()
+  tainted.set(sessionID, { id: triggerID, at: now })
+}
+
+/** An ordinary dispatch (not from a triggered turn) lifts the mark: the task is the operator's again. */
+export const clearTaint = (sessionID: string) => void tainted.delete(sessionID)
+
+/** The trigger that marked this session, if the mark is still fresh. */
+export function taintOf(sessionID: string, now = Date.now()) {
+  const found = tainted.get(sessionID)
+  if (!found) return undefined
+  if (now - found.at > TAINT_MS) {
+    tainted.delete(sessionID)
+    return undefined
+  }
+  return found.id
+}
+
+/** Page actions that can publish: a click (a Send button), typing, and a script. Reading stays allowed. */
+export const TAINT_BLOCKED = new Set(["click", "type", "eval"])
+
+export const taintRefusal = (triggerID: string, action: string) =>
+  `Refused: this task came from a turn that trigger ${triggerID} started, and publishing in the operator's name is not approved for it, so browser ${action} is blocked. Reading the page (text, snapshot, screenshot, info) is allowed. Report what you would do; the operator's own message lifts this.`

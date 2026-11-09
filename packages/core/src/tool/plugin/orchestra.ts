@@ -1214,6 +1214,11 @@ export const Plugin = {
                     .pipe(Effect.orElseSucceed((): SessionMessage.Info[] => []))
                   const blocked = Trigger.publishRefusal(incomingHistory as never, text)
                   if (blocked) return yield* new ToolFailure({ message: blocked })
+                  // A worker that gets its task from a triggered turn cannot click, type or run scripts in a page
+                  // (the browser tool checks this mark); a task from an ordinary turn lifts the mark.
+                  const by = Trigger.triggered(incomingHistory as never)
+                  if (by && !by.publishApproved) Trigger.taint(String(sessionID), by.id)
+                  else Trigger.clearTaint(String(sessionID))
                   const recon = yield* reconBrief()
                   return yield* orchestra.dispatch({
                     project,

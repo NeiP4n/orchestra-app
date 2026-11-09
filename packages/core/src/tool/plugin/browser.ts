@@ -11,6 +11,8 @@ import { BrowserRuntime } from "../../browser/runtime.js"
 import { Cdp } from "../../browser/cdp.js"
 import { Chrome } from "../../browser/chrome.js"
 import { Permission } from "../../permission.js"
+import { Trigger } from "../../trigger.js"
+import { BrowserWatch } from "../../browser/watch.js"
 
 export const name = "browser"
 
@@ -330,6 +332,10 @@ export const Plugin = {
                 const text = BrowserBridge.describe(list, held, (id) => pages.get(id) ?? { running: false })
                 return { output: { output: text }, content: [{ type: "text" as const, text }] }
               }
+              // Hard layer for triggers: a BrowserAgent whose task came from a triggered turn (publishing not approved)
+              // may read pages but not click, type or run scripts. This checks the action, not the words of the task.
+              const taint = Trigger.taintOf(String(context.sessionID))
+              if (taint && Trigger.TAINT_BLOCKED.has(input.action)) return yield* fail(Trigger.taintRefusal(taint, input.action))
               const browserSession = yield* sessionFor(context.sessionID, input.session)
               // Handing a session over or taking it back is the orchestrator's call: only the operator's
               // Take control stops it. Acting in the page is for the assigned agent alone.
@@ -377,8 +383,10 @@ export const Plugin = {
                   agent: context.agent,
                   source: { type: "tool", messageID: context.messageID, id: context.id },
                 })
+              // The agent's own clicks and typing change the page: a browser trigger must not report them as news.
+              if (acts(input.action)) BrowserWatch.mute(browserSession, 20_000)
               const result = yield* Effect.tryPromise({
-                try: () => perform(browserSession, input),
+                try: () => perform(browserSession, input).finally(() => acts(input.action) && BrowserWatch.mute(browserSession, 5_000)),
                 catch: (error) =>
                   new ToolFailure({
                     message: `Browser ${input.action} failed: ${error instanceof Error ? error.message : String(error)}. Call browser action=start and repeat this step. Playwright, MCP browsers, desktop_* and execute are not the browser in the panel: do not switch to them.`,
