@@ -1607,7 +1607,7 @@ export const Plugin = {
                     })
                   return {
                     sessionID: created.id,
-                    output: `Created. VERIFIED: id ${created.id}, title "${confirmed.value.title ?? ""}", role ${role.id}, agent ${confirmed.value.agent ?? role.agent}, project ${project.directory}; listed in the operator's project tree${input.text?.trim() ? "; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list." : ""}.${modelNote(created.model, choice.model ? (choice.modelSource ?? "your explicit choice") : worker.model ? "the role/worker policy" : "inherited from your own session — pass model to choose otherwise")}`,
+                    output: `Created. VERIFIED: id ${created.id}, title "${confirmed.value.title ?? ""}", role ${role.id}, agent ${confirmed.value.agent ?? role.agent}, project ${project.directory}; listed in the operator's project tree${input.text?.trim() ? "; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list." : "; NO TASK WAS SENT: nothing is running in it and no report will ever arrive. Do not tell the operator that it is working or launched. Send the task now with sessions action=send, then wait for its report."}.${modelNote(created.model, choice.model ? (choice.modelSource ?? "your explicit choice") : worker.model ? "the role/worker policy" : "inherited from your own session — pass model to choose otherwise")}`,
                   }
                 }
                 case "answer": {
