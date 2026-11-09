@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../../ui/hover-feedback"
 import { Plugin } from "@orchestra/plugin/tui"
 import { createEffect, createMemo, createResource, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
 import { Orchestra } from "@orchestra/schema/orchestra"
@@ -16,6 +17,8 @@ import { assignmentOf, assignmentSummary, sessionMcpView, teamMcpView, teamWorke
 // server and never grants or changes any session's access.
 export function SidebarMcp(props: { context: Plugin.Context; sessionID: string }) {
   const [view, updateView] = props.context.storage.store("view", { initial: { teamOpen: true } })
+  const teamHover = createHoverFeedback()
+  const allHover = createHoverFeedback()
   const theme = props.context.theme
   const t = useT()
   const client = useClient()
@@ -129,6 +132,9 @@ export function SidebarMcp(props: { context: Plugin.Context; sessionID: string }
         <box
           flexDirection="row"
           gap={1}
+          backgroundColor={teamHover.background()}
+          onMouseOver={teamHover.onMouseOver}
+          onMouseOut={teamHover.onMouseOut}
           onMouseDown={() => {
             void updateView((draft) => {
               draft.teamOpen = !draft.teamOpen
@@ -178,6 +184,9 @@ export function SidebarMcp(props: { context: Plugin.Context; sessionID: string }
           flexDirection="row"
           justifyContent="space-between"
           gap={1}
+          backgroundColor={allHover.background()}
+          onMouseOver={allHover.onMouseOver}
+          onMouseOut={allHover.onMouseOut}
           onMouseUp={() => props.context.ui.dialog.show(() => <DialogMcp />)}
         >
           <text fg={theme.text.muted} flexShrink={0}>

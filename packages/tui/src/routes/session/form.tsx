@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../../ui/hover-feedback"
 import { createStore, unwrap } from "solid-js/store"
 import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { usePaste, useRenderer, useTerminalDimensions } from "@opentui/solid"
@@ -61,6 +62,10 @@ const drafts = new Map<string, FormDraft>()
 export function FormPrompt(props: { form: FormWithLocation }) {
   const data = useData()
   const theme = useTheme()
+  const openLinkHover = createHoverFeedback()
+  const submitHover = createHoverFeedback()
+  const copyHover = createHoverFeedback()
+  const dismissHover = createHoverFeedback("secondary")
   const renderer = useRenderer()
   const dimensions = useTerminalDimensions()
   const keymap = Keymap.use()
@@ -876,6 +881,9 @@ export function FormPrompt(props: { form: FormWithLocation }) {
               </Show>
               <text
                 fg={theme.text.action.primary.base}
+                bg={openLinkHover.background()}
+                onMouseOver={openLinkHover.onMouseOver}
+                onMouseOut={openLinkHover.onMouseOut}
                 onMouseUp={() => {
                   if (renderer.getSelection()?.getSelectedText()) return
                   openExternal()
@@ -1168,6 +1176,9 @@ export function FormPrompt(props: { form: FormWithLocation }) {
           </Show>
           <text
             fg={theme.text.base}
+            bg={submitHover.background()}
+            onMouseOver={submitHover.onMouseOver}
+            onMouseOut={submitHover.onMouseOut}
             onMouseUp={() => {
               if (renderer.getSelection()?.getSelectedText()) return
               if (confirm()) submit()
@@ -1177,11 +1188,11 @@ export function FormPrompt(props: { form: FormWithLocation }) {
             enter <span style={{ fg: theme.text.muted }}>{actionLabel()}</span>
           </text>
           <Show when={externalField()}>
-            <text fg={theme.text.base} onMouseUp={copyExternal}>
+            <text fg={theme.text.base} bg={copyHover.background()} onMouseOver={copyHover.onMouseOver} onMouseOut={copyHover.onMouseOut} onMouseUp={copyExternal}>
               c <span style={{ fg: theme.text.muted }}>copy</span>
             </text>
           </Show>
-          <text fg={theme.text.base} onMouseUp={cancel}>
+          <text fg={theme.text.base} bg={dismissHover.background()} onMouseOver={dismissHover.onMouseOver} onMouseOut={dismissHover.onMouseOut} onMouseUp={cancel}>
             esc <span style={{ fg: theme.text.muted }}>{store.editing && !textual() ? "close" : "dismiss"}</span>
           </text>
         </box>

@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../../ui/hover-feedback"
 /** @jsxImportSource @opentui/solid */
 import { useTerminalDimensions } from "@opentui/solid"
 import type { MouseEvent } from "@opentui/core"
@@ -16,6 +17,8 @@ export function DiffViewerImage(props: {
   label?: string
 }) {
   const theme = useTheme()
+  const imageHover = createHoverFeedback()
+  const enlargeHover = createHoverFeedback()
   const dialog = useDialog()
   const dimensions = useTerminalDimensions()
   const height = () => Math.max(3, Math.min(8, Math.floor(dimensions().height / 4)))
@@ -63,7 +66,7 @@ export function DiffViewerImage(props: {
                   when={!failed()}
                   fallback={<text fg={theme.text.feedback.error.base}>Could not decode image</text>}
                 >
-                  <box width="100%" height={height()} onMouseUp={open}>
+                  <box width="100%" height={height()} backgroundColor={imageHover.background()} onMouseOver={imageHover.onMouseOver} onMouseOut={imageHover.onMouseOut} onMouseUp={open}>
                     <image
                       id={`diff-image-${props.file}`}
                       source={bytes}
@@ -79,7 +82,7 @@ export function DiffViewerImage(props: {
                     {(value) => (
                       <box flexDirection="row" justifyContent="space-between">
                         <text fg={theme.text.muted}>{value()}</text>
-                        <text fg={theme.text.action.secondary.base} onMouseUp={open}>
+                        <text fg={theme.text.action.secondary.base} bg={enlargeHover.background()} onMouseOver={enlargeHover.onMouseOver} onMouseOut={enlargeHover.onMouseOut} onMouseUp={open}>
                           Click to enlarge
                         </text>
                       </box>

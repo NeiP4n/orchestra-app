@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../../ui/hover-feedback"
 /** @jsxImportSource @opentui/solid */
 import type { FileDiffInfo, LocationRef } from "@orchestra/client"
 import type { Vcs } from "@orchestra/schema/vcs"
@@ -771,11 +772,16 @@ export function DiffViewerContent(props: {
     dialog.set({ size: "medium", centered: true })
   }
 
+  const helpHover = createHoverFeedback()
+  const sourceHover = createHoverFeedback()
   const HelpShortcut = (props: { compact?: boolean }) => (
     <Show when={helpShortcut()}>
       {(shortcut) => (
         <text
           id="diff-help-shortcut"
+          bg={helpHover.background()}
+          onMouseOver={helpHover.onMouseOver}
+          onMouseOut={helpHover.onMouseOut}
           fg={theme.text.base}
           selectable={false}
           flexShrink={0}
@@ -813,6 +819,9 @@ export function DiffViewerContent(props: {
         >
           <box
             id="diff-source-switch"
+            backgroundColor={sourceHover.background()}
+            onMouseOver={sourceHover.onMouseOver}
+            onMouseOut={sourceHover.onMouseOut}
             flexDirection="row"
             flexGrow={1}
             minWidth={0}
@@ -1098,6 +1107,7 @@ export function DiffViewerContent(props: {
 function DiffViewerHelpDialog(props: { context: Plugin.Context; single: boolean }) {
   const dimensions = useTerminalDimensions()
   const theme = props.context.theme.surface("dialog")
+  const closeHover = createHoverFeedback("secondary")
   const shortcut =
     (...ids: string[]) =>
     () =>
@@ -1146,7 +1156,7 @@ function DiffViewerHelpDialog(props: { context: Plugin.Context; single: boolean 
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
           Diff shortcuts
         </text>
-        <text fg={theme.text.muted} selectable={false} onMouseUp={() => props.context.ui.dialog.clear()}>
+        <text fg={theme.text.muted} selectable={false} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={() => props.context.ui.dialog.clear()}>
           esc close
         </text>
       </box>
