@@ -708,6 +708,11 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
         const warning = BrowserRuntime.browserResources().warning
         if (warning) toast.show({ message: warning, variant: "warning", duration: 6000 })
         await BrowserRuntime.open(id)
+        void notes.selectBrowserSession(project.id, id)
+        notes.ensureBrowserAgent(project.id, id, project.directory)
+        notes.setProject(project.id)
+        notes.setTab("browser")
+        if (!inProject(project)) void openMain(project)
       }
     } catch (error) { toast.show({ message: errorMessage(error), variant: "error" }) }
     finally {
@@ -797,7 +802,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                             id={`browser-toggle:${item.id}`}
                             disabled={!!browserBatchProgress()[project.id] || !!browserToggleBusy()[item.id]}
                             paddingLeft={1}
-                            paddingRight={0}
+                            paddingRight={1}
                             onClick={() => void toggleBrowser(project, item.id)}
                           >
                             <text fg={theme.text.action.primary.base} wrapMode="none">{browserToggleBusy()[item.id] ? "…" : browserConnected(item.id) ? "■" : "▶"}</text>

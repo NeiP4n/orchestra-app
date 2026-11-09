@@ -93,7 +93,10 @@ test("deleting a chat or removing a browser session cleans the Browser tab: no p
 test("a browser session row in the Browsers group opens only its chat from Projects, and the view follow-up leaves the tab", () => {
   const tree = read("component/project-tree.tsx")
   expect(tree).toContain("openedFromProjects.add(item.chat)")
-  expect(tree).not.toContain('notes.setTab("browser")')
+  const rowStart = tree.indexOf('id={`browser:${item.id}`}')
+  const row = tree.slice(rowStart, tree.indexOf('<Branch lit=', rowStart))
+  expect(row).not.toContain('notes.setTab("browser")')
+  expect(row).toContain('notes.tab() !== "browser" && item.chat')
   expect(read("component/session-frame.tsx")).toContain("openedFromProjects.delete(id)")
 })
 
@@ -184,7 +187,8 @@ test("browser pane resolves persisted chat and project owner before working-dire
   const end = frame.indexOf("// The chat agent", start)
   const body = frame.slice(start, end)
   expect(body).toContain("notes.browserChatRecord(props.sessionID)")
-  expect(body).toContain("if (bound && !bound.closed) return bound.item")
+  expect(body).toContain("return activeBrowserSession(project ? notes.browserSelected(project.id)")
+  expect(body).toContain("bound && !bound.closed ? bound.item : undefined")
   expect(body.indexOf("projectList.owner(props.sessionID)")).toBeLessThan(body.indexOf("owningProject("))
   expect(body).toContain("Orchestra.sessionOwner(info?.metadata)")
   expect(read("component/project-tree.tsx")).toContain("notes.browserChatRecord(session.id)?.projectID")

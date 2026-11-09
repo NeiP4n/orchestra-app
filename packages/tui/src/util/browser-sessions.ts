@@ -10,6 +10,11 @@ export type BrowserSession = {
   chat?: string
 }
 
+/** The explicit sidebar selection wins over the chat still visible during a switch. */
+export function activeBrowserSession(selected: BrowserSession | undefined, bound: BrowserSession | undefined) {
+  return selected ?? bound
+}
+
 /** A session the user closed. Its id still keys the Chrome profile folder, so reopening it brings the logins back. */
 export type ClosedBrowserSession = BrowserSession & { closedAt: number }
 
