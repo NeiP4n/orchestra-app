@@ -87,11 +87,12 @@ test("a working BrowserAgent lights up in the session list and in the pane heade
   const { readFileSync } = await import("node:fs")
   const tree = readFileSync(new URL("../src/component/project-tree.tsx", import.meta.url), "utf8")
   const pane = readFileSync(new URL("../src/component/browser-pane.tsx", import.meta.url), "utf8")
-  // The row of a browser session: running chat -> NeuronDot, otherwise the dim "◎".
+  // BrowserAgent busy feedback is separate from the verified Chrome running dot.
   const row = tree.slice(tree.indexOf("const browserRows"), tree.indexOf("browser-rename:"))
   expect(row).toContain('data.session.status(item.chat) === "running"')
   expect(row.indexOf("<NeuronDot")).toBeGreaterThan(row.indexOf('=== "running"'))
-  expect(row).toContain('"◎ "')
+  expect(row).toContain('browserConnected(item.id) ? "● " : "○ "')
+  expect(row).toContain('browserConnected(item.id) === undefined ? "? "')
   // The header: shown only while props.busy() holds, which the frame feeds from the same chat status.
   expect(pane).toContain("<Show when={props.busy?.()}>")
   expect(pane).toContain("<NeuronDot")
