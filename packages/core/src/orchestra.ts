@@ -1805,7 +1805,18 @@ const layer: Layer.Layer<
         const trigger = Trigger.parse(entry.value)
         if (!trigger) continue
         const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
-        if (!project?.main || !ScheduleView.removalRequested(trigger.id, String(project.main))) continue
+        if (!project?.main) continue
+        const limit = ScheduleView.hourlyLimitRequested(trigger.id, String(project.main))
+        if (limit) {
+          const updated = Trigger.parse(yield* kv.atomicUpdate(entry.key, (current) => {
+            const latest = Trigger.parse(current)
+            return latest ? Trigger.withHourlyLimit(latest, limit.maxPerHour, Date.now()) as never : current
+          }))
+          if (updated) ScheduleView.sync(updated, String(project.main))
+          ScheduleView.clearHourlyLimit(trigger.id)
+          reportLog({ event: "trigger-hourly-limit-by-operator", trigger: trigger.id, maxPerHour: limit.maxPerHour })
+        }
+        if (!ScheduleView.removalRequested(trigger.id, String(project.main))) continue
         yield* kv.remove(entry.key)
         ScheduleView.remove(trigger.id)
         BrowserSchedule.remove(trigger.id)
@@ -1831,7 +1842,7 @@ const layer: Layer.Layer<
     // Real internal bus events only, with a bounded queue. No replay after restart and no payload instructions.
     const deliverPending = (key: string, trigger: Trigger.Info, main: SessionID) => Effect.gen(function* () {
       const pending = trigger.pendingFire
-      if (!pending) return false
+      if (!pending || pending.destination !== String(main) || (!trigger.enabled && trigger.pausedReason === "paused by the Orchestrator")) return false
       const source = pending.source
       if (source.actions?.length) {
         // Local allowlisted actions are at-least-once across a process crash, never arbitrary effects.
@@ -1848,7 +1859,10 @@ const layer: Layer.Layer<
         description: `Trigger ${source.id} fired`, text: Trigger.render(source, pending.firedAt),
         metadata: { source: "trigger", triggerID: source.id, fireId: pending.fireId, publishApproved: source.publishApproved, ...(source.browserSessionID ? { browserSessionID: source.browserSessionID } : {}) },
       }).pipe(Effect.as(true), Effect.orElseSucceed(() => false))
-      if (ok) yield* kv.atomicUpdate(key, (current) => TriggerDelivery.acknowledge(current, pending.fireId) as never)
+      if (ok) {
+        const acknowledged = Trigger.parse(yield* kv.atomicUpdate(key, (current) => TriggerDelivery.acknowledge(current, pending.fireId) as never))
+        if (acknowledged) ScheduleView.sync(acknowledged, String(main))
+      }
       return ok
     })
     const internalInbox: Array<{ sessionID: string; event: "execution.succeeded" | "execution.failed" }> = []
@@ -1934,7 +1948,7 @@ const layer: Layer.Layer<
             continue
           }
         }
-        const next = Trigger.parse(yield* kv.atomicUpdate(entry.key, (current) => TriggerDelivery.reserve(current, trigger, now, Trigger.localZone()) as never))
+        const next = Trigger.parse(yield* kv.atomicUpdate(entry.key, (current) => TriggerDelivery.reserve(current, trigger, now, Trigger.localZone(), String(project.main)) as never))
         if (!next?.pendingFire) continue
         ScheduleView.sync(next, String(project.main))
         BrowserSchedule.sync(next)
@@ -1999,13 +2013,22 @@ const layer: Layer.Layer<
         const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
         if (!project?.main) continue
         if (ScheduleView.removalRequested(trigger.id, String(project.main))) continue
-        const next = Trigger.afterFire(trigger, now)
-        yield* kv.set(key, next as never)
+        let reserved = false
+        const next = Trigger.parse(yield* kv.atomicUpdate(key, (current) => {
+          const latest = Trigger.parse(current)
+          if (!latest || Trigger.browserDue(latest, now) !== "fire") return current
+          reserved = true
+          return Trigger.afterFire(latest, now) as never
+        }))
+        if (!reserved || !next) continue
         ScheduleView.sync(next, String(project.main))
         BrowserSchedule.sync({ ...next, browserSessionID: trigger.spec })
         if (trigger.actions?.length) {
           const result = yield* localActions(next, now)
-          yield* kv.set(key, result as never)
+          yield* kv.atomicUpdate(key, (current) => {
+            const latest = Trigger.parse(current)
+            return latest ? { ...latest, errors: result.errors, ...(result.enabled ? {} : { enabled: false, pausedReason: result.pausedReason }) } as never : current
+          })
           ScheduleView.sync(result, String(project.main))
           continue
         }

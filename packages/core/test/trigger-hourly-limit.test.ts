@@ -1,0 +1,6 @@
+import { expect, test } from "bun:test"
+import { Trigger } from "@orchestra/core/trigger"
+const now=Date.parse("2026-11-10T00:00:00Z")
+const fixture=()=>{const m=Trigger.create({kind:"interval",spec:"5",prompt:"Read"},{id:"t",projectID:"p",now,existing:0});if(!m.ok)throw Error(m.error);return {...m.trigger,nextAt:now,fired:Array(6).fill(now-1000)}}
+test("unlimited is explicit, persists per trigger and does not change defaults or day cap",()=>{const t=fixture();expect(Trigger.due(t,now)).toBe("pause");const u=Trigger.withHourlyLimit(t,null,now);expect(Trigger.parse(JSON.parse(JSON.stringify(u)))?.maxPerHour).toBeNull();expect(Trigger.due(u,now)).toBe("fire");expect(fixture().maxPerHour).toBe(6);expect(u.maxPerDay).toBe(48);expect(Trigger.due({...u,fired:Array(48).fill(now-1000)},now)).toBe("pause");expect(u.publishApproved).toBe(false)})
+test("changing hourly cap only lifts an hourly cap pause; keeps history and all other pauses",()=>{const t=fixture(),paused=Trigger.paused(t,now);expect(Trigger.withHourlyLimit(paused,null,now).enabled).toBe(true);expect(Trigger.withHourlyLimit(paused,3,now).enabled).toBe(false);expect(Trigger.withHourlyLimit({...paused,pausedReason:"operator pause"},null,now).enabled).toBe(false);expect(Trigger.withHourlyLimit(paused,null,now).fired).toEqual(t.fired);expect(()=>Trigger.withHourlyLimit(t,NaN,now)).toThrow()})

@@ -46,7 +46,7 @@ export interface Info {
   /** Fire times of the last 24 hours, for the caps. */
   fired: number[]
   total: number
-  maxPerHour: number
+  maxPerHour: number | null
   maxPerDay: number
   /** Set only by the operator's own explicit yes for this trigger. Nothing in this version sets it. */
   publishApproved: boolean
@@ -207,10 +207,10 @@ export function parse(value: unknown): Info | undefined {
     const p = v.pendingFire as TriggerDelivery.Pending | null
     if (!p || typeof p !== "object" || !Number.isFinite(p.scheduledAt) || !Number.isFinite(p.firedAt) ||
       p.fireId !== `${v.id}:${p.scheduledAt}` || !/^msg_trigger_[a-f0-9]{64}$/.test(p.messageID) ||
-      !p.source || p.source.pendingFire !== undefined) return undefined
+      typeof p.destination !== "string" || !p.destination || !p.source || p.source.pendingFire !== undefined) return undefined
     const source = parse(p.source)
     if (!source || source.id !== v.id || source.projectID !== v.projectID) return undefined
-    pendingFire = { fireId: p.fireId, messageID: p.messageID, scheduledAt: p.scheduledAt, firedAt: p.firedAt, source }
+    pendingFire = { fireId: p.fireId, messageID: p.messageID, destination: p.destination, scheduledAt: p.scheduledAt, firedAt: p.firedAt, source }
   }
   return {
     ...(pendingFire ? { pendingFire } : {}),
@@ -237,7 +237,7 @@ export function parse(value: unknown): Info | undefined {
     ...(typeof v.lastFiredAt === "number" ? { lastFiredAt: v.lastFiredAt } : {}),
     fired: Array.isArray(v.fired) ? v.fired.filter((item): item is number => typeof item === "number") : [],
     total: typeof v.total === "number" ? v.total : 0,
-    maxPerHour: clampCap(typeof v.maxPerHour === "number" ? v.maxPerHour : undefined, DEFAULT_PER_HOUR, HARD_PER_HOUR),
+    maxPerHour: v.maxPerHour === null ? null : clampCap(typeof v.maxPerHour === "number" ? v.maxPerHour : undefined, DEFAULT_PER_HOUR, 10_000),
     maxPerDay: clampCap(typeof v.maxPerDay === "number" ? v.maxPerDay : undefined, DEFAULT_PER_DAY, HARD_PER_DAY),
     // Only a stored `true` counts, and nothing in this version writes one.
     publishApproved: v.publishApproved === true,
@@ -251,7 +251,7 @@ export function due(trigger: Info, now: number): Due {
   if (!trigger.enabled || trigger.nextAt === null || now < trigger.nextAt) return "wait"
   const hour = trigger.fired.filter((at) => at > now - 60 * MINUTE).length
   const day = trigger.fired.filter((at) => at > now - 24 * 60 * MINUTE).length
-  return hour >= trigger.maxPerHour || day >= trigger.maxPerDay ? "pause" : "fire"
+  return (trigger.maxPerHour !== null && hour >= trigger.maxPerHour) || day >= trigger.maxPerDay ? "pause" : "fire"
 }
 
 export function paused(trigger: Info, now: number): Info {
@@ -260,7 +260,7 @@ export function paused(trigger: Info, now: number): Info {
     ...trigger,
     enabled: false,
     pausedReason:
-      hour >= trigger.maxPerHour
+      (trigger.maxPerHour !== null && hour >= trigger.maxPerHour)
         ? `paused: ${trigger.maxPerHour} firings in the last hour is this trigger's cap`
         : `paused: ${trigger.maxPerDay} firings in the last 24 hours is this trigger's cap`,
   }
@@ -383,7 +383,7 @@ export const describe = (trigger: Info) =>
     ...(trigger.actions?.length ? [`local actions: ${trigger.actions.map((a) => a.kind).join(", ")} (no model wake)`] : []),
     ...(trigger.errors ? [`errors: ${trigger.errors.consecutive} consecutive, ${trigger.errors.total} total`] : []),
     `fired ${trigger.total}x`,
-    `cap ${trigger.maxPerHour}/h ${trigger.maxPerDay}/day`,
+    `cap ${trigger.maxPerHour === null ? "unlimited (operator)" : trigger.maxPerHour}/h ${trigger.maxPerDay}/day`,
     trigger.pausedReason ? trigger.pausedReason : "",
     `"${trigger.prompt.length > 80 ? `${trigger.prompt.slice(0, 80)}...` : trigger.prompt}"`,
   ]
@@ -413,7 +413,7 @@ export function browserDue(trigger: Info, now: number): Due | "skip" {
   if (!trigger.enabled || trigger.kind !== "browser") return "skip"
   const hour = trigger.fired.filter((at) => at > now - 60 * MINUTE).length
   const day = trigger.fired.filter((at) => at > now - 24 * 60 * MINUTE).length
-  if (hour >= trigger.maxPerHour || day >= trigger.maxPerDay) return "pause"
+  if ((trigger.maxPerHour !== null && hour >= trigger.maxPerHour) || day >= trigger.maxPerDay) return "pause"
   if (trigger.lastFiredAt !== undefined && now - trigger.lastFiredAt < BROWSER_GAP_SECONDS * 1000) return "wait"
   return "fire"
 }
@@ -490,4 +490,13 @@ export function internalDue(trigger: Info, event: { sessionID: string; event: st
   if (!trigger.enabled || trigger.kind !== "internal" || trigger.condition?.type !== "orchestra" || trigger.condition.sessionID !== event.sessionID || trigger.condition.event !== event.event) return "wait"
   if (trigger.lastFiredAt !== undefined && now - trigger.lastFiredAt < MIN_GAP_MINUTES * MINUTE) return "wait"
   return due({ ...trigger, nextAt: now }, now)
+}
+
+/** Operator UI only. History, day cap, gaps, publishing and budgets are unchanged. */
+export function withHourlyLimit(trigger: Info, value: number | null, now: number): Info {
+  if (value !== null && (!Number.isInteger(value) || value < 1 || value > 10_000)) throw new Error("Лимит: 1-10000 или без лимита.")
+  const hour = trigger.fired.filter((at) => at > now-60*MINUTE).length
+  const day = trigger.fired.filter((at) => at > now-24*60*MINUTE).length
+  const lift = !trigger.enabled && /firings in the last hour.*cap/.test(trigger.pausedReason ?? "") && (value === null || hour < value) && day < trigger.maxPerDay
+  return { ...trigger, maxPerHour: value, ...(lift ? { enabled: true, pausedReason: undefined } : {}) }
 }

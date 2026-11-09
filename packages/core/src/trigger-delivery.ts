@@ -15,6 +15,7 @@ export const release = (kv: KV.Interface, kind: string, owner: string) => kv.ato
 export interface Pending {
   fireId: string
   messageID: string
+  destination: string
   scheduledAt: number
   firedAt: number
   /** Only fixed operator instruction/time triggers. Browser payloads stay volatile. */
@@ -23,12 +24,12 @@ export interface Pending {
 export const fireID = (id: string, scheduledAt: number) => `${id}:${scheduledAt}`
 export const messageID = (fireId: string) => `msg_trigger_${createHash("sha256").update(fireId).digest("hex")}`
 /** Single-key transaction reserves the due slot and durable delivery together. */
-export function reserve(current: unknown, expected: Trigger.Info, now: number, timezone: string): unknown {
+export function reserve(current: unknown, expected: Trigger.Info, now: number, timezone: string, destination: string): unknown {
   const trigger = Trigger.parse(current)
   if (!trigger || trigger.pendingFire || trigger.nextAt !== expected.nextAt || Trigger.due(trigger, now) !== "fire") return current
   const scheduledAt = trigger.nextAt!
   const fireId = fireID(trigger.id, scheduledAt)
-  return { ...Trigger.afterFire(trigger, now, timezone), pendingFire: { fireId, messageID: messageID(fireId), scheduledAt, firedAt: now, source: trigger } satisfies Pending }
+  return { ...Trigger.afterFire(trigger, now, timezone), pendingFire: { fireId, messageID: messageID(fireId), destination, scheduledAt, firedAt: now, source: trigger } satisfies Pending }
 }
 /** Clear only this exact fire. An edit/delete/new reservation must never be overwritten. */
 export function acknowledge(current: unknown, fireId: string): unknown {

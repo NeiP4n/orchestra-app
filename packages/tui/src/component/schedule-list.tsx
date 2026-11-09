@@ -1,3 +1,5 @@
+import { DialogPrompt } from "../ui/dialog-prompt"
+import { useDialog } from "../ui/dialog"
 import { hoverBackground } from "../ui/hover"
 import { Keymap } from "../context/keymap"
 import { createStateFeedback } from "../ui/state-feedback"
@@ -13,6 +15,18 @@ import { scheduleDetails, scheduleEllipsis, scheduleState, scheduleTone } from "
 
 export function ScheduleList(props: { sessionID: string; width?: number }) {
   const theme = useTheme()
+  const dialog = useDialog()
+  const editLimit = (item: ScheduleView.Item) => dialog.replace(() => <DialogPrompt
+    title="Часовой лимит этого триггера"
+    value={item.maxPerHour === null ? "без лимита" : String(item.maxPerHour ?? 6)}
+    description={() => <text fg={theme.text.muted}>Число 1-10000 или «без лимита». Отключение расширяет только часовой лимит этого триггера. Снимет паузу по нему, если суточный лимит ещё не исчерпан. История, суточный лимит, защита цикла и бюджет не меняются.</text>}
+    onConfirm={(value) => {
+      const text = value.trim().toLowerCase()
+      const limit = text === "без лимита" ? null : /^\d+$/.test(text) ? Number(text) : NaN
+      try { ScheduleView.requestHourlyLimit(item.id, props.sessionID, limit); setError(""); dialog.clear() }
+      catch { setError("Лимит: число 1-10000 или без лимита.") }
+    }} onCancel={() => dialog.clear()} />)
+
   const [hoveredRemove, setHoveredRemove] = createSignal<string>()
   const [selected, setSelected] = createSignal<string>()
   const [armed, setArmed] = createSignal<string>()
@@ -67,6 +81,7 @@ export function ScheduleList(props: { sessionID: string; width?: number }) {
               <text fg={theme.text.feedback.error.base}>{ScheduleView.removalRequested(item.id, props.sessionID) ? "удаление…" : armed() === item.id ? "[да?]" : "[ × ]"}</text>
             </box>
           </box>
+          <HoverAction onClick={() => editLimit(item)}><text fg={item.maxPerHour === null ? theme.text.feedback.warning.base : theme.text.muted}>{`Час: ${(item.fired ?? []).filter((at) => at > now()-3600_000).length}/${item.maxPerHour === null ? "без лимита · расширено" : item.maxPerHour ?? 6} · изменить`}</text></HoverAction>
           <Show when={expanded()[item.id]}>
             <For each={scheduleDetails(item, status).map((line) => scheduleEllipsis(line, width()))}>{(line) => <text fg={theme.text.muted} attributes={TextAttributes.DIM}>{line}</text>}</For>
           </Show>

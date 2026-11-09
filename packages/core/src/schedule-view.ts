@@ -10,6 +10,8 @@ export interface Item {
   id: string
   sessionID: string
   name: string
+  maxPerHour?: number | null
+  fired?: number[]
   total?: number
   missedCount?: number
   missedCountAtLeast?: boolean
@@ -40,6 +42,7 @@ export function sync(trigger: Trigger.Info, sessionID: string) {
   try {
     const item: Item = { id: trigger.id, sessionID, name: shortName(trigger.prompt), kind: trigger.kind,
       missedCount: trigger.missedCount, missedCountAtLeast: trigger.missedCountAtLeast, lastMissedAt: trigger.lastMissedAt, missedPolicy: trigger.missedPolicy, pendingDelivery: !!trigger.pendingFire,
+      maxPerHour: trigger.maxPerHour, fired: trigger.fired,
       total: trigger.total, localActions: !!trigger.actions?.length, actionErrors: trigger.errors?.consecutive,
       enabled: trigger.enabled, nextAt: trigger.enabled ? trigger.nextAt : null, lastFiredAt: trigger.lastFiredAt,
       pausedReason: trigger.pausedReason, browserSessionID: trigger.browserSessionID, updatedAt: Date.now() }
@@ -81,3 +84,21 @@ export function removalRequested(id: string, sessionID: string): boolean {
   try { const v = JSON.parse(readFileSync(removalFile(id), "utf8")); return v.id === id && v.sessionID === sessionID } catch { return false }
 }
 export function clearRemoval(id: string) { try { rmSync(removalFile(id), { force: true }) } catch {} }
+
+const limitFile = (id: string) => path.join(directory(), `${encodeURIComponent(id)}.limit.json`)
+/** Exact owner UI input. A model tool cannot request unlimited. */
+export function requestHourlyLimit(id: string, sessionID: string, maxPerHour: number | null) {
+  if (!list(sessionID).some((item) => item.id === id)) throw new Error("Расписание не найдено в этом чате.")
+  if (maxPerHour !== null && (!Number.isInteger(maxPerHour) || maxPerHour < 1 || maxPerHour > 10000)) throw new Error("Лимит: 1-10000 или без лимита.")
+  const tmp = `${limitFile(id)}.${process.pid}.tmp`
+  writeFileSync(tmp, JSON.stringify({ id, sessionID, maxPerHour }))
+  renameSync(tmp, limitFile(id))
+}
+export function hourlyLimitRequested(id: string, sessionID: string): { maxPerHour: number | null } | undefined {
+  try {
+    const v = JSON.parse(readFileSync(limitFile(id), "utf8"))
+    if (v.id !== id || v.sessionID !== sessionID || !(v.maxPerHour === null || Number.isInteger(v.maxPerHour) && v.maxPerHour >= 1 && v.maxPerHour <= 10000)) return
+    return { maxPerHour: v.maxPerHour }
+  } catch { return }
+}
+export function clearHourlyLimit(id: string) { try { rmSync(limitFile(id), { force: true }) } catch {} }
