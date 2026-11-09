@@ -14,7 +14,8 @@ import { consoleSiblings, consoleTerminalID } from "../util/console-terminal"
 import { useData } from "../context/data"
 import { useProjects } from "../context/projects"
 import { owningProject } from "../util/project-owner"
-import { openedFromProjects } from "../util/browser-sessions"
+import { Orchestra } from "@orchestra/schema/orchestra"
+import { isBrowserChat, openedFromProjects } from "../util/browser-sessions"
 import { publishSelection, publishSessions, trace } from "../util/browser-runtime"
 import { Keymap } from "../context/keymap"
 import { InteractivityProvider } from "../context/interactivity"
@@ -87,9 +88,12 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   // The browser session picked for the open session's project (the page view comes with the Chrome backend).
   const projectList = useProjects()
   const browserSession = () => {
-    const directory = data.session.get(props.sessionID)?.location.directory
-    if (!directory) return
-    const project = owningProject(projectList.list(), directory)
+    const info = data.session.get(props.sessionID)
+    const bound = notes.browserChatRecord(props.sessionID)
+    if (bound && !bound.closed) return bound.item
+    const claimed = projectList.owner(props.sessionID) ?? Orchestra.sessionOwner(info?.metadata) ?? bound?.projectID
+    const project = projectList.list().find((item) => item.id === claimed) ??
+      (info ? owningProject(projectList.list(), info.location.directory) : undefined)
     return project ? notes.browserSelected(project.id) : undefined
   }
   // The chat agent's browser tool reads which browser session each project has selected from a small file.
@@ -246,13 +250,13 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
       (id) => {
         const info = data.session.get(id)
         if (!info) return // not loaded yet: leave the view alone rather than guess
-        const isBrowserChat = info.agent === "team-browser-agent"
+        const browserChat = isBrowserChat(info.agent, notes.browserChatRecord(id) !== undefined)
         const tab = untrack(() => notes.tab())
-        if (isBrowserChat && tab !== "browser") {
+        if (browserChat && tab !== "browser") {
           // Opened by a click in the Projects tab: the explicit pick wins, the view stays.
           if (!openedFromProjects.delete(id)) notes.setTab("browser")
         }
-        else if (!isBrowserChat && tab === "browser") notes.setTab("projects")
+        else if (!browserChat && tab === "browser") notes.setTab("projects")
       },
       { defer: true },
     ),

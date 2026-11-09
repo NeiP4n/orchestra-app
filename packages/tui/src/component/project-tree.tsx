@@ -263,7 +263,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
   const narrow = () => props.width < 36
   const shared = createMemo(() => new Set((rooms.latest ?? []).map((room) => room.sessionID)))
   const owner = (session: Pick<SessionInfo, "id" | "location" | "metadata">) => {
-    const claimed = projectList.owner(session.id) ?? Orchestra.sessionOwner(session.metadata)
+    const claimed = projectList.owner(session.id) ?? Orchestra.sessionOwner(session.metadata) ?? notes.browserChatRecord(session.id)?.projectID
     // A group chat belongs to its group, not to the project whose directory happens to contain it.
     if (claimed === undefined && Federation.groupSupervisor(session.metadata) !== undefined) return undefined
     return Orchestra.ownerOf(projects(), session.location.directory, claimed)
@@ -806,7 +806,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
   // A session is a browser one by its agent id, or its title ("Browser 2", "Browser Registration Agent"), or because a
   // browser record owns it as its chat. Several signs on purpose: the Orchestrator makes these through different paths.
   const ownedByBrowserRecord = (project: OrchestraProject, id: string) =>
-    [...notes.browserSessions(project.id), ...notes.closedBrowserSessions(project.id)].some((item) => item.chat === id)
+    notes.browserChatRecord(id)?.projectID === project.id
   const isBrowserSession = (project: OrchestraProject, session: { id: string; agent?: string; title?: string }) =>
     isBrowserRole(session.agent) || /browser/i.test(session.title ?? "") || ownedByBrowserRecord(project, session.id)
 

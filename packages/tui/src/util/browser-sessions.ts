@@ -219,3 +219,17 @@ export function forgetBrowserChat(state: BrowserSessionsState, chat: string) {
 
 /** BrowserAgent chats the user opened from the Projects tab: the view stays on Projects for them. */
 export const openedFromProjects = new Set<string>()
+
+/** Resolve by persisted chat identity, never by working-directory spelling or title. */
+export function browserChatRecord(state: BrowserSessionsState, chat: string) {
+  const matches = Object.entries(state.projects).flatMap(([projectID, items]) =>
+    items.filter((item) => item.chat === chat).map((item) => ({ projectID, item, closed: false })))
+  const closed = Object.entries(state.closed ?? {}).flatMap(([projectID, items]) =>
+    items.filter((item) => item.chat === chat).map((item) => ({ projectID, item, closed: true })))
+  const all = [...matches, ...closed]
+  // Ambiguous legacy data must not silently choose a foreign profile.
+  return all.length === 1 ? all[0] : undefined
+}
+export function isBrowserChat(agent: string | undefined, bound: boolean) {
+  return bound || (agent !== undefined && /browser/i.test(agent))
+}

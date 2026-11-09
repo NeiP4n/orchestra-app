@@ -49,7 +49,8 @@ test("the Browser view moves to the BrowserAgent chat only when it opens or the 
 
 test("the view follows the chat that opens: BrowserAgent chat to Browser, any other chat to Projects", () => {
   const frame = read("component/session-frame.tsx")
-  expect(frame).toContain('info.agent === "team-browser-agent"')
+  expect(frame).toContain("isBrowserChat(info.agent, notes.browserChatRecord(id) !== undefined)")
+  expect(read("util/browser-sessions.ts")).toContain("return bound || (agent !== undefined && /browser/i.test(agent))")
   expect(frame).toContain('notes.setTab("browser")')
   expect(frame).toContain('notes.setTab("projects")')
   expect(frame).toMatch(/on\(\s*\(\) => props\.sessionID,/)
@@ -168,8 +169,21 @@ test("a chat is claimed the moment it is created, before its binding lands, so a
   expect(start).toBeGreaterThan(0)
   const body = notes.slice(start, notes.indexOf("const tab = ", start))
   expect(body).toContain("claimed.add(created.id)")
-  expect(body).toContain("await created.request")
-  expect(body.indexOf("claimed.add(created.id)")).toBeLessThan(body.indexOf("await created.request"))
+  expect(body).toContain("await projects.claim(created.id, projectID, created.request)")
+  expect(body.indexOf("claimed.add(created.id)")).toBeLessThan(body.indexOf("await projects.claim(created.id, projectID, created.request)"))
   expect(notes).toContain("if (claimed.has(chat)) return")
   expect(read("component/project-tree.tsx")).toContain("!notes.claimedChat(session.id)")
+})
+
+
+test("browser pane resolves persisted chat and project owner before working-directory fallback", () => {
+  const frame = read("component/session-frame.tsx")
+  const start = frame.indexOf("const browserSession = () =>")
+  const end = frame.indexOf("// The chat agent", start)
+  const body = frame.slice(start, end)
+  expect(body).toContain("notes.browserChatRecord(props.sessionID)")
+  expect(body).toContain("if (bound && !bound.closed) return bound.item")
+  expect(body.indexOf("projectList.owner(props.sessionID)")).toBeLessThan(body.indexOf("owningProject("))
+  expect(body).toContain("Orchestra.sessionOwner(info?.metadata)")
+  expect(read("component/project-tree.tsx")).toContain("notes.browserChatRecord(session.id)?.projectID")
 })

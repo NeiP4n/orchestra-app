@@ -3,6 +3,8 @@ import {
   addBrowserSession,
   adoptBrowserChat,
   bindBrowserChat,
+  browserChatRecord,
+  isBrowserChat,
   browserSessionGroups,
   emptyBrowserSessions,
   forgetClosedBrowserSession,
@@ -154,4 +156,22 @@ test("explicit reopen keeps original browser identity after JSON roundtrip of to
   expect(adoptBrowserChat(restored, "p", { id: "other", name: "Work", chat: "same-chat", now: 2 })).toBeUndefined()
   expect(reopenBrowserSession(restored, "p", "same-profile")?.chat).toBe("same-chat")
   expect(restored.selected.p).toBe("same-profile")
+})
+
+
+test("browser identity survives a changed working directory and role without re-creating a profile", () => {
+  const state = emptyBrowserSessions()
+  addBrowserSession(state, "stable-project", { id: "stable-profile", name: "Work", now: 1 })
+  bindBrowserChat(state, "stable-project", "stable-profile", "stable-chat")
+  const restored = JSON.parse(JSON.stringify(state))
+  const bound = browserChatRecord(restored, "stable-chat")
+  expect(bound?.projectID).toBe("stable-project")
+  expect(bound?.item.id).toBe("stable-profile")
+  expect(isBrowserChat("custom-reader", bound !== undefined)).toBe(true)
+  expect(isBrowserChat("team-browser-registration-agent", false)).toBe(true)
+  expect(isBrowserChat("orchestrator", false)).toBe(false)
+  removeBrowserSession(restored, "stable-project", "stable-profile")
+  expect(browserChatRecord(restored, "stable-chat")?.closed).toBe(true)
+  expect(adoptBrowserChat(restored, "stable-project", { id: "wrong-new-profile", name: "Work", chat: "stable-chat", now: 2 })).toBeUndefined()
+  expect(reopenBrowserSession(restored, "stable-project", "stable-profile")?.id).toBe("stable-profile")
 })

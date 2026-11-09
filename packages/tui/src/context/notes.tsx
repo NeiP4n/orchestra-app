@@ -11,6 +11,7 @@ import { createStore, produce } from "solid-js/store"
 import { errorMessage } from "../util/error"
 import { useClient } from "./client"
 import { useData } from "./data"
+import { useProjects } from "./projects"
 import { createSimpleContext } from "./helper"
 import { useRoute } from "./route"
 import { useStorage } from "./storage"
@@ -19,6 +20,7 @@ import {
   adoptBrowserChat,
   collapseDuplicateChats,
   bindBrowserChat,
+  browserChatRecord,
   emptyBrowserSessions,
   forgetClosedBrowserSession,
   groupBrowserSession,
@@ -44,6 +46,7 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
   init: () => {
     const client = useClient()
     const data = useData()
+    const projects = useProjects()
     const route = useRoute()
     const [panel, updatePanel] = useStorage().store<{ tab?: NotesTab; project?: string; collapsed?: Record<string, boolean> }>("notes-panel", {
       initial: {},
@@ -260,7 +263,7 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
       try {
         const created = data.session.create({ title, location: { directory }, agent: "team-browser-agent" })
         claimed.add(created.id)
-        await created.request
+        await projects.claim(created.id, projectID, created.request)
         await changeBrowser((draft) => void bindBrowserChat(draft, projectID, sessionID, created.id))
       } catch {
         // The browser works without its chat; the next open tries again.
@@ -274,6 +277,7 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
     return {
       tab,
       setTab,
+      browserChatRecord: (chat: string) => browserChatRecord(browser, chat),
       browserSessions: (projectID: string): readonly BrowserSession[] => browser.projects?.[projectID] ?? [],
       browserSelected: (projectID: string) => {
         const id = browser.selected?.[projectID]
