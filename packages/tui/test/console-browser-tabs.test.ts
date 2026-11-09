@@ -104,3 +104,11 @@ test("every session row in the tree (subagents, BrowserAgent chats, plain sessio
   expect(tree.match(/\{rowButtons\((?:child|chat)\)\}/g)?.length).toBe(2)
   expect(tree.match(/session-rename:\$\{session\.id\}/g)?.length).toBeGreaterThanOrEqual(2)
 })
+
+test("row buttons are three cells wide so the hover highlight sits on the glyph, and any browser-like session lands in Browsers", () => {
+  const tree = read("component/project-tree.tsx")
+  expect(tree).not.toContain('{" ✎"}')
+  expect(tree).not.toContain('" ×"')
+  expect(tree).toContain("const isBrowserSession")
+  expect(tree).toContain("/browser/i.test(session.title")
+})

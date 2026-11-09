@@ -596,7 +596,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
     if (parentID === undefined) return { shown: [], more: 0 }
     const all = data.session
       .list()
-      .filter((item) => item.parentID === parentID && !removed[item.id] && !isBrowserRole(item.agent))
+      .filter((item) => item.parentID === parentID && !removed[item.id] && !isBrowserRole(item.agent) && !/browser/i.test(item.title ?? ""))
       .toSorted((a, b) => Number(data.session.status(b.id) === "running") - Number(data.session.status(a.id) === "running"))
     return { shown: all.slice(0, CHILD_LIMIT), more: Math.max(0, all.length - CHILD_LIMIT) }
   }
@@ -618,11 +618,13 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
               <text flexShrink={0} fg={theme.text.muted}>
                 {`${"  ".repeat(depth)}${data.session.status(child.id) === "running" ? "↳ ● " : "↳ ○ "}`}
               </text>
+              <box flexGrow={1} minWidth={0}>
               <text fg={theme.text.muted} wrapMode="none" truncate>
                 {`${child.title || t("Untitled")} · ${String(child.agent ?? "").replace(/^team-/, "") || "subagent"} · ${
                   waiting().has(child.id) ? t("waiting") : data.session.status(child.id) === "running" ? t("running") : t("idle")
                 }`}
               </text>
+              </box>
               {rowButtons(child)}
             </Row>
             {childRows(child.id, depth + 1)}
@@ -693,7 +695,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                               ))
                             }
                           >
-                            <text fg={theme.text.action.primary.base}>{" ✎"}</text>
+                            <text fg={theme.text.action.primary.base}>{" ✎ "}</text>
                           </HoverAction>
                           <HoverAction
                             id={`browser-remove:${item.id}`}
@@ -701,7 +703,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                             onMouseLeave={() => setRemoveHovered(false)}
                             onClick={() => notes.removeBrowserSession(project.id, item.id)}
                           >
-                            <text fg={removeHovered() ? theme.text.feedback.error.base : theme.text.muted}>{" ×"}</text>
+                            <text fg={removeHovered() ? theme.text.feedback.error.base : theme.text.muted}>{" × "}</text>
                           </HoverAction>
                         </Row>
                         </>
@@ -749,7 +751,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       if (!current.parentID) {
         const root = current
         return (
-          isBrowserRole(root.agent) ||
+          isBrowserRole(root.agent) || /browser/i.test(root.title ?? "") ||
           owner(root)?.id !== project.id
         )
       }
@@ -770,7 +772,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
             id={`session-rename:${session.id}`}
             onClick={() => dialog.replace(() => <DialogSessionRename sessionID={session.id} currentTitle={session.title} />)}
           >
-            <text fg={theme.text.action.primary.base}>{" ✎"}</text>
+            <text fg={theme.text.action.primary.base}>{" ✎ "}</text>
           </HoverAction>
         </Show>
         <HoverAction
@@ -782,7 +784,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           onClick={() => remove(session.id)}
         >
           <text fg={hovered() ? theme.text.action.destructive.hovered : armed() === session.id ? theme.text.feedback.error.base : theme.text.muted}>
-            {armed() === session.id ? ` ${t("delete?")}` : " ×"}
+            {armed() === session.id ? ` ${t("delete?")} ` : " × "}
           </text>
         </HoverAction>
       </>
@@ -791,7 +793,13 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
 
   // Every session of a browser role (the BrowserAgent, or a role the Orchestrator made for page work such as
   // "team-browser-registration-agent"), subagents included, is listed in the Browsers group, never beside the sessions.
-  const isBrowserRole = (agent: string | undefined) => agent !== undefined && /^team-browser/.test(agent)
+  const isBrowserRole = (agent: string | undefined) => agent !== undefined && /browser/i.test(agent)
+  // A session is a browser one by its agent id, or its title ("Browser 2", "Browser Registration Agent"), or because a
+  // browser record owns it as its chat. Several signs on purpose: the Orchestrator makes these through different paths.
+  const ownedByBrowserRecord = (project: OrchestraProject, id: string) =>
+    [...notes.browserSessions(project.id), ...notes.closedBrowserSessions(project.id)].some((item) => item.chat === id)
+  const isBrowserSession = (project: OrchestraProject, session: { id: string; agent?: string; title?: string }) =>
+    isBrowserRole(session.agent) || /browser/i.test(session.title ?? "") || ownedByBrowserRecord(project, session.id)
 
   // BrowserAgent chats no browser session owns (the Orchestrator created them) belong to the Browsers group too.
   const browserChatsOf = (project: OrchestraProject) =>
@@ -799,10 +807,9 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       .list()
       .filter(
         (session) =>
-          isBrowserRole(session.agent) &&
+          (isBrowserRole(session.agent) || /browser/i.test(session.title ?? "")) &&
           !removed[session.id] &&
-          !notes.browserSessions(project.id).some((item) => item.chat === session.id) &&
-          !notes.closedBrowserSessions(project.id).some((item) => item.chat === session.id) &&
+          !ownedByBrowserRecord(project, session.id) &&
           owner(session)?.id === project.id,
       )
 
@@ -816,7 +823,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           session.id !== project.main &&
           // A BrowserAgent chat belongs to its browser session and is listed in the Browser tab, not here. One that no
           // browser session owns (the Orchestrator created it with sessions create) would be listed nowhere, so it stays here.
-          !isBrowserRole(session.agent) &&
+          !isBrowserSession(project, session) &&
           owner(session)?.id === project.id,
       )
 
@@ -1166,7 +1173,9 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                       >
                         <Branch lit={chat.id === current()?.id} />
                         <text flexShrink={0} fg={theme.text.muted}>{"◎ "}</text>
-                        <text fg={theme.text.base} wrapMode="none" truncate>{chat.title || t("Browser agent")}</text>
+                        <box flexGrow={1} minWidth={0}>
+                          <text fg={theme.text.base} wrapMode="none" truncate>{chat.title || t("Browser agent")}</text>
+                        </box>
                         {rowButtons(chat)}
                       </Row>
                     )}
@@ -1269,7 +1278,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                                   dialog.replace(() => <DialogSessionRename sessionID={session.id} currentTitle={session.title} />)
                                 }
                               >
-                                <text fg={theme.text.action.primary.base}>{" ✎"}</text>
+                                <text fg={theme.text.action.primary.base}>{" ✎ "}</text>
                               </HoverAction>
                               <HoverAction
                                 id={`session-delete:${session.id}`}
@@ -1288,7 +1297,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                                         : theme.text.muted
                                   }
                                 >
-                                  {armed() === session.id ? ` ${t("delete?")}` : " ×"}
+                                  {armed() === session.id ? ` ${t("delete?")} ` : " × "}
                                 </text>
                               </HoverAction>
                             </Row>
@@ -1385,7 +1394,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                         : theme.text.action.destructive.base
                     }
                   >
-                    {armed() === "mesh:leave" ? " leave?" : " ×"}
+                    {armed() === "mesh:leave" ? " leave?" : " × "}
                   </text>
                 </HoverAction>
               </Row>
@@ -1422,7 +1431,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                             : theme.text.action.destructive.base
                         }
                       >
-                        {armed() === `hosted:${room.id}` ? ` ${t("close?")}` : " ×"}
+                        {armed() === `hosted:${room.id}` ? ` ${t("close?")}` : " × "}
                       </text>
                     </HoverAction>
                   </Row>
@@ -1470,7 +1479,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                             : theme.text.action.destructive.base
                         }
                       >
-                        {armed() === roomKey(room) ? ` ${t("leave?")}` : " ×"}
+                        {armed() === roomKey(room) ? ` ${t("leave?")}` : " × "}
                       </text>
                     </HoverAction>
                   </Row>
@@ -1915,7 +1924,7 @@ function RoomPeople(props: {
                         : destructive(`kick:${item.member.id}`)
                     }
                   >
-                    {armed() === `kick:${item.member.id}` ? ` ${t("Kick?")}` : " ×"}
+                    {armed() === `kick:${item.member.id}` ? ` ${t("Kick?")}` : " × "}
                   </text>
                 </HoverAction>
                 <HoverAction
