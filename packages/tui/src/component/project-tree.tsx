@@ -670,9 +670,18 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                           }}
                         >
                           <Branch lit={chosen() && inProject(project)} />
-                          <text flexShrink={0} fg={chosen() ? palette().synapse : theme.text.muted}>
-                            {"◎ "}
-                          </text>
+                          {/* A working BrowserAgent (the chat's own running status, no extra polling) is a firing neuron; idle is dim. */}
+                          <Show
+                            when={item.chat !== undefined && data.session.status(item.chat) === "running"}
+                            fallback={
+                              <text flexShrink={0} fg={chosen() ? palette().synapse : theme.text.muted}>
+                                {"◎ "}
+                              </text>
+                            }
+                          >
+                            <NeuronDot energy={0.9} />
+                            <text flexShrink={0}> </text>
+                          </Show>
                           <box flexGrow={1} minWidth={0}>
                             <text fg={theme.text.base} wrapMode="none" truncate>
                               {item.group ? `${item.group} · ${item.name}` : item.name}

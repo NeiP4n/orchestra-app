@@ -17,6 +17,7 @@ import { useT } from "../util/i18n"
 import { useDialog } from "../ui/dialog"
 import { DialogPrompt } from "../ui/dialog-prompt"
 import * as BrowserRuntime from "../util/browser-runtime"
+import { NeuronDot } from "./neural"
 
 declare module "@opentui/solid" {
   interface OpenTUIComponents {
@@ -625,6 +626,11 @@ export function BrowserPane(props: {
         }
       >
         <box flexDirection="row" flexShrink={0} gap={0}>
+          {/* The BrowserAgent of this session is working right now: the same firing neuron as in the session list. */}
+          <Show when={props.busy?.()}>
+            <NeuronDot energy={0.9} />
+            <text fg={theme.text.muted}>{narrow() ? "" : ` ${t("running")}`}</text>
+          </Show>
           <box flexGrow={1} />
           <Show when={props.canShowChat}>
             <Action label={props.chatHidden ? t("Show chat") : t("Hide chat")} onClick={props.onToggleChat} />
