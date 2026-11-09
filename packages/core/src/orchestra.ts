@@ -34,6 +34,7 @@ import { AiStandard } from "./ai-standard.js"
 import { Society } from "./society.js"
 import { Config } from "./config.js"
 import { Autoloop } from "./autoloop/service.js"
+import { Trigger } from "./trigger.js"
 import { AutoloopOrchestrator } from "./autoloop/orchestrator.js"
 import type { EventRow, Job, Receipt, RunRow } from "./autoloop/kernel/decide.js"
 import type { View } from "./autoloop/kernel/evolve.js"
@@ -1789,6 +1790,40 @@ const layer: Layer.Layer<
         reportLog({ event: "no-report-notice", session: workerID, main: task.value.main, state: running ? "running" : "idle", minutes, delivered: ok })
       }
     }).pipe(Effect.catch(() => Effect.void))
+    // Triggers (a cron time, an interval, a one-shot time): once a minute the due ones are handed to their project's
+    // Orchestrator as a <trigger-fired> message (steer + wake, like a <team-report>). The record is saved BEFORE the
+    // message goes out, so a crash in between loses one firing instead of repeating it. A full cap pauses the trigger.
+    const fireTriggers = Effect.gen(function* () {
+      const now = Date.now()
+      for (const entry of yield* scanAll(Trigger.PREFIX)) {
+        const trigger = Trigger.parse(entry.value)
+        if (!trigger) continue
+        const verdict = Trigger.due(trigger, now)
+        if (verdict === "wait") continue
+        if (verdict === "pause") {
+          yield* kv.set(entry.key, Trigger.paused(trigger, now) as never)
+          reportLog({ event: "trigger-paused", trigger: trigger.id, project: trigger.projectID })
+          continue
+        }
+        const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+        if (!project?.main) continue
+        const next = Trigger.afterFire(trigger, now)
+        yield* kv.set(entry.key, next as never)
+        const ok = yield* sessions
+          .synthetic({
+            id: SessionMessage.ID.create(),
+            sessionID: project.main,
+            description: `Trigger ${trigger.id} fired`,
+            text: Trigger.render(trigger, now),
+            metadata: { source: "trigger", triggerID: trigger.id, publishApproved: trigger.publishApproved },
+          })
+          .pipe(Effect.as(true), Effect.orElseSucceed(() => false))
+        reportLog({ event: "trigger-fired", trigger: trigger.id, project: trigger.projectID, kind: trigger.kind, delivered: ok, nextAt: next.nextAt })
+      }
+    }).pipe(Effect.catch(() => Effect.void))
+    yield* Effect.forever(Effect.sleep(Duration.seconds(60)).pipe(Effect.andThen(fireTriggers))).pipe(
+      Effect.forkScoped({ startImmediately: true }),
+    )
     yield* Effect.forever(Effect.sleep(Duration.seconds(60)).pipe(Effect.andThen(watchReports))).pipe(
       Effect.forkScoped({ startImmediately: true }),
     )

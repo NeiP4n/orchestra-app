@@ -95,6 +95,7 @@ import { MuseChatTool } from "../tool/plugin/muse-chat.js"
 import { CodegraphTool } from "../tool/plugin/codegraph.js"
 import { SelfTool } from "../tool/plugin/self.js"
 import { CheckpointTool } from "../tool/plugin/checkpoint.js"
+import { TriggersTool } from "../tool/plugin/triggers.js"
 import { BrowserTool } from "../tool/plugin/browser.js"
 import { DesktopInspectTool } from "../tool/plugin/desktop-inspect.js"
 import { DesktopActionTool } from "../tool/plugin/desktop-action.js"
@@ -337,6 +338,7 @@ const pre = [
   CodegraphTool.Plugin,
   SelfTool.Plugin,
   CheckpointTool.Plugin,
+  TriggersTool.Plugin,
   BrowserTool.Plugin,
   DesktopInspectTool.Plugin,
   DesktopActionTool.Plugin,

@@ -20,6 +20,7 @@ import { RoleToolkits } from "../../roles/toolkits.js"
 import { ModelRouter } from "../../session/model-router.js"
 import { AiStandard } from "../../ai-standard.js"
 import { Token } from "../../util/token.js"
+import { Trigger } from "../../trigger.js"
 import { FormDecision } from "../../form-decision.js"
 import { Session } from "../../session.js"
 import { SessionSchema } from "../../session/schema.js"
@@ -1206,6 +1207,13 @@ export const Plugin = {
               })
               const dispatch = (sessionID: SessionSchema.ID, text: string) =>
                 Effect.gen(function* () {
+                  // A turn a trigger started, without the operator's yes for publishing, hands nothing over that looks like
+                  // sending, replying or posting in the operator's name.
+                  const incomingHistory = yield* sessions
+                    .messages({ sessionID: context.sessionID, limit: 40, order: "desc" })
+                    .pipe(Effect.orElseSucceed((): SessionMessage.Info[] => []))
+                  const blocked = Trigger.publishRefusal(incomingHistory as never, text)
+                  if (blocked) return yield* new ToolFailure({ message: blocked })
                   const recon = yield* reconBrief()
                   return yield* orchestra.dispatch({
                     project,
