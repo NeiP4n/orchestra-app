@@ -184,7 +184,11 @@ async function performOnce(sessionID: string, original: Input) {
       if (refused) throw new Error(refused)
       const result = await evaluate(client, BrowserDevtools.evalExpression(input.expression!), true)
       if (!result.ok) throw new Error(result.error ?? "The expression failed.")
+      // Lone surrogates and control characters from page text make the next model request invalid JSON, which
+      // every provider rejects alike; drop them before the value goes back to the model.
       const text = BrowserDevtools.redact(result.text ?? "")
+        .replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, "\ufffd")
+        .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "")
       return { text: text.length > 4000 ? `${text.slice(0, 4000)}\n[cut]` : text }
     }
     case "console":
