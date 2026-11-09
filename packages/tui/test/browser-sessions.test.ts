@@ -131,3 +131,16 @@ test("forgotten and history-evicted BrowserAgent chats never resurrect through a
   // A brand new chat still gets adopted; tombstones do not ban a label forever.
   expect(adoptBrowserChat(restored, "p", { id: "fresh", chat: "new-chat", name: "Old browser", now: 3 })).toBeDefined()
 })
+
+test("closed history eviction does not let old browser chats return", () => {
+  const state = emptyBrowserSessions()
+  for (let n = 0; n < 35; n++) {
+    addBrowserSession(state, "p", { id: String(n), now: n })
+    bindBrowserChat(state, "p", String(n), `chat-${n}`)
+    removeBrowserSession(state, "p", String(n))
+  }
+  expect(state.closed?.p?.length).toBe(30)
+  expect(adoptBrowserChat(state, "p", { id: "resurrected", chat: "chat-0", name: "old", now: 50 })).toBeUndefined()
+  const closed = state.closed!.p![0]!
+  expect(reopenBrowserSession(state, "p", closed.id)?.chat).toBe(closed.chat)
+})

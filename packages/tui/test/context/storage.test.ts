@@ -61,3 +61,17 @@ test("createStorage degrades gracefully when fs.watch throws (e.g. ENOSPC)", asy
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("a corrupt existing session file cannot be overwritten with empty defaults", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "storage-corrupt-"))
+  const result = createStorage(dir, "next")
+  const file = path.join(dir, "next", "tui", "browser-sessions.json")
+  try {
+    const [store, update] = result.storage.store("browser-sessions", { initial: { sessions: [] as string[] } })
+    await update((draft) => { draft.sessions.push("kept") })
+    fs.writeFileSync(file, "{damaged")
+    await expect(update((draft) => { draft.sessions.push("new") })).rejects.toThrow()
+    expect(fs.readFileSync(file, "utf8")).toBe("{damaged")
+    expect([...store.sessions]).toEqual(["kept"])
+  } finally { result.close(); rmSync(dir, { recursive: true, force: true }) }
+})
