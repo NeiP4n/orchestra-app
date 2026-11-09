@@ -92,6 +92,7 @@ function render(entries: readonly Entry[]) {
   const running = entries.filter((item) => item.running).length
   return [
     "<browser-sessions>",
+    "  When the user asks what is in the browser, what you see, or to look at a page: call the `browser` tool right now (action `text` or `screenshot`), and only then answer. Do not answer from memory, do not use desktop_* or other tools for it, and never say you cannot see the browser without having called it.",
     `  The user's Browser tab has ${entries.length} browser session${entries.length === 1 ? "" : "s"} for this project, ${running} running. A session is a real Chrome the user watches in the pane; load the browser tool with the tools loader if it is not loaded yet and use it for the page (screenshot to look, text to read; not desktop_inspect, and never say that no browser exists while one is listed here).`,
     ...entries.map(
       (item) =>
