@@ -163,6 +163,6 @@ describe("cron single values", () => {
   test("a bare minute and hour fire once a day, not every minute of the range", () => {
     const first = make("cron", "30 14 * * *")
     expect(first.ok && first.trigger.nextAt).toBe(Date.parse("2026-11-09T14:30:00Z"))
-    expect(Trigger.nextFrom({ ...(first as { ok: true; trigger: Trigger.Trigger }).trigger }, Date.parse("2026-11-09T14:30:00Z"), "UTC")).toBe(Date.parse("2026-11-10T14:30:00Z"))
+    expect(Trigger.nextFrom({ ...(first as { ok: true; trigger: Trigger.Info }).trigger }, Date.parse("2026-11-09T14:30:00Z"), "UTC")).toBe(Date.parse("2026-11-10T14:30:00Z"))
   })
 })

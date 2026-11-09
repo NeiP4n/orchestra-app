@@ -16,7 +16,7 @@ import { AutoloopDecide } from "./autoloop/kernel/decide.js"
 
 export type Kind = "cron" | "interval" | "once" | "browser"
 
-export interface Trigger {
+export interface Info {
   id: string
   projectID: string
   kind: Kind
@@ -68,7 +68,7 @@ export interface CreateInput {
   match?: string
 }
 
-export type Created = { ok: true; trigger: Trigger } | { ok: false; error: string }
+export type Created = { ok: true; trigger: Info } | { ok: false; error: string }
 
 const clampCap = (value: number | undefined, fallback: number, hard: number) =>
   Math.max(1, Math.min(hard, Number.isFinite(value) ? Math.trunc(value!) : fallback))
@@ -136,7 +136,7 @@ export function create(
 }
 
 /** Reads a stored value back; undefined for anything that is not a trigger record. */
-export function parse(value: unknown): Trigger | undefined {
+export function parse(value: unknown): Info | undefined {
   if (typeof value !== "object" || value === null) return undefined
   const v = value as Record<string, unknown>
   if (typeof v.id !== "string" || typeof v.projectID !== "string" || typeof v.prompt !== "string") return undefined
@@ -167,14 +167,14 @@ export function parse(value: unknown): Trigger | undefined {
 export type Due = "wait" | "fire" | "pause"
 
 /** What the sweep does with a record now. A cap that is full pauses the trigger instead of firing it. */
-export function due(trigger: Trigger, now: number): Due {
+export function due(trigger: Info, now: number): Due {
   if (!trigger.enabled || trigger.nextAt === null || now < trigger.nextAt) return "wait"
   const hour = trigger.fired.filter((at) => at > now - 60 * MINUTE).length
   const day = trigger.fired.filter((at) => at > now - 24 * 60 * MINUTE).length
   return hour >= trigger.maxPerHour || day >= trigger.maxPerDay ? "pause" : "fire"
 }
 
-export function paused(trigger: Trigger, now: number): Trigger {
+export function paused(trigger: Info, now: number): Info {
   const hour = trigger.fired.filter((at) => at > now - 60 * MINUTE).length
   return {
     ...trigger,
@@ -187,7 +187,7 @@ export function paused(trigger: Trigger, now: number): Trigger {
 }
 
 /** The next time of a cron or interval trigger counted from `from`; null when there is none. */
-export function nextFrom(trigger: Trigger, from: number, timezone = localZone()): number | null {
+export function nextFrom(trigger: Info, from: number, timezone = localZone()): number | null {
   if (trigger.kind === "once") return trigger.nextAt !== null && trigger.nextAt > from ? trigger.nextAt : null
   if (trigger.kind === "interval") return from + Number(trigger.spec) * MINUTE
   const cron = AutoloopDecide.parseCron(trigger.spec)
@@ -202,7 +202,7 @@ export function nextFrom(trigger: Trigger, from: number, timezone = localZone())
  * The record after it fired at `now`. A trigger that was missed while the service was down fires once and does not
  * catch up: the next time comes from now. A one-shot trigger is spent.
  */
-export function afterFire(trigger: Trigger, now: number, timezone = localZone()): Trigger {
+export function afterFire(trigger: Info, now: number, timezone = localZone()): Info {
   const fired = [...trigger.fired.filter((at) => at > now - 24 * 60 * MINUTE), now]
   const base = { ...trigger, fired, total: trigger.total + 1, lastFiredAt: now }
   if (trigger.kind === "once") return { ...base, enabled: false, nextAt: null, pausedReason: "done: a one-shot trigger fires once" }
@@ -212,7 +212,7 @@ export function afterFire(trigger: Trigger, now: number, timezone = localZone())
 }
 
 /** Switches a paused trigger back on. The firing history stays, so a resume cannot clear a cap. Undefined when nothing is left to wait for. */
-export function resume(trigger: Trigger, now: number, timezone = localZone()): Trigger | undefined {
+export function resume(trigger: Info, now: number, timezone = localZone()): Info | undefined {
   if (trigger.kind === "browser") {
     const { pausedReason: _done, ...rest } = trigger
     return { ...rest, enabled: true }
@@ -236,7 +236,7 @@ export function untrusted(source: string, text: string, max = 1500) {
 }
 
 /** The message the Orchestrator receives when a trigger fires. */
-export function render(trigger: Trigger, now: number, extra?: string) {
+export function render(trigger: Info, now: number, extra?: string) {
   return [
     `<trigger-fired id="${trigger.id}" kind="${trigger.kind}" spec="${trigger.spec}" at="${new Date(now).toISOString()}" count="${trigger.total + 1}">`,
     `Your project's trigger ${trigger.id} fired. The operator's instruction, written when the trigger was created:`,
@@ -285,7 +285,7 @@ export function publishRefusal(messages: Parameters<typeof triggered>[0], text: 
   return `Refused: this turn was started by trigger ${by.id}, and publishing in the operator's name (sending, replying, posting) is not approved for it. Nothing was sent. Tell the operator what you would send and let them answer in their own message.`
 }
 
-export const describe = (trigger: Trigger) =>
+export const describe = (trigger: Info) =>
   [
     `${trigger.id} [${trigger.enabled ? "on" : "off"}] ${trigger.kind} ${trigger.spec}${trigger.match ? ` match "${trigger.match}"` : ""}`,
     trigger.nextAt === null ? "next: none" : `next: ${new Date(trigger.nextAt).toISOString()}`,
@@ -310,13 +310,13 @@ export interface Row {
 }
 
 /** True when a browser trigger watches this session and the row passes its `match`. */
-export function matches(trigger: Trigger, sessionID: string, row: Row) {
+export function matches(trigger: Info, sessionID: string, row: Row) {
   if (trigger.kind !== "browser" || !trigger.enabled || trigger.spec !== sessionID) return false
   return !trigger.match || `${row.chat} ${row.text}`.toLowerCase().includes(trigger.match.toLowerCase())
 }
 
 /** What to do with waiting rows now: fire, wait for the gap, pause on a full cap, or skip (off). Same caps as the schedules. */
-export function browserDue(trigger: Trigger, now: number): Due | "skip" {
+export function browserDue(trigger: Info, now: number): Due | "skip" {
   if (!trigger.enabled || trigger.kind !== "browser") return "skip"
   const hour = trigger.fired.filter((at) => at > now - 60 * MINUTE).length
   const day = trigger.fired.filter((at) => at > now - 24 * 60 * MINUTE).length
@@ -326,7 +326,7 @@ export function browserDue(trigger: Trigger, now: number): Due | "skip" {
 }
 
 /** The block of new rows for the Orchestrator. The page text sits in an <untrusted> block; the instruction stays the operator's. */
-export function renderRows(trigger: Trigger, rows: readonly Row[]) {
+export function renderRows(trigger: Info, rows: readonly Row[]) {
   const lines = rows.slice(-MAX_PENDING).map((row) => `[${row.chat || "no chat name"}] ${row.text}`)
   return [
     `New on the watched page (browser session ${trigger.spec}): ${rows.length} row(s). Only "something new appeared" is certain; open the page with the BrowserAgent to read more.`,
