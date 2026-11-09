@@ -23,6 +23,7 @@ export const description = [
   "  text — the visible text of the current page.",
   "  info — the current address and title only.",
   "  screenshot — a picture of the page (shown as an image when the model supports images, with the address and title as text otherwise).",
+  "  start — turn the session on: start its Chrome if it is not running (no page change). stop — turn it off: close its Chrome; the profile and logins stay, start brings it back.",
   "  sessions — list every browser session (id, name, project, running or not, page, controller), so you know what exists.",
   "  assign — give a session to another agent (`agent`: its name) so only it may act there; tell that agent the session id. release — take the assignment away.",
   "  click — click the element matching a CSS selector, or the clickable element whose text contains `text`.",
@@ -40,7 +41,19 @@ export const triggers = [
 ]
 
 export const Input = Schema.Struct({
-  action: Schema.Literals(["open", "text", "info", "screenshot", "click", "type", "sessions", "assign", "release"]),
+  action: Schema.Literals([
+    "open",
+    "text",
+    "info",
+    "screenshot",
+    "click",
+    "type",
+    "sessions",
+    "assign",
+    "release",
+    "start",
+    "stop",
+  ]),
   session: optional(
     Schema.String.annotate({
       description: "Browser session id or name; default is the one selected in the Browser tab",
@@ -58,7 +71,8 @@ export const Output = Schema.Struct({ output: Schema.String })
 export type Output = typeof Output.Type
 
 /** Actions that change the page or act with the operator's logged-in accounts ask first. */
-export const acts = (action: Input["action"]) => action === "open" || action === "click" || action === "type"
+export const acts = (action: Input["action"]) =>
+  action === "open" || action === "click" || action === "type" || action === "start" || action === "stop"
 
 /** Actions that only manage which agent holds a session; they never touch the page. */
 export const manages = (action: Input["action"]) => action === "sessions" || action === "assign" || action === "release"
@@ -79,8 +93,22 @@ export const NO_SESSION =
 const settle = () => new Promise((done) => setTimeout(done, 1500))
 
 export async function perform(sessionID: string, input: Input) {
+  // Closing must not first start the Chrome it is about to close.
+  if (input.action === "stop") {
+    const was = BrowserRuntime.isOpen(sessionID)
+    BrowserRuntime.close(sessionID)
+    return {
+      text: was
+        ? "Browser session closed. Its profile and logins are kept; start brings it back."
+        : "Browser session was not running.",
+    }
+  }
   const client = await BrowserRuntime.open(sessionID)
   switch (input.action) {
+    case "start": {
+      const info = await Cdp.pageInfo(client)
+      return { text: `Browser session is running: ${info.title || "(no title)"} - ${info.url}` }
+    }
     case "open": {
       if (!input.url) throw new Error("open needs a url.")
       await Cdp.navigate(client, Chrome.normalizeUrl(input.url))

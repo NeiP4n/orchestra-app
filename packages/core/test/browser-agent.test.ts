@@ -89,8 +89,8 @@ describe("finding the browser tool", () => {
 })
 
 describe("tool rules", () => {
-  test("only open, click and type ask first", () => {
-    expect(["open", "click", "type"].every((action) => acts(action as never))).toBe(true)
+  test("only open, click, type, start and stop ask first", () => {
+    expect(["open", "click", "type", "start", "stop"].every((action) => acts(action as never))).toBe(true)
     expect(["text", "info", "screenshot"].some((action) => acts(action as never))).toBe(false)
   })
 
