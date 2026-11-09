@@ -54,3 +54,12 @@ test("headless image delivery coalesces rapid frames and stops pending work", as
   await new Promise((resolve) => setTimeout(resolve, 300))
   expect(frames).toHaveLength(2)
 })
+
+test("losing a CDP socket does not lose the launched Chrome shutdown handle", () => {
+  const runtime = readFileSync(new URL("../src/browser/runtime.ts", import.meta.url), "utf8")
+  expect(runtime).toContain("const ownedChrome = new Map<number, () => void>()")
+  expect(runtime).toContain("ownedChrome.get(port) ?? (() => {})")
+  expect(runtime).toContain('const owned = target === "window" ? run : rememberOwned(run)')
+  const start = runtime.indexOf("export function closeAll()")
+  expect(runtime.slice(start, runtime.indexOf("export const isWindowed", start))).toContain("for (const stop of [...ownedChrome.values()]) stop()")
+})

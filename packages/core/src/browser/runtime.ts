@@ -40,6 +40,14 @@ const CAPTURE_SCALE = Math.min(3, Math.max(1, Number(process.env.ORCHESTRA_BROWS
 
 const live = new Map<string, Live>()
 const starting = new Map<string, Promise<Live>>()
+// CDP reconnection must not lose ownership of a Chrome we launched. Eviction
+// drops the socket, not this cleanup handle; never register the user's Chrome.
+const ownedChrome = new Map<number, () => void>()
+function rememberOwned(run: Chrome.Running): Chrome.Running {
+  const stop = () => { ownedChrome.delete(run.port); run.close() }
+  ownedChrome.set(run.port, stop)
+  return { ...run, close: stop }
+}
 let hooked = false
 
 // Chrome's stderr goes to a small file, so a Chrome that dies at once says why instead of failing silently.
@@ -113,7 +121,7 @@ async function quit(port: number) {
     // Already gone.
   }
   for (let i = 0; i < 60; i++) {
-    if (!(await alive(port).catch(() => false))) return
+    if (!(await alive(port).catch(() => false))) { ownedChrome.delete(port); return }
     await deps.sleep(150)
   }
   throw new Error("Chrome did not close in time.")
@@ -199,7 +207,7 @@ async function start(sessionID: string): Promise<Live> {
 async function startLocked(sessionID: string): Promise<Live> {
   const dir = Chrome.profileDir(Global.Path.data, sessionID)
   const port = await Chrome.livePort(deps.readFile, alive, dir)
-  if (port !== undefined) return join(port, () => {})
+  if (port !== undefined) return join(port, ownedChrome.get(port) ?? (() => {}))
   await checkLaunchBudget()
   const exe = Chrome.find(existsSync)
   if (!exe) throw new Error(Chrome.NOT_FOUND)
@@ -207,7 +215,7 @@ async function startLocked(sessionID: string): Promise<Live> {
   const urls = savedTabs(sessionID)
   if (urls.length > 0) trace(`${sessionID}: Chrome was not running, reopening ${urls.length} saved tab(s)`)
   trace(`${sessionID}: starting ${exe} windowless on ${dir} (pid ${process.pid})`)
-  const run = await Chrome.launch(deps, { exe, profileDir: dir, headless: true, url: START_PAGE, urls })
+  const run = rememberOwned(await Chrome.launch(deps, { exe, profileDir: dir, headless: true, url: START_PAGE, urls }))
   try {
     return await join(run.port, run.close)
   } catch (error) {
@@ -658,6 +666,9 @@ export function closeAll() {
     item.capture?.stop()
     item.stop()
   }
+  // Includes a launched process whose CDP socket was evicted before shutdown.
+  for (const stop of [...ownedChrome.values()]) stop()
+
 }
 
 export const isWindowed = (sessionID: string) => live.get(sessionID)?.windowed === true
@@ -794,7 +805,8 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
         : [],
     })
   })
-  const next = await join(run.port, target === "window" ? () => {} : run.close, target === "window").catch((error) => {
+  const owned = target === "window" ? run : rememberOwned(run)
+  const next = await join(owned.port, target === "window" ? () => {} : owned.close, target === "window").catch((error) => {
     run.close()
     throw error
   })
