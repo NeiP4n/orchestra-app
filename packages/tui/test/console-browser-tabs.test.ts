@@ -187,3 +187,24 @@ test("browser pane resolves persisted chat and project owner before working-dire
   expect(body).toContain("Orchestra.sessionOwner(info?.metadata)")
   expect(read("component/project-tree.tsx")).toContain("notes.browserChatRecord(session.id)?.projectID")
 })
+
+
+test("refresh and startup never auto-create a browser profile from orphan chat labels", () => {
+  const tree = read("component/project-tree.tsx")
+  expect(tree).not.toContain("notes.adoptBrowserChat(")
+  expect(tree).not.toContain("const adopting = new Set")
+  // Unbound chats remain visible, without becoming a new profile.
+  expect(tree).toContain("<For each={browserChatsOf(project)}>")
+  expect(tree.match(/notes\.addBrowserSession\(/g)?.length).toBe(1)
+  expect(tree).toContain("notes.addBrowserSession(project.id, project.directory)")
+  const runtime = readFileSync(new URL("../../core/src/browser/runtime.ts", import.meta.url), "utf8")
+  const start = runtime.indexOf("export async function watchEnsure(")
+  const end = runtime.indexOf("BrowserWatch.setEnsurer", start)
+  const ensure = runtime.slice(start, end)
+  expect(ensure).toContain("await peek(sessionID)")
+  expect(ensure).not.toContain("await open(")
+  expect(ensure).not.toContain("start(")
+  const triggers = readFileSync(new URL("../../core/src/tool/plugin/triggers.ts", import.meta.url), "utf8")
+  expect(triggers).toContain("spec = found.session.id")
+  expect(triggers).not.toContain("addBrowserSession")
+})
