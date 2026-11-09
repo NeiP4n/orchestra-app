@@ -48,6 +48,12 @@ function contrast(foreground: RGBA, background: RGBA) {
   return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05)
 }
 
+function readableSurface<T>(surface: T, base: T | undefined, theme: HoverTheme<T>) {
+  if (!(surface instanceof RGBA)) return true
+  if (base instanceof RGBA && luminance(base) < 0.15 && luminance(surface) > 0.35) return false
+  return [theme.text?.base, theme.text?.muted].every((fg) => !(fg instanceof RGBA) || fg.a < 1 || contrast(fg, surface) >= 3)
+}
+
 function visibleFallback<T>(base: T, theme: HoverTheme<T>): T {
   if (base instanceof RGBA) {
     const foregrounds = [theme.text?.base, theme.text?.muted].filter(
@@ -98,12 +104,12 @@ export function hoverBackground<T>(theme: HoverTheme<T>, variant: HoverVariant =
   // A primary hover is the safe neutral fallback for variants a theme omits.
   const action = background?.action?.[variant]?.hovered
   for (const candidate of [action, raised?.high, background?.action?.primary?.hovered]) {
-    if (candidate !== undefined && (base === undefined || distinctSurface(candidate, base))) return candidate
+    if (candidate !== undefined && (base === undefined || distinctSurface(candidate, base)) && readableSurface(candidate, base, theme)) return candidate
   }
 
   if (base !== undefined) {
     const increased = theme.increase?.(base, 4)
-    if (increased !== undefined && distinctSurface(increased, base)) return increased
+    if (increased !== undefined && distinctSurface(increased, base) && readableSurface(increased, base, theme)) return increased
     return visibleFallback(base, theme)
   }
 

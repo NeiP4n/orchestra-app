@@ -129,3 +129,11 @@ test("neutral fallback preserves readable primary and muted text", () => {
   expect(contrast(primary, hover as RGBA)).toBeGreaterThanOrEqual(3)
   expect(contrast(muted, hover as RGBA)).toBeGreaterThanOrEqual(3)
 })
+
+test("dark surfaces reject a white semantic hover fill and keep both text colors readable", () => {
+  const base = RGBA.fromHex("#101820"), text = RGBA.fromHex("#f4f4f4"), muted = RGBA.fromHex("#9cabb8")
+  const value = hoverBackground({ background: { base, raised: { base, high: RGBA.fromHex("#ffffff") }, action: { primary: { hovered: RGBA.fromHex("#ffffff") } } }, text: { base: text, muted } })
+  expect(luminance(value)).toBeLessThan(0.35)
+  expect(contrast(text, value)).toBeGreaterThanOrEqual(3)
+  expect(contrast(muted, value)).toBeGreaterThanOrEqual(3)
+})

@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "./hover-feedback"
 import type { JSX } from "solid-js"
 import type { RGBA } from "@opentui/core"
 import { openUrl } from "@orchestra/util/open"
@@ -16,12 +17,15 @@ export interface LinkProps {
  * Clicking anywhere on the link text opens the URL in the default browser.
  */
 export function Link(props: LinkProps) {
+  const hover = createHoverFeedback()
   const displayText = props.children ?? props.href
 
   return (
     <text
       fg={props.fg}
-      bg={props.bg}
+      bg={hover.background() ?? props.bg}
+      onMouseOver={hover.onMouseOver}
+      onMouseOut={hover.onMouseOut}
       width={props.width}
       wrapMode={props.wrapMode}
       onMouseUp={() => {

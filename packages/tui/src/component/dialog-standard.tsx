@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { TextAttributes } from "@opentui/core"
 import type { JSX, ParentProps } from "solid-js"
 import { useTheme } from "../context/theme"
@@ -36,9 +37,12 @@ export const dialogSpacing = {
 export function DialogCloseChip(props: { onClose?: () => void }) {
   const theme = useTheme().surface("dialog")
   const dialog = useDialog()
+  const hover = createHoverFeedback("secondary")
   return (
     <box
-      backgroundColor={theme.background.raised.base}
+      backgroundColor={hover.background() ?? theme.background.raised.base}
+      onMouseOver={hover.onMouseOver}
+      onMouseOut={hover.onMouseOut}
       paddingLeft={1}
       paddingRight={1}
       flexShrink={0}

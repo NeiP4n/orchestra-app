@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { type ScrollBoxRenderable } from "@opentui/core"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createSignal, Show } from "solid-js"
@@ -31,6 +32,8 @@ export function DialogErrorDetails(props: {
   const toast = useToast()
   const t = useT()
   const theme = useTheme().surface("dialog")
+  const investigateHover = createHoverFeedback()
+  const copyHover = createHoverFeedback()
   const dimensions = useTerminalDimensions()
   const config = useConfig().data
   const [copied, setCopied] = createSignal(false)
@@ -107,13 +110,13 @@ export function DialogErrorDetails(props: {
         </Show>
       </box>
       <box flexDirection="row" gap={3} flexWrap="wrap">
-        <text onMouseUp={investigate}>
+        <text bg={investigateHover.background()} onMouseOver={investigateHover.onMouseOver} onMouseOut={investigateHover.onMouseOut} onMouseUp={investigate}>
           <span style={{ fg: theme.text.base }}>
             <b>i</b>
           </span>
           <span style={{ fg: theme.text.muted }}> investigate</span>
         </text>
-        <text onMouseUp={copy}>
+        <text bg={copyHover.background()} onMouseOver={copyHover.onMouseOver} onMouseOut={copyHover.onMouseOut} onMouseUp={copy}>
           <span style={{ fg: copied() ? theme.text.feedback.success.base : theme.text.base }}>
             <b>{copied() ? t("✓ copied") : "c"}</b>
           </span>
