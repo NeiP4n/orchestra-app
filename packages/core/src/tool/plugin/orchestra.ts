@@ -1075,7 +1075,7 @@ export const Plugin = {
         gateCounted.set(event.sessionID, [...gate.counted])
         if (gate.blocked)
           return yield* new Tool.Error({
-            message: `6-message rule: you have sent ${ORCHESTRATOR_MESSAGE_LIMIT} of your own messages in a row without handing a task to a team session, so this call is refused. Delegate now with the sessions tool (action send or create, with the task as text) — that call is always allowed and resets the count. A dispatch also needs a fresh MCP survey and an explicit mcp assignment: if you have not surveyed yet, run mcp_manager action=inspect first — it is always allowed, even at the limit — then dispatch with mcp (servers [] and maxCalls 0 when the task needs no MCP). Building the Society (society_forge found/generate, society_plan apply) is always allowed too.`,
+            message: `6-message rule: you have sent ${ORCHESTRATOR_MESSAGE_LIMIT} of your own messages in a row without handing a task to a team session, so this call is refused. Delegate now with the sessions tool (action send or create, with the task as text) — that call is always allowed and resets the count. A dispatch also needs a fresh MCP survey and an explicit mcp assignment: if you have not surveyed yet, run mcp_manager action=inspect first — it is always allowed, even at the limit — then dispatch with mcp (servers [] and maxCalls 0 when the task needs no MCP). Building the Society (society_forge found/generate, society_plan apply) is always allowed too. (This count restarts with every new message from the operator.)`,
           })
       }),
     )
