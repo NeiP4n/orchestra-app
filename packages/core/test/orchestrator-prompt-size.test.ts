@@ -85,3 +85,7 @@ describe("orchestrator prompt size", () => {
     expect(repeated).toEqual([])
   })
 })
+
+test("the Orchestrator reports only what a tool result verified", () => {
+  expect(PROMPT_ORCHESTRATOR).toContain("Report only what a tool result VERIFIED")
+})

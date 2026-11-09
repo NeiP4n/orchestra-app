@@ -1487,7 +1487,7 @@ export const Plugin = {
                   yield* dispatch(session.id, limit ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
                   return {
                     sessionID: session.id,
-                    output: `Sent to ${session.title ?? session.id} (${role?.id ?? session.agent ?? "session"}, id ${session.id}; the operator sees it in the project tree). Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.${modelNote(choice.model ?? session.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`,
+                    output: `Sent. VERIFIED: id ${session.id}, title "${session.title ?? ""}", role ${role?.id ?? session.agent ?? "session"}; listed in the operator's project tree. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.${modelNote(choice.model ?? session.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`,
                   }
                 }
                 case "create": {
@@ -1571,9 +1571,15 @@ export const Plugin = {
                   const limit = yield* distributeMcp(created.id, role)
                   if (input.text?.trim())
                     yield* dispatch(created.id, limit ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
+                  // What is reported is what was read back from the session store, not what was asked for.
+                  const confirmed = yield* sessions.get(created.id).pipe(Effect.option)
+                  if (Option.isNone(confirmed))
+                    return yield* new ToolFailure({
+                      message: `NOT CONFIRMED: ${created.id} cannot be read back after creation. Treat it as not created: retry once, then tell the operator it failed.`,
+                    })
                   return {
                     sessionID: created.id,
-                    output: `Created ${created.id} (${role.id}; the operator sees it in the project tree)${input.text?.trim() ? "; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list." : ""}.${modelNote(created.model, choice.model ? (choice.modelSource ?? "your explicit choice") : worker.model ? "the role/worker policy" : "inherited from your own session — pass model to choose otherwise")}`,
+                    output: `Created. VERIFIED: id ${created.id}, title "${confirmed.value.title ?? ""}", role ${role.id}, agent ${confirmed.value.agent ?? role.agent}, project ${project.directory}; listed in the operator's project tree`${input.text?.trim() ? "; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list." : ""}.${modelNote(created.model, choice.model ? (choice.modelSource ?? "your explicit choice") : worker.model ? "the role/worker policy" : "inherited from your own session — pass model to choose otherwise")}`,
                   }
                 }
                 case "answer": {
