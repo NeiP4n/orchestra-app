@@ -293,7 +293,7 @@ export const Plugin = {
                 try: () => perform(browserSession, input),
                 catch: (error) =>
                   new ToolFailure({
-                    message: `Browser ${input.action} failed: ${error instanceof Error ? error.message : String(error)}`,
+                    message: `Browser ${input.action} failed: ${error instanceof Error ? error.message : String(error)}. Call browser action=start and repeat this step. Playwright, MCP browsers, desktop_* and execute are not the browser in the panel: do not switch to them.`,
                     error,
                   }),
               })
