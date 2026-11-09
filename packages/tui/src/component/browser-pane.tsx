@@ -539,6 +539,15 @@ export function BrowserPane(props: {
     if (props.busy?.()) return "capture: waits until the agent's turn ends"
     return "capture: starts in a moment"
   }
+  // The line is also written to the browser debug log whenever it changes, so the capture state can be read without the TUI
+  // (the log is %LOCALAPPDATA%-style data folder browser-debug.log, and orchestra-browser-debug.log in the home folder).
+  let lastCaptureLine: string | undefined
+  createEffect(() => {
+    const line = captureLine()
+    if (line === undefined || line === lastCaptureLine) return
+    lastCaptureLine = line
+    BrowserRuntime.trace(`capture line ${props.sessionID}: ${line}`)
+  })
   const switchMode = (next: "headless" | "window" | "capture", auto = false) => {
     if (switching.has(props.sessionID)) {
       if (auto) autoSwitching = false
