@@ -1,4 +1,4 @@
-import { expect } from "bun:test"
+import { afterAll, expect } from "bun:test"
 import { Cause, Context, Effect, Fiber, RcMap, Schedule } from "effect"
 import { Browser } from "@orchestra/plugin-browser/rpc"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
@@ -20,6 +20,15 @@ import { tempGlobalLayer } from "./fixture/global"
 import { offlineModels } from "./fixture/models"
 import { tmpdirScoped } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
+
+// The browser.tabs.* plugin is offered only with ORCHESTRA_BROWSER_PLUGIN=1 (38834d81) and the gate is read when
+// the plugin layer is built, so the variable is set before the app layer exists and restored after the file.
+const previousPlugin = process.env.ORCHESTRA_BROWSER_PLUGIN
+process.env.ORCHESTRA_BROWSER_PLUGIN = "1"
+afterAll(() => {
+  if (previousPlugin === undefined) delete process.env.ORCHESTRA_BROWSER_PLUGIN
+  else process.env.ORCHESTRA_BROWSER_PLUGIN = previousPlugin
+})
 
 const it = testEffect(
   AppNodeBuilder.build(
@@ -48,19 +57,6 @@ it.live(
   "idle eviction ends the browser attachment and permits a fresh attachment",
   () =>
     Effect.gen(function* () {
-      // The browser.tabs.* plugin is offered only with ORCHESTRA_BROWSER_PLUGIN=1 (38834d81): this test is about that plugin.
-      yield* Effect.acquireRelease(
-        Effect.sync(() => {
-          const previous = process.env.ORCHESTRA_BROWSER_PLUGIN
-          process.env.ORCHESTRA_BROWSER_PLUGIN = "1"
-          return previous
-        }),
-        (previous) =>
-          Effect.sync(() => {
-            if (previous === undefined) delete process.env.ORCHESTRA_BROWSER_PLUGIN
-            else process.env.ORCHESTRA_BROWSER_PLUGIN = previous
-          }),
-      )
       const dir = yield* tmpdirScoped()
       const ref = Location.Ref.make({ directory: AbsolutePath.make(dir.path) })
       const locations = yield* LocationServiceMap.Service
