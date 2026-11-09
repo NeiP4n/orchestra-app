@@ -794,12 +794,12 @@ export const layer = (options?: Options) =>
         tools: Effect.fn("MCP.tools")(function* () {
           // A removed/disabled server never lists tools, even if a live client lingers: it must not be found by search or called.
           return Array.from(entries.values())
-            .flatMap((entry) => (entry.config.disabled || entry.status.status === "disabled" ? [] : (entry.tools ?? [])))
+            .flatMap((entry) => (entry.status.status === "disabled" ? [] : (entry.tools ?? [])))
             .toSorted((a, b) => a.server.localeCompare(b.server) || a.name.localeCompare(b.name))
         }),
         callTool: Effect.fn("MCP.callTool")(function* (input) {
           const target = yield* requireServer(input.server)
-          if (target.entry.config.disabled || target.entry.status.status === "disabled")
+          if (target.entry.status.status === "disabled")
             return yield* new ToolCallError({
               server: target.name,
               tool: input.name,

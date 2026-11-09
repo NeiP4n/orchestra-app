@@ -287,7 +287,7 @@ describe("orchestrator triage and modes", () => {
   test("sizes the task before it dispatches a team", () => {
     expect(PROMPT_ORCHESTRATOR).toContain("Task size — decide before you dispatch")
     expect(PROMPT_ORCHESTRATOR).toContain("Quick: one file or one obvious change")
-    expect(PROMPT_ORCHESTRATOR).toContain("Pick the smallest size that really covers the request")
+    expect(PROMPT_ORCHESTRATOR).toContain("Pick the size the work needs and say which")
     expect(PROMPT_ORCHESTRATOR).toContain("at most ten of your own tool calls orienting before the first dispatch")
     expect(PROMPT_ORCHESTRATOR).toContain("the first dispatch may be that investigation")
   })
