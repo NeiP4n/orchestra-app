@@ -22,10 +22,12 @@ describe("browser view", () => {
     expect(pane).toContain("BrowserRuntime.unwatch(")
   })
 
-  test("the pane draws no browser UI of its own; real Chrome UI is a real Chrome window", () => {
+  test("the pane draws its own tab strip and address row above the page picture; the real Chrome window is only the explicit button", () => {
     const pane = read("component/browser-pane.tsx")
-    for (const drawn of ["<input", "BrowserRuntime.newTab(", "BrowserRuntime.selectTab(", "BrowserRuntime.history("])
-      expect(pane).not.toContain(drawn)
+    expect(pane).not.toContain("<input")
+    for (const used of ["BrowserRuntime.tabs(", "BrowserRuntime.newTab(", "BrowserRuntime.selectTab(", "BrowserRuntime.history("])
+      expect(pane).toContain(used)
+    expect(pane.indexOf("tabList()")).toBeLessThan(pane.indexOf("<browserImage"))
     expect(pane).toContain("BrowserRuntime.relaunch(")
   })
 
