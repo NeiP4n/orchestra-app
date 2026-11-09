@@ -243,3 +243,31 @@ describe("SessionCompletionGate", () => {
     expect(SessionCompletionGate.check(afterReport, board(1))).toContain('L-1 "Ship the feature"')
   })
 })
+
+describe("SessionCompletionGate: BrowserAgent", () => {
+  const BA = "team-browser-agent"
+  const run = (messages: SessionMessage.Info[]) => SessionCompletionGate.check(messages, empty, undefined, undefined, undefined, BA)
+  const search = { name: "websearch", input: { query: "x" } }
+  const browser = { name: "browser", input: { action: "snapshot" } }
+
+  test("sends it back to the page when it stops after a search without using the browser", () => {
+    const text = run([user("open muse.ai"), assistant("", [search]), assistant("")])
+    expect(text).toContain("You have not used the browser tool yet")
+  })
+  test("sends it back when it used the browser but ended without a state line", () => {
+    const text = run([user("open muse.ai"), assistant("", [browser]), assistant("I looked at it.")])
+    expect(text).toContain("Continue in the browser")
+  })
+  test("lets a report that starts with a state line stand, after real page work", () => {
+    expect(run([user("open muse.ai"), assistant("", [browser]), assistant("DONE\nOpened muse.ai.")])).toBeUndefined()
+  })
+  test("a DONE without any browser call is not believed, a NOT DONE is", () => {
+    expect(run([user("open muse.ai"), assistant("DONE\nTrust me.")])).toContain("You have not used the browser tool yet")
+    expect(run([user("open muse.ai"), assistant("NOT DONE\nChrome would not start.")])).toBeUndefined()
+  })
+  test("when the reminders are spent it asks for an explicit NOT DONE once, then lets it stop", () => {
+    const spent = [user("open muse.ai"), assistant("", [search]), nudge(), assistant(""), nudge(), assistant(""), nudge(), assistant("")]
+    expect(run(spent)).toContain("Completion check (final)")
+    expect(run([...spent, nudge(), assistant("")])).toBeUndefined()
+  })
+})

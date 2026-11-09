@@ -104,6 +104,9 @@ const AI_OWNER = "AI"
 const AI_OWNER_ID = "local-ai"
 const WORK_ACTIONS = new Set(["next", "take", "add", "check", "uncheck"])
 
+// The state line a BrowserAgent report starts with.
+const STATE_LINE = /^\s*(?:DONE|PARTLY DONE|NOT DONE)\b/i
+
 // A reply whose last paragraph announces work instead of reporting it.
 const PROMISE =
   /^(?:(?:ok(?:ay)?|now|next|then|first)[,:]?\s+)?(?:i(?:'ll| will| am going to|'m going to)|let me|next,? i|now i|сейчас|теперь|далее|дальше|затем|следующ\S* шаг|(?:я\s+)?(?:сделаю|запущу|проверю|исправлю|добавлю|начну|займусь|продолжу))(?=[\s,.!:;…]|$)/iu
@@ -119,6 +122,7 @@ export function check(
   now?: DateTime.DateTime,
   sessionID?: string,
   reviews?: ReviewGates,
+  agent?: string,
 ) {
   const max = limit()
   if (max === 0) return undefined
@@ -127,6 +131,27 @@ export function check(
   const nudges = turn.filter((message) => message.type === "synthetic" && message.metadata?.[MetadataKey] === true)
   const last = turn.findLast((message) => message.type === "assistant")
   if (!last || last.type !== "assistant" || last.error || last.finish !== "stop") return undefined
+  // The BrowserAgent must end a turn with a state line and must have worked in the page. A weak model that
+  // stops after a search, or with an empty answer, is sent back to work; when the reminders are spent it is asked
+  // for an explicit NOT DONE with the reason, so the Orchestrator never gets silence.
+  if (agent === "team-browser-agent") {
+    const said = last.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n").trim()
+    const usedBrowser = turn.some((message) => message.type === "assistant" && tools(message).some((tool) => tool.name === "browser"))
+    if (STATE_LINE.test(said) && (usedBrowser || /^\s*NOT DONE/i.test(said))) return undefined
+    if (nudges.length > max) return undefined
+    if (nudges.length === max)
+      return reminder([
+        "Completion check (final): you are stopping without a report.",
+        "Write the report now. Its first line is NOT DONE (or PARTLY DONE if part of the task worked), then one or two plain sentences saying what you did in the page and exactly what stopped you. Do not call any tool.",
+      ])
+    return reminder([
+      "Completion check: the page work is not finished and you have not reported.",
+      usedBrowser
+        ? "Continue in the browser with the next step (snapshot, then click or type by ref). Try another route if the last one failed."
+        : "You have not used the browser tool yet. Do the task in the page with the browser tool (open, snapshot, click, type); fetch and search are not a substitute for the page.",
+      "End with the first line DONE, PARTLY DONE or NOT DONE and a short plain summary.",
+    ])
+  }
   // A model that answers a nudge without doing anything has said it is done twice; believe it.
   const previous = turn.findLastIndex((message) => message.type === "synthetic" && message.metadata?.[MetadataKey] === true)
   if (previous >= 0 && !turn.slice(previous + 1).some((message) => message.type === "assistant" && tools(message).length > 0))
