@@ -110,3 +110,18 @@ test("watcher heartbeat restores a lost socket without starting another Chrome o
   expect(body).not.toContain('startScreencast')
   expect(body).not.toContain('Runtime.evaluate')
 })
+
+test("CDP socket opening is bounded and an opened socket does not keep the opening timer", async () => {
+  const { Cdp } = await import("@orchestra/core/browser/cdp")
+  let closed = 0
+  const socket = () => ({ send() {}, close() { closed++ }, onopen: null, onmessage: null, onerror: null, onclose: null })
+  await expect(Cdp.connect(socket, "ws://fixture.invalid", { timeoutMs: 10 })).rejects.toThrow("did not open")
+  expect(closed).toBe(1)
+  let active: ReturnType<typeof socket> | undefined
+  const pending = Cdp.connect(() => active = socket(), "ws://fixture.invalid", { timeoutMs: 15 })
+  ;(active as unknown as Cdp.Socket).onopen?.()
+  const client = await pending
+  await new Promise((resolve) => setTimeout(resolve, 25))
+  expect(client.isClosed?.()).toBe(false)
+  client.close()
+})
