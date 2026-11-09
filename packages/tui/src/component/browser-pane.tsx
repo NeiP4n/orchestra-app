@@ -63,6 +63,9 @@ const FRAME_GAP_MS = 120
 
 // The text view of one browser session: its page address, title and the page's visible text. It reads
 // the page; pixels and clicking come later. Chrome starts only when the operator opens the page.
+// Sessions whose agent-started Chrome is being taken over right now: two panes of one session must not both do it.
+const takingOver = new Set<string>()
+
 export function BrowserPane(props: {
   sessionID: string
   name: string
@@ -378,8 +381,9 @@ export function BrowserPane(props: {
   createEffect(() => {
     let busy = false
     const timer = setInterval(() => {
-      if (busy || disposed || state() !== "idle" || failure()) return
+      if (busy || disposed || state() !== "idle" || failure() || takingOver.has(props.sessionID)) return
       busy = true
+      takingOver.add(props.sessionID)
       void BrowserRuntime.peek(props.sessionID)
         .then((found) => {
           if (found.running && !disposed && state() === "idle" && !failure()) {
@@ -388,7 +392,10 @@ export function BrowserPane(props: {
           }
         })
         .catch((error) => BrowserRuntime.trace(`pane ${props.sessionID}: takeover failed: ${errorMessage(error)}`))
-        .finally(() => (busy = false))
+        .finally(() => {
+          busy = false
+          takingOver.delete(props.sessionID)
+        })
     }, 1500)
     onCleanup(() => clearInterval(timer))
   })

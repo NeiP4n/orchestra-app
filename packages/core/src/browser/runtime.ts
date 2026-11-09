@@ -188,6 +188,7 @@ async function start(sessionID: string): Promise<Live> {
   calm(dir)
   const urls = savedTabs(sessionID)
   if (urls.length > 0) trace(`${sessionID}: Chrome was not running, reopening ${urls.length} saved tab(s)`)
+  trace(`${sessionID}: starting ${exe} windowless on ${dir} (pid ${process.pid})`)
   const run = await Chrome.launch(deps, { exe, profileDir: dir, headless: true, url: START_PAGE, urls })
   try {
     return await join(run.port, run.close)
@@ -652,6 +653,7 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
   if (!exe) throw new Error("Google Chrome or Microsoft Edge was not found.")
   const headed = target !== "headless"
   calm(Chrome.profileDir(Global.Path.data, sessionID))
+  trace(`${sessionID}: restarting ${exe} as ${target} on ${Chrome.profileDir(Global.Path.data, sessionID)} (pid ${process.pid})`)
   const run = await Chrome.launch(headed ? windowDeps : deps, {
     exe,
     profileDir: Chrome.profileDir(Global.Path.data, sessionID),
