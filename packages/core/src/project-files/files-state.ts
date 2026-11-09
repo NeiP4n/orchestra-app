@@ -209,7 +209,8 @@ export const syncRules = (
     const entries = yield* scanAll(deps.kv, RULES_PREFIX)
     const scopes = entries
       .map((entry) => entry.key.slice(RULES_PREFIX.length))
-      .filter((scope) => scope.length > 0 && !scope.startsWith("history/"))
+      // session:<id> rules belong to one chat and die with it; mirroring them would fill the file with dead entries.
+      .filter((scope) => scope.length > 0 && !scope.startsWith("history/") && !scope.startsWith("session:"))
       .toSorted()
     const rows: Array<{ scope: string; id: string; text: string; by: string; at: number }> = []
     for (const scope of scopes) {

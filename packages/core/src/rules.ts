@@ -278,7 +278,9 @@ export const scopesOf = (input: {
   Effect.gen(function* () {
     const base = yield* baseScopes(input)
     const own = yield* input.sessions.get(input.sessionID as SessionID).pipe(Effect.option)
-    const orchestrator = base.project !== undefined && (yield* input.orchestra.mainOf(input.sessionID as SessionID)) !== undefined
+    // By the project record, not mainOf: mainOf hides the project while a move is pending (and reconciles on every call),
+    // which dropped the Orchestrator's own rules exactly then.
+    const orchestrator = base.project !== undefined && (yield* input.orchestra.projects()).some((item) => item.main === input.sessionID)
     return {
       ...base,
       session: input.sessionID,
