@@ -115,6 +115,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Release channel for the script build; overrides the channel derived from the git branch. (Also a build-time define elsewhere — this entry is the script's runtime read.)",
     default: "The current git branch (\"detached\" without one).",
   },
+  ORCHESTRA_CHROME_PATH: {
+    purpose: "Full path of the Chrome or Edge executable the Browser tab starts, when the usual install places are not used.",
+    default: "Off: the usual install places are searched.",
+  },
   ORCHESTRA_CLIENT: {
     purpose: "Client name reported to the server (for example \"acp\").",
     default: "The built artifact name.",
@@ -462,6 +466,18 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Override for the repository root the recovery service repairs.",
     default: "The ancestor directory holding packages/core.",
   },
+  ORCHESTRA_REQUEST_MEASUREMENT: {
+    purpose: "\"1\" collects numbers-only measurements of each model request (sizes and counts, no text).",
+    default: "Off.",
+  },
+  ORCHESTRA_REQUEST_MEASUREMENT_DIR: {
+    purpose: "Folder the request measurements are written to.",
+    default: "The "measurements" folder inside the app log folder.",
+  },
+  ORCHESTRA_REQUEST_MEASUREMENT_RETENTION_DAYS: {
+    purpose: "How many days request measurement files are kept.",
+    default: "The built-in retention.",
+  },
   ORCHESTRA_REQUEST_REPORT: {
     purpose: "Enable per-request reports (any value).",
     default: "Off.",
@@ -544,6 +560,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   },
   ORCHESTRA_TEST_ONBOARDING: {
     purpose: "Run the desktop onboarding flow in test mode (\"1\").",
+    default: "Off.",
+  },
+  ORCHESTRA_TEST_PERMISSION_DIAG: {
+    purpose: "Tests only: logs which branch the permission check took.",
     default: "Off.",
   },
   ORCHESTRA_TOOL_ROUTER: {
