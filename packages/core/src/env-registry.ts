@@ -472,7 +472,7 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   },
   ORCHESTRA_REQUEST_MEASUREMENT_DIR: {
     purpose: "Folder the request measurements are written to.",
-    default: "The "measurements" folder inside the app log folder.",
+    default: "The measurements folder inside the app log folder.",
   },
   ORCHESTRA_REQUEST_MEASUREMENT_RETENTION_DAYS: {
     purpose: "How many days request measurement files are kept.",
