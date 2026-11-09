@@ -41,7 +41,9 @@ export function make(directory: string): Instructions.List {
       const mine = BrowserBridge.visible(all, directory)
       const seen = `context for ${directory}: ${all.length} published (${BrowserRuntime.sessionsFilePath()}), project ${project ?? "none"}, visible ${mine.length}`
       if (seen !== lastSeen) BrowserRuntime.trace((lastSeen = seen))
-      if (mine.length === 0) return Instructions.removed
+      // Sessions exist in the Browser tab but none belongs to this directory: say so, or the agent reaches for a
+      // browser driver of its own (chrome-devtools) because it has no browser tool here.
+      if (mine.length === 0) return all.length > 0 ? [] : Instructions.removed
       const held = BrowserRuntime.leases()
       const selected = BrowserRuntime.selectedSession(directory)
       return mine.map(
@@ -64,6 +66,13 @@ export function make(directory: string): Instructions.List {
 }
 
 function render(entries: readonly Entry[]) {
+  if (entries.length === 0)
+    return [
+      "<browser-sessions>",
+      "  The Browser tab has browser sessions, but none belongs to this project folder, so you have no browser tool here.",
+      "  Do not install or call chrome-devtools, playwright or browser.tabs instead: they open a second Chrome, not the one the user watches. Tell the user the Browser tab's session is not linked to this folder and ask them to open the tab from this project.",
+      "</browser-sessions>",
+    ].join("\n")
   const running = entries.filter((item) => item.running).length
   return [
     "<browser-sessions>",
