@@ -37,7 +37,7 @@ export const defaultRules: ReadonlyArray<GuidanceRule> = [
     intent: "A vague or underspecified request",
     tools: ["question"],
     guidance:
-      "Ask for the missing decisions in one compact form: at most three short questions, each with 3-4 options, the recommended label first and passed as the default; then continue with the answers. Never answer a vague request by generating a long prompt for the user to read.",
+      "First inspect available context and sources; choose a reversible default when it stays within scope. Do not ask for search terms, implementation hints or permission to continue. Ask only for a consequential decision or authority the user must supply, in one compact form: at most three short questions with the recommended default; continue independent work while waiting. Never answer a vague request by generating a long prompt for the user to read.",
   },
   {
     intent: "A capability missing from this request",
