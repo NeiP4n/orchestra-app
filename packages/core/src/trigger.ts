@@ -500,3 +500,9 @@ export function withHourlyLimit(trigger: Info, value: number | null, now: number
   const lift = !trigger.enabled && /firings in the last hour.*cap/.test(trigger.pausedReason ?? "") && (value === null || hour < value) && day < trigger.maxPerDay
   return { ...trigger, maxPerHour: value, ...(lift ? { enabled: true, pausedReason: undefined } : {}) }
 }
+
+/** Operator UI only. Never resets history, enables publishing or lifts a manual pause. */
+export function withDailyLimit(trigger: Info, value: number, now: number): Info {
+  if (!Number.isInteger(value) || value < 1 || value > HARD_PER_DAY) throw new Error("Суточный лимит: 1-100.")
+  return { ...trigger, maxPerDay: value }
+}

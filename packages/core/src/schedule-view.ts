@@ -10,6 +10,7 @@ export interface Item {
   id: string
   sessionID: string
   name: string
+  maxPerDay?: number
   maxPerHour?: number | null
   fired?: number[]
   total?: number
@@ -42,7 +43,7 @@ export function sync(trigger: Trigger.Info, sessionID: string) {
   try {
     const item: Item = { id: trigger.id, sessionID, name: shortName(trigger.prompt), kind: trigger.kind,
       missedCount: trigger.missedCount, missedCountAtLeast: trigger.missedCountAtLeast, lastMissedAt: trigger.lastMissedAt, missedPolicy: trigger.missedPolicy, pendingDelivery: !!trigger.pendingFire,
-      maxPerHour: trigger.maxPerHour, fired: trigger.fired,
+      maxPerDay: trigger.maxPerDay, maxPerHour: trigger.maxPerHour, fired: trigger.fired,
       total: trigger.total, localActions: !!trigger.actions?.length, actionErrors: trigger.errors?.consecutive,
       enabled: trigger.enabled, nextAt: trigger.enabled ? trigger.nextAt : null, lastFiredAt: trigger.lastFiredAt,
       pausedReason: trigger.pausedReason, browserSessionID: trigger.browserSessionID, updatedAt: Date.now() }
@@ -102,3 +103,20 @@ export function hourlyLimitRequested(id: string, sessionID: string): { maxPerHou
   } catch { return }
 }
 export function clearHourlyLimit(id: string) { try { rmSync(limitFile(id), { force: true }) } catch {} }
+
+const dailyFile = (id: string) => path.join(directory(), `${encodeURIComponent(id)}.daily.json`)
+/** Operator UI only. No unlimited day mode; the existing hard cap remains 100. */
+export function requestDailyLimit(id: string, sessionID: string, maxPerDay: number) {
+  if (!list(sessionID).some(item => item.id === id)) throw new Error("Расписание не найдено в этом чате.")
+  if (!Number.isInteger(maxPerDay) || maxPerDay < 1 || maxPerDay > 100) throw new Error("Суточный лимит: 1-100.")
+  const temp = `${dailyFile(id)}.${process.pid}.tmp`
+  writeFileSync(temp, JSON.stringify({ id, sessionID, maxPerDay }))
+  renameSync(temp, dailyFile(id))
+}
+export function dailyLimitRequested(id: string, sessionID: string): { maxPerDay: number } | undefined {
+  try {
+    const v = JSON.parse(readFileSync(dailyFile(id), "utf8"))
+    if (v.id === id && v.sessionID === sessionID && Number.isInteger(v.maxPerDay) && v.maxPerDay >= 1 && v.maxPerDay <= 100) return { maxPerDay: v.maxPerDay }
+  } catch {}
+}
+export function clearDailyLimit(id: string) { try { rmSync(dailyFile(id), { force: true }) } catch {} }

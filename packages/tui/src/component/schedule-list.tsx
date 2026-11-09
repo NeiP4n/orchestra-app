@@ -1,3 +1,4 @@
+import { limitExpansion } from "../util/security-change"
 import { DialogPrompt } from "../ui/dialog-prompt"
 import { useDialog } from "../ui/dialog"
 import { hoverBackground } from "../ui/hover"
@@ -23,8 +24,10 @@ export function ScheduleList(props: { sessionID: string; width?: number }) {
     onConfirm={(value) => {
       const text = value.trim().toLowerCase()
       const limit = text === "без лимита" ? null : /^\d+$/.test(text) ? Number(text) : NaN
-      try { ScheduleView.requestHourlyLimit(item.id, props.sessionID, limit); setError(""); dialog.clear() }
-      catch { setError("Лимит: число 1-10000 или без лимита.") }
+      const commit=()=>{try { ScheduleView.requestHourlyLimit(item.id, props.sessionID, limit); setError(""); dialog.clear() } catch { setError("Лимит: число 1-10000 или без лимита.") }}
+      if(limit!==null&&(!Number.isInteger(limit)||limit<1||limit>10000))return setError("Лимит: число 1-10000 или без лимита.")
+      if(limitExpansion(item.maxPerHour===null?null:item.maxPerHour??6,limit))return dialog.replace(()=><DialogPrompt title="Расширить лимит триггера?" placeholder="Введите РАЗРЕШИТЬ" description={()=><text fg={theme.text.muted}>{item.name} ({item.id}): в час {item.maxPerHour===null?"без лимита":item.maxPerHour??6} → {limit===null?"без лимита":limit}. Суточный лимит и история остаются.</text>} onConfirm={answer=>{if(answer.trim()==="РАЗРЕШИТЬ")commit()}} onCancel={()=>dialog.clear()}/>)
+      commit()
     }} onCancel={() => dialog.clear()} />)
 
   const [hoveredRemove, setHoveredRemove] = createSignal<string>()

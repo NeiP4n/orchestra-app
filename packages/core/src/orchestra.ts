@@ -1817,6 +1817,16 @@ const layer: Layer.Layer<
           ScheduleView.clearHourlyLimit(trigger.id)
           reportLog({ event: "trigger-hourly-limit-by-operator", trigger: trigger.id, maxPerHour: limit.maxPerHour })
         }
+        const daily = ScheduleView.dailyLimitRequested(trigger.id, String(project.main))
+        if (daily) {
+          const updated = Trigger.parse(yield* kv.atomicUpdate(entry.key, current => {
+            const latest = Trigger.parse(current)
+            return latest ? Trigger.withDailyLimit(latest, daily.maxPerDay, Date.now()) as never : current
+          }))
+          if (updated) ScheduleView.sync(updated, String(project.main))
+          ScheduleView.clearDailyLimit(trigger.id)
+          reportLog({ event: "trigger-daily-limit-by-operator", trigger: trigger.id, maxPerDay: daily.maxPerDay })
+        }
         if (!ScheduleView.removalRequested(trigger.id, String(project.main))) continue
         yield* kv.remove(entry.key)
         ScheduleView.remove(trigger.id)
