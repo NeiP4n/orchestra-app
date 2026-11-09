@@ -409,9 +409,13 @@ const layer = Layer.effect(
           tools,
           system: transcript.system,
           measurementRetryOf,
-          messages: stepLimitReached
-            ? [...transcript.messages, Message.assistant(MAX_STEPS_PROMPT)]
-            : transcript.messages,
+          // The request must end with a user message: Claude (Anthropic, Vertex, Antigravity) and others refuse an
+          // assistant message last ("does not support assistant message prefill", 400), and every fallback model
+          // refuses it the same way. The step-limit notice is therefore a user message, and a history that still
+          // ends on an assistant message gets a short user line.
+          messages: endOnUser(
+            stepLimitReached ? [...transcript.messages, Message.user(MAX_STEPS_PROMPT)] : transcript.messages,
+          ),
           // Keep tool definitions on the final Step to preserve the provider's cached prefix.
           toolChoice: stepLimitReached ? "none" : undefined,
           webSocket: "session",
@@ -544,7 +548,7 @@ const layer = Layer.effect(
     ) {
       // The same error from two models in a row is the request's, not the models': stop the chain so the
       // real reason is shown instead of six fallbacks that all fail alike.
-      const signature = `${cause.reason._tag}:${String(error.message ?? "").replace(/\d+/g, "#").slice(0, 160)}`
+      const signature = `${cause.reason._tag}:${String(error.message ?? "").replace(/[\w-]*\d[\w-]*/g, "#").slice(0, 160)}`
       const seenErrors = failureSignatures.get(refused) ?? []
       failureSignatures.set(refused, [...seenErrors, signature])
       if (seenErrors.at(-1) === signature) {
@@ -713,6 +717,12 @@ const modelIdentity = (model: Model.Ref) => `${model.providerID}/${model.id}`
 
 /** `refused` holds full keys (`provider/id#variant`); a refusal is per model, not per variant. */
 const refusedIdentities = (refused: ReadonlySet<string>) => new Set([...refused].map((key) => key.split("#")[0] ?? key))
+
+/** A provider-safe tail: the last message is never the assistant's. */
+export function endOnUser<T extends { readonly role: string }>(messages: ReadonlyArray<T>): ReadonlyArray<T> {
+  const last = messages.at(-1)
+  return last?.role === "assistant" ? [...messages, Message.user("Continue.") as unknown as T] : messages
+}
 
 /**
  * The next model a session may try after its provider refused the current one outright. This

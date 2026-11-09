@@ -5240,7 +5240,7 @@ describe("SessionRunnerLLM", () => {
     // Protocols with native "none" keep these definitions for prompt caching.
     expect(s.requests[1]?.tools.map((tool) => tool.name)).toContain("echo")
     expect(s.requests[1]?.messages.at(-1)).toMatchObject({
-      role: "assistant",
+      role: "user",
       content: [{ type: "text", text: expect.stringContaining("MAXIMUM STEPS REACHED") }],
     })
     expect(s.executions).toEqual(["done"])
@@ -6043,7 +6043,7 @@ describe("SessionRunnerLLM", () => {
     // The final step keeps tool definitions to preserve provider prompt caching.
     expect(s.requests[2]?.tools.map((tool) => tool.name)).toContain("echo")
     expect(s.requests[2]?.messages.at(-1)).toMatchObject({
-      role: "assistant",
+      role: "user",
       content: [{ type: "text", text: expect.stringContaining("MAXIMUM STEPS REACHED") }],
     })
     expect(s.executions).toEqual(["recovered"])

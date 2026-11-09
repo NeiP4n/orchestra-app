@@ -756,3 +756,12 @@ describe("SessionRunnerLLM fallback while draining a session", () => {
     }),
   )
 })
+
+describe("endOnUser", () => {
+  test("a request never ends on an assistant message (no prefill)", async () => {
+    const { SessionRunnerLLM } = await import("@orchestra/core/session/runner/llm")
+    expect(SessionRunnerLLM.endOnUser([{ role: "user" }, { role: "assistant" }]).at(-1)?.role).toBe("user")
+    expect(SessionRunnerLLM.endOnUser([{ role: "user" }])).toHaveLength(1)
+    expect(SessionRunnerLLM.endOnUser([{ role: "assistant" }, { role: "tool" }]).at(-1)?.role).toBe("tool")
+  })
+})
