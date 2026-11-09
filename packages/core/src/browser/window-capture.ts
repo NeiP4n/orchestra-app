@@ -345,7 +345,7 @@ export function start(
   spawn: () => Process,
   pid: number,
   size: Size,
-  timeoutMs = 20_000,
+  timeoutMs = 12_000,
   note?: (text: string) => void,
 ): Promise<Controller> {
   const process = spawn()

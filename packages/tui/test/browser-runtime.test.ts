@@ -60,8 +60,12 @@ describe("the browser pane default", () => {
   test("on Windows every session's Chrome ends up as the captured real window, between the agent's turns; our own strip is emergency-only", () => {
     const pane = read("component/browser-pane.tsx")
     expect(pane).toContain('process.platform === "win32" && process.env.ORCHESTRA_BROWSER_CAPTURE !== "0"')
-    // One try per pane, never while the session's BrowserAgent chat is working.
-    expect(pane).toContain("captureTried")
+    // One try per session in this process, one switch at a time, only after the windowless picture is on screen,
+    // never while the session's BrowserAgent chat is working; no picture within the time limit goes back to headless.
+    expect(pane).toContain("captureGaveUp")
+    expect(pane).toContain("autoSwitching")
+    expect(pane).toContain("FIRST_FRAME_MS")
+    expect(pane).toContain("switching.has(props.sessionID)")
     expect(pane).toContain("props.busy?.()")
     expect(pane).toContain('switchMode("capture")')
     expect(read("component/session-frame.tsx")).toContain('data.session.status(item.chat) === "running"')

@@ -76,6 +76,14 @@ const FRAME_GAP_MS = GFX === "blocks" ? 120 : 300
 // the page; pixels and clicking come later. Chrome starts only when the operator opens the page.
 // Sessions whose agent-started Chrome is being taken over right now: two panes of one session must not both do it.
 const takingOver = new Set<string>()
+// Per TUI process, not per pane: a session's restart in progress, the sessions whose capture did not work (never tried
+// again until the TUI restarts), and the one automatic switch allowed at a time (Browser 1, 2, 3 picked one after another).
+const switching = new Set<string>()
+const captureGaveUp = new Set<string>()
+const silentRetried = new Set<string>()
+let autoSwitching = false
+// No picture this long after a switch: capture goes back to the windowless Chrome; a windowless one says why it is silent.
+const FIRST_FRAME_MS = 6000
 
 export function BrowserPane(props: {
   sessionID: string
@@ -459,14 +467,16 @@ export function BrowserPane(props: {
   // Every session's Chrome ends up in capture, however it started (this pane, or the agent's windowless one): once the
   // pane shows it, and only between the agent's turns, it is restarted once as the captured real window. Tried once
   // per pane: a capture that failed (or "Fast view" pressed) is not tried again until the pane is reopened.
-  let captureTried = false
   createEffect(() => {
     if (!autoCapture || state() !== "ready") return
     const timer = setInterval(() => {
-      if (disposed || captureTried || state() !== "ready" || mode() !== "headless") return
+      if (disposed || state() !== "ready" || mode() !== "headless") return
+      // Only once the windowless picture is on screen (the user sees the page first), never twice for a session,
+      // never while another switch runs, never under a working agent.
+      if (!framed() || captureGaveUp.has(props.sessionID) || switching.has(props.sessionID) || autoSwitching) return
       if (props.busy?.()) return
-      captureTried = true
-      switchMode("capture")
+      autoSwitching = true
+      switchMode("capture", true)
     }, 1500)
     onCleanup(() => clearInterval(timer))
   })
@@ -498,20 +508,81 @@ export function BrowserPane(props: {
 
   // Chrome runs either windowless (streamed into this pane) or as a normal visible window with real Chrome tabs
   // and address bar. Switching restarts it on the same profile and reopens the tabs.
-  const switchMode = (next: "headless" | "window" | "capture") => {
+  const [modeNote, setModeNote] = createSignal<string>()
+  const switchMode = (next: "headless" | "window" | "capture", auto = false) => {
+    if (switching.has(props.sessionID)) {
+      if (auto) autoSwitching = false
+      return
+    }
+    switching.add(props.sessionID)
     setFailure(undefined)
+    setModeNote(next === "capture" ? t("Switching to Chrome's own window (up to 15 seconds)...") : undefined)
+    setFramed(false)
     setState("busy")
+    BrowserRuntime.trace(`pane ${props.sessionID}: switching to ${next}${auto ? " (automatic)" : ""}`)
     void BrowserRuntime.relaunch(props.sessionID, next, viewport.width > 0 ? viewport : undefined)
       .then(() => !disposed && setMode(BrowserRuntime.modeOf(props.sessionID)))
-      .catch((error) => !disposed && setFailure(errorMessage(error)))
+      .catch((error) => {
+        BrowserRuntime.trace(`pane ${props.sessionID}: switch to ${next} failed: ${errorMessage(error)}`)
+        if (next === "capture") captureGaveUp.add(props.sessionID)
+        if (!disposed) setFailure(errorMessage(error))
+      })
       // A failed capture falls back to the windowless Chrome, so read the mode that is really running.
       .finally(() => {
+        switching.delete(props.sessionID)
+        if (auto) autoSwitching = false
         if (disposed) return
-        setMode(BrowserRuntime.modeOf(props.sessionID))
+        const real = BrowserRuntime.modeOf(props.sessionID)
+        setMode(real)
         setState("ready")
         repaint()
+        if (next === "capture" && real !== "capture") {
+          captureGaveUp.add(props.sessionID)
+          setModeNote(t("Chrome's own window did not start here: showing the fast view."))
+          return
+        }
+        setModeNote(undefined)
+        if (real === "capture") watchFirstFrame()
       })
   }
+  // A captured window that sends no picture within the time limit is dropped for the windowless Chrome, with the reason logged.
+  const watchFirstFrame = () => {
+    setTimeout(() => {
+      if (disposed || framed() || mode() !== "capture" || switching.has(props.sessionID)) return
+      BrowserRuntime.trace(`pane ${props.sessionID}: no picture ${FIRST_FRAME_MS} ms after capture started, back to the windowless Chrome`)
+      captureGaveUp.add(props.sessionID)
+      switchMode("headless")
+      setModeNote(t("Chrome's own window sent no picture: showing the fast view."))
+    }, FIRST_FRAME_MS)
+  }
+  // The windowless Chrome silent for this long: say so instead of waiting for ever (and log it).
+  const [waitedLong, setWaitedLong] = createSignal(false)
+  const [silentReason, setSilentReason] = createSignal("")
+  createEffect(() => {
+    if (state() !== "ready" || framed() || mode() !== "headless") return setWaitedLong(false)
+    const timer = setTimeout(() => {
+      if (disposed || framed()) return
+      void BrowserRuntime.peek(props.sessionID)
+        .then((found) => {
+          if (disposed || framed()) return
+          const reason = found.running
+            ? `Chrome is running (${found.url || "no page"}) but sends no picture.`
+            : "Chrome is not running in this session."
+          BrowserRuntime.trace(`pane ${props.sessionID}: no picture 10 s after the windowless Chrome started: ${reason}`)
+          setSilentReason(reason)
+          setWaitedLong(true)
+          // One quiet retry per session: the picture stream is started again (a stream that never began or died).
+          if (found.running && !silentRetried.has(props.sessionID)) {
+            silentRetried.add(props.sessionID)
+            setState("busy")
+            setTimeout(() => !disposed && setState("ready"), 100)
+          }
+        })
+        .catch(() => undefined)
+    }, 10_000)
+    onCleanup(() => clearTimeout(timer))
+  })
+
   const stop = () => {
     BrowserRuntime.close(props.sessionID)
     setPage({ url: "", title: "", text: "" })
@@ -582,7 +653,7 @@ export function BrowserPane(props: {
           </Show>
           <Show when={mode() === "capture"}>
             <Action label={t("Fast view")} onClick={() => {
-              captureTried = true
+              captureGaveUp.add(props.sessionID)
               switchMode("headless")
             }} />
           </Show>
@@ -703,8 +774,12 @@ export function BrowserPane(props: {
                 />
                 <Show when={!framed()}>
                   <box position="absolute" left={0} top={0} width="100%" height="100%" alignItems="center" justifyContent="center" flexDirection="column">
-                    <text fg={theme.text.muted}>{t("Waiting for the page picture...")}</text>
-                    <text fg={theme.text.muted}>{t("Still black? This terminal may not show pictures: press Text, or set ORCHESTRA_BROWSER_GFX=blocks.")}</text>
+                    <text fg={theme.text.muted}>{modeNote() ?? t("Waiting for the page picture...")}</text>
+                    <Show when={waitedLong()}>
+                      <text fg={theme.text.feedback.warning.base}>
+                        {`${silentReason()} ${t("Press Text, or Close browser and Open Chrome; a terminal without pictures needs ORCHESTRA_BROWSER_GFX=blocks.")}`}
+                      </text>
+                    </Show>
                   </box>
                 </Show>
                 <Show when={!control() && agentAt()}>
