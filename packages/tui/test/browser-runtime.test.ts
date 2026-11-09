@@ -137,7 +137,7 @@ test("browser toolbar names screen state in Russian, keeps resource line compact
   expect(pane).toContain('Chrome:')
   expect(pane).toContain('RAM свободно')
   expect(pane).toContain('Текст страницы · прочитано')
-  expect(pane).toContain('<HoverAction border paddingLeft={1} paddingRight={1}')
+  expect(pane).toContain('<HoverAction paddingLeft={1} paddingRight={1}')
   expect(pane).toContain('columnGap={1} rowGap={0}')
   expect(pane).toContain('wrapMode="none" truncate>Фон · Прочитать: текст · Экран: изображение')
   expect(pane).not.toContain('flexWrap="wrap" flexShrink={0} gap={1}')

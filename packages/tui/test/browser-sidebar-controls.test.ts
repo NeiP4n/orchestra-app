@@ -1,15 +1,20 @@
 import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
-test("sidebar toolbar stays on one row with framed release-safe controls", () => {
+test("sidebar toolbar stays on one row with border-free release-safe controls", () => {
   const text = readFileSync(new URL("../src/component/project-tree.tsx", import.meta.url), "utf8")
   const start = text.indexOf('id={`browser-start-all:')
-  const end = text.indexOf('<For each={browserSessionGroups', start)
+  const end = text.indexOf('const browserRows', start)
   const toolbar = text.slice(start, end)
-  expect(toolbar).toContain('border disabled=')
+  expect(toolbar).not.toContain('border')
   expect(toolbar).toContain('▶ Все')
   expect(toolbar).toContain('■ Все')
   expect(toolbar).not.toContain('[ ▶')
   expect(text).not.toContain('flexWrap="wrap" gap={1} paddingLeft={1}')
+  expect(text).toContain('flexShrink={0} height={1} paddingLeft={1} gap={1}')
+  const action = readFileSync(new URL("../src/component/hover-action.tsx", import.meta.url), "utf8")
+  expect(action).not.toContain('borderStyle=')
+  expect(action).not.toContain('borderColor=')
+  expect(action).not.toContain('border=')
   expect(text).toContain('id={`browser-toggle:')
   expect(text).toContain('await BrowserRuntime.profileRunning(id)')
   expect(text).toContain('browserCount(project)')

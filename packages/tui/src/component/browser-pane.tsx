@@ -657,7 +657,7 @@ export function BrowserPane(props: {
   // Short labels when the pane is narrow, so the header stays on one line.
   const narrow = () => (size()?.cols ?? 0) < 130
   const Action = (action: { label: string; onClick: () => void }) => (
-    <HoverAction border paddingLeft={1} paddingRight={1} onClick={action.onClick}>
+    <HoverAction paddingLeft={1} paddingRight={1} onClick={action.onClick}>
       <text fg={theme.text.base} wrapMode="none">{action.label}</text>
     </HoverAction>
   )

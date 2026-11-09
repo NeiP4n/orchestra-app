@@ -738,20 +738,22 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       setBrowserConnectionRevision((n) => n + 1)
     }
   }
+  const browserToolbar = (project: OrchestraProject, collapsible = false) => (
+    <box flexDirection="row" flexShrink={0} height={1} paddingLeft={1} gap={1}>
+      <box flexGrow={1} minWidth={0} onMouseUp={() => { if (collapsible) notes.toggleGroup(`${project.id}:Browsers`) }}>
+        <text fg={theme.text.muted} wrapMode="none" truncate>{`${collapsible ? (notes.groupCollapsed(`${project.id}:Browsers`) ? "▸ " : "▾ ") : ""}${t("Browsers")} · ${browserBatchProgress()[project.id] || browserCount(project)}`}</text>
+      </box>
+      <HoverAction id={`browser-start-all:${project.id}`} disabled={!!browserBatchProgress()[project.id]} onClick={() => void batchBrowsers(project)}>
+        <text fg={theme.text.action.primary.base} wrapMode="none">▶ Все</text>
+      </HoverAction>
+      <HoverAction id={`browser-stop-all:${project.id}`} disabled={!!browserBatchProgress()[project.id]} variant="destructive" onClick={() => void batchBrowsers(project, true)}>
+        <text fg={theme.text.muted} wrapMode="none">■ Все</text>
+      </HoverAction>
+    </box>
+  )
   const browserRows = (project: OrchestraProject): JSX.Element => (
     <>
-                  <Show when={notes.tab() === "browser"}>
-                    <text fg={theme.text.muted} wrapMode="none" truncate>{`  ${t("Browsers")} · ${browserCount(project)}`}</text>
-                  </Show>
-                  <box flexDirection="row" gap={1} paddingLeft={1} flexShrink={0}>
-                    <HoverAction id={`browser-start-all:${project.id}`} border disabled={!!browserBatchProgress()[project.id]} paddingLeft={1} paddingRight={1} onClick={() => void batchBrowsers(project)}>
-                      <text fg={theme.text.action.primary.base} wrapMode="none">▶ Все</text>
-                    </HoverAction>
-                    <HoverAction id={`browser-stop-all:${project.id}`} border disabled={!!browserBatchProgress()[project.id]} variant="destructive" paddingLeft={1} paddingRight={1} onClick={() => void batchBrowsers(project, true)}>
-                      <text fg={theme.text.muted} wrapMode="none">■ Все</text>
-                    </HoverAction>
-                    <text fg={theme.text.muted} wrapMode="none" truncate>{browserBatchProgress()[project.id] || ""}</text>
-                  </box>
+                  <Show when={notes.tab() === "browser"}>{browserToolbar(project)}</Show>
                   <For each={browserSessionGroups(notes.browserSessions(project.id)).flatMap((group) => group.sessions)}>
                     {(item) => {
                       const [removeHovered, setRemoveHovered] = createSignal(false)
@@ -1303,16 +1305,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                   </Row>
                   {childRows(project.main)}
                   <Show when={notes.tab() !== "browser"}>
-                  <box
-                    flexDirection="row"
-                    paddingLeft={1}
-                    onMouseUp={() => notes.toggleGroup(`${project.id}:Browsers`)}
-                  >
-                    <Branch through />
-                    <text fg={palette().synapse} wrapMode="none" truncate>
-                      {`${notes.groupCollapsed(`${project.id}:Browsers`) ? "▸" : "▾"} ${t("Browsers")} · ${browserCount(project)}`}
-                    </text>
-                  </box>
+                  {browserToolbar(project, true)}
                   <Show when={!notes.groupCollapsed(`${project.id}:Browsers`)}>
                   {browserRows(project)}
                   <For each={browserChatsOf(project)}>
