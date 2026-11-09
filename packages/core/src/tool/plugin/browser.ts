@@ -12,6 +12,7 @@ import { Cdp } from "../../browser/cdp.js"
 import { Chrome } from "../../browser/chrome.js"
 import { Permission } from "../../permission.js"
 import { Trigger } from "../../trigger.js"
+import { BrowserSchedule } from "../../browser/schedule.js"
 import { BrowserWatch } from "../../browser/watch.js"
 
 export const name = "browser"
@@ -324,6 +325,11 @@ export const Plugin = {
           execute: (input, context) =>
             Effect.gen(function* () {
               const caller = String(context.agent)
+              const scheduled = Trigger.scheduledBrowserTask(String(context.sessionID))
+              if (scheduled) {
+                const blocked = Trigger.scheduledBrowserRefusal(scheduled, input.action)
+                if (blocked) return yield* fail(blocked)
+              }
               if (input.action === "sessions") {
                 const list = BrowserRuntime.sessions()
                 const held = BrowserRuntime.leases()
@@ -336,7 +342,11 @@ export const Plugin = {
               // may read pages but not click, type or run scripts. This checks the action, not the words of the task.
               const taint = Trigger.taintOf(String(context.sessionID))
               if (taint && Trigger.TAINT_BLOCKED.has(input.action)) return yield* fail(Trigger.taintRefusal(taint, input.action))
-              const browserSession = yield* sessionFor(context.sessionID, input.session)
+              const browserSession = yield* sessionFor(context.sessionID, scheduled?.browserSessionID ?? input.session)
+              if (scheduled) {
+                const blocked = Trigger.scheduledBrowserRefusal(scheduled, input.action, browserSession)
+                if (blocked) return yield* fail(blocked)
+              }
               // Handing a session over or taking it back is the orchestrator's call: only the operator's
               // Take control stops it. Acting in the page is for the assigned agent alone.
               const holder = BrowserRuntime.leases()[browserSession]?.agent
@@ -385,6 +395,18 @@ export const Plugin = {
                 })
               // The agent's own clicks and typing change the page: a browser trigger must not report them as news.
               if (acts(input.action)) BrowserWatch.mute(browserSession, 20_000)
+              if (scheduled) {
+                const status = BrowserSchedule.get(scheduled.triggerID)
+                if (!status?.enabled || status.browserSessionID !== browserSession)
+                  return yield* fail("This scheduled page check is paused, deleted or no longer bound to this browser session.")
+                const running = yield* Effect.promise(() => BrowserRuntime.peek(browserSession))
+                if (!running.running) {
+                  BrowserSchedule.finished(scheduled.triggerID, browserSession, false)
+                  return yield* fail("The scheduled browser session is not running. The check did not start Chrome or open a page.")
+                }
+              }
+              const checkedTask = input.action !== "info" ? scheduled : undefined
+              if (checkedTask) BrowserSchedule.started(checkedTask.triggerID, browserSession)
               const result = yield* Effect.tryPromise({
                 try: () => perform(browserSession, input).finally(() => acts(input.action) && BrowserWatch.mute(browserSession, 5_000)),
                 catch: (error) =>
@@ -392,11 +414,15 @@ export const Plugin = {
                     message: `Browser ${input.action} failed: ${error instanceof Error ? error.message : String(error)}. Call browser action=start and repeat this step. Playwright, MCP browsers, desktop_* and execute are not the browser in the panel: do not switch to them.`,
                     error,
                   }),
-              })
+              }).pipe(Effect.tapError(() => Effect.sync(() => {
+                if (checkedTask) BrowserSchedule.finished(checkedTask.triggerID, browserSession, false)
+              })))
+              if (checkedTask) BrowserSchedule.finished(checkedTask.triggerID, browserSession, true)
+              const text = scheduled ? Trigger.untrusted(`browser:${browserSession}`, result.text, 8000) : result.text
               return {
-                output: { output: result.text },
+                output: { output: text },
                 content: [
-                  { type: "text" as const, text: result.text },
+                  { type: "text" as const, text },
                   ...("png" in result && result.png
                     ? [
                         {

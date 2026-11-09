@@ -35,6 +35,7 @@ import { Society } from "./society.js"
 import { Config } from "./config.js"
 import { Autoloop } from "./autoloop/service.js"
 import { Trigger } from "./trigger.js"
+import { BrowserSchedule } from "./browser/schedule.js"
 import { BrowserWatch } from "./browser/watch.js"
 import { AutoloopOrchestrator } from "./autoloop/orchestrator.js"
 import type { EventRow, Job, Receipt, RunRow } from "./autoloop/kernel/decide.js"
@@ -1802,7 +1803,9 @@ const layer: Layer.Layer<
         const verdict = Trigger.due(trigger, now)
         if (verdict === "wait") continue
         if (verdict === "pause") {
-          yield* kv.set(entry.key, Trigger.paused(trigger, now) as never)
+          const paused = Trigger.paused(trigger, now)
+          yield* kv.set(entry.key, paused as never)
+          BrowserSchedule.sync(paused)
           reportLog({ event: "trigger-paused", trigger: trigger.id, project: trigger.projectID })
           continue
         }
@@ -1810,15 +1813,18 @@ const layer: Layer.Layer<
         if (!project?.main) continue
         const next = Trigger.afterFire(trigger, now)
         yield* kv.set(entry.key, next as never)
+        BrowserSchedule.sync(next)
+        if (trigger.browserSessionID) BrowserSchedule.dispatched(trigger.id, now)
         const ok = yield* sessions
           .synthetic({
             id: SessionMessage.ID.create(),
             sessionID: project.main,
             description: `Trigger ${trigger.id} fired`,
             text: Trigger.render(trigger, now),
-            metadata: { source: "trigger", triggerID: trigger.id, publishApproved: trigger.publishApproved },
+            metadata: { source: "trigger", triggerID: trigger.id, publishApproved: trigger.publishApproved, ...(trigger.browserSessionID ? { browserSessionID: trigger.browserSessionID } : {}) },
           })
           .pipe(Effect.as(true), Effect.orElseSucceed(() => false))
+        if (!ok && trigger.browserSessionID) BrowserSchedule.deliveryFailed(trigger.id)
         reportLog({ event: "trigger-fired", trigger: trigger.id, project: trigger.projectID, kind: trigger.kind, delivered: ok, nextAt: next.nextAt })
       }
     }).pipe(Effect.catch(() => Effect.void))
@@ -1874,7 +1880,7 @@ const layer: Layer.Layer<
             sessionID: project.main,
             description: `Trigger ${trigger.id} fired`,
             text: Trigger.render(trigger, now, Trigger.renderRows(trigger, rows)),
-            metadata: { source: "trigger", triggerID: trigger.id, publishApproved: trigger.publishApproved },
+            metadata: { source: "trigger", triggerID: trigger.id, publishApproved: trigger.publishApproved, ...(trigger.browserSessionID ? { browserSessionID: trigger.browserSessionID } : {}) },
           })
           .pipe(Effect.as(true), Effect.orElseSucceed(() => false))
         reportLog({ event: "trigger-fired", trigger: trigger.id, project: trigger.projectID, kind: "browser", rows: rows.length, delivered: ok })

@@ -108,6 +108,8 @@ export function create(
     const minutes = Number(spec)
     if (!Number.isInteger(minutes) || minutes < MIN_GAP_MINUTES || minutes > 10_080)
       return { ok: false, error: `For interval, spec is a whole number of minutes from ${MIN_GAP_MINUTES} to 10080.` }
+    if (browserSessionID && minutes < 60)
+      return { ok: false, error: "Scheduled browser checks require at least 60 minutes; faster checks are not enabled." }
     nextAt = context.now + minutes * MINUTE
   } else if (input.kind === "once") {
     const at = Date.parse(spec)
@@ -269,13 +271,14 @@ export function render(trigger: Info, now: number, extra?: string) {
 /** The trigger behind the newest incoming message of a session (messages newest first, team reports skipped), if that message is a trigger. */
 export function triggered(
   messages: ReadonlyArray<{ type: string; metadata?: Record<string, unknown> }>,
-): { id: string; publishApproved: boolean } | undefined {
+): { id: string; publishApproved: boolean; browserSessionID?: string } | undefined {
   // A <team-report> that arrives during the turn does not end the trigger's turn; the operator's own message does.
   const incoming = messages.find(
     (message) => message.type === "user" || (message.type === "synthetic" && message.metadata?.["source"] !== "team"),
   )
   if (!incoming || incoming.type !== "synthetic" || incoming.metadata?.["source"] !== "trigger") return undefined
-  return { id: String(incoming.metadata["triggerID"] ?? ""), publishApproved: incoming.metadata["publishApproved"] === true }
+  return { id: String(incoming.metadata["triggerID"] ?? ""), publishApproved: incoming.metadata["publishApproved"] === true,
+    ...(typeof incoming.metadata["browserSessionID"] === "string" ? { browserSessionID: incoming.metadata["browserSessionID"] } : {}) }
 }
 
 /**
@@ -353,12 +356,12 @@ export function renderRows(trigger: Info, rows: readonly Row[]) {
 // ---- Hard layer: a worker reached from a triggered turn cannot act in a page ----
 
 const TAINT_MS = 2 * 60 * 60_000
-const tainted = new Map<string, { id: string; at: number }>()
+const tainted = new Map<string, { id: string; at: number; browserSessionID?: string }>()
 
 /** Marks a session that got its task from a turn a trigger started (publishing not approved). */
-export function taint(sessionID: string, triggerID: string, now = Date.now()) {
+export function taint(sessionID: string, triggerID: string, now = Date.now(), browserSessionID?: string) {
   if (tainted.size > 200) tainted.clear()
-  tainted.set(sessionID, { id: triggerID, at: now })
+  tainted.set(sessionID, { id: triggerID, at: now, browserSessionID })
 }
 
 /** An ordinary dispatch (not from a triggered turn) lifts the mark: the task is the operator's again. */
@@ -368,7 +371,7 @@ export const clearTaint = (sessionID: string) => void tainted.delete(sessionID)
 export function taintOf(sessionID: string, now = Date.now()) {
   const found = tainted.get(sessionID)
   if (!found) return undefined
-  if (now - found.at > TAINT_MS) {
+  if (!found.browserSessionID && now - found.at > TAINT_MS) {
     tainted.delete(sessionID)
     return undefined
   }
@@ -380,3 +383,17 @@ export const TAINT_BLOCKED = new Set(["click", "type", "eval"])
 
 export const taintRefusal = (triggerID: string, action: string) =>
   `Refused: this task came from a turn that trigger ${triggerID} started, and publishing in the operator's name is not approved for it, so browser ${action} is blocked. Reading the page (text, snapshot, screenshot, info) is allowed. Report what you would do; the operator's own message lifts this.`
+
+
+/** A scheduled page check can only read its bound session, never navigate or act. */
+export function scheduledBrowserTask(sessionID: string, now = Date.now()) {
+  if (!taintOf(sessionID, now)) return undefined
+  const by = tainted.get(sessionID)
+  return by?.browserSessionID ? { triggerID: by.id, browserSessionID: by.browserSessionID } : undefined
+}
+export const SCHEDULE_READS = new Set(["text", "snapshot", "screenshot", "info"])
+export function scheduledBrowserRefusal(task: { browserSessionID: string }, action: string, target?: string) {
+  if (!SCHEDULE_READS.has(action)) return "Scheduled page checks are read-only: only text, snapshot, screenshot or info are allowed."
+  if (target !== undefined && target !== task.browserSessionID) return "Scheduled page checks may read only their bound browser session."
+  return undefined
+}

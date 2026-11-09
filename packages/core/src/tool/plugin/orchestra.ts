@@ -1217,7 +1217,7 @@ export const Plugin = {
                   // A worker that gets its task from a triggered turn cannot click, type or run scripts in a page
                   // (the browser tool checks this mark); a task from an ordinary turn lifts the mark.
                   const by = Trigger.triggered(incomingHistory as never)
-                  if (by && !by.publishApproved) Trigger.taint(String(sessionID), by.id)
+                  if (by && !by.publishApproved) Trigger.taint(String(sessionID), by.id, Date.now(), by.browserSessionID)
                   else Trigger.clearTaint(String(sessionID))
                   const recon = yield* reconBrief()
                   return yield* orchestra.dispatch({

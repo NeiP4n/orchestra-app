@@ -213,3 +213,26 @@ describe("scheduled browser binding", () => {
     expect(resumed?.publishApproved).toBe(false)
   })
 })
+
+
+describe("scheduled read-only browser task guard", () => {
+  test("only permits reads on the bound session and never expires into write access", () => {
+    Trigger.taint("scheduled-worker", "trg-page", NOW, "browser_1")
+    const task = Trigger.scheduledBrowserTask("scheduled-worker", NOW + 3 * 60 * 60_000)
+    expect(task).toEqual({ triggerID: "trg-page", browserSessionID: "browser_1" })
+    for (const action of ["text", "snapshot", "screenshot", "info"])
+      expect(Trigger.scheduledBrowserRefusal(task!, action, "browser_1")).toBeUndefined()
+    for (const action of ["open", "start", "stop", "sessions", "assign", "release", "click", "type", "eval", "cookies", "storage"])
+      expect(Trigger.scheduledBrowserRefusal(task!, action, "browser_1")).toContain("read-only")
+    expect(Trigger.scheduledBrowserRefusal(task!, "text", "browser_2")).toContain("bound browser session")
+    Trigger.clearTaint("scheduled-worker")
+    expect(Trigger.scheduledBrowserTask("scheduled-worker", NOW)).toBeUndefined()
+  })
+  test("carries browser binding from synthetic metadata through dispatch taint", () => {
+    const by = Trigger.triggered([{ type: "synthetic", metadata: {
+      source: "trigger", triggerID: "t", browserSessionID: "b", publishApproved: false,
+    } }])
+    expect(by).toEqual({ id: "t", browserSessionID: "b", publishApproved: false })
+    expect(make("interval", "30", { browserSessionID: "b" }).ok).toBe(false)
+  })
+})
