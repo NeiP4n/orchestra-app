@@ -29,6 +29,7 @@ import { openProjectDialog } from "./dialog-project"
 import { useProjects } from "../context/projects"
 import { browserSessionGroups, openedFromProjects } from "../util/browser-sessions"
 import { DialogPrompt } from "../ui/dialog-prompt"
+import { DialogSessionRename } from "./dialog-session-rename"
 import { DialogSelect } from "../ui/dialog-select"
 import { DialogRules } from "./dialog-rules"
 import * as BrowserRuntime from "../util/browser-runtime"
@@ -622,6 +623,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                   waiting().has(child.id) ? t("waiting") : data.session.status(child.id) === "running" ? t("running") : t("idle")
                 }`}
               </text>
+              {rowButtons(child)}
             </Row>
             {childRows(child.id, depth + 1)}
             </>
@@ -755,6 +757,36 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       current = list.find((item) => item.id === up)
     }
     return true
+  }
+
+  // Rename and delete for a row of any kind (subagent, BrowserAgent chat, plain session). Deleting asks once ("delete?"),
+  // then removes the session on the server and clears what points at it (remove()).
+  const rowButtons = (session: { id: string; title?: string }, rename = true) => {
+    const [hovered, setHovered] = createSignal(false)
+    return (
+      <>
+        <Show when={rename}>
+          <HoverAction
+            id={`session-rename:${session.id}`}
+            onClick={() => dialog.replace(() => <DialogSessionRename sessionID={session.id} currentTitle={session.title} />)}
+          >
+            <text fg={theme.text.action.primary.base}>{" ✎"}</text>
+          </HoverAction>
+        </Show>
+        <HoverAction
+          id={`session-delete:${session.id}`}
+          variant="destructive"
+          onMouseEnter={() => setHover(session.id)}
+          onMouseLeave={() => setHover(session.id)}
+          onHoverChange={setHovered}
+          onClick={() => remove(session.id)}
+        >
+          <text fg={hovered() ? theme.text.action.destructive.hovered : armed() === session.id ? theme.text.feedback.error.base : theme.text.muted}>
+            {armed() === session.id ? ` ${t("delete?")}` : " ×"}
+          </text>
+        </HoverAction>
+      </>
+    )
   }
 
   // Every session of a browser role (the BrowserAgent, or a role the Orchestrator made for page work such as
@@ -1135,6 +1167,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                         <Branch lit={chat.id === current()?.id} />
                         <text flexShrink={0} fg={theme.text.muted}>{"◎ "}</text>
                         <text fg={theme.text.base} wrapMode="none" truncate>{chat.title || t("Browser agent")}</text>
+                        {rowButtons(chat)}
                       </Row>
                     )}
                   </For>
@@ -1230,6 +1263,14 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                                   <text fg={accessHovered() ? theme.text.action.primary.hovered : theme.text.base}>{`[${access[session.id] ?? Orchestra.defaultAccess}]`}</text>
                                 </HoverAction>
                               </Show>
+                              <HoverAction
+                                id={`session-rename:${session.id}`}
+                                onClick={() =>
+                                  dialog.replace(() => <DialogSessionRename sessionID={session.id} currentTitle={session.title} />)
+                                }
+                              >
+                                <text fg={theme.text.action.primary.base}>{" ✎"}</text>
+                              </HoverAction>
                               <HoverAction
                                 id={`session-delete:${session.id}`}
                                 variant="destructive"

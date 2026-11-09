@@ -98,3 +98,9 @@ test("every browser-role session, subagents and custom browser roles included, i
   expect(tree).toContain("/^team-browser/.test(agent)")
   expect(tree).toContain("!isBrowserRole(item.agent)")
 })
+
+test("every session row in the tree (subagents, BrowserAgent chats, plain sessions) has rename and delete", () => {
+  const tree = read("component/project-tree.tsx")
+  expect(tree.match(/\{rowButtons\((?:child|chat)\)\}/g)?.length).toBe(2)
+  expect(tree.match(/session-rename:\$\{session\.id\}/g)?.length).toBeGreaterThanOrEqual(2)
+})
