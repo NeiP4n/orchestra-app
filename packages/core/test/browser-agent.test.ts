@@ -7,6 +7,25 @@ import { BrowserTabs } from "../src/browser/tabs"
 import { Chrome } from "../src/browser/chrome"
 import { acts, BrowserTool } from "../src/tool/plugin/browser"
 
+describe("a folder holding projects", () => {
+  const list = [
+    { id: "brw_a", name: "Shop", project: "C:\\Work\\App" },
+    { id: "brw_b", name: "Docs", project: "C:\\Work\\Docs" },
+    { id: "brw_c", name: "Other", project: "C:\\Elsewhere" },
+  ]
+  test("its agent sees the sessions of the projects inside it, and a project's agent only its own", () => {
+    expect(BrowserBridge.visible(list, "C:\\Work").map((item) => item.id)).toEqual(["brw_a", "brw_b"])
+    expect(BrowserBridge.visible(list, "C:\\Work\\App\\src").map((item) => item.id)).toEqual(["brw_a"])
+    expect(BrowserBridge.visible(list, "C:\\Worker")).toEqual([])
+    expect(BrowserBridge.visible(list, "C:\\Nothing")).toEqual([])
+  })
+  test("it takes the selection of the first project inside it when it has none of its own", () => {
+    const map = { "C:\\Work\\Docs": "brw_b", "C:\\Work\\App": "brw_a" }
+    expect(BrowserBridge.selectedFor(map, "C:\\Work")).toBe("brw_a")
+    expect(BrowserBridge.selectedFor(map, "C:\\Worker")).toBeUndefined()
+  })
+})
+
 describe("browser selection bridge", () => {
   test("the most specific project directory decides the session", () => {
     const map = { "/w/Work": "brw_a", "/w/Work/VsPlugin": "brw_b" }

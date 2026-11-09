@@ -32,7 +32,13 @@ export function selectedFor(map: Record<string, string>, directory: string): str
     if (target !== base && !target.startsWith(base + "/")) continue
     if (best === undefined || base.length > norm(best).length) best = key
   }
-  return best === undefined ? undefined : map[best]
+  if (best !== undefined) return map[best]
+  // A directory that holds projects (a workspace folder with the orchestrator in it) takes the selection of the
+  // first project inside it, so its agent finds a browser too.
+  const inside = Object.keys(map)
+    .filter((key) => norm(key).startsWith(target + "/"))
+    .sort()[0]
+  return inside === undefined ? undefined : map[inside]
 }
 
 /** The map with one project's selection set, or removed when `sessionID` is undefined. */
@@ -110,6 +116,18 @@ export function projectOf(list: readonly SessionInfo[], directory: string): stri
     if (best === undefined || base.length > norm(best).length) best = item.project
   }
   return best
+}
+
+/**
+ * The sessions an agent working in `directory` may see: those of the project that owns the directory and, when the
+ * directory is a folder holding projects (the orchestrator of a workspace), those of the projects inside it.
+ */
+export function visible(list: readonly SessionInfo[], directory: string): SessionInfo[] {
+  const target = norm(directory)
+  const own = projectOf(list, directory)
+  return list.filter(
+    (item) => (own !== undefined && norm(item.project) === norm(own)) || norm(item.project).startsWith(target + "/"),
+  )
 }
 
 /** A session by id, or by name (the caller's project first). Says why when it cannot pick exactly one. */

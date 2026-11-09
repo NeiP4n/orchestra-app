@@ -22,7 +22,7 @@ type Entry = typeof Entry.Type
 /** Whether the project has any browser session in the Browser tab. */
 export function hasSessions(directory: string) {
   try {
-    return BrowserBridge.projectOf(BrowserRuntime.sessions(), directory) !== undefined
+    return BrowserBridge.visible(BrowserRuntime.sessions(), directory).length > 0
   } catch {
     return false
   }
@@ -38,10 +38,9 @@ export function make(directory: string): Instructions.List {
     read: Effect.sync(() => {
       const all = BrowserRuntime.sessions()
       const project = BrowserBridge.projectOf(all, directory)
-      const seen = `context for ${directory}: ${all.length} published (${BrowserRuntime.sessionsFilePath()}), project ${project ?? "none"}`
+      const mine = BrowserBridge.visible(all, directory)
+      const seen = `context for ${directory}: ${all.length} published (${BrowserRuntime.sessionsFilePath()}), project ${project ?? "none"}, visible ${mine.length}`
       if (seen !== lastSeen) BrowserRuntime.trace((lastSeen = seen))
-      if (project === undefined) return Instructions.removed
-      const mine = all.filter((item) => item.project === project)
       if (mine.length === 0) return Instructions.removed
       const held = BrowserRuntime.leases()
       const selected = BrowserRuntime.selectedSession(directory)

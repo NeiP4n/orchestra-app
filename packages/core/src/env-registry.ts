@@ -78,6 +78,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Pixel-exact pointer in the Browser tab while control is on (\"0\" turns it off).",
     default: "On; falls back to terminal cells when the terminal sends no pixel reports.",
   },
+  ORCHESTRA_BROWSER_PLUGIN: {
+    purpose: "Offer the browser plugin (browser.tabs.*, its own Chromium on a debugging port) to agents (\"1\"). The `browser` tool tied to the Browser tab is always offered.",
+    default: "Off.",
+  },
   ORCHESTRA_BROWSER_PROFILE: {
     purpose: "Profile directory for the browser plugin's built-in launch.",
     default: "\"<data>/orchestra/browser-profile\" (the opencode profile when it exists and the orchestra one does not).",
