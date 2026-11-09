@@ -1,3 +1,4 @@
+import { RegistryVault } from "./registry-vault"
 import { TextAttributes, type InputRenderable, type ScrollBoxRenderable } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch } from "solid-js"
@@ -77,7 +78,7 @@ export function RegistryPanel(props: {
   const [tab, setTab] = createSignal<Tab>(props.aiTools ? "ai" : "programs")
   const [aiCount, setAiCount] = createSignal<string>()
   const [pluginCount, setPluginCount] = createSignal<string>()
-  const tabs = (): readonly Tab[] => (props.aiTools ? ["ai", "plugins", "programs", "terminal"] : ["plugins", "programs", "terminal"])
+  const tabs = (): readonly Tab[] => (props.aiTools ? ["ai", "plugins", "programs", "terminal", "vault"] : ["plugins", "programs", "terminal", "vault"])
   const cycle = (delta: number) => {
     setArmed()
     const list = tabs()
@@ -295,7 +296,7 @@ export function RegistryPanel(props: {
                   ? `${t("Plugins")}${pluginCount() ? ` ${pluginCount()}` : ""}`
                   : item === "programs"
                     ? `${t("Programs")} ${counts().programs}`
-                    : `${t("AI terminal")}: ${counts().terminal}`}
+                    : item === "vault" ? "Vault" : `${t("AI terminal")}: ${counts().terminal}`}
             </Button>
           )}
         </For>
@@ -310,6 +311,7 @@ export function RegistryPanel(props: {
         }}
       >
         <Switch>
+          <Match when={tab() === "vault"}><RegistryVault /></Match>
           <Match when={tab() === "ai" && props.aiTools}>
             {(_) => (
               <AiTools
@@ -496,7 +498,7 @@ export function RegistryPanel(props: {
   )
 }
 
-type Tab = "ai" | "plugins" | "programs" | "terminal"
+type Tab = "ai" | "plugins" | "programs" | "terminal" | "vault"
 
 type AiToolsKeys = { move: (delta: number) => void; activate: () => void }
 type PluginToolsKeys = { move: (delta: number) => void; activate: () => void }
