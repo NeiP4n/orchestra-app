@@ -1,8 +1,7 @@
 import type { ScheduleView } from "@orchestra/core/schedule-view"
 import type { BrowserSchedule } from "@orchestra/core/browser/schedule"
 const clock = (at: number) => new Date(at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
-const kinds = { interval: "интервал", cron: "по времени", once: "однократно", browser: "событие страницы" }
-const phases = { waiting: "ожидание", dispatched: "отправлено, результат не проверен", checking: "чтение страницы", checked: "страница прочитана", info: "только заголовок и адрес", error: "ошибка, чтение не подтверждено", paused: "пауза" }
+const phases = { waiting: "ожидание", dispatched: "не проверен; отправлено", checking: "чтение страницы", checked: "страница прочитана", info: "только заголовок и адрес", error: "ошибка, чтение не подтверждено", paused: "пауза" }
 
 /** Elide whole words, never leave a prompt cut in the middle of a word. */
 export function scheduleEllipsis(value: string, width: number): string {
@@ -38,25 +37,30 @@ export function schedulePause(reason: string): string {
 export function scheduleNext(item: ScheduleView.Item): string {
   return item.nextAt === null ? item.kind === "browser" && item.enabled ? "событие страницы" : "нет" : clock(item.nextAt)
 }
+export function scheduleState(item: ScheduleView.Item, status?: BrowserSchedule.Status, now = Date.now()): string {
+  if (!item.enabled) return item.pausedReason ? /firings.*cap/.test(item.pausedReason) ? "пауза: лимит" : "пауза" : "выкл."
+  if (status?.phase === "error" || status?.watcher === "failed") return "ошибка"
+  if (item.kind === "browser") return status?.watcher === "watching" ? "следит" : "выкл."
+  if (item.nextAt === null) return "выкл."
+  const minutes = Math.max(0, Math.ceil((item.nextAt - now) / 60000))
+  return minutes === 0 ? "скоро" : minutes >= 60 ? `через ${Math.ceil(minutes / 60)}ч` : `через ${minutes}м`
+}
+export function scheduleTone(item: ScheduleView.Item, status?: BrowserSchedule.Status): "green" | "yellow" | "grey" {
+  if (!item.enabled) return item.pausedReason ? "yellow" : "grey"
+  if (status?.phase === "error" || status?.watcher === "failed") return "yellow"
+  return item.kind === "browser" ? status?.watcher === "watching" ? "green" : "grey" : "green"
+}
 export function scheduleSummary(item: ScheduleView.Item, width: number): string {
-  const state = item.enabled ? "включено" : "пауза"
-  const next = scheduleNext(item)
-  const full = `${kinds[item.kind]} · ${state} · далее: ${next}`
-  if (Array.from(full).length <= width) return full
-  return scheduleEllipsis(`${state} · далее: ${next}`, width)
+  return scheduleEllipsis(scheduleState(item), width)
 }
 export function scheduleDetails(item: ScheduleView.Item, status?: BrowserSchedule.Status): string[] {
-  const watcher = !item.enabled ? "выключен" : status?.watcher === "watching" ? "работает" : status?.watcher === "failed" ? "ошибка" : "выключен"
+  const result = status ? phases[status.phase] : item.lastFiredAt === undefined ? "ещё не запускалось" : phases.dispatched
+  const watcher = !item.enabled ? "выключен" : status?.watcher === "watching" ? "следит" : status?.watcher === "failed" ? "ошибка наблюдателя" : "выключен"
   return [
-    `Тип: ${kinds[item.kind]} · ${item.enabled ? "включено" : "пауза"}`,
-    ...(item.kind === "browser" ? [
-      `Наблюдатель: ${watcher}`,
-      `Последнее событие: ${status?.lastEventAt === undefined ? "не подтверждено" : clock(status.lastEventAt)}`,
-    ] : []),
-    `Следующий запуск: ${scheduleNext(item)}`,
-    `Последний результат: ${status ? phases[status.phase] : item.lastFiredAt === undefined ? "ещё не запускалось" : phases.dispatched}`,
-    ...(status?.lastCheckedAt === undefined ? [] : [`Последнее чтение: ${clock(status.lastCheckedAt)}`]),
+    item.kind === "browser"
+      ? `${watcher} · последнее входящее: ${status?.lastEventAt === undefined ? "нет" : clock(status.lastEventAt)}`
+      : `Следующий запуск: ${scheduleNext(item)}`,
+    `Последний результат: ${result}${status?.lastCheckedAt === undefined ? "" : ` · чтение ${clock(status.lastCheckedAt)}`}`,
     ...(item.pausedReason ? [`Причина паузы: ${schedulePause(item.pausedReason)}`] : []),
-    `Код: ${item.id}`,
   ]
 }

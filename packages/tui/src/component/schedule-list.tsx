@@ -1,13 +1,14 @@
+import { TextAttributes } from "@opentui/core"
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js"
 import { ScheduleView } from "@orchestra/core/schedule-view"
 import { BrowserSchedule } from "@orchestra/core/browser/schedule"
 import { useTheme } from "../context/theme"
 import { HoverAction } from "./hover-action"
-import { scheduleDetails, scheduleEllipsis, scheduleSummary, scheduleWrap } from "../util/schedule-list"
+import { scheduleDetails, scheduleEllipsis, scheduleState, scheduleTone } from "../util/schedule-list"
 
 export function ScheduleList(props: { sessionID: string; width?: number }) {
   const theme = useTheme()
-  const [collapsed, setCollapsed] = createSignal(false)
+  const [collapsed, setCollapsed] = createSignal(true)
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>({})
   const [measuredWidth, setMeasuredWidth] = createSignal<number>()
   const width = () => Math.max(1, measuredWidth() ?? props.width ?? 32)
@@ -28,12 +29,17 @@ export function ScheduleList(props: { sessionID: string; width?: number }) {
     <Show when={!collapsed()}>
       <Show when={items().length > 0} fallback={<text fg={theme.text.muted}>{scheduleEllipsis("Нет расписаний для этого чата", width())}</text>}>
         <For each={items()}>{({ item, status }) => <box flexDirection="column" flexShrink={0} minWidth={0}>
-          <HoverAction flexDirection="column" onClick={() => setExpanded((value) => ({ ...value, [item.id]: !value[item.id] }))}>
-            <text fg={theme.text.base}>{`${expanded()[item.id] ? "▾" : "▸"} ${scheduleEllipsis(item.name || "Без названия", Math.max(1, width() - 2))}`}</text>
-            <text fg={theme.text.muted}>{scheduleSummary(item, width())}</text>
+          <HoverAction onClick={() => setExpanded((value) => ({ ...value, [item.id]: !value[item.id] }))}>
+            <box flexDirection="row" width="100%" minWidth={0} gap={1}>
+              <text fg={scheduleTone(item, status) === "green" ? theme.text.feedback.success.base : scheduleTone(item, status) === "yellow" ? theme.text.feedback.warning.base : theme.text.muted}>●</text>
+              <box flexGrow={1} minWidth={0}>
+                <text fg={theme.text.base}>{scheduleEllipsis(item.name || "Без названия", Math.max(1, width() - Math.min(14, Array.from(scheduleState(item, status)).length) - 3))}</text>
+              </box>
+              <text fg={theme.text.muted} attributes={TextAttributes.DIM}>{scheduleEllipsis(scheduleState(item, status), Math.max(1, Math.min(14, width() - 5)))}</text>
+            </box>
           </HoverAction>
           <Show when={expanded()[item.id]}>
-            <For each={scheduleDetails(item, status).flatMap((line) => scheduleWrap(line, width()))}>{(line) => <text fg={status?.phase === "error" ? theme.text.feedback.error.base : theme.text.muted}>{line}</text>}</For>
+            <For each={scheduleDetails(item, status).map((line) => scheduleEllipsis(line, width()))}>{(line) => <text fg={theme.text.muted} attributes={TextAttributes.DIM}>{line}</text>}</For>
           </Show>
         </box>}</For>
       </Show>
