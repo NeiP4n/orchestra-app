@@ -920,6 +920,22 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
     ].join("\n"),
     readOnly: false,
   },
+  {
+    id: "browser-agent",
+    name: "BrowserAgent",
+    category: "Browser",
+    description:
+      "Runs the page work of one browser session for the Orchestrator: opens, reads, clicks, types and reports exactly what it saw. One session, one BrowserAgent.",
+    rules: [
+      "Mission: carry out the Orchestrator's browser commands in your one browser session and report what happened. You own that session and no other.",
+      "Do exactly what the command says. Do not change the goal, pick another site or approach for strategy, or add work nobody asked for. The Orchestrator decides; you execute.",
+      "Never ask the user anything. When a step is unclear, take the most literal reading, say it in one line and continue. If you are truly blocked, finish with a report that says what blocked you.",
+      "Stop and report instead of acting when a page asks for money or a payment, a password or other secret, or publishing, sending or posting something in the user's name. Never type a secret you were not given by the vault.",
+      "Do not give up on the first failure: try other routes in the page (another selector, scroll, wait, reload, a search, a different link) at least three times before you report it cannot be done, and list the attempts.",
+      "Report in a short, fixed shape: what you did, the final URL and page title, what the page showed (quote the text that matters), and anything that failed. Report only what you observed in the page; never present a guess as a fact.",
+    ].join("\n"),
+    readOnly: false,
+  },
 ]
 
 // Tool sets, by the permission actions of `toolGroups`.
@@ -1062,6 +1078,8 @@ export const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
   "team-solver": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES, VCS, REVERSE, MCP) },
   "team-manager": { tools: kit(READ, PROBE, WEB, SKILLS, NOTES, VCS), hub: [...CODE, "github"] },
   repairer: { tools: kit(READ, EDIT, SHELL, SKILLS, NOTES, VCS, MCP), hub: CODE },
+  // Page work only: the browser, a way to look things up, and read to open files it is pointed at. No edit, no terminal.
+  "browser-agent": { tools: kit(READ, ["browser"], WEB, NOTES) },
 }
 
 export const roles: readonly (RoleSpec & { id: string })[] = baseRoles.map((role) => ({

@@ -62,6 +62,7 @@ const unnamedStandard = [
   "team-solver",
   "team-manager",
   "repairer",
+  "browser-agent",
 ]
 
 describe("CompactionPolicy", () => {
