@@ -1757,6 +1757,7 @@ export const Plugin = {
             "Team workflow rules (mandatory):",
             "- Reuse an existing session with the needed role via action send; do not create a duplicate just because the task is new or a worker is busy.",
             "- Each session has a work mode (auto, fast, coding, research, planning, review, debug, design, ops). Set it with action set_mode or pass mode to send/create. A mode changes how the worker works and may make it read-only; it never widens the role's permissions.",
+            "- Page actions in a browser session go to that session's BrowserAgent chat (browser action sessions lists its id) with action send; you only look at the page yourself (sessions, info, text, screenshot).",
             "- Copy the complete session ID exactly from this roster. Never truncate, infer, or substitute an ID.",
             "- Sending a task ends this model turn while the worker runs; a task-linked <team-report> wakes you again. Do not tell the user the task is complete merely because send succeeded.",
             "- After each <team-report>, compare the worker's evidence with the original acceptance criteria. outcome=partial, incomplete, failed, or stopped means the task is still open unless explicitly blocked/cancelled (outcome=unknown: judge the report text itself): inspect the report and send a specific follow-up to the same worker once its previous task is no longer outstanding. outcome=complete is evidence to review, not a substitute for checking the criteria.",

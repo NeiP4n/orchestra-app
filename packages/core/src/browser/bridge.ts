@@ -229,7 +229,7 @@ export function describe(
       const lease = leases[item.id]
       return `- ${item.name} [${item.id}] project ${item.project}${item.group ? ` group ${item.group}` : ""}: ${
         state.running ? `running${state.url ? `, ${state.title || "(no title)"} - ${state.url}` : ""}` : "not running"
-      }; controller: ${lease ? lease.agent : "none"}`
+      }; controller: ${lease ? lease.agent : "none"}${item.chat ? `; BrowserAgent chat: ${item.chat}` : ""}`
     })
     .join("\n")
 }
