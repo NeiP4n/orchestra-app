@@ -126,6 +126,14 @@ const PROMISE =
 // forever on a report that will never come.
 const STALE_DISPATCH_MS = 30 * 60 * 1000
 
+// A short message with no address and no page verb ("hi", "how are you") is conversation, not a task.
+const PAGE_VERB =
+  /(?:https?:|www\.|\b[a-z0-9-]+\.(?:com|org|net|io|ru|dev|app|ai)\b|\b(?:open|go to|visit|click|type|search|find|log ?in|sign ?in|register|sign up|download|buy|book|fill|navigate|scrape|check|read)\b|открой|зайди|найди|нажми|введи|войди|зарегистр|скачай|купи|забронируй|проверь|прочитай)/i
+export const conversational = (text: string) => {
+  const words = text.trim().split(/\s+/).filter(Boolean)
+  return words.length > 0 && words.length <= 8 && !PAGE_VERB.test(text)
+}
+
 export function check(
   messages: ReadonlyArray<SessionMessage.Info>,
   board: Dod.Status,
@@ -145,6 +153,10 @@ export function check(
   // stops after a search, or with an empty answer, is sent back to work; when the reminders are spent it is asked
   // for an explicit NOT DONE with the reason, so the Orchestrator never gets silence.
   if (agent === "team-browser-agent") {
+    // A greeting or a question is answered and the turn ends: there is no page task to finish or report on.
+    const opener = start >= 0 ? messages[start] : undefined
+    const asked = opener?.type === "user" ? opener.text : ""
+    if (conversational(asked)) return undefined
     const said = last.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n").trim()
     const usedBrowser = turn.some((message) => message.type === "assistant" && tools(message).some((tool) => tool.name === "browser"))
     if (STATE_LINE.test(said) && (usedBrowser || /^\s*NOT DONE/i.test(said))) return undefined

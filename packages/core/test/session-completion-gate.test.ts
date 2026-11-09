@@ -265,6 +265,12 @@ describe("SessionCompletionGate: BrowserAgent", () => {
     expect(run([user("open muse.ai"), assistant("DONE\nTrust me.")])).toContain("You have not used the browser tool yet")
     expect(run([user("open muse.ai"), assistant("NOT DONE\nChrome would not start.")])).toBeUndefined()
   })
+  test("a greeting is answered and the turn ends: no page task, no completion check", () => {
+    expect(run([user("Прив"), assistant("Привет! Готов к работе.")])).toBeUndefined()
+    expect(SessionCompletionGate.conversational("hello, how are you?")).toBe(true)
+    expect(SessionCompletionGate.conversational("Зарегистрируйся на сайте")).toBe(false)
+    expect(SessionCompletionGate.conversational("check the price of the laptop on the page and report it back to me")).toBe(false)
+  })
   test("when the reminders are spent it asks for an explicit NOT DONE once, then lets it stop", () => {
     const spent = [user("open muse.ai"), assistant("", [search]), nudge(), assistant(""), nudge(), assistant(""), nudge(), assistant("")]
     expect(run(spent)).toContain("Completion check (final)")
