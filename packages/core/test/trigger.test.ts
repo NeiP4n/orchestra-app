@@ -105,6 +105,8 @@ describe("untrusted text and publishing", () => {
     const text = Trigger.render(made.trigger, NOW)
     expect(text).toContain("<instruction>\nCheck the inbox and report\n</instruction>")
     expect(text).toContain("NOT approved")
+    expect(text).toContain("subject to the current rulebook")
+    expect(text).toContain("no new spending or publishing authority")
   })
 
   const fired = { type: "synthetic", metadata: { source: "trigger", triggerID: "trg_1", publishApproved: false } }
