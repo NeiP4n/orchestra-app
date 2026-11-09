@@ -277,6 +277,12 @@ export const layer = Layer.effect(
         ...(BrowserInstructions.hasSessions(session.location.directory) || BrowserInstructions.hasAnySessions() ? ["browser"] : []),
       ])
       const loaded = (tools.lazyDefinitions ?? []).filter((tool) => picked.has(tool.name))
+      BrowserInstructions.traceTools(
+        session.location.directory,
+        (tools.lazyDefinitions ?? []).some((tool) => tool.name === "browser") ||
+          tools.definitions.some((tool) => tool.name === "browser"),
+        picked.has("browser"),
+      )
       // Zen's upstream rejects more than 128 tools. Mirrored CodeMode schemas are only a validator
       // courtesy (every one stays callable through `execute`), and mirroring a whole browser or MCP
       // catalog cost ~9k prompt tokens per step, so only the tools Zen's validator looks for are

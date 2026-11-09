@@ -37,6 +37,13 @@ export function hasSessions(directory: string) {
 }
 
 let lastSeen = ""
+let lastTools = ""
+
+/** Logs, when it changes, whether the browser tool is registered for a chat and whether this request carries it. */
+export function traceTools(directory: string, registered: boolean, advertised: boolean) {
+  const line = `tool in request for ${directory}: browser registered ${registered}, advertised ${advertised}`
+  if (line !== lastTools) BrowserRuntime.trace((lastTools = line))
+}
 
 export function make(directory: string): Instructions.List {
   BrowserRuntime.trace(`context source built for ${directory}`)
