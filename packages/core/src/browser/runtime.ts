@@ -1,7 +1,7 @@
 export * as BrowserRuntime from "./runtime.js"
 
 import { spawn } from "node:child_process"
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { Global } from "@orchestra/util/global"
 import { BrowserBridge } from "./bridge.js"
@@ -29,12 +29,39 @@ interface Live {
 /** A new session opens here instead of a blank page, so the stream visibly shows something. */
 export const START_PAGE = "https://www.google.com/"
 
+// ORCHESTRA_BROWSER_SCALE=2 draws Chrome's own tabs and buttons twice as large in the pane, so a terminal's coarse
+// pointer can hit them. Default 1 (unchanged behaviour); the page gets that many times fewer CSS pixels.
+const CAPTURE_SCALE = Math.min(3, Math.max(1, Number(process.env.ORCHESTRA_BROWSER_SCALE) || 1))
+
 const live = new Map<string, Live>()
 const starting = new Map<string, Promise<Live>>()
 let hooked = false
 
+// Chrome's stderr goes to a small file, so a Chrome that dies at once says why instead of failing silently.
+const stderrFile = () => path.join(Global.Path.data, "browser-profiles", "chrome-stderr.log")
+function stderrFd(): "ignore" | number {
+  try {
+    mkdirSync(path.dirname(stderrFile()), { recursive: true })
+    return openSync(stderrFile(), "w")
+  } catch {
+    return "ignore"
+  }
+}
+const stderrTail = () => {
+  try {
+    return readFileSync(stderrFile(), "utf8").slice(-400)
+  } catch {
+    return ""
+  }
+}
 const deps: Chrome.Deps = {
-  spawn: (exe, args) => spawn(exe, args, { stdio: "ignore", windowsHide: true }),
+  stderrTail,
+  spawn: (exe, args) => {
+    const fd = stderrFd()
+    const child = spawn(exe, args, { stdio: ["ignore", "ignore", fd], windowsHide: true })
+    if (typeof fd === "number") child.once("exit", () => void closeSync(fd))
+    return child
+  },
   readFile: (file) => (existsSync(file) ? readFileSync(file, "utf8") : undefined),
   sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
   mkdir: (dir) => void mkdirSync(dir, { recursive: true }),
@@ -55,7 +82,12 @@ async function join(port: number, stop: () => void, windowed = false): Promise<L
 // A visible window must not be hidden, unlike the windowless session Chrome.
 const windowDeps: Chrome.Deps = {
   ...deps,
-  spawn: (exe, args) => spawn(exe, args, { stdio: "ignore", windowsHide: false }),
+  spawn: (exe, args) => {
+    const fd = stderrFd()
+    const child = spawn(exe, args, { stdio: ["ignore", "ignore", fd], windowsHide: false })
+    if (typeof fd === "number") child.once("exit", () => void closeSync(fd))
+    return child
+  },
 }
 
 /** Asks Chrome itself to quit (works for a Chrome this process did not start) and waits until its port is gone. */
@@ -154,7 +186,9 @@ async function start(sessionID: string): Promise<Live> {
   const exe = Chrome.find(existsSync)
   if (!exe) throw new Error("Google Chrome or Microsoft Edge was not found. Install one, or set ORCHESTRA_CHROME_PATH.")
   calm(dir)
-  const run = await Chrome.launch(deps, { exe, profileDir: dir, headless: true, url: START_PAGE })
+  const urls = savedTabs(sessionID)
+  if (urls.length > 0) trace(`${sessionID}: Chrome was not running, reopening ${urls.length} saved tab(s)`)
+  const run = await Chrome.launch(deps, { exe, profileDir: dir, headless: true, url: START_PAGE, urls })
   try {
     return await join(run.port, run.close)
   } catch (error) {
@@ -168,8 +202,14 @@ export async function open(sessionID: string): Promise<Cdp.Client> {
   // A restart in progress owns the session: starting another Chrome beside it is what left input hanging.
   const restarting = relaunching.get(sessionID)
   if (restarting && !inside.has(sessionID)) await restarting.catch(() => undefined)
+  if (!inside.has(sessionID)) await awaitRelaunch(sessionID)
   const existing = live.get(sessionID)
-  if (existing) return existing.client
+  if (existing && existing.client.isClosed?.() === true) {
+    // Chrome died or was closed behind our back: the stored client can never answer again. Forget it, so this call
+    // joins the Chrome still running on the profile (livePort) or starts a new one.
+    trace(`connection of ${sessionID} is closed: reconnecting`)
+    evict(sessionID)
+  } else if (existing) return existing.client
   const pending = starting.get(sessionID)
   if (pending) return (await pending).client
   if (!hooked) {
@@ -249,12 +289,32 @@ function ordered(sessionID: string, list: BrowserTabs.Tab[]) {
   return order.map((id) => list.find((tab) => tab.id === id)!)
 }
 
+// The open addresses are kept on disk, so a Chrome that died (crash, killed) comes back on the same pages.
+const tabsFile = (sessionID: string) => path.join(Global.Path.data, "browser-profiles", `${sessionID}.tabs.json`)
+function saveTabs(sessionID: string, urls: string[]) {
+  const web = urls.filter((url) => /^https?:\/\//i.test(url))
+  if (web.length === 0) return
+  try {
+    mkdirSync(path.dirname(tabsFile(sessionID)), { recursive: true })
+    writeAtomic(tabsFile(sessionID), JSON.stringify(web))
+  } catch {}
+}
+function savedTabs(sessionID: string): string[] {
+  try {
+    const value = JSON.parse(readFileSync(tabsFile(sessionID), "utf8")) as unknown
+    return Array.isArray(value) ? value.filter((url): url is string => typeof url === "string" && /^https?:\/\//i.test(url)).slice(0, 8) : []
+  } catch {
+    return []
+  }
+}
+
 /** The session's tabs as Chrome lists them now. The active one is repaired if its tab was closed by the page. */
 export async function tabs(sessionID: string): Promise<TabState[]> {
   await open(sessionID)
   const item = live.get(sessionID)!
   let list = ordered(sessionID, await BrowserTabs.list(item.port))
   if (list.length === 0) list = [await BrowserTabs.create(item.port)]
+  saveTabs(sessionID, list.map((tab) => tab.url))
   if (!list.some((tab) => tab.id === item.tabID)) await switchTo(sessionID, list[0]!)
   return list.map((tab) => ({
     id: tab.id,
@@ -438,6 +498,40 @@ export async function reload(sessionID: string) {
   await (await open(sessionID)).send("Page.reload")
 }
 
+/**
+ * Deletes the saved profile folder of a session (its logins, cookies and history). Refuses while the session's
+ * Chrome runs here. Returns the reason when it could not delete everything, nothing on success.
+ */
+export function deleteProfile(sessionID: string): string | undefined {
+  if (live.has(sessionID)) return "The session's Chrome is running. Close it first."
+  try {
+    rmSync(Chrome.profileDir(Global.Path.data, sessionID), { recursive: true, force: true })
+    return undefined
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+
+/**
+ * Drops the stored connection only when it is dead. A restart into another mode (the pane switches the windowless
+ * Chrome to the real window right after it starts) replaces the stored Chrome by a healthy one; dropping that
+ * one because an older call failed on the old Chrome would kill the pane's browser.
+ */
+export function evictIfClosed(sessionID: string) {
+  if (live.get(sessionID)?.client.isClosed?.() === true) evict(sessionID)
+}
+
+/** Drops the stored (dead) connection of a session without asking Chrome to quit. */
+export function evict(sessionID: string) {
+  unwatch(sessionID)
+  orders.delete(sessionID)
+  const item = live.get(sessionID)
+  if (!item) return
+  live.delete(sessionID)
+  item.client.close()
+  item.capture?.stop()
+}
+
 export function close(sessionID: string) {
   unwatch(sessionID)
   orders.delete(sessionID)
@@ -488,6 +582,35 @@ function helperFile() {
  * addresses are reopened; logins stay in the profile, unsaved page state does not survive.
  */
 const relaunching = new Map<string, Promise<void>>()
+
+// The pane and the agent's server are different processes: the in-memory `relaunching` map is invisible to the
+// server, so a restart in progress is also marked by a small file with a time limit (a crashed pane must not block).
+const RELAUNCH_TTL_MS = 20_000
+const relaunchFile = (sessionID: string) => path.join(Global.Path.data, "browser-profiles", `${sessionID}.relaunch`)
+function markRelaunch(sessionID: string) {
+  try {
+    mkdirSync(path.dirname(relaunchFile(sessionID)), { recursive: true })
+    writeFileSync(relaunchFile(sessionID), String(Date.now()))
+  } catch {}
+}
+function clearRelaunch(sessionID: string) {
+  try {
+    rmSync(relaunchFile(sessionID), { force: true })
+  } catch {}
+}
+/** Waits while another process restarts this session's Chrome (fresh lock file), at most the lock's time limit. */
+export async function awaitRelaunch(sessionID: string) {
+  for (;;) {
+    let stamp = 0
+    try {
+      stamp = Number(readFileSync(relaunchFile(sessionID), "utf8"))
+    } catch {
+      return
+    }
+    if (!Number.isFinite(stamp) || Date.now() - stamp > RELAUNCH_TTL_MS) return
+    await new Promise((done) => setTimeout(done, 250))
+  }
+}
 const inside = new Set<string>()
 
 export async function relaunch(sessionID: string, mode: Mode | boolean, size = { width: 1000, height: 640 }) {
@@ -495,10 +618,12 @@ export async function relaunch(sessionID: string, mode: Mode | boolean, size = {
   if (before) await before.catch(() => undefined)
   const run = (async () => {
     inside.add(sessionID)
+    markRelaunch(sessionID)
     try {
       await restart(sessionID, mode, size)
     } finally {
       inside.delete(sessionID)
+      clearRelaunch(sessionID)
     }
   })()
   relaunching.set(sessionID, run)
@@ -539,9 +664,10 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
             ...WindowCapture.KEEP_PAINTING_FLAGS,
             // The pane shows the window pixel for pixel: no display scaling, so Chrome's tabs and page keep their
             // normal size instead of being 1.5x larger than the pane the window was sized for.
-            "--force-device-scale-factor=1",
+            `--force-device-scale-factor=${CAPTURE_SCALE}`,
             `--window-position=${WindowCapture.OFFSCREEN.x},${WindowCapture.OFFSCREEN.y}`,
-            `--window-size=${size.width},${size.height}`,
+            // The window size is in scaled units, so the pixels on screen still match the pane.
+            `--window-size=${Math.round(size.width / CAPTURE_SCALE)},${Math.round(size.height / CAPTURE_SCALE)}`,
           ]
         : [],
   })
@@ -590,6 +716,16 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
   live.set(sessionID, next)
 }
 
+/**
+ * Writes a shared state file (sessions, selection, leases) whole or not at all: a process killed in the middle of a
+ * plain write leaves a cut-off file that reads back as empty, and the list of sessions is gone for the agents.
+ */
+function writeAtomic(file: string, text: string) {
+  const temp = `${file}.${process.pid}.tmp`
+  writeFileSync(temp, text)
+  renameSync(temp, file)
+}
+
 const bridgeFile = () => BrowserBridge.file(Global.Path.data)
 
 /** Records the selected browser session of a project for the chat agent's tool. */
@@ -601,7 +737,7 @@ export function publishSelection(directory: string, sessionID: string | undefine
     sessionID,
   )
   mkdirSync(path.dirname(file), { recursive: true })
-  writeFileSync(file, JSON.stringify(next, null, 2))
+  writeAtomic(file, JSON.stringify(next, null, 2))
 }
 
 /** The browser session selected for the project that owns `directory`. */
@@ -612,39 +748,138 @@ export function selectedSession(directory: string) {
     directory,
   )
 }
+let lastPublished = ""
+const STARTED_AT = Date.now()
 /** The Browser tab publishes every session (name, project) so the agents can list and address them. */
 export function publishSessions(list: readonly BrowserBridge.SessionInfo[]) {
   const file = BrowserBridge.sessionsFile(Global.Path.data)
   const text = JSON.stringify(list, null, 2)
-  if (existsSync(file) && readFileSync(file, "utf8") === text) return
+  // Right after the Browser tab starts, its project list is not loaded yet and reads empty: that must not wipe the
+  // sessions of the last run for the agents (the first questions then saw no browser). A real list replaces it.
+  if (list.length === 0 && Date.now() - STARTED_AT < 20_000 && existsSync(file) && BrowserBridge.parseSessions(readFileSync(file, "utf8")).length > 0) {
+    trace("sessions: empty list at start, keeping the published ones until the project list loads")
+    return
+  }
+  if (existsSync(file) && readFileSync(file, "utf8") === text) {
+    if (lastPublished !== text) {
+      lastPublished = text
+      trace(
+        `sessions already published: ${list.length} in ${file} (${list.map((item) => `${item.name}@${item.project}`).join("; ")})`,
+      )
+    }
+    return
+  }
+  lastPublished = text
   mkdirSync(path.dirname(file), { recursive: true })
-  writeFileSync(file, text)
+  writeAtomic(file, text)
   trace(
     `sessions published: ${list.length} to ${file} (${list.map((item) => `${item.name}@${item.project}`).join("; ")})`,
   )
 }
+
+export const sessionsFilePath = () => BrowserBridge.sessionsFile(Global.Path.data)
 
 export function sessions() {
   const file = BrowserBridge.sessionsFile(Global.Path.data)
   return BrowserBridge.parseSessions(existsSync(file) ? readFileSync(file, "utf8") : undefined)
 }
 
+/** An agent's hold on a session ends after a day: an agent that died keeps no session locked for good. */
+const LEASE_TTL_MS = 24 * 60 * 60 * 1000
+
 export function leases() {
   const file = BrowserBridge.leasesFile(Global.Path.data)
-  return BrowserBridge.parseLeases(existsSync(file) ? readFileSync(file, "utf8") : undefined)
+  const all = BrowserBridge.parseLeases(existsSync(file) ? readFileSync(file, "utf8") : undefined)
+  const now = Date.now()
+  return Object.fromEntries(
+    Object.entries(all).filter(
+      ([, lease]) => lease.agent === BrowserBridge.OPERATOR || typeof lease.since !== "number" || now - lease.since < LEASE_TTL_MS,
+    ),
+  )
+}
+
+/** Runs a read-modify-write of leases.json under a lock file (O_EXCL, stale after 5 s), so two processes never lose an update. */
+function withLeaseLock<T>(work: () => T): T {
+  const lock = `${BrowserBridge.leasesFile(Global.Path.data)}.lock`
+  mkdirSync(path.dirname(lock), { recursive: true })
+  const until = Date.now() + 2000
+  for (;;) {
+    try {
+      writeFileSync(lock, String(Date.now()), { flag: "wx" })
+      break
+    } catch {
+      let age = 0
+      try {
+        age = Date.now() - Number(readFileSync(lock, "utf8"))
+      } catch {}
+      if (age > 5000 || Date.now() > until) {
+        rmSync(lock, { force: true })
+        if (Date.now() > until) break
+      }
+    }
+  }
+  try {
+    return work()
+  } finally {
+    rmSync(lock, { force: true })
+  }
 }
 
 /** Gives a session to an agent (or the operator), or frees it when `agent` is undefined. */
 export function setLease(sessionID: string, agent: string | undefined) {
   const file = BrowserBridge.leasesFile(Global.Path.data)
   mkdirSync(path.dirname(file), { recursive: true })
-  writeFileSync(file, JSON.stringify(BrowserBridge.withLease(leases(), sessionID, agent, Date.now()), null, 2))
+  withLeaseLock(() => writeAtomic(file, JSON.stringify(BrowserBridge.withLease(leases(), sessionID, agent, Date.now()), null, 2)))
+}
+
+/**
+ * "Operator took control" belongs to a Browser tab that is open right now. After a crash or a killed terminal it
+ * would stay in leases.json and lock the agents out for good, so the Browser tab drops those when it starts.
+ */
+export function releaseOperatorLeases() {
+  const held = leases()
+  const stale = Object.entries(held).filter(([, lease]) => lease.agent === BrowserBridge.OPERATOR)
+  if (stale.length === 0) return
+  const file = BrowserBridge.leasesFile(Global.Path.data)
+  writeAtomic(file, JSON.stringify(Object.fromEntries(Object.entries(held).filter(([, lease]) => lease.agent !== BrowserBridge.OPERATOR)), null, 2))
+  trace(`dropped ${stale.length} operator lease(s) left by an earlier run: ${stale.map(([id]) => id).join(", ")}`)
+}
+
+/** Records where an agent just acted, for the Browser tab to show; ORCHESTRA_AGENT_CURSOR=0 turns it off. */
+export function pointAgent(sessionID: string, at: { x: number; y: number } | undefined) {
+  if (!at || process.env.ORCHESTRA_AGENT_CURSOR === "0") return
+  try {
+    const file = BrowserBridge.cursorFile(Global.Path.data)
+    const all = BrowserBridge.parseCursors(existsSync(file) ? readFileSync(file, "utf8") : undefined)
+    all[sessionID] = { x: at.x, y: at.y, at: Date.now() }
+    mkdirSync(path.dirname(file), { recursive: true })
+    writeAtomic(file, JSON.stringify(all))
+  } catch {
+    // The cursor is a courtesy; a failed write never fails the action.
+  }
+}
+
+export function agentCursor(sessionID: string) {
+  const file = BrowserBridge.cursorFile(Global.Path.data)
+  return BrowserBridge.parseCursors(existsSync(file) ? readFileSync(file, "utf8") : undefined)[sessionID]
 }
 
 /** What a session shows right now, without starting it. */
 export async function peek(sessionID: string): Promise<{ running: boolean; title?: string; url?: string }> {
-  const item = live.get(sessionID)
-  if (!item) return { running: false }
+  let item = live.get(sessionID)
+  if (!item || item.client.isClosed?.() === true) {
+    // The panel may run Chrome in another process: the real Chrome on the session's profile counts, not only our own map.
+    const port = await Chrome.livePort(deps.readFile, alive, Chrome.profileDir(Global.Path.data, sessionID)).catch(() => undefined)
+    trace(`peek ${sessionID}: profile ${Chrome.profileDir(Global.Path.data, sessionID)}, live port ${port ?? "none"}, own connection ${item ? "closed" : "none"}`)
+    if (port === undefined) return { running: false }
+    try {
+      await open(sessionID)
+      item = live.get(sessionID)
+    } catch {
+      return { running: true }
+    }
+    if (!item) return { running: true }
+  }
   try {
     const info = await Cdp.pageInfo(item.client)
     return { running: true, title: info.title, url: info.url }

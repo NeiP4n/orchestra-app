@@ -363,6 +363,7 @@ const layer = Layer.effect(
         // and the model cannot call what it cannot see.
         const pruned = ToolPruning.pruneTools(loaded.tools, loaded.messages, {
           unusedSteps: toolPruneUnusedSteps,
+          agent: loaded.agent.id,
           protectedNames: Mode.toolsOf(loaded.session.metadata, loaded.agent.id),
         })
         if (pruned.pruned.length > 0 && pruned.pruned.join(",") !== pruneState.lastPruned.join(",")) {

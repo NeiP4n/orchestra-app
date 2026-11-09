@@ -32,7 +32,13 @@ export function selectedFor(map: Record<string, string>, directory: string): str
     if (target !== base && !target.startsWith(base + "/")) continue
     if (best === undefined || base.length > norm(best).length) best = key
   }
-  return best === undefined ? undefined : map[best]
+  if (best !== undefined) return map[best]
+  // A directory that holds projects (a workspace folder with the orchestrator in it) takes the selection of the
+  // first project inside it, so its agent finds a browser too.
+  const inside = Object.keys(map)
+    .filter((key) => norm(key).startsWith(target + "/"))
+    .sort()[0]
+  return inside === undefined ? undefined : map[inside]
 }
 
 /** The map with one project's selection set, or removed when `sessionID` is undefined. */
@@ -49,6 +55,33 @@ export function withSelection(map: Record<string, string>, directory: string, se
 
 export const sessionsFile = (root: string) => path.join(root, "browser-profiles", "sessions.json")
 export const leasesFile = (root: string) => path.join(root, "browser-profiles", "leases.json")
+
+export const cursorFile = (root: string) => path.join(root, "browser-profiles", "agent-cursor.json")
+
+/** Where an agent last acted in a session: fractions of the window, and when. */
+export interface Cursor {
+  readonly x: number
+  readonly y: number
+  readonly at: number
+}
+
+export function parseCursors(text: string | undefined): Record<string, Cursor> {
+  if (!text) return {}
+  try {
+    const value = JSON.parse(text) as unknown
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+    return Object.fromEntries(
+      Object.entries(value).flatMap(([id, item]): Array<[string, Cursor]> => {
+        const c = item as { x?: unknown; y?: unknown; at?: unknown } | null
+        return c && typeof c.x === "number" && typeof c.y === "number" && typeof c.at === "number"
+          ? [[id, { x: Math.min(1, Math.max(0, c.x)), y: Math.min(1, Math.max(0, c.y)), at: c.at }]]
+          : []
+      }),
+    )
+  } catch {
+    return {}
+  }
+}
 
 export interface SessionInfo {
   readonly id: string
@@ -110,6 +143,18 @@ export function projectOf(list: readonly SessionInfo[], directory: string): stri
     if (best === undefined || base.length > norm(best).length) best = item.project
   }
   return best
+}
+
+/**
+ * The sessions an agent working in `directory` may see: those of the project that owns the directory and, when the
+ * directory is a folder holding projects (the orchestrator of a workspace), those of the projects inside it.
+ */
+export function visible(list: readonly SessionInfo[], directory: string): SessionInfo[] {
+  const target = norm(directory)
+  const own = projectOf(list, directory)
+  return list.filter(
+    (item) => (own !== undefined && norm(item.project) === norm(own)) || norm(item.project).startsWith(target + "/"),
+  )
 }
 
 /** A session by id, or by name (the caller's project first). Says why when it cannot pick exactly one. */

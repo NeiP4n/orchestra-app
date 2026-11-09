@@ -26,6 +26,14 @@ extend({ browserImage: ImageRenderable })
 
 // The commit this TUI runs from (when it runs from a git checkout), so a report can say which build it saw.
 // The route and frame-size lines are a diagnostic: shown only with ORCHESTRA_BROWSER_DEBUG=1.
+const PIXEL_MOUSE = process.env.ORCHESTRA_BROWSER_PIXEL_MOUSE !== "0"
+// A terminal pointer moves in cells (about 10x20 px), too coarse for the tab close button (about 16 px, centred in the
+// tab strip). In a captured window a press in Chrome's tab strip is therefore moved to the strip's centre line, so
+// the column the marker is on decides the hit. ORCHESTRA_BROWSER_STRIP_SNAP=0 turns it off.
+const STRIP_SNAP = process.env.ORCHESTRA_BROWSER_STRIP_SNAP !== "0"
+// ORCHESTRA_BROWSER_HALFBLOCKS=1 draws the page as block characters, never kitty/sixel graphics.
+const IMAGE_PROTOCOL = process.env.ORCHESTRA_BROWSER_HALFBLOCKS === "1" ? ("blocks" as const) : ("auto" as const)
+const STRIP_SCALE = Math.min(3, Math.max(1, Number(process.env.ORCHESTRA_BROWSER_SCALE) || 1))
 const DEBUG = process.env.ORCHESTRA_BROWSER_DEBUG === "1"
 const BUILD = (() => {
   try {
@@ -131,9 +139,11 @@ export function BrowserPane(props: {
   const [control, setControl] = createSignal(false)
   const toPage = (event: { x: number; y: number }) => {
     if (!screenBox || screenBox.width <= 0 || screenBox.height <= 0) return undefined
+    // A release after dragging out of the pane still arrives; it lands on the nearest edge instead of outside the page.
+    const inside = (value: number, size: number) => Math.min(size - 1, Math.max(0, value))
     return {
-      x: ((event.x - screenBox.x + 0.5) / screenBox.width) * viewport.width,
-      y: ((event.y - screenBox.y + 0.5) / screenBox.height) * viewport.height,
+      x: inside(((event.x - screenBox.x + 0.5) / screenBox.width) * viewport.width, viewport.width),
+      y: inside(((event.y - screenBox.y + 0.5) / screenBox.height) * viewport.height, viewport.height),
     }
   }
   const send = (work: Promise<unknown>) => void work.catch((error) => !disposed && setFailure(errorMessage(error)))
@@ -155,6 +165,22 @@ export function BrowserPane(props: {
       setMarker(undefined)
     })
   })
+  // Where an agent's browser tool last clicked or typed in this session: a marker in the agent's own colour that
+  // stays a few seconds and is gone. ORCHESTRA_AGENT_CURSOR=0 (read by the tool) writes nothing, so nothing shows.
+  const [agentAt, setAgentAt] = createSignal<{ x: number; y: number }>()
+  createEffect(() => {
+    const timer = setInterval(() => {
+      const spot = BrowserRuntime.agentCursor(props.sessionID)
+      const area = size()
+      const next =
+        !spot || !area || Date.now() - spot.at > 4000
+          ? undefined
+          : { x: Math.min(Math.max(0, area.cols - 8), Math.floor(spot.x * area.cols)), y: Math.min(area.rows - 1, Math.floor(spot.y * area.rows)) }
+      const before = agentAt()
+      if (before?.x !== next?.x || before?.y !== next?.y || (before === undefined) !== (next === undefined)) setAgentAt(next)
+    }, 250)
+    onCleanup(() => clearInterval(timer))
+  })
   const [route, setRoute] = createSignal("")
   // While the operator has control, the agent's browser tool is refused for this session; letting go frees it
   // again (an assignment to an agent is never cleared by this).
@@ -174,15 +200,23 @@ export function BrowserPane(props: {
       }
     })
   })
+  let pixelsSeen = false
   let moving = false
   let latestMove: { x: number; y: number } | undefined
   const forward = (kind: "down" | "up" | "move", event: MouseEvent) => {
     if (!control()) return
+    // With pixel reports on, the exact position arrives separately; the cell event only repeats it roughly.
+    if (pixelsSeen) return void event.stopPropagation()
     const at = toPage(event)
     if (!at) return note(kind, `${kind} ignored, pane has no size`)
     event.stopPropagation()
     if (screenBox) setMarker({ x: Math.max(0, event.x - screenBox.x), y: Math.max(0, event.y - screenBox.y) })
-    note(kind, `${kind} page ${Math.round(at.x)},${Math.round(at.y)}`)
+    deliver(kind, at, event.button === 2 ? "right" : "left")
+  }
+  const deliver = (kind: "down" | "up" | "move", point: { x: number; y: number }, button: "left" | "right") => {
+    const snapped = STRIP_SNAP && mode() === "capture" && point.y < 40 * STRIP_SCALE
+    const at = snapped ? { x: point.x, y: 20 * STRIP_SCALE } : point
+    note(kind, `${kind} page ${Math.round(at.x)},${Math.round(at.y)}${snapped ? " (tab strip centre line)" : ""}`)
     const step = (text: string) => setRoute(`${kind}: ${text}`)
     // Moves are coalesced: while one is on its way only the newest position waits, so the pointer never lags
     // behind a queue of stale positions. Presses and releases always go, in order, after the pending move.
@@ -192,11 +226,7 @@ export function BrowserPane(props: {
     }
     step("pane sent")
     const run = (point: { x: number; y: number }) =>
-      BrowserRuntime.mouse(
-        props.sessionID,
-        kind === "move" ? { kind, ...point } : { kind, ...point, button: event.button === 2 ? "right" : "left" },
-        step,
-      )
+      BrowserRuntime.mouse(props.sessionID, kind === "move" ? { kind, ...point } : { kind, ...point, button }, step)
     send(
       run(at)
         .then(
@@ -215,6 +245,56 @@ export function BrowserPane(props: {
         }),
     )
   }
+  // On by default while control is on (ORCHESTRA_BROWSER_PIXEL_MOUSE=0 turns it off): terminals report the pointer in cells, about 10x20 pixels each,
+  // too coarse for a tab's close button. Where the terminal can report pixels (DECSET 1016), the exact position
+  // is read from the raw input while control is on. Everything seen is logged.
+  createEffect(() => {
+    if (!control() || !PIXEL_MOUSE) return
+    const resolution = renderer.resolution
+    BrowserRuntime.trace(
+      `pixel mouse on: terminal ${renderer.width}x${renderer.height} cells, resolution ${resolution ? `${resolution.width}x${resolution.height}` : "unknown"}, box ${screenBox ? `${screenBox.x},${screenBox.y} ${screenBox.width}x${screenBox.height}` : "none"}`,
+    )
+    process.stdout.write("\x1b[?1016h")
+    let logged = 0
+    const onData = (chunk: Buffer | string) => {
+      const text = typeof chunk === "string" ? chunk : chunk.toString("latin1")
+      for (const match of text.matchAll(/\x1b\[<(\d+);(\d+);(\d+)([Mm])/g)) {
+        const code = Number(match[1])
+        const px = Number(match[2])
+        const py = Number(match[3])
+        if (logged < 12) {
+          logged++
+          BrowserRuntime.trace(`raw mouse ${JSON.stringify(match[0])}`)
+        }
+        // Cell reports never exceed the terminal size; larger numbers can only be pixels.
+        if (px > renderer.width || py > renderer.height) pixelsSeen = true
+        if (!pixelsSeen || !screenBox || !resolution) continue
+        const cw = resolution.width / renderer.width
+        const ch = resolution.height / renderer.height
+        const left = screenBox.x * cw
+        const top = screenBox.y * ch
+        const at = {
+          x: ((px - 1 - left) / (screenBox.width * cw)) * viewport.width,
+          y: ((py - 1 - top) / (screenBox.height * ch)) * viewport.height,
+        }
+        if (at.x < 0 || at.y < 0 || at.x > viewport.width || at.y > viewport.height) continue
+        setMarker({
+          x: Math.max(0, Math.floor((px - 1) / cw) - screenBox.x),
+          y: Math.max(0, Math.floor((py - 1) / ch) - screenBox.y),
+        })
+        const motion = (code & 32) === 32
+        const button = (code & 3) === 2 ? "right" : "left"
+        if ((code & 64) === 64) continue
+        deliver(motion || (code & 3) === 3 ? "move" : match[4] === "M" ? "down" : "up", at, button)
+      }
+    }
+    process.stdin.on("data", onData)
+    onCleanup(() => {
+      process.stdin.off("data", onData)
+      process.stdout.write("\x1b[?1016l")
+      pixelsSeen = false
+    })
+  })
   createEffect(() => {
     if (!control()) return
     const onPaste = (event: { bytes: Uint8Array }) => {
@@ -434,7 +514,20 @@ export function BrowserPane(props: {
                   width={size()?.cols ?? 1}
                   height={size()?.rows ?? 1}
                   fit="fill"
+                  protocol={IMAGE_PROTOCOL}
                 />
+                <Show when={!control() && agentAt()}>
+                  <text
+                    position="absolute"
+                    left={agentAt()!.x}
+                    top={agentAt()!.y}
+                    fg={theme.text.feedback.warning.base}
+                    attributes={TextAttributes.BOLD}
+                    selectable={false}
+                  >
+                    ◆ agent
+                  </text>
+                </Show>
                 <Show when={control() && marker()}>
                   <text
                     position="absolute"

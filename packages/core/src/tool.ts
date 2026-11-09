@@ -17,6 +17,7 @@ import { SessionSchema } from "./session/schema.js"
 import { State } from "./state.js"
 import { ToolCallName } from "./tool/call-name.js"
 import { ToolRouter } from "./tool/router.js"
+import { BrowserRuntime } from "./browser/runtime.js"
 import { definition, effectiveName, execute, normalizedName, normalizeContent } from "./tool/runtime.js"
 import { Wildcard } from "./util/wildcard.js"
 
@@ -120,15 +121,24 @@ const layer = Layer.effect(
       ]
     })
 
+    // A refused or failed tool call leaves one line (tool, first 200 characters of the reason) in the debug log
+    // beside the browser lines, so "why did that call fail" has an answer without the screen.
+    const traceFailure = (name: string, error: unknown) =>
+      BrowserRuntime.trace(
+        `tool ${name} failed: ${String((error as { message?: unknown } | null)?.message ?? error).replace(/\s+/g, " ").slice(0, 200)}`,
+      )
+
     const beforeExecute = (name: string, input: unknown, context: Tool.Context) =>
-      hooks.trigger("tool", "execute.before", {
-        tool: name,
-        sessionID: context.sessionID,
-        agent: context.agent,
-        messageID: context.messageID,
-        id: context.id,
-        input,
-      })
+      hooks
+        .trigger("tool", "execute.before", {
+          tool: name,
+          sessionID: context.sessionID,
+          agent: context.agent,
+          messageID: context.messageID,
+          id: context.id,
+          input,
+        })
+        .pipe(Effect.tapError((error) => Effect.sync(() => traceFailure(name, error))))
 
     const executeTool = Effect.fn("Tool.execute")(function* (
       tool: Tool.Info,
@@ -149,6 +159,7 @@ const layer = Layer.effect(
         input,
       }
       if ("failure" in execution) {
+        traceFailure(name, execution.failure)
         const afterEvent: PluginHooks.Domains["tool"]["execute.after"] = {
           ...base,
           status: "error",

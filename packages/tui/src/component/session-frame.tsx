@@ -14,7 +14,7 @@ import { consoleSiblings, consoleTerminalID } from "../util/console-terminal"
 import { useData } from "../context/data"
 import { useProjects } from "../context/projects"
 import { owningProject } from "../util/project-owner"
-import { publishSelection, publishSessions } from "../util/browser-runtime"
+import { publishSelection, publishSessions, trace } from "../util/browser-runtime"
 import { Keymap } from "../context/keymap"
 import { InteractivityProvider } from "../context/interactivity"
 import { useSessionTerminals } from "../context/session-terminals"
@@ -114,8 +114,9 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
           })),
         ),
       )
-    } catch {
-      // Same as above: the tab works without it.
+    } catch (error) {
+      // The tab works without the file, but the agent then sees no sessions, so the failure is logged.
+      trace(`sessions publish FAILED: ${error instanceof Error ? error.message : String(error)}`)
     }
   })
   // In the Browser view the chat stays beside the page when the window is wide enough; the Console takes the

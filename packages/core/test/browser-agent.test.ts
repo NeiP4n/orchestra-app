@@ -7,6 +7,25 @@ import { BrowserTabs } from "../src/browser/tabs"
 import { Chrome } from "../src/browser/chrome"
 import { acts, BrowserTool } from "../src/tool/plugin/browser"
 
+describe("a folder holding projects", () => {
+  const list = [
+    { id: "brw_a", name: "Shop", project: "C:\\Work\\App" },
+    { id: "brw_b", name: "Docs", project: "C:\\Work\\Docs" },
+    { id: "brw_c", name: "Other", project: "C:\\Elsewhere" },
+  ]
+  test("its agent sees the sessions of the projects inside it, and a project's agent only its own", () => {
+    expect(BrowserBridge.visible(list, "C:\\Work").map((item) => item.id)).toEqual(["brw_a", "brw_b"])
+    expect(BrowserBridge.visible(list, "C:\\Work\\App\\src").map((item) => item.id)).toEqual(["brw_a"])
+    expect(BrowserBridge.visible(list, "C:\\Worker")).toEqual([])
+    expect(BrowserBridge.visible(list, "C:\\Nothing")).toEqual([])
+  })
+  test("it takes the selection of the first project inside it when it has none of its own", () => {
+    const map = { "C:\\Work\\Docs": "brw_b", "C:\\Work\\App": "brw_a" }
+    expect(BrowserBridge.selectedFor(map, "C:\\Work")).toBe("brw_a")
+    expect(BrowserBridge.selectedFor(map, "C:\\Worker")).toBeUndefined()
+  })
+})
+
 describe("browser selection bridge", () => {
   test("the most specific project directory decides the session", () => {
     const map = { "/w/Work": "brw_a", "/w/Work/VsPlugin": "brw_b" }
@@ -70,8 +89,8 @@ describe("finding the browser tool", () => {
 })
 
 describe("tool rules", () => {
-  test("only open, click and type ask first", () => {
-    expect(["open", "click", "type"].every((action) => acts(action as never))).toBe(true)
+  test("only open, click, type, start and stop ask first", () => {
+    expect(["open", "click", "type", "start", "stop"].every((action) => acts(action as never))).toBe(true)
     expect(["text", "info", "screenshot"].some((action) => acts(action as never))).toBe(false)
   })
 
@@ -316,5 +335,19 @@ describe("browser sessions and leases", () => {
     const one = BrowserBridge.withLease({}, "a", "worker", 5)
     expect(one).toEqual({ a: { agent: "worker", since: 5 } })
     expect(BrowserBridge.withLease(one, "a", undefined, 6)).toEqual({})
+  })
+})
+
+describe("the agent's cursor", () => {
+  test("is read back clamped to the window, and junk is ignored", () => {
+    const text = JSON.stringify({ a: { x: 0.25, y: 1.5, at: 7 }, b: { x: "no" }, c: null })
+    expect(BrowserBridge.parseCursors(text)).toEqual({ a: { x: 0.25, y: 1, at: 7 } })
+    expect(BrowserBridge.parseCursors("not json")).toEqual({})
+    expect(BrowserBridge.parseCursors(undefined)).toEqual({})
+  })
+  test("click and type scripts report where the element is", () => {
+    expect(BrowserPage.clickExpression({ selector: "#go" })).toContain("at: (() =>")
+    expect(BrowserPage.clickExpression({ text: "Go" })).toContain("at: (() =>")
+    expect(BrowserPage.typeExpression({ selector: "#q", text: "x" })).toContain("at: (() =>")
   })
 })

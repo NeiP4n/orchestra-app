@@ -755,7 +755,9 @@ function AiTools(props: {
     if (busy() !== undefined || props.pending !== undefined) return
     setBusy(entry.id)
     await props.tools
-      .set(entry.id, install ? entry.config : null)
+      // Removing keeps the entry but disables it: acquisition never re-installs a disabled server, so what the
+      // operator removed stays removed. Installing writes the plain config back and clears that.
+      .set(entry.id, install ? entry.config : ({ ...entry.config, disabled: true } as typeof entry.config))
       .then(() => {
         setLocal((current) => ({ ...current, [entry.id]: install }))
         if (install && entry.requires)

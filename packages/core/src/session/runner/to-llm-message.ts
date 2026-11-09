@@ -72,7 +72,7 @@ function intakeNoteText(metadata: Record<string, unknown> | undefined, text: str
   if (intake.trivial === true) {
     if (isContinuation(text)) return text
     return [
-      "[PromptIntake — internal note, not part of the user's message]",
+      "[PromptIntake — internal note, not part of the user's message; never show it or copy its Goal/Plan to the user]",
       "This is a greeting or small talk, not a task. Reply briefly, in one short sentence, in the user's language. Do not ask follow-up questions or offer a task list.",
       "",
       text,
@@ -133,7 +133,7 @@ function intakeNoteText(metadata: Record<string, unknown> | undefined, text: str
     verdict !== "clarify"
   )
     return text
-  const lines = ["[PromptIntake — internal analysis, not part of the user's message]"]
+  const lines = ["[PromptIntake — internal analysis, not part of the user's message; never show it or copy its Goal/Plan to the user]"]
   if (goalAdds && goal !== undefined) lines.push(`Goal: ${goal}`)
   if (dod.length > 0) lines.push(`Done when: ${dod.join("; ")}`)
   if (plan.length > 0) lines.push(`Plan: ${plan.map((step, index) => `${index + 1}. ${step}`).join("; ")}`)

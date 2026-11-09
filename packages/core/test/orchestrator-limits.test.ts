@@ -29,16 +29,16 @@ describe("the 6-message delegation gate", () => {
   })
 
   test("a delegation resets the count, management and questions never count", () => {
-    const counted = ["m1", "m2", "m3", "m4", "m5", "m6"]
-    expect(gate(counted, { tool: "sessions", messageID: "m7", action: "list" })).toEqual({
+    const counted = Array.from({ length: LIMIT }, (_, index) => `m${index + 1}`)
+    expect(gate(counted, { tool: "sessions", messageID: `m${LIMIT + 1}`, action: "list" })).toEqual({
       counted,
       blocked: false,
       reset: false,
     })
-    expect(gate(counted, { tool: "question", messageID: "m7" }).blocked).toBe(false)
+    expect(gate(counted, { tool: "question", messageID: `m${LIMIT + 1}` }).blocked).toBe(false)
     // A send without a task text is not a delegation.
-    expect(gate(counted, { tool: "sessions", messageID: "m7", action: "send", text: "  " }).blocked).toBe(false)
-    const reset = gate(counted, { tool: "sessions", messageID: "m7", action: "create", text: "Build the thing" })
+    expect(gate(counted, { tool: "sessions", messageID: `m${LIMIT + 1}`, action: "send", text: "  " }).blocked).toBe(false)
+    const reset = gate(counted, { tool: "sessions", messageID: `m${LIMIT + 1}`, action: "create", text: "Build the thing" })
     expect(reset).toEqual({ counted: [], blocked: false, reset: true })
   })
 
@@ -46,16 +46,16 @@ describe("the 6-message delegation gate", () => {
     // A dispatch is refused without a fresh survey, so refusing the survey
     // at the limit would deadlock the Orchestrator: it could neither survey
     // nor dispatch. Inspect is read-only, so it never counts and never resets.
-    const counted = ["m1", "m2", "m3", "m4", "m5", "m6"]
-    expect(gate(counted, { tool: "mcp_manager", messageID: "m7", action: "inspect" })).toEqual({
+    const counted = Array.from({ length: LIMIT }, (_, index) => `m${index + 1}`)
+    expect(gate(counted, { tool: "mcp_manager", messageID: `m${LIMIT + 1}`, action: "inspect" })).toEqual({
       counted,
       blocked: false,
       reset: false,
     })
     // Only inspect is exempt: acquiring or installing a server still counts
     // as doing the work and stays gated past the limit.
-    expect(gate(counted, { tool: "mcp_manager", messageID: "m7", action: "acquire" }).blocked).toBe(true)
-    expect(gate(counted, { tool: "mcp_manager", messageID: "m7" }).blocked).toBe(true)
+    expect(gate(counted, { tool: "mcp_manager", messageID: `m${LIMIT + 1}`, action: "acquire" }).blocked).toBe(true)
+    expect(gate(counted, { tool: "mcp_manager", messageID: `m${LIMIT + 1}` }).blocked).toBe(true)
   })
 
   test("the limit-reached text names the survey as the way out", () => {
@@ -132,5 +132,14 @@ describe("MCP limits the Orchestrator distributes", () => {
     expect(OrchestraTool.mcpDenyRules({ servers: "all", maxCalls: 5, perServer: {} }, ["github"])).toEqual([])
     expect(OrchestraTool.mcpBriefLine(limit)).toContain("at most 5 MCP tool call(s)")
     expect(OrchestraTool.mcpBriefLine(limit)).toContain("context7")
+  })
+})
+
+describe("reading the Browser tab at the limit", () => {
+  test("looking is never refused, acting in the page is", () => {
+    const full = Array.from({ length: OrchestraTool.ORCHESTRATOR_MESSAGE_LIMIT }, (_, index) => `m${index}`)
+    for (const action of ["sessions", "info", "text", "screenshot"])
+      expect(gate(full, { tool: "browser", messageID: "next", action }).blocked).toBe(false)
+    expect(gate(full, { tool: "browser", messageID: "next", action: "click" }).blocked).toBe(true)
   })
 })

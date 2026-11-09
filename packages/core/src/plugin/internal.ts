@@ -401,6 +401,11 @@ export const list = Effect.fn("PluginInternal.list")(function* () {
     )
   return {
     pre: resolve(pre),
-    post: resolve(post),
+    // The browser plugin (browser.tabs.*, its own Chromium on a debugging port) is a second browser next to the
+    // `browser` tool tied to the Browser tab's sessions, and agents reached for it and saw an empty tab list.
+    // It is not offered unless ORCHESTRA_BROWSER_PLUGIN=1.
+    post: resolve(
+      post.filter((plugin) => plugin.id !== BrowserPlugin.id || process.env.ORCHESTRA_BROWSER_PLUGIN === "1"),
+    ),
   }
 })

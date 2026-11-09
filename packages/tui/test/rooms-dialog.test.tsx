@@ -332,6 +332,7 @@ test("a joined room opens in the main area like a session and stays in the left 
 })
 
 test("the classic Windows console gets drawable stand-ins for the panel's symbols", async () => {
+  const previous = process.env.ORCHESTRA_BASIC_SYMBOLS
   process.env.ORCHESTRA_BASIC_SYMBOLS = "1"
   try {
     await using state = await tmpdir()
@@ -341,7 +342,8 @@ test("the classic Windows console gets drawable stand-ins for the panel's symbol
     expect(frame).not.toContain("⇄")
     expect(frame).toContain("√ Server")
   } finally {
-    delete process.env.ORCHESTRA_BASIC_SYMBOLS
+    if (previous === undefined) delete process.env.ORCHESTRA_BASIC_SYMBOLS
+    else process.env.ORCHESTRA_BASIC_SYMBOLS = previous
   }
 })
 

@@ -3,10 +3,17 @@
 // data so the panel and the center view read one source and tests can drive it without a terminal.
 export type BrowserSession = { id: string; name: string; group?: string; created: number }
 
+/** A session the user closed. Its id still keys the Chrome profile folder, so reopening it brings the logins back. */
+export type ClosedBrowserSession = BrowserSession & { closedAt: number }
+
 export type BrowserSessionsState = {
   projects: Record<string, BrowserSession[]>
   selected: Record<string, string | undefined>
+  /** Closed sessions per project, newest first. Missing in state saved by older versions. */
+  closed?: Record<string, ClosedBrowserSession[]>
 }
+
+export const MAX_CLOSED_BROWSER_SESSIONS = 30
 
 export const emptyBrowserSessions = (): BrowserSessionsState => ({ projects: {}, selected: {} })
 
@@ -40,8 +47,40 @@ export function removeBrowserSession(state: BrowserSessionsState, projectID: str
   if (!list) return
   const index = list.findIndex((item) => item.id === id)
   if (index < 0) return
-  list.splice(index, 1)
+  const [gone] = list.splice(index, 1)
+  // Kept aside, not forgotten: the name, group and profile id come back when the user reopens it.
+  state.closed ??= {}
+  const kept = (state.closed[projectID] ??= []).filter((item) => item.id !== id)
+  state.closed[projectID] = [{ ...gone!, closedAt: Date.now() }, ...kept].slice(0, MAX_CLOSED_BROWSER_SESSIONS)
   if (state.selected[projectID] === id) state.selected[projectID] = list[Math.max(0, index - 1)]?.id
+}
+
+/**
+ * Brings a closed session back with its own id (so the same Chrome profile) and its own name, whatever other
+ * sessions are called now. Returns it, or undefined when it is not closed or the project is at the limit.
+ */
+export function reopenBrowserSession(state: BrowserSessionsState, projectID: string, id: string) {
+  const closed = state.closed?.[projectID]
+  const found = closed?.find((item) => item.id === id)
+  if (!closed || !found) return undefined
+  const list = (state.projects[projectID] ??= [])
+  if (list.length >= MAX_BROWSER_SESSIONS) return undefined
+  const session: BrowserSession = {
+    id: found.id,
+    name: found.name,
+    ...(found.group ? { group: found.group } : {}),
+    created: found.created,
+  }
+  list.push(session)
+  state.closed![projectID] = closed.filter((item) => item.id !== id)
+  state.selected[projectID] = session.id
+  return session
+}
+
+/** Drops a closed session from the list for good. Its profile folder is not touched here. */
+export function forgetClosedBrowserSession(state: BrowserSessionsState, projectID: string, id: string) {
+  const closed = state.closed?.[projectID]
+  if (closed) state.closed![projectID] = closed.filter((item) => item.id !== id)
 }
 
 /** Changes only the label. The id, which keys the Chrome profile folder, is never touched, so logins stay. */

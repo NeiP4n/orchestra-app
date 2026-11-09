@@ -3,9 +3,11 @@ import {
   addBrowserSession,
   browserSessionGroups,
   emptyBrowserSessions,
+  forgetClosedBrowserSession,
   groupBrowserSession,
   MAX_BROWSER_SESSIONS,
   removeBrowserSession,
+  reopenBrowserSession,
   renameBrowserSession,
   selectBrowserSession,
 } from "../src/util/browser-sessions"
@@ -76,4 +78,41 @@ test("renaming changes only the label: the id that keys the Chrome profile stays
   expect(renameBrowserSession(state, "p", "brw_x1", "   ")).toBe(false)
   expect(renameBrowserSession(state, "p", "missing", "x")).toBe(false)
   expect(state.projects.p?.[0]?.name).toBe("Work account")
+})
+
+test("a removed session is kept aside and reopens with its own id and name", () => {
+  const state = emptyBrowserSessions()
+  addBrowserSession(state, "p", { id: "a", now: 1, name: "Shop", group: "Work" })
+  addBrowserSession(state, "p", { id: "b", now: 2 })
+  removeBrowserSession(state, "p", "a")
+  expect(state.projects.p?.map((item) => item.id)).toEqual(["b"])
+  expect(state.closed?.p?.map((item) => item.id)).toEqual(["a"])
+  // Another session now takes the number the closed one never had; the closed one keeps its own name.
+  addBrowserSession(state, "p", { id: "c", now: 3, name: "Shop" })
+  const back = reopenBrowserSession(state, "p", "a")
+  expect(back).toEqual({ id: "a", name: "Shop", group: "Work", created: 1 })
+  expect(state.projects.p?.map((item) => item.id)).toEqual(["b", "c", "a"])
+  expect(state.closed?.p).toEqual([])
+  expect(state.selected.p).toBe("a")
+})
+
+test("reopening something that is not closed, or past the limit, does nothing", () => {
+  const state = emptyBrowserSessions()
+  expect(reopenBrowserSession(state, "p", "x")).toBeUndefined()
+  addBrowserSession(state, "p", { id: "a", now: 1 })
+  removeBrowserSession(state, "p", "a")
+  for (let n = 0; n < MAX_BROWSER_SESSIONS; n++) addBrowserSession(state, "p", { id: `s${n}`, now: n })
+  expect(reopenBrowserSession(state, "p", "a")).toBeUndefined()
+  expect(state.closed?.p?.map((item) => item.id)).toEqual(["a"])
+})
+
+test("forgetting a closed session removes it from the list and leaves the open ones alone", () => {
+  const state = emptyBrowserSessions()
+  for (const id of ["a", "b", "c"]) addBrowserSession(state, "p", { id, now: 0 })
+  removeBrowserSession(state, "p", "a")
+  removeBrowserSession(state, "p", "b")
+  forgetClosedBrowserSession(state, "p", "a")
+  expect(state.closed?.p?.map((item) => item.id)).toEqual(["b"])
+  expect(state.projects.p?.map((item) => item.id)).toEqual(["c"])
+  forgetClosedBrowserSession(state, "other", "x")
 })

@@ -123,7 +123,7 @@ export const baseTranscript = (input: {
 }) => {
   const providerMetadataKey = input.model.model.route.providerMetadataKey ?? input.model.model.provider
   const systemPrompt = input.agent.system
-    ? SessionSystemPrompt.withGlobalContracts(input.agent.system)
+    ? SessionSystemPrompt.withGlobalContracts(input.agent.system, input.agent.id)
     : SessionSystemPrompt.make(input.tools.definitions.map((tool) => tool.name))
   return {
     providerMetadataKey,
@@ -272,11 +272,20 @@ export const layer = Layer.effect(
       const picked = new Set([
         ...ToolRouter.selected(input.messages, tools.lazy ?? new Map()),
         ...Mode.toolsOf(session.metadata, input.agent),
+        // The Orchestrator's own working tools are always at hand: a tool it has to guess exists, or load first,
+        // is a tool it answers "not available" about.
+        ...(input.agent === "orchestrator" ? ["browser", "mcp_manager", "sessions"] : []),
         // A project with browser sessions in the Browser tab has the browser tool at hand without being asked
         // for it by name: a model that has to guess it exists answers that it cannot see a browser.
-        ...(BrowserInstructions.hasSessions(session.location.directory) ? ["browser"] : []),
+        ...(BrowserInstructions.hasSessions(session.location.directory) || BrowserInstructions.hasAnySessions() ? ["browser"] : []),
       ])
       const loaded = (tools.lazyDefinitions ?? []).filter((tool) => picked.has(tool.name))
+      BrowserInstructions.traceTools(
+        session.location.directory,
+        (tools.lazyDefinitions ?? []).some((tool) => tool.name === "browser") ||
+          tools.definitions.some((tool) => tool.name === "browser"),
+        picked.has("browser"),
+      )
       // Zen's upstream rejects more than 128 tools. Mirrored CodeMode schemas are only a validator
       // courtesy (every one stays callable through `execute`), and mirroring a whole browser or MCP
       // catalog cost ~9k prompt tokens per step, so only the tools Zen's validator looks for are
@@ -297,7 +306,12 @@ export const layer = Layer.effect(
               )
               .slice(0, Math.max(0, ZEN_TOOL_LIMIT - tools.definitions.length - loaded.length))
           : []
-      const advertised = [...tools.definitions, ...loaded, ...zenCompatibility]
+      // The orchestra_* session tools are for Muse chats (meta provider) only; their own description says other models
+      // ignore them, yet models kept calling them on "look at the browser" instead of the browser tool.
+      const museOnly = (name: string) =>
+        model.ref.providerID !== "meta" &&
+        /^orchestra_(list_agents|create_session|get_session|prompt_session|switch_agent|switch_model)$/.test(name)
+      const advertised = [...tools.definitions, ...loaded, ...zenCompatibility].filter((tool) => !museOnly(tool.name))
       // Remember which tool each definition object came from. Hooks rename a tool by moving
       // its definition to a new key, so after the hook we find the tool by object identity.
       const given = new Map(

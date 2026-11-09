@@ -49,6 +49,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Minutes between activation checks for idle workers.",
     default: "5",
   },
+  ORCHESTRA_AGENT_CURSOR: {
+    purpose: "Show the agent's cursor in the Browser tab where its browser tool clicked or typed (\"0\" turns it off).",
+    default: "On.",
+  },
   ORCHESTRA_API_KEY: {
     purpose: "API key for the opencode provider, used when no stored credential exists.",
   },
@@ -61,6 +65,14 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "CDP HTTP endpoint for the local browser plugin.",
     default: "\"http://127.0.0.1:9222\"",
     readIn: "injected-env",
+  },
+  ORCHESTRA_BROWSER_DEBUG: {
+    purpose: "Show the Browser tab's input debug lines on screen (\"1\"). The log file is always written.",
+    default: "Off.",
+  },
+  ORCHESTRA_BROWSER_HALFBLOCKS: {
+    purpose: "Draw the Browser tab's page as colored block characters (\"1\") instead of kitty or sixel graphics, for terminals that print graphics data as text.",
+    default: "Off: the terminal's graphics protocol is detected.",
   },
   ORCHESTRA_BROWSER_HEADLESS: {
     purpose: "Built-in launch of the browser plugin starts Chromium headless (\"0\" opens a visible window).",
@@ -78,10 +90,26 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Local browser for the browser plugin (\"0\" disables it).",
     default: "Enabled.",
   },
+  ORCHESTRA_BROWSER_PIXEL_MOUSE: {
+    purpose: "Pixel-exact pointer in the Browser tab while control is on (\"0\" turns it off).",
+    default: "On; falls back to terminal cells when the terminal sends no pixel reports.",
+  },
+  ORCHESTRA_BROWSER_PLUGIN: {
+    purpose: "Offer the browser plugin (browser.tabs.*, its own Chromium on a debugging port) to agents (\"1\"). The `browser` tool tied to the Browser tab is always offered.",
+    default: "Off.",
+  },
   ORCHESTRA_BROWSER_PROFILE: {
     purpose: "Profile directory for the browser plugin's built-in launch.",
     default: "\"<data>/orchestra/browser-profile\" (the opencode profile when it exists and the orchestra one does not).",
     readIn: "injected-env",
+  },
+  ORCHESTRA_BROWSER_SCALE: {
+    purpose: "Device scale (1 to 3) of the Browser tab's captured Chrome; 2 draws Chrome's own tabs and buttons twice as large.",
+    default: "1.",
+  },
+  ORCHESTRA_BROWSER_STRIP_SNAP: {
+    purpose: "Moves pointer events in Chrome's tab strip to the strip's centre line so the close button can be hit (\"0\" turns it off).",
+    default: "On.",
   },
   ORCHESTRA_BUMP: {
     purpose: "Release version bump for the script build (\"major\"/\"minor\"/\"patch\").",
@@ -94,6 +122,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   ORCHESTRA_CHANNEL: {
     purpose: "Release channel for the script build; overrides the channel derived from the git branch. (Also a build-time define elsewhere — this entry is the script's runtime read.)",
     default: "The current git branch (\"detached\" without one).",
+  },
+  ORCHESTRA_CHROME_PATH: {
+    purpose: "Full path of the Chrome or Edge executable the Browser tab starts, when the usual install places are not used.",
+    default: "Off: the usual install places are searched.",
   },
   ORCHESTRA_CLIENT: {
     purpose: "Client name reported to the server (for example \"acp\").",
@@ -357,9 +389,17 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Minimum log level (DEBUG/INFO/WARN/ERROR).",
     default: "INFO",
   },
+  ORCHESTRA_MCP_CHROME_DEVTOOLS: {
+    purpose: "Let acquisition install the chrome-devtools MCP server, which starts a Chrome of its own (\"1\"). The `browser` tool is used otherwise.",
+    default: "Off.",
+  },
   ORCHESTRA_MCP_PER_DIRECTORY: {
     purpose: "Run MCP servers with the project directory as their working directory.",
     default: "Off (empty working directory).",
+  },
+  ORCHESTRA_MCP_PLAYWRIGHT: {
+    purpose: "Let acquisition install the playwright MCP server, which starts a Chrome of its own (\"1\"). The `browser` tool is used otherwise.",
+    default: "Off.",
   },
   ORCHESTRA_MODELS_PATH: {
     purpose: "Path to a local models file.",
@@ -433,6 +473,18 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   ORCHESTRA_REPO_ROOT: {
     purpose: "Override for the repository root the recovery service repairs.",
     default: "The ancestor directory holding packages/core.",
+  },
+  ORCHESTRA_REQUEST_MEASUREMENT: {
+    purpose: "\"1\" collects numbers-only measurements of each model request (sizes and counts, no text).",
+    default: "Off.",
+  },
+  ORCHESTRA_REQUEST_MEASUREMENT_DIR: {
+    purpose: "Folder the request measurements are written to.",
+    default: "The measurements folder inside the app log folder.",
+  },
+  ORCHESTRA_REQUEST_MEASUREMENT_RETENTION_DAYS: {
+    purpose: "How many days request measurement files are kept.",
+    default: "The built-in retention.",
   },
   ORCHESTRA_REQUEST_REPORT: {
     purpose: "Enable per-request reports (any value).",
@@ -516,6 +568,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   },
   ORCHESTRA_TEST_ONBOARDING: {
     purpose: "Run the desktop onboarding flow in test mode (\"1\").",
+    default: "Off.",
+  },
+  ORCHESTRA_TEST_PERMISSION_DIAG: {
+    purpose: "Tests only: logs which branch the permission check took.",
     default: "Off.",
   },
   ORCHESTRA_TOOL_ROUTER: {

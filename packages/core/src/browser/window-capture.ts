@@ -106,6 +106,7 @@ public static class Cap {
   [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
   [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
   [StructLayout(LayoutKind.Sequential)] struct GUITHREADINFO { public int cbSize, flags; public IntPtr active, focus, capture, menuOwner, moveSize, caret; public RECT rcCaret; }
+  [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] static extern IntPtr ChildWindowFromPointEx(IntPtr h, POINT p, uint flags);
   [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint thread, ref GUITHREADINFO info);
   [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc p, IntPtr l);
@@ -174,7 +175,19 @@ public static class Cap {
       case "ldown":
         // Chrome takes clicks as a person's: the window active and focused, the pointer on the spot first.
         PostMessage(hwnd, 0x86, (IntPtr)1, IntPtr.Zero); PostMessage(hwnd, 0x6, (IntPtr)1, IntPtr.Zero); PostMessage(hwnd, 0x7, IntPtr.Zero, IntPtr.Zero);
+        {
+          // The steps the system takes before a click: what is under the point, the cursor, the activation, and the
+          // pointer arriving (twice, so a button sees it enter and then rest on it). The hit-test answer is logged.
+          IntPtr screenPoint = Pack(origin.X + x, origin.Y + y);
+          IntPtr hit = SendMessage(hwnd, 0x84, IntPtr.Zero, screenPoint);
+          SendMessage(hwnd, 0x20, hwnd, (IntPtr)((0x200 << 16) | ((int)hit & 0xFFFF)));
+          IntPtr act = SendMessage(hwnd, 0x21, hwnd, (IntPtr)((0x201 << 16) | 1));
+          Say("D click hit-test=" + hit + " (1 client, 2 caption, 20 close) mouse-activate=" + act);
+        }
         PostMessage(hwnd, 0x200, IntPtr.Zero, Pack(x, y));
+        Thread.Sleep(30);
+        PostMessage(hwnd, 0x200, IntPtr.Zero, Pack(x, y));
+        Thread.Sleep(30);
         PostMessage(hwnd, 0x201, (IntPtr)1, Pack(x, y)); break;
       case "lup": PostMessage(hwnd, 0x202, IntPtr.Zero, Pack(x, y)); break;
       case "rdown": PostMessage(hwnd, 0x204, (IntPtr)2, Pack(x, y)); break;

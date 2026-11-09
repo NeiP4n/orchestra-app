@@ -142,3 +142,24 @@ describe("ToolPruning pruneTools", () => {
     expect(names(second.tools)).toEqual(["read", "edit"])
   })
 })
+
+describe("ToolPruning for the Orchestrator", () => {
+  const long = () => {
+    const messages: Array<SessionMessage.Info> = [user("look at the browser")]
+    for (let turn = 1; turn <= 14; turn += 1) messages.push(assistant(["desktop"]))
+    return messages
+  }
+  const all = ["desktop", "mcp_manager", "sessions", "browser", "execute", "tools"]
+
+  test("an ordinary agent loses tools it has not called for 10 turns", () => {
+    const { tools } = ToolPruning.pruneTools(snapshot(all), long(), { agent: "build" })
+    expect(names(tools)).not.toContain("mcp_manager")
+  })
+
+  test("the orchestrator in auto mode keeps core tools and browser however long the session is", () => {
+    const { tools, pruned } = ToolPruning.pruneTools(snapshot(all), long(), { agent: "orchestrator" })
+    expect(pruned).toEqual([])
+    expect(names(tools)).toEqual(all)
+  })
+})
+

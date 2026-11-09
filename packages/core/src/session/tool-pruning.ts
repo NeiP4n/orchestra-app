@@ -79,9 +79,13 @@ export function pruneTools(
     readonly unusedSteps?: number
     /** Extra names that never prune, e.g. the tools the session's mode requires. */
     readonly protectedNames?: ReadonlyArray<string> | ReadonlySet<string>
+    /** The running agent's id. The Orchestrator's session lives for days and its tool set is small and all needed. */
+    readonly agent?: string
   } = {},
 ): { readonly tools: Tool.Snapshot; readonly pruned: ReadonlyArray<string> } {
-  const unusedSteps = Math.max(0, options.unusedSteps ?? TOOL_PRUNE_UNUSED_STEPS_DEFAULT)
+  // Never prune the Orchestrator: in its long main session every tool not called in the last 10 turns (sessions,
+  // mcp_manager, ...) vanished, so it was left with the few it had just used and asked for tools it could not see.
+  const unusedSteps = options.agent === "orchestrator" ? 0 : Math.max(0, options.unusedSteps ?? TOOL_PRUNE_UNUSED_STEPS_DEFAULT)
   if (unusedSteps === 0) return { tools, pruned: [] }
   const { used, turns } = toolUse(messages)
   const protectedNames = new Set([...PROTECTED_TOOL_NAMES, ...(options.protectedNames ?? [])])

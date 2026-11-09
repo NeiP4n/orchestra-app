@@ -29,6 +29,8 @@ import { openProjectDialog } from "./dialog-project"
 import { useProjects } from "../context/projects"
 import { browserSessionGroups } from "../util/browser-sessions"
 import { DialogPrompt } from "../ui/dialog-prompt"
+import { DialogSelect } from "../ui/dialog-select"
+import * as BrowserRuntime from "../util/browser-runtime"
 import { DialogConfirm } from "../ui/dialog-confirm"
 import { ClearSessionsAction } from "./clear-sessions"
 import { useNotes, type NotesTab } from "../context/notes"
@@ -304,6 +306,75 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
     void expand(projectID)
   }
 
+  // The closed browser sessions of a project: pick one to bring back (same profile, same name), or remove it from the
+  // list. Removing the profile folder too (logins, cookies) is its own key and asks first.
+  const openClosedPicker = (project: OrchestraProject) => {
+    const closed = () => notes.closedBrowserSessions(project.id)
+    const again = () => (closed().length > 0 ? openClosedPicker(project) : dialog.clear())
+    // A confirm dialog clears the dialog stack right after its callbacks, so what follows waits one tick.
+    const next = (fn: () => void) => void setTimeout(fn, 0)
+    dialog.replace(() => (
+      <DialogSelect
+        title={t("Reopen a closed browser session")}
+        options={closed().map((item) => ({
+          title: item.group ? `${item.group} · ${item.name}` : item.name,
+          value: item.id,
+          description: new Date(item.closedAt).toLocaleString(),
+        }))}
+        onSelect={(option) => {
+          dialog.clear()
+          notes.reopenBrowserSession(project.id, option.value)
+          notes.setProject(project.id)
+          if (!inProject(project)) void openMain(project)
+        }}
+        actions={[
+          {
+            command: "dialog.browser.forget",
+            title: t("remove from list"),
+            bind: "ctrl+d",
+            onTrigger: (option) => {
+              notes.forgetClosedBrowserSession(project.id, option.value)
+              again()
+            },
+          },
+          {
+            command: "dialog.browser.erase",
+            title: t("delete with logins"),
+            bind: "ctrl+x",
+            onTrigger: (option) => {
+              const name = closed().find((item) => item.id === option.value)?.name ?? option.title
+              dialog.replace(() => (
+                <DialogConfirm
+                  title={t("Delete browser session")}
+                  message={`${name}: ${t("deletes the saved Chrome profile (logins, cookies, history). This cannot be undone.")}`}
+                  label={{ confirm: t("Delete"), cancel: t("Keep") }}
+                  onConfirm={() => {
+                    const failed = BrowserRuntime.deleteProfile(option.value)
+                    if (failed) {
+                      next(() =>
+                        dialog.replace(() => (
+                          <DialogConfirm
+                            title={t("Could not delete")}
+                            message={failed}
+                            onConfirm={() => next(again)}
+                            onCancel={() => next(again)}
+                          />
+                        )),
+                      )
+                      return
+                    }
+                    notes.forgetClosedBrowserSession(project.id, option.value)
+                    next(again)
+                  }}
+                  onCancel={() => next(again)}
+                />
+              ))
+            },
+          },
+        ]}
+      />
+    ))
+  }
   const openMain = (project: OrchestraProject) => {
     if (project.main) {
       route.navigate({ type: "session", sessionID: project.main })
@@ -823,6 +894,19 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                       )
                     }}
                   </For>
+                  <Show when={notes.closedBrowserSessions(project.id).length > 0}>
+                    <Row
+                      id={`browser-reopen:${project.id}`}
+                      hover={hover}
+                      setHover={setHover}
+                      onClick={() => openClosedPicker(project)}
+                    >
+                      <Branch />
+                      <text fg={theme.text.action.primary.base} wrapMode="none" truncate>
+                        {`↺ ${t("Reopen closed session")} (${notes.closedBrowserSessions(project.id).length})`}
+                      </text>
+                    </Row>
+                  </Show>
                   <Row
                     id={`browser-new:${project.id}`}
                     hover={hover}

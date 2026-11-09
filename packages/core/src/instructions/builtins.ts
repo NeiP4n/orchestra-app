@@ -60,6 +60,22 @@ const layer = Layer.effect(
               },
             }),
             Instructions.make({
+              key: Instructions.Key.make("core/completion-time"),
+              codec: Schema.toCodecJson(Schema.String),
+              read: Effect.succeed(
+                [
+                  "<completion-time>",
+                  "  When you finish a task, end your final message with the time the work finished, in the user's local time as HH:MM (for example: Finished at 14:32).",
+                  "  You have no clock: read the time with a shell command (`date +%H:%M`) right before you write that message. Never guess it, and do not use the time a message was sent or received.",
+                  "</completion-time>",
+                ].join("\n"),
+              ),
+              render: {
+                initial: (text) => text,
+                changed: (_previous, text) => text,
+              },
+            }),
+            Instructions.make({
               key: Instructions.Key.make("core/notes"),
               codec: Schema.toCodecJson(Schema.String),
               read: Effect.succeed(
@@ -114,6 +130,7 @@ const layer = Layer.effect(
                   "  Before writing any code for a task, first write exactly three questions about the parts of the task that are unclear to you, then work from the answers.",
                   "  Ask about the goal, the constraints or the acceptance check — not about trivia you can read in the code yourself.",
                   "  When a task is trivial and nothing is unclear, write one line saying so instead of inventing questions.",
+                  "  This is for code-writing work only: never for a greeting, a question, a status check or lead and orchestration work, and never as a visible Goal/Criteria/Plan block.",
                   "</ask-first>",
                 ].join("\n"),
               ),

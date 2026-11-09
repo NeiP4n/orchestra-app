@@ -792,12 +792,19 @@ export const layer = (options?: Options) =>
         }),
         // Reads report what is connected now; servers still starting contribute once they publish a change.
         tools: Effect.fn("MCP.tools")(function* () {
+          // A removed/disabled server never lists tools, even if a live client lingers: it must not be found by search or called.
           return Array.from(entries.values())
-            .flatMap((entry) => entry.tools ?? [])
+            .flatMap((entry) => (entry.status.status === "disabled" ? [] : (entry.tools ?? [])))
             .toSorted((a, b) => a.server.localeCompare(b.server) || a.name.localeCompare(b.name))
         }),
         callTool: Effect.fn("MCP.callTool")(function* (input) {
           const target = yield* requireServer(input.server)
+          if (target.entry.status.status === "disabled")
+            return yield* new ToolCallError({
+              server: target.name,
+              tool: input.name,
+              message: `MCP server "${target.name}" was removed or disabled by the operator and is not available. Use the browser tool for the panel browser.`,
+            })
           // B7: the choke point for every MCP tool call. A real-screen
           // server (playwright, agent-desktop) refuses here when the
           // real-screen opt-in is invalid — even when the server was

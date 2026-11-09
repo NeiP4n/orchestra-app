@@ -168,7 +168,9 @@ export interface Deps {
   readonly spawn: (
     exe: string,
     args: string[],
-  ) => { pid?: number; kill: () => void; once: (event: "exit", cb: () => void) => void }
+  ) => { pid?: number; kill: () => void; once: (event: "exit", cb: (code?: number | null) => void) => void }
+  /** What Chrome printed on stderr in its last run (tail), to show the real reason when it dies at once. */
+  readonly stderrTail?: () => string
   readonly readFile: (file: string) => string | undefined
   readonly sleep: (ms: number) => Promise<void>
   readonly mkdir: (dir: string) => void
@@ -210,10 +212,19 @@ export async function launch(
   deps.remove(portFile)
   const child = deps.spawn(input.exe, launchArgs(input))
   let exited = false
-  child.once("exit", () => (exited = true))
+  let exitCode: number | null | undefined
+  child.once("exit", (code) => {
+    exited = true
+    exitCode = code
+  })
   const deadline = Date.now() + (input.timeoutMs ?? 15_000)
   while (Date.now() < deadline) {
-    if (exited) throw new Error("Chrome closed before it was ready. Another Chrome may already be using this profile.")
+    if (exited) {
+      const said = deps.stderrTail?.().trim()
+      throw new Error(
+        `Chrome closed before it was ready (exit code ${exitCode ?? "unknown"}).${said ? ` Chrome said: ${said}` : ""} A Chrome that is still shutting down on the same profile also causes this.`,
+      )
+    }
     const text = deps.readFile(portFile)
     const active = text === undefined ? undefined : parseActivePort(text)
     if (active) return { port: active.port, pid: child.pid, close: () => child.kill() }

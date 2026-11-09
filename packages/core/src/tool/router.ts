@@ -21,8 +21,19 @@ const SUMMARY_LIMIT = 110
 const GROUP_MIN = 3
 
 export const Input = Schema.Struct({
-  load: Schema.Array(Schema.String).annotate({ description: "Names from the tools index to load." }),
+  // A weaker model sends one name as a plain string, or a comma separated list; rejecting that only costs a step.
+  load: Schema.Union([Schema.Array(Schema.String), Schema.String]).annotate({
+    description: "Names from the tools index to load, as an array.",
+  }),
 })
+
+/** The names in a `load` value, trimmed; a plain string may hold several separated by commas or spaces. */
+const wanted = (load: typeof Input.Type.load): string[] =>
+  (typeof load === "string" ? load.split(/[\s,]+/) : load).map((item) => item.trim()).filter(Boolean)
+
+/** An index key or tool name written in another case maps to the real one. */
+const canonical = (names: Iterable<string>, item: string) =>
+  [...names].find((name) => name === item) ?? [...names].find((name) => name.toLowerCase() === item.toLowerCase()) ?? item
 
 export function create(lazy: ReadonlyMap<string, Tool.Info>): Tool.Info<typeof Input> {
   const index = groups(lazy)
@@ -39,17 +50,18 @@ export function create(lazy: ReadonlyMap<string, Tool.Info>): Tool.Info<typeof I
     ].join("\n"),
     input: Input,
     options: { codemode: false, core: true },
-    execute: (input) =>
-      Effect.succeed({
+    execute: (input) => {
+      const known = [...index.keys(), ...lazy.keys()]
+      const load = wanted(input.load).map((item) => canonical(known, item))
+      return Effect.succeed({
         content: [
-          ...(input.load.some((item) => index.has(item) || lazy.has(item))
-            ? [`Loaded: ${input.load.flatMap((item) => expand(index, lazy, item)).join(", ")}. Call them directly from your next step.`]
+          ...(load.some((item) => index.has(item) || lazy.has(item))
+            ? [`Loaded: ${load.flatMap((item) => expand(index, lazy, item)).join(", ")}. Call them directly from your next step.`]
             : []),
-          ...input.load
-            .filter((item) => !index.has(item) && !lazy.has(item))
-            .map((item) => `Not in the tools index: ${item}.`),
+          ...load.filter((item) => !index.has(item) && !lazy.has(item)).map((item) => `Not in the tools index: ${item}.`),
         ].join("\n"),
-      }),
+      })
+    },
   }
 }
 
@@ -63,7 +75,10 @@ export function selected(messages: ReadonlyArray<Message>, lazy: ReadonlyMap<str
     for (const part of message.content) {
       if (part.type === "tool-call") {
         if (lazy.has(part.name)) result.add(part.name)
-        if (part.name === name) loadedBy(part.input).forEach((item) => add(expand(index, lazy, item)))
+        if (part.name === name)
+          loadedBy(part.input).forEach((item) =>
+            add(expand(index, lazy, canonical([...index.keys(), ...lazy.keys()], item))),
+          )
       }
       // Harness-written user messages (shell results, reports, reminders) open with a tag; only
       // the person's own words trigger tools, or a word in some command output would load them.
@@ -97,7 +112,7 @@ function head(lazy: ReadonlyMap<string, Tool.Info>, key: string, members: Readon
 
 function loadedBy(input: unknown) {
   const decoded = Schema.decodeUnknownOption(Input)(input)
-  return decoded._tag === "Some" ? decoded.value.load : []
+  return decoded._tag === "Some" ? wanted(decoded.value.load) : []
 }
 
 function patterns(key: string, tool: Tool.Info) {
