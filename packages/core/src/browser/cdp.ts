@@ -163,6 +163,9 @@ export async function startScreencast(
   onFrame: (frame: Frame) => void,
 ) {
   let lastAt = -Infinity
+  let stopped = false
+  let delivered = false
+  let initial: ReturnType<typeof setTimeout> | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   let latest: { data: string; sessionId: number; metadata?: { deviceWidth?: number; deviceHeight?: number } } | undefined
   const acknowledgements = new Set<number>()
@@ -174,6 +177,7 @@ export async function startScreencast(
     acknowledgements.clear()
     if (!frame) return
     lastAt = Date.now()
+    delivered = true
     onFrame({ data: frame.data, width: frame.metadata?.deviceWidth ?? options.width, height: frame.metadata?.deviceHeight ?? options.height })
   }
   const off = client.on("Page.screencastFrame", (params) => {
@@ -187,20 +191,36 @@ export async function startScreencast(
     if (Date.now() - lastAt >= 250) { clearTimeout(timer); flush() }
     else if (timer === undefined) timer = setTimeout(flush, 250 - (Date.now() - lastAt))
   })
-  await client.send("Page.startScreencast", {
-    format: "jpeg",
-    quality: options.quality ?? 50,
-    maxWidth: Math.min(1280, Math.round(options.width)),
-    maxHeight: Math.min(800, Math.round(options.height)),
-    everyNthFrame: options.everyNthFrame ?? 4,
-  })
-  return () => {
+  const stop = () => {
+    stopped = true
     clearTimeout(timer)
+    clearTimeout(initial)
     latest = undefined
     acknowledgements.clear()
     off()
     void client.send("Page.stopScreencast").catch(() => undefined)
   }
+  try {
+    await client.send("Page.enable")
+    await client.send("Page.startScreencast", {
+      format: "jpeg",
+      quality: options.quality ?? 50,
+      maxWidth: Math.min(1280, Math.round(options.width)),
+      maxHeight: Math.min(800, Math.round(options.height)),
+      everyNthFrame: options.everyNthFrame ?? 4,
+    })
+    // Some idle/background pages send no initial screencast event. One read-only
+    // screenshot seeds the view; this is not a polling loop or a higher FPS cap.
+    initial = setTimeout(() => {
+      if (stopped || delivered) return
+      void screenshot(client).then((data) => {
+        if (stopped || delivered) return
+        delivered = true
+        onFrame({ data, width: options.width, height: options.height })
+      }).catch(() => undefined)
+    }, 2000)
+    return stop
+  } catch (error) { stop(); throw error }
 }
 
 export type MouseInput =

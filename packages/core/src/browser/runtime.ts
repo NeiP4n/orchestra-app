@@ -438,6 +438,7 @@ export async function read(sessionID: string) {
 }
 
 const screens = new Map<string, () => void>()
+const streamStarts = new Map<string, Promise<void>>()
 const watchers = new Map<string, { size: { width: number; height: number }; onFrame: (frame: Cdp.Frame) => void }>()
 
 /**
@@ -461,8 +462,21 @@ export async function watch(
 async function stream(sessionID: string, client: Cdp.Client) {
   const watcher = watchers.get(sessionID)
   if (!watcher) return
-  await Cdp.setViewport(client, watcher.size.width, watcher.size.height)
-  screens.set(sessionID, await Cdp.startScreencast(client, watcher.size, watcher.onFrame))
+  // Serialize stop/start handshakes. A late start acknowledgement from an old
+  // viewport must not replace (or stop) the newer stream after a resize/retry.
+  const task = (streamStarts.get(sessionID) ?? Promise.resolve()).catch(() => {}).then(async () => {
+    if (watchers.get(sessionID) !== watcher || live.get(sessionID)?.client !== client) return
+    await Cdp.setViewport(client, watcher.size.width, watcher.size.height)
+    if (watchers.get(sessionID) !== watcher || live.get(sessionID)?.client !== client) return
+    const stop = await Cdp.startScreencast(client, watcher.size, (frame) => {
+      if (watchers.get(sessionID) === watcher) watcher.onFrame(frame)
+    })
+    if (watchers.get(sessionID) !== watcher || live.get(sessionID)?.client !== client) { stop(); return }
+    screens.set(sessionID, stop)
+  })
+  streamStarts.set(sessionID, task)
+  try { await task }
+  finally { if (streamStarts.get(sessionID) === task) streamStarts.delete(sessionID) }
 }
 
 export function unwatch(sessionID: string) {

@@ -46,7 +46,8 @@ test("headless image delivery coalesces rapid frames and stops pending work", as
   }
   const frames: string[] = []
   const stop = await Cdp.startScreencast(client, { width: 4000, height: 3000 }, (value) => frames.push(value.data))
-  expect(sent[0]).toMatchObject({ method: "Page.startScreencast", params: { maxWidth: 1280, maxHeight: 800, everyNthFrame: 4 } })
+  expect(sent[0]).toMatchObject({ method: "Page.enable" })
+  expect(sent.find((entry) => entry.method === "Page.startScreencast")).toMatchObject({ method: "Page.startScreencast", params: { maxWidth: 1280, maxHeight: 800, everyNthFrame: 4 } })
   frame({ data: "first", sessionId: 1 })
   for (let i = 2; i < 10; i++) frame({ data: `frame-${i}`, sessionId: i })
   expect(frames).toEqual(["first"])

@@ -11,6 +11,7 @@ export const {
   browserState,
   subscribeBrowserState,
   profileRunning,
+  peek,
   browserLimitDetails,
   closeBlockedBrowser,
   open,

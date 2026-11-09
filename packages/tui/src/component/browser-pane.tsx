@@ -1,3 +1,5 @@
+import { selectionBackground } from "../ui/hover"
+import { firstFrameDeadline } from "../util/browser-frame-deadline"
 import { createHoverFeedback } from "../ui/hover-feedback"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
@@ -87,7 +89,6 @@ const switching = new Set<string>()
 const captureGaveUp = new Set<string>()
 // Why a session's capture was given up in this TUI process (shown in the pane header, so nobody has to guess).
 const captureWhy = new Map<string, string>()
-const silentRetried = new Set<string>()
 let autoSwitching = false
 // No picture this long after a switch: capture goes back to the windowless Chrome; a windowless one says why it is silent.
 const FIRST_FRAME_MS = 6000
@@ -244,10 +245,41 @@ export function BrowserPane(props: {
     }
   }
 
+  const [waitedLong, setWaitedLong] = createSignal(false)
+  const [silentReason, setSilentReason] = createSignal("")
+  const [frameSeconds, setFrameSeconds] = createSignal(0)
+  const [watchRevision, setWatchRevision] = createSignal(0)
+  let frameRetries = 0
+  const retryPicture = () => {
+    frameRetries = 0
+    setWaitedLong(false); setSilentReason(""); setFramed(false)
+    setWatchRevision((n) => n + 1)
+  }
+
   // Lay the page out for the pane, and again whenever the pane changes (window resize, chat hidden).
   createEffect(() => {
+    watchRevision()
     const area = size()
     if (state() !== "ready" || view() !== "screen" || windowed() || !area) return
+    let active = true
+    setFrameSeconds(0)
+    setFramed(false)
+    const deadline = firstFrameDeadline({
+      onTick: setFrameSeconds,
+      onTimeout: () => {
+        if (!active || disposed) return
+        setWaitedLong(true)
+        const reason = "Нет первого кадра за 5 с: поток CDP/capture не ответил или кадр не декодирован."
+        setSilentReason(reason)
+        BrowserRuntime.trace(`pane ${props.sessionID}: first frame deadline, mode=${mode()}, retry=${frameRetries}`)
+        // Retry only the image stream, never relaunch Chrome or increase FPS.
+        if (frameRetries < 1) {
+          frameRetries++
+          setSilentReason(`${reason} Повтор потока 1/1.`)
+          setWatchRevision((n) => n + 1)
+        }
+      },
+    })
     const resolution = renderer.resolution
     const cellWidth = resolution ? resolution.width / renderer.width : 8
     const cellHeight = resolution ? resolution.height / renderer.height : 16
@@ -257,10 +289,12 @@ export function BrowserPane(props: {
       viewport = { width, height }
       void BrowserRuntime.watch(props.sessionID, { width, height }, (frame) => {
         const now = Date.now()
-        if (disposed || !picture || picture.isDestroyed || now - lastFrame < FRAME_GAP_MS) return
+        if (!active || disposed || !picture || picture.isDestroyed || now - lastFrame < FRAME_GAP_MS) return
         lastFrame = now
         try {
           picture.source = NativeImage.decode(Buffer.from(frame.data, "base64"))
+          deadline()
+          setWaitedLong(false)
           setFramed(true)
           // A captured window may be a little off the size asked for: the clicks map onto what is really shown.
           if (mode() === "capture" && frame.width > 0 && frame.height > 0)
@@ -270,11 +304,15 @@ export function BrowserPane(props: {
             `frame ${frame.width}x${frame.height}px · asked ${viewport.width}x${viewport.height}px · pane ${area?.cols}x${area?.rows} cells`,
           )
         } catch {
-          // A frame that does not decode is skipped; the next one replaces it.
+          setSilentReason("Кадр получен, но не декодирован терминальным renderer.")
         }
-      }).catch((error) => !disposed && setFailure(errorMessage(error)))
+      }).catch((error) => {
+        if (!active || disposed) return
+        setSilentReason(`Поток картинки: ${errorMessage(error)}`)
+        setWaitedLong(true)
+      })
     }, 200)
-    onCleanup(() => clearTimeout(timer))
+    onCleanup(() => { active = false; deadline(); clearTimeout(timer); BrowserRuntime.unwatch(props.sessionID) })
   })
   onCleanup(() => BrowserRuntime.unwatch(props.sessionID))
 
@@ -629,33 +667,6 @@ export function BrowserPane(props: {
       setModeNote(t("Chrome's own window sent no picture: showing the fast view."))
     }, FIRST_FRAME_MS)
   }
-  // The windowless Chrome silent for this long: say so instead of waiting for ever (and log it).
-  const [waitedLong, setWaitedLong] = createSignal(false)
-  const [silentReason, setSilentReason] = createSignal("")
-  createEffect(() => {
-    if (state() !== "ready" || framed() || mode() !== "headless") return setWaitedLong(false)
-    const timer = setTimeout(() => {
-      if (disposed || framed()) return
-      void BrowserRuntime.peek(props.sessionID)
-        .then((found) => {
-          if (disposed || framed()) return
-          const reason = found.running
-            ? `Chrome is running (${found.url || "no page"}) but sends no picture.`
-            : "Chrome is not running in this session."
-          BrowserRuntime.trace(`pane ${props.sessionID}: no picture 10 s after the windowless Chrome started: ${reason}`)
-          setSilentReason(reason)
-          setWaitedLong(true)
-          // One quiet retry per session: the picture stream is started again (a stream that never began or died).
-          if (found.running && !silentRetried.has(props.sessionID)) {
-            silentRetried.add(props.sessionID)
-            setState("busy")
-            setTimeout(() => !disposed && setState("ready"), 100)
-          }
-        })
-        .catch(() => undefined)
-    }, 10_000)
-    onCleanup(() => clearTimeout(timer))
-  })
 
   const stop = () => {
     void BrowserRuntime.closeBlockedBrowser(props.sessionID).catch((error) => setFailure(errorMessage(error)))
@@ -792,7 +803,7 @@ export function BrowserPane(props: {
             <For each={tabList()}>
               {(tab) => (
                 <>
-                  <HoverAction paddingLeft={1} onClick={() => tabAction(() => BrowserRuntime.selectTab(props.sessionID, tab.id))}>
+                  <HoverAction paddingLeft={1} background={tab.active ? selectionBackground(theme) : undefined} onClick={() => tabAction(() => BrowserRuntime.selectTab(props.sessionID, tab.id))}>
                     <text
                       fg={tab.active ? theme.text.base : theme.text.muted}
                       attributes={tab.active ? TextAttributes.BOLD | TextAttributes.UNDERLINE : undefined}
@@ -893,11 +904,15 @@ export function BrowserPane(props: {
                 />
                 <Show when={!framed()}>
                   <box position="absolute" left={0} top={0} width="100%" height="100%" alignItems="center" justifyContent="center" flexDirection="column">
-                    <text fg={theme.text.muted}>{modeNote() ?? t("Waiting for the page picture...")}</text>
+                    <text fg={theme.text.muted} wrapMode="word">{modeNote() ?? `Ожидание картинки страницы… ${frameSeconds()} с${frameRetries ? " · повтор 1/1" : ""}`}</text>
                     <Show when={waitedLong()}>
-                      <text fg={theme.text.feedback.warning.base}>
-                        {`${silentReason()} ${t("Press Text, or Close browser and Open Chrome; a terminal without pictures needs ORCHESTRA_BROWSER_GFX=blocks.")}`}
+                      <text fg={theme.text.feedback.warning.base} wrapMode="word">
+                        {silentReason()}
                       </text>
+                      <box flexDirection="row" gap={1} height={1}>
+                        <Action label="Повторить" onClick={retryPicture} />
+                        <Action label="К тексту" onClick={() => { BrowserRuntime.unwatch(props.sessionID); setView("text") }} />
+                      </box>
                     </Show>
                   </box>
                 </Show>
