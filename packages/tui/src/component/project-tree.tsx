@@ -47,7 +47,7 @@ import { DialogMode } from "./dialog-mode"
 import { useNow } from "./note-canvas"
 import { useT } from "../util/i18n"
 import { tint } from "../theme/color"
-import { hoverBackground } from "../ui/hover"
+import { hoverBackground, selectionBackground } from "../ui/hover"
 import { Branch, NeuralChip, NeuralLine, NeuronDot, neuralPalette, useNeuralEnergy } from "./neural"
 import { AllSessionsField, useEmptyRoom } from "./session-network"
 
@@ -1765,7 +1765,7 @@ function Tab(props: {
       paddingLeft={0}
       paddingRight={1}
       backgroundColor={
-        active() || props.hover() === id ? hoverBackground(theme) : undefined
+        active() ? selectionBackground(theme) : props.hover() === id ? hoverBackground(theme) : undefined
       }
       onMouseOver={() => props.setHover(id)}
       onMouseOut={() => props.setHover(undefined)}
@@ -1781,7 +1781,7 @@ function Tab(props: {
           active()
             ? theme.text.base
             : props.hover() === id
-              ? theme.text.action.primary.hovered
+              ? theme.text.base
               : palette().synapse
         }
         wrapMode="none"
