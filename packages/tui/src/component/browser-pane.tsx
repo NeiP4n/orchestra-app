@@ -662,9 +662,10 @@ export function BrowserPane(props: {
 
   return (
     <box flexGrow={1} minWidth={0} minHeight={0} flexDirection="column" paddingLeft={1} paddingRight={1}>
-      <Show when={scheduledChecks().length > 0} fallback={
-        <text fg={theme.text.muted} wrapMode="none">Read-only page checks: off</text>
-      }>
+      <Show when={!DEBUG && scheduledChecks().some((check) => check.phase === "error")}>
+        <text fg={theme.text.feedback.error.base} wrapMode="word">Проверка страницы не подтверждена. Подробности в «Расписаниях».</text>
+      </Show>
+      <Show when={DEBUG && scheduledChecks().length > 0}>
         <For each={scheduledChecks()}>{(check) => (
           <box flexDirection="row" flexShrink={0} gap={1}>
             <Show when={check.enabled && check.phase === "checking"}>
@@ -675,6 +676,9 @@ export function BrowserPane(props: {
             </text>
           </box>
         )}</For>
+      </Show>
+      <Show when={DEBUG && captureLine()}>
+        <text fg={theme.text.muted} wrapMode="word">{captureLine()}</text>
       </Show>
       <Show
         when={state() !== "idle"}
@@ -691,15 +695,13 @@ export function BrowserPane(props: {
           </box>
         }
       >
-        <box flexDirection="row" flexShrink={0} gap={0}>
+        <box flexDirection="row" flexWrap="wrap" flexShrink={0} gap={0}>
           {/* The BrowserAgent of this session is working right now: the same firing neuron as in the session list. */}
           <Show when={props.busy?.()}>
             <NeuronDot energy={0.9} />
             <text fg={theme.text.muted}>{narrow() ? "" : ` ${t("running")}`}</text>
           </Show>
-          <Show when={captureLine()}>
-            <text fg={theme.text.muted} wrapMode="none" truncate>{`${props.busy?.() ? "  " : ""}${captureLine()}`}</text>
-          </Show>
+
           <box flexGrow={1} />
           <Show when={props.canShowChat}>
             <Action label={props.chatHidden ? t("Show chat") : t("Hide chat")} onClick={props.onToggleChat} />

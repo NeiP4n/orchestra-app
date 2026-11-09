@@ -105,7 +105,17 @@ test("the pane header says whether Chrome's own window is shown and why not", as
     expect(line).toContain(part)
   // the reasons are recorded where capture is given up
   for (const reason of ["you pressed Fast view", "no picture", "did not start"]) expect(pane).toContain(reason)
-  expect(pane).toContain("<Show when={captureLine()}>")
+  expect(pane).toContain("<Show when={DEBUG && captureLine()}>")
   const core = readFileSync(new URL("../../core/src/browser/runtime.ts", import.meta.url), "utf8")
   expect(core).toContain("captureProblems.set(sessionID, text)")
+})
+
+
+test("technical check and capture status stay out of the ordinary browser toolbar", () => {
+  const pane = read("component/browser-pane.tsx")
+  expect(pane).toContain("DEBUG && scheduledChecks().length > 0")
+  expect(pane).toContain("!DEBUG && scheduledChecks().some((check) => check.phase === \"error\")")
+  expect(pane).toContain("Подробности в «Расписаниях»")
+  expect(pane).not.toContain("Read-only page checks: off")
+  expect(pane).toContain('flexWrap="wrap"')
 })
