@@ -9,19 +9,19 @@ import { acts, BrowserTool } from "../src/tool/plugin/browser"
 
 describe("a folder holding projects", () => {
   const list = [
-    { id: "brw_a", name: "Shop", project: "C:\\Work\\App" },
+    { id: "brw_a", name: "Shop", project: "C:\\Work\\App", projectID:"prj_a" },
     { id: "brw_b", name: "Docs", project: "C:\\Work\\Docs" },
     { id: "brw_c", name: "Other", project: "C:\\Elsewhere" },
   ]
-  test("its agent sees the sessions of the projects inside it, and a project's agent only its own", () => {
-    expect(BrowserBridge.visible(list, "C:\\Work").map((item) => item.id)).toEqual(["brw_a", "brw_b"])
-    expect(BrowserBridge.visible(list, "C:\\Work\\App\\src").map((item) => item.id)).toEqual(["brw_a"])
+  test("a workspace parent sees no child browsers and a bound project sees only its own", () => {
+    expect(BrowserBridge.visible(list, "C:\\Work").map((item) => item.id)).toEqual([])
+    expect(BrowserBridge.visible(list, "C:\\Work\\App\\src", "prj_a").map((item) => item.id)).toEqual(["brw_a"])
     expect(BrowserBridge.visible(list, "C:\\Worker")).toEqual([])
     expect(BrowserBridge.visible(list, "C:\\Nothing")).toEqual([])
   })
-  test("it takes the selection of the first project inside it when it has none of its own", () => {
+  test("a workspace parent does not inherit a child selection", () => {
     const map = { "C:\\Work\\Docs": "brw_b", "C:\\Work\\App": "brw_a" }
-    expect(BrowserBridge.selectedFor(map, "C:\\Work")).toBe("brw_a")
+    expect(BrowserBridge.selectedFor(map, "C:\\Work")).toBeUndefined()
     expect(BrowserBridge.selectedFor(map, "C:\\Worker")).toBeUndefined()
   })
 })
@@ -302,14 +302,14 @@ describe("window capture (Windows helper protocol)", () => {
 
 describe("browser sessions and leases", () => {
   const list = [
-    { id: "brw_a", name: "Browser 1", project: "/w/Work" },
+    { id: "brw_a", name: "Browser 1", project: "/w/Work", projectID:"prj_a" },
     { id: "brw_b", name: "Browser 1", project: "/w/Other" },
     { id: "brw_c", name: "Shop", project: "/w/Work" },
   ]
 
   test("a session is found by id, or by name in the caller's project first", () => {
-    expect(BrowserBridge.resolve(list, "brw_c", "/w/Other")).toEqual({ session: list[2]! })
-    expect(BrowserBridge.resolve(list, "browser 1", "/w/Work/src")).toEqual({ session: list[0]! })
+    expect(BrowserBridge.resolve(list, "brw_c", "/w/Other")).toHaveProperty("error")
+    expect(BrowserBridge.resolve(list, "browser 1", "/w/Work/src", "prj_a")).toEqual({ session: list[0]! })
     expect(BrowserBridge.resolve(list, "Browser 1", "/w/Else")).toHaveProperty("error")
     expect(BrowserBridge.resolve(list, "nope", "/w/Work")).toHaveProperty("error")
   })

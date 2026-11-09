@@ -1837,7 +1837,7 @@ const layer: Layer.Layer<
             const other = Trigger.parse(entry.value)
             return other?.enabled && other.kind === "browser" && other.spec === trigger.spec
           })
-          if (!remaining) yield* Effect.promise(() => BrowserRuntime.stopPageWatcher(trigger.spec))
+          if (!remaining && !BrowserBridge.ownerRefusal(BrowserRuntime.sessions(),trigger.spec,project.directory,String(project.id))) yield* Effect.promise(() => BrowserRuntime.stopPageWatcher(trigger.spec))
         }
         reportLog({ event: "trigger-deleted-by-operator", trigger: trigger.id, project: trigger.projectID })
       }
@@ -1949,6 +1949,13 @@ const layer: Layer.Layer<
         const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
         if (!project?.main) continue
         if (ScheduleView.removalRequested(trigger.id, String(project.main))) continue
+        if(trigger.browserSessionID){
+          const refusal=BrowserBridge.ownerRefusal(BrowserRuntime.sessions(),trigger.browserSessionID,project.directory,String(project.id))
+          if(refusal){
+            const paused={...trigger,enabled:false,pausedReason:refusal}
+            yield* kv.set(entry.key,paused as never);ScheduleView.sync(paused,String(project.main));BrowserSchedule.sync(paused);continue
+          }
+        }
         if (trigger.localTest && trigger.browserSessionID) {
           const page = yield* Effect.promise(() => BrowserRuntime.peek(trigger.browserSessionID!))
           if (!page.running || !BrowserLocalTest.allowed(page.url)) {
@@ -1997,7 +2004,7 @@ const layer: Layer.Layer<
           BrowserSchedule.sync({ ...item.trigger, browserSessionID: item.trigger.spec })
           BrowserSchedule.queueStatus(item.trigger.id, waiting.get(item.key)?.length ?? 0)
           const wanted = item.trigger.enabled && project?.main && !ScheduleView.removalRequested(item.trigger.id, String(project.main))
-          const bound = project ? BrowserBridge.resolve(BrowserRuntime.sessions(), item.trigger.spec, project.directory) : undefined
+          const bound = project ? BrowserBridge.resolve(BrowserRuntime.sessions(), item.trigger.spec, project.directory, String(project.id)) : undefined
           const ownBrowser = bound && !("error" in bound) && project && path.resolve(bound.session.project).toLowerCase() === path.resolve(project.directory).toLowerCase()
           if (wanted && bound && !("error" in bound) && ownBrowser) yield* Effect.promise(() => BrowserRuntime.watchRestore(item.trigger.spec))
           const armed = wanted && bound && !("error" in bound) && ownBrowser ? yield* Effect.promise(() => BrowserWatch.ensure(item.trigger.spec)) : false
@@ -2006,6 +2013,8 @@ const layer: Layer.Layer<
         }
       for (const event of browserInbox.splice(0))
         for (const item of mine) {
+          const eventOwner=yield* get(item.trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(()=>undefined))
+          if(!eventOwner||BrowserBridge.ownerRefusal(BrowserRuntime.sessions(),event.sessionID,eventOwner.directory,String(eventOwner.id)))continue
           const rows = event.items.filter((row) => Trigger.matches(item.trigger, event.sessionID, row))
           if (rows.length > 0) BrowserSchedule.watchStatus(item.trigger.id, true, event.at)
           if (rows.length > 0) {
@@ -2029,6 +2038,7 @@ const layer: Layer.Layer<
         const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
         if (!project?.main) continue
         if (ScheduleView.removalRequested(trigger.id, String(project.main))) continue
+        if(BrowserBridge.ownerRefusal(BrowserRuntime.sessions(),trigger.spec,project.directory,String(project.id)))continue
         let reserved = false
         const next = Trigger.parse(yield* kv.atomicUpdate(key, (current) => {
           const latest = Trigger.parse(current)

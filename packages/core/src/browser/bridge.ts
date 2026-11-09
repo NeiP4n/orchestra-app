@@ -8,7 +8,11 @@ import path from "node:path"
 
 export const file = (root: string) => path.join(root, "browser-profiles", "selected.json")
 
-const norm = (value: string) => value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase()
+const norm = (value: string) => {
+  const windows = /^[a-z]:[\\/]/i.test(value) || value.startsWith("\\\\")
+  const normalized = (windows ? path.win32.resolve(value) : path.resolve(value)).replace(/\\/g, "/").replace(/\/+$/, "")
+  return windows ? normalized.toLowerCase() : normalized
+}
 
 export function parse(text: string | undefined): Record<string, string> {
   if (!text) return {}
@@ -33,12 +37,7 @@ export function selectedFor(map: Record<string, string>, directory: string): str
     if (best === undefined || base.length > norm(best).length) best = key
   }
   if (best !== undefined) return map[best]
-  // A directory that holds projects (a workspace folder with the orchestrator in it) takes the selection of the
-  // first project inside it, so its agent finds a browser too.
-  const inside = Object.keys(map)
-    .filter((key) => norm(key).startsWith(target + "/"))
-    .sort()[0]
-  return inside === undefined ? undefined : map[inside]
+  return undefined
 }
 
 /** The map with one project's selection set, or removed when `sessionID` is undefined. */
@@ -88,6 +87,8 @@ export interface SessionInfo {
   readonly name: string
   /** The directory of the project the session belongs to. */
   readonly project: string
+  /** Stable owner binding, published by the operator project UI. */
+  readonly projectID?: string
   readonly group?: string
   /** The chat session of this browser session's BrowserAgent: the one agent that acts in it. */
   readonly chat?: string
@@ -108,13 +109,14 @@ export function parseSessions(text: string | undefined): SessionInfo[] {
     if (!Array.isArray(value)) return []
     return value.flatMap((item): SessionInfo[] => {
       if (!item || typeof item !== "object") return []
-      const { id, name, project, group, chat } = item as Record<string, unknown>
+      const { id, name, project, projectID, group, chat } = item as Record<string, unknown>
       if (typeof id !== "string" || typeof name !== "string" || typeof project !== "string") return []
       return [
         {
           id,
           name,
           project,
+          ...(typeof projectID === "string" && projectID ? { projectID } : {}),
           ...(typeof group === "string" && group ? { group } : {}),
           ...(typeof chat === "string" && chat ? { chat } : {}),
         },
@@ -155,40 +157,39 @@ export function projectOf(list: readonly SessionInfo[], directory: string): stri
   return best
 }
 
-/**
- * The sessions an agent working in `directory` may see: those of the project that owns the directory and, when the
- * directory is a folder holding projects (the orchestrator of a workspace), those of the projects inside it.
- */
-export function visible(list: readonly SessionInfo[], directory: string): SessionInfo[] {
-  const target = norm(directory)
-  const own = projectOf(list, directory)
-  return list.filter(
-    (item) => (own !== undefined && norm(item.project) === norm(own)) || norm(item.project).startsWith(target + "/"),
-  )
+/** Only browsers with the caller's stable project binding are visible. */
+export function visible(list: readonly SessionInfo[], directory: string, projectID?: string): SessionInfo[] {
+  return list.filter((item) => ownerRefusal(list, item.id, directory, projectID) === undefined)
 }
 
-/** A session by id, or by name (the caller's project first). Says why when it cannot pick exactly one. */
+/** No workspace-parent inheritance, directory-only authority or global fallback. */
+export function ownerRefusal(
+  list: readonly SessionInfo[], id: string, directory: string, projectID?: string,
+): string | undefined {
+  const item = list.find((item) => item.id === id)
+  if (!item) return "Browser session not found in the operator-owned registry."
+  if (!projectID) return "Access denied: this chat has no verified project owner."
+  if (item.projectID === undefined)
+    return "Browser owner binding needs refresh. Open the project once to publish its stable project id; no profile was accessed."
+  if (projectID !== item.projectID) return "Access denied: browser belongs to another project."
+  const target = norm(directory), root = norm(item.project)
+  return target === root || target.startsWith(root + "/")
+    ? undefined : "Access denied: browser project directory does not match the caller."
+}
+
 export function resolve(
-  list: readonly SessionInfo[],
-  ref: string,
-  directory: string,
+  list: readonly SessionInfo[], ref: string, directory: string, projectID?: string,
 ): { session: SessionInfo } | { error: string } {
-  const wanted = ref.trim()
-  const byId = list.find((item) => item.id === wanted)
-  if (byId) return { session: byId }
-  const lower = wanted.toLowerCase()
-  const named = list.filter((item) => item.name.toLowerCase() === lower)
-  const own = projectOf(list, directory)
-  const near = named.filter((item) => own !== undefined && norm(item.project) === norm(own))
-  const pool = near.length > 0 ? near : named
-  if (pool.length === 1) return { session: pool[0]! }
-  if (pool.length > 1)
-    return {
-      error: `Several browser sessions are named "${wanted}": ${pool.map((item) => item.id).join(", ")}. Use the id.`,
-    }
-  return {
-    error: `No browser session "${wanted}". Known: ${list.map((item) => `${item.name} (${item.id})`).join(", ") || "none"}.`,
+  const wanted = ref.trim(), byId = list.find((item) => item.id === wanted)
+  if (byId) {
+    const error = ownerRefusal(list, byId.id, directory, projectID)
+    return error ? { error } : { session: byId }
   }
+  const named = visible(list, directory, projectID).filter((item) => item.name.toLowerCase() === wanted.toLowerCase())
+  if (named.length === 1) return { session: named[0]! }
+  return { error: named.length > 1
+    ? `Several own-project browser sessions are named "${wanted}". Use an exact id.`
+    : `No browser session "${wanted}" in this project. Foreign projects are not listed.` }
 }
 
 /**

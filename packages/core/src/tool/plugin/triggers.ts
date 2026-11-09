@@ -117,7 +117,7 @@ export const Plugin = {
             const source = yield* sessions.get(sessionID).pipe(
               Effect.mapError(() => new ToolFailure({ message: "This session was not found. The scheduled browser check was not created." })),
             )
-            const found = BrowserBridge.resolve(BrowserRuntime.sessions(), input.browserSession, source.location.directory)
+            const found = BrowserBridge.resolve(BrowserRuntime.sessions(), input.browserSession, source.location.directory, String(project.id))
             if ("error" in found) return yield* new ToolFailure({ message: found.error })
             if (found.session.chat && !BrowserProvenance.bind(found.session.chat))
               return yield* new ToolFailure({ message: "The scheduled worker safety marker could not be saved. The trigger was not created." })
@@ -135,7 +135,7 @@ export const Plugin = {
             const session = yield* sessions
               .get(sessionID)
               .pipe(Effect.mapError(() => new ToolFailure({ message: "This session was not found." })))
-            const found = BrowserBridge.resolve(BrowserRuntime.sessions(), spec, session.location.directory)
+            const found = BrowserBridge.resolve(BrowserRuntime.sessions(), spec, session.location.directory, String(project.id))
             if ("error" in found) return yield* new ToolFailure({ message: found.error })
             if (found.session.chat && !BrowserProvenance.bind(found.session.chat))
               return yield* new ToolFailure({ message: "The watcher worker safety marker could not be saved. Nothing was enabled." })
@@ -175,6 +175,8 @@ export const Plugin = {
         // resume: the next time comes from now; the caps' history stays, so a resume cannot reset a cap
         const ready = Trigger.resume(found, Date.now())
         if (!ready) return yield* new ToolFailure({ message: "A one-shot trigger that already fired or whose time has passed cannot be resumed. Create a new one." })
+        const browserTarget=ready.kind==="browser"?ready.spec:ready.browserSessionID
+        if(browserTarget){const refusal=BrowserBridge.ownerRefusal(BrowserRuntime.sessions(),browserTarget,project.directory,String(project.id));if(refusal)return yield* new ToolFailure({message:refusal})}
         yield* kv.set(Trigger.key(project.id, found.id), ready as never)
         ScheduleView.sync(ready, String(sessionID))
         BrowserSchedule.sync(ready.kind === "browser" ? { ...ready, browserSessionID: ready.spec } : ready)

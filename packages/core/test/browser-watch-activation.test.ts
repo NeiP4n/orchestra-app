@@ -22,7 +22,7 @@ test("durable enabled watchers restore in the server sweep, not from pane render
   const source = readFileSync(new URL("../src/orchestra.ts", import.meta.url), "utf8")
   const start = source.indexOf("const fireBrowserTriggers")
   const body = source.slice(start, source.indexOf("yield* Effect.forever", start))
-  expect(body).toContain("BrowserBridge.resolve(BrowserRuntime.sessions(), item.trigger.spec, project.directory)")
+  expect(body).toContain("BrowserBridge.resolve(BrowserRuntime.sessions(), item.trigger.spec, project.directory, String(project.id))")
   expect(body).toContain('if (wanted && bound && !("error" in bound) && ownBrowser)')
   expect(body.indexOf("BrowserRuntime.watchRestore")).toBeLessThan(body.indexOf("BrowserWatch.ensure"))
   expect(body).toContain("BrowserSchedule.watchReason")

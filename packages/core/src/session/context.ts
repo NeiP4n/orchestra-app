@@ -1,3 +1,4 @@
+import { Orchestra as OrchestraSchema } from "@orchestra/schema/orchestra"
 export * as SessionContext from "./context.js"
 
 import { Dod } from "../dod.js"
@@ -201,7 +202,7 @@ const layer = Layer.effect(
           loaded.builtins,
           loaded.entries,
           loaded.canvas,
-          BrowserInstructions.make(session.location.directory),
+          BrowserInstructions.make(session.location.directory, OrchestraSchema.sessionOwner(session.metadata)),
         ]),
         tools: loaded.tools,
       }

@@ -28,9 +28,9 @@ export function hasAnySessions() {
   }
 }
 
-export function hasSessions(directory: string) {
+export function hasSessions(directory: string, projectID?:string) {
   try {
-    return BrowserBridge.visible(BrowserRuntime.sessions(), directory).length > 0
+    return BrowserBridge.visible(BrowserRuntime.sessions(), directory, projectID).length > 0
   } catch {
     return false
   }
@@ -45,7 +45,7 @@ export function traceTools(directory: string, registered: boolean, advertised: b
   if (line !== lastTools) BrowserRuntime.trace((lastTools = line))
 }
 
-export function make(directory: string): Instructions.List {
+export function make(directory: string, projectID?:string): Instructions.List {
   BrowserRuntime.trace(`context source built for ${directory}`)
   return Instructions.make({
     key: Instructions.Key.make("core/browser-sessions"),
@@ -53,7 +53,7 @@ export function make(directory: string): Instructions.List {
     read: Effect.sync(() => {
       const all = BrowserRuntime.sessions()
       const project = BrowserBridge.projectOf(all, directory)
-      const mine = BrowserBridge.visible(all, directory)
+      const mine = BrowserBridge.visible(all, directory, projectID)
       const seen = `context for ${directory}: ${all.length} published (${BrowserRuntime.sessionsFilePath()}), project ${project ?? "none"}, visible ${mine.length}`
       if (seen !== lastSeen) BrowserRuntime.trace((lastSeen = seen))
       // Sessions exist in the Browser tab but none belongs to this directory: say so, or the agent reaches for a
@@ -61,8 +61,8 @@ export function make(directory: string): Instructions.List {
       if (all.length === 0) return Instructions.removed
       const held = BrowserRuntime.leases()
       const selected = BrowserRuntime.selectedSession(directory)
-      // None belongs to this folder: show them all anyway (one operator, one machine); the tool falls back the same way.
-      return (mine.length > 0 ? mine : all).map(
+      // Do not publish foreign browser identities or controller state into this chat.
+      return mine.map(
         (item): Entry => ({
           id: item.id,
           name: item.name,

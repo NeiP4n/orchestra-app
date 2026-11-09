@@ -5,6 +5,7 @@ import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { optional } from "@orchestra/schema/schema"
 import { Effect, Schema } from "effect"
+import { Orchestra as OrchestraSchema } from "@orchestra/schema/orchestra"
 import { BrowserBridge } from "../../browser/bridge.js"
 import { BrowserDevtools } from "../../browser/devtools.js"
 import { BrowserPage } from "../../browser/page.js"
@@ -124,13 +125,16 @@ const RETRYABLE =
   /connection (closed|failed)|Could not connect to Chrome|Another Chrome|Chrome closed before it was ready|profile.*in use|no answer from Chrome|timed out|(target|tab|page) (was )?closed/i
 
 /** A closed connection (Chrome died, or was killed with the app) is dropped and the action tried once more on a fresh one. */
-export async function perform(sessionID: string, input: Input, localTest = false) {
-  const capture = () => localTest
+export async function perform(sessionID: string, input: Input, localTest = false, scope?:{directory:string;projectID?:string}) {
+  const capture = () => {
+    if(scope){const error=BrowserBridge.ownerRefusal(BrowserRuntime.sessions(),sessionID,scope.directory,scope.projectID);if(error)throw new Error(error)}
+    return localTest
     ? BrowserLocalTest.read(
       async () => (await BrowserRuntime.peek(sessionID)).url,
       () => performOnce(sessionID, input, true),
     )
     : performOnce(sessionID, input)
+  }
   try {
     return await capture()
   } catch (error) {
@@ -304,20 +308,21 @@ export const Plugin = {
       if (BrowserLifecycle.retired(String(sessionID))) return yield* Effect.fail(new ToolFailure({ message: "Сессия браузера закрыта или удалена. Не выбирайте другой профиль автоматически; обновите список браузеров." }))
       const session = yield* ctx.session.get({ sessionID })
       if (ref !== undefined && ref.trim() !== "") {
-        const found = BrowserBridge.resolve(BrowserRuntime.sessions(), ref, session.location.directory)
+        const found = BrowserBridge.resolve(BrowserRuntime.sessions(), ref, session.location.directory, OrchestraSchema.sessionOwner(session.metadata))
         return "error" in found ? yield* Effect.fail(new ToolFailure({ message: found.error })) : found.session.id
       }
       const published = BrowserRuntime.sessions()
       // A BrowserAgent works in the one session its chat owns, without being told which.
       const own = BrowserBridge.ownedBy(published, sessionID)
-      if (own) return own.id
-      // A folder with no session of its own uses the only one the Browser tab has, so the chat is not left blind.
-      const chosen =
-        BrowserRuntime.selectedSession(session.location.directory) ??
-        (BrowserBridge.projectOf(published, session.location.directory) === undefined && published.length === 1
-          ? published[0]!.id
-          : undefined)
-      return chosen === undefined ? yield* Effect.fail(new ToolFailure({ message: NO_SESSION })) : chosen
+      if (own) {
+        const refusal=BrowserBridge.ownerRefusal(published,own.id,session.location.directory,OrchestraSchema.sessionOwner(session.metadata))
+        if(refusal)return yield* Effect.fail(new ToolFailure({message:refusal}))
+        return own.id
+      }
+      const chosen=BrowserRuntime.selectedSession(session.location.directory)
+      if(chosen===undefined)return yield* Effect.fail(new ToolFailure({message:NO_SESSION}))
+      const refusal=BrowserBridge.ownerRefusal(published,chosen,session.location.directory,OrchestraSchema.sessionOwner(session.metadata))
+      return refusal?yield* Effect.fail(new ToolFailure({message:refusal})):chosen
     })
 
     const fail = (message: string) => Effect.fail(new ToolFailure({ message }))
@@ -348,7 +353,8 @@ export const Plugin = {
                 if (blocked) return yield* fail(blocked)
               }
               if (input.action === "sessions") {
-                const list = BrowserRuntime.sessions()
+                const source=yield* ctx.session.get({sessionID:context.sessionID})
+                const list = BrowserBridge.visible(BrowserRuntime.sessions(),source.location.directory,OrchestraSchema.sessionOwner(source.metadata))
                 const held = BrowserRuntime.leases()
                 const pages = new Map<string, { running: boolean; title?: string; url?: string }>()
                 for (const item of list) pages.set(item.id, yield* Effect.promise(() => BrowserRuntime.peek(item.id)))
@@ -360,6 +366,9 @@ export const Plugin = {
               const taint = Trigger.taintOf(String(context.sessionID))
               if (taint && Trigger.TAINT_BLOCKED.has(input.action)) return yield* fail(Trigger.taintRefusal(taint, input.action))
               const browserSession = yield* sessionFor(context.sessionID, scheduled?.browserSessionID ?? input.session)
+              const ownerSession=yield* ctx.session.get({sessionID:context.sessionID})
+              const ownerRefusal=BrowserBridge.ownerRefusal(BrowserRuntime.sessions(),browserSession,ownerSession.location.directory,OrchestraSchema.sessionOwner(ownerSession.metadata))
+              if(ownerRefusal)return yield* fail(ownerRefusal)
               if (scheduled) {
                 const blocked = Trigger.scheduledBrowserRefusal(scheduled, input.action, browserSession)
                 if (blocked) return yield* fail(blocked)
@@ -396,12 +405,7 @@ export const Plugin = {
               // The session the operator selected in the Browser tab (or the only one there is) is the one they put
               // in front of the agent: acting in it needs no per-action question. Another session still asks.
               const here = (yield* ctx.session.get({ sessionID: context.sessionID })).location.directory
-              const published = BrowserRuntime.sessions()
-              const handedOver =
-                BrowserRuntime.selectedSession(here) === browserSession ||
-                (BrowserBridge.projectOf(published, here) === undefined &&
-                  published.length === 1 &&
-                  published[0]!.id === browserSession)
+              const handedOver = BrowserRuntime.selectedSession(here) === browserSession
               if (acts(input.action) && !handedOver)
                 yield* permission.assert({
                   action: name,
@@ -433,7 +437,7 @@ export const Plugin = {
               const checkedTask = input.action !== "info" ? scheduled : undefined
               if (checkedTask) BrowserSchedule.started(checkedTask.triggerID, browserSession)
               const result = yield* Effect.tryPromise({
-                try: () => perform(browserSession, input, scheduled ? BrowserSchedule.get(scheduled.triggerID)?.localTest === true : false).finally(() => acts(input.action) && BrowserWatch.mute(browserSession, 5_000)),
+                try: () => perform(browserSession, input, scheduled ? BrowserSchedule.get(scheduled.triggerID)?.localTest === true : false,{directory:ownerSession.location.directory,projectID:OrchestraSchema.sessionOwner(ownerSession.metadata)}).finally(() => acts(input.action) && BrowserWatch.mute(browserSession, 5_000)),
                 catch: (error) =>
                   new ToolFailure({
                     message: `Browser ${input.action} failed: ${error instanceof Error ? error.message : String(error)}. ${provenance.mode === "ordinary" ? "Call browser action=start and repeat this step." : "This task is read-only: do not start or change the browser. Report the failed check to the operator; a new ordinary operator dispatch can reset the worker."} Playwright, MCP browsers, desktop_* and execute are not alternatives.`,
