@@ -30,6 +30,7 @@ afterAll(() => {
   else process.env.ORCHESTRA_BROWSER_PLUGIN = previousPlugin
 })
 
+// 6s idle time: on the Windows runner plugin activation alone took 3.8s, so 2s evicted the context before the first call.
 const it = testEffect(
   AppNodeBuilder.build(
     LayerNode.group([Database.node, Bus.node, Session.node, LocationServiceMap.node, LocationActivity.node]),
@@ -39,7 +40,7 @@ const it = testEffect(
       LocationActivity.node.replace(
         makeGlobalNode({
           service: LocationActivity.Service,
-          layer: LocationActivity.layer({ timeToLive: "2 seconds", sweepInterval: "100 millis" }),
+          layer: LocationActivity.layer({ timeToLive: "6 seconds", sweepInterval: "100 millis" }),
           deps: [Bus.node, LocationServiceMap.node, SessionExecution.node, SessionStore.node],
         }),
       ),
