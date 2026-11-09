@@ -108,8 +108,10 @@ export const Plugin = {
               if (input.session || input.role) {
                 if (!scopes.orchestrator || !scopes.project)
                   return yield* new ToolFailure({ message: "Only the Orchestrator can write or read rules of another session or role." })
-                if (input.session)
-                  reach.push({ kind: "session", scope: Rules.sessionScope(input.session), label: `Session ${input.session}` })
+                if (input.session) {
+                  const scope = yield* Rules.sessionReach({ projectID: scopes.project, sessionID: input.session, sessions, orchestra })
+                  reach.push({ kind: "session", scope, label: `Session ${input.session}` })
+                }
                 if (input.role)
                   reach.push({ kind: "role", scope: Rules.roleScope(scopes.project, input.role), label: `Role ${input.role}` })
               }

@@ -377,6 +377,23 @@ const inheritedScopes = (
     return { projects, societies }
   })
 
+/** Resolve reach before reading or mutating another session's rule scope. */
+export const sessionReach = (input: {
+  readonly projectID: string
+  readonly sessionID: string
+  readonly sessions: Pick<Session.Interface, "get">
+  readonly orchestra: Pick<Orchestra.Interface, "projects" | "owns">
+}): Effect.Effect<string, ScopesError> => Effect.gen(function* () {
+  const project = (yield* input.orchestra.projects()).find((item) => item.id === input.projectID)
+  const session = yield* input.sessions.get(input.sessionID as SessionID).pipe(Effect.option)
+  if (!project || Option.isNone(session) || !(yield* input.orchestra.owns(project, session.value)))
+    return yield* new ScopesError({ reason: "The target session is not owned by this project. No rule scope was accessed." })
+  return sessionScope(String(session.value.id))
+}).pipe(Effect.catchCause((cause) => {
+  if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause)
+  return Effect.fail(new ScopesError({ reason: "The target session owner could not be verified. No rule scope was accessed." }))
+}))
+
 // --- Priority and conflicts -------------------------------------------------
 //
 // Society > project > global. A rule in a lower scope never overrides a higher one, and a
