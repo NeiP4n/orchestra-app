@@ -38,7 +38,7 @@ export function make(directory: string): Instructions.List {
     read: Effect.sync(() => {
       const all = BrowserRuntime.sessions()
       const project = BrowserBridge.projectOf(all, directory)
-      const seen = `context for ${directory}: ${all.length} published, project ${project ?? "none"}`
+      const seen = `context for ${directory}: ${all.length} published (${BrowserRuntime.sessionsFilePath()}), project ${project ?? "none"}`
       if (seen !== lastSeen) BrowserRuntime.trace((lastSeen = seen))
       if (project === undefined) return Instructions.removed
       const mine = all.filter((item) => item.project === project)

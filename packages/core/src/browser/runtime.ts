@@ -617,17 +617,29 @@ export function selectedSession(directory: string) {
     directory,
   )
 }
+let lastPublished = ""
 /** The Browser tab publishes every session (name, project) so the agents can list and address them. */
 export function publishSessions(list: readonly BrowserBridge.SessionInfo[]) {
   const file = BrowserBridge.sessionsFile(Global.Path.data)
   const text = JSON.stringify(list, null, 2)
-  if (existsSync(file) && readFileSync(file, "utf8") === text) return
+  if (existsSync(file) && readFileSync(file, "utf8") === text) {
+    if (lastPublished !== text) {
+      lastPublished = text
+      trace(
+        `sessions already published: ${list.length} in ${file} (${list.map((item) => `${item.name}@${item.project}`).join("; ")})`,
+      )
+    }
+    return
+  }
+  lastPublished = text
   mkdirSync(path.dirname(file), { recursive: true })
   writeFileSync(file, text)
   trace(
     `sessions published: ${list.length} to ${file} (${list.map((item) => `${item.name}@${item.project}`).join("; ")})`,
   )
 }
+
+export const sessionsFilePath = () => BrowserBridge.sessionsFile(Global.Path.data)
 
 export function sessions() {
   const file = BrowserBridge.sessionsFile(Global.Path.data)
