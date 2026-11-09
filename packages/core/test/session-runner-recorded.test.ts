@@ -55,6 +55,8 @@ if (process.env.RECORD === "true") {
   HttpRecorder.removeCassetteSync(cassetteName, { directory: cassetteDirectory })
 }
 // The shared harness prompt evolves independently of this recorded response.
+// The cassette user content was manually aligned with the current PromptIntake
+// note; its recorded response is unchanged. This is not a new provider recording.
 const comparableRequest = (request: HttpRecorder.RequestSnapshot) => {
   let body: unknown
   try {
