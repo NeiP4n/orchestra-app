@@ -134,3 +134,12 @@ describe("MCP limits the Orchestrator distributes", () => {
     expect(OrchestraTool.mcpBriefLine(limit)).toContain("context7")
   })
 })
+
+describe("reading the Browser tab at the limit", () => {
+  test("looking is never refused, acting in the page is", () => {
+    const full = Array.from({ length: OrchestraTool.ORCHESTRATOR_MESSAGE_LIMIT }, (_, index) => `m${index}`)
+    for (const action of ["sessions", "info", "text", "screenshot"])
+      expect(gate(full, { tool: "browser", messageID: "next", action }).blocked).toBe(false)
+    expect(gate(full, { tool: "browser", messageID: "next", action: "click" }).blocked).toBe(true)
+  })
+})

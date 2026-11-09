@@ -188,6 +188,11 @@ const isSocietyTool = (tool: string) => tool === SocietyForgeTool.name || tool =
 const isSurveyCall = (tool: string, action: string | undefined) =>
   tool === "mcp_manager" && action === "inspect"
 
+// Looking at the operator's Browser tab (sessions, info, text, screenshot) is not doing the team's work: it is how the
+// Orchestrator answers "what is in my browser", and refusing it made it answer from memory. Acting in the page stays gated.
+const isBrowserLook = (tool: string, action: string | undefined) =>
+  tool === "browser" && (action === "sessions" || action === "info" || action === "text" || action === "screenshot")
+
 export function delegationGate(
   counted: ReadonlyArray<string>,
   input: { tool: string; messageID: string; action?: string; text?: string },
@@ -197,7 +202,7 @@ export function delegationGate(
   // Team management, Society building, the MCP survey and asking the
   // operator are always available and never count as the Orchestrator
   // doing the work itself.
-  if (input.tool === name || input.tool === "question" || isSocietyTool(input.tool) || isSurveyCall(input.tool, input.action))
+  if (input.tool === name || input.tool === "question" || isSocietyTool(input.tool) || isSurveyCall(input.tool, input.action) || isBrowserLook(input.tool, input.action))
     return { counted, blocked: false, reset: false }
   if (counted.includes(input.messageID)) return { counted, blocked: false, reset: false }
   if (counted.length >= ORCHESTRATOR_MESSAGE_LIMIT) return { counted, blocked: true, reset: false }
@@ -1024,18 +1029,33 @@ export const Plugin = {
     // not hand back spent messages. Sessions that are not a project main are
     // never gated.
     const gateCounted = new Map<string, string[]>()
+    const gateIncoming = new Map<string, string>()
     yield* ctx.tool.hook("execute.before", (event) =>
       Effect.gen(function* () {
         const project = yield* orchestra.mainOf(event.sessionID).pipe(Effect.orElseSucceed(() => undefined))
         if (!project || project.main !== event.sessionID) return
+        // The newest messages, oldest first. Reading the oldest 100 (order asc) made a long chat count its first
+        // messages, not its latest ones.
+        const history = yield* sessions
+          .messages({ sessionID: event.sessionID, limit: 100, order: "desc" })
+          .pipe(
+            Effect.map((list) => [...list].reverse()),
+            Effect.orElseSucceed(() => [] as SessionMessage.Info[]),
+          )
+        const incoming = [...history].reverse().find((item) => item.type === "user" || item.type === "synthetic")
+        const incomingID = incoming ? String(incoming.id) : ""
         let counted = gateCounted.get(event.sessionID)
         if (!counted) {
-          const history = yield* sessions
-            .messages({ sessionID: event.sessionID, limit: 100, order: "asc" })
-            .pipe(Effect.orElseSucceed(() => [] as SessionMessage.Info[]))
           const streak = Math.min(ownMessageStreak(history), ORCHESTRATOR_MESSAGE_LIMIT)
           counted = Array.from({ length: streak }, (_, index) => `history-${index}`)
           gateCounted.set(event.sessionID, counted)
+          gateIncoming.set(event.sessionID, incomingID)
+        } else if (incomingID !== "" && incomingID !== gateIncoming.get(event.sessionID)) {
+          // A new incoming message (the operator's, or a <team-report> wake-up) starts a new cycle. Without this
+          // the count never reset, and a chat of plain questions ended with every tool call refused for good.
+          counted = []
+          gateCounted.set(event.sessionID, counted)
+          gateIncoming.set(event.sessionID, incomingID)
         }
         // The gate needs the action for more than the sessions tool: the
         // MCP survey (mcp_manager inspect) is exempt, so its action must
@@ -1778,8 +1798,11 @@ export const Plugin = {
         // The 6-message rule status rides in its own block so the roster above
         // stays stable and cacheable; only this small tail changes per request.
         const history = yield* sessions
-          .messages({ sessionID: event.sessionID, limit: 100, order: "asc" })
-          .pipe(Effect.orElseSucceed(() => [] as SessionMessage.Info[]))
+          .messages({ sessionID: event.sessionID, limit: 100, order: "desc" })
+          .pipe(
+            Effect.map((list) => [...list].reverse()),
+            Effect.orElseSucceed(() => [] as SessionMessage.Info[]),
+          )
         event.system.push({ type: "text", text: delegationStatus(ownMessageStreak(history)).text })
       }),
     )
