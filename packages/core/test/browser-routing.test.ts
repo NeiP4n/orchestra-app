@@ -26,3 +26,11 @@ describe("no browser automation outside the browser tool", () => {
     expect(JSON.stringify(entry.config)).not.toMatch(/edge/i)
   })
 })
+
+describe("MCP switch", () => {
+  test("MCP is off unless ORCHESTRA_MCP=1", () => {
+    expect(McpCatalog.mcpEnabled({})).toBe(false)
+    expect(McpCatalog.mcpEnabled({ ORCHESTRA_MCP: "0" })).toBe(false)
+    expect(McpCatalog.mcpEnabled({ ORCHESTRA_MCP: "1" })).toBe(true)
+  })
+})

@@ -9,6 +9,8 @@ setDefaultTimeout(30_000)
 
 process.env.ORCHESTRA_DB = ":memory:"
 process.env.NPM_CONFIG_AUDIT = "false"
+// MCP is off by default for agents; the MCP machinery tests need it on.
+process.env.ORCHESTRA_MCP = "1"
 
 // Keep ripgrep integration tests offline: use the binary shipped with the
 // test dependency rather than triggering the application's first-run download.

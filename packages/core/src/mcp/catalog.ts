@@ -190,6 +190,9 @@ export const isRealScreenServer = (id: string): boolean =>
 const local = (command: string[]): ServerConfig => ({ type: "local", command }) as ServerConfig
 const remote = (url: string): ServerConfig => ({ type: "remote", url }) as ServerConfig
 
+/** MCP is off for agents unless the operator sets ORCHESTRA_MCP=1: no server connects, no MCP tools exist. The native tools do the work. */
+export const mcpEnabled = (env: Record<string, string | undefined>): boolean => env.ORCHESTRA_MCP === "1"
+
 /** MCP servers that start a browser of their own. Agents use the `browser` tool and the Browser tab only; these are refused unless the operator sets the flag. */
 export const SEPARATE_BROWSER_FLAG: Readonly<Record<string, string>> = {
   "chrome-devtools": "ORCHESTRA_MCP_CHROME_DEVTOOLS",

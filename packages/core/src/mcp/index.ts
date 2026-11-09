@@ -665,7 +665,7 @@ export const layer = (options?: Options) =>
       const overrides = new Map<ServerName, Mcp.ServerConfig | false>()
       const reconcileLock = Semaphore.makeUnsafe(1)
       const reconcile = Effect.fnUntraced(function* () {
-        const servers = state.get().servers
+        const servers = McpCatalog.mcpEnabled(process.env) ? state.get().servers : new Map<ServerName, Mcp.ServerConfig>()
         if (!applied && entries.size === 0) {
           for (const [name, server] of servers) {
             entries.set(name, {

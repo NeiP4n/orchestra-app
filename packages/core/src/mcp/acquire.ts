@@ -150,6 +150,13 @@ export const ensure: (access: Access, id: string) => Effect.Effect<Ensured> = Ef
   id: string,
 ) {
   const before = yield* snapshot(access, id)
+  if (!McpCatalog.mcpEnabled(process.env))
+    return {
+      ...before,
+      state: "failed" as const,
+      action: "none" as const,
+      detail: "MCP is switched off for agents (the operator can set ORCHESTRA_MCP=1). Use the native tools: websearch, webfetch, research, browser.",
+    }
   if (before.state === "healthy") return { ...before, action: "reused" as const }
   // A degraded server (connected, but no tools discovered) is NOT reused as
   // if it worked: it gets one reconnect, which restarts it and re-runs tool

@@ -385,6 +385,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Minimum log level (DEBUG/INFO/WARN/ERROR).",
     default: "INFO",
   },
+  ORCHESTRA_MCP: {
+    purpose: "Turn MCP servers on for agents (\"1\"). Off: no server connects and no MCP tools exist; the native tools (websearch, webfetch, research, browser) are used.",
+    default: "Off.",
+  },
   ORCHESTRA_MCP_CHROME_DEVTOOLS: {
     purpose: "Let acquisition install the chrome-devtools MCP server, which starts a Chrome of its own (\"1\"). The `browser` tool is used otherwise.",
     default: "Off.",
