@@ -1,6 +1,6 @@
 import { TextAttributes } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
-import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, untrack, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import type {
   OrchestraAccess,
@@ -300,6 +300,46 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       })
       .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
   }
+
+  // Categories and access come from the server with the project's session list, once, when the project opens. A
+  // session the Orchestrator creates later (with its category) was in the list but not in the category map, so it
+  // landed under "Other" until the project was reopened. When the set of sessions an open project owns changes,
+  // the map is fetched again (one request at a time per project, a short wait so a burst of creates is one fetch).
+  const seenSessions = new Map<string, string>()
+  const refreshing = new Set<string>()
+  const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const refresh = (projectID: string) => {
+    if (refreshing.has(projectID)) return
+    refreshing.add(projectID)
+    void client.api.orchestra.project
+      .sessions({ projectID })
+      .then((result) => {
+        result.data.forEach((session) => data.session.remember(session))
+        setAccess(result.access)
+        setCategory(result.category)
+      })
+      .catch(() => undefined)
+      .finally(() => refreshing.delete(projectID))
+  }
+  createEffect(() => {
+    const list = data.session.list()
+    for (const project of projects()) {
+      const signature = list
+        .filter((session) => owner(session)?.id === project.id)
+        .map((session) => session.id)
+        .toSorted()
+        .join(",")
+      const before = seenSessions.get(project.id)
+      seenSessions.set(project.id, signature)
+      if (before === undefined || before === signature || !untrack(() => expanded[project.id])) continue
+      clearTimeout(refreshTimers.get(project.id))
+      refreshTimers.set(
+        project.id,
+        setTimeout(() => refresh(project.id), 400),
+      )
+    }
+  })
+  onCleanup(() => refreshTimers.forEach((timer) => clearTimeout(timer)))
 
   const toggle = (projectID: string) => {
     notes.setProject(projectID)

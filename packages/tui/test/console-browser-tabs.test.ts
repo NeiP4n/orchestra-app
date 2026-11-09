@@ -60,3 +60,9 @@ test("the project tree lists subagents (sessions with a parent) under their pare
   expect(tree).toContain("childRows(project.main)")
   expect(tree).toContain("childRows(session.id)")
 })
+
+test("the project tree refetches categories when an open project's session set changes", () => {
+  const tree = read("component/project-tree.tsx")
+  expect(tree).toContain("const refresh = (projectID: string)")
+  expect(tree).toContain("setTimeout(() => refresh(project.id)")
+})
