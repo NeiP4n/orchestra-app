@@ -219,7 +219,8 @@ async function serveChangelog(page: Page, body: typeof changelog | typeof cliOnl
 async function start(page: Page, seed: SeedInput) {
   await mockWorkspace(page, { name: "Whats New", sessions: [], seed })
   await page.goto("/")
-  await expectAppVisible(page.getByRole("button", { name: "Settings", exact: true }))
+  // The titlebar gear and the Projects panel each have a Settings button once the panel has rendered: any one proves the window is up.
+  await expectAppVisible(page.getByRole("button", { name: "Settings", exact: true }).first())
 }
 
 function stored(page: Page, key: string) {
