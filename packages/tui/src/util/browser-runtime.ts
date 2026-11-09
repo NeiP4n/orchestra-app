@@ -1,6 +1,10 @@
 // The Browser tab runs its Chrome through the shared runtime in core, so the chat agent's browser tool
 // acts in the very same Chrome (one per browser session, on its own profile, never the operator's own).
+import { BrowserSchedule } from "@orchestra/core/browser/schedule"
 import { BrowserRuntime } from "@orchestra/core/browser/runtime"
+
+// Local operational status reads do not poll the website or Chrome.
+export const scheduleStatus = BrowserSchedule.forSession
 
 export const {
   open,

@@ -1,6 +1,6 @@
 export * as BrowserSchedule from "./schedule.js"
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync, rmSync } from "node:fs"
+import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync, rmSync } from "node:fs"
 import path from "node:path"
 import { Global } from "@orchestra/util/global"
 
@@ -58,4 +58,18 @@ export function finished(id: string, sessionID: string, ok: boolean, now = Date.
 export function deliveryFailed(id: string) {
   const previous = get(id)
   if (previous) save({ ...previous, phase: "error", error: "Could not deliver the check to the Orchestrator." })
+}
+
+
+/** Only this session's operational status, never another session's page content. */
+export function forSession(sessionID: string): Status[] {
+  try {
+    return readdirSync(path.join(Global.Path.data, "browser-schedules")).flatMap((name) => {
+      if (!name.endsWith(".json")) return []
+      let id: string
+      try { id = decodeURIComponent(name.slice(0, -5)) } catch { return [] }
+      const status = get(id)
+      return status?.browserSessionID === sessionID ? [status] : []
+    })
+  } catch { return [] }
 }

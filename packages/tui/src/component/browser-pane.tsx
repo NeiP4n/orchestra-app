@@ -17,6 +17,7 @@ import { useT } from "../util/i18n"
 import { useDialog } from "../ui/dialog"
 import { DialogPrompt } from "../ui/dialog-prompt"
 import * as BrowserRuntime from "../util/browser-runtime"
+import { scheduleLine } from "../util/browser-schedule"
 import { NeuronDot } from "./neural"
 
 declare module "@opentui/solid" {
@@ -105,6 +106,19 @@ export function BrowserPane(props: {
     BrowserRuntime.isOpen(props.sessionID) ? "ready" : "idle",
   )
   const [page, setPage] = createSignal({ url: "", title: "", text: "" })
+  const [scheduledChecks, setScheduledChecks] = createSignal(BrowserRuntime.scheduleStatus(props.sessionID))
+  const [scheduleNow, setScheduleNow] = createSignal(Date.now())
+  createEffect(() => {
+    const sessionID = props.sessionID
+    const refresh = () => {
+      setScheduledChecks(BrowserRuntime.scheduleStatus(sessionID))
+      setScheduleNow(Date.now())
+    }
+    refresh()
+    // Only local status files are read. This does not check or refresh the site.
+    const timer = setInterval(refresh, 2000)
+    onCleanup(() => clearInterval(timer))
+  })
   const [failure, setFailure] = createSignal<string>()
   const [mode, setMode] = createSignal<"headless" | "window" | "capture">(BrowserRuntime.modeOf(props.sessionID))
   const windowed = () => mode() === "window"
@@ -647,6 +661,20 @@ export function BrowserPane(props: {
 
   return (
     <box flexGrow={1} minWidth={0} minHeight={0} flexDirection="column" paddingLeft={1} paddingRight={1}>
+      <Show when={scheduledChecks().length > 0} fallback={
+        <text fg={theme.text.muted} wrapMode="none">Read-only page checks: off</text>
+      }>
+        <For each={scheduledChecks()}>{(check) => (
+          <box flexDirection="row" flexShrink={0} gap={1}>
+            <Show when={check.enabled && check.phase === "checking"}>
+              <NeuronDot energy={0.9} />
+            </Show>
+            <text fg={check.phase === "error" ? theme.text.feedback.error.base : theme.text.muted} wrapMode="word">
+              {scheduleLine(check, scheduleNow())}
+            </text>
+          </box>
+        )}</For>
+      </Show>
       <Show
         when={state() !== "idle"}
         fallback={
