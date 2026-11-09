@@ -33,10 +33,8 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
         backgroundColor={theme.background.raised.base}
         width={width()}
         height="100%"
-        paddingTop={1}
-        paddingBottom={1}
-        paddingLeft={layout.compact() ? 1 : 2}
-        paddingRight={layout.compact() ? 1 : 2}
+        paddingLeft={1}
+        paddingRight={1}
         position="relative"
         border={props.borderLeft ? ["left"] : undefined}
         borderColor={theme.border.base}
@@ -74,7 +72,7 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
             </HoverAction>
           </Show>
         </box>
-        <box flexShrink={0} paddingTop={1} paddingBottom={1}>
+        <box height={1} flexShrink={0}>
           <NeuralLine
             energy={running() ? 0.35 : 0.04}
             seed={4}
@@ -82,7 +80,7 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
             backdrop={theme.background.raised.base}
           />
         </box>
-        <box flexShrink={0} paddingRight={1} paddingBottom={1}>
+        <box flexShrink={0} paddingRight={1}>
           <SessionNetwork sessionID={props.sessionID} />
         </box>
         <box
@@ -114,13 +112,13 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
           >
             <box
               flexShrink={0}
-              gap={1}
+              gap={0}
               paddingRight={1}
               onSizeChange={function () {
                 empty.content(this.height)
               }}
             >
-              <ScheduleList sessionID={props.sessionID} width={Math.max(1, width() - (layout.compact() ? 2 : 4) - 2)} />
+              <ScheduleList sessionID={props.sessionID} width={Math.max(1, width() - 4)} />
               <Slot path="sidebar.content" input={{ sessionID: props.sessionID }} />
             </box>
           </scrollbox>
@@ -135,7 +133,7 @@ export function Sidebar(props: { sessionID: string; onHide?: () => void; width?:
           </Show>
         </box>
 
-        <box flexShrink={0} gap={1} paddingTop={1}>
+        <box flexShrink={0} gap={0}>
           <Slot path="sidebar.footer" input={{ sessionID: props.sessionID }} />
         </box>
       </box>

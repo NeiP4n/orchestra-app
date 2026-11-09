@@ -17,6 +17,7 @@ import { assignmentOf, assignmentSummary, sessionMcpView, teamMcpView, teamWorke
 // server and never grants or changes any session's access.
 export function SidebarMcp(props: { context: Plugin.Context; sessionID: string }) {
   const [view, updateView] = props.context.storage.store("view", { initial: { teamOpen: true } })
+  const mineHover = createHoverFeedback()
   const teamHover = createHoverFeedback()
   const allHover = createHoverFeedback()
   const theme = props.context.theme
@@ -75,12 +76,12 @@ export function SidebarMcp(props: { context: Plugin.Context; sessionID: string }
 
   return (
     <box>
-      <box flexDirection="row" justifyContent="space-between" gap={1}>
-        <text fg={theme.text.base} flexShrink={0}>
-          <b>{t("MCP · THIS SESSION")}</b>
-        </text>
-        <text fg={theme.text.muted} wrapMode="none">
-          {assignmentSummary(mine())}
+      <box flexDirection="row" minWidth={0}
+        backgroundColor={mineHover.background()}
+        onMouseOver={mineHover.onMouseOver} onMouseOut={mineHover.onMouseOut}
+        onMouseUp={() => props.context.ui.dialog.show(() => <DialogMcp />)}>
+        <text fg={theme.text.base} wrapMode="word" minWidth={0}>
+          <b>{t("MCP · this session")}</b>{`: ${assignmentSummary(mine(), t)}`}
         </text>
       </box>
       <Show when={roleDefault()}>

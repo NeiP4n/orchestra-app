@@ -3,7 +3,6 @@ import { access, rename } from "node:fs/promises"
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { Plugin } from "@orchestra/plugin/tui"
 import type { PanelInput } from "@orchestra/plugin/tui/context"
-import { useCompactLayout } from "../../ui/compact-layout"
 import { useT } from "../../util/i18n"
 import { hoverBackground } from "../../ui/hover"
 import { useTheme } from "../../context/theme"
@@ -180,7 +179,7 @@ export function SidebarDod(props: { context: Plugin.Context; sessionID: string }
   const theme = props.context.theme
   const actionColor = theme.text.action?.primary?.base ?? theme.text.base
   const t = useT()
-  const layout = useCompactLayout()
+  const [measuredWidth, setMeasuredWidth] = createSignal(22)
   const [board, setBoard] = createSignal<BoardState>({ type: "loading" })
   const [open, setOpen] = createSignal(false)
   const [hoveredAction, setHoveredAction] = createSignal<"open" | "toggle" | "close">()
@@ -233,7 +232,7 @@ export function SidebarDod(props: { context: Plugin.Context; sessionID: string }
     return value.type === "ready" ? value.items : []
   }
   const summary = () => summarizeDodBoard(items())
-  const width = () => Math.max(6, Math.min(22, layout.sidebarWidth() - (layout.compact() ? 5 : 7)))
+  const width = () => Math.max(1, Math.min(22, measuredWidth()))
   const filled = () => Math.round((summary().percent / 100) * width())
   const heading = () => {
     const value = board()
@@ -254,7 +253,7 @@ export function SidebarDod(props: { context: Plugin.Context; sessionID: string }
             : theme.text.muted
 
   return (
-    <box gap={1}>
+    <box gap={0} minWidth={0} onSizeChange={function () { setMeasuredWidth(this.width) }}>
       <box flexDirection="row" alignItems="center" gap={1}>
         <box
           id="sidebar.dod.preview-toggle"
@@ -267,14 +266,10 @@ export function SidebarDod(props: { context: Plugin.Context; sessionID: string }
             setOpen((value) => !value)
           }}
         >
-          <text fg={hoveredAction() === "toggle" ? actionHoverColor() : actionColor}>{open() ? "▾" : "▸"}</text>
+          <text fg={hoveredAction() === "toggle" ? actionHoverColor() : actionColor} wrapMode="none">{`${open() ? "▾" : "▸"} ${t("DoD")}`}</text>
         </box>
         <box flexDirection="row" alignItems="center" gap={1} flexGrow={1} minWidth={0}>
-          <box flexGrow={1} minWidth={0}>
-            <text fg={actionColor} wrapMode="none" truncate>
-              <b>{t("DoD")}</b>
-            </text>
-          </box>
+          <box flexGrow={1} minWidth={0} />
           <text fg={theme.text.muted} wrapMode="none" truncate>
             {heading()}
           </text>
@@ -299,9 +294,9 @@ export function SidebarDod(props: { context: Plugin.Context; sessionID: string }
       </box>
 
       <Show when={board().type === "ready"}>
-        <text id="sidebar.dod.progress" wrapMode="none">
-          <span style={{ fg: theme.text.feedback.success.base }}>{"█".repeat(filled())}</span>
-          <span style={{ fg: theme.text.muted }}>{"░".repeat(Math.max(0, width() - filled()))}</span>
+        <text id="sidebar.dod.progress" height={1} flexShrink={0} wrapMode="none">
+          <span style={{ fg: theme.text.feedback.success.base }}>{"━".repeat(filled())}</span>
+          <span style={{ fg: theme.text.muted }}>{"─".repeat(Math.max(0, width() - filled()))}</span>
         </text>
       </Show>
 

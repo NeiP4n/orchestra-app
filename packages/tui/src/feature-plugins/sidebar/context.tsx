@@ -527,14 +527,15 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
 
   const [scope, setScope] = createSignal<Scope>("session")
   // The sidebar's side padding (2 + 2, or 1 + 1 when compact) plus the column reserved for the scrollbar.
-  const barWidth = () => Math.max(1, layout.sidebarWidth() - (layout.compact() ? 3 : 5))
+  const [measuredWidth, setMeasuredWidth] = createSignal<number>()
+  const barWidth = () => Math.max(1, measuredWidth() ?? layout.sidebarWidth() - 3)
   const msg = createMemo(() => props.context.data.session.message.list(props.sessionID))
   const session = createMemo(() => props.context.data.session.get(props.sessionID))
   const cost = createMemo(() => props.context.data.session.cost(props.sessionID))
 
   const toolTokens = createMemo(() => estimateToolTokens(msg()))
 
-  const toolLabel = () => t("Tools & MCP")
+  const toolLabel = () => barWidth() < 36 ? t("Tools & MCP short") : t("Tools & MCP")
 
   // "Context limit" means "no threshold" and is the only label that changes with the language.
   const thresholdLabel = (value: number) => (value <= 0 ? t("Context limit") : formatCompactionThreshold(value))
@@ -765,7 +766,7 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
   return (
     <>
       <SidebarDod context={props.context} sessionID={props.sessionID} />
-      <box>
+      <box gap={0} minWidth={0} onSizeChange={function () { setMeasuredWidth(this.width) }}>
         <box flexDirection="row" justifyContent="space-between">
           <text fg={theme.text.base}>
             <b>{t("Context")}</b>
@@ -789,7 +790,7 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
           </For>
         </box>
         <Show when={scope() === "session"}>
-          <box flexDirection="row" justifyContent="space-between" gap={1} paddingTop={1}>
+          <box flexDirection="row" justifyContent="space-between" gap={1}>
             <text fg={theme.text.muted} wrapMode="none">
               {t("Auto-compaction at:")}
             </text>
@@ -817,7 +818,7 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
         </Show>
         <Show when={apiBalance.latest}>
           {(info) => (
-            <box paddingTop={1}>
+            <box>
               <text fg={theme.text.muted} wrapMode="none">
                 {t("API · Polza")}
               </text>
@@ -855,7 +856,7 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
                     </text>
                   )}
                 </Show>
-                <text wrapMode="none">
+                <text height={1} flexShrink={0} wrapMode="none">
                   <For each={cells()}>
                     {(part) => (
                       <span style={{ fg: scope() === "session" ? level(state()?.percent ?? 0) : theme.text.base }}>
@@ -867,11 +868,7 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
                     {"·".repeat(Math.max(0, barWidth() - cells().reduce((count, part) => count + part.cells, 0)))}
                   </span>
                 </text>
-                <Show when={scope() === "session" && state()?.percent !== undefined}>
-                  <text fg={theme.text.muted} wrapMode="none">
-                    {t("{percent}% of context limit", { percent: state()?.percent ?? 0 })}
-                  </text>
-                </Show>
+
                 <box flexDirection="row" justifyContent="space-between" gap={1}>
                   <text fg={theme.text.muted} wrapMode="none">
                     {Locale.number(item().used)}
@@ -890,7 +887,7 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
                   {(kind) => (
                     <box flexDirection="row" gap={1}>
                       <text fg={theme.text.muted}>{kind.glyph}</text>
-                      <text fg={theme.text.base} flexGrow={1} wrapMode="none">
+                      <text fg={theme.text.base} flexGrow={1} minWidth={0} wrapMode="none" truncate>
                         {t(kind.label)}
                       </text>
                       <text fg={theme.text.muted} wrapMode="none">
@@ -905,7 +902,7 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
                 <Show when={scope() === "session" && toolTokens() > 0}>
                   <box flexDirection="row" gap={1}>
                     <text fg={theme.text.muted}>⎔</text>
-                    <text fg={theme.text.base} flexGrow={1} wrapMode="none">
+                    <text fg={theme.text.base} flexGrow={1} minWidth={0} wrapMode="none" truncate>
                       {toolLabel()}
                     </text>
                     <text fg={theme.text.muted} wrapMode="none">
@@ -919,7 +916,7 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
                 <Show when={scope() === "session" && state()?.limit && item().whole > item().used}>
                   <box flexDirection="row" gap={1}>
                     <text fg={theme.text.muted}>·</text>
-                    <text fg={theme.text.base} flexGrow={1} wrapMode="none">
+                    <text fg={theme.text.base} flexGrow={1} minWidth={0} wrapMode="none" truncate>
                       {t("Free space")}
                     </text>
                     <text fg={theme.text.muted} wrapMode="none">
@@ -931,7 +928,7 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
                   </box>
                 </Show>
                 <Show when={scope() !== "session" && entries().length > 0}>
-                  <box paddingTop={1}>
+                  <box>
                     <text fg={theme.text.muted}>
                       {t(
                         scope() === "project"
@@ -944,7 +941,7 @@ export function SidebarContext(props: { context: Plugin.Context; sessionID: stri
                     <For each={entries().slice(0, MAX_ENTRIES)}>
                       {(entry) => (
                         <box flexDirection="row" gap={1}>
-                          <text fg={theme.text.base} flexGrow={1} wrapMode="none">
+                          <text fg={theme.text.base} flexGrow={1} minWidth={0} wrapMode="none" truncate>
                             {Locale.truncate(entry.title, Math.max(4, barWidth() - 8))}
                           </text>
                           <text fg={theme.text.muted} wrapMode="none">

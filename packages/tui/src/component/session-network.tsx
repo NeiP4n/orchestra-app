@@ -56,35 +56,24 @@ export function SessionNetwork(props: { sessionID: string }) {
   })
   const busyWorkers = () => session.workers().filter((worker) => data.session.status(worker.id) === "running").length
 
+  const [width, setWidth] = createSignal(44)
   return (
-    <box flexShrink={0} gap={0}>
-      <box flexDirection="row" gap={1} flexShrink={0}>
-        <NeuronDot energy={session.running() ? 0.35 : 0.04} session={session.scope()} />
-        <text fg={theme.text.muted} wrapMode="none" flexGrow={1}>
-          {t("Session network")}
+    <box flexDirection="row" gap={1} height={1} flexShrink={0} minWidth={0} onSizeChange={function () { setWidth(this.width) }}>
+      <NeuronDot energy={session.running() ? 0.35 : 0.04} session={session.scope()} />
+      <text fg={theme.text.muted} wrapMode="none" truncate minWidth={0} flexShrink={1}>
+        {width() < 34 ? t("Network") : t("Session network")}
+      </text>
+      <text fg={doing().lit ? palette().spark : theme.text.muted} wrapMode="none" truncate minWidth={0} flexGrow={1}>
+        {`· ${doing().text}`}
+      </text>
+      <Show when={session.workers().length > 0 && width() >= 48}>
+        <text fg={busyWorkers() > 0 ? palette().signal : theme.text.muted} wrapMode="none" flexShrink={0}>
+          {t("{count} workers", { count: `${busyWorkers()}/${session.workers().length}` })}
         </text>
-        <Show when={session.workers().length > 0}>
-          <text fg={busyWorkers() > 0 ? palette().signal : theme.text.muted} wrapMode="none">
-            {t("{count} workers", { count: `${busyWorkers()}/${session.workers().length}` })}
-          </text>
-        </Show>
-      </box>
-      <box flexDirection="row" gap={1} flexShrink={0}>
-        <text fg={doing().lit ? palette().spark : theme.text.muted} wrapMode="none" flexGrow={1}>
-          {doing().text}
-        </text>
-        <Show when={tally().running.length > 0}>
-          <text fg={palette().signal} wrapMode="none">
-            {`▸${tally().running.length}`}
-          </text>
-        </Show>
-        <text fg={tally().done > 0 ? palette().done : theme.text.muted} wrapMode="none">
-          {`✓${tally().done}`}
-        </text>
-        <text fg={tally().failed > 0 ? palette().fail : theme.text.muted} wrapMode="none">
-          {`✗${tally().failed}`}
-        </text>
-      </box>
+      </Show>
+      <Show when={tally().running.length > 0}><text fg={palette().signal} wrapMode="none" flexShrink={0}>{`▸${tally().running.length}`}</text></Show>
+      <text fg={tally().done > 0 ? palette().done : theme.text.muted} wrapMode="none" flexShrink={0}>{`✓${tally().done}`}</text>
+      <text fg={tally().failed > 0 ? palette().fail : theme.text.muted} wrapMode="none" flexShrink={0}>{`✗${tally().failed}`}</text>
     </box>
   )
 }

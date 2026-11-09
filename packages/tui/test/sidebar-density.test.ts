@@ -1,0 +1,33 @@
+import { expect, test } from "bun:test"
+import { readFileSync } from "node:fs"
+const read = (path: string) => readFileSync(new URL(`../src/${path}`, import.meta.url), "utf8")
+test("right sidebar keeps effects out of list spacing and network status on one row", () => {
+  const sidebar = read('routes/session/sidebar.tsx')
+  expect(sidebar).toContain('<box height={1} flexShrink={0}>')
+  expect(sidebar).not.toContain('paddingTop={1} paddingBottom={1}')
+  expect(sidebar).toContain('<SessionNetworkField')
+  expect(sidebar).toContain('position="absolute" left={0} bottom={0}')
+  const network = read('component/session-network.tsx')
+  expect(network).toContain('gap={1} height={1} flexShrink={0}')
+  expect(network).toContain('`· ${doing().text}`')
+  expect(network).toContain('`✓${tally().done}`')
+  expect(network).toContain('`✗${tally().failed}`')
+})
+test("DoD bar is a single thin row and context bars follow measured content width", () => {
+  const dod = read('feature-plugins/sidebar/dod.tsx')
+  expect(dod).toContain('id="sidebar.dod.progress" height={1}')
+  expect(dod).toContain('"━".repeat(filled())')
+  expect(dod).toContain('setMeasuredWidth(this.width)')
+  expect(dod).not.toContain('"░".repeat(Math.max(0, width() - filled()))')
+  const context = read('feature-plugins/sidebar/context.tsx')
+  expect(context).toContain('measuredWidth() ?? layout.sidebarWidth() - 3')
+  expect(context).toContain('setMeasuredWidth(this.width)')
+  expect(context).toContain('<text height={1} flexShrink={0} wrapMode="none">')
+})
+test("MCP session summary is translated and clickable, without changing grants", () => {
+  const mcp = read('feature-plugins/sidebar/mcp.tsx')
+  expect(mcp).toContain('t("MCP · this session")')
+  expect(mcp).toContain('assignmentSummary(mine(), t)')
+  expect(mcp).toContain('mineHover.background()')
+  expect(read('util/i18n-context.ts')).toContain('"Not assigned yet": "не назначено"')
+})
