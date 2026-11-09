@@ -62,9 +62,17 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     default: "\"http://127.0.0.1:9222\"",
     readIn: "injected-env",
   },
+  ORCHESTRA_BROWSER_HEADLESS: {
+    purpose: "Built-in launch of the browser plugin starts Chromium headless (\"0\" opens a visible window).",
+    default: "Headless.",
+  },
   ORCHESTRA_BROWSER_LAUNCHER: {
     purpose: "Shell command that starts the browser when the CDP endpoint does not answer.",
     readIn: "injected-env",
+  },
+  ORCHESTRA_BROWSER_LAUNCH_WAIT_MS: {
+    purpose: "How long the browser plugin waits for the CDP endpoint after a built-in launch, in milliseconds.",
+    default: "20000.",
   },
   ORCHESTRA_BROWSER_LOCAL: {
     purpose: "Local browser for the browser plugin (\"0\" disables it).",
