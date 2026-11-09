@@ -119,3 +119,12 @@ test("technical check and capture status stay out of the ordinary browser toolba
   expect(pane).not.toContain("Read-only page checks: off")
   expect(pane).toContain('flexWrap="wrap"')
 })
+
+test("opening browser pane stays text-only until explicit Screen request, without an image stream by default", () => {
+  const pane = read("component/browser-pane.tsx")
+  expect(pane).toContain('createSignal<"screen" | "text">("text")')
+  expect(pane).toContain('view() !== "screen"')
+  expect(pane).toContain('if (!autoCapture || state() !== "ready" || view() !== "screen") return')
+  expect(pane).toContain('label="Прочитать страницу"')
+  expect(pane).toContain('setPage(await BrowserRuntime.read(props.sessionID))')
+})

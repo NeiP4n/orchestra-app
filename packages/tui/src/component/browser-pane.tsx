@@ -105,7 +105,7 @@ export function BrowserPane(props: {
   const [state, setState] = createSignal<"idle" | "busy" | "ready">(
     BrowserRuntime.isOpen(props.sessionID) ? "ready" : "idle",
   )
-  const [page, setPage] = createSignal({ url: "", title: "", text: "" })
+  const [page, setPage] = createSignal({ url: "", title: "", text: "Фоновый режим: страница остаётся в Chrome, изображения не передаются. «Screen» включает экран, «Прочитать страницу» запрашивает текст один раз." })
   const [scheduledChecks, setScheduledChecks] = createSignal(BrowserRuntime.scheduleStatus(props.sessionID))
   const [scheduleNow, setScheduleNow] = createSignal(Date.now())
   createEffect(() => {
@@ -125,7 +125,7 @@ export function BrowserPane(props: {
   const windowed = () => mode() === "window"
   // The screen is the page streamed as pictures (kitty or sixel graphics when the terminal has them,
   // colored half-blocks otherwise); the text view stays as the plain fallback.
-  const [view, setView] = createSignal<"screen" | "text">("screen")
+  const [view, setView] = createSignal<"screen" | "text">("text")
   const renderer = useRenderer()
   const [size, setSize] = createSignal<{ cols: number; rows: number }>()
   let picture: ImageRenderable | undefined
@@ -497,7 +497,7 @@ export function BrowserPane(props: {
   // pane shows it, and only between the agent's turns, it is restarted once as the captured real window. Tried once
   // per pane: a capture that failed (or "Fast view" pressed) is not tried again until the pane is reopened.
   createEffect(() => {
-    if (!autoCapture || state() !== "ready") return
+    if (!autoCapture || state() !== "ready" || view() !== "screen") return
     const timer = setInterval(() => {
       if (disposed || state() !== "ready" || mode() !== "headless") return
       // Only once the windowless picture is on screen (the user sees the page first), never twice for a session,
@@ -731,6 +731,9 @@ export function BrowserPane(props: {
             />
           </Show>
           <Show when={!windowed()}>
+            <Show when={view() === "text"}>
+              <Action label="Прочитать страницу" onClick={() => void run(async () => { setPage(await BrowserRuntime.read(props.sessionID)) })} />
+            </Show>
             <Action
               label={view() === "screen" ? t("Text") : t("Screen")}
               onClick={() => {
