@@ -108,7 +108,7 @@ export const ensure = async (sessionID: string) => (ensurer ? await ensurer(sess
 /** The script that runs in the page. It reports added rows after a one second pause, and nothing for the first 3 seconds. */
 export function script(binding = BINDING) {
   return `(() => {
-  if (window.__orchestraWatchOn) return
+  if (window.__orchestraWatchOn && window.__orchestraWatchObserver) return
   window.__orchestraWatchOn = true
   const quietUntil = Date.now() + 3000
   const rowSel = '[data-id],[role="row"],[role="listitem"],article,li'
