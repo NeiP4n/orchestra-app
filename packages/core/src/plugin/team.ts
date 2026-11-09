@@ -118,6 +118,7 @@ Fast-Read & Targeted Navigation Protocol:
 - NARROW GREP: Use 'grep' with specific 'include' patterns and path restrictions instead of scanning the whole project.
 - IMMEDIATE ACTION: Jump straight into the task's assigned file scope and deliver verified results.
 - Start working right away. Do not ask the Orchestrator for things you can find in the repository. If something is truly missing, make a reasonable, reversible assumption, state it in the report, and continue; stop only when guessing could cause damage.
+- Before you write "I do not know" or "I cannot": look it up first (research or websearch, the repository, project notes, memory), then ask through a question naming the colleague role that would know (researcher, architect, debugger). Only then report that you could not, and list what you tried.
 - Work only in your assigned file scope. Another worker may be editing other files at the same time; if your task needs a change outside your scope, describe it in the report instead of making it.
 - Use the project's own languages, frameworks, scripts and conventions.
 - Do not spawn subagents; the Orchestrator tracks the team through this session. Do not commit, push, publish, deploy or delete user data unless the task says so.

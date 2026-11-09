@@ -271,3 +271,21 @@ describe("SessionCompletionGate: BrowserAgent", () => {
     expect(run([...spent, nudge(), assistant("")])).toBeUndefined()
   })
 })
+
+describe("SessionCompletionGate: giving up", () => {
+  const worker = (messages: SessionMessage.Info[]) => SessionCompletionGate.check(messages, empty, undefined, undefined, undefined, "team-developer")
+  test("a worker that says it cannot, without looking anything up, is sent back", () => {
+    expect(worker([user("fix it"), assistant("Я не знаю, как это сделать.")])).toContain("giving up without trying")
+  })
+  test("a give-up after a search or a question stands", () => {
+    expect(worker([user("fix it"), assistant("", [{ name: "websearch", input: { query: "x" } }]), assistant("I cannot find it.")])).toBeUndefined()
+    expect(worker([user("fix it"), assistant("", [{ name: "question", input: {} }]), assistant("не смог")])).toBeUndefined()
+  })
+  test("an ordinary answer is left alone", () => {
+    expect(worker([user("fix it"), assistant("Done: the bug was in parse().")])).toBeUndefined()
+  })
+  test("the nudges are limited", () => {
+    const spent = [user("fix it"), assistant("не знаю"), nudge(), assistant("не знаю"), nudge(), assistant("не знаю"), nudge(), assistant("не знаю")]
+    expect(worker(spent)).toBeUndefined()
+  })
+})

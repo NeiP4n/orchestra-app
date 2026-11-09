@@ -104,6 +104,13 @@ const AI_OWNER = "AI"
 const AI_OWNER_ID = "local-ai"
 const WORK_ACTIONS = new Set(["next", "take", "add", "check", "uncheck"])
 
+// Phrases of giving up, and the tools whose use shows the agent looked or asked first.
+const GIVE_UP =
+  /не знаю|не могу|не смог|не получилось|не удалось|нет возможности|\b(?:i )?(?:do not|don't) know\b|\bcan(?:'|no)t\b|\bcannot\b|\bcouldn't\b|\bunable to\b/i
+const LOOKUP_TOOLS = new Set([
+  "websearch", "webfetch", "research", "memory", "grep", "codegraph", "symbols", "question", "sessions", "subagent", "peer", "federation", "skill", "note",
+])
+
 // The state line a BrowserAgent report starts with.
 const STATE_LINE = /^\s*(?:DONE|PARTLY DONE|NOT DONE)\b/i
 
@@ -156,6 +163,20 @@ export function check(
   const previous = turn.findLastIndex((message) => message.type === "synthetic" && message.metadata?.[MetadataKey] === true)
   if (previous >= 0 && !turn.slice(previous + 1).some((message) => message.type === "assistant" && tools(message).length > 0))
     return undefined
+  // "I do not know / I cannot" with no look-up and no question to a colleague is not an answer: it goes back to work.
+  {
+    const said = last.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n").trim()
+    if (said.length > 0 && said.length <= 600 && GIVE_UP.test(said) && nudges.length < max) {
+      const tried = turnCalls(turn).some((call) => LOOKUP_TOOLS.has(call.name))
+      if (!tried)
+        return reminder([
+          "Completion check: you are giving up without trying to find out.",
+          agent?.startsWith("team-")
+            ? "Look it up first (research or websearch, the repository, project notes, memory). If that is not enough, ask a question that names the colleague role that would know (researcher, architect, debugger). Report that you could not only after that, with the list of what you tried."
+            : "Search yourself, or send the task to the colleague role that knows it (sessions: researcher, architect, debugger), or return it to the worker with a hint. Tell the operator that it failed only after those tries, with the list.",
+        ])
+    }
+  }
   const text = last.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n").trim()
   // Asking the operator is a legitimate place to stop.
   if (tools(last).some((tool) => tool.name === "question") || /[?？]\s*$/.test(text)) return undefined
