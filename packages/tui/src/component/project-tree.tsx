@@ -29,6 +29,7 @@ import { openProjectDialog } from "./dialog-project"
 import { useProjects } from "../context/projects"
 import { browserSessionGroups } from "../util/browser-sessions"
 import { DialogPrompt } from "../ui/dialog-prompt"
+import { DialogSelect } from "../ui/dialog-select"
 import { DialogConfirm } from "../ui/dialog-confirm"
 import { ClearSessionsAction } from "./clear-sessions"
 import { useNotes, type NotesTab } from "../context/notes"
@@ -823,6 +824,36 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                       )
                     }}
                   </For>
+                  <Show when={notes.closedBrowserSessions(project.id).length > 0}>
+                    <Row
+                      id={`browser-reopen:${project.id}`}
+                      hover={hover}
+                      setHover={setHover}
+                      onClick={() =>
+                        dialog.replace(() => (
+                          <DialogSelect
+                            title={t("Reopen a closed browser session")}
+                            options={notes.closedBrowserSessions(project.id).map((item) => ({
+                              title: item.group ? `${item.group} · ${item.name}` : item.name,
+                              value: item.id,
+                              description: new Date(item.closedAt).toLocaleString(),
+                            }))}
+                            onSelect={(option) => {
+                              dialog.clear()
+                              notes.reopenBrowserSession(project.id, option.value)
+                              notes.setProject(project.id)
+                              if (!inProject(project)) void openMain(project)
+                            }}
+                          />
+                        ))
+                      }
+                    >
+                      <Branch />
+                      <text fg={theme.text.action.primary.base} wrapMode="none" truncate>
+                        {`↺ ${t("Reopen closed session")} (${notes.closedBrowserSessions(project.id).length})`}
+                      </text>
+                    </Row>
+                  </Show>
                   <Row
                     id={`browser-new:${project.id}`}
                     hover={hover}
