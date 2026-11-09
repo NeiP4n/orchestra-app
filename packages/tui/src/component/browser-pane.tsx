@@ -32,7 +32,13 @@ const PIXEL_MOUSE = process.env.ORCHESTRA_BROWSER_PIXEL_MOUSE !== "0"
 // the column the marker is on decides the hit. ORCHESTRA_BROWSER_STRIP_SNAP=0 turns it off.
 const STRIP_SNAP = process.env.ORCHESTRA_BROWSER_STRIP_SNAP !== "0"
 // ORCHESTRA_BROWSER_HALFBLOCKS=1 draws the page as block characters, never kitty/sixel graphics.
-const IMAGE_PROTOCOL = process.env.ORCHESTRA_BROWSER_HALFBLOCKS === "1" ? ("blocks" as const) : ("auto" as const)
+// Windows Terminal printed the sixel data as text over the whole screen, so Windows draws blocks unless
+// ORCHESTRA_BROWSER_HALFBLOCKS=0 asks for the terminal's own graphics.
+const IMAGE_PROTOCOL =
+  process.env.ORCHESTRA_BROWSER_HALFBLOCKS === "1" ||
+  (process.platform === "win32" && process.env.ORCHESTRA_BROWSER_HALFBLOCKS !== "0")
+    ? ("blocks" as const)
+    : ("auto" as const)
 const STRIP_SCALE = Math.min(3, Math.max(1, Number(process.env.ORCHESTRA_BROWSER_SCALE) || 1))
 const DEBUG = process.env.ORCHESTRA_BROWSER_DEBUG === "1"
 const BUILD = (() => {
@@ -86,7 +92,17 @@ export function BrowserPane(props: {
   const [stats, setStats] = createSignal("")
   let lastFrame = 0
   let disposed = false
-  onCleanup(() => (disposed = true))
+  // Repaints every cell from scratch: whatever a picture or a mode switch left on the screen is overwritten.
+  const repaint = () => {
+    try {
+      renderer.currentRenderBuffer.clear()
+      renderer.requestRender()
+    } catch {}
+  }
+  onCleanup(() => {
+    disposed = true
+    repaint()
+  })
 
   const run = async (work: () => Promise<void>) => {
     setFailure(undefined)
@@ -390,6 +406,7 @@ export function BrowserPane(props: {
         if (disposed) return
         setMode(BrowserRuntime.modeOf(props.sessionID))
         setState("ready")
+        repaint()
       })
   }
   const stop = () => {

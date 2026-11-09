@@ -71,8 +71,8 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     default: "Off.",
   },
   ORCHESTRA_BROWSER_HALFBLOCKS: {
-    purpose: "Draw the Browser tab's page as colored block characters (\"1\") instead of kitty or sixel graphics, for terminals that print graphics data as text.",
-    default: "Off: the terminal's graphics protocol is detected.",
+    purpose: "Draw the Browser tab's page as colored block characters (\"1\") instead of kitty or sixel graphics, for terminals that print graphics data as text. \"0\" asks for the terminal's own graphics even on Windows.",
+    default: "On for Windows, off elsewhere (the terminal's graphics protocol is detected).",
   },
   ORCHESTRA_BROWSER_LAUNCHER: {
     purpose: "Shell command that starts the browser when the CDP endpoint does not answer.",
