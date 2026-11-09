@@ -240,13 +240,19 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
 
     // One browser session, one BrowserAgent: an empty chat of the browser-agent role in the project's folder,
     // titled like the session. The chat id is kept with the session so reopening it brings the same chat back.
+    // A session being given its chat is not given a second one by a click that lands before the first finishes.
+    const agentPending = new Set<string>()
     const giveBrowserAgent = async (projectID: string, sessionID: string, directory: string, title: string) => {
+      if (agentPending.has(sessionID) || browser.projects?.[projectID]?.find((entry) => entry.id === sessionID)?.chat) return
+      agentPending.add(sessionID)
       try {
         const created = data.session.create({ title, location: { directory }, agent: "team-browser-agent" })
         await created.request
-        changeBrowser((draft) => void bindBrowserChat(draft, projectID, sessionID, created.id))
+        await changeBrowser((draft) => void bindBrowserChat(draft, projectID, sessionID, created.id))
       } catch {
         // The browser works without its chat; the next open tries again.
+      } finally {
+        agentPending.delete(sessionID)
       }
     }
 
