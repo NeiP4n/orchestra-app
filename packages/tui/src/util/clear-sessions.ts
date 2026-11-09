@@ -35,7 +35,7 @@ async function listPage(
 export async function listEverySession(api: SessionCleanupApi): Promise<SessionInfo[]> {
   const active = await listPage(api, false)
   const archived = await listPage(api, true)
-  return [...active, ...archived]
+  return [...new Map([...active, ...archived].map((session) => [session.id, session])).values()]
 }
 
 /**
@@ -44,12 +44,14 @@ export async function listEverySession(api: SessionCleanupApi): Promise<SessionI
  * server refuses to delete (a project's main orchestrator) is reported instead
  * of stopping the run.
  */
-export async function removeEverySession(api: SessionCleanupApi, sessions: SessionInfo[]) {
+export async function removeEverySession(api: SessionCleanupApi, sessions: SessionInfo[], hooks?: { before?: (session: SessionInfo) => Promise<void>; after?: (session: SessionInfo) => Promise<void> }) {
   const failures: string[] = []
   let removed = 0
   for (const session of sessions) {
     try {
+      await hooks?.before?.(session)
       await api.remove({ sessionID: session.id })
+      await hooks?.after?.(session)
       removed++
     } catch (error) {
       failures.push(errorMessage(error))

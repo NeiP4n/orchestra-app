@@ -233,3 +233,15 @@ export function browserChatRecord(state: BrowserSessionsState, chat: string) {
 export function isBrowserChat(agent: string | undefined, bound: boolean) {
   return bound || (agent !== undefined && /browser/i.test(agent))
 }
+
+/** Successful chat deletion retires its active browser binding without deleting the saved profile. */
+export function retireDeletedBrowserChat(state: BrowserSessionsState, chat: string) {
+  for (const [projectID, items] of Object.entries(state.projects)) {
+    for (const item of [...items]) if (item.chat === chat) removeBrowserSession(state, projectID, item.id)
+  }
+  forgetBrowserChat(state, chat)
+}
+/** Decoration is not a session manager: browser records, including closed ones, live in Browsers only. */
+export function showInGeneralNetwork(session: { id: string; agent?: string; title?: string }, bound: boolean) {
+  return !bound && !/browser/i.test(session.agent ?? "") && !/browser/i.test(session.title ?? "")
+}

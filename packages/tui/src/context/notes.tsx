@@ -1,3 +1,4 @@
+import { BrowserLifecycle } from "@orchestra/core/browser/lifecycle"
 import {
   isNoteConflictError,
   type NoteInfo,
@@ -6,7 +7,7 @@ import {
   type PermissionRuleset,
 } from "@orchestra/client"
 import { Note } from "@orchestra/schema/note"
-import { createSignal, onCleanup } from "solid-js"
+import { createEffect, createSignal, onCleanup } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { errorMessage } from "../util/error"
 import { useClient } from "./client"
@@ -25,6 +26,7 @@ import {
   forgetClosedBrowserSession,
   groupBrowserSession,
   forgetBrowserChat,
+  retireDeletedBrowserChat,
   removeBrowserSession,
   reopenBrowserSession,
   renameBrowserSession,
@@ -62,9 +64,14 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
         mutation(draft)
         // One chat, one browser session: a duplicate record of the same chat is folded into the oldest.
         collapseDuplicateChats(draft)
+        BrowserLifecycle.publish(Object.values(draft.retiredChats ?? {}).flat(), Object.values(draft.projects).flatMap((items) => items.flatMap((item) => item.chat ? [item.chat] : [])))
       }).catch((error) => {
         console.error("Browser session changes could not be saved; no successful change was recorded.", error)
       })
+    createEffect(() => {
+      try { BrowserLifecycle.publish(Object.values(browser.retiredChats ?? {}).flat(), Object.values(browser.projects ?? {}).flatMap((items) => items.flatMap((item) => item.chat ? [item.chat] : []))) }
+      catch (error) { console.error("Browser lifecycle projection failed", error) }
+    })
     // Chats a browser session is being given or adopted right now: the instant the chat exists it is claimed, so the
     // adoption of "orphan" browser chats never takes the one the button is still binding.
     const claimed = new Set<string>()
@@ -317,6 +324,7 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
           adoptBrowserChat(draft, projectID, { id, chat, name, now: Date.now() })
         })
       },
+      retireDeletedBrowserChat: (chat: string) => changeBrowser((draft) => retireDeletedBrowserChat(draft, chat)),
       forgetBrowserChat: (chat: string) => changeBrowser((draft) => void forgetBrowserChat(draft, chat)),
       renameBrowserSession: (projectID: string, id: string, name: string) =>
         changeBrowser((draft) => void renameBrowserSession(draft, projectID, id, name)),

@@ -374,6 +374,25 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
         }}
         actions={[
           {
+            command: "dialog.browser.delete-chat",
+            title: "удалить чат, сохранить логины",
+            bind: "ctrl+k",
+            onTrigger: (option) => {
+              const item = closed().find((entry) => entry.id === option.value)
+              if (!item?.chat) return
+              const chatID = item.chat
+              dialog.replace(() => <DialogConfirm title="Удалить закрытый чат браузера?" message={`${item.name}: чат удалится, профиль и логины сохранятся.`} onConfirm={() => {
+                void (async () => {
+                  await beforeRemoveChat({ id: chatID })
+                  await client.api.session.remove({ sessionID: chatID })
+                  await afterRemoveChat({ id: chatID })
+                  if (route.data.type === "session" && route.data.sessionID === chatID) route.navigate({ type: "home" })
+                  next(again)
+                })().catch((error) => toast.show({ message: errorMessage(error), variant: "error" }))
+              }} onCancel={() => next(again)} />)
+            },
+          },
+          {
             command: "dialog.browser.forget",
             title: t("remove from list"),
             bind: "ctrl+d",
@@ -489,20 +508,24 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       />
     ))
 
+  const beforeRemoveChat = async (session: { id: string }) => {
+    const bound = notes.browserChatRecord(session.id)
+    if (bound) await BrowserRuntime.closeBlockedBrowser(bound.item.id)
+  }
+  const afterRemoveChat = async (session: { id: string }) => {
+    await notes.retireDeletedBrowserChat(session.id)
+    setRemoved(session.id, true)
+    data.session.evict(session.id)
+  }
   const remove = (sessionID: string) => {
     if (armed() !== sessionID) return arm(sessionID)
     clearArmed()
-    void client.api.session
-      .remove({ sessionID })
-      .then(() => {
-        setRemoved(sessionID, true)
-        // A browser session whose BrowserAgent chat was deleted here must not keep pointing at it (the Browser tab
-        // would open a chat that is gone).
-        notes.forgetBrowserChat(sessionID)
-        data.session.evict(sessionID)
-        if (route.data.type === "session" && route.data.sessionID === sessionID) route.navigate({ type: "home" })
-      })
-      .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
+    void (async () => {
+      await beforeRemoveChat({ id: sessionID })
+      await client.api.session.remove({ sessionID })
+      await afterRemoveChat({ id: sessionID })
+      if (route.data.type === "session" && route.data.sessionID === sessionID) route.navigate({ type: "home" })
+    })().catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
   }
 
   const roomKey = (room: JoinedRoom) => `room:${room.url}#${room.roomID}`
@@ -715,7 +738,18 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                             id={`browser-remove:${item.id}`}
                             onMouseEnter={() => setRemoveHovered(true)}
                             onMouseLeave={() => setRemoveHovered(false)}
-                            onClick={() => notes.removeBrowserSession(project.id, item.id)}
+                            onClick={() => {
+                              void (async () => {
+                                await BrowserRuntime.closeBlockedBrowser(item.id)
+                                if (item.chat) {
+                                  const chatID = item.chat
+                                  await client.api.session.remove({ sessionID: chatID })
+                                  await afterRemoveChat({ id: chatID })
+                                  if (route.data.type === "session" && route.data.sessionID === chatID) route.navigate({ type: "home" })
+                                } else await notes.removeBrowserSession(project.id, item.id)
+                              })()
+                                .catch((error) => toast.show({ message: errorMessage(error), variant: "error" }))
+                            }}
                           >
                             <text fg={removeHovered() ? theme.text.feedback.error.base : theme.text.muted}>{" × "}</text>
                           </HoverAction>
@@ -1560,6 +1594,15 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
               </box>
             </Show>
           </Section>
+          <Show when={data.session.list().some((session) => !removed[session.id] && !owner(session) && (/browser/i.test(session.agent ?? "") || /browser/i.test(session.title ?? "")))}>
+            <text fg={theme.text.muted}>Старые чаты браузера (без проекта)</text>
+            <For each={data.session.list().filter((session) => !removed[session.id] && !owner(session) && (/browser/i.test(session.agent ?? "") || /browser/i.test(session.title ?? "")))}>{(chat) => (
+              <Row id={`orphan-browser:${chat.id}`} hover={hover} setHover={setHover} selected={chat.id === current()?.id} onClick={() => route.navigate({ type: "session", sessionID: chat.id })}>
+                <text fg={theme.text.base} wrapMode="none" truncate>{chat.title || "Браузер"}</text>
+                {rowButtons(chat)}
+              </Row>
+            )}</For>
+          </Show>
           </box>
         </scrollbox>
         {/* In a chat, the room the tree leaves below it shows every Session's hub on the network. */}
@@ -1575,6 +1618,8 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
         </box>
         <ClearSessionsAction
           api={client.api.session}
+          beforeRemove={beforeRemoveChat}
+          afterRemove={afterRemoveChat}
           confirm={confirmClear}
           notify={(options) => toast.show(options)}
           currentSessionID={route.data.type === "session" ? route.data.sessionID : undefined}

@@ -1,3 +1,4 @@
+import { BrowserLifecycle } from "../../browser/lifecycle.js"
 export * as BrowserTool from "./browser.js"
 
 import { ToolFailure } from "@orchestra/ai"
@@ -300,6 +301,7 @@ export const Plugin = {
       sessionID: Parameters<typeof ctx.session.get>[0]["sessionID"],
       ref: string | undefined,
     ) {
+      if (BrowserLifecycle.retired(String(sessionID))) return yield* Effect.fail(new ToolFailure({ message: "Сессия браузера закрыта или удалена. Не выбирайте другой профиль автоматически; обновите список браузеров." }))
       const session = yield* ctx.session.get({ sessionID })
       if (ref !== undefined && ref.trim() !== "") {
         const found = BrowserBridge.resolve(BrowserRuntime.sessions(), ref, session.location.directory)

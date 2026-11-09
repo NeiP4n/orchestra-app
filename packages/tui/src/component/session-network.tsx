@@ -1,3 +1,5 @@
+import { showInGeneralNetwork } from "../util/browser-sessions"
+import { useNotes } from "../context/notes"
 import { networkNames } from "../util/network-labels"
 import type { RGBA } from "@opentui/core"
 import { createMemo, createSignal, Show } from "solid-js"
@@ -110,13 +112,14 @@ export function SessionNetworkField(props: { sessionID: string; backdrop: RGBA; 
 // The whole network: every Session's hub, labelled with its title, so the chat screen shows which
 // other conversations are working right now.
 export function AllSessionsField(props: { currentID?: string; backdrop: RGBA; height: number }) {
+  const notes = useNotes()
   const data = useData()
   const t = useT()
   const names = createMemo(() =>
     networkNames(
       data.session
         .list()
-        .filter((session) => !session.parentID)
+        .filter((session) => !session.parentID && showInGeneralNetwork(session, !!notes.browserChatRecord(session.id)))
         .toSorted((left, right) => {
           const busy =
             Number(data.session.status(right.id) === "running") - Number(data.session.status(left.id) === "running")

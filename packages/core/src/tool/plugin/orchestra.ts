@@ -1,5 +1,6 @@
 export * as OrchestraTool from "./orchestra.js"
 
+import { BrowserLifecycle } from "../../browser/lifecycle.js"
 import { BrowserProvenance } from "../../browser/provenance.js"
 import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
@@ -967,12 +968,13 @@ export const Plugin = {
       required: Orchestra.Access,
     ) {
       if (!sessionID) return yield* new ToolFailure({ message: "Pass the sessionID of the target session" })
+      if (BrowserLifecycle.retired(String(sessionID))) return yield* new ToolFailure({ message: `Сессия браузера ${sessionID} закрыта или удалена оператором. Задача не отправлена. Обновите sessions list; не восстанавливайте её автоматически.` })
       const session = yield* sessions
         .get(sessionID)
-        .pipe(Effect.mapError(() => new ToolFailure({ message: `Session not found: ${sessionID}. Use the complete ID from the team roster.` })))
+        .pipe(Effect.mapError(() => new ToolFailure({ message: `Сессия не существует или недоступна: ${sessionID}. Обновите sessions list; не повторяйте отправку по старому ID.` })))
       const access = yield* orchestra.access(session.id)
       if (session.id === project.main || access === "hidden" || !(yield* orchestra.owns(project, session)))
-        return yield* new ToolFailure({ message: `Session not found: ${sessionID}. Use the complete ID from the team roster.` })
+        return yield* new ToolFailure({ message: `Сессия не существует или недоступна: ${sessionID}. Обновите sessions list; не повторяйте отправку по старому ID.` })
       if (!Orchestra.allows(access, required)) {
         // A BrowserAgent session belongs to the Orchestrator: it raises the level itself instead of asking.
         if (/^team-browser/.test(session.agent ?? "")) {
@@ -998,7 +1000,7 @@ export const Plugin = {
       const categories = yield* orchestra.categories(members.map((session) => session.id))
       const roles = yield* orchestra.roles()
       return members
-        .filter((session) => access[session.id] !== "hidden")
+        .filter((session) => access[session.id] !== "hidden" && !BrowserLifecycle.retired(String(session.id)))
         .map((session) => {
           const role = roles.find((item) => item.agent === session.agent)
           return {
@@ -1249,7 +1251,7 @@ export const Plugin = {
               const setMode = Effect.fnUntraced(function* (sessionID: SessionSchema.ID, mode: Mode.Spec) {
                 const session = yield* sessions
                   .get(sessionID)
-                  .pipe(Effect.mapError(() => new ToolFailure({ message: `Session not found: ${sessionID}. Use the complete ID from the team roster.` })))
+                  .pipe(Effect.mapError(() => new ToolFailure({ message: `Сессия не существует или недоступна: ${sessionID}. Обновите sessions list; не повторяйте отправку по старому ID.` })))
                 const metadata = { ...(session.metadata ?? {}) }
                 if (mode.id === "auto") delete metadata[Mode.MetadataKey]
                 else metadata[Mode.MetadataKey] = mode.id
@@ -1530,7 +1532,7 @@ export const Plugin = {
                   yield* dispatch(session.id, limit ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
                   return {
                     sessionID: session.id,
-                    output: `Sent. VERIFIED: id ${session.id}, title "${session.title ?? ""}", role ${role?.id ?? session.agent ?? "session"}; listed in the operator's project tree. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.${modelNote(choice.model ?? session.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`,
+                    output: `Sent. VERIFIED: id ${session.id}, title "${session.title ?? ""}", role ${role?.id ?? session.agent ?? "session"}; task accepted by the session service. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.${modelNote(choice.model ?? session.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`,
                   }
                 }
                 case "create": {

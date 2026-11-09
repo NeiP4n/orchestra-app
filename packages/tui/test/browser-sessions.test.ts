@@ -175,3 +175,18 @@ test("browser identity survives a changed working directory and role without re-
   expect(adoptBrowserChat(restored, "stable-project", { id: "wrong-new-profile", name: "Work", chat: "stable-chat", now: 2 })).toBeUndefined()
   expect(reopenBrowserSession(restored, "stable-project", "stable-profile")?.id).toBe("stable-profile")
 })
+
+test("deleted BrowserAgent chat retires active binding but preserves profile ID in closed history", async () => {
+  const { retireDeletedBrowserChat, showInGeneralNetwork } = await import("../src/util/browser-sessions")
+  const state = emptyBrowserSessions()
+  addBrowserSession(state, "p", { id: "saved-profile", now: 1 })
+  bindBrowserChat(state, "p", "saved-profile", "deleted-chat")
+  retireDeletedBrowserChat(state, "deleted-chat")
+  expect(state.projects.p).toHaveLength(0)
+  expect(state.closed?.p?.[0]?.id).toBe("saved-profile")
+  expect(state.closed?.p?.[0]?.chat).toBeUndefined()
+  expect(state.retiredChats?.p).toContain("deleted-chat")
+  expect(showInGeneralNetwork({ id: "old", title: "Browser 4" }, false)).toBe(false)
+  expect(showInGeneralNetwork({ id: "new", title: "WhatsApp" }, true)).toBe(false)
+  expect(showInGeneralNetwork({ id: "work", title: "Build" }, false)).toBe(true)
+})

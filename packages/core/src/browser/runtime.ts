@@ -5,6 +5,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import path from "node:path"
 import { Flock } from "@orchestra/util/flock"
 import { readdirSync } from "node:fs"
+import { BrowserLifecycle } from "./lifecycle.js"
 import { BrowserBudget } from "./budget.js"
 import { Global } from "@orchestra/util/global"
 import { BrowserBridge } from "./bridge.js"
@@ -238,14 +239,27 @@ async function checkLaunchBudget() {
     try { if (JSON.parse(readFileSync(file, "utf8")).pid === pid) rmSync(file, { force: true }) } catch {}
   }
 }
-/** Explicit operator button only; fresh endpoint identity check, never kill a PID loaded from disk. */
+/** Explicit operator action only; no launches and no PID loaded from disk is killed. */
 export async function closeBlockedBrowser(sessionID: string) {
   return launchLock(async () => {
     const dir = Chrome.profileDir(Global.Path.data, sessionID)
     const port = await Chrome.livePort(deps.readFile, alive, dir)
-    if (port === undefined) throw new Error("Chrome этой сессии не отвечает. Автоматическое завершение по PID отключено; чужой Chrome не затронут.")
-    await within(quit(port), 12_000)
+    if (port !== undefined) await within(quit(port), 12_000)
+    else {
+      const file = processFile(dir)
+      if (existsSync(file)) {
+        let pid: number
+        try { pid = JSON.parse(readFileSync(file, "utf8")).pid; if (!Number.isSafeInteger(pid) || pid < 1) throw new Error() }
+        catch { throw new Error("Запись процесса повреждена. Профиль и логины не удалены.") }
+        let dead = false
+        try { process.kill(pid, 0) } catch (error) { dead = (error as NodeJS.ErrnoException).code === "ESRCH" }
+        if (!dead) throw new Error("Chrome этой сессии не отвечает. Завершение по сохранённому PID запрещено; чужой Chrome не затронут.")
+        try { if (JSON.parse(readFileSync(file, "utf8")).pid === pid) rmSync(file, { force: true }) } catch {}
+      }
+    }
     evict(sessionID)
+    // DevToolsActivePort is connection metadata only, not cookies or credentials.
+    rmSync(path.join(dir, "DevToolsActivePort"), { force: true })
   })
 }
 async function start(sessionID: string): Promise<Live> {
@@ -992,7 +1006,7 @@ export const sessionsFilePath = () => BrowserBridge.sessionsFile(Global.Path.dat
 
 export function sessions() {
   const file = BrowserBridge.sessionsFile(Global.Path.data)
-  return BrowserBridge.parseSessions(existsSync(file) ? readFileSync(file, "utf8") : undefined)
+  return BrowserBridge.parseSessions(existsSync(file) ? readFileSync(file, "utf8") : undefined).filter((item) => !item.chat || !BrowserLifecycle.retired(item.chat))
 }
 
 /** An agent's hold on a session ends after a day: an agent that died keeps no session locked for good. */
