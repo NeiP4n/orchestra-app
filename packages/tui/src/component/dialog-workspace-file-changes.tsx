@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { TextAttributes } from "@opentui/core"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import type { VcsFileStatus } from "@orchestra/client"
@@ -31,6 +32,7 @@ export function DialogWorkspaceFileChanges(props: {
   message?: string
 }) {
   const dialog = useDialog()
+  const closeHover = createHoverFeedback("secondary")
   const theme = useTheme().surface("dialog")
   const overlayTheme = useTheme()
   const config = useConfig().data
@@ -75,7 +77,7 @@ export function DialogWorkspaceFileChanges(props: {
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
           {props.title ?? "File Changes Found"}
         </text>
-        <text fg={theme.text.muted} onMouseUp={() => dialog.clear()}>
+        <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>

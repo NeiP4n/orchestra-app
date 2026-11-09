@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { InputRenderable, TextAttributes } from "@opentui/core"
 import { Slug } from "@orchestra/core/util/slug"
 import { createSignal, onMount } from "solid-js"
@@ -8,6 +9,7 @@ import { useConfig } from "../config"
 
 export function DialogWorktreeName(props: { onConfirm: (name: string) => void }) {
   const dialog = useDialog()
+  const closeHover = createHoverFeedback("secondary")
   const theme = useTheme().surface("dialog")
   const shortcuts = Keymap.useShortcuts()
   const config = useConfig().data
@@ -52,7 +54,7 @@ export function DialogWorktreeName(props: { onConfirm: (name: string) => void })
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
           Name worktree
         </text>
-        <text fg={theme.text.muted} onMouseUp={() => dialog.clear()}>
+        <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>

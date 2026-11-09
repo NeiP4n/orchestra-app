@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { TextAttributes } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal } from "solid-js"
@@ -12,6 +13,9 @@ type ImagePreviewItem = Readonly<{
 
 export function DialogImagePreview(props: { images: readonly ImagePreviewItem[]; initial: number }) {
   const dialog = useDialog()
+  const closeHover = createHoverFeedback("secondary")
+  const previousHover = createHoverFeedback()
+  const nextHover = createHoverFeedback()
   const dimensions = useTerminalDimensions()
   const theme = useTheme().surface("dialog")
   const [index, setIndex] = createSignal(Math.max(0, Math.min(props.images.length - 1, props.initial)))
@@ -42,7 +46,7 @@ export function DialogImagePreview(props: { images: readonly ImagePreviewItem[];
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
           Image {index() + 1} of {props.images.length}
         </text>
-        <text fg={theme.text.muted} onMouseUp={() => dialog.clear()}>
+        <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>
@@ -56,13 +60,13 @@ export function DialogImagePreview(props: { images: readonly ImagePreviewItem[];
         onError={() => setFailed(true)}
       />
       <box flexDirection="row" justifyContent="space-between">
-        <text fg={theme.text.muted} onMouseUp={() => move(-1)}>
+        <text fg={theme.text.muted} bg={previousHover.background()} onMouseOver={previousHover.onMouseOver} onMouseOut={previousHover.onMouseOut} onMouseUp={() => move(-1)}>
           {props.images.length > 1 ? "← previous" : ""}
         </text>
         <text fg={failed() ? theme.text.feedback.error.base : theme.text.muted} wrapMode="none" truncate>
           {failed() ? "No preview" : (current().mention?.text ?? `Image ${index() + 1}`)}
         </text>
-        <text fg={theme.text.muted} onMouseUp={() => move(1)}>
+        <text fg={theme.text.muted} bg={nextHover.background()} onMouseOver={nextHover.onMouseOver} onMouseOut={nextHover.onMouseOut} onMouseUp={() => move(1)}>
           {props.images.length > 1 ? "next →" : ""}
         </text>
       </box>

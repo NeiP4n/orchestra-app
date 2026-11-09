@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { TextAttributes, type ScrollBoxRenderable } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
 import { isShellNotFoundError, type LocationRef, type ShellInfo } from "@orchestra/client"
@@ -13,6 +14,7 @@ const PAGE_BYTES = 64 * 1024
 export function DialogShellOutput(props: { shell: ShellInfo; location: LocationRef }) {
   const client = useClient()
   const dialog = useDialog()
+  const closeHover = createHoverFeedback("secondary")
   const theme = useTheme().surface("dialog")
   const dimensions = useTerminalDimensions()
   const [info, setInfo] = createSignal(props.shell)
@@ -106,7 +108,7 @@ export function DialogShellOutput(props: { shell: ShellInfo; location: LocationR
           Shell output
         </text>
         <text fg={theme.text.muted}>{status()}</text>
-        <text fg={theme.text.muted} onMouseUp={() => dialog.clear()}>
+        <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>

@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "./hover-feedback"
 import { CliRenderEvents, InputRenderable, RGBA, ScrollBoxRenderable, TextAttributes } from "@opentui/core"
 import { Keymap, type KeymapCommand } from "../context/keymap"
 import { useTheme } from "../context/theme"
@@ -112,6 +113,8 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   type VisibleAction = (Action & { label: string }) | FooterHint
 
   const dialog = useDialog()
+  const closeHover = createHoverFeedback("secondary")
+  const retryHover = createHoverFeedback()
   const theme = useTheme().surface("dialog")
   const config = useConfig().data
   const t = useT()
@@ -694,13 +697,16 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     const item = action.item
     const active = createMemo(() => isActionFocused(item))
     const disabled = createMemo(() => isActionDisabled(item))
+    const hover = createHoverFeedback("primary", () => !disabled())
     return (
       <box
         flexDirection="row"
         gap={1}
         alignItems="center"
         flexShrink={0}
-        backgroundColor={active() ? theme.background.action.primary.focused : theme.background.action.primary.base}
+        backgroundColor={hover.background() ?? (active() ? theme.background.action.primary.focused : theme.background.action.primary.base)}
+        onMouseOver={hover.onMouseOver}
+        onMouseOut={hover.onMouseOut}
         onMouseUp={() => trigger(item)}
       >
         <text
@@ -748,7 +754,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
             </text>
           )}
           <box
-            backgroundColor={theme.background.raised.base}
+            backgroundColor={closeHover.background() ?? theme.background.raised.base}
+            onMouseOver={closeHover.onMouseOver}
+            onMouseOut={closeHover.onMouseOut}
             paddingLeft={1}
             paddingRight={1}
             onMouseUp={() => (props.onCancel ?? dialog.clear)()}
@@ -820,6 +828,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                     flexDirection="row"
                     gap={1}
                     alignItems="center"
+                    backgroundColor={retryHover.background()}
+                    onMouseOver={retryHover.onMouseOver}
+                    onMouseOut={retryHover.onMouseOut}
                     onMouseUp={() => props.onRetry?.()}
                   >
                     <box
