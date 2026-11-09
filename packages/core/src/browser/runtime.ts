@@ -754,6 +754,15 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
         undefined,
         (text) => trace(`helper: ${text}`),
       )
+      // The window prints blank, or cannot be kept invisible: the pane would show black or Chrome over the terminal.
+      // Back to the windowless Chrome (the pane draws its own tab strip there), once.
+      let reported = false
+      next.capture.onProblem((text) => {
+        if (reported) return
+        reported = true
+        trace(`${sessionID}: window capture problem (${text}), back to the windowless Chrome`)
+        void relaunch(sessionID, "headless", size).catch(() => undefined)
+      })
     } catch (error) {
       // Capture did not work here: leave the operator with the streamed, windowless Chrome rather than nothing.
       next.client.close()

@@ -61,6 +61,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     default: "Auto-detected from the terminal.",
     readIn: "injected-env",
   },
+  ORCHESTRA_BROWSER_CAPTURE: {
+    purpose: "Windows: open the Browser tab with the real Chrome window (tabs, address bar) captured into the pane when it can be kept invisible (\"0\" keeps the windowless view with the pane's own tab strip).",
+    default: "On for Windows.",
+  },
   ORCHESTRA_BROWSER_CDP_URL: {
     purpose: "CDP HTTP endpoint for the local browser plugin.",
     default: "\"http://127.0.0.1:9222\"",

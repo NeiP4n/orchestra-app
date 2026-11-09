@@ -57,9 +57,20 @@ describe("browser view", () => {
 })
 
 describe("the browser pane default", () => {
-  test("opening a session streams the windowless Chrome on every system; the real window is an explicit button", () => {
+  test("Windows opens Chrome's own window captured into the pane (real tabs and address bar); the windowless Chrome with the pane's strip is the fallback", () => {
     const pane = read("component/browser-pane.tsx")
-    expect(pane).not.toMatch(/win32"\s*&&\s*state\(\)\s*===\s*"ready"\s*&&\s*mode\(\)\s*===\s*"headless"\)\s*switchMode/)
+    // Capture by default only on Windows, only when not switched off, and not under an agent that holds the page.
+    expect(pane).toContain('process.platform === "win32" && process.env.ORCHESTRA_BROWSER_CAPTURE !== "0"')
     expect(pane).toContain('switchMode("capture")')
+    expect(pane).toContain("BrowserRuntime.leases()")
+    // Our own strip is drawn only when Chrome's is not in the picture.
+    expect(pane).toContain('mode() !== "capture"')
+  })
+
+  test("the capture helper proves the window invisible and blank pictures fall back to the windowless Chrome", () => {
+    const script = read("../../core/src/browser/window-capture.ts")
+    for (const part of ["SetLayeredWindowAttributes", "GetLayeredWindowAttributes", "could not be made invisible", "prints blank", "SetForegroundWindow", "onProblem"])
+      expect(script).toContain(part)
+    expect(read("../../core/src/browser/runtime.ts")).toContain('relaunch(sessionID, "headless", size)')
   })
 })

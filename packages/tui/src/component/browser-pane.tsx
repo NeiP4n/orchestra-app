@@ -136,9 +136,21 @@ export function BrowserPane(props: {
     }
   }
   createEffect(() => {
-    if (state() !== "ready") return
+    if (state() !== "ready" || mode() === "capture") return
     void refreshTabs()
     const timer = setInterval(() => void refreshTabs(), 1500)
+    onCleanup(() => clearInterval(timer))
+  })
+  // The runtime can leave capture by itself (the window printed blank, or could not be kept invisible): follow the real mode.
+  createEffect(() => {
+    if (state() !== "ready") return
+    const timer = setInterval(() => {
+      const real = BrowserRuntime.modeOf(props.sessionID)
+      if (!disposed && real !== mode()) {
+        setMode(real)
+        repaint()
+      }
+    }, 1000)
     onCleanup(() => clearInterval(timer))
   })
   const tabAction = (work: () => Promise<unknown>) =>
@@ -431,10 +443,18 @@ export function BrowserPane(props: {
     onCleanup(() => void (root.onMouse = undefined))
   })
 
-  // The page is the windowless Chrome streamed into this pane, on every system: no Chrome window opens beside
-  // the terminal. The real Chrome window (logins, captchas) is the explicit "Real Chrome in pane" button, Windows only.
-  const open = async () => {
+  // The page is Chrome's own window captured into the pane (its real tabs and address bar) on Windows, when the helper
+  // proved the window invisible and its pictures are not blank; otherwise, and everywhere else, the windowless Chrome
+  // streamed here with this pane's own tab strip. A capture that goes wrong later falls back to the windowless Chrome
+  // by itself. ORCHESTRA_BROWSER_CAPTURE=0 keeps the windowless view. The explicit "Real Chrome" button stays.
+  const autoCapture = process.platform === "win32" && process.env.ORCHESTRA_BROWSER_CAPTURE !== "0"
+  const open = async (auto = true) => {
     await run(async () => void (await BrowserRuntime.open(props.sessionID)))
+    setMode(BrowserRuntime.modeOf(props.sessionID))
+    // Not while an agent holds the page: restarting its Chrome under it would cut its work.
+    const held = BrowserRuntime.leases()[props.sessionID]?.agent
+    if (auto && autoCapture && !disposed && state() === "ready" && mode() === "headless" && (!held || held === "operator"))
+      switchMode("capture")
   }
 
   // The agent's browser tool starts the session's Chrome in the server process, windowless. While this pane
@@ -450,7 +470,7 @@ export function BrowserPane(props: {
         .then((found) => {
           if (found.running && !disposed && state() === "idle" && !failure()) {
             BrowserRuntime.trace(`pane ${props.sessionID}: Chrome of the agent found (${found.url ?? "no page"}), taking it over`)
-            return open()
+            return open(true)
           }
         })
         .catch((error) => BrowserRuntime.trace(`pane ${props.sessionID}: takeover failed: ${errorMessage(error)}`))
@@ -551,7 +571,7 @@ export function BrowserPane(props: {
           </Show>
           <Action label={narrow() ? t("Close") : t("Close browser")} onClick={stop} />
         </box>
-        <Show when={!windowed()}>
+        <Show when={!windowed() && mode() !== "capture"}>
           <box flexDirection="row" flexShrink={0} gap={0} height={1}>
             <HoverAction paddingLeft={1} paddingRight={1} onClick={() => tabAction(() => BrowserRuntime.history(props.sessionID, -1))}>
               <text fg={theme.text.action.primary.base}>{"‹"}</text>

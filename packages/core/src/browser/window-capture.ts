@@ -121,9 +121,22 @@ public static class Cap {
   [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr h, int i, int v);
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
   [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+  [DllImport("user32.dll")] static extern bool SetLayeredWindowAttributes(IntPtr h, uint key, byte alpha, uint flags);
+  [DllImport("user32.dll")] static extern bool GetLayeredWindowAttributes(IntPtr h, out uint key, out byte alpha, out uint flags);
+  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
 
   static IntPtr hwnd = IntPtr.Zero;
   static int posX, posY;
+  static uint chromePid;
+  static IntPtr lastForeground = IntPtr.Zero;
+  static DateTime nextGuard = DateTime.MinValue;
+  static int blankRun = 0;
+  static bool seenContent = false;
+  static bool blankReported = false;
+  // Tool window (no taskbar, no Alt-Tab), layered at alpha 0 (invisible wherever it is), click-through, never activated.
+  const int WANT = 0x80 | 0x80000 | 0x20 | 0x08000000;
   static ConcurrentQueue<string> queue = new ConcurrentQueue<string>();
   static ImageCodecInfo jpeg;
   static EncoderParameters quality;
@@ -149,13 +162,48 @@ public static class Cap {
     int w = int.Parse(a[4]), h = int.Parse(a[5]);
     for (int i = 0; i < 100 && hwnd == IntPtr.Zero; i++) { hwnd = Find(pid); if (hwnd == IntPtr.Zero) Thread.Sleep(100); }
     if (hwnd == IntPtr.Zero) { Say("S err no Chrome window for that process"); return; }
+    chromePid = pid;
     ShowWindow(hwnd, 0);
+    Hide();
+    // Proof before any frame: the window must be layered at alpha 0, otherwise it could show over the terminal.
+    uint key; byte alpha; uint flags;
+    if (!GetLayeredWindowAttributes(hwnd, out key, out alpha, out flags) || alpha != 0 || (GetWindowLong(hwnd, -20) & WANT) != WANT) {
+      Say("S err the Chrome window could not be made invisible"); return;
+    }
+    ShowWindow(hwnd, 4); // shown without taking focus (and at alpha 0 not seen)
+    SetWindowPos(hwnd, (IntPtr)1, posX, posY, w, h, 0x10); // bottom of the z-order, no activate
+    Say("S ok attached hidden");
+  }
+
+  static void Hide() {
     int ex = GetWindowLong(hwnd, -20);
-    ex = (ex | 0x80) & ~0x40000; // tool window, not an app window: no taskbar button, not in Alt-Tab
+    ex = (ex | WANT) & ~0x40000;
     SetWindowLong(hwnd, -20, ex);
-    ShowWindow(hwnd, 4); // shown without taking focus
-    SetWindowPos(hwnd, IntPtr.Zero, posX, posY, w, h, 0x14); // no activate, keep z-order
-    Say("S ok attached");
+    SetLayeredWindowAttributes(hwnd, 0, 0, 2);
+  }
+
+  // Chrome can move its window back on screen, restore it or take the focus when a tab is activated. Every
+  // quarter second: keep the invisible state, the position and the z-order, and give the focus back to the window
+  // that had it (the terminal).
+  static void Guard() {
+    if (hwnd == IntPtr.Zero) return;
+    IntPtr fg = GetForegroundWindow();
+    uint fpid = 0; if (fg != IntPtr.Zero) GetWindowThreadProcessId(fg, out fpid);
+    if (fg == hwnd || (fpid == chromePid && fg != IntPtr.Zero)) {
+      if (lastForeground != IntPtr.Zero && lastForeground != fg) SetForegroundWindow(lastForeground);
+    } else if (fg != IntPtr.Zero) lastForeground = fg;
+    uint key; byte alpha; uint flags;
+    if (!GetLayeredWindowAttributes(hwnd, out key, out alpha, out flags) || alpha != 0 || (GetWindowLong(hwnd, -20) & WANT) != WANT) Hide();
+    if (IsIconic(hwnd)) ShowWindow(hwnd, 4);
+    RECT r; if (GetWindowRect(hwnd, out r) && (r.L != posX || r.T != posY)) SetWindowPos(hwnd, (IntPtr)1, posX, posY, 0, 0, 0x11); // no size, no activate
+  }
+
+  static bool Blank(Bitmap bmp) {
+    for (int i = 1; i <= 8; i++) for (int j = 1; j <= 5; j++) {
+      Color c = bmp.GetPixel(bmp.Width * i / 9, bmp.Height * j / 6);
+      if ((c.R | c.G | c.B) != 0) return false;
+    }
+    return true;
   }
 
   static IntPtr Pack(int x, int y) { return (IntPtr)(((y & 0xFFFF) << 16) | (x & 0xFFFF)); }
@@ -228,6 +276,9 @@ public static class Cap {
         IntPtr dc = g.GetHdc();
         try { PrintWindow(hwnd, dc, 2); } finally { g.ReleaseHdc(dc); }
       }
+      // A window that prints as all black (the alpha trick not supported here) must not be shown as the page.
+      if (Blank(bmp)) { blankRun++; if (!seenContent && blankRun >= 40 && !blankReported) { blankReported = true; Say("S err the window prints blank"); } }
+      else { seenContent = true; blankRun = 0; }
       using (MemoryStream ms = new MemoryStream()) {
         bmp.Save(ms, jpeg, quality);
         Say("F " + w + " " + h + " " + Convert.ToBase64String(ms.ToArray()));
@@ -257,6 +308,7 @@ public static class Cap {
           else if (a[0] == "char" && hwnd != IntPtr.Zero) PostMessage(Target(), 0x102, (IntPtr)int.Parse(a[1]), (IntPtr)1);
         } catch (Exception e) { Say("S err " + e.Message.Replace('\n', ' ')); }
       }
+      if (DateTime.UtcNow >= nextGuard) { try { Guard(); } catch (Exception e) { Say("S err " + e.Message.Replace('\n', ' ')); } nextGuard = DateTime.UtcNow.AddMilliseconds(250); }
       if (DateTime.UtcNow >= next) { try { Frame(); } catch (Exception e) { Say("S err " + e.Message.Replace('\n', ' ')); } next = DateTime.UtcNow.AddMilliseconds(120); }
       Thread.Sleep(15);
     }
@@ -273,6 +325,8 @@ export interface Controller {
   readonly mouse: (input: Mouse) => void
   readonly key: (key: Parameters<typeof keyCommands>[0]) => void
   readonly stop: () => void
+  /** Called when the helper reports a problem after it attached (the window prints blank, or cannot be kept hidden). */
+  readonly onProblem: (listener: (text: string) => void) => void
 }
 
 export interface Process {
@@ -296,6 +350,7 @@ export function start(
 ): Promise<Controller> {
   const process = spawn()
   let listener: ((frame: { data: string; width: number; height: number }) => void) | undefined
+  let problem: ((text: string) => void) | undefined
   return new Promise((resolve, reject) => {
     let ready = false
     const fail = (message: string) => {
@@ -312,6 +367,7 @@ export function start(
       if (line.type === "frame") return listener?.({ data: line.data, width: line.width, height: line.height })
       if (line.type === "other" && line.text.startsWith("D ")) return note?.(line.text.slice(2))
       if (line.type !== "status") return
+      if (ready && !line.ok) return problem?.(line.text || "The window capture helper reported a problem.")
       if (!ready && line.ok) {
         ready = true
         clearTimeout(timer)
@@ -325,6 +381,9 @@ export function start(
           },
           mouse: (input) => process.write(mouseCommand(input)),
           key: (key) => keyCommands(key).forEach((command) => process.write(command)),
+          onProblem: (next) => {
+            problem = next
+          },
           stop: () => {
             process.write("quit")
             process.kill()
