@@ -1,3 +1,4 @@
+import { browserBatch } from "../util/browser-batch"
 import { createStateFeedback } from "../ui/state-feedback"
 import { useMotion } from "./neural"
 import { useConfig } from "../config"
@@ -670,6 +671,22 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
 
   // The browser sessions of a project with reopen and new. Shown in the Browser tab and, always, as the "Browsers"
   // group of the project tree.
+  const [browserBatchProgress, setBrowserBatchProgress] = createSignal<Record<string, string>>({})
+  const batchBrowsers = async (project: OrchestraProject, stop = false) => {
+    if (browserBatchProgress()[project.id]) return
+    const ids = notes.browserSessions(project.id).map((item) => item.id)
+    if (!ids.length) return
+    if (stop) {
+      const yes = await confirmClear({ title: "Остановить браузеры проекта?", message: `Закрыть Chrome ${ids.length} сессий? Чаты, профили и логины сохранятся. Наблюдение остановится до следующего запуска.`, label: { confirm: "Остановить", cancel: "Отмена" } })
+      if (!yes) return
+    }
+    const warning = BrowserRuntime.browserResources().warning
+    if (warning && !stop) toast.show({ message: warning, variant: "warning", duration: 6000 })
+    try {
+      const result = await browserBatch(ids, stop ? BrowserRuntime.closeBlockedBrowser : BrowserRuntime.open, (done, total) => setBrowserBatchProgress((value) => ({ ...value, [project.id]: `${stop ? "Остановка" : "Запуск"} ${done}/${total}` })))
+      toast.show({ message: result.failures.length ? `${stop ? "Остановлено" : "Запущено/подключено"} ${result.total - result.failures.length}/${result.total}. Ошибки: ${result.failures.map((f) => `${f.id}: ${errorMessage(f.error)}`).join("; ")}` : `${stop ? "Остановлено" : "Запущено/подключено"} ${result.total}/${result.total}.`, variant: result.failures.length ? "warning" : "success", duration: 6000 })
+    } finally { setBrowserBatchProgress((value) => ({ ...value, [project.id]: "" })) }
+  }
   const browserRows = (project: OrchestraProject): JSX.Element => (
     <>
                   <For each={browserSessionGroups(notes.browserSessions(project.id)).flatMap((group) => group.sessions)}>
@@ -774,6 +791,14 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                       </text>
                     </Row>
                   </Show>
+                  <box flexDirection="row" flexWrap="wrap" gap={1} paddingLeft={1}>
+                    <HoverAction id={`browser-start-all:${project.id}`} disabled={!!browserBatchProgress()[project.id]} paddingLeft={1} paddingRight={1} onClick={() => void batchBrowsers(project)}>
+                      <text fg={theme.text.action.primary.base} wrapMode="none">{browserBatchProgress()[project.id] || "[ ▶ Запустить все браузеры ]"}</text>
+                    </HoverAction>
+                    <HoverAction id={`browser-stop-all:${project.id}`} disabled={!!browserBatchProgress()[project.id]} variant="destructive" paddingLeft={1} paddingRight={1} onClick={() => void batchBrowsers(project, true)}>
+                      <text fg={theme.text.muted} wrapMode="none">[ Остановить все ]</text>
+                    </HoverAction>
+                  </box>
                   <Row
                     id={`browser-new:${project.id}`}
                     hover={hover}
