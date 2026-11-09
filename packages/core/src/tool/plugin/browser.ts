@@ -12,6 +12,7 @@ import { Cdp } from "../../browser/cdp.js"
 import { Chrome } from "../../browser/chrome.js"
 import { Permission } from "../../permission.js"
 import { Trigger } from "../../trigger.js"
+import { BrowserProvenance } from "../../browser/provenance.js"
 import { BrowserSchedule } from "../../browser/schedule.js"
 import { BrowserWatch } from "../../browser/watch.js"
 
@@ -325,7 +326,12 @@ export const Plugin = {
           execute: (input, context) =>
             Effect.gen(function* () {
               const caller = String(context.agent)
-              const scheduled = Trigger.scheduledBrowserTask(String(context.sessionID))
+              const provenance = BrowserProvenance.read(String(context.sessionID))
+              const authorityRefusal = BrowserProvenance.refusal(provenance, input.action)
+              if (authorityRefusal) return yield* fail(authorityRefusal)
+              const scheduled = provenance.mode === "read-only" && provenance.browserSessionID
+                ? { triggerID: provenance.triggerID, browserSessionID: provenance.browserSessionID }
+                : Trigger.scheduledBrowserTask(String(context.sessionID))
               if (scheduled) {
                 const blocked = Trigger.scheduledBrowserRefusal(scheduled, input.action)
                 if (blocked) return yield* fail(blocked)
@@ -347,6 +353,8 @@ export const Plugin = {
                 const blocked = Trigger.scheduledBrowserRefusal(scheduled, input.action, browserSession)
                 if (blocked) return yield* fail(blocked)
               }
+              const targetRefusal = BrowserProvenance.refusal(provenance, input.action, browserSession)
+              if (targetRefusal) return yield* fail(targetRefusal)
               // Handing a session over or taking it back is the orchestrator's call: only the operator's
               // Take control stops it. Acting in the page is for the assigned agent alone.
               const holder = BrowserRuntime.leases()[browserSession]?.agent
@@ -399,9 +407,11 @@ export const Plugin = {
                 const status = BrowserSchedule.get(scheduled.triggerID)
                 if (!status?.enabled || status.browserSessionID !== browserSession)
                   return yield* fail("This scheduled page check is paused, deleted or no longer bound to this browser session.")
+              }
+              if (provenance.mode !== "ordinary") {
                 const running = yield* Effect.promise(() => BrowserRuntime.peek(browserSession))
                 if (!running.running) {
-                  BrowserSchedule.finished(scheduled.triggerID, browserSession, false)
+                  if (scheduled) BrowserSchedule.finished(scheduled.triggerID, browserSession, false)
                   return yield* fail("The scheduled browser session is not running. The check did not start Chrome or open a page.")
                 }
               }
@@ -418,7 +428,7 @@ export const Plugin = {
                 if (checkedTask) BrowserSchedule.finished(checkedTask.triggerID, browserSession, false)
               })))
               if (checkedTask) BrowserSchedule.finished(checkedTask.triggerID, browserSession, true)
-              const text = scheduled ? Trigger.untrusted(`browser:${browserSession}`, result.text, 8000) : result.text
+              const text = provenance.mode !== "ordinary" ? Trigger.untrusted(`browser:${browserSession}`, result.text, 8000) : result.text
               return {
                 output: { output: text },
                 content: [

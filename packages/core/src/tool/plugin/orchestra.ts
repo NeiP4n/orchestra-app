@@ -1,5 +1,6 @@
 export * as OrchestraTool from "./orchestra.js"
 
+import { BrowserProvenance } from "../../browser/provenance.js"
 import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import type { SessionHooks } from "@orchestra/plugin/effect/session"
@@ -1217,6 +1218,11 @@ export const Plugin = {
                   // A worker that gets its task from a triggered turn cannot click, type or run scripts in a page
                   // (the browser tool checks this mark); a task from an ordinary turn lifts the mark.
                   const by = Trigger.triggered(incomingHistory as never)
+                  const provenance: BrowserProvenance.Record = by && !by.publishApproved
+                    ? { mode: "read-only", triggerID: by.id, ...(by.browserSessionID ? { browserSessionID: by.browserSessionID } : {}) }
+                    : { mode: "ordinary" }
+                  if (!BrowserProvenance.write(String(sessionID), provenance))
+                    return yield* new ToolFailure({ message: "The browser task authority could not be saved. Nothing was dispatched; fix storage access and try again." })
                   if (by && !by.publishApproved) Trigger.taint(String(sessionID), by.id, Date.now(), by.browserSessionID)
                   else Trigger.clearTaint(String(sessionID))
                   const recon = yield* reconBrief()
