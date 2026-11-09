@@ -100,7 +100,7 @@ export const guide = [
   `Modes: ${MODE_IDS}. A mode changes how a session works and may make it read-only; it never widens the role's permissions. Pass mode to send or create, or use action set_mode. Use fast for trivial work, planning or research before building, coding for implementation, architecture for parallel-safe design, test to verify, review or debug for checks, and self-improvement for work on the product itself. A planner in coding mode still cannot edit files.`,
   "Never pass a display title as a role ID: use an exact role id from the roles listed with your team.",
   "Access per session is hidden < read < write < full: read allows list and read, write adds send, full adds stop. Sessions you create get full access.",
-  "The 6-message rule binds you: after 6 of your own messages in a row without handing a task to a worker, your other tool calls are refused until you delegate with send or create. Building the Society (society_forge found/generate, society_plan apply) is never refused by this rule and resets the count like a delegation, so creating the Society never forces a premature dispatch. The MCP survey (mcp_manager inspect) is never refused either — a dispatch needs a fresh survey, so survey first if you have not, then dispatch with an explicit mcp assignment. The roster in your context shows how many of the 6 you have used.",
+  "The 12-message rule binds you: after 12 of your own messages in a row without handing a task to a worker, your other tool calls are refused until you delegate with send or create. Building the Society (society_forge found/generate, society_plan apply) is never refused by this rule and resets the count like a delegation, so creating the Society never forces a premature dispatch. The MCP survey (mcp_manager inspect) is never refused either — a dispatch needs a fresh survey, so survey first if you have not, then dispatch with an explicit mcp assignment. The roster in your context shows how many of the 12 you have used.",
   "MCP assignment is mandatory, and it is enforced, not advised: every send or create to a team session must pass mcp — the servers the worker may call for that task, maxCalls in total, perServer caps — and a dispatch without it is refused and sends nothing. When a task needs no MCP, say so explicitly: mcp with servers [] and maxCalls 0. You may only tighten the role's own MCP ceiling, never widen it; a refused limit says what the role allows. The limit is stamped on the worker session and stated at the top of its task brief.",
   "The assignment must come from a survey, and that is enforced too: before the first dispatch in a session, call mcp_manager with action=inspect once — it lists the configured servers (status, discovered tools, leases) and the installable catalog. A dispatch before the survey is refused and sends nothing. Judge the assignment from what the survey shows: no catalog server fitting the task is a finding, and an explicit empty assignment after the survey is the right answer for native-tool work.",
   freeModelGuide,
@@ -151,7 +151,7 @@ export function reusableWorker<T extends WorkerRow>(
 // (the operator, or a <team-report> waking the Orchestrator) starts a new cycle.
 // This complements the older explore-call gate in the team plugin, which
 // counts read/grep/glob/shell calls only; this one counts every own message.
-export const ORCHESTRATOR_MESSAGE_LIMIT = 6
+export const ORCHESTRATOR_MESSAGE_LIMIT = 12
 
 export interface DelegationGate {
   /** Message IDs of the Orchestrator's own messages counted in this cycle, oldest first. */
@@ -249,11 +249,11 @@ export function delegationStatus(streak: number) {
     mustDelegate,
     text: mustDelegate
       ? [
-          "# 6-message rule — limit reached",
+          "# 12-message rule — limit reached",
           `You have sent ${streak} of your own messages in a row without handing a task to a team session (limit ${limit}). Your next action MUST be sessions action send or create with the task; your other tool calls are refused until you delegate. Do not keep investigating, editing around it or writing a longer report instead. A dispatch also needs a fresh MCP survey (mcp_manager inspect is always allowed, even at the limit) and an explicit mcp assignment — survey first if you have not, then dispatch. Building the Society (society_forge found/generate, society_plan apply) is always allowed and also resets the count.`,
         ].join("\n")
       : [
-          "# 6-message rule",
+          "# 12-message rule",
           `You have sent ${streak} of your ${limit} own messages in a row since the last task you handed to the team; ${Math.max(0, limit - streak)} remain before you must delegate. After ${limit} own messages you hand tasks to team sessions (sessions send/create) instead of continuing yourself, and other tool calls are refused until you do. Society building (society_forge, society_plan) is never refused by this rule.`,
         ].join("\n"),
   }
@@ -1075,7 +1075,7 @@ export const Plugin = {
         gateCounted.set(event.sessionID, [...gate.counted])
         if (gate.blocked)
           return yield* new Tool.Error({
-            message: `6-message rule: you have sent ${ORCHESTRATOR_MESSAGE_LIMIT} of your own messages in a row without handing a task to a team session, so this call is refused. Delegate now with the sessions tool (action send or create, with the task as text) — that call is always allowed and resets the count. A dispatch also needs a fresh MCP survey and an explicit mcp assignment: if you have not surveyed yet, run mcp_manager action=inspect first — it is always allowed, even at the limit — then dispatch with mcp (servers [] and maxCalls 0 when the task needs no MCP). Building the Society (society_forge found/generate, society_plan apply) is always allowed too. (This count restarts with every new message from the operator.)`,
+            message: `12-message rule: you have sent ${ORCHESTRATOR_MESSAGE_LIMIT} of your own messages in a row without handing a task to a team session, so this call is refused. Delegate now with the sessions tool (action send or create, with the task as text) — that call is always allowed and resets the count. A dispatch also needs a fresh MCP survey and an explicit mcp assignment: if you have not surveyed yet, run mcp_manager action=inspect first — it is always allowed, even at the limit — then dispatch with mcp (servers [] and maxCalls 0 when the task needs no MCP). Building the Society (society_forge found/generate, society_plan apply) is always allowed too. (This count restarts with every new message from the operator.)`,
           })
       }),
     )

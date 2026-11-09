@@ -260,7 +260,16 @@ export const Plugin = {
                 const text = `Browser session "${name}" is free again: any agent may use it.`
                 return { output: { output: text }, content: [{ type: "text" as const, text }] }
               }
-              if (acts(input.action))
+              // The session the operator selected in the Browser tab (or the only one there is) is the one they put
+              // in front of the agent: acting in it needs no per-action question. Another session still asks.
+              const here = (yield* ctx.session.get({ sessionID: context.sessionID })).location.directory
+              const published = BrowserRuntime.sessions()
+              const handedOver =
+                BrowserRuntime.selectedSession(here) === browserSession ||
+                (BrowserBridge.projectOf(published, here) === undefined &&
+                  published.length === 1 &&
+                  published[0]!.id === browserSession)
+              if (acts(input.action) && !handedOver)
                 yield* permission.assert({
                   action: name,
                   resources: [input.url ?? input.selector ?? input.text ?? input.action],

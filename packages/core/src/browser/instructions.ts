@@ -98,7 +98,7 @@ function render(entries: readonly Entry[]) {
       (item) =>
         `  - ${item.name} [${item.id}]${item.selected ? " (selected)" : ""}: ${item.running ? "running" : "not started"}, controller ${item.controller}`,
     ),
-    "  You can act in these sessions yourself: the browser tool's open, click and type actions work on them (the operator is asked to allow each action; a session nobody holds needs no assignment). When the operator asks you to click, type or open something in the browser, do it with the tool; do not say you cannot press keys or click, and do not hand the task back to them.",
+    "  You can act in these sessions yourself: the browser tool's open, click and type actions work on them (the session the operator selected needs no question per action; a session nobody holds needs no assignment). When the operator asks you to click, type or open something in the browser, do it with the tool; do not say you cannot press keys or click, and do not hand the task back to them.",
     "  If a browser call fails with \"The browser connection closed\" or similar, call `start` and repeat the step; the tool also reconnects once on its own.",
     "  This tool is the only browser: do not install or call another browser driver (chrome-devtools, playwright, browser.tabs) for these pages; they open a second Chrome that is not the one in the pane.",
     "  The browser tool's `sessions` action shows pages and urls; `assign` hands a session to another agent (name it and pass it the session id), `release` frees it. The operator's Take control always wins.",

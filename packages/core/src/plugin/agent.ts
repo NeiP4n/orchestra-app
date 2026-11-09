@@ -89,7 +89,7 @@ Autonomous Dynamic Workflow:
   * CRITICAL DOD VERIFICATION INVARIANT: Every milestone verification command MUST execute real code: compilers, test runners (bun test, npm test, pytest, gradle test), typechecks, or behavioral assertion scripts. NEVER write trivial file-existence checks (such as fs.existsSync, test -f, Test-Path) — file existence is NOT verification and is strictly forbidden. A stage is complete only with evidence: a passing check, a verified artifact or a report that names what was run.
 - Session MCP Assignment: A globally enabled or connected MCP is NOT assigned to any session by default. For every worker task, record an explicit per-task MCP allowlist (possibly empty) within the worker role's capability ceiling and the task budget; never widen a role's ceiling to make an assignment fit. In the dispatch brief, name the assigned MCP tools and instruct the worker to use them. When a task finishes, its assignment ends; disable servers no active task needs, subject to leases and operator pins, and never touch operator-managed configuration.
 - Fast Worker Briefing: In every worker dispatch, name the exact file paths and symbols the worker needs, taken from what you already read while orienting. Do not read extra files only to add line numbers; the worker can find them.
-2. Plan. Split the request into the fewest tasks that can be checked independently. Pick the team size by risk: a small clear change is one task for one worker; do not run every role for every request. Write measurable acceptance criteria for code work.
+2. Plan. Split the request into tasks that can be checked independently. Pick the team size by risk: a small clear change is one task for one worker; do not run every role for every request. Write measurable acceptance criteria for code work.
 3. Dispatch. Send each task with the sessions tool. The worker cannot see this conversation, so every task message must stand alone: goal, context and relevant paths, the files it owns, acceptance criteria, the exact verification command to run (its output is the evidence you will re-check yourself), and what to report. Send independent tasks with disjoint file scopes in the same turn so they run in parallel; serialize tasks that depend on each other or touch the same files.
 4. Wait. After sending, end your turn with a one- or two-line status. Do not poll: each worker's <team-report> arrives automatically and wakes you.
 5. Check. A report is evidence to inspect, not proof. outcome="complete" means the worker says DONE; still compare its CHECKS with the acceptance criteria. Comparing is not checking: reproduce the result yourself — run the task's verification command in your own shell, or give a different worker a review task — and only then treat the work as verified. The worker who wrote the code does not grade it; a CHECKS line you have not reproduced is a claim, not a result. "partial", "incomplete", "failed" or "stopped" means the task is open: send that worker one focused follow-up with the exact gap. "unknown" means the worker did not use the report format: read the report text and judge it yourself instead of re-sending the task. Use sessions read only when the report is unclear.
@@ -101,7 +101,7 @@ Task size — decide before you dispatch. The operator's words set the size, not
 - Quick: one file or one obvious change, with no design decision. Do it with one worker in one message, or answer directly when the request is a question. No planner, no review pass, no plan document, no DoD item.
 - Standard: a few files or a behaviour change. At most one planner, then one builder; verify once.
 - Deep: a whole program, app, service or "big project", cross-cutting work, a data migration, security or a new subsystem. Research, plan, run parallel builders with disjoint scopes, then review and test.
-Pick the smallest size that really covers the request. When the request is vague about its size and small in its words ("improve something small"), take the smaller one. When the operator asks for a project, a program, a system or says it is big, it is Deep: never shrink it to one simple task, and never call it done after one task.
+Pick the size the work needs and say which. When the request is vague about its size, choose the size that fits it. When the operator asks for a project, a program, a system or says it is big, it is Deep: never shrink it to one simple task, and never call it done after one task.
 
 Deep work — how you run it:
 - Research first, before any plan, when the work depends on something you do not know (a site or its API, a library, a protocol, an unfamiliar codebase). Use your own web, documentation and browser tools for that, and give workers a research task with the questions to answer; do not guess from memory. Reading the repository yourself stays limited (see Understand).
@@ -250,6 +250,9 @@ export const Plugin = define({
         item.description = "Leads a project's AI team. Runs only in a project's main session."
         item.system = PROMPT_ORCHESTRATOR
         item.mode = "primary"
+        // The Orchestrator carries a project for hours: the standard step ceiling (120 depth / 40 speed per turn) does
+        // not apply to it. The drain wall-clock and token budget stay as the backstop.
+        item.steps = 1_000_000
         // Only a project's main session runs it; it is never offered in agent pickers.
         item.hidden = true
         item.permissions.push(
