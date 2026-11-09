@@ -1,5 +1,5 @@
 import path from "node:path"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, writeFile, readFile } from "node:fs/promises"
 import { describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { ConfigOrchestra } from "@orchestra/schema/config/orchestra"
@@ -375,5 +375,30 @@ describe("autonomous scoped staffing",()=>{
   expect(created.metadata?.["orchestra.taskScope.v1"]).toEqual(["src/ui"])
   expect(output).toContain("Dispatch other ready independent work now")
   expect(yield* orchestra.pending(created.id)).toBeDefined()
+ }))
+})
+
+describe("project file bootstrap",()=>{
+ itPolicy.live("actual create snapshots own defaults into rules mirror and preserves operator-owned files",()=>Effect.gen(function*(){
+  const kv=yield* KV.Service,orchestra=yield* Orchestra.Service
+  yield* kv.set("rules/global",[{id:"r_global",text:"operator-default-fixture",by:"operator",at:1}])
+  const root=yield* Effect.acquireDisposable(Effect.promise(()=>tmpdir("bootstrap-create-")))
+  const first=yield* orchestra.create({name:"First",directory:root.path})
+  const load=(file:string)=>Effect.promise(()=>readFile(path.join(root.path,".orchestra",file),"utf8"))
+  const rules=yield* load("rules.yaml")
+  expect(rules).toContain("operator-default-fixture");expect(rules).toContain("project-defaults:"+first.id);expect(rules).not.toContain("scope: global")
+  expect(JSON.parse(yield* load("orchestra.json"))).toEqual({})
+  expect(JSON.parse(yield* load("lifecycle.json")).phase).toBe("planning")
+  expect(yield* load("tasks.yaml")).toContain("tasks:");expect(yield* load("decisions.yaml")).toContain("decisions:")
+  yield* Effect.promise(()=>writeFile(path.join(root.path,".orchestra","briefing.md"),"operator-edited"))
+  const {ProjectFilesBootstrap}=yield* Effect.promise(()=>import("../src/project-files/bootstrap"))
+  yield* ProjectFilesBootstrap.initialize(first.directory,first.name,kv)
+  expect(yield* load("briefing.md")).toBe("operator-edited")
+  yield* kv.set("rules/global",[{id:"r_new",text:"new-template-only",by:"operator",at:2}])
+  const otherDir=path.join(root.path,"second");yield* Effect.promise(()=>mkdir(otherDir))
+  const second=yield* orchestra.create({name:"Second",directory:otherDir})
+  const secondRules=yield* Effect.promise(()=>readFile(path.join(otherDir,".orchestra","rules.yaml"),"utf8"))
+  expect(secondRules).toContain("new-template-only");expect(secondRules).toContain("project-defaults:"+second.id);expect(secondRules).not.toContain(first.id)
+  expect(yield* load("rules.yaml")).not.toContain("new-template-only")
  }))
 })

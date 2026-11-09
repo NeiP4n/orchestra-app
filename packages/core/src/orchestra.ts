@@ -29,6 +29,7 @@ import { isRecord } from "@orchestra/ai/utils/record"
 import { SessionEvent } from "@orchestra/schema/session-event"
 import { SessionMessage } from "./session/message.js"
 import { SessionInbox } from "./session/inbox.js"
+import {ProjectFilesBootstrap} from "./project-files/bootstrap.js"
 import { Dod } from "./dod.js"
 import { OrchestraStage } from "./stage.js"
 import { AiStandard } from "./ai-standard.js"
@@ -816,12 +817,19 @@ const layer: Layer.Layer<
       yield* kv.remove(TEAM_PLAN + project.id)
     })
 
+    const bootstrappedFiles=new Set<string>()
+    const bootstrapFiles=(project:Project)=>Effect.gen(function*(){
+      const key=project.id+":"+project.directory
+      if(bootstrappedFiles.has(key))return
+      yield* ProjectFilesBootstrap.initialize(project.directory,project.name,kv).pipe(Effect.tap(()=>Effect.sync(()=>bootstrappedFiles.add(key))),Effect.catchCause(cause=>Effect.logWarning("Project file bootstrap incomplete; database project remains intact",{projectID:project.id,cause:String(cause)})))
+    })
     const ensureMain = (id: ProjectID) =>
       mainLocks.withLock(id)(
         Effect.gen(function* () {
           const main = yield* ensureMainUnlocked(id)
           const project = yield* get(id)
           yield* reconcileTeamUnlocked(project)
+          yield* bootstrapFiles(project)
           return main
         }),
       )
@@ -2549,6 +2557,7 @@ const layer: Layer.Layer<
             const main = yield* ensureMainUnlocked(project.id)
             const current = yield* get(project.id)
             yield* reconcileTeamUnlocked(current)
+            yield* bootstrapFiles(current)
             return { ...current, main: main.id }
           }),
         )
