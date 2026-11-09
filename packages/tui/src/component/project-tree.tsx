@@ -694,10 +694,11 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
     },
   )
   const browserConnected = (id: string) => browserRunning()?.[id]
-  const browserCount = (project: OrchestraProject) => {
+  const browserCount = (project: OrchestraProject, compact = false) => {
     const ids = [...new Set(notes.browserSessions(project.id).map((item) => item.id))]
     const verified = ids.filter((id) => browserConnected(id) === true).length
-    return `запущено ${ids.some((id) => browserConnected(id) === undefined) ? "?" : verified} из ${ids.length}`
+    const count = ids.some((id) => browserConnected(id) === undefined) ? "?" : verified
+    return compact ? `${count}/${ids.length}` : `запущено ${count} из ${ids.length}`
   }
   const [browserToggleBusy, setBrowserToggleBusy] = createSignal<Record<string, boolean>>({})
   const toggleBrowser = async (project: OrchestraProject, id: string) => {
@@ -741,7 +742,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
   const browserToolbar = (project: OrchestraProject, collapsible = false) => (
     <box flexDirection="row" flexShrink={0} height={1} paddingLeft={1} gap={1}>
       <box flexGrow={1} minWidth={0} onMouseUp={() => { if (collapsible) notes.toggleGroup(`${project.id}:Browsers`) }}>
-        <text fg={theme.text.muted} wrapMode="none" truncate>{`${collapsible ? (notes.groupCollapsed(`${project.id}:Browsers`) ? "▸ " : "▾ ") : ""}${t("Browsers")} · ${browserBatchProgress()[project.id] || browserCount(project)}`}</text>
+        <text fg={theme.text.muted} wrapMode="none" truncate>{`${collapsible ? (notes.groupCollapsed(`${project.id}:Browsers`) ? "▸ " : "▾ ") : ""}${t("Browsers")} · ${browserBatchProgress()[project.id] || browserCount(project, props.width < 46)}`}</text>
       </box>
       <HoverAction id={`browser-start-all:${project.id}`} disabled={!!browserBatchProgress()[project.id]} onClick={() => void batchBrowsers(project)}>
         <text fg={theme.text.action.primary.base} wrapMode="none">▶ Все</text>

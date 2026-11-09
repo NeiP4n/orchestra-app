@@ -17,7 +17,7 @@ test("sidebar toolbar stays on one row with border-free release-safe controls", 
   expect(action).not.toContain('border=')
   expect(text).toContain('id={`browser-toggle:')
   expect(text).toContain('await BrowserRuntime.profileRunning(id)')
-  expect(text).toContain('browserCount(project)')
+  expect(text).toContain('browserCount(project, props.width < 46)')
   expect(text).toContain('await refreshBrowserRunning()')
   expect(text).toContain('onCleanup(() => clearInterval(timer))')
 })
