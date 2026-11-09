@@ -1,5 +1,4 @@
 import { createHoverFeedback } from "../ui/hover-feedback"
-import { createHoverFeedback } from "../ui/hover-feedback"
 import { TextAttributes } from "@opentui/core"
 import { createEffect, createMemo, createResource, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
 import { Keymap } from "../context/keymap"
