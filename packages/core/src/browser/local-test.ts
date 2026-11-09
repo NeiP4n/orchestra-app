@@ -13,3 +13,11 @@ export function localPage(address: string | undefined): boolean {
 }
 export const enabled = () => process.env.ORCHESTRA_BROWSER_LOCAL_TEST === "1"
 export const allowed = (address: string | undefined) => enabled() && localPage(address)
+
+/** Never return page content captured during a navigation out of the fixture. */
+export async function read<T>(address: () => Promise<string | undefined>, capture: () => Promise<T>): Promise<T> {
+  if (!allowed(await address())) throw new Error("Local fixture check refused before read: page is not local or test mode is off.")
+  const result = await capture()
+  if (!allowed(await address())) throw new Error("Local fixture check discarded after read: page left the local gate or test mode is off.")
+  return result
+}

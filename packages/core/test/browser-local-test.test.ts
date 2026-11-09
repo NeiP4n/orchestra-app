@@ -42,3 +42,29 @@ test("hostile fixture text stays data and cannot grant write authority", async (
   for (const action of ["click", "type", "eval"])
     expect(BrowserProvenance.refusal(state, action, "fixture")).toContain("read-only")
 })
+
+
+test("local read discards captured content after navigation to a remote page", async () => {
+  const previous = process.env.ORCHESTRA_BROWSER_LOCAL_TEST
+  process.env.ORCHESTRA_BROWSER_LOCAL_TEST = "1"
+  try {
+    let url = "http://127.0.0.1:8765/fixture"
+    expect(await BrowserLocalTest.read(async () => url, async () => "local text")).toBe("local text")
+    let captured = false
+    await expect(BrowserLocalTest.read(async () => url, async () => {
+      captured = true
+      url = "https://web.whatsapp.com/"
+      return "must never reach model"
+    })).rejects.toThrow("discarded after read")
+    expect(captured).toBe(true)
+    let remoteCapture = false
+    await expect(BrowserLocalTest.read(async () => url, async () => {
+      remoteCapture = true
+      return "remote"
+    })).rejects.toThrow("refused before read")
+    expect(remoteCapture).toBe(false)
+  } finally {
+    if (previous === undefined) delete process.env.ORCHESTRA_BROWSER_LOCAL_TEST
+    else process.env.ORCHESTRA_BROWSER_LOCAL_TEST = previous
+  }
+})

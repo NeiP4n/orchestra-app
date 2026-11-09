@@ -124,8 +124,14 @@ const RETRYABLE =
 
 /** A closed connection (Chrome died, or was killed with the app) is dropped and the action tried once more on a fresh one. */
 export async function perform(sessionID: string, input: Input, localTest = false) {
+  const capture = () => localTest
+    ? BrowserLocalTest.read(
+      async () => (await BrowserRuntime.peek(sessionID)).url,
+      () => performOnce(sessionID, input, true),
+    )
+    : performOnce(sessionID, input)
   try {
-    return await performOnce(sessionID, input, localTest)
+    return await capture()
   } catch (error) {
     if (!RETRYABLE.test(error instanceof Error ? error.message : String(error)))
       throw error
@@ -136,7 +142,7 @@ export async function perform(sessionID: string, input: Input, localTest = false
       BrowserRuntime.evictIfClosed(sessionID)
       await new Promise((done) => setTimeout(done, 700 * attempt))
       try {
-        return await performOnce(sessionID, input, localTest)
+        return await capture()
       } catch (again) {
         if (attempt >= 2 || !RETRYABLE.test(again instanceof Error ? again.message : String(again)))
           throw again
