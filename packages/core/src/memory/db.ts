@@ -125,8 +125,13 @@ export function applyMemoryMigrations(db: Database): number {
   const applied = row?.version ?? 0
   for (const migration of MIGRATIONS) {
     if (migration.version <= applied) continue
-    migration.up(db)
-    db.run(`INSERT INTO memory_migrations (version, applied_at) VALUES (?, ?)`, [migration.version, Date.now()])
+    // One transaction per migration: the schema script is about twenty statements, and each one committed on its own
+    // under synchronous = FULL (a disk flush per statement, slow on Windows). It is also all-or-nothing now: a failure
+    // halfway no longer leaves a half-built schema without its version row.
+    db.transaction(() => {
+      migration.up(db)
+      db.run(`INSERT INTO memory_migrations (version, applied_at) VALUES (?, ?)`, [migration.version, Date.now()])
+    })()
   }
   const current = db.query(`SELECT MAX(version) as version FROM memory_migrations`).get() as {
     version: number | null
