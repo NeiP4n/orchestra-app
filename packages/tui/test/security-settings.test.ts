@@ -11,12 +11,12 @@ test("security inventory derives real local limits and never prints secret envir
   expect(rows.find(r=>r.id==="js")?.value).toContain("нет общего")
   expect(rows.find(r=>r.id==="pty")?.value).toContain("не подключён")
 })
-test("security rows are read-only and autoaccept requires an explicit confirmation",()=>{
+test("security rows are retain secret boundaries while autoaccept arrow is immediate",()=>{
   const source=readFileSync(new URL("../src/component/dialog-config.tsx",import.meta.url),"utf8")
   expect(source).toContain('category: "Безопасность"')
   expect(source).toContain('<DialogSecurity />')
-  expect(source).toContain('next === "autoaccept"')
-  expect(source).toContain('<DialogPrompt title="Расширить права сессий?"')
-  expect(source).toContain('answer.trim() !== "РАЗРЕШИТЬ"')
+  expect(source).not.toContain('Расширить права сессий?')
+  expect(source).not.toContain('РАЗРЕШИТЬ')
+  expect(source).toContain('return write(next, index)')
   expect(source).toContain('compact')
 })

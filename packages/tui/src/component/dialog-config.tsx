@@ -8,7 +8,6 @@ import { useToast } from "../ui/toast"
 import { useT } from "../util/i18n"
 import { CategoryRail } from "../ui/category-rail"
 import { DialogSecurity } from "./dialog-security"
-import { DialogPrompt } from "../ui/dialog-prompt"
 import { DialogUserProfile } from "./dialog-user-profile"
 import { UserNameEdit } from "./user-name-bar"
 import { SculkSprite } from "./sculk-sprite-view"
@@ -235,13 +234,6 @@ export function DialogConfig(props: { current?: string }) {
     if (!choices) return
     const next = choices[(choices.indexOf(current) + direction + choices.length) % choices.length]
     if (next === current) return
-    if (settingID(setting) === "session.permissions" && next === "autoaccept") {
-      dialog.replace(() => <DialogPrompt title="Расширить права сессий?" placeholder="Введите РАЗРЕШИТЬ"
-        description={() => <text fg={theme.text.muted} wrapMode="word">Auto accept автоматически подтверждает запросы команд и изменений файлов. Это расширение прав, не разрешение на оплату или секреты. Для включения введите РАЗРЕШИТЬ.</text>}
-        onConfirm={(answer) => { if (answer.trim() !== "РАЗРЕШИТЬ") return; void write(next, index).then(() => dialog.replace(() => <DialogConfig current="session.permissions" />)) }}
-        onCancel={() => dialog.replace(() => <DialogConfig current="session.permissions" />)} />)
-      return
-    }
     return write(next, index)
   }
 

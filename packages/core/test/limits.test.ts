@@ -14,7 +14,7 @@ import path from "node:path"
 let dir="", previous:string|undefined
 beforeEach(()=>{previous=process.env.ORCHESTRA_STATE_DIR;dir=mkdtempSync(path.join(os.tmpdir(),"limits-test-"));process.env.ORCHESTRA_STATE_DIR=dir})
 afterEach(()=>{if(previous===undefined)delete process.env.ORCHESTRA_STATE_DIR;else process.env.ORCHESTRA_STATE_DIR=previous;rmSync(dir,{recursive:true,force:true})})
-const disable=()=>SafetyConfig.write({version:1,disabled:true},"РАЗРЕШИТЬ")
+const disable=()=>SafetyConfig.write({version:1,disabled:true})
 
 describe("Limits", () => {
   test("is enforced by default; legacy env off alone cannot silently disable it", () => {

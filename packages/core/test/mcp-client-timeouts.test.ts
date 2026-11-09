@@ -40,7 +40,7 @@ describe("executionTimeoutFor", () => {
   test("30-minute wall remains unless the operator acknowledges full disable", () => {
     expect(executionTimeoutFor("serena", "initial_instructions", 60 * 60 * 1_000, enforced)).toBe(30 * 60 * 1_000)
     expect(executionTimeoutFor("context7", "resolve-library-id", undefined, unenforced)).toBe(5 * 60 * 1_000)
-    SafetyConfig.write({version:1,disabled:true},"РАЗРЕШИТЬ")
+    SafetyConfig.write({version:1,disabled:true})
     expect(executionTimeoutFor("context7", "resolve-library-id", undefined, unenforced)).toBe(Limits.UNBOUNDED_MS)
   })
 })
