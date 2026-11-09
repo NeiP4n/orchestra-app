@@ -142,33 +142,50 @@ export interface Frame {
 }
 
 /**
- * Streams the page as JPEG frames. Chrome sends a frame only when the page changes and waits for each one
- * to be acknowledged, so a slow terminal naturally lowers the rate. Returns a function that stops it.
+ * Streams the page as JPEG frames. Frames are coalesced to at most four deliveries per second, with deferred acknowledgements
+ * as backpressure. Encoding dimensions are bounded too. Returns a function that stops it.
  */
 export async function startScreencast(
   client: Client,
   options: { width: number; height: number; quality?: number; everyNthFrame?: number },
   onFrame: (frame: Frame) => void,
 ) {
-  const off = client.on(
-    "Page.screencastFrame",
-    (params: { data: string; sessionId: number; metadata?: { deviceWidth?: number; deviceHeight?: number } }) => {
-      void client.send("Page.screencastFrameAck", { sessionId: params.sessionId }).catch(() => undefined)
-      onFrame({
-        data: params.data,
-        width: params.metadata?.deviceWidth ?? options.width,
-        height: params.metadata?.deviceHeight ?? options.height,
-      })
-    },
-  )
+  let lastAt = -Infinity
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let latest: { data: string; sessionId: number; metadata?: { deviceWidth?: number; deviceHeight?: number } } | undefined
+  const acknowledgements = new Set<number>()
+  const flush = () => {
+    timer = undefined
+    const frame = latest
+    latest = undefined
+    for (const sessionId of acknowledgements) void client.send("Page.screencastFrameAck", { sessionId }).catch(() => undefined)
+    acknowledgements.clear()
+    if (!frame) return
+    lastAt = Date.now()
+    onFrame({ data: frame.data, width: frame.metadata?.deviceWidth ?? options.width, height: frame.metadata?.deviceHeight ?? options.height })
+  }
+  const off = client.on("Page.screencastFrame", (params) => {
+    latest = params
+    acknowledgements.add(params.sessionId)
+    if (acknowledgements.size > 32) { // Defensive bound, even for a broken endpoint.
+      const oldest = acknowledgements.values().next().value!
+      acknowledgements.delete(oldest)
+      void client.send("Page.screencastFrameAck", { sessionId: oldest }).catch(() => undefined)
+    }
+    if (Date.now() - lastAt >= 250) { clearTimeout(timer); flush() }
+    else if (timer === undefined) timer = setTimeout(flush, 250 - (Date.now() - lastAt))
+  })
   await client.send("Page.startScreencast", {
     format: "jpeg",
-    quality: options.quality ?? 60,
-    maxWidth: Math.round(options.width),
-    maxHeight: Math.round(options.height),
-    everyNthFrame: options.everyNthFrame ?? 1,
+    quality: options.quality ?? 50,
+    maxWidth: Math.min(1280, Math.round(options.width)),
+    maxHeight: Math.min(800, Math.round(options.height)),
+    everyNthFrame: options.everyNthFrame ?? 4,
   })
   return () => {
+    clearTimeout(timer)
+    latest = undefined
+    acknowledgements.clear()
     off()
     void client.send("Page.stopScreencast").catch(() => undefined)
   }

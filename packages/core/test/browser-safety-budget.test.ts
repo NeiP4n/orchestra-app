@@ -31,3 +31,26 @@ test("native capture is bounded to four FPS and 1280x800 and pauses before Print
   expect(Chrome.LOW_MEMORY_FLAGS).not.toContain("--disable-background-timer-throttling")
   expect(Chrome.LOW_MEMORY_FLAGS).not.toContain("--disable-hang-monitor")
 })
+
+test("headless image delivery coalesces rapid frames and stops pending work", async () => {
+  const { Cdp } = await import("@orchestra/core/browser/cdp")
+  let frame: (params: any) => void = () => undefined
+  const sent: Array<{ method: string; params?: Record<string, unknown> }> = []
+  const client = {
+    send: async <T = unknown>(method: string, params?: Record<string, unknown>) => { sent.push({ method, params }); return undefined as T },
+    close() {},
+    on: (_event: string, listener: (params: any) => void) => { frame = listener; return () => { frame = () => undefined } },
+  }
+  const frames: string[] = []
+  const stop = await Cdp.startScreencast(client, { width: 4000, height: 3000 }, (value) => frames.push(value.data))
+  expect(sent[0]).toMatchObject({ method: "Page.startScreencast", params: { maxWidth: 1280, maxHeight: 800, everyNthFrame: 4 } })
+  frame({ data: "first", sessionId: 1 })
+  for (let i = 2; i < 10; i++) frame({ data: `frame-${i}`, sessionId: i })
+  expect(frames).toEqual(["first"])
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(frames).toEqual(["first", "frame-9"])
+  frame({ data: "must not render after stop", sessionId: 10 })
+  stop()
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(frames).toHaveLength(2)
+})

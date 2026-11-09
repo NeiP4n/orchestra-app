@@ -794,10 +794,13 @@ async function restart(sessionID: string, mode: Mode | boolean, size: { width: n
         : [],
     })
   })
-  const next = await join(run.port, target === "window" ? () => {} : run.close, target === "window")
+  const next = await join(run.port, target === "window" ? () => {} : run.close, target === "window").catch((error) => {
+    run.close()
+    throw error
+  })
   if (target !== "window") await awake(next.client)
   if (target === "capture") {
-    if (run.pid === undefined) throw new Error("Chrome did not report a process id.")
+    if (run.pid === undefined) { run.close(); next.client.close(); throw new Error("Chrome did not report a process id.") }
     const script = helperFile()
     try {
       next.capture = await WindowCapture.start(
