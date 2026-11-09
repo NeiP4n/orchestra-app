@@ -1,3 +1,6 @@
+import { createStateFeedback } from "../ui/state-feedback"
+import { useConfig } from "../config"
+import { useMotion } from "./neural"
 import { TextAttributes } from "@opentui/core"
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js"
 import { ScheduleView } from "@orchestra/core/schedule-view"
@@ -13,6 +16,12 @@ export function ScheduleList(props: { sessionID: string; width?: number }) {
   const [measuredWidth, setMeasuredWidth] = createSignal<number>()
   const width = () => Math.max(1, measuredWidth() ?? props.width ?? 32)
   const [items, setItems] = createSignal<Array<{ item: ScheduleView.Item; status?: BrowserSchedule.Status }>>([])
+  const motion = useMotion()
+  const config = useConfig().data
+  const feedback = createStateFeedback(
+    () => items().map(({ item, status }) => ({ id: item.id, phase: !item.enabled ? "paused" as const : status?.phase === "error" || status?.watcher === "failed" ? "error" as const : "working" as const, token: `${status?.watcher ?? "off"}:${item.lastFiredAt ?? ""}` })),
+    () => !collapsed() && motion() && (config.stateEffects ?? true),
+  )
   createEffect(() => {
     const sessionID = props.sessionID
     setExpanded({})
@@ -31,7 +40,7 @@ export function ScheduleList(props: { sessionID: string; width?: number }) {
         <For each={items()}>{({ item, status }) => <box flexDirection="column" flexShrink={0} minWidth={0}>
           <HoverAction onClick={() => setExpanded((value) => ({ ...value, [item.id]: !value[item.id] }))}>
             <box flexDirection="row" width="100%" minWidth={0} gap={1}>
-              <text fg={scheduleTone(item, status) === "green" ? theme.text.feedback.success.base : scheduleTone(item, status) === "yellow" ? theme.text.feedback.warning.base : theme.text.muted}>●</text>
+              <text fg={feedback(item.id).flash ? theme.text.action.primary.base : scheduleTone(item, status) === "green" ? theme.text.feedback.success.base : scheduleTone(item, status) === "yellow" ? theme.text.feedback.warning.base : theme.text.muted}>●</text>
               <box flexGrow={1} minWidth={0}>
                 <text fg={theme.text.base}>{scheduleEllipsis(item.name || "Без названия", Math.max(1, width() - Math.min(14, Array.from(scheduleState(item, status)).length) - 3))}</text>
               </box>

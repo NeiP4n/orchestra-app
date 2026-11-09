@@ -203,6 +203,7 @@ const appBindingCommands = [
   "terminal.suspend",
   "terminal.title.toggle",
   "app.toggle.animations",
+  "app.toggle.state-effects",
   "app.toggle.file_context",
   "app.toggle.diffwrap",
   "app.toggle.paste_summary",
@@ -1450,6 +1451,16 @@ function App() {
             .catch(toast.error)
           dialog.clear()
         },
+      },
+      {
+        name: "app.toggle.state-effects",
+        title: "Переключить сигналы состояния",
+        slash: { name: "state-effects" },
+        run: () => {
+          void config.update((draft) => { draft.stateEffects = !(config.data.stateEffects ?? true) }).catch(toast.error)
+          dialog.clear()
+        },
+        category: "System",
       },
       {
         name: "app.toggle.animations",

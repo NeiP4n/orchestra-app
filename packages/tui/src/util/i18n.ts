@@ -8,6 +8,14 @@ export type Language = "en" | "ru"
 // LAN Rooms and federation were added after the original locale table. Keep these
 // additions isolated so the upstream translation table can be replaced independently.
 const ruExtra: Record<string, string> = {
+  "waiting for answer": "ждёт ответа",
+  "Project rules": "Правила проекта",
+  "Orchestrator rules": "Правила оркестратора",
+  "Browsers": "Браузеры",
+  "New browser session": "Новая сессия браузера",
+  "Planning": "Планирование",
+  "Quality": "Проверка качества",
+  "General": "Общее",
   Council: "Совет",
   Groups: "Группы",
   Tree: "Дерево",

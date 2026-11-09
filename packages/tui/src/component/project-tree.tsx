@@ -1,3 +1,6 @@
+import { createStateFeedback } from "../ui/state-feedback"
+import { useMotion } from "./neural"
+import { useConfig } from "../config"
 import { TextAttributes } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, untrack, type JSX } from "solid-js"
@@ -609,6 +612,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
             <>
             <Row
               id={`child:${child.id}`}
+              feedback={rowFeedback(child.id)}
               hover={hover}
               setHover={setHover}
               selected={child.id === current()?.id}
@@ -653,6 +657,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                         <>
                         <Row
                           id={`browser:${item.id}`}
+                          feedback={item.chat ? rowFeedback(item.chat) : undefined}
                           hover={hover}
                           setHover={setHover}
                           selected={chosen() && inProject(project)}
@@ -852,6 +857,12 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       void data.session.permission.sync(id).catch(() => undefined)
       void data.session.form.sync(id).catch(() => undefined)
     }),
+  )
+  const feedbackMotion = useMotion()
+  const feedbackConfig = useConfig().data
+  const rowFeedback = createStateFeedback(
+    () => data.session.list().map((session) => ({ id: session.id, phase: waiting().has(session.id) ? "waiting" as const : data.session.status(session.id) === "running" ? "working" as const : "idle" as const })),
+    () => !props.collapsed && feedbackMotion() && (feedbackConfig.stateEffects ?? true),
   )
   const projectWaiting = (project: OrchestraProject) =>
     [project.main, ...sessionsOf(project).map((session) => session.id)].some((id) => id !== undefined && waiting().has(id))
@@ -1059,6 +1070,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                         {(project) => (
                           <Row
                             id={`group-orchestrator:${section().name}:${project.id}`}
+                            feedback={project.main ? rowFeedback(project.main) : undefined}
                             hover={hover}
                             setHover={setHover}
                             selected={project.main !== undefined && project.main === current()?.id}
@@ -1149,6 +1161,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                   </Row>
                   <Row
                     id={`${project.id}:main`}
+                    feedback={project.main ? rowFeedback(project.main) : undefined}
                     hover={hover}
                     setHover={setHover}
                     selected={project.main !== undefined && project.main === current()?.id}
@@ -1216,7 +1229,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                           >
                             <Branch through />
                             <text fg={palette().synapse} wrapMode="none" truncate>
-                              {`${notes.groupCollapsed(`${project.id}:${group.name}`) ? "▸" : "▾"} ${group.name}${
+                              {`${notes.groupCollapsed(`${project.id}:${group.name}`) ? "▸" : "▾"} ${["Planning", "Quality", "General"].includes(group.name) ? t(group.name) : group.name}${
                                 notes.groupCollapsed(`${project.id}:${group.name}`) ? ` (${group.sessions.length})` : ""
                               }`}
                             </text>
@@ -1232,6 +1245,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                             <>
                             <Row
                               id={session.id}
+                              feedback={rowFeedback(session.id)}
                               hover={hover}
                               setHover={setHover}
                               selected={session.id === current()?.id}

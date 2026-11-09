@@ -251,6 +251,7 @@ export const Info = Schema.Struct({
       "Panel layout; 'compact' narrows the project panel and docks the session sidebar beside the chat, 'auto' turns it on for narrow terminals, 'mobile' fits a phone: side panels fold to edge rails and open over the screen (default: auto, mobile in Termux)",
   }),
   animations: Schema.optional(Schema.Boolean).annotate({ description: "Enable interface animations" }),
+  stateEffects: Schema.optional(Schema.Boolean).annotate({ description: "Show state pulses and activation flashes (default true, follows animations)" }),
   mascot: Schema.optional(Schema.Boolean).annotate({
     description: "Show the Orchestra mascot in the prompt (default: true)",
   }),
