@@ -49,8 +49,10 @@ const GFX = (() => {
 const IMAGE_PROTOCOL = GFX
 const STRIP_SCALE = Math.min(3, Math.max(1, Number(process.env.ORCHESTRA_BROWSER_SCALE) || 1))
 const DEBUG = process.env.ORCHESTRA_BROWSER_DEBUG === "1"
-// Emergency only: the pane's own tab strip and address row. By default the tabs and address bar are Chrome's own, in the captured window.
-const STRIP = process.env.ORCHESTRA_BROWSER_STRIP === "1"
+// The pane's own tab strip and address row, drawn whenever the picture is the page only (the windowless Chrome, also the
+// fallback of a capture that went wrong), so the top bar is always there. A captured window has Chrome's own bar.
+// ORCHESTRA_BROWSER_STRIP=0 hides it.
+const STRIP = process.env.ORCHESTRA_BROWSER_STRIP !== "0"
 const BUILD = (() => {
   try {
     const out = spawnSync("git", ["rev-parse", "--short", "HEAD"], {
@@ -150,7 +152,12 @@ export function BrowserPane(props: {
   createEffect(() => {
     if (!STRIP || state() !== "ready" || mode() === "capture") return
     void refreshTabs()
+    // An empty list (Chrome still starting, or a read that failed) is read again soon, not after the full period.
     const timer = setInterval(() => void refreshTabs(), 1500)
+    const quick = setInterval(() => {
+      if (tabList().length === 0) void refreshTabs()
+    }, 400)
+    onCleanup(() => clearInterval(quick))
     onCleanup(() => clearInterval(timer))
   })
   // The runtime can leave capture by itself (the window printed blank, or could not be kept invisible): follow the real mode.

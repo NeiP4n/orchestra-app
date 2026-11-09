@@ -116,8 +116,8 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     default: "1.",
   },
   ORCHESTRA_BROWSER_STRIP: {
-    purpose: "Emergency only: draw the pane's own tab strip and address row above the windowless Chrome (\"1\"). By default Chrome's own bar is shown.",
-    default: "Off.",
+    purpose: "Hide the pane's own tab strip and address row (\"0\"). They are drawn above the windowless Chrome picture, which has no Chrome top bar; a captured window shows Chrome's own bar.",
+    default: "On.",
   },
   ORCHESTRA_BROWSER_STRIP_SNAP: {
     purpose: "Moves pointer events in Chrome's tab strip to the strip's centre line so the close button can be hit (\"0\" turns it off).",

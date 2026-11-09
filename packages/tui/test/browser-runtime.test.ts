@@ -69,8 +69,8 @@ describe("the browser pane default", () => {
     expect(pane).toContain("props.busy?.()")
     expect(pane).toContain('switchMode("capture")')
     expect(read("component/session-frame.tsx")).toContain('data.session.status(item.chat) === "running"')
-    // The pane's own tab strip is behind ORCHESTRA_BROWSER_STRIP=1 and never drawn over the captured window.
-    expect(pane).toContain('process.env.ORCHESTRA_BROWSER_STRIP === "1"')
+    // The pane's own tab strip is on by default (ORCHESTRA_BROWSER_STRIP=0 hides it) and never drawn over the captured window.
+    expect(pane).toContain('process.env.ORCHESTRA_BROWSER_STRIP !== "0"')
     expect(pane).toContain('STRIP && !windowed() && mode() !== "capture"')
   })
 
