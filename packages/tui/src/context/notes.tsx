@@ -17,6 +17,7 @@ import { useStorage } from "./storage"
 import {
   addBrowserSession,
   emptyBrowserSessions,
+  forgetClosedBrowserSession,
   groupBrowserSession,
   removeBrowserSession,
   reopenBrowserSession,
@@ -256,6 +257,8 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
       closedBrowserSessions: (projectID: string) => browser.closed?.[projectID] ?? [],
       reopenBrowserSession: (projectID: string, id: string) =>
         changeBrowser((draft) => void reopenBrowserSession(draft, projectID, id)),
+      forgetClosedBrowserSession: (projectID: string, id: string) =>
+        changeBrowser((draft) => forgetClosedBrowserSession(draft, projectID, id)),
       removeBrowserSession: (projectID: string, id: string) =>
         changeBrowser((draft) => removeBrowserSession(draft, projectID, id)),
       renameBrowserSession: (projectID: string, id: string, name: string) =>

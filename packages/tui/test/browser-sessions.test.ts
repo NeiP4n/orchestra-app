@@ -3,6 +3,7 @@ import {
   addBrowserSession,
   browserSessionGroups,
   emptyBrowserSessions,
+  forgetClosedBrowserSession,
   groupBrowserSession,
   MAX_BROWSER_SESSIONS,
   removeBrowserSession,
@@ -103,4 +104,15 @@ test("reopening something that is not closed, or past the limit, does nothing", 
   for (let n = 0; n < MAX_BROWSER_SESSIONS; n++) addBrowserSession(state, "p", { id: `s${n}`, now: n })
   expect(reopenBrowserSession(state, "p", "a")).toBeUndefined()
   expect(state.closed?.p?.map((item) => item.id)).toEqual(["a"])
+})
+
+test("forgetting a closed session removes it from the list and leaves the open ones alone", () => {
+  const state = emptyBrowserSessions()
+  for (const id of ["a", "b", "c"]) addBrowserSession(state, "p", { id, now: 0 })
+  removeBrowserSession(state, "p", "a")
+  removeBrowserSession(state, "p", "b")
+  forgetClosedBrowserSession(state, "p", "a")
+  expect(state.closed?.p?.map((item) => item.id)).toEqual(["b"])
+  expect(state.projects.p?.map((item) => item.id)).toEqual(["c"])
+  forgetClosedBrowserSession(state, "other", "x")
 })

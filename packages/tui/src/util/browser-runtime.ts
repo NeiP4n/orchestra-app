@@ -5,6 +5,7 @@ import { BrowserRuntime } from "@orchestra/core/browser/runtime"
 export const {
   open,
   isOpen,
+  deleteProfile,
   go,
   read,
   close,

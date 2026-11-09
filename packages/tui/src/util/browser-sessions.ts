@@ -77,6 +77,12 @@ export function reopenBrowserSession(state: BrowserSessionsState, projectID: str
   return session
 }
 
+/** Drops a closed session from the list for good. Its profile folder is not touched here. */
+export function forgetClosedBrowserSession(state: BrowserSessionsState, projectID: string, id: string) {
+  const closed = state.closed?.[projectID]
+  if (closed) state.closed![projectID] = closed.filter((item) => item.id !== id)
+}
+
 /** Changes only the label. The id, which keys the Chrome profile folder, is never touched, so logins stay. */
 export function renameBrowserSession(state: BrowserSessionsState, projectID: string, id: string, name: string) {
   const item = state.projects[projectID]?.find((entry) => entry.id === id)

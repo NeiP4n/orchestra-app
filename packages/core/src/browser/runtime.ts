@@ -442,6 +442,20 @@ export async function reload(sessionID: string) {
   await (await open(sessionID)).send("Page.reload")
 }
 
+/**
+ * Deletes the saved profile folder of a session (its logins, cookies and history). Refuses while the session's
+ * Chrome runs here. Returns the reason when it could not delete everything, nothing on success.
+ */
+export function deleteProfile(sessionID: string): string | undefined {
+  if (live.has(sessionID)) return "The session's Chrome is running. Close it first."
+  try {
+    rmSync(Chrome.profileDir(Global.Path.data, sessionID), { recursive: true, force: true })
+    return undefined
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+
 export function close(sessionID: string) {
   unwatch(sessionID)
   orders.delete(sessionID)
