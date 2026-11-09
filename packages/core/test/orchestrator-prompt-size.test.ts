@@ -35,6 +35,8 @@ describe("orchestrator prompt size", () => {
     expect(PROMPT_ORCHESTRATOR).toContain("never bypass read-only access")
     expect(PROMPT_ORCHESTRATOR).toContain("Plan the next dependency wave")
     expect(PROMPT_ORCHESTRATOR).not.toContain("do not launch subagents")
+    expect(PROMPT_ORCHESTRATOR).toContain("masked Vault input only, never chat, .env")
+    expect(PROMPT_ORCHESTRATOR).toContain("Never ask how to solve or whether to continue")
   })
   test("the base prompt stays under its word budget", () => {
     expect(words(PROMPT_ORCHESTRATOR)).toBeLessThanOrEqual(BASE_WORD_LIMIT)

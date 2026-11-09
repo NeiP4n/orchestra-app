@@ -355,3 +355,25 @@ describe("orchestra.worker policy without configuration", () => {
     }),
   )
 })
+
+describe("autonomous scoped staffing",()=>{
+ itPolicy.live("creates another busy-role worker only for known disjoint scope, stays project-owned",()=>Effect.gen(function*(){
+  const {main,sessions,orchestra}=yield* setup
+  const tools=yield* Tool.Service
+  const worker=yield* orchestra.createMember({project:main,title:"Busy API",agent:Orchestra.role("developer")})
+  yield* sessions.setMetadata({sessionID:worker.id,metadata:{...worker.metadata,"orchestra.taskScope.v1":["src/api"]}})
+  yield* orchestra.dispatch({project:main,sessionID:worker.id,text:"Build API"})
+  expect(yield* orchestra.pending(worker.id)).toBeDefined()
+  const input={action:"create",role:"developer",text:"Implement separate UI; test it",mcp:{servers:[],maxCalls:0}}
+  const rejected=yield* runTool(tools,main.main!,OrchestraTool.name,"overlap",{...input,workScope:["src/api/handler.ts"]})
+  expect(JSON.stringify(rejected)).toContain("No duplicate session was created")
+  const output=text(yield* runTool(tools,main.main!,OrchestraTool.name,"parallel",{...input,workScope:["src/ui"]}))
+  const id=/Created\. VERIFIED: id (ses_[A-Za-z0-9]+)/.exec(output)?.[1]
+  expect(id).toBeDefined();expect(id).not.toBe(worker.id)
+  const created=yield* sessions.get(Session.ID.make(id!))
+  expect(yield* orchestra.owns(main,created)).toBe(true)
+  expect(created.metadata?.["orchestra.taskScope.v1"]).toEqual(["src/ui"])
+  expect(output).toContain("Dispatch other ready independent work now")
+  expect(yield* orchestra.pending(created.id)).toBeDefined()
+ }))
+})

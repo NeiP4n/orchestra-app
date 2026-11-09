@@ -1,5 +1,6 @@
 export * as OrchestraTool from "./orchestra.js"
 
+import { SCOPE_KEY, scopePaths, disjointScopes } from "../../staffing.js"
 import { BrowserLifecycle } from "../../browser/lifecycle.js"
 import { BrowserProvenance } from "../../browser/provenance.js"
 import { ToolFailure } from "@orchestra/ai"
@@ -92,13 +93,13 @@ export const freeModelGuide = [
 export const guide = [
   "Run this project's AI team: the other sessions of the project, each a separate chat with its own role.",
   "Only the project's main session (the orchestrator) has this tool.",
-  "Before creating a worker, inspect the roster and reuse an existing writable session with the needed role. Action create reuses an existing session of that role by default; set newInstance=true only when an additional parallel worker is deliberately needed.",
+  "Inspect the roster, reuse an idle writable worker, or create the needed role yourself. Include workScope in every file task: create automatically adds a same-role worker when existing busy workers have known disjoint scopes. For unknown/overlapping scopes wait, never ask the operator how to staff. newInstance=true remains a deliberate independent-worker choice, not a read-only bypass.",
   "Do not call HTTP endpoints directly or invent /api/orchestra routes for team management. Use this tool. If a team action returns an endpoint or API error, report the actual error instead of creating a replacement session.",
   "Actions: list shows the team by category with each session's role, status, access and whether a task is outstanding;",
   "send queues a task without interrupting the worker's current work; its task-linked <team-report> arrives automatically when it finishes and wakes the Orchestrator again. The current turn ending after send is intentional; it does not mean the project task is complete.",
   "A report's state describes whether the worker run ended; outcome describes task progress. If outcome is partial, incomplete, failed, or stopped, treat the task as still open unless it is explicitly blocked or cancelled. outcome=unknown means the worker did not state its status: judge the report text yourself instead of re-sending the task. Compare the report with the acceptance criteria and send a focused follow-up to that same worker after its previous task is no longer outstanding. Do not mark the overall task complete until evidence satisfies the acceptance criteria; if the work is blocked, state the exact blocker.",
   "Copy the complete sessionID exactly from the roster or action list; never abbreviate or invent one. If a sessions action fails, inspect the exact error and current list/read state, correct the cause, then retry only with changed/corrected arguments. Never repeat an identical failed call.",
-  "A worker that asks the human a question during its task blocks until someone answers; that question also arrives here as a <team-question>. Answer it with action answer (sessionID of the worker, answers: one list of chosen option labels or your own text per question, in order) by default, choosing the recommended option when unsure; the society runs autonomously. Tell the operator only for hard limits: spending money, secrets or credentials, publishing or other irreversible outside actions.",
+  "A worker that asks the human a question during its task blocks until someone answers; that question also arrives here as a <team-question>. Answer it with action answer (sessionID of the worker, answers: one list of chosen option labels or your own text per question, in order) by default, choosing the recommended option when unsure; the society runs autonomously. Tell the operator only for hard limits: spending money, secrets through the masked Vault form (never chat or .env), publishing or other irreversible outside actions.",
   "read returns a session's latest messages; create accepts an exact role ID from the global Orchestra role registry even if no session exists for that role yet, reuses a writable matching session by default or creates one if needed, and can give it a first task; set_mode changes how an existing session works; stop interrupts a running session.",
   `Modes: ${MODE_IDS}. A mode changes how a session works and may make it read-only; it never widens the role's permissions. Pass mode to send or create, or use action set_mode. Use fast for trivial work, planning or research before building, coding for implementation, architecture for parallel-safe design, test to verify, review or debug for checks, and self-improvement for work on the product itself. A planner in coding mode still cannot edit files.`,
   "Never pass a display title as a role ID: use an exact role id from the roles listed with your team.",
@@ -553,6 +554,7 @@ export const Input = Schema.Struct({
   category: Schema.optionalKey(Schema.String).annotate({
     description: "Category of the session to create, e.g. Planning, Build or Quality",
   }),
+  workScope: Schema.optionalKey(Schema.Array(Schema.String)).annotate({description:"For send/create: disjoint project-relative owned file/directory scopes. Reuse idle workers; when all same-role workers are busy with known non-overlapping scopes, create automatically staffs another. Planning metadata, not filesystem permission. Unknown or overlapping scope waits; never invent scope to evade read-only access."}),
   newInstance: Schema.optionalKey(Schema.Boolean).annotate({
     description:
       "Normally omit this: create reuses an existing writable session with this role. Set true only when a separate parallel worker is deliberately needed.",
@@ -1227,6 +1229,16 @@ export const Plugin = {
                     return yield* new ToolFailure({ message: "The browser task authority could not be saved. Nothing was dispatched; fix storage access and try again." })
                   if (by && !by.publishApproved) Trigger.taint(String(sessionID), by.id, Date.now(), by.browserSessionID)
                   else Trigger.clearTaint(String(sessionID))
+                  if(input.workScope){
+                    const scope=scopePaths(input.workScope)
+                    if(!scope)return yield* new ToolFailure({message:"Invalid workScope: use exact project-relative paths without traversal or wildcards."})
+                    const worker=yield* sessions.get(sessionID)
+                    yield* sessions.setMetadata({sessionID,metadata:{...worker.metadata,[SCOPE_KEY]:scope}})
+                  }else{
+                    const worker=yield* sessions.get(sessionID)
+                    const metadata={...worker.metadata};delete metadata[SCOPE_KEY]
+                    yield* sessions.setMetadata({sessionID,metadata})
+                  }
                   const recon = yield* reconBrief()
                   return yield* orchestra.dispatch({
                     project,
@@ -1532,7 +1544,7 @@ export const Plugin = {
                   yield* dispatch(session.id, limit ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
                   return {
                     sessionID: session.id,
-                    output: `Sent. VERIFIED: id ${session.id}, title "${session.title ?? ""}", role ${role?.id ?? session.agent ?? "session"}; task accepted by the session service. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.${modelNote(choice.model ?? session.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`,
+                    output: `Sent. VERIFIED: id ${session.id}, title "${session.title ?? ""}", role ${role?.id ?? session.agent ?? "session"}; task accepted by the session service. Its report will arrive here when it finishes. Dispatch other ready independent work now; then wait for reports, do NOT poll with read or list.${modelNote(choice.model ?? session.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`,
                   }
                 }
                 case "create": {
@@ -1555,9 +1567,10 @@ export const Plugin = {
                     const rows = yield* team(project)
                     const matching = rows.filter((row) => row.role === role.id)
                     if (matching.length > 0) {
+                      const active=yield* sessions.active
                       const pending = new Set<string>()
                       for (const row of matching) {
-                        if ((yield* orchestra.pending(row.session.id)) !== undefined) pending.add(row.session.id)
+                        if (active.has(row.session.id) || (yield* orchestra.pending(row.session.id)) !== undefined) pending.add(row.session.id)
                       }
                       const reusable = reusableWorker(rows, role.id, pending)
                       if (reusable.session) {
@@ -1570,7 +1583,7 @@ export const Plugin = {
                         return {
                           sessionID: existing.id,
                           output: input.text?.trim()
-                            ? `Reused existing ${role.name} session ${existing.title ?? existing.id}; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.${modelNote(choice.model ?? existing.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`
+                            ? `Reused existing ${role.name} session ${existing.title ?? existing.id}; task queued. Its report will arrive here when it finishes. Dispatch other ready independent work now; then wait for reports, do NOT poll with read or list.${modelNote(choice.model ?? existing.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`
                             : `Reused existing ${role.name} session ${existing.title ?? existing.id}. No new session was created; use action send to assign work.`,
                         }
                       }
@@ -1579,8 +1592,8 @@ export const Plugin = {
                           message: `An existing ${role.name} session is read-only, so no work can go to it. Do not create a duplicate. Use a ${role.name} session that has write access, or tell the operator which session needs write access and why.`,
                         })
                       }
-                      return yield* new ToolFailure({
-                        message: `All existing ${role.name} sessions have an outstanding task. For independent work with disjoint scope, create with newInstance=true; for dependent or overlapping work, wait for the report. No duplicate session was created.`,
+                      if(!input.text?.trim() || !disjointScopes(input.workScope,reusable.writable.map(row=>row.session.metadata?.[SCOPE_KEY])))return yield* new ToolFailure({
+                        message: `All existing ${role.name} sessions have an outstanding task. Independent disjoint work can be staffed automatically: pass workScope with exact project-relative paths, with existing workers' scopes known. Overlapping/dependent/unknown scope waits for the report. No duplicate session was created.`,
                       })
                     }
                   }
@@ -1628,7 +1641,7 @@ export const Plugin = {
                     })
                   return {
                     sessionID: created.id,
-                    output: `Created. VERIFIED: id ${created.id}, title "${confirmed.value.title ?? ""}", role ${role.id}, agent ${confirmed.value.agent ?? role.agent}, project ${project.directory}; listed in the operator's project tree${input.text?.trim() ? "; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list." : "; NO TASK WAS SENT: nothing is running in it and no report will ever arrive. Do not tell the operator that it is working or launched. Send the task now with sessions action=send, then wait for its report."}.${modelNote(created.model, choice.model ? (choice.modelSource ?? "your explicit choice") : worker.model ? "the role/worker policy" : "inherited from your own session — pass model to choose otherwise")}`,
+                    output: `Created. VERIFIED: id ${created.id}, title "${confirmed.value.title ?? ""}", role ${role.id}, agent ${confirmed.value.agent ?? role.agent}, project ${project.directory}; listed in the operator's project tree${input.text?.trim() ? "; task queued. Its report will arrive here when it finishes. Dispatch other ready independent work now; then wait for reports, do NOT poll with read or list." : "; NO TASK WAS SENT: nothing is running in it and no report will ever arrive. Do not tell the operator that it is working or launched. Send the task now with sessions action=send, then wait for its report."}.${modelNote(created.model, choice.model ? (choice.modelSource ?? "your explicit choice") : worker.model ? "the role/worker policy" : "inherited from your own session — pass model to choose otherwise")}`,
                   }
                 }
                 case "answer": {
@@ -1838,9 +1851,9 @@ export const Plugin = {
             "- Each session has a work mode (auto, fast, coding, research, planning, review, debug, design, ops). Set it with action set_mode or pass mode to send/create. A mode changes how the worker works and may make it read-only; it never widens the role's permissions.",
             "- Page actions in a browser session go to that session's BrowserAgent chat (browser action sessions lists its id) with action send; you only look at the page yourself (sessions, info, text, screenshot).",
             "- Copy the complete session ID exactly from this roster. Never truncate, infer, or substitute an ID.",
-            "- Sending a task ends this model turn while the worker runs; a task-linked <team-report> wakes you again. Do not tell the user the task is complete merely because send succeeded.",
+            "- Dispatch all ready independent work in this turn, then wait for task-linked <team-report> wakeups. One successful send is progress, not completion. Plan the next wave and choose roles/MCP yourself; ask only for an operator-only action, never how to solve or whether to continue.",
             "- After each <team-report>, compare the worker's evidence with the original acceptance criteria. outcome=partial, incomplete, failed, or stopped means the task is still open unless explicitly blocked/cancelled (outcome=unknown: judge the report text itself): inspect the report and send a specific follow-up to the same worker once its previous task is no longer outstanding. outcome=complete is evidence to review, not a substitute for checking the criteria.",
-            "- A <team-question> means a worker is blocked waiting for an answer. Answer it with action answer yourself by default, and pass reason: one short sentence on why, which the operator sees next to your answer. Ask the operator only for hard limits: spending money, secrets or credentials, publishing or other irreversible outside actions.",
+            "- A <team-question> means a worker is blocked waiting for an answer. Answer it with action answer yourself by default, and pass reason: one short sentence on why, which the operator sees next to your answer. Ask the operator only for hard limits: spending money, secrets through the masked Vault form (never chat or .env), publishing or other irreversible outside actions.",
             "- If a sessions tool call fails, inspect its exact error and use list/read to verify IDs and whether a task is outstanding. Fix the arguments or underlying cause before retrying; never repeat the identical failed call.",
             "- Do not call HTTP endpoints directly or guess /api/orchestra routes. If a tool/API error occurs, report its exact message and do not create a replacement session as a workaround.",
             "",
@@ -1861,6 +1874,10 @@ export const Plugin = {
         // delegation status below: stage state changes during a turn, so it must
         // not destabilize the cacheable roster block above.
         const stages = yield* orchestra.stages(project.id)
+        if(stages.length){
+          const ready=stages.filter(stage=>stage.status==="planned"&&stage.dependsOn.every(id=>stages.find(other=>other.id===id)?.status==="completed"))
+          event.system.push({type:"text",text:`Next dependency wave: ${ready.map(stage=>`${stage.id} (${stage.roles.join(",")||"choose role"}; acceptance: ${stage.acceptance||"define evidence"})`).join("; ")||"none ready; inspect running/blockers, do not invent completion"}. Staff ready work yourself using sessions create/send; no roster ceiling. Check reports before completing dependencies.`})
+        }
         if (stages.length > 0)
           event.system.push({
             type: "text",
