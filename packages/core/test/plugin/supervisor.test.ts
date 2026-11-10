@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { Clock, Deferred, Duration, Effect, Layer, LayerMap, Stream } from "effect"
+import { Deferred, Duration, Effect, Layer, LayerMap, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import { define } from "@orchestra/plugin/effect/plugin"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
@@ -10,13 +10,13 @@ import { ConfigPluginSource } from "@orchestra/core/config/plugin/source"
 import { Instance } from "@orchestra/core/instance"
 import { LocationServiceMap } from "@orchestra/core/location-services"
 import { Location } from "@orchestra/core/location"
-import { Orchestra } from "@orchestra/core/orchestra"
 import { Plugin } from "@orchestra/core/plugin"
 import { SdkPlugins } from "@orchestra/core/plugin/sdk"
 import { AbsolutePath } from "@orchestra/core/schema"
 import { Database } from "../../src/database/database"
 import { Bus } from "../../src/bus"
 import { tempGlobalLayer } from "../fixture/global"
+import { liveOrchestra } from "../fixture/live-orchestra"
 import { offlineModels } from "../fixture/models"
 import { tmpdirScoped } from "../fixture/tmpdir"
 import { advance } from "../lib/clock"
@@ -44,14 +44,6 @@ const sourceLayer = Layer.succeed(
       }),
     changes: () => Stream.never,
   }),
-)
-
-// This suite advances the supervisor's clock by days. Keep the real unrelated Orchestra
-// trigger/report sweeps on live time, without removing their service or policy hooks.
-const liveOrchestra = Orchestra.node.replace(
-  Orchestra.node.mapLayer((layer) =>
-    Layer.effectContext(Effect.provideService(Layer.build(layer), Clock.Clock, Clock.Clock.defaultValue())),
-  ),
 )
 
 const instances = Layer.effect(
