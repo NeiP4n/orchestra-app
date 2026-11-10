@@ -523,7 +523,7 @@ test("automatic rename refreshes the displayed title before settling, even witho
   })
 
   try {
-    await setup.waitForFrame((frame) => frame.includes(session.title) && frame.includes("Build · Model Provider"))
+    await setup.waitForFrame((frame) => frame.includes(session.title) && frame.includes("Build mode:auto · Model Provider"))
     await setup.mockInput.typeText("/rename")
     setup.mockInput.pressEscape()
     setup.mockInput.pressEnter()
@@ -916,6 +916,9 @@ test.each([false, true])("uses the resolved launch directory for new prompts (fa
   const submitted = Promise.withResolvers<unknown>()
   let session: unknown
   await using setup = await createAppFixture({
+    // Full-text semantics, not narrow-layout coverage (tested separately at 100 columns).
+    width: 200,
+    height: 55,
     state: state.path,
     config: { animations: false, tabs: { mode: "off" }, keybinds: { "session.new": "f6" } },
     fetch: async (url, request) => {
@@ -954,7 +957,7 @@ test.each([false, true])("uses the resolved launch directory for new prompts (fa
   })
 
   await setup.ready
-  await setup.waitForFrame((frame) => frame.includes("Build · Remote Model Provider"))
+  await setup.waitForFrame((frame) => frame.includes("Build mode:auto · Remote Model Provider"))
   setup.mockInput.pressKey("F6")
   await setup.renderOnce()
   await setup.mockInput.typeText("REMOTE_READY")
@@ -987,6 +990,9 @@ test("error investigations repeatedly seed editable home drafts without creating
   const location = { directory: cwd, project: { id: "project", directory: cwd } }
   let created = 0
   await using setup = await createAppFixture({
+    // Full-text semantics, not narrow-layout coverage (tested separately at 100 columns).
+    width: 200,
+    height: 55,
     config: { animations: false, keybinds: { "mcp.list": "f6" } },
     fetch: (url, request) => {
       if (url.pathname === "/api/location") return json(location)
@@ -1188,6 +1194,9 @@ test("keeps the prompt display stable while a new location catalog loads", async
   const locationRequested = Promise.withResolvers<void>()
   const modelRequested = Promise.withResolvers<void>()
   await using setup = await createAppFixture({
+    // Full-text semantics, not narrow-layout coverage (tested separately at 100 columns).
+    width: 200,
+    height: 55,
     fetch: async (url) => {
       const requestedDirectory = url.searchParams.get("location[directory]") ?? source
       const location = {
@@ -1224,12 +1233,11 @@ test("keeps the prompt display stable while a new location catalog loads", async
         return json({
           location,
           data: [
-            {
-              id: requestedDirectory === target ? "target-model" : "source-model",
-              providerID: "provider",
-              name: requestedDirectory === target ? "Target Model" : "Source Model",
-              variants: [],
-            },
+            freeModel(
+              requestedDirectory === target ? "target-model" : "source-model",
+              "provider",
+              requestedDirectory === target ? "Target Model" : "Source Model",
+            ),
           ],
         })
       }
@@ -1239,7 +1247,7 @@ test("keeps the prompt display stable while a new location catalog loads", async
 
   try {
     await setup.ready
-    await setup.waitForFrame((frame) => frame.includes("Build · Source Model Provider"))
+    await setup.waitForFrame((frame) => frame.includes("Build mode:auto · Source Model Provider"))
     const agentSpan = () =>
       setup
         .captureSpans()
@@ -1270,15 +1278,15 @@ test("keeps the prompt display stable while a new location catalog loads", async
     ])
     await setup.renderOnce()
 
-    expect(setup.captureCharFrame()).toContain("Build · Source Model Provider")
+    expect(setup.captureCharFrame()).toContain("Build mode:auto · Source Model Provider")
     expect(agentSpan()?.fg.toInts()).toEqual(sourceAgentColor)
 
     catalog.resolve()
-    const resolved = await setup.waitForFrame((frame) => frame.includes("Build · Target Model provider"))
+    const resolved = await setup.waitForFrame((frame) => frame.includes("Build mode:auto · Target Model provider"))
     expect(resolved).not.toContain("Source Model")
 
     providerCatalog.resolve()
-    await setup.waitForFrame((frame) => frame.includes("Build · Target Model Provider"))
+    await setup.waitForFrame((frame) => frame.includes("Build mode:auto · Target Model Provider"))
   } finally {
     locationCatalog.resolve()
     catalog.resolve()
@@ -1724,3 +1732,33 @@ test.each([44, 100])(
   },
   15_000,
 )
+
+
+test("Home at 100 columns keeps its composer and draft controls usable", async () => {
+  const location = { directory, project: { id: "project", directory, canonical: directory } }
+  let created = 0
+  await using setup = await createAppFixture({
+    width: 100,
+    height: 30,
+    config: { animations: false },
+    fetch: (url, request) => {
+      if (url.pathname === "/api/location") return json(location)
+      if (url.pathname === "/api/agent")
+        return json({ location, data: [{ id: "build", mode: "primary", hidden: false, permissions: [] }] })
+      if (url.pathname === "/api/provider") return json({ location, data: [provider("provider", "Provider")] })
+      if (url.pathname === "/api/model") return json({ location, data: [freeModel("model", "provider", "Model")] })
+      if (url.pathname === "/api/session" && request.method === "POST") created++
+      return undefined
+    },
+  })
+  await setup.ready
+  await setup.waitForFrame((frame) => frame.includes("Ask anything") && frame.includes("Skills"))
+  await setup.mockInput.typeText("NARROW_DRAFT")
+  const frame = await setup.waitForFrame((frame) => frame.includes("NARROW_DRAFT"))
+  expect(frame.split("\n").every((line) => [...line].length <= 100)).toBe(true)
+  expect(frame).toContain("commands")
+  expect(created).toBe(0)
+  setup.mockInput.pressKey("c", { ctrl: true })
+  await setup.waitForFrame((frame) => !frame.includes("NARROW_DRAFT"))
+  expect(created).toBe(0)
+})
