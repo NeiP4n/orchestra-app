@@ -143,6 +143,7 @@ import BrowserPlugin from "@orchestra/plugin-browser"
 import { AntigravityAuthEffectPlugin } from "@orchestra/plugin-antigravity-auth"
 import { CommandPlugin } from "./command.js"
 import { IdentityPlugin } from "./identity.js"
+import { CapabilityOutcomesPlugin } from "./capability-outcomes.js"
 import { PlanPlugin } from "./plan.js"
 import { JailbreakPlugin } from "./jailbreak.js"
 import { ModelsDevPlugin } from "./models-dev.js"
@@ -290,6 +291,7 @@ export const requirements = LayerNode.group([
 export type InternalPlugin = Plugin<Requirements | Scope.Scope>
 
 const pre = [
+  CapabilityOutcomesPlugin.Plugin,
   ToolInputRepairPlugin.Plugin,
   ConfigWorktreePlugin.Plugin,
   ConfigMcpPlugin.Plugin,
