@@ -47,7 +47,9 @@ export const CredentialHandler = HttpApiBuilder.group(Api, "server.credential", 
       "credential.remove",
       Effect.fn(function* (ctx) {
         const credential = yield* Credential.Service
-        yield* credential.remove(ctx.params.credentialID)
+        yield* credential.remove(ctx.params.credentialID).pipe(
+          Effect.catchTag("Credential.RemovalError", error => Effect.fail(new ConflictError({ resource: ctx.params.credentialID, message: error.message }))),
+        )
         return HttpApiSchema.NoContent.make()
       }),
     ),

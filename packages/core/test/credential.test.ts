@@ -1,6 +1,6 @@
 import { describe, expect } from "bun:test"
 import { eq } from "drizzle-orm"
-import { Effect } from "effect"
+import { Deferred, Effect, Fiber, Exit } from "effect"
 import { Bus } from "@orchestra/core/bus"
 import { Credential } from "@orchestra/core/credential"
 import { CredentialTable } from "@orchestra/core/credential/sql"
@@ -45,6 +45,53 @@ describe("Credential", () => {
       expect(yield* credentials.list(integrationID)).toEqual([
         expect.objectContaining({ id: created.id, label: "Personal" }),
       ])
+    }),
+  )
+
+  it.effect("keeps a native credential when its linked owner is unavailable or refuses deletion", () =>
+    Effect.gen(function* () {
+      const credentials = yield* Credential.Service
+      const created = yield* credentials.create({ integrationID: Integration.ID.make("google"), value: Credential.OAuth.make({ type: "oauth", methodID: Integration.MethodID.make("antigravity"), access: "test-access", refresh: "test-refresh", expires: 0 }) })
+      const unavailable = yield* Effect.exit(credentials.remove(created.id))
+      expect(Exit.isFailure(unavailable)).toBe(true)
+      expect(yield* credentials.get(created.id)).toEqual(created)
+      const detach = Credential.registerRemovalOwner(credentials, _info => [{ methodID: "antigravity", remove: Effect.fail(new Error("synthetic-private-error")) }])
+      yield* Effect.addFinalizer(() => Effect.sync(detach))
+      const refused = yield* Effect.exit(credentials.remove(created.id))
+      expect(Exit.isFailure(refused)).toBe(true)
+      expect(JSON.stringify(refused)).not.toContain("synthetic-private-error")
+      expect(yield* credentials.get(created.id)).toEqual(created)
+    }),
+  )
+
+  it.effect("runs linked removal once before concurrent native deletes and leaves other credentials alone", () =>
+    Effect.gen(function* () {
+      const credentials = yield* Credential.Service
+      const integrationID = Integration.ID.make("google")
+      const created = yield* credentials.create({ integrationID, value: Credential.OAuth.make({ type: "oauth", methodID: Integration.MethodID.make("managed"), access: "test-access", refresh: "test-refresh", expires: 0, metadata: { removalOwner: "managed" } }) })
+      const unrelated = yield* credentials.create({ integrationID, value: Credential.Key.make({ type: "key", key: "unrelated" }) })
+      const started = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      let calls = 0
+      const detach = Credential.registerRemovalOwner(credentials, info => [{ methodID: "managed", remove: Effect.gen(function* () {
+        calls++
+        expect(info.id).toBe(created.id)
+        expect(yield* credentials.get(created.id)).toEqual(created)
+        yield* Deferred.succeed(started, undefined)
+        yield* Deferred.await(release)
+      }) }])
+      yield* Effect.addFinalizer(() => Effect.sync(detach))
+      const first = yield* credentials.remove(created.id).pipe(Effect.forkChild)
+      yield* Deferred.await(started)
+      const second = yield* credentials.remove(created.id).pipe(Effect.forkChild)
+      yield* Deferred.succeed(release, undefined)
+      yield* Fiber.join(first)
+      yield* Fiber.join(second)
+      expect(calls).toBe(1)
+      expect(yield* credentials.get(created.id)).toBeUndefined()
+      expect(yield* credentials.get(unrelated.id)).toEqual(unrelated)
+      yield* credentials.remove(unrelated.id)
+      expect(calls).toBe(1)
     }),
   )
 

@@ -59,6 +59,7 @@ export const CredentialGroup = HttpApiGroup.make("server.credential")
   )
   .add(
     HttpApiEndpoint.delete("credential.remove", "/api/credential/:credentialID", {
+      error: ConflictError,
       params: { credentialID: Credential.ID },
       success: HttpApiSchema.NoContent,
     })

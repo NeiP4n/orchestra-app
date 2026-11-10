@@ -1,7 +1,7 @@
 export * as Credential from "./credential.js"
 
 import { asc, desc, eq } from "drizzle-orm"
-import { Cause, Context, Effect, Layer, Schema } from "effect"
+import { Cause, Context, Effect, Layer, Schema, Semaphore } from "effect"
 import { Credential } from "@orchestra/schema/credential"
 import { Integration } from "@orchestra/schema/integration"
 import { Global } from "@orchestra/util/global"
@@ -39,6 +39,25 @@ export class Info extends Schema.Class<Info>("Credential.Info")({
   value: Value,
 }) {}
 
+/** Public error text contains no provider response, account label or secret. */
+export class RemovalError extends Schema.TaggedError<RemovalError>()("Credential.RemovalError", {
+  reason: Schema.Literals(["owner_unavailable", "owner_failed"]),
+  message: Schema.String,
+}) {}
+
+export type RemovalOwner = (credential: Info) => ReadonlyArray<{
+  readonly methodID: string
+  readonly remove: Effect.Effect<void, unknown>
+}>
+const removalOwners = new WeakMap<Interface, Set<RemovalOwner>>()
+/** Internal, scope-owned bridge. No credential details are broadcast as events. */
+export function registerRemovalOwner(service: Interface, owner: RemovalOwner): () => void {
+  let owners = removalOwners.get(service)
+  if (!owners) removalOwners.set(service, owners = new Set())
+  owners.add(owner)
+  return () => { owners.delete(owner) }
+}
+
 export interface Interface {
   /** Returns every stored credential. */
   readonly all: () => Effect.Effect<Info[]>
@@ -62,7 +81,7 @@ export interface Interface {
   /** Updates the label or secret value of a stored credential. */
   readonly update: (id: ID, updates: Partial<Pick<Info, "label" | "value">>) => Effect.Effect<void>
   /** Removes a stored credential. */
-  readonly remove: (id: ID) => Effect.Effect<void>
+  readonly remove: (id: ID) => Effect.Effect<void, RemovalError>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@orchestra/Credential") {}
@@ -208,7 +227,8 @@ const layer = Layer.effect(
     const seal = (value: Value) =>
       codec.mode === "encrypted" ? CredentialEncryption.encodeStored(codec.key, value) : value
 
-    return Service.of({
+    const removalLock = Semaphore.makeUnsafe(1)
+    const service: Interface = Service.of({
       all: Effect.fn("Credential.all")(() =>
         db
           .select()
@@ -381,6 +401,22 @@ const layer = Layer.effect(
           yield* bus.publish(Event.Updated, {}, { global: true })
       }),
       remove: Effect.fn("Credential.remove")(function* (id) {
+        const row = yield* db.select().from(CredentialTable).where(eq(CredentialTable.id, id)).get().pipe(Effect.orDie)
+        if (!row) return
+        const credential = stored(row)
+        if (credential?.value.type === "oauth") {
+          const owners = Array.from(removalOwners.get(service) ?? []).flatMap(owner => owner(credential))
+          const marker = credential.value.metadata?.removalOwner
+          // Compatibility: native Antigravity records predate the generic owner marker.
+          // Generic legacy Google OAuth cannot be classified safely without its pool owner.
+          const required = typeof marker === "string" ? marker
+            : credential.integrationID === "google" && (credential.value.methodID === "antigravity" || credential.value.methodID === "oauth" || typeof credential.value.metadata?.antigravityAccountId === "string") ? "antigravity" : undefined
+          if (required && !owners.some(owner => owner.methodID === required))
+            return yield* new RemovalError({ reason: "owner_unavailable", message: "The linked account manager is unavailable. Enable its plugin and retry. The credential was kept." })
+          for (const owner of owners) {
+            yield* owner.remove.pipe(Effect.catchCause(() => Effect.fail(new RemovalError({ reason: "owner_failed", message: "The linked account could not be removed. Check access to its account store and retry. The credential was kept." }))))
+          }
+        }
         const removed = yield* db
           .transaction((tx) =>
             Effect.gen(function* () {
@@ -445,8 +481,9 @@ const layer = Layer.effect(
             { integrationID: removed.integrationID, credentialID: removed.credentialID },
             { global: true },
           )
-      }),
+      }, removalLock.withPermit),
     })
+    return service
   }),
 )
 
