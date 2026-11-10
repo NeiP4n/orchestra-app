@@ -633,11 +633,12 @@ export const AntigravityV2Plugin = Plugin.define({
                                 const saved = await updateAccounts(storage => {
                                     // Stable binding wins. Never fall back to email, or from a missing
                                     // stable ID to another account which happens to have the same token.
-                                    const candidates = storage.accounts.filter(account => stableID ? accountID(account) === stableID : matchesAccountToken(account, token));
+                                    const previouslyRevoked = accountWasDeleted(storage, { ...(stableID ? { id: stableID } : {}), refreshToken: token, addedAt: 0, lastUsed: 0 });
+                                    const candidates = previouslyRevoked ? [] : storage.accounts.filter(account => stableID ? accountID(account) === stableID : matchesAccountToken(account, token));
                                     if (candidates.length > 1)
                                         throw new Error("Ambiguous account identity; reopen the account manager");
                                     const account = candidates[0];
-                                    owned = !!account || !!stableID || credential.methodID === METHOD_ID;
+                                    owned = !!account || !!stableID || previouslyRevoked || credential.methodID === METHOD_ID;
                                     if (!owned)
                                         return false;
                                     if (account)

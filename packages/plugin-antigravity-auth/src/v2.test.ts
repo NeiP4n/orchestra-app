@@ -810,6 +810,7 @@ describe("account lifecycle regressions", () => {
     expect(fresh.metadata?.antigravityAccountId).not.toBe(old.metadata.antigravityAccountId)
     expect(state.storage!.accounts).toHaveLength(1)
     await adapter.method.remove!(old, "native-old-alias")
+    await adapter.method.remove!({ ...credential(), methodID: Integration.MethodID.make("oauth") }, "native-legacy-alias")
     expect(state.storage!.accounts).toHaveLength(1)
     expect(state.storage!.accounts[0]!.id).toBe(fresh.metadata?.antigravityAccountId)
   })
