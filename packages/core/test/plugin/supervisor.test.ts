@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { Deferred, Duration, Effect, Layer, LayerMap, Stream } from "effect"
+import { Clock, Deferred, Duration, Effect, Layer, LayerMap, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import { define } from "@orchestra/plugin/effect/plugin"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
@@ -10,6 +10,7 @@ import { ConfigPluginSource } from "@orchestra/core/config/plugin/source"
 import { Instance } from "@orchestra/core/instance"
 import { LocationServiceMap } from "@orchestra/core/location-services"
 import { Location } from "@orchestra/core/location"
+import { Orchestra } from "@orchestra/core/orchestra"
 import { Plugin } from "@orchestra/core/plugin"
 import { SdkPlugins } from "@orchestra/core/plugin/sdk"
 import { AbsolutePath } from "@orchestra/core/schema"
@@ -45,6 +46,14 @@ const sourceLayer = Layer.succeed(
   }),
 )
 
+// This suite advances the supervisor's clock by days. Keep the real unrelated Orchestra
+// trigger/report sweeps on live time, without removing their service or policy hooks.
+const liveOrchestra = Orchestra.node.replace(
+  Orchestra.node.mapLayer((layer) =>
+    Layer.effectContext(Effect.provideService(Layer.build(layer), Clock.Clock, Clock.Clock.defaultValue())),
+  ),
+)
+
 const instances = Layer.effect(
   LocationServiceMap.Service,
   Effect.gen(function* () {
@@ -56,6 +65,7 @@ const instances = Layer.effect(
     const bindings: LayerNode.Replacements = [
       Global.node.replace(tempGlobalLayer),
       offlineModels,
+      liveOrchestra,
       ConfigPluginSource.node.replace(sourceLayer),
       LocationServiceMap.node.replace(Layer.succeed(LocationServiceMap.Service, map)),
       Instance.node.replace(
@@ -72,6 +82,7 @@ const it = testEffect(
   AppNodeBuilder.build(LayerNode.group([Database.node, Bus.node, SdkPlugins.node, LocationServiceMap.node]), [
     Global.node.replace(tempGlobalLayer),
     offlineModels,
+    liveOrchestra,
     LocationServiceMap.node.replace(instances),
   ]),
 )
@@ -149,6 +160,7 @@ describe("PluginSupervisor", () => {
         yield* TestClock.adjust("1 hour")
         yield* advance(() => source.activations === 2)
         yield* plugins.awaitActivation
+        expect(source.activations).toBe(2)
 
         yield* TestClock.adjust("24 hours")
         yield* advance(() => source.activations === 3)
