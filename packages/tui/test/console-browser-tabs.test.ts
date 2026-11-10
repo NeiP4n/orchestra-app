@@ -109,7 +109,8 @@ test("every browser-role session, subagents and custom browser roles included, i
 
 test("every session row in the tree (subagents, BrowserAgent chats, plain sessions) has rename and delete", () => {
   const tree = read("component/project-tree.tsx")
-  expect(tree.match(/\{rowButtons\((?:child|chat)\)\}/g)?.length).toBe(2)
+  // Child, owned BrowserAgent chat and unbound BrowserAgent chat each keep their actions.
+  expect(tree.match(/\{rowButtons\((?:child|chat)\)\}/g)?.length).toBe(3)
   expect(tree.match(/session-rename:\$\{session\.id\}/g)?.length).toBeGreaterThanOrEqual(2)
 })
 
@@ -207,7 +208,7 @@ test("refresh and startup never auto-create a browser profile from orphan chat l
   const start = runtime.indexOf("export async function watchEnsure(")
   const end = runtime.indexOf("BrowserWatch.setEnsurer", start)
   const ensure = runtime.slice(start, end)
-  expect(ensure).toContain("await peek(sessionID)")
+  expect(ensure).toContain("await within(peek(sessionID), 4000)")
   expect(ensure).not.toContain("await open(")
   expect(ensure).not.toContain("start(")
   const triggers = readFileSync(new URL("../../core/src/tool/plugin/triggers.ts", import.meta.url), "utf8")
