@@ -2981,3 +2981,11 @@ and worker tool permissions separate. Legacy project bindings remain visible onl
 for legacy entries. Mouse tests cover explicit scope parameters and grant/revoke;
 a captured real test-renderer cell frame was visually inspected at 120 columns.
 This is not proof of native Windows collector rendering or narrow-terminal layout.
+
+ProjectTemplateSource.capture is a metadata-only projection port for the upcoming
+live source reader. Runtime IDs map to portable slots; source ownership and complete
+session membership must match. Browser saved links are explicit input and never
+read by opening Chrome. Local Vault definitions contain no values/grants, and only
+operator-selected globals become requirements. Unsupported schedule action plans,
+conditions, unlimited caps and legacy Vault scope fail the capture instead of being
+silently omitted. This port is not yet wired to live project readers or template UI.
