@@ -16,7 +16,7 @@ import { createLogger } from "./plugin/logger.ts"
 import { ensureProjectContext } from "./plugin/project.ts"
 import { executeSearch, type SearchArgs } from "./plugin/search.ts"
 import { startOAuthListener, type OAuthListener } from "./plugin/server.ts"
-import { newAccountIdentity, loadAccounts, matchesAccountToken, saveAccountCredentials, updateAccountCredentials, updateAccounts, type AccountMetadataV3 } from "./plugin/storage.ts"
+import { accountWasDeleted, accountDeletionKeys, deleteAccountIdentity, newAccountIdentity, loadAccounts, matchesAccountToken, saveAccountCredentials, updateAccountCredentials, updateAccounts, type AccountMetadataV3 } from "./plugin/storage.ts"
 import { AntigravityTokenRefreshError, refreshAccessToken } from "./plugin/token.ts"
 import { resolveModelWithTier } from "./plugin/transform/model-resolver.ts"
 import type { AuthDetails, LoaderResult, OAuthAuthDetails, PluginClient } from "./plugin/types.ts"
@@ -262,10 +262,12 @@ export const AntigravityV2Plugin = Plugin.define({
         // V1 credentials are imported with a generic method ID. Only matching
         // this plugin's existing pool establishes their Antigravity ownership.
         const metadataID = value.metadata?.antigravityAccountId
-        const account = stored?.accounts.find(item => matchesAccountToken(item, parseRefreshParts(value.refresh).refreshToken))
-          ?? stored?.accounts.find(item => (typeof metadataID === "string" && item.id === metadataID) || (typeof boundID === "string" && item.id === boundID) || (typeof value.metadata?.email === "string" && item.email === value.metadata.email))
+        const stableID = typeof metadataID === "string" ? metadataID : typeof boundID === "string" ? boundID : undefined
+        const token = parseRefreshParts(value.refresh).refreshToken
+        const sourceRevoked = !!stored && accountWasDeleted(stored, { ...(stableID ? { id: stableID } : {}), refreshToken: token, addedAt: 0, lastUsed: 0 })
+        const account = sourceRevoked ? undefined : stored?.accounts.find(item => stableID ? accountID(item) === stableID : matchesAccountToken(item, token))
         if (account && bindingKey) await ctx.storage.set(bindingKey, accountID(account))
-        const knownAccountRemoved = (typeof metadataID === "string" || typeof boundID === "string") && !account
+        const knownAccountRemoved = (sourceRevoked || typeof metadataID === "string" || typeof boundID === "string") && !account
         if (account?.enabled !== false && poolSelection !== "pool" && (connection.type !== "credential" || poolSelection !== connection.id)) {
           if (!knownAccountRemoved) {
             const auth = account ? { ...value, refresh: formatRefreshParts(account) } : value
@@ -328,7 +330,9 @@ export const AntigravityV2Plugin = Plugin.define({
         let remembered = false
         const originalToken = parseRefreshParts(previous.refresh).refreshToken
         const saved = await updateAccounts(storage => {
-          const account = storage.accounts.find(item => matchesAccountToken(item, originalToken) || (typeof previous.metadata?.antigravityAccountId === "string" && item.id === previous.metadata.antigravityAccountId))
+          const stableID = previous.metadata?.antigravityAccountId
+          if (accountWasDeleted(storage, { ...(typeof stableID === "string" ? { id: stableID } : {}), refreshToken: originalToken, addedAt: 0, lastUsed: 0 })) return false
+          const account = storage.accounts.find(item => typeof stableID === "string" ? accountID(item) === stableID : matchesAccountToken(item, originalToken))
           if (!account) return
           remembered = true
           if (account.refreshToken === originalToken) {
@@ -337,7 +341,7 @@ export const AntigravityV2Plugin = Plugin.define({
         })
         if (remembered) return saved?.accounts.find(item => item.refreshToken === parts.refreshToken || item.id === previous.metadata?.antigravityAccountId)
         // A saved native credential may outlive an explicitly deleted pool entry.
-        if (previous.metadata?.antigravityAccountId) return undefined
+        return undefined
       }
       const saved = await updateAccounts(storage => {
         const account = storage.accounts.find(item => matchesAccountToken(item, parts.refreshToken) || (!!email && item.email === email))
@@ -539,7 +543,11 @@ export const AntigravityV2Plugin = Plugin.define({
             return runCredentialOperation(async () => {
               const sourceConnection = await ctx.integration.connection.active(PROVIDER_ID)
               const stored = await loadManagedAccounts()
-              const original = stored?.accounts.find(account => matchesAccountToken(account, parseRefreshParts(credential.refresh).refreshToken) || (typeof credential.metadata?.antigravityAccountId === "string" && account.id === credential.metadata.antigravityAccountId))
+              const stableID = credential.metadata?.antigravityAccountId
+              const token = parseRefreshParts(credential.refresh).refreshToken
+              if (stored && accountWasDeleted(stored, { ...(typeof stableID === "string" ? { id: stableID } : {}), refreshToken: token, addedAt: 0, lastUsed: 0 }))
+                return { ...credential, access: "", expires: Date.now() + 6 * 60_000 }
+              const original = stored?.accounts.find(account => typeof stableID === "string" ? accountID(account) === stableID : matchesAccountToken(account, token))
               const previous = original?.id ? { ...credential, refresh: formatRefreshParts(original), metadata: { ...credential.metadata, antigravityAccountId: original.id } } : credential
               try {
                 const refreshed = await refreshAccessToken(previous, client, PROVIDER_ID)
@@ -563,6 +571,48 @@ export const AntigravityV2Plugin = Plugin.define({
                 // step available so the transport can rotate to another account.
                 // Six minutes clears Core's five-minute refresh buffer briefly.
                 return { ...credential, access: "", expires: Date.now() + 6 * 60_000 }
+              }
+            })
+          },
+          async remove(credential, credentialID) {
+            return runCredentialOperation(async () => {
+              const bindingKey = `connection-account:${credentialID}`
+              const boundID = await ctx.storage.get(bindingKey)
+              const metadataID = credential.metadata?.antigravityAccountId
+              if (typeof boundID === "string" && typeof metadataID === "string" && boundID !== metadataID)
+                throw new Error("Conflicting account identity bindings; reopen the account manager")
+              const stableID = typeof metadataID === "string" ? metadataID : typeof boundID === "string" ? boundID : undefined
+              const token = parseRefreshParts(credential.refresh).refreshToken
+              let owned = false
+              invalidateLoader()
+              try {
+                await transport.flush?.()
+                const saved = await updateAccounts(storage => {
+                  // Stable binding wins. Never fall back to email, or from a missing
+                  // stable ID to another account which happens to have the same token.
+                  const candidates = storage.accounts.filter(account => stableID ? accountID(account) === stableID : matchesAccountToken(account, token))
+                  if (candidates.length > 1) throw new Error("Ambiguous account identity; reopen the account manager")
+                  const account = candidates[0]
+                  owned = !!account || !!stableID || credential.methodID === METHOD_ID
+                  if (!owned) return false
+                  if (account) return deleteAccountIdentity(storage, accountID(account))
+                  // Repeated deletion and legacy credentials must also revoke stale
+                  // snapshots when the pool file has already lost its account row.
+                  const keys = accountDeletionKeys({ ...(stableID ? { id: stableID } : {}), refreshToken: token, addedAt: 0, lastUsed: 0 })
+                  const existing = new Set(storage.deletedAccountKeys ?? [])
+                  const changed = keys.some(key => !existing.has(key))
+                  storage.deletedAccountKeys = [...new Set([...existing, ...keys])]
+                  return changed
+                }, { strict: true })
+                hasSavedAccounts = saved?.accounts.some(account => account.enabled !== false) ?? false
+                if (owned) {
+                  await ctx.storage.remove(bindingKey)
+                  await ctx.storage.remove("model-catalog")
+                }
+              } finally {
+                // Also retire a loader created while the first flush was draining.
+                invalidateLoader()
+                await transport.flush?.()
               }
             })
           },

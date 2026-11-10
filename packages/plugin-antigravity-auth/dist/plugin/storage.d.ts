@@ -149,7 +149,9 @@ export declare function migrateV3ToV4(v3: AccountStorageV3): AccountStorageV4;
 export declare function loadAccounts(): Promise<AccountStorageV4 | null>;
 export declare function saveAccounts(storage: AccountStorageV4): Promise<void>;
 /** Apply a targeted change to the latest pool while holding its file lock. */
-export declare function updateAccounts(update: (storage: AccountStorageV4) => void): Promise<AccountStorageV4 | null>;
+export declare function updateAccounts(update: (storage: AccountStorageV4) => void | boolean, options?: {
+    strict?: boolean;
+}): Promise<AccountStorageV4 | null>;
 /**
  * Save accounts storage by replacing the entire file (no merge).
  * Use this for destructive operations like delete where we need to

@@ -441,7 +441,8 @@ async function ensureSecurePermissions(path: string): Promise<void> {
 async function ensureFileExists(path: string): Promise<void> {
   try {
     await fs.access(path);
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     await fs.mkdir(dirname(path), { recursive: true });
     await fs.writeFile(
       path,
@@ -802,14 +803,14 @@ export async function saveAccounts(storage: AccountStorageV4): Promise<void> {
 }
 
 /** Apply a targeted change to the latest pool while holding its file lock. */
-export async function updateAccounts(update: (storage: AccountStorageV4) => void): Promise<AccountStorageV4 | null> {
+export async function updateAccounts(update: (storage: AccountStorageV4) => void | boolean, options?: { strict?: boolean }): Promise<AccountStorageV4 | null> {
   const path = getStoragePath();
   await fs.mkdir(dirname(path), { recursive: true });
   await ensureGitignore(dirname(path));
   return withFileLock(path, async () => {
-    const storage = await loadAccountsUnsafe();
+    const storage = await loadAccountsUnsafe(options?.strict);
     if (!storage) return null;
-    update(storage);
+    if (update(storage) === false) return storage;
     const normalized = normalizeAccountStorage(storage);
     const tempPath = `${path}.${randomBytes(6).toString("hex")}.tmp`;
     try {
@@ -854,7 +855,7 @@ export async function saveAccountsReplace(storage: AccountStorageV4): Promise<vo
   });
 }
 
-async function loadAccountsUnsafe(): Promise<AccountStorageV4 | null> {
+async function loadAccountsUnsafe(strict = false): Promise<AccountStorageV4 | null> {
   try {
     const path = getStoragePath();
     // Ensure permissions are correct on load (fixes existing files)
@@ -863,7 +864,10 @@ async function loadAccountsUnsafe(): Promise<AccountStorageV4 | null> {
     const content = await fs.readFile(path, "utf-8");
     const parsed = JSON.parse(content) as AnyAccountStorage;
 
-    if (!Array.isArray(parsed.accounts)) return null;
+    if (!Array.isArray(parsed.accounts)) {
+      if (strict) throw new Error("Invalid account store format");
+      return null;
+    }
 
     if (parsed.version === 1) {
       return normalizeAccountStorage(migrateV3ToV4(migrateV2ToV3(migrateV1ToV2(parsed))));
@@ -875,12 +879,15 @@ async function loadAccountsUnsafe(): Promise<AccountStorageV4 | null> {
       return normalizeAccountStorage(migrateV3ToV4(parsed));
     }
 
-    return parsed.version === 4 ? normalizeAccountStorage(parsed) : null;
+    if (parsed.version === 4) return normalizeAccountStorage(parsed);
+    if (strict) throw new Error("Unsupported account store version");
+    return null;
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
       return null;
     }
+    if (strict) throw new Error("Cannot read the account store");
     return null;
   }
 }

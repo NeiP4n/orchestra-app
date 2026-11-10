@@ -484,8 +484,20 @@ describe("Account selection normalization", () => {
     await saveAccountsReplace({ version: 4, accounts: [removed, other], activeIndex: 0 });
     expect(savedStorage().accounts).toEqual([other]);
     vi.mocked(fs.writeFile).mockClear();
-    await updateAccounts(latest => latest.accounts.push(removed));
+    await updateAccounts(latest => { latest.accounts.push(removed); });
     expect(savedStorage().accounts).toEqual([other]);
+  });
+
+  it("strict deletion reads reject corrupted or unreadable storage without overwriting it", async () => {
+    vi.mocked(fs.readFile).mockImplementation(async path => String(path).endsWith(".gitignore") ? "" : "{broken-json");
+    await expect(updateAccounts(() => undefined, { strict: true })).rejects.toThrow("account store");
+    expect(vi.mocked(fs.writeFile).mock.calls.some(call => String(call[0]).endsWith(".tmp"))).toBe(false);
+    vi.mocked(fs.readFile).mockImplementation(async path => {
+      if (String(path).endsWith(".gitignore")) return "";
+      throw Object.assign(new Error("denied"), { code: "EACCES" });
+    });
+    await expect(updateAccounts(() => undefined, { strict: true })).rejects.toThrow("account store");
+    expect(vi.mocked(fs.writeFile).mock.calls.some(call => String(call[0]).endsWith(".tmp"))).toBe(false);
   });
 
   it("preserves incoming selected identities through merge reordering and append", async () => {

@@ -749,6 +749,80 @@ describe("discovery and account eligibility regressions", () => {
 })
 
 describe("account lifecycle regressions", () => {
+  it("removes only the stable bound pool identity, never another same-email account", async () => {
+    const adapter = await host()
+    const removed = state.storage!.accounts[0]!
+    const id = accountID(removed)
+    state.storage!.accounts.push({ ...removed, id: "unrelated-same-label", refreshToken: "unrelated" })
+    const native = { ...credential(), metadata: { antigravityAccountId: id, email: removed.email } }
+    await adapter.method.remove!(native, "native-delete")
+    expect(state.storage!.accounts.map(account => account.id)).toEqual(["unrelated-same-label"])
+    expect(state.storage!.deletedAccountKeys!.length).toBeGreaterThan(0)
+    await adapter.method.remove!(native, "native-alias")
+    expect(state.storage!.accounts.map(account => account.id)).toEqual(["unrelated-same-label"])
+    await adapter.method.remove!({ ...credential("unrelated-generic|project"), methodID: Integration.MethodID.make("oauth"), metadata: { email: removed.email } }, "native-unrelated")
+    expect(state.storage!.accounts.map(account => account.id)).toEqual(["unrelated-same-label"])
+  })
+
+  it("does not resurrect a deleted identity when a native refresh finishes later", async () => {
+    let announce!: () => void, release!: () => void
+    const started = new Promise<void>(resolve => { announce = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      announce(); await gate
+      return Response.json({ access_token: "late-access", refresh_token: "late-rotated", expires_in: 3600 })
+    })
+    const adapter = await host()
+    const id = accountID(state.storage!.accounts[0]!)
+    const native = { ...credential(), metadata: { antigravityAccountId: id } }
+    const refreshing = adapter.method.refresh!(native)
+    await started
+    await adapter.method.remove!(native, "native-delete")
+    expect(state.storage!.accounts).toEqual([])
+    release()
+    await refreshing
+    expect(state.storage!.accounts).toEqual([])
+    expect(state.storage!.deletedAccountKeys!.length).toBeGreaterThan(0)
+  })
+
+  it("invalidates an already prepared loader when native removal leaves another pool account", async () => {
+    mockNetwork()
+    const adapter = await host()
+    const removed = state.storage!.accounts[0]!
+    const id = accountID(removed)
+    state.storage!.accounts.push({ ...removed, id: "surviving-identity", refreshToken: "surviving-token", email: "survivor@example.test" })
+    const { sdk } = await adapter.sdk()
+    await stream(sdk)
+    await adapter.method.remove!({ ...credential(), metadata: { antigravityAccountId: id } }, "native-delete")
+    await stream(sdk)
+    expect(state.storage!.accounts.map(account => account.id)).toEqual(["surviving-identity"])
+    expect(state.storage!.accounts[state.storage!.activeIndex]!.refreshToken).toBe("surviving-token")
+  })
+
+  it("allows explicit sign-in with the same token while old native aliases stay revoked", async () => {
+    const adapter = await host()
+    const old = { ...credential(), metadata: { antigravityAccountId: accountID(state.storage!.accounts[0]!) } }
+    await adapter.method.remove!(old, "native-old")
+    state.exchange.mockResolvedValueOnce({ type: "success", refresh: "refresh|project", access: "new-access", expires: Date.now() + 3600_000, projectId: "project" })
+    const auth = await adapter.method.authorize({ manual: true })
+    if (auth.mode !== "code") throw new Error("Expected code authorization")
+    const fresh = await auth.callback("test-code")
+    expect(fresh.metadata?.antigravityAccountId).not.toBe(old.metadata.antigravityAccountId)
+    expect(state.storage!.accounts).toHaveLength(1)
+    await adapter.method.remove!(old, "native-old-alias")
+    expect(state.storage!.accounts).toHaveLength(1)
+    expect(state.storage!.accounts[0]!.id).toBe(fresh.metadata?.antigravityAccountId)
+  })
+
+  it("propagates account-store refusal instead of silently accepting native deletion", async () => {
+    const adapter = await host()
+    const original = structuredClone(state.storage)
+    const storage = await import("./plugin/storage.ts")
+    vi.mocked(storage.updateAccounts).mockRejectedValueOnce(new Error("synthetic store refusal"))
+    await expect(adapter.method.remove!(credential(), "native-delete")).rejects.toThrow("store refusal")
+    expect(state.storage).toEqual(original)
+  })
+
   it("does not resurrect disabled accounts from a loader still being constructed", async () => {
     mockNetwork()
     state.storage!.accounts.push({ ...pool().accounts[0]!, email: "second@example.test", refreshToken: "second" })
