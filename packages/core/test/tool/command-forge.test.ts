@@ -39,7 +39,8 @@ describe("command forge", () => {
         model: "provider/model",
       }),
     )
-    expect(pinned.model).toEqual({ providerID: "provider", model: "model" })
+    expect(pinned.model?.providerID).toBe("provider")
+    expect(pinned.model?.model).toBe("model")
   })
 
   test("descriptions and templates with quotes and colons survive the frontmatter", () => {
