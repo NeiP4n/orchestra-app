@@ -5,6 +5,7 @@ import { Effect, Schema } from "effect"
 import { Config } from "@orchestra/core/config"
 import { ConfigProviderPlugin } from "@orchestra/core/config/plugin/provider"
 import { ConfigNormalize } from "@orchestra/core/config/normalize"
+import { Credential } from "@orchestra/core/credential"
 import { Integration } from "@orchestra/core/integration"
 import { Model } from "@orchestra/core/model"
 import { ModelResolver } from "@orchestra/core/model-resolver"
@@ -20,10 +21,20 @@ import { PluginTestLayer } from "../plugin/fixture"
 
 const it = testEffect(PluginTestLayer)
 
-const addPlugin = Effect.fn(function* (entries: Entry[]) {
+const addPlugin = Effect.fn(function* (entries: Entry[], connected = true) {
   const plugin = yield* Plugin.Service
   const host = yield* PluginHost.make(plugin)
   yield* ConfigProviderPlugin.Plugin.effect(host).pipe(Effect.provide(Config.testLayer(entries)))
+  // Metadata fixtures need an available provider; a config entry alone does not supply a credential.
+  if (connected) {
+    const credentials = yield* Credential.Service
+    const ids = new Set(
+      entries.flatMap((entry) => (entry.type === "document" ? Object.keys(entry.info.providers ?? {}) : [])),
+    )
+    for (const id of ids) {
+      yield* credentials.create({ integrationID: Integration.ID.make(id), value: { type: "key", key: "fixture-key" } })
+    }
+  }
 })
 
 function required<T>(value: T | undefined): T {
@@ -34,6 +45,38 @@ function required<T>(value: T | undefined): T {
 const decode = Schema.decodeUnknownSync(Info)
 
 describe("ConfigProviderPlugin.Plugin", () => {
+  it.effect("keeps keyless configured models unavailable until a credential connects the provider", () =>
+    Effect.gen(function* () {
+      const models = yield* Model.Service
+      const providers = yield* Provider.Service
+      const credentials = yield* Credential.Service
+      const providerID = Provider.ID.make("keyless")
+      const modelID = Model.ID.make("chat")
+      yield* addPlugin(
+        [
+          new Document({
+            type: "document",
+            info: decode({
+              providers: {
+                keyless: { package: "aisdk:@ai-sdk/openai-compatible", models: { chat: {} } },
+              },
+            }),
+          }),
+        ],
+        false,
+      )
+      expect(yield* models.get(providerID, modelID)).toBeUndefined()
+      expect((yield* providers.available()).some((item) => item.id === providerID)).toBe(false)
+      yield* credentials.create({
+        integrationID: Integration.ID.make("keyless"),
+        value: { type: "key", key: "fixture-key" },
+      })
+      expect((yield* models.get(providerID, modelID))?.id).toBe(modelID)
+      expect((yield* providers.available()).some((item) => item.id === providerID)).toBe(true)
+      expect((yield* providers.get(providerID))?.activation).toBe("auto")
+    }),
+  )
+
   it.effect("inherits the provider compaction setting with model overrides and rejects unsupported routes", () =>
     Effect.gen(function* () {
       const models = yield* Model.Service
@@ -48,7 +91,10 @@ describe("ConfigProviderPlugin.Plugin", () => {
                 settings: { compaction: { type: "native" } },
                 models: {
                   native: {},
-                  local: { settings: { compaction: { type: "summary" } }, package: "@orchestra/ai/providers/openai/chat" },
+                  local: {
+                    settings: { compaction: { type: "summary" } },
+                    package: "@orchestra/ai/providers/openai/chat",
+                  },
                   unsupported: { package: "@orchestra/ai/providers/openai/chat" },
                 },
               },
@@ -110,7 +156,12 @@ describe("ConfigProviderPlugin.Plugin", () => {
     { id: "openai", model: "gpt-5.6-sol", package: "@orchestra/ai/providers/openai/responses", plugin: OpenAIPlugin },
     { id: "xai", model: "grok-4.6", package: "@orchestra/ai/providers/xai", plugin: XAIPlugin },
     { id: "azure", model: "gpt-5.6-sol", package: "@orchestra/ai/providers/azure/responses", plugin: AzurePlugin },
-    { id: "custom-azure", model: "deployment", package: "@orchestra/ai/providers/azure/responses", plugin: AzurePlugin },
+    {
+      id: "custom-azure",
+      model: "deployment",
+      package: "@orchestra/ai/providers/azure/responses",
+      plugin: AzurePlugin,
+    },
   ]) {
     it.live(`configured provider transport overrides ${builtin.id} defaults`, () =>
       Effect.gen(function* () {
@@ -169,7 +220,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
         }),
       ]
 
-      yield* addPlugin(entries)
+      yield* addPlugin(entries, false)
 
       expect(yield* integrations.get(Integration.ID.make("litellm"))).toMatchObject({
         id: "litellm",
@@ -725,7 +776,8 @@ describe("ConfigProviderPlugin.Plugin", () => {
           names: ["CUSTOM_API_KEY"],
         })
         expect((yield* integrations.get(Integration.ID.make("custom")))?.name).toBe("Renamed")
-        expect(provider.activation).toBe("enabled")
+        expect(provider.activation).toBe("auto")
+        expect((yield* providers.available()).some((item) => item.id === providerID)).toBe(true)
         expect(provider.package).toBe("aisdk:custom-sdk")
         expect(model.package).toBe("aisdk:custom-sdk")
         expect(provider.settings).toEqual({ baseURL: "https://example.test" })
