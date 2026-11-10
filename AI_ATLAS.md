@@ -3039,3 +3039,11 @@ slots stay empty with no agent grants; globals are unresolved name requirements.
 Every prepared trigger is paused with no nextAt, fired history or publishing yes.
 This is pure destination preparation, not live materialization or a commit. Actual
 cross-store commit/recovery and simple UI adapter remain open.
+
+Baseline probe: detached edcecd3e with its own frozen install reproduces the stale
+English 'complete ID' assertion in orchestra-team, independently of all template
+patches. Production already emits the Russian inaccessible-session/refresh-list/
+do-not-retry-old-ID guidance. The assertion now matches that exact complete text,
+not a weaker generic substring. Full orchestra-team suite: 49 pass, 340 assertions
+on this chain, including the real metadata collector integration. This is one
+suite, not full repository typecheck/CI.

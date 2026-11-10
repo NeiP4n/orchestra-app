@@ -2113,7 +2113,7 @@ describe("Orchestra team", () => {
             },
           )
           .pipe(Effect.flip)).message,
-      ).toContain("complete ID")
+      ).toBe("Сессия не существует или недоступна: ses. Обновите sessions list; не повторяйте отправку по старому ID.")
 
       // A mode narrows how a session works without changing its role. Planning removes the
       // editing tools from the request and still denies an edit that reaches the permission
