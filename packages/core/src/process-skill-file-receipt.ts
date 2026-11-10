@@ -48,13 +48,13 @@ async function directory(target: string) {
   return info
 }
 async function readExact(target: string, expected: string) {
-  const before = await lstat(target)
-  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.size !== Buffer.byteLength(expected))
-    throw Error("Process receipt file differs from its reservation")
   const handle = await open(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
   try {
-    const opened = await handle.stat()
-    if (opened.ino !== before.ino || opened.dev !== before.dev || opened.nlink !== 1)
+    const before = await handle.stat()
+    if (!before.isFile() || before.nlink !== 1 || before.size !== Buffer.byteLength(expected))
+      throw Error("Process receipt file differs from its reservation")
+    const named = await lstat(target)
+    if (named.ino !== before.ino || named.dev !== before.dev || named.isSymbolicLink() || (await realpath(target)) !== target)
       throw Error("Process receipt file changed")
     const buffer = Buffer.alloc(before.size + 1)
     let length = 0
