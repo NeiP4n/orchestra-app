@@ -351,7 +351,7 @@ const readGroups = (
     for (const entry of entries) {
       const raw = entry.value
       // A member project cannot export its coordinator's shared state, and foreign groups are invisible.
-      if (typeof raw !== "object" || raw === null || Array.isArray(raw) || !Array.isArray(raw.projects) || raw.projects[0] !== owner) continue
+      if (typeof raw !== "object" || raw === null || Array.isArray(raw) || !("projects" in raw) || !Array.isArray(raw.projects) || raw.projects[0] !== owner) continue
       const group = Option.getOrUndefined(Schema.decodeUnknownOption(Federation.Group)(raw))
       if (group === undefined)
         return yield* Effect.fail(
