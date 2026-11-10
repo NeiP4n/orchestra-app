@@ -1,8 +1,22 @@
 export * as ProjectTemplateMaterialize from "./project-template-materialize.js"
 
+import type { Session } from "@orchestra/schema/session"
 import { ProjectTemplateImport } from "./project-template-import.js"
 
 export type Plan = ReturnType<typeof ProjectTemplateImport.prepare>
+/** Fixed application-owned process adapter, never supplied by template content. */
+export interface ProcessAdapter {
+  prepare: (
+    serialized: string,
+    digest: string,
+    projectID: string,
+  ) => Promise<{ template: string; process: NonNullable<Receipt["process"]>; roles: ReadonlySet<string> }>
+  validate: (receipt: Receipt) => Promise<ReadonlySet<string>>
+  ensure: (receipt: Receipt) => Promise<void>
+  verify: (receipt: Receipt) => Promise<void>
+  metadata: (receipt: Receipt, session: Plan["sessions"][number]) => Session.Metadata
+  changed: () => Promise<void>
+}
 /** These ports are not arbitrary post-import hooks. Each is an idempotent ensure for this
  * receipt's fresh identities, rejects foreign/changed state and never starts an agent/browser.
  * Publication is last. No rollback deletes user-owned state; failure leaves a resumable receipt. */
@@ -12,6 +26,8 @@ export interface Ports {
   createReceipt: (receipt: Receipt) => Promise<void>
   updateReceipt: (receipt: Receipt) => Promise<void>
   ensureDirectory: (receipt: Receipt) => Promise<void>
+  ensureProcess?: (receipt: Receipt) => Promise<void>
+  verifyProcess?: (receipt: Receipt) => Promise<void>
   ensureSession: (receipt: Receipt, session: Plan["sessions"][number]) => Promise<void>
   ensureRules: (receipt: Receipt, rules: Plan["rules"]) => Promise<void>
   ensureVault: (receipt: Receipt, slots: Plan["localVaultSlots"]) => Promise<void>
@@ -24,6 +40,7 @@ export interface Ports {
 export const PHASES = [
   "reserved",
   "directory",
+  "process",
   "sessions",
   "rules",
   "vault",
@@ -44,6 +61,7 @@ export interface Receipt {
   digest: string
   phase: (typeof PHASES)[number]
   plan: Plan
+  process?: { version: 2; template: string; digest: string }
 }
 function same(a: Receipt, b: Receipt) {
   const { phase: _a, ...left } = a,
@@ -56,6 +74,7 @@ export function make(ports: Ports) {
       ports.lock(reservation.id, async () => {
         if (
           reservation.version !== 1 ||
+          (reservation.process !== undefined && (!ports.ensureProcess || !ports.verifyProcess)) ||
           !Number.isFinite(reservation.createdAt) ||
           !/^pti_[A-Za-z0-9_-]{1,100}$/.test(reservation.id) ||
           !/^prj[A-Za-z0-9_-]+$/.test(reservation.projectID) ||
@@ -82,6 +101,7 @@ export function make(ports: Ports) {
             throw Error("Import reservation did not persist.")
         }
         if (receipt.phase === "published") {
+          if (receipt.process) await ports.verifyProcess!(receipt)
           await ports.verifyPublished(receipt)
           return receipt
         }
@@ -95,6 +115,7 @@ export function make(ports: Ports) {
           receipt = saved
         }
         await advance("directory", () => ports.ensureDirectory(receipt!))
+        if (receipt.process) await advance("process", () => ports.ensureProcess!(receipt!))
         await advance("sessions", async () => {
           for (const session of receipt!.plan.sessions) await ports.ensureSession(receipt!, session)
         })
@@ -103,6 +124,7 @@ export function make(ports: Ports) {
         await advance("browsers", () => ports.ensureBrowsers(receipt!, receipt!.plan.browsers))
         await advance("schedules", () => ports.ensureSchedules(receipt!, receipt!.plan.schedules))
         // Always verify all actual stores on every resumed call, including checkpoints already written.
+        if (receipt.process) await ports.verifyProcess!(receipt)
         await ports.verify(receipt)
         await advance("verified", async () => {})
         // Crash after publish but before checkpoint is safe only because publish itself is create-only/idempotent.

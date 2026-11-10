@@ -30,8 +30,10 @@ const record = (value: unknown): value is Record<string, KV.Value> =>
   !!value && typeof value === "object" && !Array.isArray(value)
 const serial = (value: unknown): KV.Value => JSON.parse(JSON.stringify(value))
 const exact = isDeepStrictEqual
+export type ProcessAdapter = Materialize.ProcessAdapter
 export interface Dependencies {
   kv: KV.Interface
+  process?: ProcessAdapter
   sessions: {
     create: (input: {
       id: Session.ID
@@ -149,21 +151,26 @@ export function make(deps: Dependencies) {
   const verifySession = async (r: Materialize.Receipt, s: Materialize.Plan["sessions"][number]) => {
     const info = await run(deps.store.get(SessionID.make(s.id))),
       expected = sessionExpected(r, s)
-    if (
-      !info ||
-      info.parentID ||
-      info.metadata?.[SESSION_IMPORT] !== r.id ||
-      info.metadata?.[Orchestra.SessionOwnerMetadataKey] !== r.projectID ||
-      info.title !== expected.title ||
-      info.agent !== expected.agent ||
-      info.location.directory !== r.directory ||
-      !exact(info.permissions, []) ||
-      !exact(await run(deps.store.getStoredModel(SessionID.make(s.id))), expected.model) ||
-      info.tokens.input ||
-      info.tokens.output ||
-      (await run(deps.store.messages({ sessionID: info.id, limit: 1 }))).length
-    )
-      throw Error("Imported session is missing, changed, or has started.")
+    const differences = {
+      missing: !info,
+      parent: !!info?.parentID,
+      receipt: info?.metadata?.[SESSION_IMPORT] !== r.id,
+      owner: info?.metadata?.[Orchestra.SessionOwnerMetadataKey] !== r.projectID,
+      title: info?.title !== expected.title,
+      agent: info?.agent !== expected.agent,
+      directory: info?.location.directory !== r.directory,
+      permissions: !exact(info?.permissions, []),
+      model: !exact(await run(deps.store.getStoredModel(SessionID.make(s.id))), expected.model),
+      fallbacks:
+        r.process !== undefined &&
+        !Object.entries(deps.process!.metadata(r, s)).every(([key, value]) => exact(info?.metadata?.[key], value)),
+      tokens: !!info?.tokens.input || !!info?.tokens.output,
+      messages: info ? (await run(deps.store.messages({ sessionID: info.id, limit: 1 }))).length > 0 : false,
+    }
+    const failed = Object.entries(differences)
+      .filter(([, failed]) => failed)
+      .map(([key]) => key)
+    if (failed.length) throw Error("Imported session verification failed: " + failed.join(", "))
     if ((await run(deps.kv.get("orchestra/owner/" + s.id))) !== r.projectID)
       throw Error("Imported session owner differs.")
   }
@@ -196,6 +203,18 @@ export function make(deps: Dependencies) {
         }),
       )
     },
+    ensureProcess: async (r) => {
+      if (!deps.process || !r.process) throw Error("Reviewed process adapter required")
+      await deps.process.validate(r)
+      await putExact(PROJECT_IMPORT + r.projectID, r.id)
+      await putExact("orchestra/project/" + r.projectID, serial(project(r)))
+      await deps.process.ensure(r)
+    },
+    verifyProcess: async (r) => {
+      if (!deps.process || !r.process) throw Error("Reviewed process adapter required")
+      await deps.process.validate(r)
+      await deps.process.verify(r)
+    },
     ensureDirectory: async (r) => {
       await ownedDirectory(r, deps.root)
       await run(Dod.initialize(r.directory))
@@ -216,7 +235,11 @@ export function make(deps: Dependencies) {
           agent: Agent.ID.make(s.role),
           location: { directory: AbsolutePath.make(r.directory) },
           permissions: [],
-          metadata: { [SESSION_IMPORT]: r.id, [Orchestra.SessionOwnerMetadataKey]: r.projectID },
+          metadata: {
+            [SESSION_IMPORT]: r.id,
+            [Orchestra.SessionOwnerMetadataKey]: r.projectID,
+            ...(r.process ? deps.process!.metadata(r, s) : {}),
+          },
           ...(expected.model ? { model: Schema.decodeUnknownSync(Model.Ref)(expected.model) } : {}),
         }),
       )
@@ -282,22 +305,25 @@ export function make(deps: Dependencies) {
   })
   return {
     reserve: async (serialized: string, digest: string) => {
-      const preview = ProjectTemplate.preview(serialized)
-      if (!preview.ok || preview.value.digest !== digest) throw Error("Template changed after review.")
       const id = "pti_" + randomUUID().replaceAll("-", ""),
-        projectID = Orchestra.ProjectID.create(),
-        bundle = preview.value.bundle
+        projectID = Orchestra.ProjectID.create()
+      const original = ProjectTemplate.preview(serialized)
+      const process =
+        !original.ok && deps.process ? await deps.process.prepare(serialized, digest, projectID) : undefined
+      const preview = process ? ProjectTemplate.preview(process.template) : original
+      if (!preview.ok || (!process && preview.value.digest !== digest)) throw Error("Template changed after review.")
+      const bundle = preview.value.bundle
       const createdAt = Date.now()
-      const plan = ProjectTemplateImport.prepare(serialized, {
+      const plan = ProjectTemplateImport.prepare(preview.value.text, {
         projectID,
         installedVersion: deps.installedVersion,
-        reviewedDigest: digest,
+        reviewedDigest: preview.value.digest,
         now: createdAt,
         timezone: deps.timezone,
         sessions: Object.fromEntries(bundle.sessions.map((s) => [s.slot, SessionID.create()])),
         browsers: Object.fromEntries(bundle.browsers.map((s) => [s.slot, "brw_" + randomUUID().replaceAll("-", "")])),
         schedules: Object.fromEntries(bundle.schedules.map((s) => [s.slot, "trg_" + randomUUID().replaceAll("-", "")])),
-        availableRoles: await deps.availableRoles(),
+        availableRoles: process?.roles ?? (await deps.availableRoles()),
         availableModels: await deps.availableModels(),
       })
       if (!plan.mainSessionID) throw Error("Template requires one explicit main Orchestrator.")
@@ -310,7 +336,8 @@ export function make(deps: Dependencies) {
         projectID,
         name: bundle.variables.projectName,
         directory: path.join(deps.root, id),
-        digest,
+        digest: preview.value.digest,
+        ...(process ? { process: process.process } : {}),
         phase: "reserved",
         plan,
       }
@@ -328,6 +355,8 @@ export function make(deps: Dependencies) {
       if (!receipt) throw Error("Unknown import reservation.")
       // Re-derive every writable definition from the closed portable source. A damaged
       // receipt can never invent a global rule key, a role, a permission, or a new identity.
+      if (receipt.process && !deps.process) throw Error("This process import requires the reviewed v2 adapter")
+      const processRoles = receipt.process ? await deps.process!.validate(receipt) : undefined
       const expected = ProjectTemplateImport.prepare(receipt.template, {
         projectID: receipt.projectID,
         installedVersion: deps.installedVersion,
@@ -343,12 +372,14 @@ export function make(deps: Dependencies) {
             return [preview.value.bundle.schedules[index]?.slot, row.id]
           }),
         ),
-        availableRoles: await deps.availableRoles(),
+        availableRoles: processRoles ?? (await deps.availableRoles()),
         availableModels: await deps.availableModels(),
       })
       if (!exact(serial(expected), serial(receipt.plan)) || receipt.directory !== path.join(deps.root, receipt.id))
         throw Error("Import reservation no longer matches its source.")
-      return service.apply(receipt)
+      const result = await service.apply(receipt)
+      if (receipt.process) await deps.process!.changed()
+      return result
     },
     readReceipt,
     held: (sessionID: string) =>

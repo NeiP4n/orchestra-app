@@ -198,6 +198,48 @@ export async function ensure(
   )
 }
 
+/** Pure verification for the publication gate. It never repairs or writes a missing checkpoint. */
+export async function verify(
+  dataDirectory: string,
+  registry: ProcessSkills.Registry,
+  input: readonly V2.Skill[],
+  owner: Owner,
+  reviewedDigest: string,
+) {
+  const plan = preview(dataDirectory, registry, input, owner)
+  if (plan.digest !== reviewedDigest) throw Error("Process file receipt changed after review")
+  await directory(dataDirectory)
+  await directory(path.dirname(plan.directory))
+  await directory(plan.directory)
+  await readExact(path.join(plan.directory, MARKER), plan.marker)
+  const files = new Map<string, string>([[MARKER, plan.marker]])
+  const directories = new Set<string>()
+  for (const definition of plan.definitions) {
+    directories.add(definition.skill.id)
+    for (const file of definition.skill.files) {
+      const relative = definition.skill.id + "/" + file.path
+      files.set(relative, file.content)
+      const parts = relative.split("/")
+      for (let i = 1; i < parts.length; i++) directories.add(parts.slice(0, i).join("/"))
+    }
+  }
+  const inspect = async (relative = ""): Promise<void> => {
+    const target = path.join(plan.directory, relative)
+    await directory(target)
+    const entries = await readdir(target)
+    if (entries.length > 401) throw Error("Process file inventory exceeds its reservation")
+    for (const entry of entries) {
+      const child = relative ? relative + "/" + entry : entry
+      if (directories.has(child)) await inspect(child)
+      else if (files.has(child)) await readExact(path.join(plan.directory, child), files.get(child)!)
+      else throw Error("Foreign file in process reservation")
+    }
+  }
+  await inspect()
+  for (const [relative, content] of files) await readExact(path.join(plan.directory, relative), content)
+  return plan
+}
+
 /** Live idempotent phase for an unpublished import. The caller still owns publication and dependency checks. */
 export const install = Effect.fn("ProcessSkillFileReceipt.install")(function* (
   kv: KV.Interface,

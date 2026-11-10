@@ -41,6 +41,7 @@ export function orchestraLayer(overrides: Partial<Orchestra.Interface> = {}) {
     removeTemplate: () => Effect.void,
     playbook: () => Effect.succeed(undefined),
     outcomes: () => Effect.succeed({}),
+    reload: () => Effect.void,
     changes: Stream.empty,
   }
   return Layer.succeed(Orchestra.Service, Orchestra.Service.of({ ...base, ...overrides }))

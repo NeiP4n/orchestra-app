@@ -158,6 +158,22 @@ test("receipt recovery refuses foreign marker, changed or unlisted files and mis
     expect(await readdir(plan.definitions[0].root)).toEqual(["SKILL.md"])
   }))
 
+test("publication verification is read-only and rejects missing owner marker or foreign files", () =>
+  temporary(async (root) => {
+    const owner = { id: "pti_verify_only", sourceDigest: V2.hash("source") }
+    const plan = Receipt.preview(root, registry, skills, owner)
+    await Receipt.ensure(root, registry, skills, owner, plan.digest)
+    expect(await Receipt.verify(root, registry, skills, owner, plan.digest)).toEqual(plan)
+    const target = path.join(plan.definitions[0].root, "guide-extra.md")
+    await writeFile(target, "Foreign file")
+    await expect(Receipt.verify(root, registry, skills, owner, plan.digest)).rejects.toThrow("Foreign file")
+    expect(await readFile(target, "utf8")).toBe("Foreign file")
+    await rm(target)
+    await rm(path.join(plan.directory, Receipt.MARKER))
+    await expect(Receipt.verify(root, registry, skills, owner, plan.digest)).rejects.toThrow()
+    expect(await readdir(plan.directory)).not.toContain(Receipt.MARKER)
+  }))
+
 const it = testEffect(AppNodeBuilder.build(LayerNode.group([Skill.node, KV.node])))
 it.live("recovers the live definitions checkpoint and repeats only exact receipt-owned state", () =>
   Effect.acquireRelease(

@@ -16,6 +16,7 @@ import { Bus } from "@orchestra/core/bus"
 import { Autoloop } from "@orchestra/core/autoloop/service"
 import { orchestraRules } from "@orchestra/core/autoloop/orchestrator"
 import type { RunRow } from "@orchestra/core/autoloop/kernel/decide"
+import { Skill } from "@orchestra/core/skill"
 import { Model } from "@orchestra/core/model"
 import { Provider } from "@orchestra/core/provider"
 import { Agent } from "@orchestra/core/agent"
@@ -186,6 +187,7 @@ const it = testEffect(
       Orchestra.node,
       Federation.node,
       Agent.node,
+      Skill.node,
       FormService.node,
       Autoloop.node,
     ]),
@@ -2589,4 +2591,69 @@ it.live("template live materializer writes real sessions/KV/DoD and empty Vault,
   expect(Exit.isFailure(yield* Effect.promise(()=>adapter.resume(other.id)).pipe(Effect.exit))).toBe(true)
   expect(yield* kv.get('rules/global')).toEqual(globalBefore)
   expect(yield* store.get(Session.ID.make(other.plan.mainSessionID!))).toBeUndefined()
+ }).pipe(Effect.scoped),30_000)
+
+it.live("v2 live import persists process before publication and resumes without carrying execution rights", () =>
+ Effect.gen(function* () {
+  const { ProjectTemplateV2 } = yield* Effect.promise(() => import('../src/project-template-v2'))
+  const { ProjectTemplateV2Runtime } = yield* Effect.promise(() => import('../src/project-template-v2-runtime'))
+  const { ProjectTemplateLiveStores } = yield* Effect.promise(() => import('../src/project-template-live-stores'))
+  const { ProjectTemplateBrowserStore } = yield* Effect.promise(() => import('../src/project-template-browser-store'))
+  const { ProcessSkills } = yield* Effect.promise(() => import('../src/process-skills'))
+  const { Skill } = yield* Effect.promise(() => import('../src/skill'))
+  const { SessionHold } = yield* Effect.promise(() => import('../src/session/hold'))
+  const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir('v2-live-process-')))
+  const kv = yield* KV.Service, sessions = yield* Session.Service, store = yield* SessionStore.Service, orchestra = yield* Orchestra.Service
+  yield* Effect.promise(() => mkdir(path.join(tmp.path,'data')))
+  const data = path.join(tmp.path,'data')
+  const core = { agent:'orchestrator', name:'Coordinator', description:'Coordinate process', rules:'Wait for approval.', category:'Planning', readOnly:false }
+  const local = { agent:'team-process-reviewer', name:'Review process', description:'Review work', rules:'  Keep exact process rules.\r\n', category:'Quality', readOnly:true, tools:['read','skill'], autoTools:false }
+  const content = '# Process skill\nRead guide.md.\n'
+  const source = {format:'orchestra.project-template',version:2,name:'Process factory',description:'Process only',minOrchestraVersion:'1.0.0',variables:{projectName:'Imported process',folder:'${projectFolder}'},mainSession:'main',sessions:[{slot:'main',title:'Main',role:'orchestrator',model:{provider:'demo',id:'free',variant:null}},{slot:'reviewer',title:'Review',role:local.agent,model:null}],browsers:[],rules:[{scope:'role',role:local.agent,session:null,text:'Never publish without approval.'}],schedules:[],vault:{local:[],globalRequirements:[]},providers:[],mcp:[],process:{playbook:'Review the result before publishing.',recommendedRoles:[local.agent],roles:[core,local],skills:[{id:'review',name:'Review',entry:'SKILL.md',description:'Review work',files:[{path:'SKILL.md',content,sha256:ProjectTemplateV2.hash(content)},{path:'guide.md',content:'Check the result.\n',sha256:ProjectTemplateV2.hash('Check the result.\n')}],dependencies:[]}],skillAssignments:[{target:{kind:'project'},skills:['review']}],sessionModels:[{session:'main',models:[{provider:'demo',id:'free',variant:null},{provider:'demo',id:'backup',variant:'careful'}]},{session:'reviewer',models:[]}],programs:[]}}
+  const preview = ProjectTemplateV2.preview(JSON.stringify(source)); if(!preview.ok) throw Error(preview.error)
+  let changed=0,failOnce=true,failProcessOnce=true
+  const process = ProjectTemplateV2Runtime.make({kv,dataDirectory:data,installedVersion:'1.0.0',destination:async()=>({roles:[core],skills:[],models:new Set(['demo/free','demo/backup#careful']),programs:new Set(),mcp:new Map(),providers:new Set()}),changed:async()=>{changed++;await Effect.runPromise(orchestra.reload())}})
+  const vault=(id:string)=>CredentialVault.make({directory:path.join(tmp.path,'vault'),projectID:id,collector:{collect:async()=>{throw Error('must not request secrets')}} as never})
+  const adapter=ProjectTemplateLiveStores.make({kv,sessions,store,root:path.join(tmp.path,'imports'),installedVersion:'1.0.0',timezone:'UTC',process:{...process,ensure:async r=>{await process.ensure(r);if(failProcessOnce){failProcessOnce=false;throw Error('process checkpoint lost')}}},
+    availableRoles:async()=>new Set(['orchestrator']),availableModels:async()=>new Set(['demo/free','demo/backup#careful']),vault,browsers:ProjectTemplateBrowserStore.make(kv,data),bootstrap:async()=>{if(failOnce){failOnce=false;throw Error('publication checkpoint lost')}}})
+  const guard=SessionHold.addGuard(adapter.held);yield* Effect.addFinalizer(()=>Effect.sync(guard))
+  const rejected=structuredClone(source);rejected.process.roles[0].rules='Changed core runtime rules.'
+  const invalid=ProjectTemplateV2.preview(JSON.stringify(rejected));if(!invalid.ok)throw Error(invalid.error)
+  expect(Exit.isFailure(yield* Effect.promise(()=>adapter.reserve(invalid.value.text,invalid.value.digest)).pipe(Effect.exit))).toBe(true)
+  const reserved=yield* Effect.promise(()=>adapter.reserve(preview.value.text,preview.value.digest))
+  expect(reserved.process?.digest).toBe(preview.value.digest)
+  const globalBefore=yield* orchestra.roles()
+  expect(Exit.isFailure(yield* Effect.promise(()=>adapter.resume(reserved.id)).pipe(Effect.exit))).toBe(true)
+  expect((yield* orchestra.projects()).some(project=>project.id===reserved.projectID)).toBe(false)
+  expect(yield* store.get(Session.ID.make(reserved.plan.mainSessionID!))).toBeUndefined()
+  expect(yield* orchestra.playbook(Orchestra.ProjectID.make(reserved.projectID))).toBeUndefined()
+  expect(yield* store.list({directoryPrefix:AbsolutePath.make(reserved.directory)})).toEqual([])
+  expect(Exit.isFailure(yield* Effect.promise(()=>adapter.resume(reserved.id)).pipe(Effect.exit))).toBe(true)
+  expect(yield* SessionHold.held(reserved.plan.mainSessionID!)).toBe(true)
+  const change=yield* orchestra.changes.pipe(Stream.take(1),Stream.runCollect,Effect.forkScoped({startImmediately:true}))
+  const published=yield* Effect.promise(()=>adapter.resume(reserved.id))
+  expect(yield* Fiber.join(change)).toHaveLength(1)
+  expect(published.phase).toBe('published')
+  expect(changed).toBe(1)
+  expect(yield* SessionHold.held(reserved.plan.mainSessionID!)).toBe(false)
+  const localAgent='team-'+ProcessSkills.namespace(reserved.projectID)+'2'
+  expect((yield* orchestra.roles(Orchestra.ProjectID.make(reserved.projectID))).find(role=>role.agent===localAgent)?.rules).toBe(local.rules)
+  expect(yield* orchestra.roles()).toEqual(globalBefore)
+  expect(yield* orchestra.playbook(Orchestra.ProjectID.make(reserved.projectID))).toEqual({name:'Process factory',text:source.process.playbook})
+  const imported=yield* store.list({directoryPrefix:AbsolutePath.make(reserved.directory)})
+  expect(imported).toHaveLength(2)
+  expect(imported.every(session=>session.permissions.length===0 && session.tokens.input===0 && session.tokens.output===0)).toBe(true)
+  const main=imported.find(session=>session.id===reserved.plan.mainSessionID)!
+  expect(main.metadata?.["orchestra:worker-models"]).toEqual([{providerID:'demo',id:'free'},{providerID:'demo',id:'backup',variant:'careful'}])
+  expect(yield* store.messages({sessionID:main.id,limit:1})).toEqual([])
+  const catalog=yield* Skill.Service
+  const skillID=Skill.ID.make(ProcessSkills.namespace(reserved.projectID)+'1')
+  expect((yield* catalog.get(skillID,{sessionID:main.id,agent:'orchestrator'}))?.content).toBe(content)
+  expect(yield* catalog.get(skillID,{sessionID:'ses_foreign',agent:'orchestrator'})).toBeUndefined()
+  yield* Effect.promise(()=>adapter.resume(reserved.id))
+  expect(yield* store.list({directoryPrefix:AbsolutePath.make(reserved.directory)})).toHaveLength(2)
+  const broken=structuredClone(published);broken.process!.template=broken.process!.template.replace('Review the result before publishing.','Changed playbook.')
+  yield* kv.set(ProjectTemplateLiveStores.RECEIPT+reserved.id,JSON.parse(JSON.stringify(broken)))
+  expect(Exit.isFailure(yield* Effect.promise(()=>adapter.resume(reserved.id)).pipe(Effect.exit))).toBe(true)
+  yield* kv.set(ProjectTemplateLiveStores.RECEIPT+reserved.id,JSON.parse(JSON.stringify(published)))
  }).pipe(Effect.scoped),30_000)

@@ -2,6 +2,7 @@ export * as Orchestra from "./orchestra.js"
 
 import { Context, DateTime, Duration, Effect, Layer, Option, PubSub, Schema, Stream } from "effect"
 import { SessionHold } from "./session/hold.js"
+import { ProjectTemplateV2Runtime } from "./project-template-v2-runtime.js"
 import { ProjectTemplateLiveStores } from "./project-template-live-stores.js"
 import { KeyedMutex } from "./effect/keyed-mutex.js"
 import path from "node:path"
@@ -235,6 +236,7 @@ export interface Interface {
   // The list is the full history: collapsing it to the latest report loses earlier outcomes.
   readonly outcomes: (id: ProjectID) => Effect.Effect<Record<string, ReadonlyArray<{ outcome: TaskReportInfo["outcome"]; created: number }>>>
   // Emits after every saved or removed role or template, so agents can be rebuilt.
+  readonly reload: () => Effect.Effect<void>
   readonly changes: Stream.Stream<void>
 }
 
@@ -2748,6 +2750,7 @@ const layer: Layer.Layer<
                 yield* kv.remove(PROJECT_TEMPLATE + id)
                 yield* kv.remove("orchestra/process-skills/" + id)
                 yield* kv.remove("orchestra/process-skill-definitions/" + id)
+                yield* kv.remove(ProjectTemplateV2Runtime.PROJECT_PROCESS + id)
                 yield* Effect.forEach(yield* scanAll(PROJECT_ROLE + id + "/"), entry => kv.remove(entry.key), { discard: true })
                 yield* PubSub.publish(changed, undefined)
                 yield* kv.remove(MOVE_PLAN + id)
@@ -3257,6 +3260,11 @@ const layer: Layer.Layer<
         yield* PubSub.publish(changed, undefined)
       }),
       playbook: Effect.fn("Orchestra.playbook")(function* (id) {
+        if ((yield* kv.get(ProjectTemplateV2Runtime.PROJECT_PROCESS + id)) !== undefined) {
+          if (!(yield* importReady(id))) return undefined
+          const process = yield* ProjectTemplateV2Runtime.read(kv, id)
+          return process?.playbook ? { name: process.source.name, text: process.playbook } : undefined
+        }
         const templateID = yield* kv.get(PROJECT_TEMPLATE + id)
         if (typeof templateID !== "string") return undefined
         // A live template (built-in, edited or custom) wins; a removed built-in falls back to
@@ -3276,6 +3284,7 @@ const layer: Layer.Layer<
         }
         return history
       }),
+      reload: () => PubSub.publish(changed, undefined).pipe(Effect.asVoid),
       changes: Stream.fromPubSub(changed),
     })
   }),
