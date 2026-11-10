@@ -1,3 +1,4 @@
+import { freeModel, provider } from "./fixture/catalog"
 import { expect, test } from "bun:test"
 import { createAppFixture } from "./fixture/app"
 import { directory, json } from "./fixture/tui-client"
@@ -41,8 +42,8 @@ function render(state: string, layout?: "mobile", input: { width?: number; devto
       if (path === "/api/agent")
         return json({ location, data: [{ id: "build", mode: "primary", hidden: false, permissions: [] }] })
       if (path === "/api/model")
-        return json({ location, data: [{ id: "model", providerID: "provider", name: "Model", variants: [] }] })
-      if (path === "/api/provider") return json({ location, data: [{ id: "provider", name: "Provider" }] })
+        return json({ location, data: [freeModel("model", "provider", "Model")] })
+      if (path === "/api/provider") return json({ location, data: [provider("provider", "Provider")] })
     },
   })
 }
@@ -98,8 +99,8 @@ test.each([48, 64])("at %i columns the mini skills and the bottom bar stay on sc
   await using setup = await render(state.path, "mobile", { width, devtools: true })
   await setup.ready
   // Both rows used to run past the right edge: "⚙ Sk" and "Te" were all a phone showed of them.
-  const frame = await setup.waitForFrame((frame) => frame.includes("⚙ Skills") && frame.includes("Language"))
+  const frame = await setup.waitForFrame((frame) => frame.includes("✱ Skills") && frame.includes("Language"))
   const lines = frame.split("\n")
-  expect(lines.find((line) => line.includes("⚙ Skills"))).toContain("│")
-  expect(lines.find((line) => line.includes("Server"))?.trimEnd().endsWith("Language EN")).toBe(true)
+  expect(lines.find((line) => line.includes("✱ Skills"))).toContain("│")
+  expect(lines.find((line) => line.includes("Server"))).toMatch(/Language EN │ ◉ Server\s*$/)
 })

@@ -45,7 +45,7 @@ import { TabPulse, unreadGlowIntensity } from "./tab-pulse"
 import { tint } from "../theme/color"
 import { SESSION_SIDEBAR_WIDTH, SESSION_TABS_COMPACT_BREAKPOINT } from "../ui/layout"
 import { projectName } from "../util/project"
-import { readFileSync, statSync } from "node:fs"
+import { readFileSync, fstatSync, openSync, closeSync } from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
 import { stringWidth } from "../util/string-width"
@@ -68,19 +68,23 @@ function projectTagFor(sessionID: string): string {
   try {
     const dir = process.env.AI_COUNCIL_STATE_DIR ?? path.join(homedir(), ".local/state/ai-council")
     const file = path.join(dir, "projects.json")
-    const st = statSync(file, { throwIfNoEntry: false })
-    if (!st) return ""
-    if (!projectTagCache || projectTagCache.mtime !== st.mtimeMs) {
-      const raw = JSON.parse(readFileSync(file, "utf8")) as Array<{ name?: string; chats?: string[] }>
-      const bySession = new Map<string, string>()
-      if (Array.isArray(raw))
-        for (const p of raw) {
-          if (!p || typeof p.name !== "string" || !Array.isArray(p.chats)) continue
-          for (const c of p.chats) if (typeof c === "string" && !bySession.has(c)) bySession.set(c, p.name)
-        }
-      projectTagCache = { mtime: st.mtimeMs, bySession }
+    const fd = openSync(file, "r")
+    try {
+      const st = fstatSync(fd)
+      if (!projectTagCache || projectTagCache.mtime !== st.mtimeMs) {
+        const raw = JSON.parse(readFileSync(fd, "utf8")) as Array<{ name?: string; chats?: string[] }>
+        const bySession = new Map<string, string>()
+        if (Array.isArray(raw))
+          for (const p of raw) {
+            if (!p || typeof p.name !== "string" || !Array.isArray(p.chats)) continue
+            for (const c of p.chats) if (typeof c === "string" && !bySession.has(c)) bySession.set(c, p.name)
+          }
+        projectTagCache = { mtime: st.mtimeMs, bySession }
+      }
+      return projectTagCache.bySession.get(sessionID) ?? ""
+    } finally {
+      closeSync(fd)
     }
-    return projectTagCache.bySession.get(sessionID) ?? ""
   } catch {
     return ""
   }
@@ -93,19 +97,24 @@ function projectGroupFor(sessionID: string, fallbackDir: string): string {
   try {
     const dir = process.env.AI_COUNCIL_STATE_DIR ?? path.join(homedir(), ".local/state/ai-council")
     const file = path.join(dir, "projects.json")
-    const st = statSync(file, { throwIfNoEntry: false })
-    if (st && (!projectGroupCache || projectGroupCache.mtime !== st.mtimeMs)) {
-      const raw = JSON.parse(readFileSync(file, "utf8")) as Array<{ name?: string; path?: string; chats?: string[] }>
-      const bySession = new Map<string, string>()
-      if (Array.isArray(raw))
-        for (const pr of raw) {
-          if (!pr || typeof pr.name !== "string" || !Array.isArray(pr.chats)) continue
-          const label = pr.path ? `${pr.name} · ${pr.path}` : pr.name
-          for (const c of pr.chats) if (typeof c === "string" && !bySession.has(c)) bySession.set(c, label)
-        }
-      projectGroupCache = { mtime: st.mtimeMs, bySession }
+    const fd = openSync(file, "r")
+    try {
+      const st = fstatSync(fd)
+      if (!projectGroupCache || projectGroupCache.mtime !== st.mtimeMs) {
+        const raw = JSON.parse(readFileSync(fd, "utf8")) as Array<{ name?: string; path?: string; chats?: string[] }>
+        const bySession = new Map<string, string>()
+        if (Array.isArray(raw))
+          for (const pr of raw) {
+            if (!pr || typeof pr.name !== "string" || !Array.isArray(pr.chats)) continue
+            const label = pr.path ? `${pr.name} · ${pr.path}` : pr.name
+            for (const c of pr.chats) if (typeof c === "string" && !bySession.has(c)) bySession.set(c, label)
+          }
+        projectGroupCache = { mtime: st.mtimeMs, bySession }
+      }
+      return (projectGroupCache?.bySession.get(sessionID) ?? fallbackDir ?? "").toString()
+    } finally {
+      closeSync(fd)
     }
-    return (projectGroupCache?.bySession.get(sessionID) ?? fallbackDir ?? "").toString()
   } catch {
     return (fallbackDir ?? "").toString()
   }
@@ -148,7 +157,14 @@ function ProjectGroups(props: {
             const isOpen = () => open()[pr.id] ?? true
             return (
               <box flexDirection="column">
-                <text fg={muted} selectable={false} bg={hover.background()} onMouseOver={hover.onMouseOver} onMouseOut={hover.onMouseOut} onMouseUp={() => setOpen((o) => ({ ...o, [pr.id]: !isOpen() }))}>
+                <text
+                  fg={muted}
+                  selectable={false}
+                  bg={hover.background()}
+                  onMouseOver={hover.onMouseOver}
+                  onMouseOut={hover.onMouseOut}
+                  onMouseUp={() => setOpen((o) => ({ ...o, [pr.id]: !isOpen() }))}
+                >
                   {"▸ " + pr.name + " (" + live.length + ")"}
                 </text>
                 <Show when={isOpen()}>
@@ -156,10 +172,17 @@ function ProjectGroups(props: {
                     {(id) => {
                       const hover = createHoverFeedback()
                       return (
-                      <text selectable={false} bg={hover.background()} onMouseOver={hover.onMouseOver} onMouseOut={hover.onMouseOut} onMouseUp={() => props.tabs.select(id)}>
-                        {"  · " + id.slice(0, 12)}
-                      </text>
-                    )}}
+                        <text
+                          selectable={false}
+                          bg={hover.background()}
+                          onMouseOver={hover.onMouseOver}
+                          onMouseOut={hover.onMouseOut}
+                          onMouseUp={() => props.tabs.select(id)}
+                        >
+                          {"  · " + id.slice(0, 12)}
+                        </text>
+                      )
+                    }}
                   </For>
                 </Show>
               </box>

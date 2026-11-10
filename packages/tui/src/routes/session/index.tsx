@@ -13,9 +13,8 @@ import {
   Switch,
   type Accessor,
 } from "solid-js"
-import path from "node:path"
-import { EOL, tmpdir } from "node:os"
-import { mkdir, writeFile } from "node:fs/promises"
+import { EOL } from "node:os"
+import { writeTranscriptExport } from "../../util/transcript-export"
 import { useRoute, useRouteData } from "../../context/route"
 import { useNeuralActivity } from "../../component/neural-activity"
 import { createStore } from "solid-js/store"
@@ -179,10 +178,6 @@ export function Session(props: {
   const setEpilogue = useEpilogue()
   const notes = useNotes()
   const clipboard = useClipboard()
-  const writeExport = async (file: string, content: string) => {
-    await mkdir(path.dirname(file), { recursive: true })
-    await writeFile(file, content)
-  }
   const route = useRouteData("session")
   const sessionID = route.sessionID
   const { navigate } = useRoute()
@@ -1393,11 +1388,7 @@ export function Session(props: {
             return
           }
 
-          const filepath = path.join(
-            tmpdir(),
-            `session-${crypto.randomUUID()}.${options.format === "markdown" ? "md" : "json"}`,
-          )
-          await writeExport(filepath, content)
+          const filepath = await writeTranscriptExport(content, options.format)
           await DialogExportResult.show(dialog, filepath)
         } catch {
           toast.show({ message: "Failed to export session", variant: "error" })

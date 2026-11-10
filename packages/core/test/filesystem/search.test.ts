@@ -233,14 +233,27 @@ describe("FileSystemSearch", () => {
 
       yield* Effect.gen(function* () {
         const search = yield* FileSystemSearch.Service
-        yield* search.find({ query: "index", type: "file" })
+        const initial = yield* search.find({ query: "index", type: "file" })
+        expect(initial.map((entry) => entry.path)).toEqual([RelativePath.make("src/index.ts")])
+        expect(prepare).toHaveBeenCalledTimes(2)
+        expect(cleanup).toHaveBeenCalledTimes(1)
         yield* TestClock.adjust("10 seconds")
         yield* search.find({ query: "index", type: "file" })
         yield* Deferred.await(second)
-        yield* search.find({ query: "index", type: "file" })
-
+        // The scan signals `second` before its immutable index is published. Let
+        // that real work settle, then assert one cache cleanup per completed scan.
+        for (let attempt = 0; attempt < 100 && cleanup.mock.calls.length < 2; attempt++) {
+          yield* Effect.promise(() => Bun.sleep(1))
+        }
+        const refreshed = yield* search.find({ query: "index", type: "file" })
+        expect(refreshed).toEqual(initial)
         expect(prepare).toHaveBeenCalledTimes(2)
-        expect(cleanup).toHaveBeenCalledTimes(3)
+        expect(cleanup).toHaveBeenCalledTimes(2)
+        const again = yield* search.find({ query: "src", type: "directory" })
+        expect(again.map((entry) => entry.path)).toEqual([RelativePath.make(`src${path.sep}`)])
+        expect(scans).toBe(2)
+        expect(prepare).toHaveBeenCalledTimes(2)
+        expect(cleanup).toHaveBeenCalledTimes(2)
       }).pipe(Effect.provide(layer))
     }),
   )

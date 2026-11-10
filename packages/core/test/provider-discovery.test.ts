@@ -34,12 +34,14 @@ describe("parseModels", () => {
   })
 })
 
+// The injected fetch is fake, but the SSRF gate is real: use public IP literals so
+// the unit fixtures neither resolve nonexistent domains nor depend on external DNS.
 describe("discoverModels", () => {
   test("returns models and sends the key as a bearer header", async () => {
     let seen: RequestInit | undefined
-    const result = await discoverModels({ baseURL: "https://api.example.com/v1", apiKey: "sk-secret" }, async (url, init) => {
+    const result = await discoverModels({ baseURL: "https://8.8.8.8/v1", apiKey: "sk-secret" }, async (url, init) => {
       seen = init
-      expect(url).toBe("https://api.example.com/v1/models")
+      expect(url).toBe("https://8.8.8.8/v1/models")
       return json({ data: [{ id: "m1" }, { id: "m2" }] })
     })
     expect(result.ok).toBe(true)
@@ -49,30 +51,30 @@ describe("discoverModels", () => {
   })
 
   test("classifies auth, unsupported and http failures without leaking the key", async () => {
-    const auth = await discoverModels({ baseURL: "https://x", apiKey: "sk-secret" }, async () => json({}, 401))
+    const auth = await discoverModels({ baseURL: "https://8.8.8.8", apiKey: "sk-secret" }, async () => json({}, 401))
     expect(auth).toMatchObject({ ok: false, error: { kind: "auth", status: 401 } })
     expect(JSON.stringify(auth)).not.toContain("sk-secret")
     expect(reachable(auth)).toBe(true)
 
-    const unsupported = await discoverModels({ baseURL: "https://x" }, async () => json({}, 404))
+    const unsupported = await discoverModels({ baseURL: "https://8.8.8.8" }, async () => json({}, 404))
     expect(unsupported).toMatchObject({ ok: false, error: { kind: "unsupported" } })
     expect(reachable(unsupported)).toBe(true)
 
-    const http = await discoverModels({ baseURL: "https://x" }, async () => json({}, 500))
+    const http = await discoverModels({ baseURL: "https://8.8.8.8" }, async () => json({}, 500))
     expect(http).toMatchObject({ ok: false, error: { kind: "http", status: 500 } })
 
-    const weird = await discoverModels({ baseURL: "https://x" }, async () => json({ hello: "world" }))
+    const weird = await discoverModels({ baseURL: "https://8.8.8.8" }, async () => json({ hello: "world" }))
     expect(weird).toMatchObject({ ok: false, error: { kind: "unsupported" } })
   })
 
   test("classifies network failures and timeouts, and short-circuits invalid URLs", async () => {
-    const network = await discoverModels({ baseURL: "https://x" }, async () => {
+    const network = await discoverModels({ baseURL: "https://8.8.8.8" }, async () => {
       throw new TypeError("fetch failed")
     })
     expect(network).toMatchObject({ ok: false, error: { kind: "network" } })
     expect(reachable(network)).toBe(false)
 
-    const timeout = await discoverModels({ baseURL: "https://x" }, async () => {
+    const timeout = await discoverModels({ baseURL: "https://8.8.8.8" }, async () => {
       throw new DOMException("timed out", "TimeoutError")
     })
     expect(timeout).toMatchObject({ ok: false, error: { kind: "timeout" } })

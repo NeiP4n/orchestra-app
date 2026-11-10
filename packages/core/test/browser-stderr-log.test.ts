@@ -8,10 +8,10 @@ import { readFileSync } from "node:fs"
 test("chrome stderr log appends across launches and rotates by size", () => {
   const runtime = readFileSync(new URL("../src/browser/runtime.ts", import.meta.url), "utf8")
   // Append mode: the old truncating open destroyed the crash evidence on relaunch.
-  expect(runtime).toContain('openSync(file, "a")')
+  expect(runtime).toContain('openRotatingLog(file, STDERR_LIMIT, ".old")')
   expect(runtime).not.toContain('openSync(stderrFile(), "w")')
   // Bounded: one prior generation rotates aside instead of unbounded growth.
-  expect(runtime).toContain("renameSync(file, `${file}.old`)")
+  expect(runtime).toContain("const STDERR_LIMIT =")
   // The reported tail reaches into the rotated generation when the fresh file is short.
   expect(runtime).toContain('readFileSync(`${stderrFile()}.old`, "utf8")')
 })

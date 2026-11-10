@@ -47,6 +47,7 @@ import { createPaneResize } from "../ui/pane-resize"
 import { PaneResizeHandle } from "../ui/pane-resize-handle"
 import { useToast } from "../ui/toast"
 import { TerminalPane } from "./terminal-pane"
+import { ConsoleAccessBar } from "./console-access-bar"
 import { PlainTerminalPane } from "./plain-terminal-pane"
 import { BrowserPane } from "./browser-pane"
 import { PanelHost } from "./panel-host"
@@ -313,6 +314,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     if (id) return { id }
   }
   let consoleRequested: string | undefined
+  const [plainConsoleID, setPlainConsoleID] = createSignal<string>()
   const [consoleError, setConsoleError] = createSignal<string>()
   // The shell of a project may live under a sibling session, so list the terminals of all of them.
   createEffect(() => {
@@ -691,7 +693,10 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
                     keyed
                     when={sessions.checked() ? data.session.get(props.sessionID)?.location.directory : undefined}
                   >
-                    {(directory) => <PlainTerminalPane directory={directory} autoFocus />}
+                    {(directory) => <box flexDirection="column" flexGrow={1} minHeight={0}>
+                      <ConsoleAccessBar sessionID={props.sessionID} projectID={projectList.owner(props.sessionID) ?? Orchestra.sessionOwner(data.session.get(props.sessionID)?.metadata)} directory={directory} kind="plain" ptyID={plainConsoleID()}/>
+                      <PlainTerminalPane directory={directory} autoFocus onPty={setPlainConsoleID}/>
+                    </box>}
                   </Show>
                 }
               >
@@ -710,7 +715,10 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
                   }
                 >
                   {(ptyID) => (
-                    <TerminalPane ptyID={ptyID} autoFocus onFocusRequest={(value) => (focusTerminal = value)} />
+                    <box flexDirection="column" flexGrow={1} minHeight={0}>
+                      <ConsoleAccessBar sessionID={props.sessionID} projectID={projectList.owner(props.sessionID) ?? Orchestra.sessionOwner(data.session.get(props.sessionID)?.metadata)} directory={data.session.get(props.sessionID)?.location.directory??""} kind="persistent" ptyID={ptyID}/>
+                      <TerminalPane ptyID={ptyID} autoFocus onFocusRequest={(value) => (focusTerminal = value)} />
+                    </box>
                   )}
                 </Show>
               </Show>

@@ -93,7 +93,7 @@ export function NotesPanel(props: {
         </For>
       </Show>
       <Show when={props.creating}>
-        <box flexDirection="row" paddingLeft={1} paddingRight={1}>
+        <box flexDirection="row" flexShrink={0} paddingLeft={1} paddingRight={1}>
           <text fg={theme.text.action.primary.base}>{"+ "}</text>
           <input
             flexGrow={1}
@@ -119,7 +119,7 @@ export function NotesPanel(props: {
         </box>
       </Show>
       <Show when={props.notes.length > 0}>
-        <box flexDirection="row" paddingLeft={1} paddingRight={1}>
+        <box flexDirection="row" flexShrink={0} paddingLeft={1} paddingRight={1}>
           <text fg={theme.text.muted}>{"⌕ "}</text>
           <input
             flexGrow={1}
@@ -134,9 +134,9 @@ export function NotesPanel(props: {
           />
         </box>
       </Show>
-      <box height={1} />
+      <box height={1} flexShrink={0} />
       {/* The chat of a note is bound to it, so the model writes there and nowhere else. */}
-      <box paddingLeft={2} paddingRight={1}>
+      <box flexShrink={0} paddingLeft={2} paddingRight={1}>
         <text fg={theme.text.muted} wrapMode="word">
           {t("This chat writes into the selected note only.")}
         </text>

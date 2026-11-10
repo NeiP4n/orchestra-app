@@ -10,12 +10,13 @@ import { pendingApprovals, removeApproval } from "../util/security-confirmation"
 import { useProjects } from "../context/projects"
 import { useData } from "../context/data"
 import { Orchestra } from "@orchestra/schema/orchestra"
+import { ConsoleAccess } from "@orchestra/core/console-access"
 import { VaultAccess } from "@orchestra/core/credential-vault/access"
 import { SafetyConfig } from "@orchestra/core/safety-config"
 import { Limits } from "@orchestra/core/limits"
 import { ScheduleView } from "@orchestra/core/schedule-view"
 
-type Row = { id: string; title: string; value: string; description: string; editable?: boolean; environment?: boolean; item?: ScheduleView.Item; day?: boolean; vault?:VaultAccess.Scope; safety?: "all"|"drainMs"|"drainTokens"|"browserMax"|"localTest" }
+type Row = { id: string; title: string; value: string; description: string; editable?: boolean; environment?: boolean; item?: ScheduleView.Item; day?: boolean; console?:ConsoleAccess.Scope; vault?:VaultAccess.Scope; safety?: "all"|"drainMs"|"drainTokens"|"browserMax"|"localTest" }
 const environment = new Set(["limits", "wall", "tokens", "browsers"])
 export function DialogSecurity(props: { current?: string } = {}) {
   const theme=useTheme(), config=useConfig(), projects=useProjects(), data=useData(), route=useRoute(), toast=useToast()
@@ -38,6 +39,8 @@ export function DialogSecurity(props: { current?: string } = {}) {
     const projectID=owner?(projects.owner(owner)??Orchestra.sessionOwner(data.session.get(owner)?.metadata)):undefined
     const info=owner?data.session.get(owner):undefined
     if(owner&&projectID&&info){const scope={sessionID:owner,projectID,directory:info.location.directory};base.unshift({id:"vault-http",title:"Vault: подстановка HTTP",value:VaultAccess.current(scope)?"ВКЛ · расширено":"OFF",description:"← OFF, → ВКЛ сразу на 1 час, только этот чат/проект. Secret по имени в fixed HTTPS GET/Bearer только savedBase/models; raw body/headers скрыты, redirects запрещены. Произвольная shell/env инъекция отсутствует. DPAPI Windows, другие ОС fail closed. Деньги/публикация не разрешены.",editable:true,vault:scope})}
+    const terminal=owner?ConsoleAccess.selected(owner):undefined
+    if(terminal){const mode=ConsoleAccess.current(terminal).mode;base.unshift({id:"console-mode",title:"ИИ во встроенной консоли",value:mode+(mode!=="off"?" · расширено":""),description:"Только консоль текущего чата и проекта. ←/→: OFF, чтение, подтверждение, полный ввод. Сразу на 1 час. Полный ввод разрешает команды. Отозвать можно над консолью. Vault не подключён; обычный shell/bash отдельно.",editable:true,console:terminal})}
     const triggers=owner?ScheduleView.list(owner):[]
     if(!triggers.length)base.push({id:"trigger-empty",title:"Лимиты расписаний",value:"откройте главный чат с триггерами",description:"Индивидуальные лимиты показываются только для триггеров текущего главного чата. Чужой триггер не выбирается автоматически."})
     for(const item of triggers)for(const day of [false,true]){
@@ -72,6 +75,7 @@ export function DialogSecurity(props: { current?: string } = {}) {
     if(busy())return
     setDigits("")
     const entry=row();if(!entry?.editable)return
+    if(entry.console){const modes:ConsoleAccess.Mode[]=["off","read","confirm","full"],index=modes.indexOf(ConsoleAccess.current(entry.console).mode);return apply(()=>ConsoleAccess.set(entry.console!,modes[Math.max(0,Math.min(3,index+direction))]!))}
     if(entry.vault)return apply(()=>VaultAccess.set(entry.vault!,direction>0))
     if(entry.safety){
       const before=SafetyConfig.read(),next={...before}

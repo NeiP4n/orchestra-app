@@ -22,7 +22,7 @@ const SCROLLBACK_LINES = 10_000
 
 export const PLAIN_CONSOLE_TITLE = "Console"
 
-export function PlainTerminalPane(props: { directory: string; autoFocus?: boolean }) {
+export function PlainTerminalPane(props: { directory: string; autoFocus?: boolean; onPty?: (id: string | undefined) => void }) {
   const client = useClient()
   const keymap = Keymap.use()
   const leader = Keymap.useLeaderActive()
@@ -74,6 +74,7 @@ export function PlainTerminalPane(props: { directory: string; autoFocus?: boolea
   })
   onCleanup(() => {
     disposed = true
+    props.onPty?.(undefined)
     socket?.close()
     offKeys()
   })
@@ -85,6 +86,7 @@ export function PlainTerminalPane(props: { directory: string; autoFocus?: boolea
       existing ?? (await client.api.pty.create({ location, cwd: props.directory, title: PLAIN_CONSOLE_TITLE })).data
     if (disposed) return
     ptyID = info.id
+    props.onPty?.(info.id)
     resize(size.cols, size.rows)
     // Tail from the live end: replaying the whole retained buffer into a terminal of another size left the
     // screen blank with only the typed keys echoed at the bottom. The shell is then asked to repaint.

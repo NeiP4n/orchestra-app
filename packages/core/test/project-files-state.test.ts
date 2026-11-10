@@ -38,7 +38,7 @@ const seedGroup = (kv: KV.Interface, name: string, budget?: number) =>
   Effect.gen(function* () {
     const group = Schema.decodeUnknownSync(Federation.Group)({
       name,
-      projects: ["prj-a"],
+      projects: ["prj_a"],
       mode: "council",
       ...(budget !== undefined ? { budget } : {}),
     })
@@ -254,6 +254,7 @@ describe("ProjectFiles state: society.yaml and budget.yaml", () => {
     Effect.gen(function* () {
       const dir = yield* Effect.tryPromise(() => fixture())
       const kv = yield* KV.Service
+      yield* kv.set("orchestra/project/prj_a", {id:"prj_a",name:"A",directory:dir,created:1})
       yield* seedGroup(kv, "shop", 50)
       yield* seedGroup(kv, "lab")
       yield* ProjectFilesState.syncSociety(dir, { kv })
@@ -276,6 +277,7 @@ describe("ProjectFiles state: society.yaml and budget.yaml", () => {
     Effect.gen(function* () {
       const dir = yield* Effect.tryPromise(() => fixture())
       const kv = yield* KV.Service
+      yield* kv.set("orchestra/project/prj_a", {id:"prj_a",name:"A",directory:dir,created:1})
       yield* seedGroup(kv, "shop", 50)
       yield* ProjectFilesState.syncSociety(dir, { kv })
       yield* ProjectFilesState.syncBudget(dir, { kv })
@@ -295,6 +297,7 @@ describe("ProjectFiles state: society.yaml and budget.yaml", () => {
     Effect.gen(function* () {
       const dir = yield* Effect.tryPromise(() => fixture())
       const kv = yield* KV.Service
+      yield* kv.set("orchestra/project/prj_a", {id:"prj_a",name:"A",directory:dir,created:1})
       yield* Effect.tryPromise(() => write(dir, "society.yaml", "groups: not-a-list\n"))
       const corrupt = yield* Effect.exit(ProjectFilesState.restoreSociety(dir, { kv }))
       expect(corrupt._tag).toBe("Failure")
@@ -305,6 +308,71 @@ describe("ProjectFiles state: society.yaml and budget.yaml", () => {
       const budget = report.entries.find((entry) => entry.file === "budget.yaml")
       expect(budget?.status).toBe("failed")
       expect(budget?.error).toContain("ghost")
+    }),
+  )
+})
+
+describe("ProjectFiles state: society boundary", () => {
+  it.live("two society coordinators export only their own groups and budgets; a member does not export shared state", () =>
+    Effect.gen(function* () {
+      const a = yield* Effect.tryPromise(() => fixture())
+      const b = yield* Effect.tryPromise(() => fixture())
+      const kv = yield* KV.Service
+      yield* kv.set("orchestra/project/prj_a", {id:"prj_a",name:"A",directory:a,created:1})
+      yield* kv.set("orchestra/project/prj_b", {id:"prj_b",name:"B",directory:b,created:1})
+      yield* kv.set("federation/group/Alpha", {name:"Alpha",projects:["prj_a"],mode:"council",budget:10})
+      yield* kv.set("federation/group/Beta-private", {name:"Beta-private",projects:["prj_b","prj_a"],mode:"council",budget:98765,supervisor:"ses_beta_private"})
+      for (const dir of [a,b]) { yield* ProjectFilesState.syncSociety(dir,{kv}); yield* ProjectFilesState.syncBudget(dir,{kv}) }
+      const aFiles = (yield* Effect.tryPromise(() => read(a,"society.yaml"))) + (yield* Effect.tryPromise(() => read(a,"budget.yaml")))
+      expect(aFiles).toContain("Alpha")
+      for (const secret of ["Beta-private","98765","ses_beta_private","prj_b"]) expect(aFiles).not.toContain(secret)
+      const bFiles = (yield* Effect.tryPromise(() => read(b,"society.yaml"))) + (yield* Effect.tryPromise(() => read(b,"budget.yaml")))
+      expect(bFiles).toContain("Beta-private")
+      expect(bFiles).not.toContain("Alpha")
+      const unregistered = yield* Effect.tryPromise(() => fixture())
+      expect((yield* Effect.exit(ProjectFilesState.syncSociety(unregistered,{kv})))._tag).toBe("Failure")
+      expect((yield* Effect.exit(ProjectFilesState.syncBudget(unregistered,{kv})))._tag).toBe("Failure")
+    }),
+  )
+
+  it.live("mixed foreign society or budget files fail before writing any owned or foreign record", () =>
+    Effect.gen(function* () {
+      const dir = yield* Effect.tryPromise(() => fixture())
+      const kv = yield* KV.Service
+      yield* kv.set("orchestra/project/prj_a", {id:"prj_a",name:"A",directory:dir,created:1})
+      const own = {name:"Alpha",projects:["prj_a"],mode:"council",budget:10}
+      const foreign = {name:"Beta",projects:["prj_b"],mode:"council",budget:20}
+      yield* kv.set("federation/group/Alpha",own)
+      yield* kv.set("federation/group/Beta",foreign)
+      yield* Effect.tryPromise(() => write(dir,"society.yaml",JSON.stringify({groups:[{...own,budget:999},foreign]})))
+      expect((yield* Effect.exit(ProjectFilesState.restoreSociety(dir,{kv})))._tag).toBe("Failure")
+      expect(yield* kv.get("federation/group/Alpha")).toEqual(own)
+      expect(yield* kv.get("federation/group/Beta")).toEqual(foreign)
+      yield* Effect.tryPromise(() => write(dir,"budget.yaml",JSON.stringify({budgets:[{group:"Alpha",budgetUsd:999,currency:"USD"},{group:"Beta",budgetUsd:777,currency:"USD"}]})))
+      expect((yield* Effect.exit(ProjectFilesState.restoreBudget(dir,{kv})))._tag).toBe("Failure")
+      expect(yield* kv.get("federation/group/Alpha")).toEqual(own)
+      expect(yield* kv.get("federation/group/Beta")).toEqual(foreign)
+    }),
+  )
+
+  it.live("a project file cannot change membership, mode or supervisor, nor reconstruct unverified multi-project membership", () =>
+    Effect.gen(function* () {
+      const dir = yield* Effect.tryPromise(() => fixture())
+      const kv = yield* KV.Service
+      yield* kv.set("orchestra/project/prj_a", {id:"prj_a",name:"A",directory:dir,created:1})
+      const own = {name:"Alpha",projects:["prj_a","prj_approved"],mode:"council",budget:10}
+      yield* kv.set("federation/group/Alpha",own)
+      for (const change of [{projects:["prj_a","prj_foreign"]},{mode:"lead"},{supervisor:"ses_foreign"}]) {
+        yield* Effect.tryPromise(() => write(dir,"society.yaml",JSON.stringify({groups:[{...own,...change}]})))
+        expect((yield* Effect.exit(ProjectFilesState.restoreSociety(dir,{kv})))._tag).toBe("Failure")
+        expect(yield* kv.get("federation/group/Alpha")).toEqual(own)
+      }
+      yield* Effect.tryPromise(() => write(dir,"society.yaml",JSON.stringify({groups:[{...own,budget:30}]})))
+      expect((yield* ProjectFilesState.restoreSociety(dir,{kv})).status).toBe("restored")
+      expect(Number(Schema.decodeUnknownSync(Federation.Group)(yield* kv.get("federation/group/Alpha")).budget)).toBe(30)
+      yield* kv.remove("federation/group/Alpha")
+      expect((yield* Effect.exit(ProjectFilesState.restoreSociety(dir,{kv})))._tag).toBe("Failure")
+      expect(yield* kv.get("federation/group/Alpha")).toBeUndefined()
     }),
   )
 })

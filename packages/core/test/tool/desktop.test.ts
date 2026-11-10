@@ -1,34 +1,17 @@
 import { expect, test } from "bun:test"
-import { stat } from "node:fs/promises"
-import { DesktopTool } from "@orchestra/core/tool/plugin/desktop"
+import path from "node:path"
 
-// Drives the real desktop helper, so it only runs where the Windows desktop is there to read.
-test.skipIf(process.platform !== "win32")("one helper answers a screenshot and a window listing", async () => {
-  const prev = process.env.ORCHESTRA_DESKTOP_CAPTURE
-  process.env.ORCHESTRA_DESKTOP_CAPTURE = "on"
-  try {
-    const host = DesktopTool.makeHost()
-    try {
-      const started = Date.now()
-      const shot = await DesktopTool.run(host, { action: "screenshot", width: 640 }, undefined)
-      if (typeof shot === "string") throw new Error("expected a screenshot")
-      expect(shot.width).toBe(640)
-      expect(shot.screenWidth).toBeGreaterThan(0)
-      expect((await stat(shot.file)).size).toBeGreaterThan(1000)
-      const first = Date.now() - started
-      // The second call reuses the running helper instead of starting PowerShell again.
-      const again = Date.now()
-      await DesktopTool.run(host, { action: "windows" }, undefined)
-      expect(Date.now() - again).toBeLessThan(Math.max(first, 1500))
-      // The clipboard round-trips through the same helper, quotes and Cyrillic included.
-      const text = `opencode 'desktop' тест ${Date.now()}`
-      await DesktopTool.run(host, { action: "clipboard", text }, undefined)
-      expect(await DesktopTool.run(host, { action: "clipboard" }, undefined)).toBe(text)
-    } finally {
-      host.close()
-    }
-  } finally {
-    if (prev !== undefined) process.env.ORCHESTRA_DESKTOP_CAPTURE = prev
-    else delete process.env.ORCHESTRA_DESKTOP_CAPTURE
-  }
-}, 60_000)
+// The original screenshot/window/clipboard live assertions remain in manual/desktop-operator-live.ts,
+// gated by the operator's existing grant. The default suite must prove refusal, not opt itself in.
+test("real Windows desktop host refuses capture-only requests without real-screen approval", () => {
+  const child = Bun.spawnSync([process.execPath, "test", "./test/fixture/desktop-windows-denial-cases.ts"], {
+    cwd: path.resolve(import.meta.dir, "../.."),
+    env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const output = Buffer.from(child.stdout).toString() + Buffer.from(child.stderr).toString()
+  expect(child.exitCode, output).toBe(0)
+  expect(output).toContain("1 pass")
+  expect(output).toContain("0 fail")
+}, 30000)

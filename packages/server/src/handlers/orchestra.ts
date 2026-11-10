@@ -57,7 +57,10 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
           Effect.map((report) => ({ held: report.held, projects: report.projects.map((item) => ({ ...item })) })),
         ),
       )
-      .handle("orchestra.rules.list", (ctx) => federation.rules.list(ctx.params.scope).pipe(Effect.map((rules) => [...rules])))
+      .handle("orchestra.rules.list", (ctx) => federation.rules.list(ctx.params.scope).pipe(
+        Effect.map((rules) => [...rules]),
+        Effect.mapError((error) => new InvalidRequestError({ message: error.reason, field: "scope" })),
+      ))
       .handle(
         "orchestra.rules.add",
         Effect.fn(function* (ctx) {

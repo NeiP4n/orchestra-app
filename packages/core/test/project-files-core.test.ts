@@ -270,6 +270,7 @@ describe("ProjectFiles sync and restore frameworks", () => {
       const dir = yield* Effect.tryPromise(() => fixture())
       yield* Effect.tryPromise(() => write(dir, "dod.yaml", "task_id: X\nleaves: []\n"))
       const kv = yield* KV.Service
+      yield* kv.set("orchestra/project/prj_a", {id:"prj_a",name:"A",directory:dir,created:1})
       const report = yield* ProjectFiles.ProjectFilesSync.syncAll(dir, { kv })
       expect(report.files.every((file) => file.status === "ok")).toBe(true)
       expect(report.files.map((file) => file.file)).toContain("rules.yaml")

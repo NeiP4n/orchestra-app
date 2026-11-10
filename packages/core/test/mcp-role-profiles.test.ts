@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Orchestra } from "@orchestra/schema/orchestra"
-import { all as catalog } from "../src/mcp/catalog"
+import { all as catalog, SEPARATE_BROWSER_FLAG, separateBrowserDenial } from "../src/mcp/catalog"
 import { all, allows, forAgent, forRole, fromRole, missingRequired, serversOf } from "../src/mcp/role-profiles"
 
 describe("MCP role profiles", () => {
@@ -12,8 +12,10 @@ describe("MCP role profiles", () => {
 
   test("derives a role's servers from its tool list, implied tools included", () => {
     const developer = forRole("developer")!
-    for (const server of ["context7", "deepwiki", "github", "rea-anything", "serena", "playwright", "agent-desktop"])
+    for (const server of ["context7", "deepwiki", "github", "rea-anything", "serena", "agent-desktop"])
       expect(allows(developer, server)).toBe(true)
+    for (const server of ["playwright", "chrome-devtools"]) expect(allows(developer, server)).toBe(false)
+    expect(serversOf(["browser"])).toEqual([])
     // The tester may edit test files but its profile still comes from the same derivation.
     expect(serversOf(["webfetch"])).toEqual(["context7", "deepwiki"])
     expect(serversOf(["read"])).toContain("serena")
@@ -26,7 +28,11 @@ describe("MCP role profiles", () => {
     const access = new Map(deep.servers.map((grant) => [grant.server, grant.access]))
     expect(access.get("context7")).toBe("required")
     expect(access.get("deepwiki")).toBe("required")
-    expect(access.get("playwright")).toBe("required")
+    // A rule mentioning a server cannot grant one outside the effective toolkit.
+    for (const server of ["playwright", "chrome-devtools"]) {
+      expect(access.has(server)).toBe(false)
+      expect(missingRequired(deep, [])).not.toContain(server)
+    }
     expect(access.get("rea-anything")).toBe("required")
     // Its rules send it to github for issues and commits, so that is required too;
     // serena only rides along with the read tools and stays allowed.
@@ -66,9 +72,24 @@ describe("MCP role profiles", () => {
       for (const grant of profile.servers) expect(known.has(grant.server)).toBe(true)
   })
 
-  test("every catalog server is allowed for at least one team role", () => {
-    for (const entry of catalog)
-      expect(all.some((profile) => profile.kind === "team-role" && allows(profile, entry.id))).toBe(true)
+  test("every ordinary catalog server has a team role; opt-in-only external browsers have none by default", () => {
+    const external = Object.keys(SEPARATE_BROWSER_FLAG).toSorted()
+    expect(external).toEqual(["chrome-devtools", "playwright"])
+    for (const entry of catalog) {
+      const granted = all.some((profile) => profile.kind === "team-role" && allows(profile, entry.id))
+      expect(granted).toBe(!external.includes(entry.id))
+    }
+  })
+
+  test("external browser opt-in lifts only the catalog refusal, never grants a built-in role", () => {
+    for (const [server, flag] of Object.entries(SEPARATE_BROWSER_FLAG)) {
+      expect(catalog.some((entry) => entry.id === server)).toBe(true)
+      for (const value of [undefined, "", "0", "true"]) {
+        expect(separateBrowserDenial(server, { [flag]: value })).toContain("switched off")
+      }
+      expect(separateBrowserDenial(server, { [flag]: "1" })).toBeUndefined()
+      for (const role of Orchestra.roles) expect(allows(forRole(role.id)!, server)).toBe(false)
+    }
   })
 
   test("standalone agents match the access their permission rules leave them", () => {

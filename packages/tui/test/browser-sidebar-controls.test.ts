@@ -54,7 +54,7 @@ test("sidebar readability retains tab labels, short room actions and a visible r
   expect(source).toContain('<Show when={!props.label}>')
   expect(source).toContain('stackActions={props.width < 36}')
   expect(source).toContain('overflow="hidden" paddingRight={1}')
-  expect(source).toContain('props.width < 50 ? "Войти" : t("Connect")')
+  expect(source).toContain('props.width < 50 ? t("Join") : t("Connect")')
   expect(source).toContain('<Show when={empty.room() >= 5}>')
   const handle = readFileSync(new URL("../src/ui/pane-resize-handle.tsx", import.meta.url), "utf8")
   expect(handle).toContain('border={["left"]}')

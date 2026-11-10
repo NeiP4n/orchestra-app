@@ -22,6 +22,7 @@ import { Rpc } from "@orchestra/core/rpc"
 import { SdkPlugins } from "@orchestra/core/plugin/sdk"
 import { AbsolutePath } from "@orchestra/core/schema"
 import { tempGlobalLayer } from "../fixture/global"
+import { liveOrchestra } from "../fixture/live-orchestra"
 import { offlineModels } from "../fixture/models"
 import { tmpdirScoped } from "../fixture/tmpdir"
 import { advance } from "../lib/clock"
@@ -68,6 +69,7 @@ const instances = Layer.effect(
       Global.node.replace(tempGlobalLayer),
       ManagedPolicy.node.replace(Layer.succeed(ManagedPolicy.Service, managed)),
       offlineModels,
+      liveOrchestra,
       Npm.node.replace(npmLayer),
       Watcher.node.replace(Layer.succeed(Watcher.Service, watcher)),
       LocationServiceMap.node.replace(Layer.succeed(LocationServiceMap.Service, map)),
@@ -84,7 +86,7 @@ const instances = Layer.effect(
 const it = testEffect(
   AppNodeBuilder.build(
     LayerNode.group([ManagedPolicy.node, Database.node, Bus.node, SdkPlugins.node, LocationServiceMap.node]),
-    [Global.node.replace(tempGlobalLayer), offlineModels, LocationServiceMap.node.replace(instances)],
+    [Global.node.replace(tempGlobalLayer), offlineModels, liveOrchestra, LocationServiceMap.node.replace(instances)],
   ).pipe(Layer.provideMerge(Watcher.testLayer)),
 )
 

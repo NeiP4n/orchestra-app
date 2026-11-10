@@ -120,6 +120,9 @@ import { Lsp } from "../lsp/index.js"
 import { SymbolsTool } from "../tool/plugin/symbols.js"
 import { NoteTool } from "../tool/plugin/note.js"
 import { VaultTool } from "../tool/plugin/vault.js"
+import { ConsoleTool } from "../tool/plugin/console.js"
+import { PersistentPty } from "../persistent-pty.js"
+import { Pty } from "../pty.js"
 import { NoteStore } from "../note.js"
 import { SkillMarketplace } from "../skill-marketplace/index.js"
 import { SkillTool } from "../tool/plugin/skill.js"
@@ -204,6 +207,8 @@ const services = [
   ShellSelect.Service,
   Snapshot.Service,
   NoteStore.Service,
+  PersistentPty.Service,
+  Pty.Service,
   Memory.Service,
   Lsp.Service,
   SkillMarketplace.Service,
@@ -267,6 +272,8 @@ export const requirements = LayerNode.group([
   ShellSelect.node,
   Snapshot.node,
   NoteStore.node,
+  PersistentPty.node,
+  Pty.node,
   Memory.node,
   Lsp.node,
   SkillMarketplace.node,
@@ -363,6 +370,7 @@ const pre = [
 
 const post = [
   VaultTool.Plugin,
+  ConsoleTool.Plugin,
   ConfigInstructionPlugin.Plugin,
   ConfigReferencePlugin.Plugin,
   ConfigAgentPlugin.Plugin,

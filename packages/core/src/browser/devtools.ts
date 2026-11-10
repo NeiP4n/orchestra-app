@@ -132,6 +132,9 @@ export function formatCookies(cookies: ReadonlyArray<{ name: string; domain: str
 export const storageExpression = `(() => { const names = (s) => { try { return Object.keys(s).map((k) => k + ' (' + String(s.getItem(k) ?? '').length + ' chars)') } catch { return ['(not readable)'] } }; return { ok: true, text: 'localStorage:\\n' + (names(localStorage).join('\\n') || '(empty)') + '\\nsessionStorage:\\n' + (names(sessionStorage).join('\\n') || '(empty)') + '\\n(values hidden)' } })()`
 
 /** Script for eval: runs the expression and returns its value as text; a promise is awaited. */
-export function evalExpression(expression: string) {
-  return `(async () => { try { const value = await (0, eval)(${JSON.stringify(expression)}); let text; try { text = typeof value === 'string' ? value : JSON.stringify(value, (k, v) => typeof v === 'function' ? '[function]' : v instanceof Node ? '<' + v.nodeName.toLowerCase() + '>' : v) } catch { text = String(value) } return { ok: true, text: text === undefined ? 'undefined' : text } } catch (error) { return { ok: false, error: String(error && error.message || error) } } })()`
+export function evalExpression(expression: string): Cdp.PageCall {
+  return {
+    functionDeclaration: `async function(expression) { try { const value = await (0, eval)(expression); let text; try { text = typeof value === 'string' ? value : JSON.stringify(value, (k, v) => typeof v === 'function' ? '[function]' : v instanceof Node ? '<' + v.nodeName.toLowerCase() + '>' : v) } catch { text = String(value) } return { ok: true, text: text === undefined ? 'undefined' : text } } catch (error) { return { ok: false, error: String(error && error.message || error) } } }`,
+    arguments: [{ value: expression }],
+  }
 }

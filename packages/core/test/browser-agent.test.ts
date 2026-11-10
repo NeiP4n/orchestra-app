@@ -58,7 +58,7 @@ describe("page scripts", () => {
       BrowserPage.clickExpression({ text: hostile }),
       BrowserPage.typeExpression({ selector: hostile, text: hostile }),
     ])
-      expect(() => new Function(`return ${expression}`)).not.toThrow()
+      expect(() => new Function(`return (${expression.functionDeclaration})`)).not.toThrow()
   })
 
   test("click needs a target", () => {
@@ -346,8 +346,8 @@ describe("the agent's cursor", () => {
     expect(BrowserBridge.parseCursors(undefined)).toEqual({})
   })
   test("click and type scripts report where the element is", () => {
-    expect(BrowserPage.clickExpression({ selector: "#go" })).toContain("at: (() =>")
-    expect(BrowserPage.clickExpression({ text: "Go" })).toContain("at: (() =>")
-    expect(BrowserPage.typeExpression({ selector: "#q", text: "x" })).toContain("at: (() =>")
+    expect(BrowserPage.clickExpression({ selector: "#go" }).functionDeclaration).toContain("at: (() =>")
+    expect(BrowserPage.clickExpression({ text: "Go" }).functionDeclaration).toContain("at: (() =>")
+    expect(BrowserPage.typeExpression({ selector: "#q", text: "x" }).functionDeclaration).toContain("at: (() =>")
   })
 })
