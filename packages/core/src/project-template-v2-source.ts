@@ -66,12 +66,14 @@ export async function readSkillFiles(root: string, paths: readonly string[]): Pr
         const parent = path.join(base, ...parts.slice(0, i)), stat = await lstat(parent)
         if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(parent) !== parent) throw Error()
       }
-      const file = path.join(base, relative), before = await lstat(file)
-      if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.size > 65536) throw Error()
+      const file = path.join(base, relative)
+      // Open first, then validate the exact descriptor. A prior path check cannot protect an open.
       const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
       try {
-        const opened = await handle.stat()
-        if (opened.dev !== before.dev || opened.ino !== before.ino || !opened.isFile() || opened.nlink !== 1) throw Error()
+        const before = await handle.stat()
+        if (!before.isFile() || before.nlink !== 1 || before.size > 65536) throw Error()
+        const named = await lstat(file)
+        if (named.dev !== before.dev || named.ino !== before.ino || named.isSymbolicLink() || await realpath(file) !== file) throw Error()
         const buffer = Buffer.alloc(65537)
         let length = 0
         while (length < buffer.length) {
