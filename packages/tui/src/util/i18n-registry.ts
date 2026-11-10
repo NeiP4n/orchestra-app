@@ -1,5 +1,14 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  esc: "esc",
+  "Template storage is not writable. Check application data folder permissions.": "Template storage is not writable. Check application data folder permissions.",
+  "A required template or project file is missing. Refresh and review again.": "A required template or project file is missing. Refresh and review again.",
+  "Project or template changed after preview. Review it again.": "Project or template changed after preview. Review it again.",
+  "Template version is not compatible with this Orchestra build.": "Template version is not compatible with this Orchestra build.",
+  "Saved browser links are not portable. Review links before saving.": "Saved browser links are not portable. Review links before saving.",
+  "Project ownership or session metadata is incomplete. Reopen the project and review again.": "Project ownership or session metadata is incomplete. Reopen the project and review again.",
+  "Template content is not portable or contains secret-like data. Review configuration before saving.": "Template content is not portable or contains secret-like data. Review configuration before saving.",
+  "Could not finish the template operation. Review changes and retry the same operation.": "Could not finish the template operation. Review changes and retry the same operation.",
   "{count} plugin": "{count} plugin",
   "Next tab": "Next tab",
   "Previous tab": "Previous tab",
@@ -106,6 +115,15 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  esc: "esc",
+  "Template storage is not writable. Check application data folder permissions.": "Нет прав записи в хранилище шаблонов. Проверьте права папки данных приложения.",
+  "A required template or project file is missing. Refresh and review again.": "Не найден нужный файл шаблона или проекта. Обновите и проверьте ещё раз.",
+  "Project or template changed after preview. Review it again.": "Проект или шаблон изменился после просмотра. Проверьте ещё раз.",
+  "Template version is not compatible with this Orchestra build.": "Версия шаблона несовместима с этой сборкой Orchestra.",
+  "Saved browser links are not portable. Review links before saving.": "Сохранённые ссылки браузера нельзя перенести. Проверьте ссылки перед сохранением.",
+  "Project ownership or session metadata is incomplete. Reopen the project and review again.": "Данные владельца проекта или сессии неполны. Откройте проект и проверьте ещё раз.",
+  "Template content is not portable or contains secret-like data. Review configuration before saving.": "Содержимое шаблона нельзя перенести или оно похоже на секретные данные. Проверьте настройки.",
+  "Could not finish the template operation. Review changes and retry the same operation.": "Не удалось завершить работу с шаблоном. Проверьте изменения и повторите ту же операцию.",
   "{count} plugin": "Плагинов: {count}",
   "Next tab": "Следующая вкладка",
   "Previous tab": "Предыдущая вкладка",

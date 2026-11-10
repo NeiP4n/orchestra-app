@@ -1,4 +1,5 @@
 import { createEffect, createSignal, For, onMount, Show } from "solid-js"
+import { templateErrorKey } from "@orchestra/core/project-template-errors"
 import { useT } from "../util/i18n"
 import { HoverAction } from "./hover-action"
 import { useTheme } from "../context/theme"
@@ -33,6 +34,7 @@ export function ProjectTemplatesSimple(props: {
   const [busy, setBusy] = createSignal(false)
   const [details, setDetails] = createSignal(false)
   const [message, setMessage] = createSignal("")
+  const [reason, setReason] = createSignal<string>()
   const [refreshFailed, setRefreshFailed] = createSignal(false)
   const [prepared, setPrepared] = createSignal<{
     kind: "save" | "create"
@@ -45,7 +47,8 @@ export function ProjectTemplatesSimple(props: {
     setBusy(true)
     try {
       await action()
-    } catch {
+    } catch (error) {
+      setReason(templateErrorKey(error))
       setPrepared()
       setMessage("Could not finish. Nothing was replaced. Try again.")
     } finally {
@@ -63,6 +66,7 @@ export function ProjectTemplatesSimple(props: {
       setPrepared()
       setDetails(false)
       setMessage("")
+      setReason()
       setRefreshFailed(false)
       if (kind === "save" && !props.canSave) return
       const result = kind === "save" ? await props.access.prepareSave() : await props.access.prepareCreate(id!)
@@ -78,7 +82,8 @@ export function ProjectTemplatesSimple(props: {
       try {
         if (current.kind === "save") await props.access.confirmSave(current.token)
         else await props.access.confirmCreate(current.token)
-      } catch {
+      } catch (error) {
+        setReason(templateErrorKey(error))
         // Keep this exact durable operation, never prepare a second project after partial commit.
         setPrepared(current)
         setMessage("Could not finish. Confirm the same operation again to continue without creating a second copy.")
@@ -200,7 +205,7 @@ export function ProjectTemplatesSimple(props: {
         <text fg={theme.text.muted}>{tr("Preparing…")}</text>
       </Show>
       <Show when={message()}>
-        <text fg={theme.text.base} wrapMode="word">{tr(message())}{refreshFailed() ? tr(" The list has not refreshed yet.") : ""}</text>
+        <text fg={theme.text.base} wrapMode="word">{tr(message())}{reason() ? " " + tr(reason()!) : ""}{refreshFailed() ? tr(" The list has not refreshed yet.") : ""}</text>
       </Show>
       <text fg={theme.text.muted}>{tr("↑↓ select · Enter action")}</text>
     </box>

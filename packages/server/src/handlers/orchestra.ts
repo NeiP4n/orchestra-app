@@ -1,5 +1,6 @@
 import { CredentialVault } from "@orchestra/core/credential-vault/index"
 import path from "node:path"
+import { templateError } from "@orchestra/core/project-template-errors"
 import { ProjectTemplateOperator } from "@orchestra/core/project-template-operator"
 import { ProjectTemplateLiveStores } from "@orchestra/core/project-template-live-stores"
 import { ProjectTemplateBrowserStore } from "@orchestra/core/project-template-browser-store"
@@ -74,7 +75,7 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
         bootstrap:(directory,name)=>Effect.runPromise(ProjectFilesBootstrap.initialize(directory,name,kv).pipe(Effect.provideService(Database.Service,database))),
       })
     })
-    const templateOperation = <A>(action:()=>Promise<A>)=>Effect.tryPromise({try:action,catch:()=>new InvalidRequestError({message:"Не удалось завершить работу с шаблоном. Проверьте изменения и повторите ту же операцию."})})
+    const templateOperation = <A>(action:()=>Promise<A>)=>Effect.tryPromise({try:action,catch:error=>new InvalidRequestError(templateError(error))})
     return handlers
       .handle("orchestra.projectTemplate.list",()=>templateOperation(()=>operator.list()))
       .handle("orchestra.projectTemplate.prepareSave",ctx=>templateOperation(()=>operator.prepareSave(ctx.payload.projectID,ctx.payload.browsers)))
