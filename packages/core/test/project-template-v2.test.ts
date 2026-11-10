@@ -94,3 +94,8 @@ test("canonical v2 bytes and hashes survive a new disk read without using v1 sav
     expect(second).toEqual(first)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
+
+for (const file of ["CON", "con.md", "references/NUL.txt", "scripts/COM1.ts", "guide.", "folder./guide.md"]) test(`rejects nonportable Windows definition path ${file}`, () => {
+  const b = processFixture(); b.process.skills[0].files[0].path = file
+  expect(V2.parse(JSON.stringify(b)).ok).toBe(false)
+})

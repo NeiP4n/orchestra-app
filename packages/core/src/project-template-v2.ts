@@ -76,9 +76,9 @@ function modelReference(value: unknown) {
 function unique(values: string[]) { if (new Set(values).size !== values.length) invalid(); return values }
 const ids = (value: unknown, max = 100) => unique(list(value, max).map(id))
 function bool(value: unknown) { if (typeof value !== "boolean") invalid(); return value }
-function relative(value: unknown) {
+export function relativePath(value: unknown) {
   const s = text(value, 180)
-  if (!/^[A-Za-z0-9_-][A-Za-z0-9_./-]*$/.test(s) || s.split("/").some((part) => !part || part === "." || part === ".." || part.startsWith(".")) || /(?:^|\/)(?:credentials?|secrets?|id_rsa|id_ed25519|passwords?)(?:[./_-]|$)/i.test(s)) invalid()
+  if (!/^[A-Za-z0-9_-][A-Za-z0-9_./-]*$/.test(s) || s.split("/").some((part) => !part || part === "." || part === ".." || part.startsWith(".") || part.endsWith(".") || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)) || /(?:^|\/)(?:credentials?|secrets?|id_rsa|id_ed25519|passwords?)(?:[./_-]|$)/i.test(s)) invalid()
   return s
 }
 function model(value: unknown): Model {
@@ -106,10 +106,10 @@ function parseProcess(raw: unknown, base: V1.Bundle): Process {
     const files = list(r.files, MAX_FILES).map((file) => {
       const f = object(file, ["path", "content", "sha256"]), content = text(f.content, 65536, true)
       if (typeof f.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(f.sha256) || hash(content) !== f.sha256) invalid()
-      return { path: relative(f.path), content, sha256: f.sha256 }
+      return { path: relativePath(f.path), content, sha256: f.sha256 }
     })
     unique(files.map((f) => f.path.toLowerCase()))
-    const entry = relative(r.entry)
+    const entry = relativePath(r.entry)
     if (!files.some((f) => f.path === entry)) invalid()
     return { id: id(r.id), name: text(r.name, 160), entry, files, dependencies: ids(r.dependencies), ...(has(r, "description") ? { description: text(r.description, 4096, true) } : {}), ...(has(r, "autoinvoke") ? { autoinvoke: bool(r.autoinvoke) } : {}) }
   })

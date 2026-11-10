@@ -60,7 +60,7 @@ export async function readSkillFiles(root: string, paths: readonly string[]): Pr
     const output: V2.Skill["files"] = []
     let bytes = 0
     for (const relative of paths) {
-      if (!/^[A-Za-z0-9_-][A-Za-z0-9_./-]*$/.test(relative) || relative.split("/").some((s) => !s || s === "." || s === ".." || s.startsWith(".")) || /(?:^|\/)(?:credentials?|secrets?|id_rsa|id_ed25519|passwords?)(?:[./_-]|$)/i.test(relative)) throw Error()
+      V2.relativePath(relative)
       const parts = relative.split("/")
       for (let i = 1; i < parts.length; i++) {
         const parent = path.join(base, ...parts.slice(0, i)), stat = await lstat(parent)
@@ -72,10 +72,10 @@ export async function readSkillFiles(root: string, paths: readonly string[]): Pr
       try {
         const opened = await handle.stat()
         if (opened.dev !== before.dev || opened.ino !== before.ino || !opened.isFile() || opened.nlink !== 1) throw Error()
-        const buffer = await handle.readFile(), after = await handle.stat(), current = await lstat(file)
-        bytes += buffer.length
-        if (bytes > V2.MAX_BYTES || buffer.length > 65536 || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs || current.dev !== before.dev || current.ino !== before.ino || current.isSymbolicLink() || await realpath(file) !== file) throw Error()
-        const content = new TextDecoder("utf-8", { fatal: true }).decode(buffer)
+        const buffer = Buffer.alloc(65537), read = await handle.read(buffer, 0, buffer.length, 0), after = await handle.stat(), current = await lstat(file)
+        bytes += read.bytesRead
+        if (bytes > V2.MAX_BYTES || read.bytesRead > 65536 || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs || current.dev !== before.dev || current.ino !== before.ino || current.isSymbolicLink() || await realpath(file) !== file) throw Error()
+        const content = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, read.bytesRead))
         if (content.includes("\0")) throw Error()
         output.push({ path: relative, content, sha256: V2.hash(content) })
       } finally { await handle.close() }

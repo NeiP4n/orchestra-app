@@ -56,7 +56,7 @@ test("bounded skill file reader captures exact selected definitions, not neighbo
     await expect(S.readSkillFiles(root, ["alias/guide.md"])).rejects.toThrow("cannot be captured safely")
     await link(path.join(root, "SKILL.md"), path.join(root, "hard.md"))
     await expect(S.readSkillFiles(root, ["hard.md"])).rejects.toThrow("cannot be captured safely")
-    for (const name of ["../outside.md", ".env", "credentials.json", "references/../SKILL.md"]) await expect(S.readSkillFiles(root, [name])).rejects.toThrow("cannot be captured safely")
+    for (const name of ["../outside.md", ".env", "credentials.json", "references/../SKILL.md", "CON.md", "folder./guide.md"]) await expect(S.readSkillFiles(root, [name])).rejects.toThrow("cannot be captured safely")
     await writeFile(path.join(root, "binary.md"), Buffer.from([0xff, 0xfe]))
     await expect(S.readSkillFiles(root, ["binary.md"])).rejects.toThrow("cannot be captured safely")
   } finally { await rm(root, { recursive: true, force: true }) }
