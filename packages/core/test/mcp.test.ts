@@ -156,7 +156,13 @@ function resourceServer(
               ? [{ name: "empty-elicitation", inputSchema: { type: "object" as const, properties: {} } }]
               : input.urlElicitation
                 ? [{ name: "url-elicitation", inputSchema: { type: "object" as const, properties: {} } }]
-                : [{ name: "echo", inputSchema: { type: "object" as const, properties: {} }, ...(input.readOnly ? { annotations: { readOnlyHint: true } } : {}) }],
+                : [
+                    {
+                      name: "echo",
+                      inputSchema: { type: "object" as const, properties: {} },
+                      ...(input.readOnly ? { annotations: { readOnlyHint: true } } : {}),
+                    },
+                  ],
           })
         })
         if (input.emptyElicitation) {
@@ -919,14 +925,22 @@ test("retries transient failures only for read-only MCP tool calls", async () =>
             readOnly,
             respond: async (request) => {
               if (request.method !== "POST") return
-              const body: unknown = await request.clone().json().catch(() => undefined)
-              if (typeof body !== "object" || body === null || !("method" in body) || body.method !== "tools/call") return
+              const body: unknown = await request
+                .clone()
+                .json()
+                .catch(() => undefined)
+              if (typeof body !== "object" || body === null || !("method" in body) || body.method !== "tools/call")
+                return
               attempts += 1
               if (attempts === 1) return new Response("temporarily unavailable", { status: 503 })
               return
             },
           })
-          const connection = yield* connect("readonly-retry", new ConfigMCP.Remote({ type: "remote", url: server.url, oauth: false }), import.meta.dir)
+          const connection = yield* connect(
+            "readonly-retry",
+            new ConfigMCP.Remote({ type: "remote", url: server.url, oauth: false }),
+            import.meta.dir,
+          )
           expect((yield* connection.tools())[0]?.annotations?.readOnlyHint === true).toBe(readOnly)
           const outcome = yield* connection.callTool({ name: "echo", readOnly }).pipe(Effect.exit)
           if (readOnly) {
@@ -1689,6 +1703,17 @@ test("adds, disconnects, and reconnects MCP servers at runtime", async () => {
           })
           expect(yield* service.tools()).toEqual([])
 
+          // Explicit connect must not override persisted OFF. Only an operator config edit can enable.
+          yield* service.connect("dynamic")
+          expect((yield* service.servers()).find((server) => server.name === "dynamic")?.status).toEqual({
+            status: "disabled",
+          })
+          expect(yield* service.tools()).toEqual([])
+          yield* service.transform((editor) =>
+            editor.update("dynamic", (row) => {
+              row.disabled = false
+            }),
+          )
           yield* service.connect("dynamic")
           expect((yield* service.servers()).find((server) => server.name === "dynamic")?.status).toEqual({
             status: "connected",
@@ -1748,7 +1773,10 @@ test("circuit breaker pauses a server after repeated failed calls", async () => 
             // The fixture lists tools but answers no tool call, so every
             // call fails at the transport: three failures trip the breaker.
             const failed = (name: string) =>
-              service.callTool({ server: "breaker-test", name }).pipe(Effect.flip, Effect.map((error) => error.message))
+              service.callTool({ server: "breaker-test", name }).pipe(
+                Effect.flip,
+                Effect.map((error) => error.message),
+              )
             const first = yield* failed("first")
             expect(first).not.toContain("circuit breaker")
             const second = yield* failed("first")
@@ -2301,7 +2329,7 @@ test("serializes concurrent MCP lifecycle operations", async () => {
               new ConfigMCP.Local({
                 type: "local",
                 command: [process.execPath, path.join(import.meta.dir, "fixture/mcp-output-schema.ts")],
-                disabled: true,
+                disabled: false,
               }),
             ),
           ),
@@ -2934,10 +2962,11 @@ test("shares one local MCP process between locations in different folders, in di
       yield* Effect.forEach(
         scopes,
         (scope, index) =>
-          McpPool.connect("shared", config, [import.meta.dir, path.join(import.meta.dir, "fixture"), path.join(import.meta.dir, "..")][index % 3]!).pipe(
-            Scope.provide(scope),
-            Effect.provide(recordingEnvironmentLayer(spawns)),
-          ),
+          McpPool.connect(
+            "shared",
+            config,
+            [import.meta.dir, path.join(import.meta.dir, "fixture"), path.join(import.meta.dir, "..")][index % 3]!,
+          ).pipe(Scope.provide(scope), Effect.provide(recordingEnvironmentLayer(spawns))),
         { concurrency: 1 },
       )
       yield* Effect.forEach(scopes, (scope) => Scope.close(scope, Exit.void))
@@ -3084,10 +3113,7 @@ describe("MCP budget enforcement at dispatch", () => {
                   },
                   {
                     id: cappedID,
-                    metadata: stamp(
-                      { servers: "all", maxCalls: 10, perServer: { resources: 1 } },
-                      "epoch-perserver",
-                    ),
+                    metadata: stamp({ servers: "all", maxCalls: 10, perServer: { resources: 1 } }, "epoch-perserver"),
                   },
                 ]),
               }),
@@ -3110,12 +3136,78 @@ describe("MCP budget enforcement at dispatch", () => {
               yield* service.callTool({ server: "resources", name: "echo", args: { n }, sessionID })
             expect(server.state.toolCalls).toHaveLength(3)
           }).pipe(
-            Effect.provide(
-              resourceMcpLayer(server.url, undefined, undefined, { seed: seedRows([{ id: sessionID }]) }),
-            ),
+            Effect.provide(resourceMcpLayer(server.url, undefined, undefined, { seed: seedRows([{ id: sessionID }]) })),
           )
         }),
       ),
     )
   })
+})
+
+test("operator OFF produces zero HTTP requests for explicit connects, discovery and calls", async () => {
+  let requests = 0
+  const server = Bun.serve({
+    port: 0,
+    fetch: () => {
+      requests++
+      return new Response("unexpected", { status: 500 })
+    },
+  })
+  try {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const service = yield* Mcp.Service
+          yield* service.connect("resources")
+          yield* service.connect("resources")
+          expect((yield* service.servers())[0]?.status.status).toBe("disabled")
+          expect(yield* service.tools()).toEqual([])
+          expect((yield* service.resourceCatalog()).resources).toEqual([])
+          yield* service.resources({ server: "resources" })
+          yield* service.prompt({ server: "resources", name: "unused" })
+          yield* service.readResource({ server: "resources", uri: "test://unused" })
+          const called = yield* service.callTool({ server: "resources", name: "unused" }).pipe(Effect.exit)
+          expect(Exit.isFailure(called)).toBe(true)
+          expect(requests).toBe(0)
+        }).pipe(
+          Effect.provide(
+            resourceMcpLayer(
+              new ConfigMCP.Remote({ type: "remote", url: server.url.toString(), oauth: false, disabled: true }),
+            ),
+          ),
+        ),
+      ),
+    )
+  } finally {
+    server.stop(true)
+  }
+  expect(requests).toBe(0)
+})
+
+test("global OFF prevents an already scheduled read-only retry and direct client connect", async () => {
+  const previous = process.env.ORCHESTRA_MCP
+  let attempts = 0
+  try {
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const server = yield* resourceServer({ readOnly: true, respond: async (request) => {
+        if (request.method !== "POST") return
+        const body = await request.clone().json().catch(() => undefined) as { method?: string } | undefined
+        if (body?.method !== "tools/call") return
+        attempts++
+        // Turn OFF while the 250ms backoff is already queued, not before retry scheduling.
+        setTimeout(() => { process.env.ORCHESTRA_MCP = "0" }, 20)
+        return new Response("temporarily unavailable", { status: 503 })
+      } })
+      const connection = yield* connect("off-retry", new ConfigMCP.Remote({ type: "remote", url: server.url, oauth: false }), import.meta.dir)
+      const outcome = yield* connection.callTool({ name: "echo", readOnly: true }).pipe(Effect.exit)
+      expect(Exit.isFailure(outcome)).toBe(true)
+      const blocked = yield* connect("off-direct", new ConfigMCP.Remote({ type: "remote", url: server.url, oauth: false }), import.meta.dir).pipe(Effect.exit)
+      expect(Exit.isFailure(blocked)).toBe(true)
+      expect(attempts).toBe(1)
+    })))
+  } finally {
+    if (previous === undefined) delete process.env.ORCHESTRA_MCP
+    else process.env.ORCHESTRA_MCP = previous
+  }
+  expect(attempts).toBe(1)
 })
