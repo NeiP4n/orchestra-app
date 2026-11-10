@@ -2933,3 +2933,17 @@ validation/permissions still govern activation.
 
 This first slice has no live project collector, import materializer, UI, Vault
 scope implementation or activation route. No template text is execution authority.
+
+`project-template-files.ts` adds a private create-only folder library and staged
+import: a source folder contains exactly one bounded regular `template.json`.
+Extra files, symlinks and hardlinked manifests fail; no recursive copy occurs.
+Save binds the reviewed digest to canonical bytes and refuses even an existing
+empty destination folder. Import checks stable minimum version, then stages under
+`.orchestra/template-imports/<name>/template.json`, returning an explicit checklist
+of empty/missing Vault slots, unopened browsers, model/role checks and paused
+schedules. It does not create live sessions, secrets, browser profiles or triggers.
+An update comparison covers all configuration sections, lists conflicts and
+preserves omitted existing entries; it does not apply updates. Source/destination
+folders must be controlled by the operator: this is not an OS-level sandbox
+against an attacker concurrently renaming ancestor directories. Actual live
+materialization, app library UI and Vault scopes remain separate unfinished work.
