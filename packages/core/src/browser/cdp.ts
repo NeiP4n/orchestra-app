@@ -384,3 +384,20 @@ export function editKeyScript(name: string) {
 export async function key(client: Client, input: Parameters<typeof keySteps>[0]) {
   for (const step of keySteps(input)) await client.send(step.method, step.params)
 }
+
+/** Data arguments stay separate from the fixed page function source. */
+export interface PageCall {
+  functionDeclaration: string
+  arguments: Array<{ value: unknown }>
+}
+
+export async function callPage<T>(client: Client, call: PageCall, awaitPromise = false) {
+  const target = await client.send<{ result?: { objectId?: string }; exceptionDetails?: unknown }>("Runtime.evaluate", { expression: "globalThis", returnByValue: false })
+  const objectId = target.result?.objectId
+  if (!objectId || target.exceptionDetails) throw new Error("The page execution context is unavailable.")
+  try {
+    return await client.send<T>("Runtime.callFunctionOn", { ...call, objectId, returnByValue: true, awaitPromise })
+  } finally {
+    await client.send("Runtime.releaseObject", { objectId }).catch(() => undefined)
+  }
+}

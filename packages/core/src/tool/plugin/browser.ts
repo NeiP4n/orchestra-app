@@ -285,11 +285,11 @@ async function performOnce(sessionID: string, original: Input, localTest = false
   }
 }
 
-async function evaluate(client: Cdp.Client, expression: string, awaitPromise = false) {
-  const reply = await client.send<{ result?: { value?: BrowserPage.Outcome }; exceptionDetails?: { text?: string } }>(
-    "Runtime.evaluate",
-    { expression, returnByValue: true, ...(awaitPromise ? { awaitPromise: true } : {}) },
-  )
+async function evaluate(client: Cdp.Client, expression: string | Cdp.PageCall, awaitPromise = false) {
+  type Reply = { result?: { value?: BrowserPage.Outcome }; exceptionDetails?: { text?: string } }
+  const reply = typeof expression === "string"
+    ? await client.send<Reply>("Runtime.evaluate", { expression, returnByValue: true, ...(awaitPromise ? { awaitPromise: true } : {}) })
+    : await Cdp.callPage<Reply>(client, expression, awaitPromise)
   if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.text ?? "The page script failed.")
   return reply.result?.value ?? { ok: false, error: "The page returned nothing." }
 }

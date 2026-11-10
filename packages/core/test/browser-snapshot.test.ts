@@ -55,7 +55,7 @@ describe("browser devtools actions", () => {
     expect(text).toContain("value hidden")
   })
   test("the eval script and the storage script are valid JavaScript", () => {
-    expect(() => new Function(`return ${BrowserDevtools.evalExpression("1+1")}`)).not.toThrow()
+    expect(() => new Function(`return (${BrowserDevtools.evalExpression("1+1").functionDeclaration})`)).not.toThrow()
     expect(() => new Function(`return ${BrowserDevtools.storageExpression}`)).not.toThrow()
   })
   test("eval asks for permission", () => {
@@ -72,7 +72,7 @@ describe("scripts sent to the page are valid JavaScript", () => {
     expect(script).toContain("/\\s+/g")
   })
   test("eval and storage scripts parse", () => {
-    expect(() => new Function(`return ${BrowserDevtools.evalExpression("1 + 1")}`)).not.toThrow()
+    expect(() => new Function(`return (${BrowserDevtools.evalExpression("1 + 1").functionDeclaration})`)).not.toThrow()
     expect(() => new Function(`return ${BrowserDevtools.storageExpression}`)).not.toThrow()
   })
 })
