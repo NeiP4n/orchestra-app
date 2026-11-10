@@ -3030,3 +3030,12 @@ snapshot. Actual Orchestra+SQLite+Vault integration test creates a real project 
 checks metadata capture without new sessions, plus unit tests cover >1000 unrelated
 owner rows, repeated cursors, damaged rules/triggers and project changes. No public
 endpoint or simple UI adapter yet; this is backend collector groundwork.
+
+ProjectTemplateImport.prepare validates the exact reviewed bytes against destination
+roles/models and fresh slot identities, preserves every rule scope, refuses rule
+truncation, expired once schedules and unsupported internal action events. Prepared
+browser definitions are not opened and require fresh profiles/login. Local Vault
+slots stay empty with no agent grants; globals are unresolved name requirements.
+Every prepared trigger is paused with no nextAt, fired history or publishing yes.
+This is pure destination preparation, not live materialization or a commit. Actual
+cross-store commit/recovery and simple UI adapter remain open.
