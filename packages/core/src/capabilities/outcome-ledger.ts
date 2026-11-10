@@ -16,7 +16,7 @@ export interface Attempt {
   toolID: string
   at: number
   latencyMs: number
-  outputTokens: number
+  outputTokens: number | null
   costUsd: number | null
 }
 export interface Verification {
@@ -32,6 +32,9 @@ interface State {
   attempts: (Attempt & { verification?: Verification })[]
   decisions: Record<string, number>
   ordinal: number
+}
+export interface Metrics extends Omit<ToolRecommendation.Metrics, "totalOutputTokens"> {
+  totalOutputTokens: number | null
 }
 export const WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 const MAX_ROWS = 10000
@@ -50,7 +53,7 @@ function validAttempt(row: Attempt) {
     id(row.toolID) &&
     nonnegative(row.at) &&
     nonnegative(row.latencyMs) &&
-    nonnegative(row.outputTokens) &&
+    (row.outputTokens === null || nonnegative(row.outputTokens)) &&
     (row.costUsd === null || (typeof row.costUsd === "number" && Number.isFinite(row.costUsd) && row.costUsd >= 0))
   )
 }
@@ -175,7 +178,7 @@ export function make(kv: Pick<KV.Interface, "get" | "atomicUpdate">) {
         return kv.get(key(scope)).pipe(
           Effect.map((raw) => {
             const state = read(raw, scope),
-              metrics = new Map<string, ToolRecommendation.Metrics>()
+              metrics = new Map<string, Metrics>()
             let unverified = 0
             for (const row of state.attempts) {
               if (row.at < now - WINDOW_MS || row.at > now) continue
@@ -195,7 +198,10 @@ export function make(kv: Pick<KV.Interface, "get" | "atomicUpdate">) {
               value.verifiedSuccesses +=
                 row.verification && row.verification.at <= now && row.verification.outcome === "passed" ? 1 : 0
               value.totalLatencyMs += row.latencyMs
-              value.totalOutputTokens += row.outputTokens
+              value.totalOutputTokens =
+                value.totalOutputTokens === null || row.outputTokens === null
+                  ? null
+                  : value.totalOutputTokens + row.outputTokens
               value.totalCostUsd =
                 value.totalCostUsd === null || row.costUsd === null ? null : value.totalCostUsd + row.costUsd
               value.firstAt = Math.min(value.firstAt, row.at)

@@ -45,12 +45,13 @@ export function recommend(
         needsKey: row.credential !== "ready",
         readOnly: input.readOnlyIDs.has(row.id),
       })),
-      metrics: evidence.metrics,
+      metrics: evidence.metrics.filter((row): row is ToolRecommendation.Metrics => row.totalOutputTokens !== null),
     })
     return {
       ...result,
       decisionOrdinal,
       unverifiedAttempts: evidence.unverified,
+      unmeasuredToolIDs: evidence.metrics.filter((row) => row.totalOutputTokens === null).map((row) => row.toolID),
       unknownCostToolIDs: adapters.filter((row) => row.cost === "unknown").map((row) => row.id),
     }
   })

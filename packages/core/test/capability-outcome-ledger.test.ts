@@ -201,3 +201,30 @@ it.effect("namespaced plugin adapter IDs are persisted and ranked without droppi
     expect(result.recommendedToolID).toBe(plugin)
   }),
 )
+
+it.effect("unmeasured output tokens remain null and cannot earn a fabricated efficiency ranking", () =>
+  Effect.gen(function* () {
+    const kv = yield* KV.Service,
+      ledger = L.make(kv)
+    for (let i = 0; i < 5; i++) {
+      yield* ledger.record(scope, attempt(`unknown-${i}`, { outputTokens: null }))
+      yield* ledger.verify(scope, `unknown-${i}`, verified)
+    }
+    expect((yield* ledger.metrics(scope, now)).metrics[0]).toMatchObject({
+      attempts: 5,
+      verifiedSuccesses: 5,
+      totalOutputTokens: null,
+      totalCostUsd: null,
+    })
+    const result = yield* C.recommend(kv, {
+      scope,
+      decisionID: "unknown-output",
+      snapshot: snapshot(),
+      now,
+      readOnlyIDs: new Set(),
+    })
+    expect(result.unmeasuredToolIDs).toEqual(["native:grep"])
+    expect(result.ranked).toEqual([])
+    expect(result.kind).toBe("insufficient-evidence")
+  }),
+)
