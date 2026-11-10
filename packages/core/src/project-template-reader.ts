@@ -39,7 +39,8 @@ export function readSource(
   return Effect.gen(function* () {
     const raw = yield* stores.kv.get(`orchestra/project/${projectID}`)
     const project = Schema.decodeUnknownSync(Orchestra.Project)(raw)
-    if (project.id !== projectID || !project.main) throw Error("Project metadata is incomplete.")
+    if (project.id !== projectID) throw Error("Project owner differs.")
+    if (!project.main) throw Error("Project main session is not initialized.")
     const scan = (prefix: string) =>
       Effect.gen(function* () {
         const entries: { key: string; value: unknown }[] = []
@@ -58,10 +59,14 @@ export function readSource(
       Schema.decodeUnknownSync(Orchestra.Project)(row.value),
     )
     const claims = new Map(owned.map((row) => [row.key.slice("orchestra/owner/".length), row.value]))
-    const ids = new Set(
-      owned.filter((row) => row.value === projectID).map((row) => row.key.slice("orchestra/owner/".length)),
-    )
-    ids.add(project.main)
+    const ids = new Set<string>([project.main])
+    // Match the owner's live roster semantics: child task sessions and stale ownership
+    // markers are not top-level process definitions. Do not repair or delete them here.
+    for (const row of owned.filter(row => row.value === projectID)) {
+      const id = row.key.slice("orchestra/owner/".length)
+      const info = yield* stores.getSession(id)
+      if (id === project.main || (info && !info.parentID)) ids.add(id)
+    }
     const tree = yield* stores.listSessionsInTree(project.directory)
     for (const info of tree) {
       if (info.parentID) continue
@@ -73,16 +78,10 @@ export function readSource(
     const sessions: ProjectTemplateSource.Source["sessions"][number][] = []
     for (const id of ids) {
       const info = yield* stores.getSession(id)
-      if (
-        !info ||
-        info.parentID ||
-        Orchestra.ownerOf(
-          projects,
-          info.location.directory,
-          (claims.get(id) ?? Orchestra.sessionOwner(info.metadata)) as string | undefined,
-        )?.id !== project.id
-      )
-        throw Error("Owned session metadata is incomplete.")
+      if (!info) throw Error("Project main session is missing.")
+      if (info.parentID) throw Error("Project main session points to a child task.")
+      if (Orchestra.ownerOf(projects, info.location.directory, (claims.get(id) ?? Orchestra.sessionOwner(info.metadata)) as string | undefined)?.id !== project.id)
+        throw Error(id === project.main ? "Project main session belongs to another project." : "A top-level session has conflicting project ownership.")
       sessions.push({
         id,
         title: info.title,
