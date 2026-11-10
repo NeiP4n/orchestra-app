@@ -1,4 +1,4 @@
-import { ProjectTemplatesSimple, type ProjectTemplatesAccess } from "./project-templates-simple"
+import { ProjectTemplatesSimple, type ProjectTemplatesKeys, type ProjectTemplatesAccess } from "./project-templates-simple"
 import { useClient } from "../context/client"
 import { useProjects } from "../context/projects"
 import { useRoute } from "../context/route"
@@ -7,7 +7,7 @@ import { useTuiPaths } from "../context/runtime"
 
 /** The operator sees two actions. Current ownership, paths, fresh IDs and recovery tokens
  * remain implementation details; confirmation never starts a session or browser. */
-export function ProjectTemplatesConnected() {
+export function ProjectTemplatesConnected(props: { keys?: (keys: ProjectTemplatesKeys) => void; scrollIntoView?: (id: string) => void }) {
   const client = useClient(),
     projects = useProjects(),
     route = useRoute(),
@@ -52,5 +52,5 @@ export function ProjectTemplatesConnected() {
       projects.refetch()
     },
   }
-  return <ProjectTemplatesSimple access={access} canSave={!!projectID()} />
+  return <ProjectTemplatesSimple access={access} canSave={!!projectID()} keys={props.keys} scrollIntoView={props.scrollIntoView} />
 }

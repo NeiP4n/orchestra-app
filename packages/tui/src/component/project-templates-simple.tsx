@@ -1,6 +1,13 @@
-import { createSignal, For, onMount, Show } from "solid-js"
+import { createEffect, createSignal, For, onMount, Show } from "solid-js"
 import { HoverAction } from "./hover-action"
 import { useTheme } from "../context/theme"
+import { TextAttributes } from "@opentui/core"
+import { selectionBackground } from "../ui/hover"
+
+export interface ProjectTemplatesKeys {
+  move: (delta: number) => void
+  activate: () => void
+}
 
 /** Adapter must prepare/revalidate in the background. No authority comes from display or a digest.
  * Only confirmSave/confirmCreate may mutate, and only for the prepared operation they receive.
@@ -12,9 +19,15 @@ export interface ProjectTemplatesAccess {
   prepareCreate: (templateID: string) => Promise<{ token: string; name: string; details: string }>
   confirmCreate: (token: string) => Promise<void>
 }
-export function ProjectTemplatesSimple(props: { access: ProjectTemplatesAccess; canSave: boolean }) {
+export function ProjectTemplatesSimple(props: {
+  access: ProjectTemplatesAccess
+  canSave: boolean
+  keys?: (keys: ProjectTemplatesKeys) => void
+  scrollIntoView?: (id: string) => void
+}) {
   const theme = useTheme().surface("dialog")
   const [templates, setTemplates] = createSignal<readonly { id: string; name: string }[]>([])
+  const [cursor, setCursor] = createSignal("save")
   const [busy, setBusy] = createSignal(false)
   const [details, setDetails] = createSignal(false)
   const [message, setMessage] = createSignal("")
@@ -50,6 +63,7 @@ export function ProjectTemplatesSimple(props: { access: ProjectTemplatesAccess; 
       if (kind === "save" && !props.canSave) return
       const result = kind === "save" ? await props.access.prepareSave() : await props.access.prepareCreate(id!)
       setPrepared({ kind, ...result })
+      setCursor("confirm")
     })
   const confirm = () =>
     run(async () => {
@@ -78,64 +92,102 @@ export function ProjectTemplatesSimple(props: { access: ProjectTemplatesAccess; 
         setMessage(message() + " Список пока не обновился.")
       }
     })
-  return (
-    <box flexDirection="column" gap={1}>
-      <text fg={theme.text.base}>Шаблоны проектов</text>
-      <text fg={theme.text.muted} wrapMode="word">
-        Сохраняются настройки, правила, ссылки и расписания. Чаты, данные и секреты не переносятся.
+  const actions = () => prepared()
+    ? ["confirm", "cancel", "details"]
+    : [...(props.canSave ? ["save"] : []), ...templates().map((row) => `create-${row.id}`)]
+  const focused = () => actions().includes(cursor()) ? cursor() : actions()[0]
+  const cancel = () => {
+    setPrepared()
+    setDetails(false)
+    setCursor("save")
+  }
+  const activate = (id = focused()) => {
+    if (busy() || !id) return
+    setCursor(id)
+    if (id === "confirm") void confirm()
+    else if (id === "cancel") cancel()
+    else if (id === "details") setDetails(!details())
+    else if (!prepared() && id === "save") void prepare("save")
+    else if (!prepared() && id.startsWith("create-")) void prepare("create", id.slice(7))
+  }
+  props.keys?.({
+    move: (delta) => {
+      if (busy()) return
+      const ids = actions()
+      if (!ids.length) return
+      const index = Math.max(0, ids.indexOf(focused() ?? ""))
+      setCursor(ids[Math.max(0, Math.min(ids.length - 1, index + delta))])
+    },
+    activate: () => activate(),
+  })
+  createEffect(() => {
+    const id = focused()
+    if (id) props.scrollIntoView?.(`project-templates.${id}`)
+  })
+  const Action = (action: { id: string; label: string; disabled?: boolean }) => (
+    <HoverAction
+      id={`project-templates.${action.id}`}
+      disabled={busy() || action.disabled}
+      paddingLeft={1}
+      paddingRight={1}
+      background={!action.disabled && focused() === action.id ? selectionBackground(theme) : theme.background.raised.base}
+      onClick={() => activate(action.id)}
+    >
+      <text
+        fg={action.disabled || busy() ? theme.text.muted : theme.text.base}
+        attributes={!action.disabled && focused() === action.id ? TextAttributes.BOLD : undefined}
+      >
+        {focused() === action.id && !action.disabled ? "› " : "  "}[ {action.label} ]
       </text>
-      <HoverAction id="project-templates.save" disabled={busy() || !props.canSave} onClick={() => void prepare("save")}>
-        <text fg={props.canSave ? theme.text.action.primary.base : theme.text.muted}>Сохранить проект как шаблон</text>
-      </HoverAction>
-      <Show when={!props.canSave}>
-        <text fg={theme.text.muted}>Для сохранения откройте проект.</text>
-      </Show>
-      <text fg={theme.text.base}>Создать проект из шаблона</text>
-      <Show when={templates().length === 0}>
-        <text fg={theme.text.muted}>Сохранённых шаблонов пока нет.</text>
-      </Show>
-      <For each={templates()}>
-        {(template) => (
-          <HoverAction
-            id={`project-templates.create-${template.id}`}
-            disabled={busy()}
-            onClick={() => void prepare("create", template.id)}
-          >
-            <text fg={theme.text.action.primary.base}>{template.name}</text>
-          </HoverAction>
-        )}
-      </For>
+    </HoverAction>
+  )
+  return (
+    <box flexDirection="column" gap={1} paddingTop={1} paddingBottom={1}>
+      <box flexDirection="column">
+        <text fg={theme.text.base} attributes={TextAttributes.BOLD}>Шаблоны проектов</text>
+        <text fg={theme.text.muted} wrapMode="word">
+          Настройки, правила, ссылки и расписания. Без чатов, данных и секретов.
+        </text>
+      </box>
+      <box flexDirection="column">
+        <Action id="save" label="Сохранить проект как шаблон" disabled={!props.canSave || !!prepared()} />
+        <Show when={!props.canSave}>
+          <text fg={theme.text.muted} paddingLeft={3}>Откройте проект, чтобы сохранить шаблон.</text>
+        </Show>
+      </box>
+      <box flexDirection="column" gap={1}>
+        <text fg={theme.text.base} attributes={TextAttributes.BOLD}>Сохранённые шаблоны · {templates().length}</text>
+        <Show when={templates().length === 0}>
+          <box flexDirection="column">
+            <Action id="create-empty" label="Создать проект из шаблона" disabled />
+            <text fg={theme.text.muted} paddingLeft={3} wrapMode="word">Шаблонов пока нет. Сохраните проект выше.</text>
+          </box>
+        </Show>
+        <For each={templates()}>
+          {(template) => (
+            <box flexDirection="column">
+              <text fg={theme.text.base} paddingLeft={3} wrapMode="word">{template.name}</text>
+              <Action id={`create-${template.id}`} label="Создать проект из шаблона" disabled={!!prepared()} />
+            </box>
+          )}
+        </For>
+      </box>
       <Show when={prepared()}>
         {(current) => (
-          <box flexDirection="column" gap={1}>
-            <text fg={theme.text.base} wrapMode="word">
+          <box flexDirection="column" gap={1} paddingTop={1}>
+            <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="word">
               {current().kind === "save" ? "Сохранить" : "Создать"} «{current().name}»?{" "}
               {current().kind === "save"
                 ? "Только настройки, без чатов, данных и секретов."
                 : "Vault будет пустым, браузеры без входа, расписания на паузе."}
             </text>
-            <box flexDirection="row" gap={3}>
-              <HoverAction id="project-templates.confirm" disabled={busy()} onClick={() => void confirm()}>
-                <text fg={theme.text.action.primary.base}>{current().kind === "save" ? "Сохранить" : "Создать"}</text>
-              </HoverAction>
-              <HoverAction
-                id="project-templates.cancel"
-                disabled={busy()}
-                onClick={() => {
-                  setPrepared()
-                  setDetails(false)
-                }}
-              >
-                <text fg={theme.text.muted}>Отмена</text>
-              </HoverAction>
-              <HoverAction id="project-templates.details" disabled={busy()} onClick={() => setDetails(!details())}>
-                <text fg={theme.text.muted}>{details() ? "Скрыть подробности" : "Подробнее"}</text>
-              </HoverAction>
+            <box flexDirection="row" gap={1} flexWrap="wrap">
+              <Action id="confirm" label={current().kind === "save" ? "Сохранить" : "Создать"} />
+              <Action id="cancel" label="Отмена" />
+              <Action id="details" label={details() ? "Скрыть подробности" : "Подробнее"} />
             </box>
             <Show when={details()}>
-              <text fg={theme.text.muted} wrapMode="word">
-                {current().details}
-              </text>
+              <text fg={theme.text.muted} wrapMode="word">{current().details}</text>
             </Show>
           </box>
         )}
@@ -144,10 +196,9 @@ export function ProjectTemplatesSimple(props: { access: ProjectTemplatesAccess; 
         <text fg={theme.text.muted}>Подготовка…</text>
       </Show>
       <Show when={message()}>
-        <text fg={theme.text.muted} wrapMode="word">
-          {message()}
-        </text>
+        <text fg={theme.text.base} wrapMode="word">{message()}</text>
       </Show>
+      <text fg={theme.text.muted}>↑↓ выбор · Enter действие</text>
     </box>
   )
 }
