@@ -211,7 +211,7 @@ function manageConnections(
                   ? `Press ${shortcuts.get("dialog.integration.delete")} again to confirm`
                   : connection.label,
                 value: connection.id,
-                details: deleteError()?.id === connection.id ? [deleteError()!.message] : undefined,
+                details: deleteError()?.id === connection.id ? deleteError()!.message.match(/.{1,40}(?:\s|$)|\S{1,40}/g)?.map(line => line.trim()) : undefined,
                 footer: connection.status ? "Sign in required →" : undefined,
                 footerColor: connection.status ? theme.text.feedback.warning.base : undefined,
                 category: "Connected accounts",
@@ -273,8 +273,11 @@ function manageConnections(
                 })
                 .catch((error) => {
                   setDeleting(undefined)
-                  const status = error instanceof Error && error.cause && typeof error.cause === "object" && "status" in error.cause && typeof error.cause.status === "number" ? error.cause.status : undefined
-                  const message = status !== undefined
+                  const refusal = error && typeof error === "object" && "_tag" in error && error._tag === "ConflictError" && "message" in error && typeof error.message === "string" ? error.message : undefined
+                  const status = refusal ? 409 : error instanceof Error && error.cause && typeof error.cause === "object" && "status" in error.cause && typeof error.cause.status === "number" ? error.cause.status : undefined
+                  const message = refusal
+                    ? t("Delete refused (HTTP {status}): {reason}", { status: 409, reason: t(refusal) })
+                    : status !== undefined
                     ? t("Delete refused (HTTP {status}). Try again.", { status })
                     : t("Could not delete account: {reason}", { reason: errorMessage(error) })
                   setDeleteError({ id: option.value, message })

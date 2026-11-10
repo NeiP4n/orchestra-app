@@ -260,9 +260,27 @@ for (const language of ["en", "ru"] as const) test(`delete confirmation survives
     await fixture.app.waitForFrame((frame) => frame.includes(language === "en" ? "Delete refused" : "Удаление отклонено") && frame.includes("HTTP 409"))
     expect(fixture.requests).toEqual([{ method: "DELETE", path: "/api/credential/cred_personal" }])
     expect(fixture.accounts).toHaveLength(2)
+    expect(fixture.app.captureCharFrame().replace(/\s+/g, " ")).toContain("Account store is locked.")
     expect(fixture.app.captureCharFrame()).toContain("Personal")
     expect(fixture.app.captureCharFrame()).not.toContain("again to confirm")
     if (process.env.CAPTURE_GOOGLE_DELETE) await Bun.write(process.env.CAPTURE_GOOGLE_DELETE + `-refused-${language}.json`, JSON.stringify(fixture.app.captureSpans()))
+  } finally { fixture.app.renderer.destroy() }
+})
+
+for (const language of ["en", "ru"] as const) test(`linked-owner deletion refusal explains recovery and keeps the account (${language})`, async () => {
+  const fixture = await renderIntegration(undefined, undefined, "The linked account manager is unavailable. Enable its plugin and retry. The credential was kept.", language)
+  try {
+    fixture.app.mockInput.pressArrow("down")
+    fixture.app.mockInput.pressKey("d", { ctrl: true })
+    await fixture.app.waitForFrame(frame => frame.includes("again to confirm"))
+    fixture.app.mockInput.pressKey("d", { ctrl: true })
+    await fixture.app.waitForFrame(frame => frame.replace(/\s+/g, " ").includes(language === "en" ? "Enable its plugin" : "Включи плагин"))
+    const frame = fixture.app.captureCharFrame().replace(/\s+/g, " ")
+    expect(frame).toContain(language === "en" ? "The credential was kept." : "Запись сохранена.")
+    expect(frame).toContain("Personal")
+    expect(fixture.accounts).toHaveLength(2)
+    expect(fixture.requests).toEqual([{ method: "DELETE", path: "/api/credential/cred_personal" }])
+    if (process.env.CAPTURE_GOOGLE_DELETE) await Bun.write(process.env.CAPTURE_GOOGLE_DELETE + `-owner-${language}.json`, JSON.stringify(fixture.app.captureSpans()))
   } finally { fixture.app.renderer.destroy() }
 })
 
