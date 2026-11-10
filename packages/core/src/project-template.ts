@@ -64,7 +64,7 @@ function url(value: unknown): string {
   if (countSecrets(decodeURIComponent(parsed.pathname))) invalid()
   return s
 }
-function version(value: unknown): string { const s = text(value, 80); if (!/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(s)) invalid(); return s }
+function version(value: unknown): string { const s = text(value, 80); if (!/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?(?:\+[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*)?$/.test(s)) invalid(); return s }
 
 /** Closed schema. Errors never echo input, including JSON parser exceptions. */
 export function parse(serialized: string): Result<Bundle> {

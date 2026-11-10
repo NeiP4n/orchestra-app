@@ -66,3 +66,19 @@ test('update includes rule, Vault, metadata differences and preserves omitted ex
   for (const section of ['rules', 'localVault', 'metadata']) expect(diff.some((entry) => entry.section === section && entry.status === 'conflict')).toBe(true)
   expect(diff).toContainEqual({ section: 'browsers', slot: 'page', status: 'preserve-existing' })
 })
+
+test('build metadata does not affect compatibility and prerelease policy stays fail-closed', () => {
+  const input = fixture()
+  input.minOrchestraVersion = '1.0.0+source.abc123'
+  expect(() => Files.checkCompatibility(input, '1.0.0+source.def456')).not.toThrow()
+  expect(() => Files.checkCompatibility(input, '1.0.0')).not.toThrow()
+  expect(() => Files.checkCompatibility(input, '0.9.9+newer-commit')).toThrow('newer')
+  expect(() => Files.checkCompatibility(input, '1.0.0-beta+build.1')).toThrow('stable')
+  input.minOrchestraVersion = '1.0.0-beta+build.1'
+  expect(() => Files.checkCompatibility(input, '1.0.0+build.2')).toThrow('stable')
+  for (const version of ['1.0.0+', '1.0.0+a..b', '1.0.0+build/path', '1.0.0+build+other']) {
+    input.minOrchestraVersion = version
+    expect(ProjectTemplate.parse(JSON.stringify(input)).ok).toBe(false)
+    expect(() => Files.checkCompatibility(fixture(), version)).toThrow('stable')
+  }
+})

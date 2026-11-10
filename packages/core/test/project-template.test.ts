@@ -72,3 +72,9 @@ test('optional identity links are portable local slots only and closed nested fi
  input.mainSession = 'missing'; expect(parse(input).ok).toBe(false)
  input.mainSession = 'main'; input.browsers[0].session = 'missing'; expect(parse(input).ok).toBe(false)
 })
+
+test("source-build version is portable without dropping its build identity", () => {
+  const input = templateFixture()
+  input.minOrchestraVersion = "1.0.0+96e173dfb"
+  expect(parse(input)).toEqual({ ok: true, value: input })
+})
