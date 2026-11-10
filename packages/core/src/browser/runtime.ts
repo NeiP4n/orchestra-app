@@ -2,8 +2,9 @@ export * as BrowserRuntime from "./runtime.js"
 
 import { freemem, totalmem } from "node:os"
 import { spawn } from "node:child_process"
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs"
+import { closeSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs"
 import path from "node:path"
+import { appendLog, openRotatingLog } from "@orchestra/util/append-log"
 import { Flock } from "@orchestra/util/flock"
 import { readdirSync } from "node:fs"
 import * as BrowserActivity from "./activity.js"
@@ -62,13 +63,7 @@ const STDERR_LIMIT = 64 * 1024
 function stderrFd(): "ignore" | number {
   try {
     const file = stderrFile()
-    mkdirSync(path.dirname(file), { recursive: true })
-    // Append, never truncate: the "w" mode used to wipe the evidence of the
-    // crash that triggered the relaunch opening the file.
-    try {
-      if (statSync(file).size > STDERR_LIMIT) renameSync(file, `${file}.old`)
-    } catch {}
-    const fd = openSync(file, "a")
+    const fd = openRotatingLog(file, STDERR_LIMIT, ".old")
     writeSync(fd, `\n--- chrome launch ${new Date().toISOString()} ---\n`)
     return fd
   } catch {
@@ -184,9 +179,7 @@ export function trace(line: string) {
   // Two copies: the app's data folder, and one in the home folder where it is easy to find.
   for (const file of logFiles()) {
     try {
-      mkdirSync(path.dirname(file), { recursive: true })
-      if (existsSync(file) && readFileSync(file).length > 400_000) writeFileSync(file, "")
-      appendFileSync(file, `${new Date().toISOString()} ${line}\n`)
+      appendLog(file, `${new Date().toISOString()} ${line}\n`, 400_000)
     } catch {
       // A log that cannot be written must never get in the way.
     }

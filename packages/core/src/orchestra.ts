@@ -3,7 +3,7 @@ export * as Orchestra from "./orchestra.js"
 import { Context, DateTime, Duration, Effect, Layer, Option, PubSub, Schema, Stream } from "effect"
 import { KeyedMutex } from "./effect/keyed-mutex.js"
 import path from "node:path"
-import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from "node:fs"
+import { appendLog } from "@orchestra/util/append-log"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { FSUtil } from "@orchestra/util/fs-util"
 import { Orchestra } from "@orchestra/schema/orchestra"
@@ -1863,9 +1863,7 @@ const layer: Layer.Layer<
     // Operator-authored local actions never wake an AI or launch a browser. Storage failures count as failures.
     const localActions = (trigger: Trigger.Info, now: number) => Effect.promise(() => Trigger.executeLocal(trigger, now, (entry) => {
       const file = reportLogFile()
-      mkdirSync(path.dirname(file), { recursive: true })
-      if (existsSync(file) && statSync(file).size > 1_000_000) renameSync(file, `${file}.1`)
-      appendFileSync(file, `${JSON.stringify({ time: new Date(now).toISOString(), ...entry })}\n`)
+      appendLog(file, `${JSON.stringify({ time: new Date(now).toISOString(), ...entry })}\n`, 1_000_000)
     }))
     // Real internal bus events only, with a bounded queue. No replay after restart and no payload instructions.
     const deliverPending = (key: string, trigger: Trigger.Info, main: SessionID) => Effect.gen(function* () {
@@ -3766,9 +3764,7 @@ export const reportLogFile = () => path.join(Global.Path.data, "team-reports.log
 export function reportLog(entry: Record<string, unknown>) {
   try {
     const file = reportLogFile()
-    mkdirSync(path.dirname(file), { recursive: true })
-    if (existsSync(file) && statSync(file).size > 1_000_000) renameSync(file, `${file}.1`)
-    appendFileSync(file, `${JSON.stringify({ time: new Date().toISOString(), ...entry })}\n`)
+    appendLog(file, `${JSON.stringify({ time: new Date().toISOString(), ...entry })}\n`, 1_000_000)
   } catch {}
 }
 

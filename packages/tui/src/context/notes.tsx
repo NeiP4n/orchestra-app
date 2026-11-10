@@ -291,7 +291,7 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
         return browser.projects?.[projectID]?.find((item) => item.id === id)
       },
       addBrowserSession: (projectID: string, directory?: string) => {
-        const id = `brw_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+        const id = `brw_${crypto.randomUUID()}`
         let title = "Browser"
         const added = changeBrowser((draft) => {
           title = addBrowserSession(draft, projectID, { id, now: Date.now() })?.name ?? title
@@ -320,7 +320,7 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
         if (claimed.has(chat)) return
         claimed.add(chat)
         return changeBrowser((draft) => {
-          const id = `brw_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+          const id = `brw_${crypto.randomUUID()}`
           adoptBrowserChat(draft, projectID, { id, chat, name, now: Date.now() })
         })
       },
