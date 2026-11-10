@@ -28,6 +28,7 @@ import { CompactionPolicy } from "@orchestra/core/session/compaction-policy"
 import { SessionPlan } from "@orchestra/core/session/plan"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
+import { createHash } from "node:crypto"
 import { Session } from "@orchestra/core/session"
 import { SessionEvent } from "@orchestra/core/session/event"
 import { SessionInbox } from "@orchestra/core/session/inbox"
@@ -1808,6 +1809,104 @@ describe("Orchestra team", () => {
       expect(found[0]).toContain("Run failed: Disconnected")
       // the shutdown left its task open for the run that resumes after restart
       expect(yield* orchestra.pending(paused.id)).toBeNumber()
+    }).pipe(Effect.scoped),
+  )
+
+  it.live("keeps imported process roles project-local through claims and project removal", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-process-roles-")))
+      const orchestra = yield* Orchestra.Service
+      const sessions = yield* Session.Service
+      const first = yield* orchestra.create({ name: "Process A", directory: tmp.path })
+      const second = yield* orchestra.create({ name: "Process B", directory: tmp.path })
+      const id = `process-${createHash("sha256").update(first.id).digest("hex").slice(0, 16)}-1`
+      const spec = { name: "Local reviewer", description: "Only this process", rules: "  preserve rules exactly\r\n", category: "Quality", readOnly: true, tools: ["read"] }
+      const globalBefore = yield* orchestra.roles()
+      const role = yield* orchestra.saveProjectRole(first.id, id, spec)
+      expect(role.rules).toBe(spec.rules)
+      expect(yield* orchestra.roles()).toEqual(globalBefore)
+      expect((yield* orchestra.roles(first.id)).find(item => item.agent === role.agent)).toMatchObject(role)
+      expect((yield* orchestra.roles(second.id)).some(item => item.agent === role.agent)).toBe(false)
+      expect((yield* orchestra.scopedRoles()).find(item => item.agent === role.agent)?.projectID).toBe(first.id)
+      expect(Exit.isFailure(yield* Effect.exit(orchestra.saveProjectRole(second.id, id, spec)))).toBe(true)
+      expect(Exit.isFailure(yield* Effect.exit(orchestra.saveProjectRole(first.id, id, { ...spec, rules: "overwrite" })))).toBe(true)
+      const worker = yield* orchestra.createMember({ project: first, agent: role.agent })
+      expect(yield* orchestra.projectRoleAllowed(worker.id, role.agent)).toBe(true)
+      expect(yield* orchestra.projectRoleAllowed(second.main!, role.agent)).toBe(false)
+      expect(Exit.isFailure(yield* Effect.exit(orchestra.createMember({ project: second, agent: role.agent })))).toBe(true)
+      const unclaimed = yield* sessions.create({ agent: role.agent, location: { directory: AbsolutePath.make(tmp.path) } })
+      expect(yield* orchestra.projectRoleAllowed(unclaimed.id, role.agent)).toBe(false)
+      yield* orchestra.claim(worker.id, second.id)
+      expect(yield* orchestra.projectRoleAllowed(worker.id, role.agent)).toBe(false)
+      yield* orchestra.claim(worker.id, first.id)
+      expect(yield* orchestra.projectRoleAllowed(worker.id, role.agent)).toBe(true)
+      yield* orchestra.remove(first.id)
+      expect(yield* orchestra.projectRoleAllowed(worker.id, role.agent)).toBe(false)
+      expect((yield* orchestra.scopedRoles()).some(item => item.agent === role.agent)).toBe(false)
+      expect(yield* orchestra.roles()).toEqual(globalBefore)
+    }).pipe(Effect.scoped),
+  )
+
+  it.live("blocks local process agents at prompt, context, tool and permission boundaries outside their project", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-process-boundary-")))
+      const orchestra = yield* Orchestra.Service
+      const agents = yield* Agent.Service
+      const sessions = yield* Session.Service
+      const first = yield* orchestra.create({ name: "Process A", directory: tmp.path })
+      const second = yield* orchestra.create({ name: "Process B", directory: tmp.path })
+      const id = `process-${createHash("sha256").update(first.id).digest("hex").slice(0, 16)}-1`
+      const role = yield* orchestra.saveProjectRole(first.id, id, { name: "Scoped reviewer", description: "Local", rules: "Review only", category: "Quality", readOnly: true, tools: ["read"] })
+      const worker = yield* orchestra.createMember({ project: first, agent: role.agent })
+      const foreign = yield* sessions.create({ agent: role.agent, location: { directory: AbsolutePath.make(tmp.path) } })
+      yield* orchestra.claim(foreign.id, second.id)
+      const contexts: Array<(event: SessionContext) => Effect.Effect<void>> = []
+      const prompts: Array<(event: unknown) => Effect.Effect<void, unknown>> = []
+      const before: Array<(event: unknown) => Effect.Effect<void, unknown>> = []
+      const permissions: Array<(event: PermissionEvaluation) => Effect.Effect<void>> = []
+      yield* TeamPlugin.Plugin.effect(host({
+        agent: agentHost(agents),
+        session: { hook: ((name: string, callback: (event: never) => Effect.Effect<void>) => Effect.sync(() => {
+          if (name === "context") contexts.push(callback as (event: SessionContext) => Effect.Effect<void>)
+          if (name === "prompt") prompts.push(callback)
+        }).pipe(Effect.as({ dispose: Effect.void }))) as never },
+        tool: { hook: ((name: string, callback: (event: unknown) => Effect.Effect<void, unknown>) => Effect.sync(() => { if (name === "execute.before") before.push(callback) }).pipe(Effect.as({ dispose: Effect.void }))) as never, transform: () => Effect.die("unused"), reload: () => Effect.void, list: () => Effect.succeed([]) },
+        permission: { hook: (_, callback) => Effect.sync(() => permissions.push(callback)).pipe(Effect.as({ dispose: Effect.void })), list: () => Effect.die("unused"), get: () => Effect.die("unused"), reply: () => Effect.die("unused") },
+      }))
+      const tools = new Map<string, Tool.Info>()
+      yield* OrchestraTool.Plugin.effect(host({
+        session: { hook: () => Effect.succeed({ dispose: Effect.void }) },
+        tool: {
+          transform: callback => Effect.sync(() => { callback({ list: () => [], get: () => undefined, namespace: () => {}, add: tool => { tools.set(tool.name, tool) }, update: () => {}, remove: () => {} }) }).pipe(Effect.as({ dispose: Effect.void })),
+          reload: () => Effect.void, list: () => Effect.succeed([]), hook: () => Effect.succeed({ dispose: Effect.void }),
+        },
+      }))
+      const createThroughTool = (sessionID: Session.ID) => tools.get("sessions")!.execute({ action: "create", role: role.id, newInstance: true, mcp: { servers: [], maxCalls: 0 } }, { sessionID, agent: Orchestra.agent, messageID: SessionMessage.ID.create(), id: Tool.CallID.make("local_role_create"), progress: () => Effect.void })
+      yield* createThroughTool(first.main!)
+      expect((yield* orchestra.sessions(first.id)).filter(session => session.agent === role.agent)).toHaveLength(2)
+      expect(Exit.isFailure(yield* Effect.exit(createThroughTool(second.main!)))).toBe(true)
+      expect((yield* agents.get(role.agent))?.hidden).toBe(true)
+      const tool = (sessionID: Session.ID) => Effect.forEach(before, hook => hook({ sessionID, agent: role.agent, tool: "read", input: {} }))
+      const prompt = (sessionID: Session.ID) => Effect.forEach(prompts, hook => hook({ sessionID, prompt: { text: "Review" } }))
+      const context = (sessionID: Session.ID) => Effect.forEach(contexts, hook => hook({ sessionID, agent: role.agent, system: [], tools: {} } as unknown as SessionContext))
+      const permission = (sessionID: Session.ID, action: string, effect: PermissionEvaluation["effect"] = "allow") => Effect.gen(function* () {
+        const event: PermissionEvaluation = { sessionID, agent: role.agent, action, effect, resources: [tmp.path] }
+        yield* Effect.forEach(permissions, hook => hook(event))
+        return event.effect
+      })
+      yield* tool(worker.id)
+      yield* prompt(worker.id)
+      expect(yield* permission(worker.id, "read")).toBe("allow")
+      expect(yield* permission(worker.id, "edit")).toBe("deny")
+      expect(yield* permission(worker.id, "external_directory", "ask")).toBe("ask")
+      expect(Exit.isFailure(yield* Effect.exit(tool(foreign.id)))).toBe(true)
+      expect(Exit.isFailure(yield* Effect.exit(prompt(foreign.id)))).toBe(true)
+      expect(Exit.isFailure(yield* Effect.exit(context(foreign.id)))).toBe(true)
+      expect(yield* permission(foreign.id, "read")).toBe("deny")
+      // The live ownership guard does not wait for asynchronous agent reloads.
+      yield* orchestra.claim(worker.id, second.id)
+      expect(Exit.isFailure(yield* Effect.exit(tool(worker.id)))).toBe(true)
+      expect(yield* permission(worker.id, "read")).toBe("deny")
     }).pipe(Effect.scoped),
   )
 
