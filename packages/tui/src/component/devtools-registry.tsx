@@ -1,3 +1,4 @@
+import { ProjectTemplatesConnected } from "./project-templates-connected"
 import { createHoverFeedback } from "../ui/hover-feedback"
 import { useProjects } from "../context/projects"
 import { useRoute } from "../context/route"
@@ -82,7 +83,7 @@ export function RegistryPanel(props: {
   const [tab, setTab] = createSignal<Tab>(props.aiTools ? "ai" : "programs")
   const [aiCount, setAiCount] = createSignal<string>()
   const [pluginCount, setPluginCount] = createSignal<string>()
-  const tabs = (): readonly Tab[] => (props.aiTools ? ["ai", "plugins", "programs", "terminal", "vault"] : ["plugins", "programs", "terminal", "vault"])
+  const tabs = (): readonly Tab[] => (props.aiTools ? ["ai", "plugins", "programs", "terminal", "vault", "templates"] : ["plugins", "programs", "terminal", "vault", "templates"])
   const cycle = (delta: number) => {
     setArmed()
     const list = tabs()
@@ -300,7 +301,7 @@ export function RegistryPanel(props: {
                   ? `${t("Plugins")}${pluginCount() ? ` ${pluginCount()}` : ""}`
                   : item === "programs"
                     ? `${t("Programs")} ${counts().programs}`
-                    : item === "vault" ? "Vault" : `${t("AI terminal")}: ${counts().terminal}`}
+                    : item === "vault" ? "Vault" : item === "templates" ? "Шаблоны" : `${t("AI terminal")}: ${counts().terminal}`}
             </Button>
           )}
         </For>
@@ -315,6 +316,7 @@ export function RegistryPanel(props: {
         }}
       >
         <Switch>
+          <Match when={tab() === "templates"}><ProjectTemplatesConnected /></Match>
           <Match when={tab() === "vault"}><ProjectRegistryVault /></Match>
           <Match when={tab() === "ai" && props.aiTools}>
             {(_) => (
@@ -492,7 +494,7 @@ export function RegistryPanel(props: {
         )}
       </Show>
       <text fg={theme.text.muted}>
-        {tab() === "programs"
+        {tab() === "templates" ? "tab следующая вкладка · мышь выбрать действие · esc закрыть" : tab() === "programs"
           ? t("tab next tab · ↑↓ select · enter install/remove · ←→ page · esc close")
           : tab() === "plugins"
             ? t("tab next tab · ↑↓ select · enter enable/disable · esc close")
@@ -502,7 +504,7 @@ export function RegistryPanel(props: {
   )
 }
 
-type Tab = "ai" | "plugins" | "programs" | "terminal" | "vault"
+type Tab = "ai" | "plugins" | "programs" | "terminal" | "vault" | "templates"
 
 type AiToolsKeys = { move: (delta: number) => void; activate: () => void }
 type PluginToolsKeys = { move: (delta: number) => void; activate: () => void }

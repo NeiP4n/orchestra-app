@@ -74,3 +74,62 @@ for (const width of [80, 120])
       app.renderer.destroy()
     }
   })
+
+test("confirmation retries the same operation after partial failure and refresh failure never claims create failed", async () => {
+  let refreshFails = false,
+    firstConfirm = true
+  const calls: string[] = []
+  const access: ProjectTemplatesAccess = {
+    list: async () => {
+      if (refreshFails) throw Error("offline")
+      return [{ id: "factory", name: "Factory" }]
+    },
+    prepareSave: async () => ({ token: "save", name: "Factory", details: "" }),
+    confirmSave: async () => {},
+    prepareCreate: async () => ({ token: "durable-create", name: "Factory", details: "" }),
+    confirmCreate: async (token) => {
+      calls.push(token)
+      if (firstConfirm) {
+        firstConfirm = false
+        throw Error("partial write")
+      }
+      refreshFails = true
+    },
+  }
+  const app = await testRender(
+    () => (
+      <TestTuiContexts>
+        <ConfigProvider config={createTuiResolvedConfig()}>
+          <ThemeProvider mode="dark" source={emptyThemeSource}>
+            <ProjectTemplatesSimple access={access} canSave={true} />
+          </ThemeProvider>
+        </ConfigProvider>
+      </TestTuiContexts>
+    ),
+    { width: 80, height: 24 },
+  )
+  app.renderer.start()
+  const click = async (id: string) => {
+    await app.waitFor(() => !!app.renderer.root.findDescendantById(id))
+    const node = app.renderer.root.findDescendantById(id)!
+    await app.mockMouse.click(node.x + 1, node.y)
+    await app.renderOnce()
+  }
+  try {
+    await app.waitForFrame((f) => f.includes("Factory"))
+    await click("project-templates.create-factory")
+    await app.waitForFrame((f) => f.includes("Создать «Factory»"))
+    await click("project-templates.confirm")
+    await app.waitForFrame((f) => f.includes("Повторите это же подтверждение"))
+    expect(app.renderer.root.findDescendantById("project-templates.confirm")).toBeDefined()
+    await click("project-templates.confirm")
+    await app.waitForFrame((f) => f.includes("Список пока не обновился"))
+    expect(app.captureCharFrame()).toContain("Проект создан")
+    expect(app.renderer.root.findDescendantById("project-templates.confirm")).toBeUndefined()
+    expect(calls).toEqual(["durable-create", "durable-create"])
+    if (process.env.CAPTURE_SIMPLE_FAILURE)
+      await Bun.write(process.env.CAPTURE_SIMPLE_FAILURE, JSON.stringify(app.captureSpans()))
+  } finally {
+    app.renderer.destroy()
+  }
+})

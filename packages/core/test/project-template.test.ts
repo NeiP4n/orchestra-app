@@ -66,3 +66,9 @@ test("explicit rule scopes preserve defaults, orchestrator, role and session bou
   ]
   for (const rule of bad) expect(parse({ ...input, rules: [rule] }).ok).toBe(false)
 })
+test('optional identity links are portable local slots only and closed nested fields remain enforced', () => {
+ const input = templateFixture(); input.mainSession = 'main'; input.browsers[0].session = 'main'
+ expect(parse(input)).toEqual({ ok: true, value: input })
+ input.mainSession = 'missing'; expect(parse(input).ok).toBe(false)
+ input.mainSession = 'main'; input.browsers[0].session = 'missing'; expect(parse(input).ok).toBe(false)
+})

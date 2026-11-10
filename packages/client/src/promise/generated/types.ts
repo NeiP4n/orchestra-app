@@ -2785,6 +2785,7 @@ export type ConfigEntry =
             | { repository: string; branch?: string; description?: string; hidden?: boolean }
             | { path: string; description?: string; hidden?: boolean }
         }
+        self_index?: { paths?: Array<string>; docs?: boolean }
         websearch?: false | { provider: "random" | (string & {}) }
         plugins?: Array<string | { package: string; options?: { [x: string]: JsonValue } }>
         worktree?: ConfigWorktree
@@ -14618,6 +14619,87 @@ export type RoomMeshRpcInput = {
 }
 
 export type RoomMeshRpcOutput = RoomMeshRpcResponse
+
+export type OrchestraProjectTemplateListOutput = Array<{ id: string; name: string }>
+
+export type OrchestraProjectTemplatePrepareSaveInput = {
+  readonly projectID: {
+    readonly projectID: string
+    readonly browsers: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly chat?: string | undefined
+      readonly mode?: "headless" | "window" | "capture" | undefined
+    }>
+  }["projectID"]
+  readonly browsers: {
+    readonly projectID: string
+    readonly browsers: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly chat?: string | undefined
+      readonly mode?: "headless" | "window" | "capture" | undefined
+    }>
+  }["browsers"]
+}
+
+export type OrchestraProjectTemplatePrepareSaveOutput = { token: string; name: string; details: string }
+
+export type OrchestraProjectTemplateConfirmSaveInput = {
+  readonly token: {
+    readonly token: string
+    readonly browsers: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly chat?: string | undefined
+      readonly mode?: "headless" | "window" | "capture" | undefined
+    }>
+  }["token"]
+  readonly browsers: {
+    readonly token: string
+    readonly browsers: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly chat?: string | undefined
+      readonly mode?: "headless" | "window" | "capture" | undefined
+    }>
+  }["browsers"]
+}
+
+export type OrchestraProjectTemplateConfirmSaveOutput = void
+
+export type OrchestraProjectTemplatePrepareCreateInput = {
+  readonly templateID: { readonly templateID: string; readonly settingsDirectory: string }["templateID"]
+  readonly settingsDirectory: { readonly templateID: string; readonly settingsDirectory: string }["settingsDirectory"]
+}
+
+export type OrchestraProjectTemplatePrepareCreateOutput = { token: string; name: string; details: string }
+
+export type OrchestraProjectTemplateConfirmCreateInput = { readonly token: { readonly token: string }["token"] }
+
+export type OrchestraProjectTemplateConfirmCreateOutput = {
+  projectID: string
+  mainSessionID: string
+  browsers: {
+    importID: string
+    projectID: string
+    createdAt: number
+    browsers: Array<{ id: string; name: string; chat?: string | undefined; mode: "headless" | "window" | "capture" }>
+  }
+}
+
+export type OrchestraProjectTemplateFinishCreateInput = { readonly token: { readonly token: string }["token"] }
+
+export type OrchestraProjectTemplateFinishCreateOutput = void
+
+export type OrchestraProjectTemplateBrowsersInput = { readonly projectID: { readonly projectID: string }["projectID"] }
+
+export type OrchestraProjectTemplateBrowsersOutput = {
+  importID: string
+  projectID: string
+  createdAt: number
+  browsers: Array<{ id: string; name: string; chat?: string | undefined; mode: "headless" | "window" | "capture" }>
+} | null
 
 export type OrchestraProjectListOutput = Array<OrchestraProject>
 

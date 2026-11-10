@@ -25,6 +25,7 @@ export interface SlotInfo extends SlotDefinition {
   allowedSessionIDs: string[]
 }
 interface Stored {
+  templateImportID?: string
   scope?: ScopeKind
   empty?: boolean
   type?: SlotDefinition["type"]
@@ -94,6 +95,7 @@ export function make(options: {
         entries.some(
           (v) =>
             v?.version !== 1 ||
+            (v.templateImportID !== undefined && !/^pti_[A-Za-z0-9_-]{1,100}$/.test(v.templateImportID)) ||
             (v.projectID !== undefined && typeof v.projectID !== "string") ||
             (v.projectIDs !== undefined &&
               (!Array.isArray(v.projectIDs) || v.projectIDs.some((id: unknown) => typeof id !== "string"))) ||
@@ -232,6 +234,74 @@ export function make(options: {
         })
         await save([...entries, ...added])
         return added.map(slotInfo)
+      })
+    },
+    // Import recovery primitive. Exact pre-reserved IDs, create-only, no ability to read or reset values/grants.
+    ensureImportedEmptySlotsFromOperator: async (
+      importID: string,
+      definitions: (SlotDefinition & { id: string })[],
+    ) => {
+      if (
+        !options.projectID ||
+        !/^pti_[A-Za-z0-9_-]{1,100}$/.test(importID) ||
+        definitions.length > 100 ||
+        definitions.some(
+          (v) =>
+            Object.keys(v).sort().join(",") !== "id,label,name,type" ||
+            !/^[A-Za-z0-9_-]{1,120}$/.test(v.id) ||
+            !/^[a-z][a-z0-9_-]{0,39}$/.test(v.name) ||
+            !validName(v.label) ||
+            !["login", "api-key", "password"].includes(v.type),
+        ) ||
+        new Set(definitions.map((v) => v.id)).size !== definitions.length ||
+        new Set(definitions.map((v) => v.name.toLowerCase())).size !== definitions.length
+      )
+        throw Error("Invalid import slot reservation.")
+      return lock(async () => {
+        const entries = await load(),
+          added: Stored[] = []
+        for (const definition of definitions) {
+          const existing = entries.find((entry) => entry.id === definition.id)
+          if (existing) {
+            if (
+              existing.templateImportID !== importID ||
+              existing.scope !== "project" ||
+              existing.projectID !== options.projectID ||
+              !existing.empty ||
+              existing.blob !== "" ||
+              existing.name !== definition.name ||
+              existing.type !== definition.type ||
+              existing.label !== definition.label ||
+              existing.allowedSessionIDs?.length
+            )
+              throw Error("Import slot changed or belongs to another operation.")
+            continue
+          }
+          if (
+            entries.some(
+              (entry) =>
+                entry.projectID === options.projectID && entry.name.toLowerCase() === definition.name.toLowerCase(),
+            )
+          )
+            throw Error("Import cannot replace an existing Vault slot.")
+          added.push({
+            ...definition,
+            templateImportID: importID,
+            scope: "project",
+            projectID: options.projectID,
+            empty: true,
+            allowedSessionIDs: [],
+            version: 1,
+            site: "",
+            variables: { login: `ORCH_SLOT_${definition.id}_LOGIN`, password: `ORCH_SLOT_${definition.id}_PASSWORD` },
+            backend: "windows-dpapi-user-v1",
+            blob: "",
+          })
+        }
+        if (added.length) await save([...entries, ...added])
+        return definitions.map((definition) =>
+          slotInfo([...entries, ...added].find((entry) => entry.id === definition.id)!),
+        )
       })
     },
     setAllowedSessionsFromOperator: async (id: string, allowedSessionIDs: string[], confirmed: boolean) => {
@@ -408,4 +478,5 @@ export function make(options: {
     },
   }
 }
-export const local = (projectID?: string) => make({ directory: directory(), collector: collector(), projectID })
+export const local = (projectID?: string, dataDirectory = Global.Path.data) =>
+  make({ directory: path.join(dataDirectory, "credential-vault"), collector: collector(), projectID })

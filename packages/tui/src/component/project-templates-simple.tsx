@@ -57,14 +57,26 @@ export function ProjectTemplatesSimple(props: { access: ProjectTemplatesAccess; 
       if (!current) return
       // Consume the pending operation before awaiting: double clicks cannot confirm the same token twice.
       setPrepared()
-      if (current.kind === "save") await props.access.confirmSave(current.token)
-      else await props.access.confirmCreate(current.token)
-      await refresh()
+      try {
+        if (current.kind === "save") await props.access.confirmSave(current.token)
+        else await props.access.confirmCreate(current.token)
+      } catch {
+        // Keep this exact durable operation, never prepare a second project after partial commit.
+        setPrepared(current)
+        setMessage("Не удалось завершить. Повторите это же подтверждение: продолжим без создания второй копии.")
+        return
+      }
       setMessage(
         current.kind === "save"
           ? "Проект сохранён как шаблон. Чаты, данные и секреты не сохранены."
           : "Проект создан. Заполните пустой Vault и войдите в браузеры. Расписания на паузе.",
       )
+      // The commit succeeded. A list-refresh failure must never offer duplicate creation.
+      try {
+        await refresh()
+      } catch {
+        setMessage(message() + " Список пока не обновился.")
+      }
     })
   return (
     <box flexDirection="column" gap={1}>

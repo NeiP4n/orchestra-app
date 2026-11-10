@@ -1,3 +1,19 @@
+import { CredentialVault } from "@orchestra/core/credential-vault/index"
+import path from "node:path"
+import { ProjectTemplateOperator } from "@orchestra/core/project-template-operator"
+import { ProjectTemplateLiveStores } from "@orchestra/core/project-template-live-stores"
+import { ProjectTemplateBrowserStore } from "@orchestra/core/project-template-browser-store"
+import { ProjectFilesBootstrap } from "@orchestra/core/project-files/bootstrap"
+import { SessionStore } from "@orchestra/core/session/store"
+import { KV } from "@orchestra/core/kv"
+import { Database } from "@orchestra/core/database/database"
+import { Global } from "@orchestra/util/global"
+import { App } from "@orchestra/core/app"
+import { LocationServiceMap } from "@orchestra/core/location-service-map"
+import { Location } from "@orchestra/core/location"
+import { AbsolutePath } from "@orchestra/core/schema"
+import { Model } from "@orchestra/core/model"
+import { Plugin } from "@orchestra/core/plugin"
 import { Orchestra } from "@orchestra/core/orchestra"
 import { Dod } from "@orchestra/core/dod"
 import { Federation } from "@orchestra/core/federation"
@@ -48,7 +64,25 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
     const federation = yield* Federation.Service
     const sessions = yield* Session.Service
 
+    const kv = yield* KV.Service, store = yield* SessionStore.Service, database = yield* Database.Service
+    const global = yield* Global.Service, app = yield* App.Metadata, locations = yield* LocationServiceMap.Service
+    const operator = ProjectTemplateOperator.make({ kv, store, dataDirectory:global.data,installedVersion:app.version,
+      live: settingsDirectory => ProjectTemplateLiveStores.make({kv,store,sessions,root:path.join(global.data,"template-projects"),installedVersion:app.version,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
+        availableRoles:async()=>new Set([Orchestra.agent,...(await Effect.runPromise(orchestra.roles())).map(role=>role.agent)]),
+        availableModels:()=>Effect.runPromise(Effect.gen(function*(){yield* Plugin.awaitActivation;const models=yield* Model.Service;const available=yield* models.available();return new Set(available.flatMap(model=>[`${model.providerID}/${model.id}`,`${model.providerID}/${model.id}#default`,...model.variants.map(variant=>`${model.providerID}/${model.id}#${variant.id}`)]))}).pipe(Effect.provide(locations.get(Location.Ref.make({directory:AbsolutePath.make(settingsDirectory)}))))),
+        browsers:ProjectTemplateBrowserStore.make(kv,global.data),vault:id=>CredentialVault.local(id,global.data),
+        bootstrap:(directory,name)=>Effect.runPromise(ProjectFilesBootstrap.initialize(directory,name,kv).pipe(Effect.provideService(Database.Service,database))),
+      })
+    })
+    const templateOperation = <A>(action:()=>Promise<A>)=>Effect.tryPromise({try:action,catch:()=>new InvalidRequestError({message:"Не удалось завершить работу с шаблоном. Проверьте изменения и повторите ту же операцию."})})
     return handlers
+      .handle("orchestra.projectTemplate.list",()=>templateOperation(()=>operator.list()))
+      .handle("orchestra.projectTemplate.prepareSave",ctx=>templateOperation(()=>operator.prepareSave(ctx.payload.projectID,ctx.payload.browsers)))
+      .handle("orchestra.projectTemplate.confirmSave",ctx=>templateOperation(()=>operator.confirmSave(ctx.payload.token,ctx.payload.browsers)).pipe(Effect.as(HttpApiSchema.NoContent.make())))
+      .handle("orchestra.projectTemplate.prepareCreate",ctx=>templateOperation(()=>operator.prepareCreate(ctx.payload.templateID,ctx.payload.settingsDirectory)))
+      .handle("orchestra.projectTemplate.confirmCreate",ctx=>templateOperation(()=>operator.confirmCreate(ctx.payload.token)))
+      .handle("orchestra.projectTemplate.finishCreate",ctx=>templateOperation(()=>operator.finishCreate(ctx.payload.token)).pipe(Effect.as(HttpApiSchema.NoContent.make())))
+      .handle("orchestra.projectTemplate.browsers",ctx=>templateOperation(()=>operator.browserDefinitions(ctx.params.projectID)))
       .handle("orchestra.project.list", () => orchestra.projects())
       .handle("orchestra.group.list", () => federation.groups())
       .handle("orchestra.group.holds", () => federation.holds())

@@ -1,3 +1,4 @@
+import { ensureImportedBrowsers, type ImportedBrowsers } from "../util/project-template-browsers"
 import { BrowserLifecycle } from "@orchestra/core/browser/lifecycle"
 import {
   isNoteConflictError,
@@ -72,6 +73,18 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
       try { BrowserLifecycle.publish(Object.values(browser.retiredChats ?? {}).flat(), Object.values(browser.projects ?? {}).flatMap((items) => items.flatMap((item) => item.chat ? [item.chat] : []))) }
       catch (error) { console.error("Browser lifecycle projection failed", error) }
     })
+    const importedProjects = new Set<string>()
+    const hydrateImportedProjects = () => {
+      for (const project of projects.list()) {
+        if (importedProjects.has(project.id)) continue
+        importedProjects.add(project.id)
+        void client.api.orchestra.projectTemplate.browsers({projectID:project.id})
+          .then(async input => { if(input) { await updateBrowser(draft => ensureImportedBrowsers(draft,input)); await client.api.orchestra.projectTemplate.finishCreate({token:input.importID}) } })
+          .catch(error => { importedProjects.delete(project.id); console.error("Imported browser definitions could not be loaded",error) })
+      }
+    }
+    createEffect(hydrateImportedProjects)
+    onCleanup(client.event.on("server.connected", () => { importedProjects.clear(); hydrateImportedProjects() }))
     // Chats a browser session is being given or adopted right now: the instant the chat exists it is claimed, so the
     // adoption of "orphan" browser chats never takes the one the button is still binding.
     const claimed = new Set<string>()
@@ -285,6 +298,8 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
       tab,
       setTab,
       browserChatRecord: (chat: string) => browserChatRecord(browser, chat),
+      // Unlike changeBrowser, this strict path propagates persistence failures to import recovery.
+      importBrowserDefinitions: (input: ImportedBrowsers) => updateBrowser(draft => ensureImportedBrowsers(draft,input)),
       browserSessions: (projectID: string): readonly BrowserSession[] => browser.projects?.[projectID] ?? [],
       browserSelected: (projectID: string) => {
         const id = browser.selected?.[projectID]
@@ -317,6 +332,10 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
       claimedChat: (chat: string) => claimed.has(chat),
       retiredBrowserChat: (projectID: string, chat: string) => browser.retiredChats?.[projectID]?.includes(chat) ?? false,
       adoptBrowserChat: (projectID: string, chat: string, name: string) => {
+        // Imported BrowserAgents must retain the server-reserved browser ID. Their
+        // owning-store hydration, not legacy orphan adoption, supplies that binding.
+        if (typeof data.session.get(chat)?.metadata?.["orchestra:template-import"] === "string") return Promise.resolve()
+
         if (claimed.has(chat)) return
         claimed.add(chat)
         return changeBrowser((draft) => {

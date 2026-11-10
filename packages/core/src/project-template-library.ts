@@ -61,6 +61,8 @@ export function local(parentDirectory = Global.Path.data) {
       return entries
     },
     preview: async (name: string) => ProjectTemplateFiles.load(await source(name)),
+    saveSerialized: async (serialized: string, name: string, reviewedDigest: string) =>
+      ProjectTemplateFiles.save(await folder(), simple(name), serialized, reviewedDigest),
     remember: async (sourceDirectory: string, name: string, reviewedDigest: string) => {
       const preview = await ProjectTemplateFiles.load(sourceDirectory)
       if (preview.digest !== reviewedDigest) throw Error("Template changed after preview. Review it again.")

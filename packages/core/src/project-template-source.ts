@@ -8,11 +8,11 @@ import type { Trigger } from "./trigger.js"
  * The live adapter must read persisted saved URL lists, never connect to a browser or read DOM.
  * Global requirements and integration definitions are operator-selected, not all account settings. */
 export interface Source {
-  project: { id: string; name: string }
+  project: { id: string; name: string; main?: string }
   sessions: readonly { id: string; title?: string; agent?: string; model?: { providerID: string; modelID: string; variant?: string } }[]
   /** Already verified project ownership by the caller, including its main session. */
   ownedSessionIDs: ReadonlySet<string>
-  browsers: readonly { id: string; name: string; projectID: string; mode: "headless" | "window" | "capture"; savedLinks: readonly string[] }[]
+  browsers: readonly { id: string; name: string; projectID: string; mode: "headless" | "window" | "capture"; savedLinks: readonly string[]; chat?: string }[]
   rules: readonly { scope: "project" | "project-defaults" | "orchestrator" | "role" | "session"; sessionID?: string; role?: string; text: string }[]
   schedules: readonly Trigger.Info[]
   vault: readonly CredentialVault.SlotInfo[]
@@ -38,7 +38,8 @@ export function capture(source: Source, metadata: { name: string; description: s
     const browserRows = source.browsers.map((row, index) => {
       if (row.projectID !== source.project.id || browsers.has(row.id)) throw Error()
       const slot = `browser_${index + 1}`; browsers.set(row.id, slot)
-      return { slot, name: row.name, mode: row.mode, links: [...row.savedLinks] }
+      if (row.chat && !sessions.has(row.chat)) throw Error()
+      return { slot, name: row.name, mode: row.mode, links: [...row.savedLinks], ...(row.chat ? { session: sessions.get(row.chat)! } : {}) }
     })
     const rules: ProjectTemplate.Bundle['rules'] = source.rules.map((row) => {
       if (row.scope === "project" || row.scope === "project-defaults" || row.scope === "orchestrator") {
@@ -84,6 +85,7 @@ export function capture(source: Source, metadata: { name: string; description: s
     return ProjectTemplate.preview(JSON.stringify({
       format: "orchestra.project-template", version: 1, ...metadata,
       variables: { projectName: source.project.name, folder: "${projectFolder}" },
+      ...(source.project.main ? { mainSession: sessions.get(source.project.main) ?? "missing" } : {}),
       sessions: sessionRows, browsers: browserRows, rules, schedules,
       vault: { local, globalRequirements },
       providers: source.providers.map((p) => ({ id: p.id, endpoint: p.endpoint, credentialSlots: [...p.credentialSlots] })),

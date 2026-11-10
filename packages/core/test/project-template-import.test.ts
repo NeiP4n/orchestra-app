@@ -107,3 +107,12 @@ test("past once and internal action events never turn into silently altered or e
     expect(() => ProjectTemplateImport.prepare(p.value.text, f.destination)).toThrow()
   }
 })
+test('main and BrowserAgent destination links are exact, not guessed from row order', () => {
+ const f = fixture(); f.input.sessions.unshift({ slot: 'browser_agent', title: 'Inbox', role: 'team-browser-agent', model: null }); f.input.mainSession = 'main'; f.input.browsers[0].session = 'browser_agent'
+ f.destination.sessions = { main: 'ses_main_new', browser_agent: 'ses_browser_new' }; f.destination.availableRoles = new Set(['orchestrator','team-browser-agent'])
+ const preview = ProjectTemplate.preview(JSON.stringify(f.input)); if (!preview.ok) throw Error(); f.destination.reviewedDigest = preview.value.digest
+ const plan = ProjectTemplateImport.prepare(preview.value.text,f.destination)
+ expect(plan.mainSessionID).toBe('ses_main_new'); expect(plan.browsers[0].chat).toBe('ses_browser_new')
+ f.input.mainSession = 'browser_agent'; const bad = ProjectTemplate.preview(JSON.stringify(f.input)); if (!bad.ok) throw Error(); f.destination.reviewedDigest = bad.value.digest
+ expect(() => ProjectTemplateImport.prepare(bad.value.text,f.destination)).toThrow('Orchestrator')
+})

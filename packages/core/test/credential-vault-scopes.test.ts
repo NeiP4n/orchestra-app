@@ -173,3 +173,45 @@ test("audit link cannot redirect slot usage to an unrelated file", () =>
       VaultAccess.set(scope, false)
     }
   }))
+test("import recovery reuses exact reserved empty IDs and never resets filled or granted slots", () =>
+  fixture(async ({ a, b, root }) => {
+    const slots = [{ id: "slot_one", name: "one", type: "login" as const, label: "One" }]
+    const first = await a.ensureImportedEmptySlotsFromOperator("pti_test", slots)
+    const second = await a.ensureImportedEmptySlotsFromOperator("pti_test", slots)
+    expect(first).toEqual(second)
+    expect(await a.slots()).toHaveLength(1)
+    expect(first[0].allowedSessionIDs).toEqual([])
+    expect(first[0].state).toBe("empty")
+    await expect(b.ensureImportedEmptySlotsFromOperator("pti_test", slots)).rejects.toThrow("another operation")
+    await expect(a.ensureImportedEmptySlotsFromOperator("pti_other", slots)).rejects.toThrow("another operation")
+    await a.writeFromOperator("slot_one")
+    await expect(a.ensureImportedEmptySlotsFromOperator("pti_test", slots)).rejects.toThrow("changed")
+    const before = await readFile(path.join(root, "registry.json"), "utf8")
+    await expect(
+      a.ensureImportedEmptySlotsFromOperator("pti_test", [{ id: "other", name: "one", type: "login", label: "One" }]),
+    ).rejects.toThrow("replace")
+    expect(await readFile(path.join(root, "registry.json"), "utf8")).toBe(before)
+  }))
+test("import ensure is atomic on conflicts and rejects unrecognized fields or duplicate identities", () =>
+  fixture(async ({ a, root }) => {
+    await a.createEmptyLocalSlotsFromOperator([{ name: "taken", type: "login", label: "Taken" }])
+    const before = await readFile(path.join(root, "registry.json"), "utf8")
+    await expect(
+      a.ensureImportedEmptySlotsFromOperator("pti_test", [
+        { id: "slot_one", name: "new", type: "login", label: "New" },
+        { id: "slot_two", name: "taken", type: "login", label: "Taken" },
+      ]),
+    ).rejects.toThrow()
+    expect(await readFile(path.join(root, "registry.json"), "utf8")).toBe(before)
+    await expect(
+      a.ensureImportedEmptySlotsFromOperator("pti_test", [
+        { id: "slot_one", name: "new", type: "login", label: "New", value: "PRIVATE" } as never,
+      ]),
+    ).rejects.toThrow()
+    await expect(
+      a.ensureImportedEmptySlotsFromOperator("pti_test", [
+        { id: "slot_one", name: "one", type: "login", label: "One" },
+        { id: "slot_one", name: "two", type: "login", label: "Two" },
+      ]),
+    ).rejects.toThrow()
+  }))

@@ -76,12 +76,17 @@ export function prepare(serialized: string, destination: Destination) {
       inheritedPermissions: false as const,
     }
   })
+  const mainSlot = bundle.mainSession ?? (bundle.sessions.filter((row) => row.role === "orchestrator").length === 1 ? bundle.sessions.find((row) => row.role === "orchestrator")!.slot : undefined)
+  if (mainSlot && bundle.sessions.find((row) => row.slot === mainSlot)?.role !== "orchestrator") throw Error("The destination main session must be an Orchestrator.")
+  if (bundle.browsers.some((row) => row.session && bundle.sessions.find((session) => session.slot === row.session)?.role !== "team-browser-agent")) throw Error("Browser slots require their own BrowserAgent session.")
+  if (new Set(bundle.browsers.flatMap((row) => row.session ? [row.session] : [])).size !== bundle.browsers.filter((row) => row.session).length) throw Error("A BrowserAgent session cannot be inherited by two browsers.")
   const browsers = bundle.browsers.map((row) => ({
     id: destination.browsers[row.slot],
     slot: row.slot,
     name: row.name,
     mode: row.mode,
     savedLinks: [...row.links],
+    ...(row.session ? { chat: destination.sessions[row.session] } : {}),
     state: "not-opened" as const,
     login: "required" as const,
     profile: "new" as const,
@@ -148,6 +153,7 @@ export function prepare(serialized: string, destination: Destination) {
   return {
     digest: preview.value.digest,
     projectID: destination.projectID,
+    mainSessionID: mainSlot ? destination.sessions[mainSlot] : undefined,
     sessions,
     browsers,
     rules,

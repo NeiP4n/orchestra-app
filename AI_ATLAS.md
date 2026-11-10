@@ -3047,3 +3047,79 @@ do-not-retry-old-ID guidance. The assertion now matches that exact complete text
 not a weaker generic substring. Full orchestra-team suite: 49 pass, 340 assertions
 on this chain, including the real metadata collector integration. This is one
 suite, not full repository typecheck/CI.
+
+ProjectTemplateBrowser.capture bridges explicitly owned active browser definitions to
+persisted .tabs.json only, without importing BrowserRuntime or reading profiles/DOM.
+It retains all up to 100 saved URL entries rather than the runtime's eight-tab restore
+window, excludes saved titles, checks regular/no-follow/no-hardlink/size boundaries,
+and rejects URL credentials/query/fragment. A missing saved file means unopened,
+not a hidden browser launch. Fresh imports default to window mode when no portable
+preference exists. Templates now retain optional mainSession and browser.session slot
+links; these are remapped to fresh identities and checked for Orchestrator/one distinct
+BrowserAgent per browser at destination prep. Existing v1 without links remains readable.
+This read bridge still needs mounting through the live simple-screen adapter.
+
+Import recovery primitives: Vault.ensureImportedEmptySlotsFromOperator accepts only
+pre-reserved IDs/definitions, stamps the operation owner and atomically creates all
+missing empty slots. Retry accepts only the exact still-empty, no-grant slots owned
+by that operation; it refuses changed, filled, granted, foreign or name-conflicting
+entries and never resets them. ProjectTemplateMaterialize coordinates an immutable
+receipt under a required lock with explicit checkpoints and publish-last. Each store
+port must be idempotent and own collision checks. Every resume verifies all actual
+stores before publication, and a crash after publish/before checkpoint retries only
+an idempotent publish. Current failure-injection tests use fixture store ports;
+actual KV/Session/browser-store adapters and activation admission guard are still
+required before mounting the simple screen. This is not yet live materialization.
+
+Live import store bridge (not mounted yet): ProjectTemplateLiveStores reserves all IDs
+and immutable source/plan in actual KV, creates fresh marked folders and regular DoD,
+uses real Session.create with explicit empty permissions/project/import ownership,
+create-only scoped rule/schedule rows and exact empty Vault ensures. Receipt recovery
+re-derives every writable definition from the closed source with current roles/models;
+changed receipt scopes cannot target global rules. Browser writes still require the
+owning store's strict ensure/verify ports. Regular file bootstrap requires the raw
+project owner row. Therefore the raw row is written under a pending import marker,
+then regular bootstrap must finish before the published receipt checkpoint. Orchestra
+list/get hide pending rows; an independent SessionHold guard blocks imported sessions
+until that checkpoint, including after restart, without replacing Society holds. Main
+repair preserves imported main titles. Actual KV/Session/DoD/Vault + regular bootstrap
+are exercised in orchestra-team; browser store remains fixture in that integration test.
+
+Browser destination bridge: ProjectTemplateBrowserStore writes exact owned definitions
+into KV and create-only runtime-compatible .tabs.json, with no profile/Chrome launch.
+It rejects pre-existing identities, changed rows/links, symlinks and opened profiles.
+TUI ensureImportedBrowsers uses the owning Storage.update lock, persists exact IDs/chat
+bindings without a selection, and marks one successful hydration. Repeat hydration
+never resets later user edits. Notes exposes a strict import path instead of its
+normal catch/log wrapper. Core live-import integration now uses the real browser KV
+and saved-link file bridge, not the old browser fixture. The current runtime still
+restores only eight tabs; the full definition retains all (up to 100) saved links.
+Simple confirmation retries its same durable token after partial commit, and a failed
+list refresh after success reports success without offering duplicate confirmation.
+No production endpoint/controller has been connected or screen mounted yet.
+
+Operator template workflow is now connected to server HttpApi and Registry -> Шаблоны.
+The generated client/OpenAPI are regenerated, not handwritten. Save recaptures the
+passive live configuration at confirmation and rejects changed digest; saved-folder
+retry verifies the same digest rather than making another template. Create reserves
+fresh identities and uses real live stores. An unfinished create is indexed durably
+by library/settings/digest so closing/reopening the screen returns the same token.
+Only after strict owning-UI browser persistence is the create acknowledged finished;
+restart hydration reads published browser definitions and avoids legacy orphan-chat
+adoption changing the browser ID. Future deliberate copies may then reserve new IDs.
+Global integration settings are not swept: only explicit project requirements travel,
+unbound global requirements remain names needing local binding. Providers/MCP remain
+requirements, not granted connections or auto-started services. Missing roles/models,
+unstable application versions, unsafe links and unsupported triggers refuse capture
+or destination prep rather than silently changing configuration.
+Server graph exposes App/KV/SessionStore explicitly for these handlers. Vault local
+factory can use the actual application data root instead of an unrelated static test
+root. HTTP integration exercises real save/create, browser links/agent remapping,
+repeat/reopen, empty permissions, paused/inert stores, stale-save rejection and foreign
+browser binding rejection. Connected Registry pixels use test-renderer and generated
+HTTP client with fixture HTTP replies, actual owning Storage persistence; this is not
+native Windows validation. Full server graph typecheck has not completed (75-second
+attempt timed out without diagnostics); targeted core and connected TUI checks pass.
+The existing Registry Plugins test expects old opencode.plugins to be hidden although
+production excludes orchestra.plugins. Same failure reproduced with prior HEAD's
+Registry file restored temporarily. That test/production behavior was not changed.
