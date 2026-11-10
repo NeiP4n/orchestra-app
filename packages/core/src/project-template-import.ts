@@ -184,3 +184,8 @@ export function prepare(serialized: string, destination: Destination) {
     started: false as const,
   }
 }
+
+/** Missing variant stays missing. Do not silently pick a model's literal `default` variant. */
+export function sessionModelRef(model: ProjectTemplate.Bundle["sessions"][number]["model"]) {
+  return model ? { providerID: model.provider, id: model.id, ...(model.variant === null ? {} : { variant: model.variant }) } : undefined
+}

@@ -1,5 +1,6 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.": "Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.",
   "All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.": "All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.",
   "Trigger {schedule}: {reason}": "Trigger {schedule}: {reason}",
   "Browser {browser}": "Browser {browser}",
@@ -142,6 +143,7 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.": "Скиллы, определения ролей, запасные модели, файлы проекта и глобальные настройки MCP не копируются. Проверьте настройки нового проекта.",
   "All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.": "Все импортированные триггеры приостановлены. Для браузерных проверок заново выберите страницу/чат и войдите в аккаунт. Зависимости указаны в подробностях.",
   "Trigger {schedule}: {reason}": "Триггер {schedule}: {reason}",
   "Browser {browser}": "Браузер {browser}",

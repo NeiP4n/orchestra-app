@@ -1,6 +1,7 @@
 export * as ProjectTemplate from "./project-template.js"
 
 import { createHash } from "node:crypto"
+import { ProjectTemplateLinkReview } from "./project-template-link-review.js"
 import { countSecrets } from "./memory/scrub.js"
 
 /** Configuration only. No runtime identity, authority or secret values survive this boundary. */
@@ -34,6 +35,7 @@ export type Result<T> = { ok: true; value: T } | { ok: false; error: string }
 export const MAX_BYTES = 262_144
 export const EXCLUDED = ["chats and session transcripts", "page text, DOM, screenshots, downloads and history", "cookies, profiles, logins, keys and credential bindings", "databases, memory, notes, lessons, metrics, tasks and logs", "runtime IDs, absolute paths, counters, permissions and grants", "MCP commands, arguments, environment values and startup scripts"] as const
 export const WARNINGS = [
+  "Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.",
   "Review every included rule, instruction and link. Scanning detects known patterns, not every opaque secret or private fact.",
   "URL queries, fragments and credentials are rejected, never silently stripped.",
   "Import is staged only: no agent, browser, command, MCP connection or schedule starts.",
@@ -61,7 +63,7 @@ function choice<T extends string>(value: unknown, values: readonly T[]): T { if 
 function cap(value: unknown, max: number): number { if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > max) invalid(); return value }
 function url(value: unknown): string {
   const s = text(value, 2048), parsed = new URL(s)
-  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) throw Error("Saved URLs require HTTP(S) with no credentials, query or fragment.")
+  if (ProjectTemplateLinkReview.reason(s) || !['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) throw Error("Saved URLs require HTTP(S) with no credentials, query or fragment.")
   if (countSecrets(decodeURIComponent(parsed.pathname))) invalid()
   return s
 }

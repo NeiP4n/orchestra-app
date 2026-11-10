@@ -204,6 +204,7 @@ export function ProjectTemplatesSimple(props: {
                 ? tr("Settings only, without chats, data or secrets.")
                 : tr("Vault will be empty, browsers signed out and schedules paused.")}
             </text>
+            <text fg={theme.text.muted} wrapMode="word">{tr("Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.")}</text>
             <Show when={current().triggerReview?.length}>
               <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.")}</text>
             </Show>

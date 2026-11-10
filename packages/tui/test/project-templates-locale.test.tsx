@@ -75,6 +75,7 @@ for (const language of ["en", "ru"] as const) test(`blocked browser links have e
     await click("details")
     await app.waitForFrame((f) => f.includes(text("Query parameters may contain private data")))
     expect(app.captureCharFrame()).not.toContain("PRIVATE_CANARY")
+    expect(app.captureCharFrame().replace(/\s+/g, " ")).toContain(text("Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration."))
     expect(app.captureCharFrame().replace(/\s+/g, " ")).toContain(text("Some links were omitted; choose page/chat and sign in again; starts paused."))
     expect(app.captureCharFrame()).not.toContain(text("Could not finish. Nothing was replaced. Try again."))
     await Bun.write(`/tmp/template-links-${language}-spans.json`, JSON.stringify(app.captureSpans()))
