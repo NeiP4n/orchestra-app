@@ -21,7 +21,7 @@ export function clickExpression(target: { selector?: string; text?: string; nati
       if (!el) return { ok: false, error: target.selector !== undefined ? 'No element matches the selector.' : 'No clickable element has that text.' };
       el.scrollIntoView({ block: 'center' });
       if (!target.native) el.click();
-      return { ok: true, rect: (() => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })(), at: ${AT}, tag: el.tagName.toLowerCase(), text: label(el).slice(0,80) };
+      return { ok: true, rect: (() => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })(), at: ${AT}, tag: el.tagName.toLowerCase(), text: target.selector !== undefined ? (el.innerText || el.value || '').trim().slice(0,80) : label(el).slice(0,80) };
     }`,
     arguments: [{ value: target }],
   }
