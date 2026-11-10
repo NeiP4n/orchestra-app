@@ -190,10 +190,10 @@ test.each(["timer", "output", "close", "panel"] as const)(
       await app.renderOnce()
       expect(app.renderer.root.findDescendantById("mini-startup")).toBeUndefined()
       const rows = app.externalOutput.take().flatMap((event) => event.rows)
-      expect(rows.filter((row) => row.includes("oc mini"))).toEqual(["\u25aa oc mini vtest \u00b7 /project"])
+      expect(rows.filter((row) => row.includes("orchestra mini"))).toEqual(["\u25aa orchestra mini vtest \u00b7 /project"])
       if (finish === "output")
         expect(rows.findIndex((row) => row.includes("first output"))).toBeGreaterThan(
-          rows.findIndex((row) => row.includes("oc mini")),
+          rows.findIndex((row) => row.includes("orchestra mini")),
         )
       if (finish !== "panel") expect(app.renderer.currentFocusedEditor).toBe(editor)
       app.footer.finishStartup()
@@ -368,11 +368,19 @@ test("explicit theme refresh reloads custom colors without a palette event", asy
   try {
     await app.renderOnce()
     await app.mockInput.typeText("draft")
-    for (const color of ["#123456", "#abcdef"]) {
+    // Use readable colors: contrast correction intentionally changes dark-on-dark text.
+    for (const color of ["#fedcba", "#abcdef"]) {
       await Bun.write(
         path.join(tmp.path, "themes", "mini-refresh.json"),
         JSON.stringify({
-          base: { ...getOrchestraTheme().base, text: { ...getOrchestraTheme().base.text, base: color } },
+          base: {
+            ...getOrchestraTheme().base,
+            text: {
+              ...getOrchestraTheme().base.text,
+              base: color,
+              formfield: { ...getOrchestraTheme().base.text.formfield, base: color, $focused: color },
+            },
+          },
           dark: { hue: getOrchestraTheme().dark.hue },
         }),
       )
