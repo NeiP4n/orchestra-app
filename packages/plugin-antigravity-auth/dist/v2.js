@@ -15,7 +15,7 @@ import { createLogger } from "./plugin/logger.js";
 import { ensureProjectContext } from "./plugin/project.js";
 import { executeSearch } from "./plugin/search.js";
 import { startOAuthListener } from "./plugin/server.js";
-import { loadAccounts, matchesAccountToken, saveAccountCredentials, updateAccountCredentials, updateAccounts } from "./plugin/storage.js";
+import { newAccountIdentity, loadAccounts, matchesAccountToken, saveAccountCredentials, updateAccountCredentials, updateAccounts } from "./plugin/storage.js";
 import { AntigravityTokenRefreshError, refreshAccessToken } from "./plugin/token.js";
 import { resolveModelWithTier } from "./plugin/transform/model-resolver.js";
 const PROVIDER_ID = "google";
@@ -364,7 +364,7 @@ export const AntigravityV2Plugin = Plugin.define({
                     account.email = email ?? account.email;
                 }
                 else {
-                    storage.accounts.push({ id: accountID({ refreshToken: parts.refreshToken }), refreshToken: parts.refreshToken, projectId: parts.projectId, managedProjectId: parts.managedProjectId, email, enabled: true, addedAt: Date.now(), lastUsed: 0 });
+                    storage.accounts.push({ id: newAccountIdentity(storage, parts.refreshToken), refreshToken: parts.refreshToken, projectId: parts.projectId, managedProjectId: parts.managedProjectId, email, enabled: true, addedAt: Date.now(), lastUsed: 0 });
                 }
             });
             return saved?.accounts.find(item => item.refreshToken === parts.refreshToken);

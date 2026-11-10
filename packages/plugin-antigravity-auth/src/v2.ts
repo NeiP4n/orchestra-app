@@ -16,7 +16,7 @@ import { createLogger } from "./plugin/logger.ts"
 import { ensureProjectContext } from "./plugin/project.ts"
 import { executeSearch, type SearchArgs } from "./plugin/search.ts"
 import { startOAuthListener, type OAuthListener } from "./plugin/server.ts"
-import { loadAccounts, matchesAccountToken, saveAccountCredentials, updateAccountCredentials, updateAccounts, type AccountMetadataV3 } from "./plugin/storage.ts"
+import { newAccountIdentity, loadAccounts, matchesAccountToken, saveAccountCredentials, updateAccountCredentials, updateAccounts, type AccountMetadataV3 } from "./plugin/storage.ts"
 import { AntigravityTokenRefreshError, refreshAccessToken } from "./plugin/token.ts"
 import { resolveModelWithTier } from "./plugin/transform/model-resolver.ts"
 import type { AuthDetails, LoaderResult, OAuthAuthDetails, PluginClient } from "./plugin/types.ts"
@@ -345,7 +345,7 @@ export const AntigravityV2Plugin = Plugin.define({
           updateAccountCredentials(account, parts)
           account.email = email ?? account.email
         } else {
-          storage.accounts.push({ id: accountID({ refreshToken: parts.refreshToken }), refreshToken: parts.refreshToken, projectId: parts.projectId, managedProjectId: parts.managedProjectId, email, enabled: true, addedAt: Date.now(), lastUsed: 0 })
+          storage.accounts.push({ id: newAccountIdentity(storage, parts.refreshToken), refreshToken: parts.refreshToken, projectId: parts.projectId, managedProjectId: parts.managedProjectId, email, enabled: true, addedAt: Date.now(), lastUsed: 0 })
         }
       })
       return saved?.accounts.find(item => item.refreshToken === parts.refreshToken)

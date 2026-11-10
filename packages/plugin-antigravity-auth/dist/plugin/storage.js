@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, renameSync, copyFileSync, unlinkSync, } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import lockfile from "proper-lockfile";
 import { createLogger } from "./logger.js";
 const log = createLogger("storage");
@@ -115,6 +115,45 @@ export async function saveAccountCredentials(original, updated) {
         if (current?.refreshToken === original.refreshToken)
             updateAccountCredentials(current, updated);
     });
+}
+const deletionHash = (kind, value) => createHash("sha256").update(kind + ":" + value).digest("hex");
+/** A fresh explicit OAuth authorization starts a new incarnation, never clears old tombstones. */
+export const newAccountIdentity = (storage, refreshToken) => {
+    const tokenHash = accountTokenHash(refreshToken);
+    const removed = new Set(storage?.deletedAccountKeys ?? []);
+    return removed.has(deletionHash("id", tokenHash)) || removed.has(deletionHash("token", tokenHash)) ? randomUUID() : tokenHash;
+};
+export const accountDeletionKeys = (account) => {
+    const hashes = [accountTokenHash(account.refreshToken), ...(account.refreshTokenHashes ?? [])];
+    return [
+        ...(account.id ? [deletionHash("id", account.id)] : []),
+        ...hashes.flatMap(hash => [deletionHash("id", hash), deletionHash("token", hash)]),
+    ];
+};
+export function accountWasDeleted(storage, account) {
+    const removed = new Set(storage.deletedAccountKeys ?? []);
+    // Managers preserve stable IDs. A new explicit authorization has a new ID even
+    // if Google returns the same refresh token; old managers keep their revoked ID.
+    if (account.id)
+        return removed.has(deletionHash("id", account.id));
+    return accountDeletionKeys(account).some(key => removed.has(key));
+}
+/** Mutates only the supplied latest locked snapshot, never matches labels or email addresses. */
+export function deleteAccountIdentity(storage, id) {
+    const index = storage.accounts.findIndex(account => (account.id ?? accountTokenHash(account.refreshToken)) === id);
+    const account = storage.accounts[index];
+    if (!account)
+        return false;
+    storage.deletedAccountKeys = [...new Set([...(storage.deletedAccountKeys ?? []), ...accountDeletionKeys(account)])];
+    const selected = [storage.activeIndex, storage.activeIndexByFamily?.claude ?? storage.activeIndex, storage.activeIndexByFamily?.gemini ?? storage.activeIndex].map(i => storage.accounts[i]);
+    storage.accounts.splice(index, 1);
+    const cursor = (previous) => {
+        const found = storage.accounts.findIndex(item => item === previous && item.enabled !== false);
+        return found >= 0 ? found : Math.max(0, storage.accounts.findIndex(item => item.enabled !== false));
+    };
+    storage.activeIndex = cursor(selected[0]);
+    storage.activeIndexByFamily = { claude: cursor(selected[1]), gemini: cursor(selected[2]) };
+    return true;
 }
 /**
  * Gets the legacy Windows config directory (%APPDATA%\opencode).
@@ -260,13 +299,15 @@ async function withFileLock(path, fn) {
 }
 function mergeAccountStorage(existing, incoming) {
     const accountMap = new Map();
+    const deletedAccountKeys = [...new Set([...(existing.deletedAccountKeys ?? []), ...(incoming.deletedAccountKeys ?? [])])];
+    const deletionState = { ...incoming, deletedAccountKeys };
     for (const acc of existing.accounts) {
-        if (acc.refreshToken) {
+        if (!accountWasDeleted(deletionState, acc) && acc.refreshToken) {
             accountMap.set(acc.refreshToken, acc);
         }
     }
     for (const acc of incoming.accounts) {
-        if (acc.refreshToken) {
+        if (!accountWasDeleted(deletionState, acc) && acc.refreshToken) {
             let existingAcc = accountMap.get(acc.refreshToken);
             if (!existingAcc && acc.id) {
                 for (const [token, previous] of accountMap) {
@@ -297,7 +338,7 @@ function mergeAccountStorage(existing, incoming) {
             }
         }
     }
-    return normalizeAccountStorage(incoming, Array.from(accountMap.values()));
+    return normalizeAccountStorage({ ...incoming, deletedAccountKeys }, Array.from(accountMap.values()));
 }
 export function deduplicateAccountsByEmail(accounts) {
     const emailToNewestIndex = new Map();
@@ -355,7 +396,7 @@ export function deduplicateAccountsByEmail(accounts) {
 function normalizeAccountStorage(storage, candidateAccounts = storage.accounts) {
     const accounts = deduplicateAccountsByEmail(candidateAccounts.filter((account) => !!account &&
         typeof account === "object" &&
-        typeof account.refreshToken === "string"));
+        typeof account.refreshToken === "string" && !accountWasDeleted(storage, account)));
     const remapIndex = (index, fallback) => {
         const selected = typeof index === "number" && Number.isInteger(index) && index >= 0
             ? storage.accounts[index]
@@ -382,7 +423,9 @@ function normalizeAccountStorage(storage, candidateAccounts = storage.accounts) 
             activeIndexByFamily[family] = remapIndex(activeIndexByFamily[family], activeIndex);
         }
     }
-    return { version: 4, accounts, activeIndex, activeIndexByFamily };
+    return { version: 4, accounts, activeIndex, activeIndexByFamily,
+        ...(storage.deletedAccountKeys?.length ? { deletedAccountKeys: [...new Set(storage.deletedAccountKeys)] } : {}),
+    };
 }
 function migrateV1ToV2(v1) {
     return {
@@ -550,9 +593,10 @@ export async function updateAccounts(update) {
         if (!storage)
             return null;
         update(storage);
+        const normalized = normalizeAccountStorage(storage);
         const tempPath = `${path}.${randomBytes(6).toString("hex")}.tmp`;
         try {
-            await fs.writeFile(tempPath, JSON.stringify(storage, null, 2), { encoding: "utf-8", mode: 0o600 });
+            await fs.writeFile(tempPath, JSON.stringify(normalized, null, 2), { encoding: "utf-8", mode: 0o600 });
             await fs.rename(tempPath, path);
         }
         catch (error) {
@@ -562,7 +606,7 @@ export async function updateAccounts(update) {
             catch { /* The temporary file may not exist. */ }
             throw error;
         }
-        return storage;
+        return normalized;
     });
 }
 /**
@@ -576,8 +620,10 @@ export async function saveAccountsReplace(storage) {
     await fs.mkdir(configDir, { recursive: true });
     await ensureGitignore(configDir);
     await withFileLock(path, async () => {
+        const existing = await loadAccountsUnsafe();
+        const next = normalizeAccountStorage({ ...storage, deletedAccountKeys: [...new Set([...(existing?.deletedAccountKeys ?? []), ...(storage.deletedAccountKeys ?? [])])] });
         const tempPath = `${path}.${randomBytes(6).toString("hex")}.tmp`;
-        const content = JSON.stringify(storage, null, 2);
+        const content = JSON.stringify(next, null, 2);
         try {
             await fs.writeFile(tempPath, content, { encoding: "utf-8", mode: 0o600 });
             await fs.rename(tempPath, path);
