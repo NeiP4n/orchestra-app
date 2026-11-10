@@ -18,7 +18,7 @@ describe("classify", () => {
     delete process.env["SENTRY_ACCESS_TOKEN"]
     expect(McpAcquire.classify("nope", undefined, []).state).toBe("unavailable")
     // No catalog entry is platform-gated: a cross-platform entry classifies the same everywhere.
-    expect(McpAcquire.classify("agent-desktop", undefined, [], "linux").state).toBe("not_installed")
+    expect(McpAcquire.classify("serena", undefined, [], "linux").state).toBe("not_installed")
     const auth = McpAcquire.classify("sentry", undefined, [])
     expect(auth.state).toBe("needs_auth")
     expect(auth.missing).toEqual(["SENTRY_ACCESS_TOKEN"])
@@ -35,25 +35,25 @@ describe("classify", () => {
   test("service statuses map to honest states", () => {
     expect(McpAcquire.classify("context7", info("context7", { status: "pending" }), []).state).toBe("configured")
     expect(McpAcquire.classify("context7", info("context7", { status: "disabled" }), []).state).toBe("disabled")
-    expect(McpAcquire.classify("context7", info("context7", { status: "failed", error: "boom" }), []).state).toBe("failed")
-    expect(McpAcquire.classify("context7", info("context7", { status: "needs_auth", error: "sign in" }), []).state).toBe(
-      "needs_auth",
+    expect(McpAcquire.classify("context7", info("context7", { status: "failed", error: "boom" }), []).state).toBe(
+      "failed",
     )
+    expect(
+      McpAcquire.classify("context7", info("context7", { status: "needs_auth", error: "sign in" }), []).state,
+    ).toBe("needs_auth")
   })
 })
 
 describe("select", () => {
   test("matches a capability need to catalog servers deterministically", () => {
     const browser = McpAcquire.select("browser automation")
-    expect(browser.length).toBeGreaterThan(0)
-    expect(["playwright", "chrome-devtools"]).toContain(browser[0]!.entry.id)
-    expect(browser[0]!.reasons).toContain("browser")
+    expect(browser).toEqual([])
     const docs = McpAcquire.select("library documentation")
     expect(docs.map((match) => match.entry.id)).toContain("context7")
     expect(McpAcquire.select("zzqqx nonexistent")).toEqual([])
     expect(McpAcquire.select("")).toEqual([])
     // Same need, same winner.
-    expect(McpAcquire.select("browser automation")[0]!.entry.id).toBe(browser[0]!.entry.id)
+    expect(McpAcquire.select("browser automation")).toEqual(browser)
   })
 
   test("one generic word is not a match; Russian needs translate to the catalog", () => {
@@ -63,10 +63,10 @@ describe("select", () => {
     expect(McpAcquire.select("use")).toEqual([])
     expect(McpAcquire.select("when")).toEqual([])
     // A Russian need translates before matching: browser automation finds Playwright.
-    expect(McpAcquire.select("автоматизация браузера")[0]!.entry.id).toBe("playwright")
+    expect(McpAcquire.select("автоматизация браузера")).toEqual([])
     expect(McpAcquire.select("документация библиотеки")[0]!.entry.id).toBe("context7")
     // A Latin name token inside a mixed-language need still matches by name.
-    expect(McpAcquire.select("нужен playwright пожалуйста")[0]!.entry.id).toBe("playwright")
+    expect(McpAcquire.select("нужен playwright пожалуйста")).toEqual([])
   })
 })
 
@@ -113,18 +113,21 @@ function fake(initial: Mcp.ServerInfo[] = [], settle: "connected" | "failed" = "
   return { access, calls }
 }
 
-describe("a server that starts its own browser", () => {
-  test("is not installed behind the operator's back, and one already configured is left alone", async () => {
-    const absent = fake()
-    const refused = await Effect.runPromise(McpAcquire.ensure(absent.access, "chrome-devtools"))
-    expect(absent.calls).toEqual([])
-    expect(refused.state).toBe("unavailable")
-    expect(refused.action).toBe("none")
-    expect(refused.detail).toContain("browser tool")
-    const there = fake([info("chrome-devtools", { status: "connected" })])
-    const kept = await Effect.runPromise(McpAcquire.ensure(there.access, "chrome-devtools"))
-    expect(kept.state).toBe("healthy")
-    expect(there.calls).toEqual([])
+describe("retired built-in MCP servers", () => {
+  test("none is reinstalled or reconnected and personal configurations are unchanged", async () => {
+    for (const id of ["playwright", "chrome-devtools", "agent-desktop", "github"]) {
+      const absent = fake()
+      const refused = await Effect.runPromise(McpAcquire.ensure(absent.access, id))
+      expect(absent.calls).toEqual([])
+      expect(refused).toMatchObject({ state: "unavailable", action: "none" })
+      expect(refused.detail).toContain("No MCP catalog entry")
+      const configured = info(id, { status: "connected" })
+      const there = fake([configured])
+      const kept = await Effect.runPromise(McpAcquire.ensure(there.access, id))
+      expect(kept.state).toBe("unavailable")
+      expect(there.calls).toEqual([])
+      expect(await Effect.runPromise(there.access.servers())).toEqual([configured])
+    }
   })
 })
 
