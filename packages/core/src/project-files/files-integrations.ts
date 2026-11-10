@@ -3,6 +3,7 @@ export * as ProjectFilesIntegrations from "./files-integrations.js"
 import { readdir } from "node:fs/promises"
 import path from "node:path"
 import { Effect, Schema } from "effect"
+import { countSecrets } from "../memory/scrub.js"
 import { McpCatalog } from "../mcp/catalog.js"
 import { SkillMarketplaceLevels } from "../skill-marketplace/levels.js"
 import { ProjectFilesErrors } from "./errors.js"
@@ -81,15 +82,28 @@ const isSecretKey = (key: string): boolean => SECRET_KEY.test(key) || key.toLowe
  * the value is not shaped like a name, in which case it is flagged too.
  */
 const scanSecrets = (value: unknown, at: string, problems: Array<string>): void => {
-  if (value === null || typeof value !== "object") return
+  if (value === null || (typeof value !== "object" && typeof value !== "string")) return
+  if (typeof value === "string") {
+    if (countSecrets(value) > 0 || /[?&](?:api[-_]?key|token|access_token|secret|password)=[^&#\s]+/i.test(value))
+      problems.push(`${at} looks like a secret value; use a Vault credential reference`)
+    return
+  }
   if (Array.isArray(value)) {
-    value.forEach((entry, index) => scanSecrets(entry, `${at}[${index}]`, problems))
+    value.forEach((entry, index) => {
+      if (typeof entry === "string" && /^(?:--?)?(?:api[-_]?key|token|secret|password)$/i.test(entry) && typeof value[index + 1] === "string")
+        problems.push(`${at}[${index}] contains an inline credential argument; use a Vault reference`)
+      scanSecrets(entry, `${at}[${index}]`, problems)
+    })
     return
   }
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof entry === "string" && isSecretKey(key)) {
+    if (typeof entry === "string") {
       const isNameField = key === "credential" || (key === "env" && ENV_NAME.test(entry))
-      if (!isNameField) problems.push(`${at}${key} looks like a secret value — use { credential: "<id>" } instead`)
+      // Inspect the value independently of its field name. Unknown env/header
+      // names must not turn a recognisable key into a harmless string.
+      if ((isSecretKey(key) && !isNameField) || countSecrets(entry) > 0 ||
+          /[?&](?:api[-_]?key|token|access_token|secret|password)=[^&#\s]+/i.test(entry))
+        problems.push(`${at}${key} looks like a secret value; use a Vault credential reference { credential: "<id>" }, never a value`)
     }
     scanSecrets(entry, `${at}${key}.`, problems)
   }
