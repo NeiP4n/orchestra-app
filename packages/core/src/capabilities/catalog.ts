@@ -6,6 +6,7 @@ import { hubGroup, mcpGroup, nativeGroup, type Definition } from "./registry.js"
 export interface LocalIndex {
   /** IDs only: full instructions, package config and file paths do not enter this index. */
   native: readonly string[]
+  mcp?: readonly string[]
   plugins: readonly string[]
   skills: readonly string[]
 }
@@ -29,6 +30,17 @@ export function definitions(index: LocalIndex): readonly Definition[] {
         dangerous: row.realScreen === true ? true : "unknown",
       }),
     ),
+    ...[...new Set(index.mcp ?? [])]
+      .filter((name) => !mcp.some((row) => row.id === name))
+      .map(
+        (name): Definition => ({
+          id: "mcp:" + name,
+          kind: "mcp",
+          group: mcpGroup(name),
+          requires: [],
+          dangerous: "unknown",
+        }),
+      ),
     ...[...new Set(index.native)].map(
       (name): Definition => ({
         id: "native:" + name,

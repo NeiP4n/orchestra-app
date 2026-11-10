@@ -85,3 +85,26 @@ test("native search and CLI search share a method; MCP danger is not guessed saf
   const rows = Catalog.definitions({ native: [], plugins: ["@vendor/plugin"], skills: [] })
   expect(rows.find((row) => row.id === "mcp:context7")?.dangerous).toBe("unknown")
 })
+
+test("user-configured MCP servers outside the catalog stay in the same effective inventory", () => {
+  const view = inspect({
+    at: 1,
+    mcpEnabled: true,
+    mcp: [
+      { name: "custom-server", disabled: false, status: "connected", tools: ["search"] },
+      { name: "custom-off", disabled: true, status: "connected", tools: ["stale"] },
+    ],
+    native: [],
+    skills: [],
+    plugins: [],
+  })
+  expect(view.entries.find((row) => row.id === "mcp:custom-server")).toMatchObject({
+    state: "ready",
+    dangerous: "unknown",
+    cost: "unknown",
+    permission: "unknown",
+    eligible: false,
+  })
+  expect(view.entries.find((row) => row.id === "mcp:custom-off")?.state).toBe("disabled")
+  expect(new Set(view.entries.map((row) => row.id)).size).toBe(view.entries.length)
+})
