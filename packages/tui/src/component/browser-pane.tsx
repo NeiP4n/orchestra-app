@@ -1,3 +1,4 @@
+import { browserGraphicsPreference, browserGraphicsProtocol, browserFrameGap } from "../util/browser-graphics"
 import { selectionBackground } from "../ui/hover"
 import { firstFrameDeadline } from "../util/browser-frame-deadline"
 import { createHoverFeedback } from "../ui/hover-feedback"
@@ -5,6 +6,7 @@ import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { HoverAction } from "./hover-action"
 import {
+  CliRenderEvents,
   ImageRenderable,
   NativeImage,
   TextAttributes,
@@ -38,20 +40,9 @@ const PIXEL_MOUSE = process.env.ORCHESTRA_BROWSER_PIXEL_MOUSE !== "0"
 // tab strip). In a captured window a press in Chrome's tab strip is therefore moved to the strip's centre line, so
 // the column the marker is on decides the hit. ORCHESTRA_BROWSER_STRIP_SNAP=0 turns it off.
 const STRIP_SNAP = process.env.ORCHESTRA_BROWSER_STRIP_SNAP !== "0"
-// ORCHESTRA_BROWSER_HALFBLOCKS=1 draws the page as block characters, never kitty/sixel graphics.
-// ORCHESTRA_BROWSER_GFX=sixel|kitty|blocks|auto picks how the page is drawn. auto lets the renderer detect the
-// terminal's graphics (kitty, then sixel) and fall back to quadrant blocks. Windows Terminal printed sixel data as
-// text over the screen, so on Windows auto means blocks until sixel is asked for by name.
-// ORCHESTRA_BROWSER_HALFBLOCKS=1 (blocks) and =0 (auto) still work.
-const GFX = (() => {
-  const named = (process.env.ORCHESTRA_BROWSER_GFX ?? "").trim().toLowerCase()
-  if (named === "sixel" || named === "kitty" || named === "blocks") return named
-  if (named === "auto") return "auto" as const
-  if (process.env.ORCHESTRA_BROWSER_HALFBLOCKS === "1") return "blocks" as const
-  if (process.env.ORCHESTRA_BROWSER_HALFBLOCKS === "0") return "auto" as const
-  return process.platform === "win32" ? ("blocks" as const) : ("auto" as const)
-})()
-const IMAGE_PROTOCOL = GFX
+// Native graphics require positive renderer negotiation. Unsupported terminals keep safe block output;
+// Windows is no longer forced into coarse blocks when the renderer confirms kitty/sixel support.
+const GFX = browserGraphicsPreference(process.env)
 const STRIP_SCALE = Math.min(3, Math.max(1, Number(process.env.ORCHESTRA_BROWSER_SCALE) || 1))
 const DEBUG = process.env.ORCHESTRA_BROWSER_DEBUG === "1"
 // The pane's own tab strip and address row, drawn whenever the picture is the page only (the windowless Chrome, also the
@@ -77,7 +68,6 @@ const MAX_WIDTH = 1600
 const MAX_HEIGHT = 1000
 // At most this many frames a second are decoded and drawn; Chrome is acknowledged per frame anyway.
 // Blocks are cheap; sixel and kitty frames are large, so they are sent less often (a flood is what breaks a terminal).
-const FRAME_GAP_MS = GFX === "blocks" ? 120 : 300
 
 // The text view of one browser session: its page address, title and the page's visible text. It reads
 // the page; pixels and clicking come later. Chrome starts only when the operator opens the page.
@@ -137,6 +127,12 @@ export function BrowserPane(props: {
   // colored half-blocks otherwise); the text view stays as the plain fallback.
   const [view, setView] = createSignal<"screen" | "text">("text")
   const renderer = useRenderer()
+  const [imageProtocol, setImageProtocol] = createSignal(browserGraphicsProtocol(GFX, renderer.capabilities, renderer.resolution))
+  const refreshGraphics = () => setImageProtocol(browserGraphicsProtocol(GFX, renderer.capabilities, renderer.resolution))
+  renderer.on(CliRenderEvents.CAPABILITIES, refreshGraphics)
+  renderer.on(CliRenderEvents.RESIZE, refreshGraphics)
+  onCleanup(() => {renderer.off(CliRenderEvents.CAPABILITIES, refreshGraphics);renderer.off(CliRenderEvents.RESIZE, refreshGraphics)})
+
   const [size, setSize] = createSignal<{ cols: number; rows: number }>()
   let picture: ImageRenderable | undefined
   let screenBox: BoxRenderable | undefined
@@ -288,8 +284,9 @@ export function BrowserPane(props: {
     const timer = setTimeout(() => {
       viewport = { width, height }
       void BrowserRuntime.watch(props.sessionID, { width, height }, (frame) => {
+        refreshGraphics()
         const now = Date.now()
-        if (!active || disposed || !picture || picture.isDestroyed || now - lastFrame < FRAME_GAP_MS) return
+        if (!active || disposed || !picture || picture.isDestroyed || now - lastFrame < browserFrameGap(imageProtocol())) return
         lastFrame = now
         try {
           picture.source = NativeImage.decode(Buffer.from(frame.data, "base64"))
@@ -768,6 +765,12 @@ export function BrowserPane(props: {
               }}
             />
           </Show>
+          <Show when={state() === "ready" && !windowed() && imageProtocol() === "blocks"}>
+            <Action label="Чётко в окне" onClick={() => switchMode("window")} />
+          </Show>
+          <Show when={windowed()}>
+            <Action label="Встроить" onClick={() => switchMode("headless")} />
+          </Show>
           <Show when={mode() === "headless" && process.platform === "win32"}>
             <Action
               label="Окно"
@@ -900,7 +903,7 @@ export function BrowserPane(props: {
                   width={size()?.cols ?? 1}
                   height={size()?.rows ?? 1}
                   fit="fill"
-                  protocol={IMAGE_PROTOCOL}
+                  protocol={imageProtocol()}
                 />
                 <Show when={!framed()}>
                   <box position="absolute" left={0} top={0} width="100%" height="100%" alignItems="center" justifyContent="center" flexDirection="column">

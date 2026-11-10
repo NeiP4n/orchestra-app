@@ -76,11 +76,11 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   },
   ORCHESTRA_BROWSER_GFX: {
     purpose: "How the Browser tab draws the page: \"sixel\", \"kitty\", \"blocks\" (quadrant block characters) or \"auto\" (the renderer detects the terminal's graphics).",
-    default: "Windows: blocks. Elsewhere: auto.",
+    default: "Auto on every OS: negotiated kitty/sixel, otherwise safe blocks.",
   },
   ORCHESTRA_BROWSER_HALFBLOCKS: {
     purpose: "Draw the Browser tab's page as colored block characters (\"1\") instead of kitty or sixel graphics, for terminals that print graphics data as text. \"0\" asks for the terminal's own graphics even on Windows.",
-    default: "On for Windows, off elsewhere (the terminal's graphics protocol is detected).",
+    default: "Off. The terminal's graphics protocol is detected on every OS; unsupported terminals use blocks.",
   },
   ORCHESTRA_BROWSER_HEADLESS: {
     purpose: "Built-in launch of the browser plugin starts Chromium headless (\"0\" opens a visible window).",
