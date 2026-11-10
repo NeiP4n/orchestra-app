@@ -154,7 +154,7 @@ function render(
       if (url.pathname.startsWith("/api/orchestra/category/")) return new Response(null, { status: 204 })
       if (url.pathname.startsWith("/api/orchestra/owner/")) return new Response(null, { status: 204 })
       if (url.pathname === "/api/session") return json({ data: projectCreated ? [createdMain, listed] : [listed], cursor: {} })
-      if (url.pathname === `/api/session/${worker.id}` && request.method === "DELETE") {
+      if (/^\/api\/session\/[^/]+$/.test(url.pathname) && request.method === "DELETE") {
         calls.push({ method: "DELETE", path: url.pathname })
         return new Response(null, { status: 204 })
       }
@@ -194,6 +194,13 @@ function gearBox(setup: { renderer: { root: { findDescendantById(id: string): { 
   const box = setup.renderer.root.findDescendantById(`project-edit:${id}`)
   if (!box) throw new Error("no gear on screen")
   return { x: box.x + Math.floor(box.width / 2), y: box.y }
+}
+
+async function clickAction(setup: Awaited<ReturnType<typeof render>>, id: string) {
+  await setup.renderOnce()
+  const box = setup.renderer.root.findDescendantById(id)
+  if (!box || box.width <= 0 || box.height <= 0) throw new Error(`no visible action ${id}`)
+  await setup.mockMouse.click(box.x + Math.floor(box.width / 2), box.y)
 }
 
 // A reconnect event, so tests can fire the projects refetch on demand.
@@ -247,13 +254,7 @@ test("a new session started from a project carries its project owner metadata", 
   // run that frame before waiting for Home's asynchronously loaded prompt.
   await setup.renderOnce()
   await setup.waitForFrame(
-    (frame) => {
-      // Home prompt suggestions can wrap across rows at narrow transcript widths.
-      const visible = frame.replace(/\s+/g, " ")
-      return ["Fix a TODO in the codebase", "What is the tech stack of this project?", "Fix broken tests"].some((text) =>
-        visible.includes(text),
-      )
-    },
+    (frame) => frame.includes("Ask anything"),
     { maxPasses: 100 },
   )
 
@@ -278,13 +279,12 @@ test("the left panel lists the operator's projects with the orchestrator and ses
   expect(frame).toContain("Orchestrator")
   // sessions sit under their category
   const lines = frame.split("\n")
-  expect(lines.findIndex((line) => line.includes("Build"))).toBeLessThan(
-    lines.findIndex((line) => line.includes("Worker task")),
+  expect(lines.findIndex((line) => line.includes("▾ Build"))).toBeLessThan(
+    lines.findIndex((line) => line.includes("○ Worker task")),
   )
 
   // clicking the chip steps to the next level and stores it
-  const chip = cell(frame, "[write]")
-  await setup.mockMouse.click(chip.x + 1, chip.y)
+  await clickAction(setup, `session-access:${worker.id}`)
   await setup.waitForFrame((frame) => frame.includes("[full]"))
   await setup.waitFor(() => calls.some((call) => call.method === "PUT"))
   expect(calls.find((call) => call.method === "PUT")).toEqual({
@@ -294,7 +294,7 @@ test("the left panel lists the operator's projects with the orchestrator and ses
   })
 
   // the orchestra row opens the project's main session
-  const orchestra = cell(setup.captureCharFrame(), "Orchestrator")
+  const orchestra = cell(setup.captureCharFrame(), "★ Orchestrator")
   await setup.mockMouse.click(orchestra.x + 2, orchestra.y)
   await setup.waitFor(() => calls.some((call) => call.path === `/api/orchestra/project/${project.id}/main`))
 })
@@ -489,21 +489,26 @@ test("the orchestrator council mode button saves the group mode when clicked", a
   const addGroup = cell(tree, "+ Group")
   await setup.mockMouse.click(addGroup.x + 2, addGroup.y)
 
-  const dialog = await setup.waitForFrame((frame) => frame.includes("Project groups") && frame.includes("Orchestrator council"))
-  const council = cell(dialog, "Orchestrator council")
+  const dialog = await setup.waitForFrame((frame) => frame.includes("Project groups") && frame.includes("Edit"))
+  const edit = cell(dialog, "[ Edit ]")
+  await setup.mockMouse.click(edit.x + 3, edit.y)
+  const form = await setup.waitForFrame((frame) => frame.includes("Edit group") && frame.includes("□ Council"))
+  const council = cell(form, "□ Council")
   await setup.mockMouse.click(council.x + 2, council.y)
-
+  const selected = await setup.waitForFrame((frame) => frame.includes("■ Council"))
+  // Choosing a draft mode must not mutate the existing group until Save.
+  expect(calls.some((call) => call.method === "PUT" && call.path === "/api/orchestra/group")).toBe(false)
+  const save = cell(selected, "Save group")
+  await setup.mockMouse.click(save.x + 2, save.y)
   await setup.waitFor(() =>
     calls.some(
       (call) => call.method === "PUT" && call.path === "/api/orchestra/group" && (call.body as { mode?: string })?.mode === "council",
     ),
   )
-  await setup.waitForFrame(
-    (frame) =>
-      frame.includes("★ Society · Open") &&
-      frame.includes("To use the council, open Society above") &&
-      frame.includes("Changing the mode alone does not send tasks"),
-  )
+  await setup.waitForFrame((frame) => frame.includes("+ Create Society") && frame.includes("New group"))
+  expect(calls.find((call) => call.method === "DELETE")).toEqual({ method: "DELETE", path: "/api/session/ses_group_previous" })
+  // A mode change alone must not create a replacement Society chat or send it tasks.
+  expect(calls.some((call) => call.method === "POST" && call.path.includes("/chat"))).toBe(false)
 })
 
 test("a group's own chat is listed under the group, not under a member project", async () => {
@@ -550,9 +555,8 @@ test("deleting a session takes two clicks on its ×", async () => {
   await using state = await tmpdir()
   const calls: Call[] = []
   await using setup = await render(state.path, calls, [project])
-  const frame = await setup.waitForFrame((frame) => frame.includes("Worker task") && frame.includes("[write] ×"))
-  const button = cell(frame, " ×")
-  await setup.mockMouse.click(button.x + 1, button.y)
+  const frame = await setup.waitForFrame((frame) => frame.includes("○ Worker task") && frame.includes("[write]") && frame.includes(" ✎  ×"))
+  await clickAction(setup, `session-delete:${worker.id}`)
   await setup.waitForFrame((frame) => frame.includes("delete?"))
   expect(calls.some((call) => call.method === "DELETE")).toBe(false)
   const confirm = cell(setup.captureCharFrame(), "delete?")
@@ -579,10 +583,9 @@ test("a project is created from a name and a path", async () => {
   await setup.ready
 
   // Without projects, the project tree's + New action is still available above Multiplayer.
-  const frame = await setup.waitForFrame((frame) => frame.includes("+ New") && frame.includes("Multiplayer"))
+  const frame = await setup.waitForFrame((frame) => frame.includes("Projects") && frame.includes("Multiplayer"))
   expect(frame).toContain("Multiplayer")
-  const add = cell(frame, "+ New")
-  await setup.mockMouse.click(add.x, add.y)
+  await clickAction(setup, "project-tree.new")
   await setup.waitForFrame((frame) => frame.includes("New project") && frame.includes("Path"))
 
   await setup.mockInput.typeText("Created")
@@ -622,8 +625,9 @@ test("a new project can start with an AI team from a template", async () => {
   const calls: Call[] = []
   await using setup = await render(state.path, calls, [])
 
-  const add = cell(await setup.waitForFrame((frame) => frame.includes("+ New")), "+ New")
-  await setup.mockMouse.click(add.x, add.y)
+  await setup.ready
+  await setup.waitForFrame((frame) => frame.includes("Projects"))
+  await clickAction(setup, "project-tree.new")
   // the template list shows each team with its roles; "No team" is selected first
   await setup.waitForFrame((frame) => frame.includes("● No team") && frame.includes("Architect, Developer"))
 
@@ -642,8 +646,9 @@ test("a new project can be created as a sandbox of its repository", async () => 
   const calls: Call[] = []
   await using setup = await render(state.path, calls, [])
 
-  const add = cell(await setup.waitForFrame((frame) => frame.includes("+ New")), "+ New")
-  await setup.mockMouse.click(add.x, add.y)
+  await setup.ready
+  await setup.waitForFrame((frame) => frame.includes("Projects"))
+  await clickAction(setup, "project-tree.new")
   await setup.waitForFrame((frame) => frame.includes("● Regular") && frame.includes("works in the directory itself"))
 
   await setup.mockInput.typeText("Lab")
@@ -663,8 +668,9 @@ test("the team is picked with the mouse and a click on a field takes the keyboar
   const calls: Call[] = []
   await using setup = await render(state.path, calls, [])
 
-  const add = cell(await setup.waitForFrame((frame) => frame.includes("+ New")), "+ New")
-  await setup.mockMouse.click(add.x, add.y)
+  await setup.ready
+  await setup.waitForFrame((frame) => frame.includes("Projects"))
+  await clickAction(setup, "project-tree.new")
   const frame = await setup.waitForFrame((frame) => frame.includes("● No team") && frame.includes("Feature"))
   const feature = cell(frame, "Feature")
   await setup.mockMouse.click(feature.x, feature.y)
@@ -686,10 +692,8 @@ test("a session is moved to another category from the tree", async () => {
   await using setup = await render(state.path, calls, [project])
 
   // "# Build" is the tree's category heading; plain "Build" also names the prompt's agent.
-  const frame = await setup.waitForFrame((frame) => frame.includes("# Build") && frame.includes("[write] ×"))
-  const row = frame.split("\n").findIndex((line) => line.includes("Worker task"))
-  const hash = frame.split("\n")[row].indexOf("# ")
-  await setup.mockMouse.click(hash, row)
+  const frame = await setup.waitForFrame((frame) => frame.includes("▾ Build") && frame.includes("[write]"))
+  await clickAction(setup, `session-category:${worker.id}`)
   // the dialog starts from the current category
   await setup.waitForFrame((frame) => frame.includes("Session category"))
   for (const _ of "Build") await setup.mockInput.pressBackspace()
@@ -700,7 +704,7 @@ test("a session is moved to another category from the tree", async () => {
     category: "Quality",
   })
   // Categories are headings inside the Projects card, drawn as `# Quality` on the tree's trunk.
-  await setup.waitForFrame((frame) => frame.includes("# Quality"))
+  await setup.waitForFrame((frame) => frame.includes("▾ Quality"))
 })
 
 test("a long session title in the narrow compact panel stays on one row", async () => {
@@ -712,20 +716,20 @@ test("a long session title in the narrow compact panel stays on one row", async 
   // the title truncates while the status and delete controls keep their place on the same row
   const rows = (frame: string) => {
     const lines = frame.split("\n")
-    const row = lines.findIndex((line) => line.includes("○ Openco"))
+    const row = lines.findIndex((line) => line.slice(0, 34).includes("○ "))
     return { row, title: lines[row] ?? "", next: lines[row + 1] ?? "" }
   }
   const frame = rows(
     await setup.waitForFrame(
-      (frame) => /○ Openco.+advised ×/.test(rows(frame).title) && rows(frame).next.includes("+ New session"),
+      (frame) => /○ Orchestra.+advised ✎  ×/.test(rows(frame).title) && rows(frame).next.includes("+ New session"),
     ),
   )
   expect(frame.title).not.toContain("[write]")
 
   // hovering the row brings back the category and access controls, still on one row
-  await setup.mockMouse.moveTo(frame.title.indexOf("Openco"), frame.row)
+  await setup.mockMouse.moveTo(frame.title.indexOf("○ ") + 2, frame.row)
   const hovered = rows(await setup.waitForFrame((frame) => rows(frame).title.includes("[write]")))
-  expect(hovered.title).toMatch(/○ Openco.+ # \[write\] ×/)
+  expect(hovered.title).toMatch(/○ .+ auto  # \[write\] ✎  ×/)
   expect(hovered.next).toContain("+ New session")
 })
 
@@ -736,9 +740,9 @@ test("the compact layout docks both side panels beside the chat on a laptop-size
 
   // the project panel on the left and the session sidebar on the right share one row with the chat
   const top = (frame: string) => frame.split("\n").find((line) => line.includes("Projects")) ?? ""
-  const row = top(await setup.waitForFrame((frame) => top(frame).includes("Worker task")))
+  const row = top(await setup.waitForFrame((frame) => top(frame).lastIndexOf("Worker task") >= 140 - SESSION_SIDEBAR_COMPACT_WIDTH))
   // the sidebar is the compact width, at the right edge
-  expect(row.indexOf("Worker task")).toBeGreaterThanOrEqual(140 - SESSION_SIDEBAR_COMPACT_WIDTH)
+  expect(row.lastIndexOf("Worker task")).toBeGreaterThanOrEqual(140 - SESSION_SIDEBAR_COMPACT_WIDTH)
 })
 
 test("an expanded project folds sessions past the cap behind a more row", async () => {
